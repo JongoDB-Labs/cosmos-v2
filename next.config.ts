@@ -6,6 +6,9 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle (.next/standalone/server.js) for a minimal,
+  // non-root container image. See Dockerfile.
+  output: "standalone",
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.npm_package_version ?? "0.0.0",
   },
