@@ -1,25 +1,95 @@
 name: cosmos-v2
 services:
   cosmos-postgres:
-    # pgvector-enabled Postgres: the 20260606040000_add_pgvector migration runs
-    # `CREATE EXTENSION vector` + adds vector(384) columns + HNSW indexes, which
-    # the stock postgres:16 image can't satisfy.
-    image: pgvector/pgvector:pg16
+    # pgvector + pgBackRest Postgres. The base pgvector image satisfies the
+    # 20260606040000_add_pgvector migration (`CREATE EXTENSION vector` + vector(384)
+    # columns + HNSW indexes); the local compose/postgres/Dockerfile layers pgBackRest
+    # on top for WAL archiving + base backups to the in-boundary MinIO S3 repo (CP-9/10).
+    build:
+      context: .
+      dockerfile: compose/postgres/Dockerfile
+    image: cosmos-v2-postgres:dev
     environment:
       POSTGRES_USER: cosmos
       POSTGRES_PASSWORD: cosmos
       POSTGRES_DB: cosmos
       # Consumed by compose/init/01-app-role.sh to create the cosmos_app login role.
       COSMOS_APP_PASSWORD: ${COSMOS_APP_PASSWORD:-cosmos_app}
+      # pgBackRest repo (MinIO S3) creds + repo cipher pass — consumed by pgbackrest.conf
+      # via env-var interpolation is NOT supported, so they are written into
+      # /etc/pgbackrest/pgbackrest.conf by the entrypoint wrapper at start (see Dockerfile).
+      PGBACKREST_REPO1_S3_KEY: ${S3_ACCESS_KEY:-cosmos-app}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${S3_SECRET_KEY:-cosmos-app-secret}
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:-change-me-backup-cipher}
+      PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio:9000}
+    # archive_mode/archive_command/wal_level are set as postgres -c flags so they take
+    # effect WITHOUT mutating the persistent datadir's postgresql.conf (clean image rebuilds).
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=cosmos archive-push %p
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=3
+      - -c
+      - archive_timeout=300
     volumes:
       - cosmos-pgdata:/var/lib/postgresql/data
       # init scripts run ONCE at first DB init (empty volume), before migrations.
       - ./compose/init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "cosmos"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # In-boundary S3-compatible object storage. For gov this is swapped for GovCloud /
+  # Assured-Workloads S3 (identical API — only endpoint/creds change). API port is
+  # NOT published to the host (internal compose network only); console is published on
+  # 9001 for operator inspection (v1 holds 8080; v2 caddy holds 8090; 9000/9001 free).
+  cosmos-minio:
+    image: minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cosmos-minio-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cosmos-minio-root-secret}
+    ports:
+      # Console only — the S3 API (9000) stays internal to the compose network.
+      - "9001:9001"
+    volumes:
+      - cosmos-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # One-shot: creates the 3 buckets (audit-worm object-locked, COMPLIANCE retention)
+  # + the two least-privilege service accounts. Exits 0; postgres/cosmos depend on it.
+  minio-init:
+    image: minio/mc@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+    depends_on:
+      cosmos-minio:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT: http://cosmos-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cosmos-minio-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cosmos-minio-root-secret}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cosmos-app}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-cosmos-app-secret}
+      WORM_ACCESS_KEY: ${WORM_ACCESS_KEY:-cosmos-worm}
+      WORM_SECRET_KEY: ${WORM_SECRET_KEY:-cosmos-worm-secret}
+      WORM_RETENTION_DAYS: ${WORM_RETENTION_DAYS:-3650}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./compose/minio/init.sh:/init.sh:ro
 
   cosmos-migrate:
     # Dedicated migrate image (Dockerfile `migrate` target = build stage with the full
@@ -42,6 +112,13 @@ services:
     environment:
       DATABASE_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
       DIRECT_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
+      # In-boundary object storage (MinIO). The app's key is RW on cosmos-uploads only
+      # (least privilege — it has NO access to the backup repo or the audit-worm bucket).
+      STORAGE_ADAPTER: s3
+      S3_ENDPOINT: http://cosmos-minio:9000
+      S3_BUCKET: cosmos-uploads
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cosmos-app}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-cosmos-app-secret}
     depends_on:
       cosmos-migrate:
         condition: service_completed_successfully
@@ -53,7 +130,7 @@ services:
       retries: 3
 
   reverse-proxy:
-    image: caddy:2
+    image: caddy@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
     ports:
       # host 8080 is taken by the v1 stack; expose v2's proxy on 8090.
       - "8090:80"
@@ -62,5 +139,45 @@ services:
     depends_on:
       - cosmos
 
+  # One-shot periodic Postgres backup to the MinIO S3 repo (CP-9). Run on demand or on
+  # a host cron / scheduler: `docker compose run --rm cosmos-backup`. Full weekly + incr
+  # daily is the documented schedule (see docs/runbooks/backup-dr.md). Shares the postgres
+  # image so it has pgBackRest + the same /etc/pgbackrest/pgbackrest.conf generation.
+  cosmos-backup:
+    image: cosmos-v2-postgres:dev
+    profiles: ["ops"]
+    environment:
+      PGBACKREST_REPO1_S3_KEY: ${S3_ACCESS_KEY:-cosmos-app}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${S3_SECRET_KEY:-cosmos-app-secret}
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:-change-me-backup-cipher}
+      PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio:9000}
+      PGBACKREST_PGHOST: cosmos-postgres
+      PGBACKREST_BACKUP_TYPE: ${PGBACKREST_BACKUP_TYPE:-incr}
+    entrypoint: ["/usr/local/bin/cosmos-backup.sh"]
+    depends_on:
+      cosmos-postgres:
+        condition: service_healthy
+
+  # One-shot audit WORM export (AU-9 offsite immutable anchor). Dumps audit_logs +
+  # egress_decisions since the last export to the object-locked cosmos-audit-worm bucket
+  # with a signed sha256 manifest. Run on demand or on a scheduler:
+  # `docker compose run --rm audit-worm-export`. Uses the WRITE-ONLY worm key.
+  audit-worm-export:
+    image: cosmos-v2-migrate:dev
+    profiles: ["ops"]
+    environment:
+      # Reads the audit tables as the migrate (owner) creds; SELECT is sufficient.
+      DATABASE_URL: ${WORM_EXPORT_DATABASE_URL:-postgres://cosmos:cosmos@cosmos-postgres:5432/cosmos}
+      WORM_S3_ENDPOINT: http://cosmos-minio:9000
+      WORM_S3_BUCKET: cosmos-audit-worm
+      WORM_S3_ACCESS_KEY: ${WORM_ACCESS_KEY:-cosmos-worm}
+      WORM_S3_SECRET_KEY: ${WORM_SECRET_KEY:-cosmos-worm-secret}
+      WORM_MANIFEST_HMAC_KEY: ${WORM_MANIFEST_HMAC_KEY:-change-me-manifest-hmac}
+    entrypoint: ["node", "scripts/audit-worm-export.mjs"]
+    depends_on:
+      cosmos-postgres:
+        condition: service_healthy
+
 volumes:
   cosmos-pgdata:
+  cosmos-minio-data:
