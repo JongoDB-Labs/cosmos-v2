@@ -329,6 +329,49 @@ model EgressDecisionRow {
   @@map("egress_decisions")
 }
 
+/// Opaque-handle resolver store (AC-4 / 3.1.3 — controlled CUI-by-reference flow).
+///
+/// When the egress gate WITHHOLDS a CUI field from the model's view, we mint an
+/// unguessable, CONVERSATION-SCOPED reference token (`h:<base64url(18 bytes)>`)
+/// and hand the model the TOKEN — never the value. The CUI value itself is sealed
+/// at rest here with the same vault (AES-256-GCM, v2.<kid> envelope) the connector
+/// creds use, so a DB read never yields plaintext CUI. The model can then carry the
+/// token into a later tool call; the agent loop RESOLVES it back to the real value
+/// IN-BOUNDARY (before the executor runs) — so the model orchestrates CUI it never
+/// reads.
+///
+/// SECURITY INVARIANTS (enforced in src/lib/ai/egress/handles.ts + tested):
+///   - `token` is globally unique AND random (≥144 bits) — unforgeable.
+///   - resolution is matched on (token) THEN verified `conversationId ===` — a
+///     token minted in conversation A MUST NOT resolve in B (cross-conversation /
+///     cross-tenant isolation; the conversation is the boundary, mirroring how
+///     egress_decisions are correlated by conversationId, NOT by a cross-cutting FK).
+///   - `valueEnc` is a sealed envelope, never plaintext; the token carries no CUI.
+///
+/// LIFETIME (AU-11 / bounded retention): handles are conversation-scoped and
+/// short-lived. `createdAt` + the `@@index([conversationId])` (and the createdAt
+/// index) support a TTL sweep — see scripts/dsop or the retention runbook; the
+/// least-privilege story is a periodic DELETE of rows older than the conversation
+/// window so sealed CUI does not accumulate. This is NOT an audit table (the AC-4
+/// trail in egress_decisions records the mint/resolve EVENTS), so cosmos_app holds
+/// full DML incl. DELETE for the cleanup sweep.
+model EgressHandle {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String   @map("conversation_id")
+  token          String   @unique
+  /// vault-sealed CUI value (v2.<kid>.<iv>.<tag>.<ct>) — NEVER plaintext.
+  valueEnc       String   @map("value_enc")
+  /// the source entity type the handle was minted for (e.g. "work_item") — metadata, non-CUI.
+  entityType     String   @map("entity_type")
+  /// the source field name the handle stands in for (e.g. "description") — metadata, non-CUI.
+  fieldName      String   @map("field_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("egress_handles")
+}
+
 model ApiKey {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String    @map("org_id") @db.Uuid
