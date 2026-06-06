@@ -31,8 +31,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
-import { buildModelPlans } from "./lib/model-graph.ts";
-import { rankOf } from "./lib/model-graph.ts";
+import {
+  buildModelPlans,
+  rankOf,
+  discoverOrphanProbeTargets,
+  orphanProbeSql,
+} from "./lib/model-graph.ts";
 import { decodeRow } from "./lib/ndjson-codec.ts";
 import { buildUpsert, dedupeClassifications } from "./lib/upsert.ts";
 
@@ -171,6 +175,35 @@ async function main() {
         `import-org: ${t.table.padEnd(28)} +${String(inserted).padStart(6)} ~${String(updated).padStart(6)} =${String(skipped).padStart(6)} (skipped)`,
       );
     }
+
+    // ── REFERENTIAL-INTEGRITY BACKSTOP (C-fix) — fail the WHOLE import if any FK dangles. ──
+    //
+    // The load ran under session_replication_role = replica, so FK triggers were SUPPRESSED:
+    // a child whose parent is missing from the migrated set would commit as a DANGLING FK
+    // SILENTLY. Before COMMIT we run the GENERIC orphan probe (every catalog FK on a migrated
+    // table + the bare logical user refs). ANY orphan ⇒ throw ⇒ ROLLBACK: a referentially
+    // incomplete import is rejected here rather than committed. (verify-org runs the same probe
+    // post-cutover as the flip gate; this is the in-transaction first line of defense.)
+    const probeTargets = await discoverOrphanProbeTargets(client, [...planByModel.values()]);
+    const orphans = [];
+    for (const pt of probeTargets) {
+      const r = await client.query(orphanProbeSql(pt));
+      if (r.rowCount > 0) {
+        orphans.push(
+          `${pt.childTable}.${pt.childColumn} -> ${pt.parentTable}.${pt.parentColumn} ` +
+            `(${pt.hardFk ? "FK " + pt.constraint : pt.constraint}) e.g. ${JSON.stringify(r.rows[0].orphan_fk)}`,
+        );
+      }
+    }
+    if (orphans.length > 0) {
+      throw new Error(
+        `import-org: REFERENTIAL INTEGRITY FAILURE — ${orphans.length} dangling FK(s) after load; ` +
+          `rolling back (the migrated set is incomplete):\n  - ${orphans.join("\n  - ")}`,
+      );
+    }
+    console.log(
+      `import-org: referential probe CLEAN — ${probeTargets.length} FK target(s) checked, 0 orphans.`,
+    );
 
     await client.query("COMMIT");
   } catch (err) {

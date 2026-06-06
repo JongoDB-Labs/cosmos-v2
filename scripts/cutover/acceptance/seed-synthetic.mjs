@@ -10,6 +10,17 @@
 // ChatMessages, money rows (Revenue, Expense, an Account + JournalEntry + 2 JournalLines),
 // and 3 DataClassification rows: a project row + a DUPLICATE (org,NULL) ceiling PAIR with
 // DIFFERENT levels (FOUO vs CUI) where the CUI row carries a CUI marking + handling.
+//
+// PLUS the three referential-integrity / encoding scenarios the fixes must handle:
+//   C1 (global parent FK): a GLOBAL work_item_type (org_id IS NULL) referenced by a migrated
+//       work_item via the REAL work_items.work_item_type_id FK. The strict org-scope misses
+//       the global parent; referential CLOSURE must carry it so the FK resolves.
+//   C2 (non-member user ref): a "ghost" user who is NOT in org_members (a removed member) but
+//       is still referenced by a migrated home_widget (REAL owner_id FK) AND a migrated
+//       work_item's assignee_id (BARE logical user ref). Closure must carry the user.
+//   C3 (array-valued jsonb): a CustomField whose `options` jsonb holds a JSON ARRAY
+//       (["High","Low"]). Without the codec json fix, pg binds it as a PG array literal and
+//       the import transaction aborts; with the fix it round-trips exactly.
 
 import pg from "pg";
 
@@ -45,6 +56,16 @@ const JL2 = "a5a5a5a5-0000-0000-0000-000000000002";
 const DC_PROJ = "c1c1c1c1-0000-0000-0000-000000000001";
 const DC_CEIL_FOUO = "c2c2c2c2-0000-0000-0000-000000000001"; // duplicate ceiling, FOUO
 const DC_CEIL_CUI = "c2c2c2c2-0000-0000-0000-000000000002"; // duplicate ceiling, CUI (wins)
+// ── referential-integrity / encoding fixtures ──
+// C1: a GLOBAL (org_id NULL) work_item_type + a migrated work_item that references it.
+export const GWIT = "44444444-0000-0000-0000-0000000000e0"; // global WIT (org_id NULL)
+const WI_GLOBAL = "66666666-0000-0000-0000-000000000002"; // work_item -> global WIT
+// C2: a GHOST user (NOT an org member) still referenced by a home_widget + an assignee.
+export const UGHOST = "11111111-0000-0000-0000-0000000000e0";
+const HW_GHOST = "d1d1d1d1-0000-0000-0000-000000000001"; // home_widget.owner_id -> ghost (HARD FK)
+const WI_GHOST = "66666666-0000-0000-0000-000000000003"; // work_item.assignee_id -> ghost (BARE ref)
+// C3: a CustomField whose jsonb `options` is a JSON ARRAY.
+export const CUSTOM_FIELD = "e1e1e1e1-0000-0000-0000-000000000001";
 // other-org rows (must NEVER be touched by a TENANT-scoped export/import/verify)
 const OPROJ = "33333333-0000-0000-0000-0000000000ff";
 const OWIT = "44444444-0000-0000-0000-0000000000ff";
@@ -59,13 +80,16 @@ async function main() {
   try {
     await c.query("BEGIN");
 
-    // Users (global) — shared by convention; here one per org + a shared author.
+    // Users (global) — shared by convention; here one per org + a shared author + a GHOST.
+    // UGHOST is a former TENANT member (NOT in org_members) still referenced by tenant rows —
+    // the C2 closure must carry it even though the MEMBER scope excludes it.
     await c.query(
       `INSERT INTO users (id, email, display_name, created_at) VALUES
-         ($1,'alice@tenant.test','Alice',$4),
-         ($2,'bob@tenant.test','Bob',$4),
-         ($3,'carol@other.test','Carol',$4)`,
-      [U1, U2, UOTHER, T0],
+         ($1,'alice@tenant.test','Alice',$5),
+         ($2,'bob@tenant.test','Bob',$5),
+         ($3,'carol@other.test','Carol',$5),
+         ($4,'ghost@tenant.test','Ghost (removed member)',$5)`,
+      [U1, U2, UOTHER, UGHOST, T0],
     );
 
     // Organizations.
@@ -164,6 +188,40 @@ async function main() {
          ($2,$4,NULL,'FOUO', ARRAY['FOUO//LES'], 'law enforcement sensitive', $6, $7, $7),
          ($3,$4,NULL,'CUI',  ARRAY['CUI//SP-PRVCY'], 'destroy by shredding', $6, $7, $7)`,
       [DC_PROJ, DC_CEIL_FOUO, DC_CEIL_CUI, TENANT, PROJ, U1, T0],
+    );
+
+    // ── C1: GLOBAL work_item_type (org_id NULL) + a migrated work_item referencing it. ──
+    // The strict org-scope (WHERE org_id = TENANT) EXCLUDES this global parent; without the
+    // referential closure the migrated WI_GLOBAL would carry a DANGLING work_item_type_id FK.
+    await c.query(
+      `INSERT INTO work_item_types (id, org_id, key, name, is_built_in, created_at)
+       VALUES ($1, NULL, 'epic', 'Epic (global built-in)', true, $2)`,
+      [GWIT, T0],
+    );
+    await c.query(
+      `INSERT INTO work_items (id, org_id, project_id, title, column_key, ticket_number, work_item_type_id, created_by_id, created_at, updated_at)
+       VALUES ($1,$2,$3,'References a GLOBAL type','todo',2,$4,$5,$6,$6)`,
+      [WI_GLOBAL, TENANT, PROJ, GWIT, U1, T0],
+    );
+
+    // ── C2: a home_widget (HARD owner_id FK) + a work_item (BARE assignee_id ref) pointing at
+    // the GHOST non-member user. Both must be referentially complete after closure. ──
+    await c.query(
+      `INSERT INTO home_widgets (id, org_id, owner_id, type, config, sort_order, created_at, updated_at)
+       VALUES ($1,$2,$3,'recent_activity','{}',0,$4,$4)`,
+      [HW_GHOST, TENANT, UGHOST, T0],
+    );
+    await c.query(
+      `INSERT INTO work_items (id, org_id, project_id, title, column_key, ticket_number, work_item_type_id, assignee_id, created_by_id, created_at, updated_at)
+       VALUES ($1,$2,$3,'Assigned to a removed member','todo',3,$4,$5,$6,$7,$7)`,
+      [WI_GHOST, TENANT, PROJ, WIT, UGHOST, U1, T0],
+    );
+
+    // ── C3: a CustomField whose jsonb `options` is a JSON ARRAY (the abort-on-import bug). ──
+    await c.query(
+      `INSERT INTO custom_fields (id, org_id, project_id, name, key, field_type, options, required, sort_order, created_at)
+       VALUES ($1,$2,$3,'Severity','severity','SELECT', $4::jsonb, false, 0, $5)`,
+      [CUSTOM_FIELD, TENANT, PROJ, JSON.stringify(["High", "Medium", "Low"]), T0],
     );
 
     // ── The OTHER org's data — must NEVER be exported/imported/verified for TENANT. ──

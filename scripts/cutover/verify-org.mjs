@@ -23,7 +23,14 @@
 import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import pg from "pg";
-import { buildModelPlans, resolveColumns, buildScopedSelect, rankOf } from "./lib/model-graph.ts";
+import {
+  buildModelPlans,
+  resolveColumns,
+  buildScopedSelect,
+  rankOf,
+  discoverOrphanProbeTargets,
+  orphanProbeSql,
+} from "./lib/model-graph.ts";
 import { encodeValue } from "./lib/ndjson-codec.ts";
 import { dedupeClassifications } from "./lib/upsert.ts";
 
@@ -144,6 +151,7 @@ async function main() {
     money: [],
     markings: null,
     checksums: [],
+    referential: null,
     mismatches: [],
     clean: false,
   };
@@ -250,6 +258,36 @@ async function main() {
     if (srcMark !== tgtMark) {
       report.mismatches.push(`CUI/FOUO marking invariant: source ${srcMark} != target ${tgtMark} org(s)`);
     }
+
+    // ── 5. GENERIC REFERENTIAL-INTEGRITY PROBE (the C1/C2 backstop) ──
+    //
+    // Counts/money/markings/checksum CANNOT see a DANGLING FK — the child row is present, its
+    // parent is just missing (committed silently because the import ran under
+    // session_replication_role = replica). This probe is driven off the TARGET's catalog
+    // (pg_constraint) so it catches C1 (global parents), C2 (non-member users), AND any future
+    // scope gap GENERICALLY: every catalog FK on a migrated table + the bare logical user refs
+    // is LEFT-JOINed to its parent; ANY child row with a non-null FK and no parent ⇒ ORPHAN ⇒
+    // the gate FAILS. NOTE: this is whole-DB (the most conservative read) — for a single-tenant
+    // target it covers exactly the migrated rows; on a shared target it would also flag a
+    // pre-existing orphan, which is still a real integrity problem worth failing on.
+    const probeTargets = await discoverOrphanProbeTargets(tgt, plans);
+    const orphans = [];
+    for (const pt of probeTargets) {
+      const r = await tgt.query(orphanProbeSql(pt));
+      if (r.rowCount > 0) {
+        const label =
+          `${pt.childTable}.${pt.childColumn} -> ${pt.parentTable}.${pt.parentColumn} ` +
+          `(${pt.hardFk ? "FK " + pt.constraint : pt.constraint}) e.g. ${JSON.stringify(r.rows[0].orphan_fk)}`;
+        orphans.push(label);
+        report.mismatches.push(`referential: dangling FK ${label}`);
+      }
+    }
+    report.referential = {
+      checked: probeTargets.length,
+      orphans: orphans.length,
+      ok: orphans.length === 0,
+      details: orphans,
+    };
   } catch (err) {
     await src.end();
     await tgt.end();
@@ -266,7 +304,10 @@ async function main() {
   console.log(JSON.stringify(report, null, 2));
 
   if (report.clean) {
-    console.error(`\nverify-org: CLEAN — org ${org} verified (counts, per-row money, markings, checksums). Flip GATE PASSED.`);
+    console.error(
+      `\nverify-org: CLEAN — org ${org} verified (counts, per-row money, markings, checksums, ` +
+        `referential probe: ${report.referential?.checked ?? 0} FK target(s), 0 orphans). Flip GATE PASSED.`,
+    );
     process.exit(0);
   }
   console.error(`\nverify-org: MISMATCH — ${report.mismatches.length} problem(s). Flip GATE FAILED. Do NOT flip.`);
