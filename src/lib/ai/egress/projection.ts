@@ -54,6 +54,17 @@ const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // semanticSearch hits are `{type, id, title, snippet, similarity, url}`.
   // Expose id/type/similarity ONLY — `title`/`snippet`/`url` are/derive CUI.
   search_result: ["id", "type", "similarity"],
+  // GitHub issues (githubListIssues/githubGetIssue) return `number, state, title,
+  // body?, labels, createdAt, updatedAt, closedAt`. Structural ONLY: number + state
+  // (enum) + timestamps — the agent orchestrates GitHub work BY NUMBER under the MAC
+  // ceiling. `title`/`body` are content (worst-case CUI in a connected repo) → WITHHELD.
+  // `labels` is an array → DROPPED by convention (could carry free-text). No login/PII
+  // field is exposed (we never surfaced assignee/author logins to the model).
+  github_issue: ["number", "state", "createdAt", "updatedAt", "closedAt"],
+  // GitHub pull requests (githubListPullRequests) return `number, state, title, draft,
+  // createdAt, updatedAt, closedAt, mergedAt`. Structural ONLY: number + state + the
+  // `draft` boolean + timestamps. `title` is content → WITHHELD.
+  github_pull_request: ["number", "state", "draft", "createdAt", "updatedAt", "closedAt", "mergedAt"],
   // Intentionally NO entry (⇒ full withhold) for: finance/accounting (amounts +
   // client are sensitive), google email/doc/event/file/contact (bodies are the
   // worst CUI), generated briefs, fetch_url. Their commercial-unclassified case
@@ -72,6 +83,12 @@ const TOOL_ENTITY: Record<string, string> = {
   list_org_members: "org_member",
   query_compliance_controls: "compliance_control", update_compliance_control: "compliance_control",
   semantic_search: "search_result",
+  // GitHub connector (read-only): map to structural-only entity types so a gov
+  // tenant sees issue/PR numbers + state + timestamps (orchestrate by number),
+  // never titles/bodies. Commercial tenants get the full value (the gate exposes
+  // BEFORE projection); a controlled-marking title still trips the DLP withhold.
+  github_list_issues: "github_issue", github_get_issue: "github_issue",
+  github_list_pull_requests: "github_pull_request",
   // No mapping ⇒ undefined ⇒ full withhold: query_finance, get_finance_summary,
   // log_revenue, log_expense, get_trial_balance, get_profit_and_loss,
   // generate_cycle_brief, fetch_url, process_transcript, and all google_* tools.
