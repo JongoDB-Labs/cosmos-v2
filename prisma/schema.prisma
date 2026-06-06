@@ -1076,16 +1076,27 @@ model Integration {
 /// model). `meta` holds NON-secret hints (scopes, account email, expiry) safe to
 /// read without unsealing. Reach this only through `src/lib/integrations/credentials.ts`.
 ///
-/// `userId` is REQUIRED for this slice — Google credentials are per-user. Org-level
-/// credentials (Nango / DocuSign, with a null `userId`) come in the next connector
-/// slice; do NOT prematurely model nullable-userId uniqueness here.
-/// TODO(connector-layer next slice): support org-level creds (userId nullable) +
-/// the partial-unique-index needed for null-userId rows.
+/// `userId` is NULLABLE. Two row shapes coexist:
+///   - PER-USER  (userId NOT NULL): the user's own grant, e.g. a personal Google
+///     OAuth refresh token (read via getCredential / getUserCredential).
+///   - ORG-LEVEL (userId NULL): an org-SHARED credential, e.g. a GitHub PAT or a
+///     Nango/DocuSign service cred — strictly org-scoped (read via getOrgCredential).
+///
+/// Uniqueness is enforced by TWO PARTIAL unique indexes (defined in the
+/// 20260606090000_org_level_connector_creds migration, NOT here — Prisma can't
+/// model a `WHERE` on a unique index): `UNIQUE(org_id,provider,user_id) WHERE
+/// user_id IS NOT NULL` (one cred per user) AND `UNIQUE(org_id,provider) WHERE
+/// user_id IS NULL` (one org-level cred). Postgres treats NULLs as distinct, so a
+/// plain `@@unique([orgId,provider,userId])` could NOT enforce a single org-level
+/// row — hence the partial indexes. The `@@unique` is therefore DROPPED from the
+/// model; `setCredential` (per-user) targets the per-user partial index via an
+/// explicit upsert-where, and `setOrgCredential` uses findFirst-then-write because
+/// Prisma `upsert` cannot target a partial-unique-with-null compound key.
 model ConnectorCredential {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String   @map("org_id") @db.Uuid
   provider  String
-  userId    String   @map("user_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
   secretEnc String   @map("secret_enc") // sealed via crypto/vault.ts — JSON bundle, never plaintext
   meta      Json     @default("{}") // NON-secret hints only (scopes/account/expiry); never the secret
   createdAt DateTime @default(now()) @map("created_at")
@@ -1093,7 +1104,6 @@ model ConnectorCredential {
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  @@unique([orgId, provider, userId])
   @@index([orgId, provider])
   @@map("connector_credentials")
 }
