@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { applySecurityHeaders } from "@/lib/security/headers";
+import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   applySecurityHeaders(res.headers);
@@ -92,6 +93,20 @@ export async function proxy(request: NextRequest) {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
+    );
+  }
+
+  // Cutover write-FREEZE (design spec §9.4): while an org is mid-migration, a row in
+  // `frozen_orgs` blocks its MUTATING verbs with 405 (reads keep working). Checked only
+  // for mutating methods (the rare path), and only when the URL targets an org — so the
+  // overwhelming GET traffic never pays for it. Runs before auth so a frozen org is frozen
+  // for everyone, authenticated or not.
+  if (isMutatingMethod(request.method) && (await isPathOrgFrozen(pathname))) {
+    return withSecurityHeaders(
+      new NextResponse(
+        JSON.stringify({ error: "org_frozen", detail: "This organization is in a migration write-freeze. Try again shortly." }),
+        { status: 405, headers: { "Content-Type": "application/json", Allow: "GET, HEAD, OPTIONS" } },
+      ),
     );
   }
 

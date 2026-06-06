@@ -92,6 +92,7 @@ export const EXCLUDED_GLOBAL_MODELS: ReadonlySet<string> = new Set([
   "AllowedEmail", // global signup allowlist, not org data
   "UserPreferences", // per-user settings, user-global (no org link)
   "PushSubscription", // per-user web-push endpoints, user-global
+  "FrozenOrg", // OPERATIONAL cutover-freeze flag, not tenant data (see freeze.ts)
 ]);
 
 /** The tenant root — migrated as exactly one row scoped by `id = :orgId`. */

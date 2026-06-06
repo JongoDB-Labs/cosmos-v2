@@ -1382,6 +1382,27 @@ model OrgSecuritySettings {
   @@map("org_security_settings")
 }
 
+/// Cutover write-freeze flag (design spec §9.4). A row here means the org is in a short
+/// write-frozen window during its per-tenant migration: the request proxy returns HTTP 405
+/// on mutating verbs (POST/PUT/PATCH/DELETE) for that org while reads still pass. Keyed by
+/// BOTH org_slug (dashboard URLs) and org_id (API URLs) so the proxy can match either form.
+///
+/// This is OPERATIONAL state, NOT tenant data — it is intentionally NOT org-FK'd (so it
+/// survives independently of the migration) and is EXCLUDED from the cutover model graph
+/// (scripts/cutover/lib/model-graph.ts EXCLUDED_GLOBAL_MODELS) — a frozen flag must never
+/// be exported/imported as part of a tenant's data.
+model FrozenOrg {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @unique @map("org_id") @db.Uuid
+  orgSlug   String   @unique @map("org_slug")
+  reason    String   @default("")
+  frozenBy  String?  @map("frozen_by")
+  frozenAt  DateTime @default(now()) @map("frozen_at")
+
+  @@index([orgSlug])
+  @@map("frozen_orgs")
+}
+
 // ─────────────────────────────────────────────
 // Phase 7: AI Chat + Advanced Analytics
 // ─────────────────────────────────────────────
