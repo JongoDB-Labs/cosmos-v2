@@ -268,6 +268,24 @@ services:
       cosmos-postgres:
         condition: service_healthy
 
+  # One-shot in-DB audit hash-chain VERIFY (AU-9 tamper-EVIDENCE gate). Calls the in-DB
+  # verify_audit_chain() on audit_logs + egress_decisions and exits NON-ZERO if either
+  # cryptographic hash-chain is broken (post-hoc edit / forged-or-deleted row). Run on
+  # demand or on a scheduler (pairs with the audit-worm-export anchor):
+  #   sudo docker compose --profile ops run --rm verify-audit-chain
+  # Uses the migrate image (has the `pg` dep + scripts/). Reads as the LEAST-PRIVILEGE
+  # cosmos_app role — verification is SELECT-only (+ EXECUTE on verify_audit_chain), NEVER
+  # the owner. See docs/runbooks/audit-integrity.md.
+  verify-audit-chain:
+    image: cosmos-v2-migrate:dev
+    profiles: ["ops"]
+    environment:
+      DATABASE_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
+    entrypoint: ["node", "scripts/dsop/verify-audit-chain.mjs"]
+    depends_on:
+      cosmos-postgres:
+        condition: service_healthy
+
   # ── Observability stack (SI-4 / 800-171 3.14.6-3.14.7) — all under the `observability`
   # profile so base `up` stays lean (like the `ops` profile). All OSS, digest-pinned. The
   # collector OTLP ports are NOT published to the host (internal compose network is enough);
