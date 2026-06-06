@@ -9,12 +9,17 @@
 // ordinary substrings ('acuity', 'foul', 'fournier'). Extend as new markings appear.
 const MARKING_RE = new RegExp(
   [
-    "\\bCUI\\b",                               // CUI token / CUI//SP-... banner
-    "\\bFOUO\\b",                              // For Official Use Only
-    "\\bNOFORN\\b",                            // Not Releasable to Foreign Nationals
-    "//\\s*(SP-|FED|PRVCY|PROPIN|FOUO|NF)",    // portion / dissemination control marks
+    "\\bCUI\\b",                                  // CUI token / CUI//SP-... banner
+    "\\bFOUO\\b",                                 // For Official Use Only
+    "\\bNOFORN\\b",                               // Not Releasable to Foreign Nationals
+    "//\\s*(SP-|FED|PRVCY|PROPIN|FOUO|NF|LES)",   // portion / dissemination control marks
+    "\\(LES\\)",                                  // Law Enforcement Sensitive (parenthetical mark)
     "CONTROLLED\\s+UNCLASSIFIED\\s+INFORMATION",
-    "\\bLES\\b",                               // Law Enforcement Sensitive
+    "LAW\\s+ENFORCEMENT\\s+SENSITIVE",            // LES, spelled out
+    // NOTE: bare "\\bLES\\b" was intentionally REMOVED — it false-positives on the
+    // common name "Les" / French "les" (a safe over-withhold, but it visibly breaks
+    // the agent) while MISSING the spelled-out marking. LES is now caught only as a
+    // real control mark (//LES, (LES), or "Law Enforcement Sensitive").
   ].join("|"),
   "i",
 );
