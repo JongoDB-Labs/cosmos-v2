@@ -23,14 +23,15 @@
 //
 // ── Least privilege ──
 // Connects via DATABASE_URL as the non-owner cosmos_app role, which has UPDATE on
-// idp_connections. It does NOT need (and must not use) the owner role: re-wrap is a
-// plain SELECT + UPDATE on an app table, not DDL. (In compose, DATABASE_URL already
-// points at cosmos_app.)
+// idp_connections + connector_credentials. It does NOT need (and must not use) the
+// owner role: re-wrap is a plain SELECT + UPDATE on app tables, not DDL. (In compose,
+// DATABASE_URL already points at cosmos_app.)
 //
 // ── Scope ──
-// Today the ONLY vault-sealed column is idp_connections.client_secret_enc. When the
-// connector layer lands, its credential table(s) join the SEALED_COLUMNS list below
-// (the keyring re-wrap is the same operation) — see the TODO marker.
+// The vault-sealed columns are idp_connections.client_secret_enc (OIDC client secrets)
+// and connector_credentials.secret_enc (connector-layer external creds — Google OAuth
+// refresh tokens first). Both reuse the SAME keyring, so one re-wrap pass covers both —
+// see SEALED_COLUMNS below.
 //
 // Env:
 //   DATABASE_URL          cosmos_app creds (SELECT + UPDATE on idp_connections).
@@ -56,13 +57,14 @@ import {
 const CHECK_ONLY = process.argv.includes("--check");
 
 // Every vault-sealed column the re-wrap must cover. Each entry: a table, its PK column,
-// and the sealed column. TODAY only idp_connections.client_secret_enc is sealed.
-//
-// TODO(connector-layer): when the connector/credential tables land (Nango-backed connector
-// OAuth creds will reuse this same vault keyring), add their {table, pk, column} here so a
-// single `rotate-vault-key` pass migrates them too. Tracked in the secret-rotation handoff.
+// and the sealed column. Both reuse the SAME vault keyring, so one pass migrates them all.
+//   - idp_connections.client_secret_enc   — per-tenant OIDC RP client secret (SSO).
+//   - connector_credentials.secret_enc     — connector-layer external credentials
+//                                            (Google OAuth refresh tokens first); the
+//                                            connector-layer TODO is now closed.
 const SEALED_COLUMNS = [
   { table: "idp_connections", pk: "id", column: "client_secret_enc" },
+  { table: "connector_credentials", pk: "id", column: "secret_enc" },
 ];
 
 function reqEnv(name) {
