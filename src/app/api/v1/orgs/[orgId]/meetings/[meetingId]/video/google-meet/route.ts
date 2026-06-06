@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     let space;
     try {
-      const meet = await getMeetClient(ctx.userId);
+      const meet = await getMeetClient(ctx.userId, orgId);
       const res = await meet.spaces.create({ requestBody: {} });
       space = res.data;
     } catch (err) {

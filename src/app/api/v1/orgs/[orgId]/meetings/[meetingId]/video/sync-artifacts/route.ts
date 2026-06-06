@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return Response.json({ error: "This meeting has no Google Meet space." }, { status: 400 });
     }
 
-    const meet = await getMeetClient(ctx.userId);
+    const meet = await getMeetClient(ctx.userId, orgId);
     const recordsRes = await meet.conferenceRecords.list({
       filter: `space.name="${existing.meetSpaceName}"`,
     });

@@ -90,6 +90,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       try {
         await sendInvitationEmail({
           fromUserId: ctx.userId,
+          orgId,
           toEmail: email,
           orgName: org.name,
           inviterName: inviter.displayName,

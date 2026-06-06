@@ -27,6 +27,8 @@ import {
 
 interface GoogleToolContext {
   userId: string;
+  /** The caller's org — scopes the sealed credential lookup + self-heal. */
+  orgId: string;
 }
 
 type ToolArgs = Record<string, unknown>;
@@ -79,7 +81,7 @@ export async function sendEmail(args: ToolArgs, ctx: GoogleToolContext) {
       return { error: "to, subject, and body are required" };
     }
 
-    const gmail = await getGmailClient(ctx.userId);
+    const gmail = await getGmailClient(ctx.userId, ctx.orgId);
     const signature = await fetchGmailSignature(gmail);
     const bodyHtml =
       body.replace(/\n/g, "<br>") +
@@ -145,7 +147,7 @@ export async function searchEmails(args: ToolArgs, ctx: GoogleToolContext) {
       25,
     );
 
-    const gmail = await getGmailClient(ctx.userId);
+    const gmail = await getGmailClient(ctx.userId, ctx.orgId);
     const list = await gmail.users.messages.list({
       userId: "me",
       q: query,
@@ -199,7 +201,7 @@ export async function readEmail(args: ToolArgs, ctx: GoogleToolContext) {
     const messageId = String(args.messageId ?? "");
     if (!messageId) return { error: "messageId is required" };
 
-    const gmail = await getGmailClient(ctx.userId);
+    const gmail = await getGmailClient(ctx.userId, ctx.orgId);
     const detail = await gmail.users.messages.get({
       userId: "me",
       id: messageId,
@@ -278,7 +280,7 @@ export async function listCalendarEvents(
   ctx: GoogleToolContext,
 ) {
   return safeRun(async () => {
-    const cal = await getCalendarClient(ctx.userId);
+    const cal = await getCalendarClient(ctx.userId, ctx.orgId);
     const timeMin = args.timeMin
       ? String(args.timeMin)
       : new Date().toISOString();
@@ -322,7 +324,7 @@ export async function createCalendarEvent(
     if (!args.summary || !args.start || !args.end) {
       return { error: "summary, start, and end are required" };
     }
-    const cal = await getCalendarClient(ctx.userId);
+    const cal = await getCalendarClient(ctx.userId, ctx.orgId);
     const event = buildEventBody(args);
     // Auto-create a Google Meet link; if Meet provisioning fails, retry without.
     event.conferenceData = {
@@ -378,7 +380,7 @@ export async function updateCalendarEvent(
     const eventId = String(args.eventId ?? "");
     if (!eventId) return { error: "eventId is required" };
 
-    const cal = await getCalendarClient(ctx.userId);
+    const cal = await getCalendarClient(ctx.userId, ctx.orgId);
 
     // Patch semantics: fetch existing, merge only changed fields.
     const existing = await cal.events.get({
@@ -416,7 +418,7 @@ export async function deleteCalendarEvent(
     const eventId = String(args.eventId ?? "");
     if (!eventId) return { error: "eventId is required" };
 
-    const cal = await getCalendarClient(ctx.userId);
+    const cal = await getCalendarClient(ctx.userId, ctx.orgId);
     await cal.events.delete({ calendarId: "primary", eventId });
     return { success: true, message: "Deleted calendar event" };
   });
@@ -426,7 +428,7 @@ export async function deleteCalendarEvent(
 
 export async function listDriveFiles(args: ToolArgs, ctx: GoogleToolContext) {
   return safeRun(async () => {
-    const drv = await getDriveClient(ctx.userId);
+    const drv = await getDriveClient(ctx.userId, ctx.orgId);
     const maxResults = Math.min(
       Math.max(Number(args.maxResults ?? 25) || 25, 1),
       100,
@@ -469,7 +471,7 @@ export async function readGoogleDoc(args: ToolArgs, ctx: GoogleToolContext) {
     const fileId = String(args.fileId ?? "");
     if (!fileId) return { error: "fileId is required" };
 
-    const docs = await getDocsClient(ctx.userId);
+    const docs = await getDocsClient(ctx.userId, ctx.orgId);
     const doc = await docs.documents.get({ documentId: fileId });
 
     let text = "";
@@ -511,7 +513,7 @@ export async function createDriveFolder(
     const name = String(args.name ?? "");
     if (!name) return { error: "name is required" };
 
-    const drv = await getDriveClient(ctx.userId);
+    const drv = await getDriveClient(ctx.userId, ctx.orgId);
     const requestBody: drive_v3.Schema$File = {
       name,
       mimeType: "application/vnd.google-apps.folder",
@@ -563,7 +565,7 @@ export async function searchContacts(args: ToolArgs, ctx: GoogleToolContext) {
     const query = String(args.query ?? "");
     if (!query) return { error: "query is required" };
 
-    const people = await getPeopleClient(ctx.userId);
+    const people = await getPeopleClient(ctx.userId, ctx.orgId);
     const results: ContactSummary[] = [];
 
     try {

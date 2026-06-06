@@ -152,7 +152,7 @@ async function dispatchTool(
   // first so each new Google tool only needs to be added to the executor's
   // own switch in `executors/google.ts`.
   if (GOOGLE_TOOL_NAMES.has(name)) {
-    const result = await executeGoogleTool(name, input, { userId: ctx.userId });
+    const result = await executeGoogleTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
     if (result !== null) return result;
   }
 

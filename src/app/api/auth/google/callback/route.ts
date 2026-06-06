@@ -12,6 +12,7 @@ import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { OrgRole } from "@prisma/client";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
+import { storeGoogleRefreshToken } from "@/lib/integrations/google";
 
 function redirectToLogin(origin: string, error: string) {
   return NextResponse.redirect(
@@ -108,7 +109,9 @@ export async function GET(request: NextRequest) {
           displayName: existingByEmail.displayName || displayName,
           avatarUrl: avatarUrl ?? existingByEmail.avatarUrl,
           lastActiveAt: new Date(),
-          ...(refreshToken ? { googleRefreshToken: refreshToken } : {}),
+          // NOTE: the refresh token is NO LONGER written to the plaintext
+          // googleRefreshToken column. It is sealed into the connector
+          // credential vault below (after org membership is resolved).
         },
       });
     } else {
@@ -119,7 +122,6 @@ export async function GET(request: NextRequest) {
           displayName,
           avatarUrl,
           lastActiveAt: new Date(),
-          ...(refreshToken ? { googleRefreshToken: refreshToken } : {}),
         },
       });
     }
@@ -129,7 +131,6 @@ export async function GET(request: NextRequest) {
       data: {
         lastActiveAt: new Date(),
         ...(avatarUrl ? { avatarUrl } : {}),
-        ...(refreshToken ? { googleRefreshToken: refreshToken } : {}),
       },
     });
   }
@@ -176,6 +177,24 @@ export async function GET(request: NextRequest) {
     await prisma.invitation
       .delete({ where: { id: invite.id } })
       .catch(() => undefined);
+  }
+
+  // Seal the Google refresh token into the connector credential vault (NOT the
+  // plaintext googleRefreshToken column) — protect-at-rest (SC-28 / 3.13.16).
+  // Scoped to the user's primary org; resolved AFTER invite consumption so a
+  // just-joined org is eligible. Best-effort: a brand-new self-serve signup with
+  // no org yet gets sealed on first authenticated tool use (the self-heal path).
+  // Never block login on this.
+  if (refreshToken) {
+    try {
+      await storeGoogleRefreshToken(user.id, refreshToken);
+    } catch (err) {
+      console.warn(
+        "[google] failed to seal refresh token at callback (will self-heal on first use)",
+        { userId: user.id },
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   const sessionId = crypto.randomBytes(32).toString("hex");

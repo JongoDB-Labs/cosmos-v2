@@ -8,12 +8,13 @@ import { getGmailClient } from "./google";
  */
 export async function sendInvitationEmail(params: {
   fromUserId: string;
+  orgId: string;
   toEmail: string;
   orgName: string;
   inviterName: string;
   acceptUrl: string;
 }): Promise<void> {
-  const gmail = await getGmailClient(params.fromUserId);
+  const gmail = await getGmailClient(params.fromUserId, params.orgId);
 
   const subject = `You've been invited to ${params.orgName} on COSMOS`;
   const textBody = [
