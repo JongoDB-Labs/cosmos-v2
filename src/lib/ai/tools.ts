@@ -1,4 +1,5 @@
 import { googleTools } from "./tools/google";
+import { githubTools } from "./tools/github";
 import { workItemTools } from "./tools/work-items";
 import { noteTools } from "./tools/notes";
 import { commentTools } from "./tools/comments";
@@ -183,10 +184,12 @@ export const cosmosTools: ToolDefinition[] = [
   // Google Workspace tools (Gmail, Calendar, Drive, Contacts) live in
   // tools/google.ts so we can keep this file focused on cosmos-native tools.
   ...googleTools,
+  // GitHub connector (read-only issues + PRs) — org-shared sealed PAT.
+  ...githubTools,
 ];
 
 // Re-export for callers who want individual catalogs directly.
-export { googleTools };
+export { googleTools, githubTools };
 export {
   workItemTools,
   noteTools,

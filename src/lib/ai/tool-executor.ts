@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 import { sumMoney, moneyToNumber } from "@/lib/money";
 import { executeGoogleTool, GOOGLE_TOOL_NAMES } from "./executors/google";
+import { executeGitHubTool, GITHUB_TOOL_NAMES } from "./executors/github";
 import {
   createWorkItem,
   updateWorkItem,
@@ -153,6 +154,14 @@ async function dispatchTool(
   // own switch in `executors/google.ts`.
   if (GOOGLE_TOOL_NAMES.has(name)) {
     const result = await executeGoogleTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
+    if (result !== null) return result;
+  }
+
+  // GitHub connector tools (read-only issues + PRs) — dispatched early like Google
+  // so each new GitHub tool only needs adding to the executor's own switch. The
+  // executor resolves the org-shared sealed PAT via getOrgCredential(orgId,'github').
+  if (GITHUB_TOOL_NAMES.has(name)) {
+    const result = await executeGitHubTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
     if (result !== null) return result;
   }
 
