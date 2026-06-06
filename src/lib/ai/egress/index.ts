@@ -4,7 +4,14 @@ import { projectForModel } from "./gate";
 import { logEgressDecision } from "./audit";
 import { effectiveCeiling } from "@/lib/classification/effective";
 import { classifyLikelyCui } from "@/lib/classification/classifier";
+import { recordEgressError, recordClassifier, recordClassifierError } from "@/lib/observability/metrics";
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import type { EgressContext } from "./types";
+
+// OBSERVE-ONLY tracer for the chokepoint. Spans carry only enums/counts (tenant_class,
+// turn) — never message content. trace.getTracer() never throws and returns a no-op
+// tracer when no SDK is registered.
+const tracer = trace.getTracer("cosmos.egress");
 
 export type { EgressContext, EgressDecision, TenantClass, ValueKind } from "./types";
 export { isWithheld } from "./types";
@@ -53,39 +60,81 @@ export interface RunModelTurnInput {
  * prompts/history still flows until the classifier ships.
  */
 export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnResult> {
-  // Resolve the org's effective ceiling once. System/user are non-data (the gate
-  // exposes them regardless of ceiling), but the decision record carries it as
-  // audit evidence. The marking tripwire fires if the value itself contains a
-  // controlled marking, regardless of the ceiling.
-  const orgCeiling = await effectiveCeiling(input.ctx.orgId);
+  // OBSERVE-ONLY span around the whole chokepoint turn. The span carries ONLY enums/counts
+  // (tenant_class, turn) — never message content. On a thrown chokepoint error we record
+  // `cosmos.egress.errors{stage}` and mark the span ERROR, then RETHROW: the existing
+  // fail-closed behavior is preserved EXACTLY (a rejected turn = nothing reaches the model).
+  return tracer.startActiveSpan("egress.runModelTurn", async (span) => {
+    span.setAttribute("cosmos.tenant_class", input.ctx.tenantClass);
+    span.setAttribute("cosmos.turn", input.ctx.turn);
+    // Coarse stage label for the egress-error metric (an ENUM, never content). Advanced as
+    // the turn progresses so a thrown error is attributed to the stage it failed in.
+    let stage = "ceiling";
+    try {
+      // Resolve the org's effective ceiling once. System/user are non-data (the gate
+      // exposes them regardless of ceiling), but the decision record carries it as
+      // audit evidence. The marking tripwire fires if the value itself contains a
+      // controlled marking, regardless of the ceiling.
+      const orgCeiling = await effectiveCeiling(input.ctx.orgId);
+      stage = "project";
 
-  const sys = projectForModel(input.system, input.ctx, { valueKind: "system", ceiling: orgCeiling });
-  logEgressDecision(sys.decision);
+      const sys = projectForModel(input.system, input.ctx, { valueKind: "system", ceiling: orgCeiling });
+      logEgressDecision(sys.decision);
 
-  // Project every string-content message body (initial prompt + any rendered
-  // history / channel-context blob). tool_use / tool_result blocks have array
-  // content — skip them (already gated by the agent loop upstream).
-  const gatedMessages = await Promise.all(input.messages.map(async (m) => {
-    if (typeof m.content !== "string") return m; // tool_use/tool_result arrays already projected by the loop
-    const p = projectForModel(m.content, input.ctx, { valueKind: "user", ceiling: orgCeiling });
-    logEgressDecision(p.decision);
-    let body = typeof p.modelValue === "string" ? p.modelValue : "[withheld: controlled marking]";
-    // Gov-only async classifier tripwire (detector-only): catches unmarked CUI in prompt/history.
-    // Only fires when the marking-DLP gate left the body EXPOSED (allow→deny; never loosens a withhold).
-    if (input.ctx.tenantClass === "gov" && p.decision.exposed && await classifyLikelyCui(m.content)) {
-      body = "[withheld: classifier]";
-      logEgressDecision({ ...p.decision, exposed: false, withheldCount: 1, decidedBy: "classification" });
+      // Project every string-content message body (initial prompt + any rendered
+      // history / channel-context blob). tool_use / tool_result blocks have array
+      // content — skip them (already gated by the agent loop upstream).
+      const gatedMessages = await Promise.all(input.messages.map(async (m) => {
+        if (typeof m.content !== "string") return m; // tool_use/tool_result arrays already projected by the loop
+        const p = projectForModel(m.content, input.ctx, { valueKind: "user", ceiling: orgCeiling });
+        logEgressDecision(p.decision);
+        let body = typeof p.modelValue === "string" ? p.modelValue : "[withheld: controlled marking]";
+        // Gov-only async classifier tripwire (detector-only): catches unmarked CUI in prompt/history.
+        // Only fires when the marking-DLP gate left the body EXPOSED (allow→deny; never loosens a withhold).
+        if (input.ctx.tenantClass === "gov" && p.decision.exposed) {
+          // OBSERVE-ONLY instrumentation of the classifier. The control flow is UNCHANGED:
+          // a true result still withholds (allow→deny); a THROW still propagates (the turn
+          // rejects → fails closed — unmarked CUI never reaches the model because the
+          // classifier was down). We only record metrics around it; we never swallow.
+          const t0 = Date.now();
+          let likely: boolean;
+          try {
+            likely = await classifyLikelyCui(m.content);
+          } catch (e) {
+            recordClassifierError(); // the classifier-down alert signal
+            stage = "classifier";
+            throw e; // preserve fail-closed semantics EXACTLY — do not swallow
+          }
+          recordClassifier({ result: likely ? "deny" : "allow", latencyMs: Date.now() - t0 });
+          if (likely) {
+            body = "[withheld: classifier]";
+            logEgressDecision({ ...p.decision, exposed: false, withheldCount: 1, decidedBy: "classification" });
+          }
+        }
+        return { ...m, content: body };
+      }));
+
+      const req: CallModelRequest = {
+        system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld: controlled marking]",
+        messages: gatedMessages,
+        tools: input.tools,
+        model: input.model,
+        maxTokens: input.maxTokens,
+        onTextDelta: input.onTextDelta,
+      };
+      stage = "model";
+      const result = await callModel(req);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (err) {
+      // The chokepoint threw / failed closed by exception. Emit the error signal, mark
+      // the span, then RETHROW — never alter the fail-closed outcome.
+      recordEgressError(stage);
+      span.recordException(err as Error);
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
     }
-    return { ...m, content: body };
-  }));
-
-  const req: CallModelRequest = {
-    system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld: controlled marking]",
-    messages: gatedMessages,
-    tools: input.tools,
-    model: input.model,
-    maxTokens: input.maxTokens,
-    onTextDelta: input.onTextDelta,
-  };
-  return callModel(req);
+  });
 }

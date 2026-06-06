@@ -16,6 +16,15 @@ ENV npm_package_version=$APP_VERSION
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate && npm run build
+# SI-4 observability: Next's standalone output (Turbopack) does NOT copy the
+# `instrumentation.js` server hook or the chunks it lazily loads — they are listed in
+# .next/server/instrumentation.js.nft.json but the standalone tracer drops them. Without
+# them the OTel register() hook never runs, so no traces/metrics are exported (silent
+# observability gap). Replay the instrumentation NFT trace into the standalone tree so the
+# hook + its chunks (and the bundled @vercel/otel / OTLP metric SDK inside them) ship.
+# The OTel library chunks ([root-of-the-server]__*) are shared with routes and already
+# copied; this fills the instrumentation-specific gap. Idempotent; no-op if Next fixes it.
+RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy] missing source',s);return;} fs.mkdirSync(p.dirname(d),{recursive:true}); fs.copyFileSync(s,d); console.log('[instr-copy]',rel);}; cp('instrumentation.js'); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''));}} else {console.error('[instr-copy] no nft manifest — instrumentation hook will not run');}"
 # Bake the MiniLM embeddings model (~87MB ONNX) into the build layer so the
 # runtime image loads it OFFLINE (gov can't download at runtime). The cache lands
 # in node_modules/@huggingface/transformers/.cache/ (resolved relative to the
