@@ -60,3 +60,9 @@ test-results
 cosign.key
 cosign.pub
 cosign.password
+
+# SSO Docker acceptance: throwaway dex IdP override carries a throwaway client
+# secret + test-user password hash — never commit it. The runbook (docs/) is fine.
+docker-compose.dex.yml
+/docs/sso-acceptance/*.local.*
+/docs/sso-acceptance/evidence/

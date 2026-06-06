@@ -132,7 +132,11 @@ The `audit_logs` and `egress_decisions` tables are append-only (enforced by DB t
 Container configuration hardening: multi-stage Dockerfile, non-root user, minimal OS packages, no SSH daemon, HEALTHCHECK. hadolint + Checkov gate on every CI run. Syft SBOM (SPDX-JSON) attached to every GHCR image as attestation — the configuration inventory. Dependabot weekly for npm/github-actions/docker ecosystems. All GitHub Actions SHA-pinned. `E2E_TEST_AUTH` asserted absent from prod builds in `security.yml`.
 
 ### 3.5 Identification and Authentication (IA)
-User identity: UUID-based user/org IDs; session tokens are cryptographically random UUIDs; `ApiKey`/`ScimToken` use bcrypt hash+prefix (no raw secret storage). TLS protects credentials in transit. **3.5.3 (MFA) is `planned`** — current auth is single-factor (Google OAuth). MFA/phishing-resistant second factor (FIDO2/WebAuthn via SAML/OIDC IdP) is the next phase and a **gov-go-live gate dependency**.
+User identity: UUID-based user/org IDs; session tokens are cryptographically random UUIDs; `ApiKey`/`ScimToken` use bcrypt hash+prefix (no raw secret storage). TLS protects credentials in transit.
+
+**3.5.3 (MFA) is now `partial`** — an in-app **OIDC Relying Party** (`openid-client`, PKCE/state/nonce/signature-validated) is implemented (`src/lib/auth/sso.ts`, `src/app/api/auth/sso/[orgSlug]/`). Per-tenant `IdpConnection` records carry a vault-sealed client secret and an optional `requiredAcr` **AAL floor**: for GOV-class tenants, `completeSsoLogin` rejects a login whose IdP-asserted `acr`/`amr` does not satisfy the floor (the IdP — Entra ID / Okta / PingFederate — asserts the MFA / phishing-resistant factor; no in-app step-up this slice). GOV orgs may set the connection `enforced`, which makes the Google login path reject those members (`src/lib/auth/sso-enforcement.ts`) so SSO cannot be bypassed. Identity is matched on `(idpConnId, subject)`, never email (account-takeover guard); claim-derived roles are capped at ADMIN (OWNER stays human-assigned). Sessions carry assurance columns (`auth_method`, `amr`, `mfa_satisfied`). **Still `planned`:** SAML 2.0 + PIV-CAC (via an in-boundary Keycloak SAML/CAC→OIDC translation appliance) and in-app WebAuthn step-up; FIDO2/WebAuthn is the replay-resistant phishing-resistant factor (3.5.4) and the remaining **gov-go-live gate dependency**.
+
+**Break-glass / gov lockout (AC-2):** when a GOV org enforces SSO and its IdP is unavailable, ordinary members are locked out (no local password fallback by design). The **interim recovery** is the platform-owner path: an identity on the `INTERNAL_ADMINS` allowlist is exempt from the gov SSO guard and the `/internal` surface, so it can still authenticate via Google. This is a privileged, audited break-glass credential. The **follow-on** is a hardware-key-gated (WebAuthn) local-OWNER recovery login. See `HANDOFF.md` → "Break-glass".
 
 ### 3.6 Incident Response (IR)
 All three practices (3.6.1–3.6.3) are **policy-required-not-yet-authored**. Incident handling capability, tracking/reporting procedures, and IR testing require human-written policy artifacts.
@@ -158,7 +162,7 @@ All six practices (3.10.1–3.10.6) are **policy-required-not-yet-authored**. Fo
 **Current open POA&M items:**
 1. **5 Critical image CVEs** surfaced by the Trivy image-scan gate (base-image/dep vulnerabilities). These are HARD-fail in CI — the current GHCR image was built before the gate was hardened. Remediation: Dependabot base-image bumps + dep updates + re-pin base image digest.
 2. **Deferred audit hash-chain/WORM anchor** (AU-9 tamper-evidence): design complete (Rekor/transparency anchor reusing the SBOM pipeline); implementation deferred to the backup/DR phase.
-3. **SSO/MFA not yet implemented** (IA-2/3.5.3): planned for next phase; gov-go-live gate dependency.
+3. **SSO/MFA partial** (IA-2/3.5.3): in-app OIDC RP + GOV AAL-floor (acr/amr) shipped; SAML/PIV-CAC (Keycloak appliance) + in-app WebAuthn step-up (3.5.4 replay-resistant) still planned; remaining gov-go-live gate dependency.
 4. **FIPS-validated crypto not yet validated** (3.13.11): Node.js FIPS mode not yet tested; planned for gov-hardening phase.
 5. **Data-at-rest encryption** (3.13.16/3.8.9): application-level envelope encryption and MinIO at-rest encryption planned; not yet implemented.
 
@@ -226,3 +230,4 @@ See §4.12 above. Five items are open; none are ignored — they are tracked and
 | Date | Version | Author | Change |
 |------|---------|--------|--------|
 | 2026-06-06 | 2.1.0-pre | COSMOS Agent | Initial living SSP — Task 3 of DSOP pipeline |
+| 2026-06-06 | 2.2.0-pre | COSMOS Agent | SSO phase 1 (in-app OIDC RP): IA-2/3.5.3, 3.5.4, 3.7.5 + SSO POA&M moved planned→partial; gov AAL floor + enforced-SSO guard + break-glass documented |

@@ -32,6 +32,9 @@ services:
 
   cosmos:
     image: cosmos-v2:dev
+    # env_file supplies SSO_VAULT_KEY (the OIDC client-secret vault master key) +
+    # INTERNAL_ADMINS (break-glass allowlist) to the app. In PROD inject
+    # SSO_VAULT_KEY as a Docker secret, not a plaintext env var (see .env.example).
     env_file: .env
     # The app runs DML as the least-privilege non-owner cosmos_app role (no UPDATE/
     # DELETE/TRUNCATE on audit_logs/egress_decisions — AU-9). Migrations run as the
