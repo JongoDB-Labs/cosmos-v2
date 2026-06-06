@@ -1,0 +1,48 @@
+name: cosmos-v2
+services:
+  cosmos-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cosmos
+      POSTGRES_PASSWORD: cosmos
+      POSTGRES_DB: cosmos
+    volumes:
+      - cosmos-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "cosmos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cosmos-migrate:
+    image: cosmos-v2:dev
+    command: ["npx", "prisma", "migrate", "deploy"]
+    env_file: .env
+    depends_on:
+      cosmos-postgres:
+        condition: service_healthy
+
+  cosmos:
+    image: cosmos-v2:dev
+    env_file: .env
+    depends_on:
+      cosmos-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  reverse-proxy:
+    image: caddy:2
+    ports:
+      - "8080:80"
+    volumes:
+      - ./compose/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - cosmos
+
+volumes:
+  cosmos-pgdata:
