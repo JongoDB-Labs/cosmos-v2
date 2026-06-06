@@ -27,12 +27,12 @@ export interface EgressDecision {
   valueKind: ValueKind;
   toolName?: string;
   exposed: boolean;
-  /** Count of fields/values withheld (0 when fully exposed). */
+  /** Count of fields/values withheld (P0: 1 when any value is withheld; field-granular in Phase 1). */
   withheldCount: number;
   /** sha256 hex of the serialized value — tamper-evidence, not reversal. */
   contentHash: string;
-  /** Which gate withheld; "none" when exposed. */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "none";
+  /** Which gate withheld; "none" when exposed. "tenant" = gov fail-closed (P0). */
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none";
   tenantClass: TenantClass;
   mode: EgressMode;
 }

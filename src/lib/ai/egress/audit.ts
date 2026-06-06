@@ -8,6 +8,7 @@ import type { EgressDecision } from "./types";
  * internal to this function.
  */
 export function logEgressDecision(d: EgressDecision): void {
-   
+  // Intentional structured, CUI-free stdout sink for Phase 0 (no no-console rule
+  // configured; Phase 1 replaces this with an append-only AuditLog row).
   console.info(`[egress] ${JSON.stringify(d)}`);
 }
