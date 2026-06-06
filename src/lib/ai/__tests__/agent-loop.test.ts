@@ -11,7 +11,11 @@ vi.mock("../egress", async (importOriginal) => ({ ...(await importOriginal<objec
 vi.mock("../tool-executor", () => ({ executeTool }));
 // The loop resolves each tool result's effective ceiling (DB-backed). Mock it to
 // UNCLASSIFIED so a commercial org's tool result is EXPOSED (the enforced policy).
-vi.mock("@/lib/classification/effective", () => ({ effectiveCeiling }));
+// Keep the real pure helpers (maxByRank/rankOf) so the loop's C1 ceiling fold runs.
+vi.mock("@/lib/classification/effective", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  effectiveCeiling,
+}));
 
 describe("runAgentLoop (native tool_use)", () => {
   beforeEach(() => {

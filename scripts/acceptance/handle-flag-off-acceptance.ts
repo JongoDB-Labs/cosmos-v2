@@ -31,7 +31,7 @@ async function main() {
   const flagOn = handlesEnabled();
   let modelView = projectResult(source, "work_item");
   if (flagOn) {
-    const aug = await augmentWithHandles(modelView, source, "work_item", conv);
+    const aug = await augmentWithHandles(modelView, source, "work_item", conv, "CUI");
     modelView = aug.modelView;
   }
   const mvStr = JSON.stringify(modelView);

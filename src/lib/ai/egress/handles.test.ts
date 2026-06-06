@@ -15,12 +15,12 @@ import crypto from "node:crypto";
 
 // In-memory prisma double keyed by token (mirrors @@unique([token])).
 const { store, prisma } = vi.hoisted(() => {
-  const store = new Map<string, { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string }>();
+  const store = new Map<string, { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string; ceiling?: string | null }>();
   return {
     store,
     prisma: {
       egressHandle: {
-        create: vi.fn(async ({ data }: { data: { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string } }) => {
+        create: vi.fn(async ({ data }: { data: { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string; ceiling?: string | null } }) => {
           if (store.has(data.token)) {
             const err = new Error("Unique constraint failed") as Error & { code: string };
             err.code = "P2002";
@@ -79,7 +79,7 @@ describe("isHandle", () => {
 describe("mint → resolve round-trip", () => {
   it("mints an unguessable token and resolves it back to the real value in the same conversation", async () => {
     const CUI = "CUI//SP Sentinel kill-chain timeline 2026";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "description" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "description" }, "CUI");
 
     expect(isHandle(token)).toBe(true);
     // The token is random — it does NOT encode the value.
@@ -87,12 +87,14 @@ describe("mint → resolve round-trip", () => {
     expect(token).not.toContain("CUI");
 
     const resolved = await resolveHandle(CONV_A, token);
-    expect(resolved).toBe(CUI);
+    expect(resolved?.value).toBe(CUI);
+    // C1: the mint-time ceiling round-trips on resolve.
+    expect(resolved?.ceiling).toBe("CUI");
   });
 
   it("seals the value at rest — value_enc is a vault envelope (v2.<kid>...), NEVER plaintext", async () => {
     const CUI = "CUI//SP exfil path in sensor fusion";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "note", fieldName: "content" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "note", fieldName: "content" }, "CUI");
 
     const row = store.get(token)!;
     expect(row).toBeDefined();
@@ -109,12 +111,12 @@ describe("mint → resolve round-trip", () => {
 describe("conversation scope (cross-tenant boundary)", () => {
   it("a token minted in conversation A does NOT resolve in conversation B → null", async () => {
     const CUI = "CUI//SP cross-tenant secret";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "title" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "title" }, "CUI");
 
     // Same token, DIFFERENT conversation → must not resolve.
     expect(await resolveHandle(CONV_B, token)).toBeNull();
     // Sanity: it DOES resolve in its own conversation.
-    expect(await resolveHandle(CONV_A, token)).toBe(CUI);
+    expect((await resolveHandle(CONV_A, token))?.value).toBe(CUI);
   });
 });
 
@@ -134,7 +136,7 @@ describe("fabricated / unknown tokens", () => {
 describe("resolveHandlesDeep", () => {
   it("substitutes a whole-string handle in nested args; counts substitutions", async () => {
     const CUI = "CUI//SP withheld description text";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "description" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "description" }, "CUI");
 
     const input = {
       title: "Filed from work item A",
@@ -142,8 +144,10 @@ describe("resolveHandlesDeep", () => {
       meta: { tags: ["a", token] }, // nested handle in an array → resolved
       untouched: "just a normal string",
     };
-    const { resolved, count } = await resolveHandlesDeep(input, CONV_A);
+    const { resolved, count, maxCeiling } = await resolveHandlesDeep(input, CONV_A);
     expect(count).toBe(2);
+    // C1: resolveHandlesDeep reports the highest mint ceiling among resolved handles.
+    expect(maxCeiling).toBe("CUI");
     const r = resolved as typeof input;
     expect(r.content).toBe(CUI);
     expect((r.meta.tags as string[])[1]).toBe(CUI);
@@ -153,28 +157,42 @@ describe("resolveHandlesDeep", () => {
 
   it("does NOT substitute a handle EMBEDDED in a larger string (exact whole-string match only)", async () => {
     const CUI = "CUI//SP embedded";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "note", fieldName: "content" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "note", fieldName: "content" }, "CUI");
 
     const input = { content: `prefix ${token} suffix` };
-    const { resolved, count } = await resolveHandlesDeep(input, CONV_A);
+    const { resolved, count, maxCeiling } = await resolveHandlesDeep(input, CONV_A);
     expect(count).toBe(0);
+    // No handle resolved ⇒ no ceiling floor.
+    expect(maxCeiling).toBeNull();
     expect((resolved as { content: string }).content).toBe(`prefix ${token} suffix`);
     expect((resolved as { content: string }).content).not.toContain(CUI);
   });
 
   it("passes a wrong-conversation handle through literally (count 0, never the CUI)", async () => {
     const CUI = "CUI//SP wrong conv";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "title" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "work_item", fieldName: "title" }, "CUI");
 
-    const { resolved, count } = await resolveHandlesDeep({ x: token }, CONV_B);
+    const { resolved, count, maxCeiling } = await resolveHandlesDeep({ x: token }, CONV_B);
     expect(count).toBe(0);
+    // Wrong conversation ⇒ nothing resolves ⇒ no ceiling floor.
+    expect(maxCeiling).toBeNull();
     expect((resolved as { x: string }).x).toBe(token); // literal token, NOT the value
     expect(JSON.stringify(resolved)).not.toContain(CUI);
   });
 
+  it("maxCeiling is the HIGHEST-rank ceiling among multiple resolved handles", async () => {
+    // Two handles in the same conversation minted under different ceilings.
+    const lo = await mintHandle(CONV_A, "FOUO datum", { entityType: "note", fieldName: "content" }, "FOUO");
+    const hi = await mintHandle(CONV_A, "CUI datum", { entityType: "work_item", fieldName: "title" }, "CUI");
+    const { count, maxCeiling } = await resolveHandlesDeep({ a: lo, b: hi }, CONV_A);
+    expect(count).toBe(2);
+    // CUI outranks FOUO ⇒ the fold returns CUI.
+    expect(maxCeiling).toBe("CUI");
+  });
+
   it("stops at the bounded depth (does not resolve below MAX_RESOLVE_DEPTH)", async () => {
     const CUI = "CUI//SP deep";
-    const token = await mintHandle(CONV_A, CUI, { entityType: "note", fieldName: "content" });
+    const token = await mintHandle(CONV_A, CUI, { entityType: "note", fieldName: "content" }, "CUI");
 
     // Bury the token 8 levels deep (> MAX_RESOLVE_DEPTH = 6).
     let node: unknown = token;

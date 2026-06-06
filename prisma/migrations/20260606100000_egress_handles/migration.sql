@@ -39,9 +39,23 @@ CREATE TABLE IF NOT EXISTS "egress_handles" (
   "value_enc"       TEXT NOT NULL,
   "entity_type"     TEXT NOT NULL,
   "field_name"      TEXT NOT NULL,
+  -- MAC-binding: the data-classification CEILING the value was WITHHELD under at MINT
+  -- time (e.g. "CUI"), stored as the ClassificationLevel string. C1 fix: a handle minted
+  -- under a HIGH ceiling MUST re-gate its RESOLVING turn at ≥ that ceiling — otherwise a
+  -- value withheld at CUI on a project-scoped turn could be resolved-and-echoed on a
+  -- later no-projectId turn that re-gates at the (lower) org ceiling and EXPOSES it.
+  -- resolveHandle returns this so the loop folds it into the result's effective ceiling
+  -- (max-by-rank) BEFORE projectForModel — forcing withhold for BOTH tenants. NULLable
+  -- (back-compat / fail-safe): a null ceiling does not LOWER any gate, it simply adds no
+  -- floor. The TTL sweep / metadata semantics are unchanged.
+  "ceiling"         TEXT,
   "created_at"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "egress_handles_pkey" PRIMARY KEY ("id")
 );
+
+-- Idempotent column add for the case where the table already exists from an earlier
+-- application of THIS (unreleased) migration without the ceiling column.
+ALTER TABLE "egress_handles" ADD COLUMN IF NOT EXISTS "ceiling" TEXT;
 
 -- Unforgeable lookup key: the token is globally unique (findUnique({token})).
 CREATE UNIQUE INDEX IF NOT EXISTS "egress_handles_token_key"

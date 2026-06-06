@@ -37,7 +37,7 @@ describe("augmentWithHandles — wrapper (list/query) results", () => {
     };
     // The structural model view as the loop computes it.
     const modelView = projectResult(source, "work_item");
-    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "work_item", CONV);
+    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "work_item", CONV, "CUI");
 
     expect(minted).toBe(2);
     const o = out as { count: number; items: Array<Record<string, unknown>> };
@@ -54,8 +54,8 @@ describe("augmentWithHandles — wrapper (list/query) results", () => {
     expect(JSON.stringify(out)).not.toContain("CUI");
     expect(JSON.stringify(out)).not.toContain("kill chain");
     // mintHandle was called with the REAL value + correct meta.
-    expect(mintHandle).toHaveBeenCalledWith(CONV, "CUI//SP kill chain", { entityType: "work_item", fieldName: "title" });
-    expect(mintHandle).toHaveBeenCalledWith(CONV, "CUI//SP exfil", { entityType: "work_item", fieldName: "title" });
+    expect(mintHandle).toHaveBeenCalledWith(CONV, "CUI//SP kill chain", { entityType: "work_item", fieldName: "title" }, "CUI");
+    expect(mintHandle).toHaveBeenCalledWith(CONV, "CUI//SP exfil", { entityType: "work_item", fieldName: "title" }, "CUI");
   });
 
   it("mints crm_contact name + notes from a {count, contacts:[...]} wrapper", async () => {
@@ -64,7 +64,7 @@ describe("augmentWithHandles — wrapper (list/query) results", () => {
       contacts: [{ id: "c1", name: "Jane Doe", notes: "CUI//SP relationship notes", stage: "LEAD", value: null }],
     };
     const modelView = projectResult(source, "crm_contact");
-    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "crm_contact", CONV);
+    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "crm_contact", CONV, "CUI");
     expect(minted).toBe(2);
     const c = (out as { contacts: Array<Record<string, unknown>> }).contacts[0];
     expect(c.id).toBe("c1");
@@ -82,7 +82,7 @@ describe("augmentWithHandles — wrapper (list/query) results", () => {
       results: [{ id: "n1", type: "note", title: "CUI title", snippet: "CUI body", similarity: 0.8 }],
     };
     const modelView = projectResult(source, "search_result");
-    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "search_result", CONV);
+    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "search_result", CONV, "CUI");
     expect(minted).toBe(2);
     const hit = (out as { results: Array<Record<string, unknown>> }).results[0];
     expect(hit.id).toBe("n1");
@@ -105,7 +105,7 @@ describe("augmentWithHandles — default-deny", () => {
       ],
     };
     const modelView = projectResult(source, "work_item");
-    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "work_item", CONV);
+    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "work_item", CONV, "CUI");
     expect(minted).toBe(0);
     expect(mintHandle).not.toHaveBeenCalled();
     const items = (out as { items: Array<Record<string, unknown>> }).items;
@@ -114,7 +114,7 @@ describe("augmentWithHandles — default-deny", () => {
   });
 
   it("unknown entityType ⇒ no-op (no handles)", async () => {
-    const r = await augmentWithHandles({ withheld: true }, { foo: "CUI" }, "mystery", CONV);
+    const r = await augmentWithHandles({ withheld: true }, { foo: "CUI" }, "mystery", CONV, "CUI");
     expect(r.minted).toBe(0);
     expect(mintHandle).not.toHaveBeenCalled();
   });
@@ -123,13 +123,13 @@ describe("augmentWithHandles — default-deny", () => {
     expect(HANDLEABLE_FIELDS["project"]).toBeUndefined();
     const source = { count: 1, projects: [{ id: "p1", name: "CUI Project", archived: false }] };
     const modelView = projectResult(source, "project");
-    const r = await augmentWithHandles(modelView, source, "project", CONV);
+    const r = await augmentWithHandles(modelView, source, "project", CONV, "CUI");
     expect(r.minted).toBe(0);
     expect(mintHandle).not.toHaveBeenCalled();
   });
 
   it("a fully-withheld (non-entity) view ⇒ no-op", async () => {
-    const r = await augmentWithHandles({ withheld: true, ref: "withheld:structural" }, "CUI bare string", "work_item", CONV);
+    const r = await augmentWithHandles({ withheld: true, ref: "withheld:structural" }, "CUI bare string", "work_item", CONV, "CUI");
     expect(r.minted).toBe(0);
     expect(mintHandle).not.toHaveBeenCalled();
   });
@@ -137,7 +137,7 @@ describe("augmentWithHandles — default-deny", () => {
   it("a bare entity[] view is matched element-wise to the source array", async () => {
     const source = [{ id: "w1", title: "CUI a" }, { id: "w2", title: "CUI b" }];
     const modelView = projectResult(source, "work_item");
-    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "work_item", CONV);
+    const { modelView: out, minted } = await augmentWithHandles(modelView, source, "work_item", CONV, "CUI");
     expect(minted).toBe(2);
     const arr = out as Array<Record<string, unknown>>;
     expect(arr[0].id).toBe("w1");
