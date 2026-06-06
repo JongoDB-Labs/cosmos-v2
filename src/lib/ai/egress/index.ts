@@ -20,10 +20,12 @@ export interface RunModelTurnInput {
   ctx: EgressContext;
   system: string;
   /**
-   * The native conversation. The agent loop is responsible for projecting each
-   * tool_result through the gate BEFORE appending it here (so tool_result bodies
-   * are already model-safe). User/assistant message bodies are NOT yet projected
-   * inside this function — see the Phase-1 TODO in runModelTurn.
+   * The native conversation. The agent loop projects each tool_result through the
+   * gate BEFORE appending it here (tool_result bodies are already model-safe).
+   * String-content message bodies (initial user prompt + rendered history /
+   * channel-context blobs) are marking-gated inside `runModelTurn` — any body
+   * containing a controlled marking is substituted with "[withheld: controlled
+   * marking]" before the request reaches the provider.
    */
   messages: ModelMessage[];
   tools: ModelTool[];
@@ -36,40 +38,42 @@ export interface RunModelTurnInput {
  * The single chokepoint to the model: the ONLY function that calls
  * `provider.callModel` (enforced by ESLint + the single-path arch test).
  *
- * Phase 1 scope: it resolves the org's effective ceiling, projects the SYSTEM
- * prompt + latest user message through the (now enforced) gate, and logs an
- * EgressDecision for each. The agent loop projects every tool_result body
- * upstream under the data-driven MAC ceiling before it re-enters `messages`, so
- * data egress is fail-closed. It does NOT yet project the full `messages` array
- * here — prior assistant/user message BODIES are forwarded as-is.
+ * Phase 2c: resolves the org's effective ceiling, projects the SYSTEM prompt and
+ * EVERY model-bound message body (initial prompt + any rendered history /
+ * channel-context blob) through the gate, substituting the projected value. A
+ * value containing a controlled marking (CUI, FOUO, NOFORN, …) is withheld for
+ * BOTH tenants — deterministic "detector, not declassifier" tripwire. The agent
+ * loop projects every tool_result body upstream before it re-enters `messages`, so
+ * tool_result blocks (array content) are already gated; this map skips them.
  *
- * TODO(phase-2): project EVERY entry of `input.messages` through the gate here
- * (per-message classification + opaque handles), so a gov tenant's conversation
- * body can never reach the model regardless of caller discipline. Until then, a
- * gov tenant's tool-result DATA is withheld, but its system prompt + conversation
- * BODY DO still reach the commercial model (this function forwards input.messages
- * raw) — so do NOT route a gov tenant that may carry CUI in prompts through this
- * path until Phase 2 lands. There is no gov-blocking guard here yet.
+ * TODO(phase-2c-remaining): per-message CEILING-BASED withholding of UNMARKED CUI
+ * still needs the in-boundary ML classifier + structured conversation history.
+ * This slice closes MARKED CUI deterministically; unmarked CUI in free-text
+ * prompts/history still flows until the classifier ships.
  */
 export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnResult> {
   // Resolve the org's effective ceiling once. System/user are non-data (the gate
   // exposes them regardless of ceiling), but the decision record carries it as
-  // audit evidence.
+  // audit evidence. The marking tripwire fires if the value itself contains a
+  // controlled marking, regardless of the ceiling.
   const orgCeiling = await effectiveCeiling(input.ctx.orgId);
 
   const sys = projectForModel(input.system, input.ctx, { valueKind: "system", ceiling: orgCeiling });
   logEgressDecision(sys.decision);
 
-  const last = input.messages[input.messages.length - 1];
-  if (last && typeof last.content === "string") {
-    const proj = projectForModel(last.content, input.ctx, { valueKind: "user", ceiling: orgCeiling });
-    logEgressDecision(proj.decision);
-  }
+  // Project every string-content message body (initial prompt + any rendered
+  // history / channel-context blob). tool_use / tool_result blocks have array
+  // content — skip them (already gated by the agent loop upstream).
+  const gatedMessages = input.messages.map((m) => {
+    if (typeof m.content !== "string") return m; // tool_use/tool_result arrays already projected by the loop
+    const p = projectForModel(m.content, input.ctx, { valueKind: "user", ceiling: orgCeiling });
+    logEgressDecision(p.decision);
+    return { ...m, content: typeof p.modelValue === "string" ? p.modelValue : "[withheld: controlled marking]" };
+  });
 
   const req: CallModelRequest = {
-    system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld]",
-    // TODO(phase-2): forward PROJECTED messages, not the raw array (see above).
-    messages: input.messages,
+    system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld: controlled marking]",
+    messages: gatedMessages,
     tools: input.tools,
     model: input.model,
     maxTokens: input.maxTokens,
