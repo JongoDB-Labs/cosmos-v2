@@ -28,7 +28,11 @@ vi.mock("@/lib/ai/egress/provider", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   callModel,
 }));
-vi.mock("@/lib/classification/effective", () => ({ effectiveCeiling }));
+// Keep the real pure helpers (maxByRank/rankOf) so the loop's C1 ceiling fold runs.
+vi.mock("@/lib/classification/effective", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  effectiveCeiling,
+}));
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
 // Spy on the metrics seam so we can assert the signals fire WITHOUT asserting on OTel internals.

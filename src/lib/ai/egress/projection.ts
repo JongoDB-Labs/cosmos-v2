@@ -1,4 +1,5 @@
 // src/lib/ai/egress/projection.ts
+import type { ClassificationLevel } from "@prisma/client";
 import { mintHandle } from "./handles";
 //
 // modelView structural projection. DEFAULT-DENY: only the fields explicitly
@@ -245,6 +246,7 @@ async function augmentOneEntity(
   fields: readonly string[],
   entityType: string,
   conversationId: string,
+  ceiling: ClassificationLevel,
 ): Promise<number> {
   // We can only attach handles to a projected OBJECT entity matched to a source
   // OBJECT entity. (projectOne yields WITHHELD for non-objects → nothing to augment.)
@@ -256,7 +258,9 @@ async function augmentOneEntity(
   for (const field of fields) {
     const v = src[field];
     if (typeof v !== "string" || v.length === 0) continue; // present, non-empty STRING only
-    proj[field] = await mintHandle(conversationId, v, { entityType, fieldName: field });
+    // C1: bind the WITHHOLD ceiling to the handle so resolving it later forces the
+    // resolving turn's result to re-gate at ≥ this ceiling (mint-ceiling binding).
+    proj[field] = await mintHandle(conversationId, v, { entityType, fieldName: field }, ceiling);
     minted++;
   }
   return minted;
@@ -282,6 +286,10 @@ async function augmentOneEntity(
  *     (the entity collection projectResult kept), element i ↔ source[key][i].
  *     Wrapper scalars (count/flags) carry no handleable content → skipped.
  *
+ * `ceiling` is the WITHHOLD ceiling of THIS result (resolved by the loop). It is
+ * bound to every minted handle (C1) so resolving a handle later forces the resolving
+ * turn's result to re-gate at ≥ this ceiling.
+ *
  * Returns the (mutated) model view and the total handle count for the AC-4 audit.
  * NOTE: mutates the modelView in place (it is freshly built by projectResult each
  * turn and not shared) — the source output is never mutated.
@@ -291,6 +299,7 @@ export async function augmentWithHandles(
   sourceOutput: unknown,
   entityType: string | undefined,
   conversationId: string,
+  ceiling: ClassificationLevel,
 ): Promise<{ modelView: unknown; minted: number }> {
   if (!entityType) return { modelView, minted: 0 };
   const fields = HANDLEABLE_FIELDS[entityType];
@@ -304,7 +313,7 @@ export async function augmentWithHandles(
   if (Array.isArray(modelView)) {
     if (!Array.isArray(sourceOutput)) return { modelView, minted: 0 };
     for (let i = 0; i < modelView.length; i++) {
-      minted += await augmentOneEntity(modelView[i], sourceOutput[i], fields, entityType, conversationId);
+      minted += await augmentOneEntity(modelView[i], sourceOutput[i], fields, entityType, conversationId, ceiling);
     }
     return { modelView, minted };
   }
@@ -321,7 +330,7 @@ export async function augmentWithHandles(
     const srcVal = src[key];
     if (!Array.isArray(srcVal)) continue; // shape changed under us → skip (default-deny)
     for (let i = 0; i < projVal.length; i++) {
-      minted += await augmentOneEntity(projVal[i], srcVal[i], fields, entityType, conversationId);
+      minted += await augmentOneEntity(projVal[i], srcVal[i], fields, entityType, conversationId, ceiling);
     }
   }
   return { modelView, minted };
