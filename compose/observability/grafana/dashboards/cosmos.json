@@ -108,21 +108,27 @@
     },
     {
       "id": 7,
-      "title": "HTTP server request latency p95 (by route)",
+      "title": "Telemetry throughput (collector received vs exported metric points)",
+      "description": "Collector self-observability. Per-route HTTP request latency is available as TRACES in Jaeger (the egress.runModelTurn + POST/GET spans); @vercel/otel emits HTTP latency as spans, not a Prometheus histogram, in this Next.js standalone setup.",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_milliseconds_bucket[5m])))",
-          "legendFormat": "{{http_route}} p95"
+          "expr": "sum(rate(otelcol_receiver_accepted_metric_points_total[5m]))",
+          "legendFormat": "received metric points/s"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_duration_milliseconds_bucket[5m])))",
-          "legendFormat": "{{http_route}} p95 (alt metric name)"
+          "expr": "sum(rate(otelcol_exporter_sent_metric_points_total[5m]))",
+          "legendFormat": "exported metric points/s"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))",
+          "legendFormat": "received spans/s"
         }
       ]
     },

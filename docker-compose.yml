@@ -283,13 +283,10 @@ services:
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./compose/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
-    healthcheck:
-      # The health_check extension serves 200 on :13133. wget ships in the contrib image.
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:13133"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    # No container healthcheck: the contrib image is distroless (no shell / wget / curl), so
+    # an in-container probe can't run. The collector's health_check extension still serves
+    # 200 on :13133, and Prometheus scrapes the collector — so its liveness shows up as the
+    # `up` metric (the SidecarDown alert covers it). Compose deps use service_started.
 
   # Prometheus: scrapes the collector (app metrics) + sidecars; holds the alert rules.
   prometheus:

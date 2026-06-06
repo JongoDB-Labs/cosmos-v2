@@ -60,3 +60,14 @@ service:
   telemetry:
     logs:
       level: info
+    # Expose the collector's OWN internal metrics on :8888 so Prometheus can scrape its
+    # self-observability (received/exported spans+metrics, export backlog). Without this
+    # the :8888 scrape target is permanently down → a false-positive SidecarDown.
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
