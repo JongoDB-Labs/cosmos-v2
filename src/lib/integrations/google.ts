@@ -28,9 +28,9 @@ async function resolvePrimaryOrgId(userId: string): Promise<string | null> {
  * credential store (never the plaintext `User.googleRefreshToken` column).
  *
  * Called from the OAuth callback. Scopes the token to the user's primary org. If
- * the user has no org yet, this is a no-op (returns false) — the token is still on
- * Google's side and will be sealed on first authenticated tool use via the
- * self-heal path. Best-effort: never throw into the auth callback flow.
+ * the user has no org yet, this is a no-op (returns false) — the token stays on
+ * Google's side and is re-issued + sealed on the next OAuth grant once the user has
+ * an org. Best-effort: never throw into the auth callback flow.
  */
 export async function storeGoogleRefreshToken(
   userId: string,
@@ -43,74 +43,23 @@ export async function storeGoogleRefreshToken(
 }
 
 /**
- * Best-effort self-heal: seal a legacy plaintext refresh token into the connector
- * credential vault AND null the plaintext column, so existing tokens drain to
- * sealed-at-rest on first use. Non-fatal — a failure here must never break the
- * Google call that just succeeded in reading the plaintext token.
- */
-async function selfHealLegacyToken(
-  userId: string,
-  orgId: string,
-  refreshToken: string,
-): Promise<void> {
-  try {
-    await setCredential(orgId, GOOGLE_PROVIDER, userId, { refreshToken });
-    // Only null the plaintext column AFTER the sealed copy is durably stored.
-    await prisma.user.update({
-      where: { id: userId },
-      data: { googleRefreshToken: null },
-    });
-  } catch (err) {
-    // Self-heal is opportunistic; log without the token and carry on. The next
-    // call retries the heal (the plaintext column is still readable).
-    console.warn(
-      "[google] self-heal of legacy refresh token failed (will retry next call)",
-      { userId, orgId },
-      err instanceof Error ? err.message : err,
-    );
-  }
-}
-
-/**
  * Build an OAuth2 client preconfigured with the signed-in user's stored refresh
- * token. The token is read from the SEALED connector credential vault first; if
- * absent, it FALLS BACK to the legacy plaintext `User.googleRefreshToken` and, on
- * a successful fallback, opportunistically seals it + nulls the plaintext column
- * (self-heal — no plaintext left at rest after first use).
+ * token, read from the SEALED connector credential vault — now the SOLE source of
+ * truth. The legacy plaintext `User.googleRefreshToken` column has been swept into
+ * the vault (scripts/dsop/seal-google-tokens.mjs) and DROPPED (migration
+ * 20260606120000_drop_google_refresh_token), so there is no plaintext fallback.
  *
- * The sealed lookup is USER-SCOPED (getUserCredential): a personal Google grant is
- * the user's own and works in EVERY org they belong to, so we do NOT re-narrow by the
+ * The lookup is USER-SCOPED (getUserCredential): a personal Google grant is the
+ * user's own and works in EVERY org they belong to, so we do NOT re-narrow by the
  * current org on read (strict org-scoping would break Google in a user's non-primary
- * orgs — a regression vs the prior user-level token). `orgId` is now only used to pick
- * the storage org when self-healing a legacy plaintext token (falls back to the user's
- * primary org). Throws the existing "Google not connected" error when neither source
- * has a token (callers translate this into a graceful tool error).
+ * orgs). `orgId` is accepted for call-site symmetry but no longer used here (the read
+ * is user-scoped). Throws the "Google not connected" error when the user has no sealed
+ * token (callers translate this into a graceful tool error).
  */
-export async function getGoogleClientForUser(userId: string, orgId?: string) {
-  let refreshToken: string | null = null;
-
-  // 1. Sealed store first (the source of truth post-migration) — user-scoped: the
-  //    user's Google grant is valid across all their orgs, regardless of orgId.
+export async function getGoogleClientForUser(userId: string, _orgId?: string) {
+  // The sealed store is the only source — user-scoped (valid across all the user's orgs).
   const bundle = await getUserCredential(GOOGLE_PROVIDER, userId);
-  refreshToken = bundle?.refreshToken ?? null;
-
-  // 2. Fall back to the legacy plaintext column; self-heal on a hit.
-  if (!refreshToken) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { googleRefreshToken: true },
-    });
-    const legacy = user?.googleRefreshToken ?? null;
-    if (legacy) {
-      refreshToken = legacy;
-      // We can only seal under an org. When orgId wasn't supplied, resolve the
-      // user's primary org so the drain still happens (no plaintext left behind).
-      const healOrgId = orgId ?? (await resolvePrimaryOrgId(userId));
-      if (healOrgId) {
-        await selfHealLegacyToken(userId, healOrgId, legacy);
-      }
-    }
-  }
+  const refreshToken = bundle?.refreshToken ?? null;
 
   if (!refreshToken) {
     throw new Error("Google not connected (no refresh token on user record)");

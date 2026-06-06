@@ -11,7 +11,7 @@ import { sealField, openField } from "@/lib/crypto/field-seal";
  * here via {@link openField} (also re-wrapped on a key rotation — these columns
  * are in scripts/dsop/rotate-vault-key.mjs SEALED_COLUMNS).
  *
- * MCP EXECUTION IS DORMANT (Phase 0 dropped the host-CLI --mcp-config wiring), so
+ * MCP EXECUTION IS DORMANT (Phase 0 dropped the host-CLI MCP-config flag wiring), so
  * there is no live read path today — the create/update routes seal on write, and
  * these accessors exist for when Phase 4 rewires MCP as native executors. The
  * opened maps are for immediate server-side use (spawning the MCP process / minting

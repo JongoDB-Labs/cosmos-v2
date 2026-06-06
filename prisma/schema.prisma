@@ -152,13 +152,11 @@ model User {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   auth0UserId        String?   @unique @map("auth0_user_id")
   googleId           String?   @unique @map("google_id")
-  /// DEPRECATED — plaintext OAuth refresh token. The connector credential vault
-  /// (ConnectorCredential, sealed) is now the source of truth for Google creds.
-  /// This column only survives as a self-healing read-path fallback that
-  /// opportunistically seals the token into ConnectorCredential and NULLs itself
-  /// on first use (see getGoogleClientForUser). Once all rows have drained to
-  /// NULL in prod, drop this column in a future cleanup migration. Do NOT write it.
-  googleRefreshToken String?   @map("google_refresh_token")
+  // The legacy plaintext google_refresh_token column has been swept into the sealed
+  // ConnectorCredential store (scripts/dsop/seal-google-tokens.mjs) and DROPPED
+  // (migration 20260606120000_drop_google_refresh_token). The sealed connector
+  // credential vault is the SOLE source of truth for Google OAuth refresh tokens —
+  // no plaintext secret column remains on User.
   email              String
   displayName        String    @map("display_name")
   avatarUrl          String?   @map("avatar_url")
