@@ -90,6 +90,15 @@ export async function runChatBot(args: {
     if (!channel || channel.orgId !== args.orgId) return;
     channelLite = { id: channel.id, kind: channel.kind, name: channel.name, orgId: channel.orgId };
 
+    // The org's data-sensitivity class drives the egress gate (CUI/FOUO data is
+    // withheld for both tenants; below that gov default-denies). Default to the
+    // fail-closed GOV if the org row is somehow missing.
+    const org = await prisma.organization.findUnique({
+      where: { id: args.orgId },
+      select: { tenantClass: true },
+    });
+    const tenantClass = org?.tenantClass === "COMMERCIAL" ? "commercial" : "gov";
+
     const recent = await prisma.chatMessage.findMany({
       where: { channelId: channel.id, parentMessageId: null, deletedAt: null },
       orderBy: { createdAt: "desc" },
@@ -151,8 +160,7 @@ export async function runChatBot(args: {
       const result = await runAgentLoop({
         orgId: args.orgId,
         userId: args.invokerUserId,
-        // TODO(phase-1): read Organization.tenantClass, default "gov".
-        tenantClass: "commercial",
+        tenantClass,
         conversationId: channel.id,
         systemPrompt,
         initialPrompt,
@@ -175,6 +183,7 @@ export async function runChatBot(args: {
         systemPrompt,
         initialPrompt,
         model,
+        tenantClass,
       });
     }
   } catch {
@@ -217,6 +226,7 @@ async function runStreamingAssistant(args: {
   systemPrompt: string;
   initialPrompt: string;
   model: string;
+  tenantClass: "gov" | "commercial";
 }): Promise<void> {
   const bus = getBus();
   const { channel } = args;
@@ -264,8 +274,7 @@ async function runStreamingAssistant(args: {
     result = await runAgentLoop({
       orgId: args.orgId,
       userId: args.invokerUserId,
-      // TODO(phase-1): read Organization.tenantClass, default "gov".
-      tenantClass: "commercial",
+      tenantClass: args.tenantClass,
       conversationId: channel.id,
       systemPrompt: args.systemPrompt,
       initialPrompt: args.initialPrompt,

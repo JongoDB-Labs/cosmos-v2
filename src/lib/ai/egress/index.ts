@@ -2,6 +2,7 @@
 import { callModel, type CallModelRequest, type ModelMessage, type ModelTool, type ModelTurnResult } from "./provider";
 import { projectForModel } from "./gate";
 import { logEgressDecision } from "./audit";
+import { effectiveCeiling } from "@/lib/classification/effective";
 import type { EgressContext } from "./types";
 
 export type { EgressContext, EgressDecision, TenantClass, ValueKind } from "./types";
@@ -34,25 +35,30 @@ export interface RunModelTurnInput {
  * The single chokepoint to the model: the ONLY function that calls
  * `provider.callModel` (enforced by ESLint + the single-path arch test).
  *
- * Phase 0 scope: it projects the SYSTEM prompt through the gate (withheld for
- * gov) and logs an EgressDecision for the system prompt and the latest user
- * message. It does NOT yet project the full `messages` array — message bodies
- * are forwarded as-is. This is safe in Phase 0 because (a) gov has no live model
- * path (the loop fails closed / gov isn't wired) and (b) the loop projects
- * tool_result bodies upstream. It is NOT yet fail-closed on conversation bodies.
+ * Phase 1 scope: it resolves the org's effective ceiling, projects the SYSTEM
+ * prompt + latest user message through the (now enforced) gate, and logs an
+ * EgressDecision for each. The agent loop projects every tool_result body
+ * upstream under the data-driven MAC ceiling before it re-enters `messages`, so
+ * data egress is fail-closed. It does NOT yet project the full `messages` array
+ * here — prior assistant/user message BODIES are forwarded as-is.
  *
- * TODO(phase-1): project EVERY entry of `input.messages` through the gate here
+ * TODO(phase-2): project EVERY entry of `input.messages` through the gate here
  * (per-message classification + opaque handles), so a gov tenant's conversation
  * body can never reach the model regardless of caller discipline. Until then,
- * do not route gov traffic through this function.
+ * gov reasons over withheld-data receipts only (no live gov model path is wired).
  */
 export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnResult> {
-  const sys = projectForModel(input.system, input.ctx, { valueKind: "system" });
+  // Resolve the org's effective ceiling once. System/user are non-data (the gate
+  // exposes them regardless of ceiling), but the decision record carries it as
+  // audit evidence.
+  const orgCeiling = await effectiveCeiling(input.ctx.orgId);
+
+  const sys = projectForModel(input.system, input.ctx, { valueKind: "system", ceiling: orgCeiling });
   logEgressDecision(sys.decision);
 
   const last = input.messages[input.messages.length - 1];
   if (last && typeof last.content === "string") {
-    const proj = projectForModel(last.content, input.ctx, { valueKind: "user" });
+    const proj = projectForModel(last.content, input.ctx, { valueKind: "user", ceiling: orgCeiling });
     logEgressDecision(proj.decision);
   }
 

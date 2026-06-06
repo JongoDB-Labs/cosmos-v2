@@ -2,6 +2,7 @@ import { cosmosTools, type ToolDefinition } from "./tools";
 import { executeTool } from "./tool-executor";
 import { runModelTurn, toModelTools, projectForModel, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
+import { effectiveCeiling } from "@/lib/classification/effective";
 
 /**
  * Unified agent loop — the ONE blocking/streaming tool-use loop behind both the
@@ -14,8 +15,8 @@ import type { TenantClass } from "./egress";
  * permission-checks against THAT user — so a bot can never do anything the
  * invoking user couldn't. Callers pass the invoker's id. Additionally, every
  * tool result is projected through the egress gate BEFORE it can re-enter the
- * model context: `commercial` passes through; `gov` is fail-closed (Phase 0 has
- * no live gov model path).
+ * model context under the data-driven MAC ceiling: CUI/FOUO data is withheld for
+ * BOTH tenants; below that, `commercial` exposes and `gov` is default-deny.
  */
 
 export interface AgentToolCall {
@@ -37,7 +38,7 @@ export interface RunAgentLoopOptions {
   orgId: string;
   /** The INVOKING user — tools execute as this identity (perm-scoped). */
   userId: string;
-  /** Drives the egress gate. Phase 0: gov is fail-closed (no model path yet). */
+  /** Drives the egress gate. CUI/FOUO data is withheld for both tenants; below that gov default-denies. */
   tenantClass: TenantClass;
   /** Conversation id for egress-decision audit correlation. */
   conversationId: string;
@@ -59,7 +60,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   let finalText = "";
 
   for (let turn = 0; turn < max; turn++) {
-    const ctx = { conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "passthrough" as const };
+    const ctx = { orgId: opts.orgId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
     let streamed = "";
     const reply = await runModelTurn({
       ctx,
@@ -91,7 +92,13 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
     const toolResultBlocks = [];
     for (const u of reply.toolUses) {
       const output = await executeTool(u.name, u.input, { orgId: opts.orgId, userId: opts.userId });
-      const projected = projectForModel(output, ctx, { valueKind: "tool_result", toolName: u.name });
+      // Resolve the value's effective ceiling from the tool's project scope (if
+      // the tool was called with a string projectId) so the data-driven MAC
+      // ceiling applies per-result, not just per-org.
+      const projectId = typeof (u.input as { projectId?: unknown }).projectId === "string"
+        ? (u.input as { projectId: string }).projectId : undefined;
+      const ceiling = await effectiveCeiling(opts.orgId, projectId);
+      const projected = projectForModel(output, ctx, { valueKind: "tool_result", toolName: u.name, ceiling });
       toolResultBlocks.push({
         type: "tool_result" as const,
         tool_use_id: u.id,

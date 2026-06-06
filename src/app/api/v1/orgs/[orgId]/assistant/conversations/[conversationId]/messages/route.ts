@@ -157,6 +157,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       initialPrompt,
       ipAddress: getIpAddress(request),
       model,
+      tenantClass: org.tenantClass === "GOV" ? "gov" : "commercial",
     };
 
     if (wantsStream) {
@@ -177,14 +178,15 @@ interface IterationCtx {
   initialPrompt: string;
   ipAddress: string | undefined;
   model: string;
+  /** The org's data-sensitivity class, mapped from Organization.tenantClass. */
+  tenantClass: "gov" | "commercial";
 }
 
 async function runBlocking(ctx: IterationCtx): Promise<Response> {
-  // TODO(phase-1): read Organization.tenantClass, default "gov".
   const result = await runAgentLoop({
     orgId: ctx.orgId,
     userId: ctx.userId,
-    tenantClass: "commercial",
+    tenantClass: ctx.tenantClass,
     conversationId: ctx.conversationId,
     systemPrompt: BASE_SYSTEM_PROMPT,
     initialPrompt: ctx.initialPrompt,
@@ -222,8 +224,7 @@ function runStreaming(ctx: IterationCtx): Response {
         const result = await runAgentLoop({
           orgId: ctx.orgId,
           userId: ctx.userId,
-          // TODO(phase-1): read Organization.tenantClass, default "gov".
-          tenantClass: "commercial",
+          tenantClass: ctx.tenantClass,
           conversationId: ctx.conversationId,
           systemPrompt: BASE_SYSTEM_PROMPT,
           initialPrompt: ctx.initialPrompt,

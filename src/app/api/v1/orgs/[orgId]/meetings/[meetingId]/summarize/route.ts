@@ -44,11 +44,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       `Transcript:\n${existing.transcript || "(none)"}`;
 
     // One-shot text completion (no tools) through the single egress path.
-    // TODO(phase-1): read Organization.tenantClass, default "gov".
     const result = await runAgentLoop({
       orgId,
       userId: ctx.userId,
-      tenantClass: "commercial",
+      tenantClass: org.tenantClass === "GOV" ? "gov" : "commercial",
       conversationId: `meeting:${meetingId}`,
       systemPrompt: SUMMARY_SYSTEM_PROMPT,
       initialPrompt: userPrompt,
