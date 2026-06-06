@@ -11,6 +11,7 @@ import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { OrgRole } from "@prisma/client";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
+import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
 
 function redirectToLogin(origin: string, error: string) {
   return NextResponse.redirect(
@@ -131,6 +132,17 @@ export async function GET(request: NextRequest) {
         ...(refreshToken ? { googleRefreshToken: refreshToken } : {}),
       },
     });
+  }
+
+  // GOV SSO-enforcement guard (the bypass fix). If this identity belongs to a
+  // GOV org with an enabled+enforced IdpConnection, Google login is rejected —
+  // gov members MUST authenticate via the IdP (which asserts the MFA/AAL floor),
+  // not via Google. INTERNAL_ADMINS platform owners are exempt (break-glass:
+  // the interim gov-lockout recovery path; see HANDOFF.md + SSP §3.5).
+  if (await googleLoginBlockedByGovSso({ email, userId: user.id })) {
+    const res = redirectToLogin(origin, "sso_enforced");
+    res.cookies.delete(OAUTH_STATE_COOKIE);
+    return res;
   }
 
   // Consume any pending, unexpired invitations addressed to this email.

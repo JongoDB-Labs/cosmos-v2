@@ -49,6 +49,10 @@ const PUBLIC_PATH_PREFIXES = [
   "/login",
   "/api/auth/google",
   "/api/auth/google/callback",
+  // SSO (OIDC RP) — login initiation, IdP callback, and the pre-auth SSO-status
+  // probe are all unauthenticated by definition (they're how a user GETS a
+  // session). Covers /api/auth/sso/<orgSlug>/{login,callback,status}.
+  "/api/auth/sso",
   "/api/auth/logout",
   "/api/health",
   "/api/theme",

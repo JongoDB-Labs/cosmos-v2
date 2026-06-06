@@ -86,12 +86,20 @@ export function getOidcConfig(conn: IdpConnection): Promise<oidc.Configuration> 
   if (cached) return cached;
 
   const clientSecret = openSecret(conn.clientSecretEnc);
+  // openid-client is HTTPS-only by default (the correct production posture; real
+  // IdPs — Entra/Okta/Ping — are https). SSO_ALLOW_INSECURE_ISSUER=1 opts a stack
+  // into permitting an http issuer for discovery + token requests. It exists for
+  // (a) in-boundary / air-gapped issuers reached over an isolated internal network
+  // without public TLS, and (b) the throwaway dex Docker-acceptance stack. It is
+  // DEFAULT-OFF and must never be set for an internet-facing tenant.
+  const allowInsecure = process.env.SSO_ALLOW_INSECURE_ISSUER === "1";
   const promise = oidc
     .discovery(
       new URL(conn.issuerUrl),
       conn.clientId,
       undefined,
       oidc.ClientSecretPost(clientSecret),
+      allowInsecure ? { execute: [oidc.allowInsecureRequests] } : undefined,
     )
     .catch((err) => {
       // Don't cache a failed discovery — let the next attempt retry.
