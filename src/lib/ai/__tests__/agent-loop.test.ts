@@ -2,14 +2,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted keeps the spies safe to reference inside the hoisted mock factory.
-const { runModelTurn, executeTool } = vi.hoisted(() => ({ runModelTurn: vi.fn(), executeTool: vi.fn() }));
+const { runModelTurn, executeTool, effectiveCeiling } = vi.hoisted(() => ({
+  runModelTurn: vi.fn(), executeTool: vi.fn(), effectiveCeiling: vi.fn(),
+}));
 // Mock the SAME specifier agent-loop imports ("./egress" → "../egress" from here)
 // so both resolve to the one module id and the mock actually intercepts.
 vi.mock("../egress", async (importOriginal) => ({ ...(await importOriginal<object>()), runModelTurn }));
 vi.mock("../tool-executor", () => ({ executeTool }));
+// The loop resolves each tool result's effective ceiling (DB-backed). Mock it to
+// UNCLASSIFIED so a commercial org's tool result is EXPOSED (the enforced policy).
+vi.mock("@/lib/classification/effective", () => ({ effectiveCeiling }));
 
 describe("runAgentLoop (native tool_use)", () => {
-  beforeEach(() => { runModelTurn.mockReset(); executeTool.mockReset(); });
+  beforeEach(() => {
+    runModelTurn.mockReset(); executeTool.mockReset();
+    effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+  });
 
   it("runs a tool, projects the result, and returns the final text", async () => {
     runModelTurn
@@ -30,5 +38,7 @@ describe("runAgentLoop (native tool_use)", () => {
     // The 2nd model turn received a tool_result message (native), not a TOOL_CALL string.
     const secondCallMessages = runModelTurn.mock.calls[1][0].messages;
     expect(JSON.stringify(secondCallMessages)).toContain("tool_result");
+    // commercial + UNCLASSIFIED ceiling => the result is EXPOSED (not withheld).
+    expect(JSON.stringify(secondCallMessages)).toContain("p1");
   });
 });
