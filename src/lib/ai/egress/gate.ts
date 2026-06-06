@@ -3,7 +3,17 @@ import { createHash } from "node:crypto";
 import type { EgressContext, EgressResult, ValueKind } from "./types";
 
 export function sha256Hex(value: unknown): string {
-  const s = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  let s: string;
+  try {
+    s = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  } catch {
+    // Unserializable (circular ref, BigInt — e.g. OrgMember.permissions, etc.):
+    // NEVER let this throw out of the gate. An exception would (a) crash the turn
+    // before the withhold is logged and (b) can carry CUI *field names* in its
+    // message. Hash a stable placeholder instead; the value is still withheld by
+    // the projection caller, so no content reaches the model or the decision.
+    s = "[unserializable]";
+  }
   return createHash("sha256").update(s).digest("hex");
 }
 
@@ -33,7 +43,7 @@ export function projectForModel<T>(
       exposed,
       withheldCount: exposed ? 0 : 1,
       contentHash,
-      decidedBy: exposed ? "none" : "classification",
+      decidedBy: exposed ? "none" : "tenant",
       tenantClass: ctx.tenantClass,
       mode: ctx.mode,
     },
