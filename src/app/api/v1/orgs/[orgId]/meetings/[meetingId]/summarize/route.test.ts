@@ -10,9 +10,9 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
-vi.mock("@/lib/ai/claude-cli", () => ({
-  callClaudeCli: vi.fn().mockResolvedValue({
-    content: '{"summary":"Decisions made.","tickets":[{"title":"Ship X","description":"","type":"TASK"}]}',
+vi.mock("@/lib/ai/agent-loop", () => ({
+  runAgentLoop: vi.fn().mockResolvedValue({
+    text: '{"summary":"Decisions made.","tickets":[{"title":"Ship X","description":"","type":"TASK"}]}',
     toolCalls: [],
   }),
 }));

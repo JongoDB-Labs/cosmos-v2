@@ -5,7 +5,6 @@ import { formatAiContext } from "@/lib/chat/ai-context";
 import { parseMentions } from "@/lib/chat/mentions";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
 import { cosmosTools } from "@/lib/ai/tools";
-import { buildMcpConfigForOrg, cleanupMcpConfig } from "@/lib/ai/mcp-config";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 
@@ -76,7 +75,6 @@ export async function runChatBot(args: {
   prompt?: string;
   model?: string;
 }): Promise<void> {
-  let mcpConfigPath: string | null = null;
   // Resolve the posting target up front so the catch can still post an error.
   let channelLite: {
     id: string;
@@ -131,8 +129,6 @@ export async function runChatBot(args: {
         ? "Summarize the recent conversation above into Decisions and Action items."
         : `${invoker} asks: ${(args.prompt ?? "").trim() || "(no question provided)"}`;
 
-    mcpConfigPath = await buildMcpConfigForOrg(args.orgId).catch(() => null);
-
     // The note-taker only READS project/work context + CREATES work items for
     // action items. Restrict it to that explicit allow-list (read tools +
     // create_work_item) — a deny-by-name list still left update_work_item,
@@ -155,10 +151,12 @@ export async function runChatBot(args: {
       const result = await runAgentLoop({
         orgId: args.orgId,
         userId: args.invokerUserId,
+        // TODO(phase-1): read Organization.tenantClass, default "gov".
+        tenantClass: "commercial",
+        conversationId: channel.id,
         systemPrompt,
         initialPrompt,
         model,
-        mcpConfigPath,
         tools,
       });
       await postServerMessage({
@@ -177,7 +175,6 @@ export async function runChatBot(args: {
         systemPrompt,
         initialPrompt,
         model,
-        mcpConfigPath,
       });
     }
   } catch {
@@ -190,8 +187,6 @@ export async function runChatBot(args: {
         content: "🤖 AI is unavailable right now.",
       }).catch(() => {});
     }
-  } finally {
-    await cleanupMcpConfig(mcpConfigPath);
   }
 }
 
@@ -222,7 +217,6 @@ async function runStreamingAssistant(args: {
   systemPrompt: string;
   initialPrompt: string;
   model: string;
-  mcpConfigPath: string | null;
 }): Promise<void> {
   const bus = getBus();
   const { channel } = args;
@@ -270,10 +264,12 @@ async function runStreamingAssistant(args: {
     result = await runAgentLoop({
       orgId: args.orgId,
       userId: args.invokerUserId,
+      // TODO(phase-1): read Organization.tenantClass, default "gov".
+      tenantClass: "commercial",
+      conversationId: channel.id,
       systemPrompt: args.systemPrompt,
       initialPrompt: args.initialPrompt,
       model: args.model,
-      mcpConfigPath: args.mcpConfigPath,
       onDelta: (textSoFar) => {
         const text = textSoFar.trim();
         if (!text) return;
