@@ -1,0 +1,59 @@
+# Prometheus alerting rules — the SI-4 must-have signals (800-171 3.14.6-3.14.7, 3.3.4).
+#
+# Two gov-critical signals on the CUI-blind chokepoint + the in-boundary classifier, plus
+# per-sidecar health. These are the "alert in the event of a monitoring/audit process
+# failure" controls: if the chokepoint is throwing or the classifier is down, the egress
+# tripwire is degraded and an operator must respond.
+
+groups:
+  - name: cosmos-egress-chokepoint
+    rules:
+      # The egress chokepoint threw / failed closed by exception. A failed-closed turn is
+      # SAFE (nothing egresses), but a sustained error rate means the agent path is broken
+      # and needs investigation — and a classifier-down failure also lands here.
+      - alert: EgressChokepointErroring
+        expr: increase(cosmos_egress_errors_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          control: "SI-4 / 3.14.6"
+        annotations:
+          summary: "CUI-blind egress chokepoint is erroring"
+          description: >-
+            cosmos_egress_errors_total increased in the last 5m (stage={{ $labels.stage }}).
+            The egress chokepoint is throwing / failing closed by exception. Turns are not
+            leaking (fail-closed), but the agent path is degraded. Investigate the app logs
+            + the egress.runModelTurn traces in Jaeger.
+
+      # The in-boundary classifier (the unmarked-CUI tripwire) is erroring / the embeddings
+      # model is unavailable. While it is down, gov turns that hit the classifier path FAIL
+      # CLOSED (withhold) by design — but the unmarked-CUI detector is degraded; restore it.
+      - alert: ClassifierDown
+        expr: increase(cosmos_classifier_errors_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          control: "SI-4 / 3.14.6"
+        annotations:
+          summary: "In-boundary CUI classifier is erroring (tripwire degraded)"
+          description: >-
+            cosmos_classifier_errors_total increased in the last 5m. The in-boundary
+            embeddings classifier threw / is unavailable. Gov turns fail closed while it is
+            down (no silent unmarked-CUI exposure), but the detector must be restored.
+            Check the embeddings model / onnxruntime in the app container.
+
+  - name: cosmos-sidecar-health
+    rules:
+      # Per-sidecar health: any scrape target reporting up==0 (process down / unreachable).
+      - alert: SidecarDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: warning
+          control: "SI-4 / 3.14.6"
+        annotations:
+          summary: "Observability scrape target is down"
+          description: >-
+            Prometheus target {{ $labels.job }} ({{ $labels.instance }}) has been
+            unreachable (up == 0) for >1m. A monitoring sidecar or scrape endpoint is down;
+            telemetry coverage is reduced until it recovers.

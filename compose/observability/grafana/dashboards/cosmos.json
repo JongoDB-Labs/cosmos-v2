@@ -1,0 +1,149 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["cosmos", "si-4", "egress", "cui-blind"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "COSMOS — CUI-Blind Egress & Classifier (SI-4)",
+  "uid": "cosmos-si4",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Egress decisions rate (by exposed / decided_by)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (exposed, decided_by) (rate(cosmos_egress_decisions_total[5m]))",
+          "legendFormat": "exposed={{exposed}} by={{decided_by}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Egress withhold rate (exposed=false share) — gov-expected, informational",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(cosmos_egress_decisions_total{exposed=\"false\"}[5m])) / clamp_min(sum(rate(cosmos_egress_decisions_total[5m])), 0.0001)",
+          "legendFormat": "withhold rate"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Egress chokepoint errors (ALERT signal: EgressChokepointErroring)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (increase(cosmos_egress_errors_total[5m]))",
+          "legendFormat": "stage={{stage}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Classifier invocations rate (by result)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(cosmos_classifier_invocations_total[5m]))",
+          "legendFormat": "result={{result}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Classifier errors (ALERT signal: ClassifierDown)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(cosmos_classifier_errors_total[5m]))",
+          "legendFormat": "classifier errors (5m)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Classifier latency p95 (ms)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cosmos_classifier_latency_milliseconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "HTTP server request latency p95 (by route)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_milliseconds_bucket[5m])))",
+          "legendFormat": "{{http_route}} p95"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_duration_milliseconds_bucket[5m])))",
+          "legendFormat": "{{http_route}} p95 (alt metric name)"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Scrape target health (up) — SidecarDown alert source",
+      "type": "table",
+      "datasource": { "type": "prometheus", "uid": "cosmos-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        },
+        "overrides": []
+      },
+      "options": { "showHeader": true },
+      "targets": [
+        { "refId": "A", "expr": "up", "format": "table", "instant": true }
+      ]
+    }
+  ]
+}
