@@ -1,0 +1,296 @@
+# Security gates — CMMC L2 / NIST 800-171 audit-ready evidence pipeline.
+#
+# Each gate maps to spec §8.1 control IDs (in the job comment) and emits a
+# report into evidence/<sha>/ uploaded as a workflow artifact. fail-on-Critical
+# where the spec marks the gate HARD; IaC is Info for now.
+#
+# All `uses:` are pinned to a commit SHA (human version in trailing comment) —
+# the config-assertions gate below FAILS the build if any @vN/@main ref remains
+# in .github/** (including this file and ci.yml). That gate is the load-bearing
+# enforcement of spec §8 gate 8.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly re-scan so newly-disclosed CVEs in unchanged deps still surface.
+    - cron: "0 7 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Gate 1 — SAST. 800-171 3.11.2 / 3.14.1
+  codeql:
+    name: SAST (CodeQL JS/TS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # SARIF → code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Init CodeQL
+        uses: github/codeql-action/init@ce28f5bb42b7a9f2c824e633a3f6ee835bab6858 # v3.29.0
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+      - name: Analyze
+        uses: github/codeql-action/analyze@ce28f5bb42b7a9f2c824e633a3f6ee835bab6858 # v3.29.0
+        with:
+          category: "/language:${{ matrix.language }}"
+          output: evidence/${{ github.sha }}
+      - name: Upload CodeQL evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeql-sarif
+          path: evidence/${{ github.sha }}/*.sarif
+          if-no-files-found: ignore
+
+  # Gate 2 — SCA / deps. 800-171 3.11.2  (HARD on Critical; High → POA&M)
+  sca:
+    name: SCA (OSV-Scanner + Trivy fs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: mkdir -p evidence/${{ github.sha }}
+
+      # OSV-Scanner over the lockfile.
+      - name: OSV-Scanner (lockfile)
+        uses: google/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        continue-on-error: true # report captured below; HARD failure is Trivy's job
+        with:
+          scan-args: |-
+            --lockfile=package-lock.json
+            --format=json
+            --output=evidence/${{ github.sha }}/osv.json
+
+      # Trivy filesystem scan — HARD fail on Critical, High recorded (POA&M).
+      - name: Trivy fs (record High; fail on Critical)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          format: json
+          output: evidence/${{ github.sha }}/trivy-fs.json
+          severity: HIGH,CRITICAL
+          exit-code: "0" # record-only here; the HARD gate is the next step
+      - name: Fail on Critical (Trivy fs)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
+          severity: CRITICAL
+          exit-code: "1" # HARD: any Critical fails the build
+      - name: Upload SCA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sca-reports
+          path: evidence/${{ github.sha }}/{osv,trivy-fs}.json
+          if-no-files-found: warn
+
+  # Gate 3 — Secret scan. 800-171 3.5.1 / 3.5.2  (HARD — any finding fails)
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit
+      - run: mkdir -p evidence/${{ github.sha }}
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+        with:
+          report-format: json
+          report-path: evidence/${{ github.sha }}/gitleaks.json
+      - name: Upload gitleaks evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gitleaks-report
+          path: evidence/${{ github.sha }}/gitleaks.json
+          if-no-files-found: ignore
+
+  # Gate 4 — Image vuln scan. 800-171 3.11.2  (HARD on Critical)
+  # Builds the runtime image locally (no GHCR push needed for the scan) and
+  # scans by image. In a remote-connected repo this would scan the pushed
+  # digest from release.yml; here it is self-contained.
+  image-scan:
+    name: Image scan (Trivy image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: mkdir -p evidence/${{ github.sha }}
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Derive VERSION
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Build runtime image (load to daemon)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          load: true
+          build-args: APP_VERSION=${{ steps.version.outputs.version }}
+          tags: cosmos-v2:${{ steps.version.outputs.version }}
+      - name: Trivy image (record High; report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: cosmos-v2:${{ steps.version.outputs.version }}
+          format: json
+          output: evidence/${{ github.sha }}/trivy-image.json
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+      - name: Fail on Critical (Trivy image)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: cosmos-v2:${{ steps.version.outputs.version }}
+          format: table
+          severity: CRITICAL
+          exit-code: "1" # HARD
+      - name: Upload image-scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-image-report
+          path: evidence/${{ github.sha }}/trivy-image.json
+          if-no-files-found: ignore
+
+  # Gate 5 — IaC / Dockerfile. 800-171 3.4.1 / 3.4.2  (Info now)
+  iac:
+    name: IaC (hadolint + Checkov)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: mkdir -p evidence/${{ github.sha }}
+      - name: hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        continue-on-error: true # Info: surfaced, never blocks (spec §8 gate 5)
+        with:
+          dockerfile: Dockerfile
+          format: sarif
+          output-file: evidence/${{ github.sha }}/hadolint.sarif
+          no-fail: true
+      - name: Checkov (compose + manifests)
+        uses: bridgecrewio/checkov-action@06797b1fd1e2201175b791b45ae21cf3a62c5025 # v12.2992.0
+        continue-on-error: true # Info
+        with:
+          directory: .
+          output_format: sarif
+          output_file_path: evidence/${{ github.sha }}/checkov.sarif
+          soft_fail: true
+      - name: Upload IaC evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: iac-reports
+          path: evidence/${{ github.sha }}/{hadolint,checkov}.sarif
+          if-no-files-found: ignore
+
+  # Gate 8 — Config assertions. 800-171 3.1.1 / 3.4.x  (HARD)
+  #   (a) every action ref in .github/** is SHA-pinned (no mutable tag refs)
+  #   (b) E2E_TEST_AUTH is not set to "1" in any release/prod env
+  #   (c) control-coverage gate (script authored by Task 3 — call it)
+  config-assertions:
+    name: Config assertions (pin + env + coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: mkdir -p evidence/${{ github.sha }}
+
+      # (a) SHA-pin assertion. A bare `# TODO-PIN:` marker is tolerated (an
+      # explicitly-tracked, not-yet-resolved pin), but a live @vN/@main/@master
+      # ref fails the build.
+      - name: Assert all actions are SHA-pinned
+        run: |
+          set -euo pipefail
+          echo "Scanning .github/ for unpinned action refs..." | tee evidence/${{ github.sha }}/config-asserts.txt
+          # Strip trailing comments before matching so `# v4.2.2` version
+          # comments never false-positive; then flag any @vN/@main/@master.
+          UNPINNED="$(grep -rnE 'uses:' .github/ \
+            | sed -E 's/#.*$//' \
+            | grep -vE 'TODO-PIN' \
+            | grep -nE 'uses:.*@(v[0-9]|main|master)([^0-9a-zA-Z]|$)' || true)"
+          if [ -n "$UNPINNED" ]; then
+            {
+              echo "FAIL: unpinned action refs found (must be @<40-char-sha>):"
+              echo "$UNPINNED"
+            } | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            exit 1
+          fi
+          echo "PASS: all actions SHA-pinned" | tee -a evidence/${{ github.sha }}/config-asserts.txt
+
+      # (b) E2E_TEST_AUTH must never be "1" in the release/prod path. ci.yml's
+      # e2e jobs legitimately set it (test runners), so this asserts it is NOT
+      # present in release.yml (the prod-image build/publish path).
+      - name: Assert E2E_TEST_AUTH != 1 in release path
+        run: |
+          set -euo pipefail
+          if grep -nE 'E2E_TEST_AUTH:\s*"?1"?' .github/workflows/release.yml; then
+            echo "FAIL: E2E_TEST_AUTH=1 set in release.yml (prod publish path)" \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            exit 1
+          fi
+          echo "PASS: E2E_TEST_AUTH not enabled in release path" \
+            | tee -a evidence/${{ github.sha }}/config-asserts.txt
+          # Also assert the runtime image hard-codes NODE_ENV=production (the
+          # testenv route's prod-404 belt). Defense in depth for (c).
+          if grep -qE 'ENV[[:space:]].*NODE_ENV=production' Dockerfile; then
+            echo "PASS: Dockerfile pins NODE_ENV=production (testenv route inert)" \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+          else
+            echo "WARN: Dockerfile does not pin NODE_ENV=production" \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+
+      # (c) Living-SSP control-coverage gate (script authored by Task 3).
+      - name: Control coverage gate
+        run: npm run check:control-coverage
+
+      - name: Upload config-assertion evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: config-asserts
+          path: evidence/${{ github.sha }}/config-asserts.txt
+          if-no-files-found: ignore
