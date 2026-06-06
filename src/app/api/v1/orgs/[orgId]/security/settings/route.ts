@@ -18,6 +18,25 @@ const updateSettingsSchema = z.object({
   auditRetentionDays: z.number().int().min(30).max(3650).optional(),
 });
 
+/**
+ * AU-11 gov retention floor: GOV-class tenants must retain audit logs for at least
+ * 3 years (1095 days). We coerce up rather than reject so the floor can't be lowered.
+ * Commercial tenants keep the schema's 30–3650 range. Returns the (possibly clamped)
+ * value; `undefined` in → `undefined` out (no change requested).
+ */
+export const GOV_AUDIT_RETENTION_FLOOR_DAYS = 1095;
+
+export function clampGovRetentionDays(
+  tenantClass: string,
+  auditRetentionDays: number | undefined,
+): number | undefined {
+  if (auditRetentionDays === undefined) return undefined;
+  if (tenantClass === "GOV" && auditRetentionDays < GOV_AUDIT_RETENTION_FLOOR_DAYS) {
+    return GOV_AUDIT_RETENTION_FLOOR_DAYS;
+  }
+  return auditRetentionDays;
+}
+
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -54,6 +73,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateSettingsSchema.parse(body);
+
+    // AU-11: enforce the gov retention floor (>=3yr) for GOV-class tenants.
+    data.auditRetentionDays = clampGovRetentionDays(org.tenantClass, data.auditRetentionDays);
 
     const settings = await prisma.orgSecuritySettings.upsert({
       where: { orgId },
