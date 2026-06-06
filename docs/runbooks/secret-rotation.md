@@ -231,6 +231,37 @@ errors are possible if a replica restarts before the `ALTER ROLE` propagates —
 
 ---
 
+## 6a. Legacy plaintext Google-token drain — **drain-before-drop ordering** (one-time)
+
+**What it is:** the v2.12.0 cleanup that removed the last plaintext secret column,
+`users.google_refresh_token`. The sealed `connector_credentials` store has been the source
+of truth since v2.7.0; this drains any remaining plaintext token into it and drops the column.
+
+The read-path plaintext **fallback was removed** in the same change (`getGoogleClientForUser`
+now reads ONLY the sealed store), so once the column is dropped an **un-swept token is lost**.
+Therefore on any **non-empty** instance, run the drain BEFORE the drop migration:
+
+```bash
+# 1. Seal every remaining plaintext token into connector_credentials + NULL the column.
+#    Idempotent; exits NON-ZERO if any token can't be swept (user has no org membership yet) —
+#    gate on a clean (exit 0) run before dropping.
+node_modules/.bin/tsx scripts/dsop/seal-google-tokens.mjs
+
+# 2. Only after a clean drain, apply the drop-column migration.
+npx prisma migrate deploy   # applies 20260606120000_drop_google_refresh_token (as owner)
+```
+
+A user with a token but **no org membership yet** is left in place and reported (it would
+re-issue + seal on the next OAuth grant once they have an org) — do NOT drop the column while
+any such token remains. On a **greenfield** instance there are no rows: the drain is a no-op
+and the ordering is moot (the migration is safe either way).
+
+**Rollback:** the drop is one-way (the column is gone). Restore from backup if a token was
+lost by dropping before draining. Going forward there is nothing to rotate here — the Google
+refresh token lives only in `connector_credentials.secret_enc`, rotated by section 1.
+
+---
+
 ## 7. Forward / not yet implemented
 
 These rotate-points don't exist in the codebase yet; documented so they aren't forgotten when
@@ -255,7 +286,11 @@ dex SSO acceptance harness — SSO works before rotation, after the re-wrap, and
 key is removed from the ring, and an old-sealed value fails to open once the key is retired.
 See `docs/sso-acceptance/` + the secret-rotation acceptance output captured at release time.
 ```text
-SEALED_COLUMNS today: idp_connections.client_secret_enc (the only vault-sealed column).
+SEALED_COLUMNS today: idp_connections.client_secret_enc, connector_credentials.secret_enc,
+webhooks.secret, mcp_servers.env_enc, mcp_servers.headers_enc — all vault-sealed, re-wrapped
+in one pass. (webhooks.secret may hold a legacy plaintext value on a pre-sealing row; the
+re-wrap SKIPS those — they self-heal to sealed on next dispatch.)
 Rotation completeness gate:  rotate-vault-key.mjs --check  (exit non-zero if any secret
 is still on a non-active kid).
+No plaintext secret columns remain (users.google_refresh_token dropped in v2.12.0).
 ```
