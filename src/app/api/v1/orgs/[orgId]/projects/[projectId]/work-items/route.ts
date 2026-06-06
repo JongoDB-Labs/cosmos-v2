@@ -7,9 +7,9 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
-import { safeEmbedText } from "@/lib/rag/embed";
+import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
-import { Priority, Prisma } from "@prisma/client";
+import { Priority } from "@prisma/client";
 
 const createItemSchema = z.object({
   workItemTypeId: z.string().uuid().nullish(),
@@ -198,20 +198,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // RAG: embed-on-write. See notes/route.ts POST for the same pattern.
-    {
-      const text = `${item.title}\n${item.description}`;
-      const sv = await safeEmbedText(text);
-      if (sv) {
-        await prisma.workItem
-          .update({
-            where: { id: item.id },
-            data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-          })
-          .catch((err: unknown) =>
-            console.warn("[rag] failed to persist work item embedding:", (err as Error).message)
-          );
-      }
-    }
+    // Runs AFTER the row is committed; best-effort.
+    await storeEmbedding("work_items", item.id, `${item.title}\n${item.description}`).catch(
+      (err: unknown) =>
+        console.warn("[rag] failed to persist work item embedding:", (err as Error).message)
+    );
 
     await logAudit({
       orgId,

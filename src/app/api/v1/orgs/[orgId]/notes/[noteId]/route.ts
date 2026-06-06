@@ -6,11 +6,11 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { safeEmbedText } from "@/lib/rag/embed";
+import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
 import { createNotification } from "@/lib/notifications/create";
 import { z } from "zod";
-import { Visibility, Prisma } from "@prisma/client";
+import { Visibility } from "@prisma/client";
 
 const updateNoteSchema = z.object({
   title: z.string().max(500).nullish(),
@@ -88,19 +88,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
 
     // RAG: re-embed only when the searchable text actually changed. Avoids
-    // wasted work when callers PUT just a visibility flip.
+    // wasted work when callers PUT just a visibility flip. Runs after the update.
     if (data.title !== undefined || data.content !== undefined) {
-      const sv = await safeEmbedText(`${updated.title}\n${updated.content}`);
-      if (sv) {
-        await prisma.note
-          .update({
-            where: { id: noteId },
-            data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-          })
-          .catch((err: unknown) =>
-            console.warn("[rag] failed to persist note embedding:", (err as Error).message)
-          );
-      }
+      await storeEmbedding("notes", noteId, `${updated.title}\n${updated.content}`).catch(
+        (err: unknown) =>
+          console.warn("[rag] failed to persist note embedding:", (err as Error).message)
+      );
     }
 
     await logAudit({

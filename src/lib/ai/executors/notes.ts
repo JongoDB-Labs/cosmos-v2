@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
-import { safeEmbedText } from "@/lib/rag/embed";
-import { Visibility, Prisma } from "@prisma/client";
+import { storeEmbedding } from "@/lib/rag/embed";
+import { Visibility } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, loadActorPermissions, type ToolContext } from "./_ctx";
 
@@ -49,17 +49,10 @@ export async function createNote(
   });
 
   // RAG: embed-on-write — see src/app/api/v1/orgs/[orgId]/notes/route.ts.
-  const sv = await safeEmbedText(`${note.title}\n${note.content}`);
-  if (sv) {
-    await prisma.note
-      .update({
-        where: { id: note.id },
-        data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-      })
-      .catch(() => {
-        /* best-effort — don't break the tool response on embedding failure */
-      });
-  }
+  // Runs AFTER the row exists; best-effort so an embed failure never breaks the tool.
+  await storeEmbedding("notes", note.id, `${note.title}\n${note.content}`).catch(() => {
+    /* best-effort — don't break the tool response on embedding failure */
+  });
 
   return {
     created: true,
@@ -100,17 +93,9 @@ export async function updateNote(
   });
 
   if (data.title !== undefined || data.content !== undefined) {
-    const sv = await safeEmbedText(`${note.title}\n${note.content}`);
-    if (sv) {
-      await prisma.note
-        .update({
-          where: { id: note.id },
-          data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-        })
-        .catch(() => {
-          /* best-effort */
-        });
-    }
+    await storeEmbedding("notes", note.id, `${note.title}\n${note.content}`).catch(() => {
+      /* best-effort */
+    });
   }
 
   return { updated: true, id: note.id, title: note.title, visibility: note.visibility };
