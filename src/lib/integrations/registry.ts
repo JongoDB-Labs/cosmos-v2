@@ -40,7 +40,19 @@ export interface IntegrationProvider {
   sector?: string[];
   docsUrl?: string;
   scopes?: string[];
-  configFields?: { key: string; label: string; type: "text" | "url" | "secret"; required: boolean }[];
+  // `secret: true` marks a field whose submitted value is a SECRET (API key / PAT /
+  // password). The install/config API splits these OUT of the plaintext
+  // `Integration.config` and seals them into the vault via setOrgCredential — they
+  // are NEVER written to `Integration.config`. Non-secret fields (owner/repo/URL)
+  // stay in `Integration.config` as before. (A `type:"secret"` field SHOULD also set
+  // `secret:true`; the split keys off `secret`, while `type` only drives the input UI.)
+  configFields?: {
+    key: string;
+    label: string;
+    type: "text" | "url" | "secret";
+    required: boolean;
+    secret?: boolean;
+  }[];
   events?: string[];
 }
 

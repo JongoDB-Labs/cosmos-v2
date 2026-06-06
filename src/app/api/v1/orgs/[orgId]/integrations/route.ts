@@ -6,10 +6,11 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
-import { randomBytes } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { IntegrationRegistry } from "@/lib/integrations/registry";
 import "@/lib/integrations/registry/index";
+import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
+import { setOrgCredential } from "@/lib/integrations/credentials";
 
 const createIntegrationSchema = z.object({
   provider: z.string().min(1).max(100),
@@ -61,12 +62,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Split the submitted config: secret fields (configField secret:true) are
+    // sealed into the vault as an org-level credential and NEVER written to the
+    // plaintext Integration.config; only non-secret fields are persisted there.
+    const { publicConfig, secrets, hasSecrets } = splitConfigSecrets(
+      provider,
+      data.config ?? {},
+    );
+    if (hasSecrets) {
+      await setOrgCredential(orgId, data.provider, secrets);
+    }
+
     const integration = await prisma.integration.create({
       data: {
         orgId,
         provider: data.provider,
         displayName: data.displayName ?? data.provider,
-        config: (data.config ?? {}) as Prisma.InputJsonValue,
+        config: publicConfig as Prisma.InputJsonValue,
         status: "ACTIVE",
         installedById: ctx.userId,
       },

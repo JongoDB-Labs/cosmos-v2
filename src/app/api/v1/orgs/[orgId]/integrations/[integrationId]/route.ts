@@ -7,6 +7,10 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
+import { IntegrationRegistry } from "@/lib/integrations/registry";
+import "@/lib/integrations/registry/index";
+import { splitConfigSecrets } from "@/lib/integrations/config-secrets";
+import { setOrgCredential, deleteOrgCredential } from "@/lib/integrations/credentials";
 
 const updateIntegrationSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -56,12 +60,26 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateIntegrationSchema.parse(body);
 
+    // When config is being updated, split out secret fields: seal any newly-supplied
+    // secret value into the org-level vault credential (a blank secret field means
+    // "leave the existing sealed secret untouched"), and persist only the non-secret
+    // fields to plaintext Integration.config — never the secret.
+    let configUpdate: Record<string, unknown> | undefined;
+    if (data.config !== undefined) {
+      const provider = IntegrationRegistry.get(existing.provider);
+      const { publicConfig, secrets, hasSecrets } = splitConfigSecrets(provider, data.config);
+      if (hasSecrets) {
+        await setOrgCredential(orgId, existing.provider, secrets);
+      }
+      configUpdate = publicConfig;
+    }
+
     const updated = await prisma.integration.update({
       where: { id: integrationId },
       data: {
         ...(data.displayName !== undefined ? { displayName: data.displayName } : {}),
-        ...(data.config !== undefined
-          ? { config: data.config as Prisma.InputJsonValue }
+        ...(configUpdate !== undefined
+          ? { config: configUpdate as Prisma.InputJsonValue }
           : {}),
         ...(data.status !== undefined ? { status: data.status } : {}),
       },
@@ -99,6 +117,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!integration) return new Response("Not found", { status: 404 });
 
     await prisma.integration.delete({ where: { id: integrationId } });
+
+    // Tear down the sealed org-level credential so the secret doesn't outlive the
+    // integration (idempotent — a no-op if the provider had no sealed secret).
+    await deleteOrgCredential(orgId, integration.provider);
 
     await logAudit({
       orgId,
