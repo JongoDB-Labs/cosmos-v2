@@ -30,9 +30,43 @@ This runbook covers layer 2 and its relationship to layers 1 and 3.
 Every inserted row gets, via a `BEFORE INSERT` trigger, two byte columns:
 
 - `prev_hash` — the chain head it bound to (the prior row's `row_hash`); `NULL` only for the
-  **genesis** row (the first row ever inserted in the table).
+  **genesis** row (the first row inserted into the chain — see *legacy rows* below for what
+  "first" means on an upgraded, non-fresh DB).
 - `row_hash` — `sha256( prev_hash || frame(seq) || frame(every persisted column) )` using
   pgcrypto's `digest(bytea,'sha256')`.
+
+### The chain-head pointer (`audit_chain_head`) — O(1) tail discovery
+
+To bind a new row, the trigger needs the **current tail** (the latest row's `row_hash`).
+Discovering that by scanning the table — the original implementation used a `NOT EXISTS`
+anti-join over the whole table — is **O(n) per insert / O(n²) over the table's life**, which
+at gov audit volume (millions of rows over the ≥1095-day retention) degrades to *seconds per
+insert* and chokes the fire-and-forget audit write path.
+
+Instead the trigger keeps the tail in a tiny mutable state table:
+
+```sql
+CREATE TABLE audit_chain_head (table_name text PRIMARY KEY, head_hash bytea);
+-- seeded: ('audit_logs', NULL), ('egress_decisions', NULL)
+```
+
+On each insert the trigger does `SELECT head_hash ... WHERE table_name = '<tbl>' FOR UPDATE`
+(O(1)), uses it as `prev_hash`, computes `row_hash` **exactly as before** (same `frame()`
+helper, same column order, same `coalesce(prev,'') || …` formula — only the *prev-discovery
+mechanism* changed, never the hash formula), then `UPDATE audit_chain_head SET head_hash =
+<new row_hash>`. The `FOR UPDATE` row lock is the real serializer: it both reads the current
+head and blocks any concurrent insert on the same table from advancing it until commit, so two
+concurrent inserts cannot bind the same head (no fork). A belt-and-suspenders per-table
+advisory lock is also taken.
+
+**`audit_chain_head` is NOT an audit table and is intentionally mutable** — the layer-1
+append-only guards do *not* apply to it (the trigger must `UPDATE` it on every insert), and
+`cosmos_app` holds `SELECT, UPDATE` on it (but it is excluded from the audit-table
+`UPDATE/DELETE/TRUNCATE` revoke). **It is also NOT security-critical:** tampering with
+`audit_chain_head` can only mis-link *future* rows (a wrong `prev_hash`), which
+`verify_audit_chain` still detects as a **fork** / **row_hash mismatch** when it recomputes
+from the audit rows. The audit **rows remain the sole source of truth**; the head table is
+just a cache of "where the tail is."
 
 `frame(t)` is a **length-prefixed bytea** encoding: `int4send(byte-length of UTF8(t)) ||
 UTF8(t)`. The 4-byte length prefix makes the column concatenation injective (no value can be
@@ -55,14 +89,25 @@ Any of these is then detectable:
 
 > **Concurrency note (why the chain is verified by LINKS, not by `seq`).** `seq` is a
 > `GENERATED ALWAYS AS IDENTITY` counter allocated when the row tuple is formed — *before*
-> the `BEFORE INSERT` trigger and *outside* the per-table advisory lock the trigger takes to
-> serialize chain extension. So under concurrent inserts the `seq` order can legitimately
-> differ from the chain (lock-acquisition) order. The trigger therefore selects the chain
-> head as the actual **tail** (the row no one has chained onto yet) under the advisory lock,
-> guaranteeing a single linear chain with no forks, and `verify_audit_chain` walks the
-> `prev_hash → row_hash` links from genesis rather than ordering by `seq`. This was proven on
-> a real PG16 cluster: 200 concurrent inserts produced 0 forks, 1 genesis, 1 tail, all rows
-> reachable.
+> the `BEFORE INSERT` trigger and *outside* the serializer. So under concurrent inserts the
+> `seq` order can legitimately differ from the chain (serialization) order. The trigger
+> therefore takes the tail from the `FOR UPDATE`-locked `audit_chain_head` row (which holds
+> exactly one tail at a time), guaranteeing a single linear chain with no forks, and
+> `verify_audit_chain` walks the `prev_hash → row_hash` links from genesis rather than
+> ordering by `seq`. This was re-proven on a real PG16 cluster after the head-pointer change:
+> 200+ concurrent inserts produced 0 forks, 1 genesis, 1 tail, all rows reachable.
+
+> **Legacy rows / chain anchor (non-fresh DBs).** Per-tenant cutover applies migrations to a
+> *fresh* DB, so the chain there runs from genesis. But an **existing** v2 instance upgrading
+> 2.5.0 → 2.6.0 already has audit rows written *before* this migration — those legacy rows have
+> both `row_hash IS NULL` and `prev_hash IS NULL`. `verify_audit_chain` scopes the chain to
+> `row_hash IS NOT NULL`: legacy rows are **pre-chain and ignored** by verification (otherwise
+> each would look like a separate genesis and falsely trip "multiple genesis rows"). The chain
+> **anchors at the first row written after the migration** (the head pointer starts `NULL`
+> regardless of legacy rows, so that first post-migration insert is a clean genesis). Legacy
+> rows are *not* unprotected: they remain covered by the layer-1 append-only guards and the
+> layer-3 offsite WORM anchor — they are simply outside the cryptographic linked list, which
+> begins at 2.6.0.
 
 **What it does NOT prove:** the hash-chain is *tamper-evidence*, not tamper-*proofing* — it
 detects after the fact, it does not prevent (layer 1 prevents). And an attacker who can edit
