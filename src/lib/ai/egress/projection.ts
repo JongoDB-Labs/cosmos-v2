@@ -1,4 +1,5 @@
 // src/lib/ai/egress/projection.ts
+import { mintHandle } from "./handles";
 //
 // modelView structural projection. DEFAULT-DENY: only the fields explicitly
 // listed per entityType survive into the model's view; everything else (esp. all
@@ -69,6 +70,48 @@ const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // client are sensitive), google email/doc/event/file/contact (bodies are the
   // worst CUI), generated briefs, fetch_url. Their commercial-unclassified case
   // still flows (the gate exposes BEFORE projection); their withheld case is total.
+};
+
+/**
+ * HANDLEABLE_FIELDS — the per-entity allowlist of withheld CUI **string** fields
+ * that may be surfaced to the CUI-blind model as an OPAQUE HANDLE (a token, never
+ * the value) so the model can carry/route that value into a later tool call by
+ * reference. This is ORTHOGONAL to EXPOSABLE_FIELDS (which is left UNCHANGED):
+ * EXPOSABLE_FIELDS is the set of structural scalars the model may READ; a
+ * HANDLEABLE field is content the model may NOT read but may REFERENCE.
+ *
+ * DEFAULT-DENY: a field is minted into a handle ONLY when (a) it is listed here for
+ * the entity type AND (b) it is present as a NON-EMPTY STRING on the SOURCE entity.
+ * Unknown entity types / non-entity results get NO handles (augmentWithHandles is a
+ * no-op). Every field below is verified against the REAL executor return shapes
+ * (src/lib/ai/executors/*.ts + tool-executor.ts) — only fields that actually appear
+ * on a returned entity are listed (a listed-but-absent field simply never mints).
+ *
+ * ACCEPTED, DOCUMENTED TRADE (threat-model item 9): a handle reveals a CUI field's
+ * PRESENCE / non-emptiness to the model (not its content) — a tiny metadata
+ * increase over dropping it entirely, accepted for the act-by-reference capability.
+ * It can be made opt-in per deployment later (the EGRESS_HANDLES_ENABLED flag in
+ * the loop already gates the whole mechanism off).
+ */
+export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
+  // work-items: create/update/list all return `title` (CUI). `description` is NOT
+  // present on any work_item executor return shape today (input/embedding only),
+  // so it is intentionally OMITTED — listing it would never mint (default-deny by
+  // absence) and would misrepresent the shape contract.
+  work_item: ["title"],
+  // notes: create/update return `title` (CUI). `content` is NOT in the note return
+  // shapes (only title + visibility), so it is omitted (default-deny by absence).
+  note: ["title"],
+  // comments: listComments returns full `content`; addComment returns a derived
+  // `contentPreview` (a 200-char CUI slice). Both are referenceable content.
+  comment: ["content", "contentPreview"],
+  // crm: queryCrm returns full CrmContact rows → `name` (PII) + `notes` (content).
+  crm_contact: ["name", "notes"],
+  // semantic_search hits carry `title` + `snippet` (both derive CUI content).
+  search_result: ["title", "snippet"],
+  // No entry (⇒ no handles) for: project/cycle/time_entry/org_member/
+  // compliance_control/github_* and all unmapped (finance/google/...) — either
+  // their content fields aren't surfaced or referencing them isn't in scope yet.
 };
 
 const TOOL_ENTITY: Record<string, string> = {
@@ -187,4 +230,99 @@ export function projectResult(value: unknown, entityType: string | undefined): u
     // strings / nested objects (e.g. a free-text `query`, `summary` object) → DROP.
   }
   return out;
+}
+
+/**
+ * Mint opaque handles for the withheld CUI string fields of a SINGLE projected
+ * entity, IN PLACE, against its matching source entity. Default-deny: only
+ * `HANDLEABLE_FIELDS[entityType]` fields that are present as a NON-EMPTY STRING on
+ * the source are minted; the projected (structural) fields are untouched — we only
+ * ADD handle tokens. Returns the count of handles minted.
+ */
+async function augmentOneEntity(
+  projected: unknown,
+  source: unknown,
+  fields: readonly string[],
+  entityType: string,
+  conversationId: string,
+): Promise<number> {
+  // We can only attach handles to a projected OBJECT entity matched to a source
+  // OBJECT entity. (projectOne yields WITHHELD for non-objects → nothing to augment.)
+  if (projected === null || typeof projected !== "object" || Array.isArray(projected)) return 0;
+  if (source === null || typeof source !== "object" || Array.isArray(source)) return 0;
+  const proj = projected as Record<string, unknown>;
+  const src = source as Record<string, unknown>;
+  let minted = 0;
+  for (const field of fields) {
+    const v = src[field];
+    if (typeof v !== "string" || v.length === 0) continue; // present, non-empty STRING only
+    proj[field] = await mintHandle(conversationId, v, { entityType, fieldName: field });
+    minted++;
+  }
+  return minted;
+}
+
+/**
+ * augmentWithHandles — the MINT side of the opaque-handle resolver.
+ *
+ * Takes the already-projected, model-safe structural `modelView` (the output of
+ * {@link projectResult}) plus the ORIGINAL `sourceOutput` the executor returned,
+ * and ADDS an opaque handle TOKEN for each withheld CUI string field listed in
+ * `HANDLEABLE_FIELDS[entityType]` that is present on the matching source entity.
+ * The model then sees the structural fields (as before) PLUS a token standing in
+ * for each handleable CUI field — letting it reference (move/file/route) a value it
+ * cannot read.
+ *
+ * MATCHING: it mirrors `projectResult`'s unwrapping EXACTLY so projected elements
+ * line up with their source elements by index:
+ *   - unknown entityType / no HANDLEABLE_FIELDS / non-entity (WITHHELD) view ⇒
+ *     no-op (returns the view unchanged, 0 minted) — default-deny.
+ *   - bare array view  ⇒ element i ↔ sourceArray[i].
+ *   - object wrapper   ⇒ for each top-level key whose model-view value is an ARRAY
+ *     (the entity collection projectResult kept), element i ↔ source[key][i].
+ *     Wrapper scalars (count/flags) carry no handleable content → skipped.
+ *
+ * Returns the (mutated) model view and the total handle count for the AC-4 audit.
+ * NOTE: mutates the modelView in place (it is freshly built by projectResult each
+ * turn and not shared) — the source output is never mutated.
+ */
+export async function augmentWithHandles(
+  modelView: unknown,
+  sourceOutput: unknown,
+  entityType: string | undefined,
+  conversationId: string,
+): Promise<{ modelView: unknown; minted: number }> {
+  if (!entityType) return { modelView, minted: 0 };
+  const fields = HANDLEABLE_FIELDS[entityType];
+  if (!fields || fields.length === 0) return { modelView, minted: 0 };
+  // A fully-withheld (non-entity) view has nothing structural to augment.
+  if (modelView === null || typeof modelView !== "object") return { modelView, minted: 0 };
+
+  let minted = 0;
+
+  // Bare array view ↔ bare source array (projectResult mapped element-wise).
+  if (Array.isArray(modelView)) {
+    if (!Array.isArray(sourceOutput)) return { modelView, minted: 0 };
+    for (let i = 0; i < modelView.length; i++) {
+      minted += await augmentOneEntity(modelView[i], sourceOutput[i], fields, entityType, conversationId);
+    }
+    return { modelView, minted };
+  }
+
+  // Object wrapper: for each key whose model-view value is an array (the projected
+  // entity collection), match element-wise against the same key in the source.
+  if (sourceOutput === null || typeof sourceOutput !== "object" || Array.isArray(sourceOutput)) {
+    return { modelView, minted: 0 };
+  }
+  const view = modelView as Record<string, unknown>;
+  const src = sourceOutput as Record<string, unknown>;
+  for (const [key, projVal] of Object.entries(view)) {
+    if (!Array.isArray(projVal)) continue; // wrapper scalars (count/flags) — no content
+    const srcVal = src[key];
+    if (!Array.isArray(srcVal)) continue; // shape changed under us → skip (default-deny)
+    for (let i = 0; i < projVal.length; i++) {
+      minted += await augmentOneEntity(projVal[i], srcVal[i], fields, entityType, conversationId);
+    }
+  }
+  return { modelView, minted };
 }

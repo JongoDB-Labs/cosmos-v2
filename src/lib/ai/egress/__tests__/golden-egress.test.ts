@@ -45,6 +45,20 @@ vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 // The classifier has its own dedicated node-env test for behavioral correctness.
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
 
+// Mock the opaque-handle store — avoids prisma/vault during the golden suite while
+// keeping the REAL augmentWithHandles matching logic (projection.ts) in play.
+// mintHandle returns a deterministic token (a non-CUI reference); resolveHandlesDeep
+// is a passthrough (no handles were really minted). The golden cases assert the
+// structural floor + that the CUI VALUE never reaches the model — a token is not
+// CUI, so those assertions are unaffected. Handle MINT/RESOLVE behavior has its own
+// dedicated suites (handles.test.ts, augment.test.ts, handles-loop.redteam.test.ts).
+vi.mock("@/lib/ai/egress/handles", () => ({
+  mintHandle: vi.fn(async () => "h:GOLDENTOKEN00000000000000"),
+  resolveHandle: vi.fn(async () => null),
+  resolveHandlesDeep: vi.fn(async (input: unknown) => ({ resolved: input, count: 0 })),
+  isHandle: (s: unknown) => typeof s === "string" && /^h:[A-Za-z0-9_-]{24}$/.test(s),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

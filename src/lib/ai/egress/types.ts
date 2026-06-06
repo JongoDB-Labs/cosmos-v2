@@ -34,8 +34,17 @@ export interface EgressDecision {
   withheldCount: number;
   /** sha256 hex of the serialized value — tamper-evidence, not reversal. */
   contentHash: string;
-  /** Which gate withheld; "none" when exposed. "tenant" = gov fail-closed (P0). */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none";
+  /**
+   * Which gate withheld; "none" when exposed. "tenant" = gov fail-closed (P0).
+   * The opaque-handle resolver adds two NON-withhold audit events (AC-4 evidence of
+   * controlled CUI-by-reference movement, NOT a gate verdict):
+   *   - "handle_mint":    N withheld CUI fields were minted as opaque handles for a
+   *                       tool result (the model got tokens, never the values).
+   *   - "handle_resolve": N handles in a tool's args were resolved to real values
+   *                       IN-BOUNDARY before the executor ran.
+   * The DB column (egress_decisions.decided_by) is TEXT, so no migration is needed.
+   */
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve";
   tenantClass: TenantClass;
   mode: EgressMode;
   /** The data's effective classification ceiling at decision time (audit evidence). */
