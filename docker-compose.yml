@@ -21,15 +21,19 @@ services:
       PGBACKREST_REPO1_S3_KEY: ${S3_ACCESS_KEY:-cosmos-app}
       PGBACKREST_REPO1_S3_KEY_SECRET: ${S3_SECRET_KEY:-cosmos-app-secret}
       PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:-change-me-backup-cipher}
-      PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio:9000}
+      PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio}
     # archive_mode/archive_command/wal_level are set as postgres -c flags so they take
     # effect WITHOUT mutating the persistent datadir's postgresql.conf (clean image rebuilds).
     command:
       - postgres
       - -c
       - archive_mode=on
+      # Wrapper skips (exit 0) until the stanza is created, so the postgres first-boot
+      # bootstrap can't stall on a pre-stanza archive-push; real pushes start after
+      # stanza-create. Name contains "pgbackrest" (pgBackRest validates archive_command
+      # references it). See compose/postgres/pgbackrest-archive-push.sh.
       - -c
-      - archive_command=pgbackrest --stanza=cosmos archive-push %p
+      - archive_command=/usr/local/bin/pgbackrest-archive-push.sh %p
       - -c
       - wal_level=replica
       - -c
@@ -55,10 +59,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot: generate a self-signed TLS cert for MinIO into the shared certs volume so
+  # MinIO serves HTTPS (encryption in transit — 3.8.6/3.13.8; and pgBackRest's S3 repo
+  # REQUIRES TLS). Cert lives only in the volume, never in git. Alpine+openssl.
+  minio-certs:
+    image: alpine@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
+    command:
+      - /bin/sh
+      - -c
+      - "apk add --no-cache openssl >/dev/null && /bin/sh /gen-certs.sh"
+    volumes:
+      - cosmos-minio-certs:/certs
+      - ./compose/minio/gen-certs.sh:/gen-certs.sh:ro
+
   # In-boundary S3-compatible object storage. For gov this is swapped for GovCloud /
   # Assured-Workloads S3 (identical API — only endpoint/creds change). API port is
   # NOT published to the host (internal compose network only); console is published on
   # 9001 for operator inspection (v1 holds 8080; v2 caddy holds 8090; 9000/9001 free).
+  # Serves HTTPS using the cert in /root/.minio/certs (from the certs volume).
   cosmos-minio:
     image: minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     command: server /data --console-address ":9001"
@@ -70,8 +88,14 @@ services:
       - "9001:9001"
     volumes:
       - cosmos-minio-data:/data
+      - cosmos-minio-certs:/root/.minio/certs:ro
+    depends_on:
+      minio-certs:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # curl -k against the MinIO liveness endpoint over HTTPS (-k: self-signed internal
+      # cert; TLS still on). The image ships curl; mc has no preconfigured alias here.
+      test: ["CMD", "curl", "-skf", "https://127.0.0.1:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -85,7 +109,7 @@ services:
       cosmos-minio:
         condition: service_healthy
     environment:
-      MINIO_ENDPOINT: http://cosmos-minio:9000
+      MINIO_ENDPOINT: https://cosmos-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cosmos-minio-root}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cosmos-minio-root-secret}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cosmos-app}
@@ -118,16 +142,23 @@ services:
     environment:
       DATABASE_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
       DIRECT_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
-      # In-boundary object storage (MinIO). The app's key is RW on cosmos-uploads only
-      # (least privilege — it has NO access to the backup repo or the audit-worm bucket).
+      # In-boundary object storage (MinIO over HTTPS). The app's key is RW on
+      # cosmos-uploads only (least privilege — NO access to the backup repo or audit-worm).
+      # NODE_EXTRA_CA_CERTS trusts the internal self-signed cert WITHOUT disabling TLS
+      # verification globally (gov-defensible: a known internal CA, encryption in transit).
       STORAGE_ADAPTER: s3
-      S3_ENDPOINT: http://cosmos-minio:9000
+      S3_ENDPOINT: https://cosmos-minio:9000
       S3_BUCKET: cosmos-uploads
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cosmos-app}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-cosmos-app-secret}
+      NODE_EXTRA_CA_CERTS: /etc/cosmos/minio-ca/public.crt
+    volumes:
+      - cosmos-minio-certs:/etc/cosmos/minio-ca:ro
     depends_on:
       cosmos-migrate:
         condition: service_completed_successfully
+      cosmos-minio:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -156,7 +187,7 @@ services:
       PGBACKREST_REPO1_S3_KEY: ${S3_ACCESS_KEY:-cosmos-app}
       PGBACKREST_REPO1_S3_KEY_SECRET: ${S3_SECRET_KEY:-cosmos-app-secret}
       PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:-change-me-backup-cipher}
-      PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio:9000}
+      PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio}
       # libpq connects over the shared Unix socket (pg_backup_start/stop); files are
       # read locally from the shared pgdata volume.
       PGBACKREST_PGHOST: /var/run/cosmos-pgsock
@@ -179,17 +210,23 @@ services:
     environment:
       # Reads the audit tables as the migrate (owner) creds; SELECT is sufficient.
       DATABASE_URL: ${WORM_EXPORT_DATABASE_URL:-postgres://cosmos:cosmos@cosmos-postgres:5432/cosmos}
-      WORM_S3_ENDPOINT: http://cosmos-minio:9000
+      WORM_S3_ENDPOINT: https://cosmos-minio:9000
       WORM_S3_BUCKET: cosmos-audit-worm
       WORM_S3_ACCESS_KEY: ${WORM_ACCESS_KEY:-cosmos-worm}
       WORM_S3_SECRET_KEY: ${WORM_SECRET_KEY:-cosmos-worm-secret}
       WORM_MANIFEST_HMAC_KEY: ${WORM_MANIFEST_HMAC_KEY:-change-me-manifest-hmac}
+      NODE_EXTRA_CA_CERTS: /etc/cosmos/minio-ca/public.crt
     entrypoint: ["node", "scripts/audit-worm-export.mjs"]
+    volumes:
+      - cosmos-minio-certs:/etc/cosmos/minio-ca:ro
     depends_on:
       cosmos-postgres:
+        condition: service_healthy
+      cosmos-minio:
         condition: service_healthy
 
 volumes:
   cosmos-pgdata:
   cosmos-minio-data:
+  cosmos-minio-certs:
   cosmos-pgsock:

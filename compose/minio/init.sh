@@ -18,7 +18,10 @@
 #     IAM policy AND object-lock (defense in depth, AU-9).
 set -eu
 
-MC=/usr/bin/mc
+# --insecure: MinIO serves a self-signed internal cert (a known internal CA, not a
+# public one). TLS is still on (encryption in transit); only hostname/CA verification
+# is skipped for this in-boundary link. In gov this points at a CA-signed GovCloud S3.
+MC="/usr/bin/mc --insecure"
 ALIAS=local
 
 echo "==> waiting for MinIO at ${MINIO_ENDPOINT} ..."

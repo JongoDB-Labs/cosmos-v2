@@ -14,5 +14,13 @@ else
   echo "WARN: PGBACKREST_REPO1_S3_KEY unset — pgBackRest config NOT rendered; archive_command will fail." >&2
 fi
 
+# The shared socket-dir volume (for the backup one-shot's local libpq connection) mounts
+# root-owned; postgres (the unprivileged DB user) must be able to create its socket +
+# lock file there. We're still root here (before docker-entrypoint.sh drops privileges).
+if [ -d /var/run/cosmos-pgsock ]; then
+  chown postgres:postgres /var/run/cosmos-pgsock || true
+  chmod 0775 /var/run/cosmos-pgsock || true
+fi
+
 # Hand off to the original postgres entrypoint (path is stable across pg16 images).
 exec docker-entrypoint.sh "$@"

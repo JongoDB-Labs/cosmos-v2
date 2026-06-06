@@ -13,8 +13,12 @@ repo1-s3-key=__REPO1_S3_KEY__
 repo1-s3-key-secret=__REPO1_S3_KEY_SECRET__
 # MinIO serves path-style (bucket in the path, not the host); required here.
 repo1-s3-uri-style=path
-# Internal compose link to MinIO is plain HTTP on an isolated network; boundary TLS is
-# at Caddy. In PROD (GovCloud) set this to n and present the real S3 TLS chain.
+# MinIO API port (pgBackRest S3 always uses TLS — the repo CANNOT be plain HTTP — so
+# MinIO serves HTTPS on 9000 with a self-signed internal cert).
+repo1-s3-port=9000
+# verify-tls=n: skip CA/hostname verification of MinIO's SELF-SIGNED internal cert. TLS
+# (encryption in transit) is STILL ON. In PROD (GovCloud) flip to y + present the real
+# CA-signed S3 TLS chain.
 repo1-storage-verify-tls=n
 
 # Repo-level encryption: every backup + WAL segment is AES-256-CBC encrypted at rest
@@ -46,3 +50,8 @@ start-fast=y
 pg1-path=/var/lib/postgresql/data
 pg1-port=5432
 pg1-host-user=postgres
+# The cluster's superuser role is `cosmos` (POSTGRES_USER), NOT the OS `postgres` user
+# pgBackRest would otherwise connect as. pg1-database is the maintenance DB to connect to;
+# pg1-user the role. Local trust auth (the image default) lets this connect passwordless.
+pg1-database=cosmos
+pg1-user=cosmos
