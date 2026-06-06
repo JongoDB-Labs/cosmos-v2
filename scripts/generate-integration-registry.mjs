@@ -82,6 +82,14 @@ for (const entry of deduped) {
     docsUrl: entry.docsUrl,
   };
 
+  // configFields (optional) — carried through verbatim for `connect:"config"`
+  // providers (e.g. GitHub's PAT install form). The install API splits any field
+  // flagged `secret:true` OUT of plaintext Integration.config and into the sealed
+  // vault. Only emitted when present so entries without it stay byte-identical.
+  if (Array.isArray(entry.configFields)) {
+    provider.configFields = entry.configFields;
+  }
+
   // Validate
   if (!provider.name || !provider.name.trim()) {
     throw new Error(`Provider ${provider.slug}: empty name`);
@@ -100,6 +108,16 @@ for (const entry of deduped) {
   }
   if (provider.connect !== "none" && provider.status !== "available") {
     throw new Error(`Provider ${provider.slug}: connect="${provider.connect}" but status="${provider.status}" — only available providers can be connectable`);
+  }
+  if (provider.configFields) {
+    for (const f of provider.configFields) {
+      if (!f.key || !f.label) {
+        throw new Error(`Provider ${provider.slug}: configField missing key/label`);
+      }
+      if (!["text", "url", "secret"].includes(f.type)) {
+        throw new Error(`Provider ${provider.slug}: configField "${f.key}" invalid type "${f.type}"`);
+      }
+    }
   }
 
   providers.push(provider);

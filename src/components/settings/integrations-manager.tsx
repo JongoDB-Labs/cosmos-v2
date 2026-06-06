@@ -52,7 +52,7 @@ interface AvailableProvider {
   sector?: string[];
   docsUrl?: string;
   installed: boolean;
-  configFields?: { key: string; label: string; type: string; required: boolean }[];
+  configFields?: { key: string; label: string; type: string; required: boolean; secret?: boolean }[];
 }
 
 const statusConfig = {
