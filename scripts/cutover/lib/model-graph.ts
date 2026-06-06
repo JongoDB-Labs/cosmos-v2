@@ -515,3 +515,292 @@ export function quoteIdent(ident: string): string {
   }
   return `"${ident}"`;
 }
+
+// ── REFERENTIAL CLOSURE (C1 + C2 fix — design spec §9.3) ──
+//
+// The org-scope SELECTs are deliberately STRICT (WHERE org_id = $1 / member subquery), so
+// they EXCLUDE two classes of row that a migrated child legitimately references:
+//   C1 — GLOBAL built-in parents (org_id IS NULL): WorkItemType / ProjectTemplate /
+//        BoardTemplate (and Theme). A migrated work_item points at a global work_item_type
+//        via a REAL DB FK (work_items.work_item_type_id, RESTRICT). The org-scoped export
+//        misses that global parent ⇒ the imported child is a DANGLING FK (committed silently
+//        because the import runs under session_replication_role = replica).
+//   C2 — non-member USERS still referenced by a migrated row (a removed member whose
+//        user_id/assignee_id/author_id/… still appears). Some of these are REAL DB FKs
+//        (home_widgets.owner_id, cycle_capacities.user_id); most are BARE logical refs
+//        (no DB FK, but the app reads them and they'd break in v2).
+//
+// THE FIX: after the org-scoped rows are collected, compute the TRANSITIVE CLOSURE of the
+// FK-referenced parent rows that aren't already in the set and export them too — BY ID,
+// regardless of their org_id/membership — so the imported set is REFERENTIALLY COMPLETE.
+// The closure adds ONLY referenced parent rows (users/globals); it NEVER widens what counts
+// as "the org's rows". Closure rows are SHARED, not org-owned (a global built-in or a user
+// already present in v2 with the same id is a harmless idempotent no-op on import).
+//
+// FK edges are DERIVED from the DMMF (every to-one relation → its FK column + target model)
+// — that covers every HARD DB FK automatically. The BARE user refs have NO DMMF relation
+// (they're plain @db.Uuid scalars), so they CANNOT be derived; they are enumerated below by
+// name (table → column) with a comment for why. Each such column targets `User`.
+
+/** One FK edge from a migrated table to a parent that may live OUTSIDE the org scope (a
+ *  global built-in or a shared user). Used to pull referenced parents into the closure. */
+export interface FkEdge {
+  /** The FK column on the CHILD table holding the parent id. */
+  fkColumn: string;
+  /** The parent DMMF model name. */
+  targetModel: string;
+  /** The parent physical table. */
+  targetTable: string;
+  /** The parent's single-column PK (closure only follows single-UUID-PK parents). */
+  targetPk: string;
+  /** true when this is a real DB FK (DMMF relation); false for a bare logical ref. */
+  hardFk: boolean;
+}
+
+/**
+ * BARE logical user references — @db.Uuid columns that point at `users.id` but carry NO
+ * Prisma relation (and therefore NO DB FK), so they are invisible to DMMF FK derivation.
+ * They MUST be enumerated by hand. Every column here targets the User model. Keeping them
+ * explicit (rather than guessing by name) is deliberate: a wrong guess would pull the wrong
+ * parent table. Derived once from the schema (grep of *_id @db.Uuid scalars with no
+ * relation whose name denotes a user/actor/owner/author) — see the build prompt's C2 list.
+ *
+ * NOTE: columns that DO have a relation (home_widgets.owner_id, cycle_capacities.user_id,
+ * federated_identities.user_id, …) are intentionally ABSENT here — they're picked up as
+ * HARD FKs by fkEdgesOf() from the DMMF, so listing them again would be redundant.
+ */
+export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["work_items", ["assignee_id", "created_by_id"]],
+  ["activities", ["user_id"]],
+  ["comments", ["author_id"]],
+  ["notes", ["author_id"]],
+  ["chat_channels", ["created_by_id"]],
+  ["chat_messages", ["author_id"]],
+  ["chat_channel_members", ["user_id"]],
+  ["chat_message_mentions", ["user_id"]],
+  ["chat_message_reactions", ["user_id"]],
+  ["chat_message_attachments", ["uploaded_by_id"]],
+  ["revenues", ["created_by_id"]],
+  ["expenses", ["created_by_id", "approved_by_id"]],
+  ["journal_entries", ["created_by_id"]],
+  ["accounting_periods", ["closed_by_id"]],
+  ["time_entries", ["user_id", "approved_by_id"]],
+  ["saved_reports", ["created_by_id"]],
+  ["data_classifications", ["applied_by_id"]],
+  ["compliance_controls", ["assessed_by_id"]],
+  ["audit_logs", ["user_id"]],
+  ["notifications", ["user_id"]],
+  ["objectives", ["owner_id"]],
+  ["key_results", ["owner_id"]],
+  ["crm_contacts", ["owner_id"]],
+  ["feedback_items", ["author_id"]],
+  ["feedback_votes", ["user_id"]],
+  ["meeting_attendees", ["user_id"]],
+  ["sync_meetings", ["created_by_id"]],
+  ["assistant_conversations", ["user_id"]],
+  ["session_records", ["user_id"]],
+  ["connector_credentials", ["user_id"]],
+]);
+
+/** Resolve a model's physical table + single PK column (helper for closure edge building). */
+function tableAndPkOf(modelName: string, byName: Map<string, DMMFModel>): { table: string; pk: string } | null {
+  const m = byName.get(modelName);
+  if (!m) return null;
+  return { table: tableOf(m), pk: singlePkColumn(m) };
+}
+
+/**
+ * The FK edges from one migrated model to parent rows that may fall OUTSIDE the strict
+ * org-scope and therefore must be pulled into the referential closure:
+ *   - HARD FKs: every to-one DMMF relation (covers work_item_type_id, project_template_id,
+ *     home_widgets.owner_id, cycle_capacities.user_id, the self-FK parent_id, cycle_id, …).
+ *   - BARE user refs: the enumerated @db.Uuid → users.id columns with no DMMF relation.
+ *
+ * Self-references and refs to already-org-scoped parents (Cycle, the parent WorkItem) are
+ * KEPT — they're harmless (the parent is already in the export, so the closure finds nothing
+ * new to add) and dropping them would require knowing the org-scope set here. The closure
+ * loop dedupes by id, so following an already-exported parent is a cheap no-op.
+ */
+export function fkEdgesOf(modelName: string): FkEdge[] {
+  const models = dmmfModels();
+  const byName = new Map(models.map((m) => [m.name, m]));
+  const m = byName.get(modelName);
+  if (!m) throw new Error(`model-graph: unknown model ${modelName}`);
+
+  const edges: FkEdge[] = [];
+  const seenCols = new Set<string>();
+
+  // HARD FKs from the DMMF (to-one relations holding the FK on THIS model).
+  for (const rel of toOneParents(m)) {
+    const target = tableAndPkOf(rel.type, byName);
+    if (!target) continue; // relation to a non-DMMF model (can't happen here) — skip
+    const fkCol = fkColumnFor(m, rel.relationFromFields![0]);
+    if (rel.relationFromFields!.length !== 1) continue; // composite FKs unused in this schema
+    edges.push({
+      fkColumn: fkCol,
+      targetModel: rel.type,
+      targetTable: target.table,
+      targetPk: target.pk,
+      hardFk: true,
+    });
+    seenCols.add(fkCol);
+  }
+
+  // BARE user refs (no DMMF relation) — every one targets User.
+  const userTarget = tableAndPkOf(MEMBER_MODEL, byName);
+  const bare = BARE_USER_REF_COLUMNS.get(tableOf(m));
+  if (bare && userTarget) {
+    for (const col of bare) {
+      if (seenCols.has(col)) continue; // already a hard FK (shouldn't happen, defensive)
+      edges.push({
+        fkColumn: col,
+        targetModel: MEMBER_MODEL,
+        targetTable: userTarget.table,
+        targetPk: userTarget.pk,
+        hardFk: false,
+      });
+      seenCols.add(col);
+    }
+  }
+
+  return edges;
+}
+
+/** A row to add to a parent table's export because a migrated child references it but the
+ *  strict org-scope excluded it (a global built-in or a non-member user). */
+export interface ClosureTargetTable {
+  model: string;
+  table: string;
+  pk: string;
+}
+
+/** The set of parent TABLES the closure may need to fetch rows from (union of all FK-edge
+ *  targets across migrated models), keyed by table. Used by the exporter to know which
+ *  parent tables to resolve columns for once. */
+export function closureTargetTables(plans: ModelPlan[]): Map<string, ClosureTargetTable> {
+  const out = new Map<string, ClosureTargetTable>();
+  for (const p of plans) {
+    for (const e of fkEdgesOf(p.model)) {
+      if (!out.has(e.targetTable)) {
+        out.set(e.targetTable, { model: e.targetModel, table: e.targetTable, pk: e.targetPk });
+      }
+    }
+  }
+  return out;
+}
+
+// ── GENERIC ORPHAN / DANGLING-FK PROBE (the C-fix backstop — design spec §9.3 step 7) ──
+//
+// Count checks + money + checksum CANNOT see a dangling FK (the row is present, just its
+// parent is missing). This probe is driven off the live catalog (pg_constraint) so it catches
+// C1, C2, AND any future scope gap GENERICALLY — every FK on every migrated table is checked
+// with a LEFT JOIN: `child.fk IS NOT NULL AND parent.pk IS NULL` ⇒ ORPHAN ⇒ FAIL. It also
+// checks the BARE logical user refs (LEFT JOIN users) since those have no catalog FK.
+
+export interface OrphanProbeTarget {
+  /** Child physical table. */
+  childTable: string;
+  /** FK column on the child. */
+  childColumn: string;
+  /** Parent physical table. */
+  parentTable: string;
+  /** Parent PK column. */
+  parentColumn: string;
+  /** Constraint name (catalog FKs) or a synthetic label (bare refs). */
+  constraint: string;
+  /** true when this is a real DB FK; false for a bare logical user ref. */
+  hardFk: boolean;
+}
+
+/** The set of migrated physical tables (so the probe only checks rows we actually load). */
+export function migratedTableSet(plans: ModelPlan[]): Set<string> {
+  return new Set(plans.map((p) => p.table));
+}
+
+/**
+ * Discover every FK to check, GENERICALLY:
+ *   1. Real DB FKs from pg_constraint where the CHILD table is a migrated table (so we only
+ *      probe what the cutover loads; a v2-only child isn't our concern).
+ *   2. The BARE logical user refs (no catalog FK) → users.id.
+ * Single-column FKs only (this schema has no composite FK columns); composite FKs are skipped
+ * with a warning so a future composite FK is noticed rather than silently unchecked.
+ */
+export async function discoverOrphanProbeTargets(
+  client: Pick<pg.Client, "query">,
+  plans: ModelPlan[],
+): Promise<OrphanProbeTarget[]> {
+  const migrated = migratedTableSet(plans);
+  const targets: OrphanProbeTarget[] = [];
+
+  // 1. Catalog FKs (single-column) whose CHILD is a migrated table.
+  const { rows } = await client.query(
+    `SELECT
+        con.conname                              AS constraint,
+        child.relname                            AS child_table,
+        parent.relname                           AS parent_table,
+        att_child.attname                        AS child_column,
+        att_parent.attname                       AS parent_column,
+        array_length(con.conkey, 1)              AS nkeys
+       FROM pg_constraint con
+       JOIN pg_class child   ON child.oid  = con.conrelid
+       JOIN pg_class parent  ON parent.oid = con.confrelid
+       JOIN pg_namespace ns  ON ns.oid = child.relnamespace
+       JOIN pg_attribute att_child  ON att_child.attrelid  = con.conrelid  AND att_child.attnum  = con.conkey[1]
+       JOIN pg_attribute att_parent ON att_parent.attrelid = con.confrelid AND att_parent.attnum = con.confkey[1]
+      WHERE con.contype = 'f'
+        AND ns.nspname = current_schema()
+      ORDER BY child.relname, con.conname`,
+  );
+  for (const r of rows as Array<Record<string, string | number>>) {
+    const childTable = String(r.child_table);
+    if (!migrated.has(childTable)) continue; // only probe migrated children
+    if (Number(r.nkeys) !== 1) {
+      console.warn(
+        `model-graph: SKIPPING composite FK ${r.constraint} on ${childTable} (probe handles single-column FKs)`,
+      );
+      continue;
+    }
+    targets.push({
+      childTable,
+      childColumn: String(r.child_column),
+      parentTable: String(r.parent_table),
+      parentColumn: String(r.parent_column),
+      constraint: String(r.constraint),
+      hardFk: true,
+    });
+  }
+
+  // 2. Bare logical user refs (no catalog FK) → users.id.
+  const userT = tableAndPkOf(MEMBER_MODEL, new Map(dmmfModels().map((m) => [m.name, m])));
+  if (userT) {
+    for (const [childTable, cols] of BARE_USER_REF_COLUMNS) {
+      if (!migrated.has(childTable)) continue;
+      for (const col of cols) {
+        targets.push({
+          childTable,
+          childColumn: col,
+          parentTable: userT.table,
+          parentColumn: userT.pk,
+          constraint: `logical:${childTable}.${col}->users`,
+          hardFk: false,
+        });
+      }
+    }
+  }
+
+  return targets;
+}
+
+/** Build the orphan-detecting SQL for one probe target: a LEFT JOIN finding any child row
+ *  whose non-null FK has no matching parent. LIMIT 1 — we only need existence. */
+export function orphanProbeSql(t: OrphanProbeTarget): string {
+  const c = quoteIdent(t.childTable);
+  const p = quoteIdent(t.parentTable);
+  const fk = quoteIdent(t.childColumn);
+  const pk = quoteIdent(t.parentColumn);
+  return (
+    `SELECT child.${fk} AS orphan_fk ` +
+    `FROM ${c} child LEFT JOIN ${p} parent ON child.${fk} = parent.${pk} ` +
+    `WHERE child.${fk} IS NOT NULL AND parent.${pk} IS NULL LIMIT 1`
+  );
+}
