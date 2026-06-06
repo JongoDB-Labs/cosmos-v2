@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
-import { safeEmbedText } from "@/lib/rag/embed";
+import { storeEmbedding } from "@/lib/rag/embed";
 import { Prisma, Priority } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
@@ -188,18 +188,10 @@ export async function createWorkItem(
     return created;
   });
 
-  // RAG: embed-on-write.
-  const sv = await safeEmbedText(`${item.title}\n${item.description}`);
-  if (sv) {
-    await prisma.workItem
-      .update({
-        where: { id: item.id },
-        data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-      })
-      .catch(() => {
-        /* best-effort */
-      });
-  }
+  // RAG: embed-on-write. Runs AFTER the row is committed; best-effort.
+  await storeEmbedding("work_items", item.id, `${item.title}\n${item.description}`).catch(() => {
+    /* best-effort */
+  });
 
   return {
     created: true,
@@ -267,17 +259,9 @@ export async function updateWorkItem(
   });
 
   if (data.title !== undefined || data.description !== undefined) {
-    const sv = await safeEmbedText(`${item.title}\n${item.description}`);
-    if (sv) {
-      await prisma.workItem
-        .update({
-          where: { id: item.id },
-          data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-        })
-        .catch(() => {
-          /* best-effort */
-        });
-    }
+    await storeEmbedding("work_items", item.id, `${item.title}\n${item.description}`).catch(() => {
+      /* best-effort */
+    });
   }
 
   return {

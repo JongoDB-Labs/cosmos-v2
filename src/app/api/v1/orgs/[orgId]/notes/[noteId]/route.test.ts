@@ -40,8 +40,9 @@ vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 
 // Best-effort side-effects the PUT path fires — stub so they don't reach real
-// I/O. safeEmbedText returns null so the re-embed branch is a no-op.
-vi.mock("@/lib/rag/embed", () => ({ safeEmbedText: vi.fn().mockResolvedValue(null) }));
+// I/O. storeEmbedding resolves void so the re-embed branch is a no-op (no model
+// load, no DB write).
+vi.mock("@/lib/rag/embed", () => ({ storeEmbedding: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
 
 import { PUT, DELETE } from "./route";
