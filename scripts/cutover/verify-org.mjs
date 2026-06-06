@@ -23,8 +23,9 @@
 import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import pg from "pg";
-import { buildModelPlans, resolveColumns, buildScopedSelect } from "./lib/model-graph.ts";
+import { buildModelPlans, resolveColumns, buildScopedSelect, rankOf } from "./lib/model-graph.ts";
 import { encodeValue } from "./lib/ndjson-codec.ts";
+import { dedupeClassifications } from "./lib/upsert.ts";
 
 function parseArgs(argv) {
   const out = {};
@@ -161,16 +162,20 @@ async function main() {
 
       let expectedTgt = srcCount;
       let note = "";
+      // Source PKs that are EXPECTED to be absent from the target (only DataClassification
+      // drops any — the dedupe-with-audit collapses duplicate org-ceiling rows). The money
+      // + checksum checks skip these so a deliberately-dropped row isn't flagged "missing".
+      const droppedPkSet = new Set();
       if (plan.model === "DataClassification") {
-        // Expected target = deduped source (one ceiling per org). Compute dedupe drops.
+        // Run the SAME dedupe the import ran to learn exactly which source rows survive.
         const { rows } = await src.query(
-          `SELECT id, org_id, project_id, level FROM data_classifications WHERE org_id = $1`,
+          `SELECT id, org_id, project_id, level, markings, handling_instructions FROM data_classifications WHERE org_id = $1`,
           [org],
         );
-        const ceilings = rows.filter((r) => r.project_id === null);
-        const drops = ceilings.length > 0 ? ceilings.length - 1 : 0; // keep exactly one ceiling
-        expectedTgt = srcCount - drops;
-        note = `deduped: ${drops} duplicate ceiling row(s) dropped`;
+        const { drops } = dedupeClassifications(rows, rankOf);
+        for (const d of drops) droppedPkSet.add(d.droppedId);
+        expectedTgt = srcCount - drops.length;
+        note = `deduped: ${drops.length} duplicate ceiling row(s) dropped`;
       }
 
       const countOk = tgtCount === expectedTgt;
@@ -194,6 +199,7 @@ async function main() {
         let checked = 0;
         let bad = 0;
         for (const sr of sres.rows) {
+          if (droppedPkSet.has(sr[plan.pk[0]])) continue; // deduped away — not expected in target
           const tr = tgtByPk.get(sr[plan.pk[0]]);
           for (const mc of plan.moneyColumns) {
             checked++;
@@ -218,8 +224,8 @@ async function main() {
         const sres = await fetchScopedRows(src, plan, cols, org);
         const tres = await fetchScopedRows(tgt, plan, cols, org);
         const tgtByPk = new Map(tres.rows.map((r) => [r[plan.pk[0]], r]));
-        // Sample up to 25 rows by PK order (deterministic).
-        const sample = sres.rows.slice(0, 25);
+        // Sample up to 25 rows by PK order (deterministic), excluding any deduped-away rows.
+        const sample = sres.rows.filter((r) => !droppedPkSet.has(r[plan.pk[0]])).slice(0, 25);
         let bad = 0;
         for (const sr of sample) {
           const tr = tgtByPk.get(sr[plan.pk[0]]);

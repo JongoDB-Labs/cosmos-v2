@@ -204,6 +204,10 @@ async function main() {
     `\nimport-org: org ${org} — inserted ${totalInserted}, updated ${totalUpdated}, skipped ${totalSkipped}, ` +
       `classification drops ${dedupDrops.length}`,
   );
+  // Single machine-readable line (stable prefix) for tooling/acceptance to grep.
+  console.log(
+    `CUTOVER_IMPORT_TOTALS ${JSON.stringify({ inserted: totalInserted, updated: totalUpdated, skipped: totalSkipped, dedupDrops: dedupDrops.length })}`,
+  );
 }
 
 main().catch((err) => {

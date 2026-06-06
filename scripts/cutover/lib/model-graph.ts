@@ -177,6 +177,15 @@ function scalarFields(m: DMMFModel): DMMFField[] {
   return m.fields.filter((f) => f.kind === "scalar");
 }
 
+/** Fields that map to a COPYABLE physical column: scalars AND enums (enum columns —
+ *  AccountType, ClassificationLevel, OrgRole, … — are stored values that MUST migrate;
+ *  in the DMMF they are `kind: "enum"`, NOT "scalar", so a scalar-only filter would
+ *  silently drop them and import them as NULL — a data-loss bug). Excludes relation
+ *  objects (`kind: "object"`) and any Unsupported/db-only column (not in the DMMF). */
+function copyableFields(m: DMMFModel): DMMFField[] {
+  return m.fields.filter((f) => f.kind === "scalar" || f.kind === "enum");
+}
+
 function colName(f: DMMFField): string {
   return f.dbName ?? f.name;
 }
@@ -375,8 +384,10 @@ export async function resolveColumns(
   if (!m) throw new Error(`model-graph: unknown model ${modelName}`);
   const table = tableOf(m);
 
-  // DMMF scalar columns (the only ones Prisma/the app round-trips).
-  const dmmfScalarCols = new Set(scalarFields(m).map(colName));
+  // DMMF copyable columns = scalars + enums (the values the app round-trips). Relation
+  // objects and db-only columns (e.g. the Unsupported `embedding`) are NOT here, so they
+  // are dropped automatically below.
+  const dmmfCopyableCols = new Set(copyableFields(m).map(colName));
 
   // Live columns + their generated-status from information_schema.
   const { rows } = await client.query(
@@ -399,9 +410,9 @@ export async function resolveColumns(
       stripped.push({ column: col, reason: "legacy v1 fake-RAG search_vector" });
       continue;
     }
-    if (!dmmfScalarCols.has(col)) {
-      // Not a DMMF scalar (e.g. `embedding` vector(384) Unsupported) ⇒ never copy.
-      stripped.push({ column: col, reason: "not a DMMF scalar (db-only/unsupported)" });
+    if (!dmmfCopyableCols.has(col)) {
+      // Not a DMMF scalar/enum (e.g. `embedding` vector(384) Unsupported) ⇒ never copy.
+      stripped.push({ column: col, reason: "not a DMMF scalar/enum (db-only/unsupported)" });
       continue;
     }
     columns.push(col);
