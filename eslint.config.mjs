@@ -24,6 +24,21 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // Single-path egress guard: the Anthropic SDK provider is reachable ONLY
+  // from inside `src/lib/ai/egress/`. Everything else must go through
+  // `runModelTurn()` (the chokepoint that projects + logs each value). This is
+  // the lint half of the invariant; `single-path.arch.test.ts` is the test half.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/ai/egress/**"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [
+          { group: ["**/ai/egress/provider", "@/lib/ai/egress/provider"], message: "Reach the model only via runModelTurn() from @/lib/ai/egress — never the provider directly." },
+        ],
+      }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
