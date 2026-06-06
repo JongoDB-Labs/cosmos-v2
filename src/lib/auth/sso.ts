@@ -198,7 +198,9 @@ export function mapRoleCapped(
   let resolved: OrgRole = conn.defaultRole;
   for (const g of groups) {
     const mapped = roleMapping[g];
-    if (mapped && mapped in OrgRole) {
+    // Object.values (not `in`) so prototype keys ("constructor"/"toString") on
+    // an admin-editable roleMapping can't slip through as a "valid" role.
+    if (mapped && Object.values(OrgRole).includes(mapped as OrgRole)) {
       resolved = mapped as OrgRole;
       break;
     }
@@ -267,7 +269,18 @@ export async function completeSsoLogin(
         select: { id: true },
       });
       if (matches.length === 1) {
-        linkedUserId = matches[0].id;
+        // C1 guard: only email-link a user that is NOT already federated to
+        // THIS connection. If they already have a FederatedIdentity here (under
+        // a different subject), linking would bind a SECOND subject to the same
+        // user = account takeover. Any conflict → fall through to create a fresh
+        // user (subject stays the sole authenticator).
+        const alreadyFederated = await prisma.federatedIdentity.findFirst({
+          where: { userId: matches[0].id, idpConnId: conn.id },
+          select: { id: true },
+        });
+        if (!alreadyFederated) {
+          linkedUserId = matches[0].id;
+        }
       }
     }
 
