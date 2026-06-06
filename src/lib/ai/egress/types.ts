@@ -1,4 +1,5 @@
 // src/lib/ai/egress/types.ts
+import type { ClassificationLevel } from "@prisma/client";
 
 /** Tenant data-sensitivity class. Drives which paths/connectors are allowed. */
 export type TenantClass = "gov" | "commercial";
@@ -10,6 +11,8 @@ export type ValueKind = "system" | "user" | "tool_result" | "tool_args" | "error
 export type EgressMode = "passthrough" | "enforced";
 
 export interface EgressContext {
+  /** The org the request belongs to — lets callers resolve the ceiling; the gate ignores it. */
+  orgId: string;
   conversationId: string;
   turn: number;
   tenantClass: TenantClass;
@@ -35,6 +38,16 @@ export interface EgressDecision {
   decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none";
   tenantClass: TenantClass;
   mode: EgressMode;
+  /** The data's effective classification ceiling at decision time (audit evidence). */
+  ceiling?: string;
+}
+
+/** Input metadata for a single gate projection. */
+export interface ProjectMeta {
+  valueKind: ValueKind;
+  toolName?: string;
+  /** The value's effective classification ceiling (resolved by the caller). Required for data kinds. */
+  ceiling: ClassificationLevel;
 }
 
 /** Placeholder substituted for a withheld value (an opaque reference in later phases). */

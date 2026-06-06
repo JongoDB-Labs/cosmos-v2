@@ -1,51 +1,45 @@
 // src/lib/ai/egress/gate.ts
 import { createHash } from "node:crypto";
-import type { EgressContext, EgressResult, ValueKind } from "./types";
+import type { ClassificationLevel } from "@prisma/client";
+import type { EgressContext, EgressResult, ProjectMeta } from "./types";
+
+const ORDER: ClassificationLevel[] = ["PUBLIC", "UNCLASSIFIED", "FOUO", "CUI", "CONFIDENTIAL"];
+const rank = (l: ClassificationLevel) => ORDER.indexOf(l);
+const FOUO = rank("FOUO");
 
 export function sha256Hex(value: unknown): string {
   let s: string;
-  try {
-    s = typeof value === "string" ? value : JSON.stringify(value ?? null);
-  } catch {
-    // Unserializable (circular ref, BigInt — e.g. OrgMember.permissions, etc.):
-    // NEVER let this throw out of the gate. An exception would (a) crash the turn
-    // before the withhold is logged and (b) can carry CUI *field names* in its
-    // message. Hash a stable placeholder instead; the value is still withheld by
-    // the projection caller, so no content reaches the model or the decision.
-    s = "[unserializable]";
-  }
+  try { s = typeof value === "string" ? value : JSON.stringify(value ?? null); }
+  catch { s = "[unserializable]"; } // BigInt / circular — never throw out of the gate (no field-name leak)
   return createHash("sha256").update(s).digest("hex");
 }
 
 /**
- * Phase 0 projection: the seam, not the enforcement.
- *  - commercial + passthrough  -> expose verbatim (the agent works today).
- *  - gov (any mode)            -> WITHHOLD (fail-closed). Gov has no live model
- *    path until Phase 1 ships the classification gate; encoding the deny here
- *    makes the invariant testable from day one.
- * Phase 1 replaces the boolean with RBAC ∩ AgentPolicy ∩ Classification and a
- * deterministic field-level default-deny floor under the classifier.
+ * The MAC ceiling. Deterministic, fail-closed, DATA-CLASSIFICATION-driven (not tenant-driven):
+ *  - system / user prompts          -> EXPOSE (non-data; prompt-gating is Phase 2).
+ *  - data (tool_result/args/error):
+ *      rank(ceiling) >= FOUO        -> WITHHOLD  (mandatory, BOTH tenants).
+ *      else commercial              -> EXPOSE.
+ *      else gov                     -> WITHHOLD  (default-deny; handles arrive in Phase 2).
+ * The classifier (Phase 2) may only turn an EXPOSE into a WITHHOLD — never the reverse.
  */
-export function projectForModel<T>(
-  value: T,
-  ctx: EgressContext,
-  meta: { valueKind: ValueKind; toolName?: string },
-): EgressResult<T> {
+export function projectForModel<T>(value: T, ctx: EgressContext, meta: ProjectMeta): EgressResult<T> {
   const contentHash = sha256Hex(value);
-  const exposed = ctx.tenantClass === "commercial" && ctx.mode === "passthrough";
+  const isData = meta.valueKind === "tool_result" || meta.valueKind === "tool_args" || meta.valueKind === "error";
+
+  let exposed: boolean;
+  let decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none";
+  if (!isData) { exposed = true; decidedBy = "none"; }
+  else if (rank(meta.ceiling) >= FOUO) { exposed = false; decidedBy = "classification"; }
+  else if (ctx.tenantClass === "commercial") { exposed = true; decidedBy = "none"; }
+  else { exposed = false; decidedBy = "tenant"; }
+
   return {
     modelValue: exposed ? value : { withheld: true, ref: `withheld:${meta.valueKind}` },
     decision: {
-      conversationId: ctx.conversationId,
-      turn: ctx.turn,
-      valueKind: meta.valueKind,
-      toolName: meta.toolName,
-      exposed,
-      withheldCount: exposed ? 0 : 1,
-      contentHash,
-      decidedBy: exposed ? "none" : "tenant",
-      tenantClass: ctx.tenantClass,
-      mode: ctx.mode,
+      conversationId: ctx.conversationId, turn: ctx.turn, valueKind: meta.valueKind, toolName: meta.toolName,
+      exposed, withheldCount: exposed ? 0 : 1, contentHash, decidedBy,
+      tenantClass: ctx.tenantClass, mode: ctx.mode, ceiling: meta.ceiling,
     },
   };
 }
