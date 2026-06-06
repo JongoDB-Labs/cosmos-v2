@@ -39,4 +39,17 @@ describe("projectForModel (enforced policy)", () => {
     expect(isWithheld(r.modelValue)).toBe(true);
     expect(JSON.stringify(r.decision)).not.toContain("SECRET");
   });
+  it("marking tripwire — commercial+UNCLASSIFIED user prompt containing CUI marking is WITHHELD (allow→deny)", () => {
+    // Without the tripwire this would be exposed (system/user kind, non-data, commercial tenant).
+    // The marking "CUI//SP secret" triggers detectMarkings → override exposed=false.
+    const r = projectForModel("CUI//SP secret notes from the meeting", ctxOf("commercial"), { valueKind: "user", ceiling: "UNCLASSIFIED" });
+    expect(isWithheld(r.modelValue)).toBe(true);
+    expect(r.decision.exposed).toBe(false);
+    expect(r.decision.decidedBy).toBe("classification");
+  });
+  it("marking tripwire — clean user prompt still flows (no false positive)", () => {
+    const r = projectForModel("summarize the open tasks", ctxOf("commercial"), { valueKind: "user", ceiling: "UNCLASSIFIED" });
+    expect(r.decision.exposed).toBe(true);
+    expect(typeof r.modelValue).toBe("string");
+  });
 });
