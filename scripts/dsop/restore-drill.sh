@@ -62,9 +62,12 @@ $DOCKER run -d --name "$SCRATCH_NAME" \
   --entrypoint sleep \
   "$PG_IMAGE" infinity >/dev/null
 
-# Helper to run a command in the scratch container.
+# Helper to run a command in the scratch container. `bash -l` resets PATH and can drop
+# the postgres bin dir, so pin it explicitly for the postgres-user helpers.
+PG_BIN=/usr/lib/postgresql/16/bin
 dex() { $DOCKER exec "$SCRATCH_NAME" "$@"; }
 dex_pg() { $DOCKER exec -u postgres "$SCRATCH_NAME" "$@"; }
+dex_pg_sh() { $DOCKER exec -u postgres "$SCRATCH_NAME" bash -c "export PATH=$PG_BIN:\$PATH; $1"; }
 
 echo "==> restore-drill: rendering pgBackRest config in scratch container"
 dex /usr/local/bin/render-pgbackrest-conf.sh
@@ -84,38 +87,31 @@ fi
 # archive_command — point archive_mode off so the scratch node never writes to the
 # shared repo) and let it recover, then promote.
 echo "==> restore-drill: starting scratch postgres (recovery, archive_mode=off)"
-dex_pg bash -lc 'pg_ctl -D /var/lib/postgresql/data -o "-c archive_mode=off -c hot_standby=on" -w -t 120 start' || true
+dex_pg_sh 'pg_ctl -D /var/lib/postgresql/data -o "-c archive_mode=off -c hot_standby=on" -w -t 120 start' || true
 
 # Wait for the cluster to accept connections (recovery may take a moment).
 echo "==> restore-drill: waiting for scratch cluster to accept connections"
 ok=0
 for i in $(seq 1 30); do
-  if dex_pg pg_isready -q; then ok=1; break; fi
+  if dex_pg_sh 'pg_isready -q'; then ok=1; break; fi
   sleep 2
 done
 if [ "$ok" -ne 1 ]; then
   echo "RESTORE-DRILL: FAIL (scratch cluster never became ready)"
   echo "---- scratch postgres log tail ----"
-  dex bash -lc 'tail -n 40 /var/lib/postgresql/data/log/* 2>/dev/null || tail -n 40 /var/lib/postgresql/data/pg_log/* 2>/dev/null || true'
+  dex bash -c 'tail -n 40 /var/lib/postgresql/data/log/* 2>/dev/null || tail -n 40 /var/lib/postgresql/data/pg_log/* 2>/dev/null || true'
   exit 1
 fi
 
-# If still in recovery, promote so we can query.
-dex_pg bash -lc 'psql -tAc "SELECT pg_is_in_recovery()" | grep -q t && pg_ctl -D /var/lib/postgresql/data promote || true' >/dev/null 2>&1 || true
+# If still in recovery, promote so we can query. The cluster's superuser role is `cosmos`
+# (POSTGRES_USER), NOT the OS `postgres` user psql would default to — so pass -U cosmos.
+dex_pg_sh 'psql -U cosmos -d cosmos -tAc "SELECT pg_is_in_recovery()" | grep -q t && pg_ctl -D /var/lib/postgresql/data promote || true' >/dev/null 2>&1 || true
 sleep 2
 
 echo "==> restore-drill: VERIFICATION QUERY (row counts; audit_logs must exist)"
-VERIFY_SQL=$(cat <<'SQL'
-SELECT
-  (SELECT count(*) FROM information_schema.tables WHERE table_name='audit_logs')      AS has_audit_logs,
-  (SELECT count(*) FROM information_schema.tables WHERE table_name='egress_decisions') AS has_egress,
-  (SELECT count(*) FROM organizations)  AS organizations,
-  (SELECT count(*) FROM users)          AS users,
-  (SELECT count(*) FROM audit_logs)     AS audit_rows;
-SQL
-)
+VERIFY_SQL="SELECT (SELECT count(*) FROM information_schema.tables WHERE table_name='audit_logs') AS has_audit_logs, (SELECT count(*) FROM information_schema.tables WHERE table_name='egress_decisions') AS has_egress, (SELECT count(*) FROM organizations) AS organizations, (SELECT count(*) FROM users) AS users, (SELECT count(*) FROM audit_logs) AS audit_rows;"
 echo "----------------------------------------"
-if ! dex_pg psql -d cosmos -v ON_ERROR_STOP=1 -c "$VERIFY_SQL"; then
+if ! dex_pg_sh "psql -U cosmos -d cosmos -v ON_ERROR_STOP=1 -c \"$VERIFY_SQL\""; then
   echo "RESTORE-DRILL: FAIL (verification query errored)"
   exit 1
 fi
@@ -123,7 +119,7 @@ echo "----------------------------------------"
 
 # Hard assert audit_logs is present (the AU-9 store) — the restore is only "good"
 # for compliance if the audit trail came back.
-HAS_AUDIT=$(dex_pg psql -d cosmos -tAc "SELECT count(*) FROM information_schema.tables WHERE table_name='audit_logs'")
+HAS_AUDIT=$(dex_pg_sh "psql -U cosmos -d cosmos -tAc \"SELECT count(*) FROM information_schema.tables WHERE table_name='audit_logs'\"")
 if [ "${HAS_AUDIT//[[:space:]]/}" != "1" ]; then
   echo "RESTORE-DRILL: FAIL (audit_logs table not present after restore)"
   exit 1

@@ -20,9 +20,13 @@ COPY compose/postgres/pgbackrest.conf.template /etc/pgbackrest/pgbackrest.conf.t
 COPY compose/postgres/render-pgbackrest-conf.sh /usr/local/bin/render-pgbackrest-conf.sh
 COPY compose/postgres/docker-entrypoint-wrapper.sh /usr/local/bin/docker-entrypoint-wrapper.sh
 COPY compose/postgres/cosmos-backup.sh /usr/local/bin/cosmos-backup.sh
+COPY compose/postgres/pgbackrest-archive-push.sh /usr/local/bin/pgbackrest-archive-push.sh
+COPY compose/postgres/cosmos-stanza-create.sh /usr/local/bin/cosmos-stanza-create.sh
 RUN chmod +x /usr/local/bin/render-pgbackrest-conf.sh \
              /usr/local/bin/docker-entrypoint-wrapper.sh \
-             /usr/local/bin/cosmos-backup.sh
+             /usr/local/bin/cosmos-backup.sh \
+             /usr/local/bin/pgbackrest-archive-push.sh \
+             /usr/local/bin/cosmos-stanza-create.sh
 
 # Wrap the stock postgres entrypoint: render the pgBackRest conf from env first, then
 # hand off to the original entrypoint (which drops to the postgres user and runs the

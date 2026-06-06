@@ -37,18 +37,29 @@ bucket.
 After `docker compose up -d` (MinIO healthy, buckets created, postgres healthy):
 
 ```bash
-# Create the stanza (one-time per repo) and take the first FULL backup.
+# One helper does stanza-create + enables WAL archiving + takes the first FULL backup.
 sudo docker compose exec -u postgres cosmos-postgres \
-  pgbackrest --stanza=cosmos stanza-create
-sudo docker compose exec -u postgres cosmos-postgres \
-  pgbackrest --stanza=cosmos --type=full backup
-
-# Confirm the backup landed in the MinIO repo:
-sudo docker compose exec cosmos-postgres \
-  pgbackrest --stanza=cosmos info
+  /usr/local/bin/cosmos-stanza-create.sh
 ```
 
-`stanza-create` also validates that `archive_command` is wired (it checks a WAL push).
+The helper runs `pgbackrest --stanza=cosmos stanza-create`, then touches
+`/var/lib/pgbackrest/.stanza-ready` — the local marker that flips
+`compose/postgres/pgbackrest-archive-push.sh` from skip→push (see below) — then takes the initial
+FULL backup and prints `pgbackrest info`.
+
+**Why the marker / why archiving is gated:** the official postgres image runs a
+temporary server during first-boot bootstrap, BEFORE the stanza exists. With
+`archive_mode=on`, Postgres won't finish that bootstrap until `archive_command` returns;
+a real `pgbackrest archive-push` (which must reach the repo) blocks bootstrap so the
+cluster never starts. `pgbackrest-archive-push.sh` therefore exits 0 (skips, no S3 call) until the
+marker is present, then does real async pushes. The pre-stanza window is operator-bounded
+(stanza-create is step one) — not a steady-state RPO gap. Equivalent manual form:
+
+```bash
+sudo docker compose exec -u postgres cosmos-postgres pgbackrest --stanza=cosmos stanza-create
+sudo docker compose exec -u postgres cosmos-postgres touch /var/lib/pgbackrest/.stanza-ready
+sudo docker compose exec -u postgres cosmos-postgres pgbackrest --stanza=cosmos --type=full backup
+```
 
 ## Backup schedule
 
