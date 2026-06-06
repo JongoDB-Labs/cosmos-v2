@@ -9,8 +9,12 @@ services:
       POSTGRES_USER: cosmos
       POSTGRES_PASSWORD: cosmos
       POSTGRES_DB: cosmos
+      # Consumed by compose/init/01-app-role.sh to create the cosmos_app login role.
+      COSMOS_APP_PASSWORD: ${COSMOS_APP_PASSWORD:-cosmos_app}
     volumes:
       - cosmos-pgdata:/var/lib/postgresql/data
+      # init scripts run ONCE at first DB init (empty volume), before migrations.
+      - ./compose/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "cosmos"]
       interval: 10s
@@ -29,6 +33,12 @@ services:
   cosmos:
     image: cosmos-v2:dev
     env_file: .env
+    # The app runs DML as the least-privilege non-owner cosmos_app role (no UPDATE/
+    # DELETE/TRUNCATE on audit_logs/egress_decisions — AU-9). Migrations run as the
+    # owner (cosmos) via cosmos-migrate. `environment:` overrides `env_file:`.
+    environment:
+      DATABASE_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
+      DIRECT_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
     depends_on:
       cosmos-migrate:
         condition: service_completed_successfully
