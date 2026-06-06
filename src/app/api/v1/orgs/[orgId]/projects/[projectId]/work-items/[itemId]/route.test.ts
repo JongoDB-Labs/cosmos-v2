@@ -43,7 +43,7 @@ vi.mock("@/lib/audit", () => ({ logAudit }));
 
 // Best-effort side-effects the PUT path fires — stub so they don't reach real I/O.
 vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
-vi.mock("@/lib/rag/embed", () => ({ safeEmbedText: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/lib/rag/embed", () => ({ storeEmbedding: vi.fn().mockResolvedValue(undefined) }));
 
 import { PUT, DELETE } from "./route";
 

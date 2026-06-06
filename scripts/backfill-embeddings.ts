@@ -1,39 +1,47 @@
-// One-time backfill: populate Note/WorkItem/Contract/SyncMeeting.searchVector
-// for any row created before the embed-on-write hooks landed.
+// One-time backfill: populate the pgvector `embedding` column for
+// Note/WorkItem/Contract/SyncMeeting rows created before embed-on-write landed
+// (or before the pgvector migration).
 //
 // Run with:
 //   DATABASE_URL=... npx tsx scripts/backfill-embeddings.ts
 //
-// Idempotent — only touches rows where searchVector IS NULL. Safe to re-run
+// Idempotent — only touches rows where "embedding" IS NULL. Safe to re-run
 // after a partial failure.
+//
+// NOTE: the `embedding` column is an Unsupported("vector(384)") type, so the
+// Prisma client can't read/write it. We select NULL-embedding ids via raw SQL
+// and write each embedding through storeEmbedding() (raw UPDATE).
 //
 // TODO(rag): once we have a job queue, schedule this as a periodic sweep
 // instead of a manual ops command.
 
-import { PrismaClient, Prisma } from "@prisma/client";
-import { safeEmbedText } from "../src/lib/rag/embed";
+import { PrismaClient } from "@prisma/client";
+import { storeEmbedding, type EmbeddableTable } from "../src/lib/rag/embed";
 
 const prisma = new PrismaClient();
 
 const BATCH = 100;
 
-async function backfillNotes() {
+/** Fetch up to BATCH ids of rows still missing an embedding for `table`. */
+async function nullEmbeddingIds(table: EmbeddableTable): Promise<string[]> {
+  // `table` is a fixed union (never user input) → safe to interpolate.
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+    `SELECT "id" FROM "${table}" WHERE "embedding" IS NULL LIMIT ${BATCH}`,
+  );
+  return rows.map((r) => r.id);
+}
+
+async function backfillNotes(): Promise<number> {
   let done = 0;
   while (true) {
+    const ids = await nullEmbeddingIds("notes");
+    if (ids.length === 0) break;
     const rows = await prisma.note.findMany({
-      where: { searchVector: { equals: Prisma.AnyNull } },
-      take: BATCH,
+      where: { id: { in: ids } },
       select: { id: true, title: true, content: true },
     });
-    if (rows.length === 0) break;
     for (const row of rows) {
-      const sv = await safeEmbedText(`${row.title}\n${row.content}`);
-      if (sv) {
-        await prisma.note.update({
-          where: { id: row.id },
-          data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-        });
-      }
+      await storeEmbedding("notes", row.id, `${row.title}\n${row.content}`);
       done++;
     }
     console.log(`  notes: ${done} processed`);
@@ -41,23 +49,17 @@ async function backfillNotes() {
   return done;
 }
 
-async function backfillWorkItems() {
+async function backfillWorkItems(): Promise<number> {
   let done = 0;
   while (true) {
+    const ids = await nullEmbeddingIds("work_items");
+    if (ids.length === 0) break;
     const rows = await prisma.workItem.findMany({
-      where: { searchVector: { equals: Prisma.AnyNull } },
-      take: BATCH,
+      where: { id: { in: ids } },
       select: { id: true, title: true, description: true },
     });
-    if (rows.length === 0) break;
     for (const row of rows) {
-      const sv = await safeEmbedText(`${row.title}\n${row.description}`);
-      if (sv) {
-        await prisma.workItem.update({
-          where: { id: row.id },
-          data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-        });
-      }
+      await storeEmbedding("work_items", row.id, `${row.title}\n${row.description}`);
       done++;
     }
     console.log(`  work_items: ${done} processed`);
@@ -65,24 +67,18 @@ async function backfillWorkItems() {
   return done;
 }
 
-async function backfillContracts() {
+async function backfillContracts(): Promise<number> {
   let done = 0;
   while (true) {
+    const ids = await nullEmbeddingIds("contracts");
+    if (ids.length === 0) break;
     const rows = await prisma.contract.findMany({
-      where: { searchVector: { equals: Prisma.AnyNull } },
-      take: BATCH,
+      where: { id: { in: ids } },
       select: { id: true, title: true, terms: true, notes: true },
     });
-    if (rows.length === 0) break;
     for (const row of rows) {
       const text = `${row.title}\n${row.terms ?? ""}\n${row.notes ?? ""}`;
-      const sv = await safeEmbedText(text);
-      if (sv) {
-        await prisma.contract.update({
-          where: { id: row.id },
-          data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-        });
-      }
+      await storeEmbedding("contracts", row.id, text);
       done++;
     }
     console.log(`  contracts: ${done} processed`);
@@ -90,12 +86,13 @@ async function backfillContracts() {
   return done;
 }
 
-async function backfillMeetings() {
+async function backfillMeetings(): Promise<number> {
   let done = 0;
   while (true) {
+    const ids = await nullEmbeddingIds("sync_meetings");
+    if (ids.length === 0) break;
     const rows = await prisma.syncMeeting.findMany({
-      where: { searchVector: { equals: Prisma.AnyNull } },
-      take: BATCH,
+      where: { id: { in: ids } },
       select: {
         id: true,
         title: true,
@@ -104,16 +101,9 @@ async function backfillMeetings() {
         aiSummary: true,
       },
     });
-    if (rows.length === 0) break;
     for (const row of rows) {
       const text = `${row.title}\n${row.notes}\n${row.aiSummary ?? ""}\n${row.transcript ?? ""}`;
-      const sv = await safeEmbedText(text);
-      if (sv) {
-        await prisma.syncMeeting.update({
-          where: { id: row.id },
-          data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-        });
-      }
+      await storeEmbedding("sync_meetings", row.id, text);
       done++;
     }
     console.log(`  meetings: ${done} processed`);

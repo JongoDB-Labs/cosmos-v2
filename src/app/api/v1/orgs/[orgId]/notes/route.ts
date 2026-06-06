@@ -5,11 +5,11 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { safeEmbedText } from "@/lib/rag/embed";
+import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
 import { createNotification } from "@/lib/notifications/create";
 import { z } from "zod";
-import { Visibility, Prisma } from "@prisma/client";
+import { Visibility } from "@prisma/client";
 
 const createNoteSchema = z.object({
   title: z.string().min(1, "Title is required").max(500),
@@ -80,24 +80,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    // RAG: embed-on-write. Best-effort — a tokenizer failure must not break
-    // the user-facing POST response. TODO(rag): move to an async job queue
-    // once we have one; embedding on the request path is fine while it's a
-    // cheap token-bag operation but won't be once we swap to a real model.
-    {
-      const text = `${note.title}\n${note.content}`;
-      const sv = await safeEmbedText(text);
-      if (sv) {
-        await prisma.note
-          .update({
-            where: { id: note.id },
-            data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-          })
-          .catch((err: unknown) =>
-            console.warn("[rag] failed to persist note embedding:", (err as Error).message)
-          );
-      }
-    }
+    // RAG: embed-on-write. Best-effort — an embedding failure must not break
+    // the user-facing POST response. Runs AFTER the row is committed.
+    // TODO(rag): move to an async job queue once we have one; embedding a real
+    // model on the request path is acceptable for now (CPU MiniLM, ~tens of ms).
+    await storeEmbedding("notes", note.id, `${note.title}\n${note.content}`).catch(
+      (err: unknown) =>
+        console.warn("[rag] failed to persist note embedding:", (err as Error).message)
+    );
 
     await logAudit({
       orgId,

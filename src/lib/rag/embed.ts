@@ -39,3 +39,30 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 export function toVectorLiteral(v: number[]): string {
   return `[${v.join(",")}]`;
 }
+
+/** The tables that carry a pgvector `embedding` column. Fixed union — never user input. */
+export type EmbeddableTable = "notes" | "work_items" | "contracts" | "sync_meetings";
+
+/**
+ * Embed-on-write: compute the 384-dim embedding for `text` and persist it to the
+ * given row's `embedding` column via raw SQL. `table` is a fixed union (never user
+ * input) so interpolating the identifier is safe; the vector + id are bound params.
+ *
+ * MUST be called AFTER the row exists (it's an UPDATE). Best-effort: callers
+ * typically `.catch()` so an embed failure never breaks the user-facing write.
+ */
+export async function storeEmbedding(
+  table: EmbeddableTable,
+  id: string,
+  text: string,
+): Promise<void> {
+  // Imported lazily to avoid a static import cycle (db/client → … → rag) and to
+  // keep this module importable in contexts without the Prisma client.
+  const { prisma } = await import("@/lib/db/client");
+  const vec = toVectorLiteral(await embedText(text));
+  await prisma.$executeRawUnsafe(
+    `UPDATE "${table}" SET "embedding" = $1::vector WHERE "id" = $2::uuid`,
+    vec,
+    id,
+  );
+}

@@ -373,8 +373,13 @@ model WorkItem {
   updatedAt       DateTime     @updatedAt @map("updated_at")
   workItemTypeId  String       @map("work_item_type_id") @db.Uuid
   cycleId         String?      @map("cycle_id") @db.Uuid
-  // RAG: search vector — see Note.searchVector for rationale.
+  // RAG: legacy token-bag search vector — no longer written (kept for back-compat
+  // until the column is dropped). Real semantic search uses `embedding` below.
   searchVector    Json?        @map("search_vector")
+  // RAG: pgvector embedding (384-dim, MiniLM). Prisma can't read/write `Unsupported`,
+  // so it's populated via raw SQL (see src/lib/rag/embed.ts storeEmbedding) and queried
+  // with a raw ANN <=> in src/lib/ai/executors/rag.ts.
+  embedding       Unsupported("vector(384)")? @map("embedding")
 
   parent          WorkItem?      @relation("WorkItemHierarchy", fields: [parentId], references: [id])
   children        WorkItem[]     @relation("WorkItemHierarchy")
@@ -472,10 +477,12 @@ model Note {
   title      String     @default("")
   content    String     @default("")
   visibility Visibility @default(PRIVATE)
-  // RAG: search vector — token-bag embedding ({tokens: string[], tf: number[]}).
-  // JSON instead of pgvector because the extension isn't installed; swap to
-  // `Unsupported("vector(384)")` once pgvector is available. See src/lib/rag/embed.ts.
+  // RAG: legacy token-bag search vector — no longer written (kept for back-compat
+  // until the column is dropped). Real semantic search uses `embedding` below.
   searchVector Json?    @map("search_vector")
+  // RAG: pgvector embedding (384-dim, MiniLM). Populated via raw SQL (storeEmbedding)
+  // and queried with a raw ANN <=> in src/lib/ai/executors/rag.ts.
+  embedding    Unsupported("vector(384)")? @map("embedding")
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
@@ -555,8 +562,12 @@ model Contract {
   docusignEnvelopeId String?  @map("docusign_envelope_id")
   docusignStatus     String?  @map("docusign_status")
   signedAt           DateTime? @map("signed_at")
-  // RAG: search vector — see Note.searchVector for rationale.
+  // RAG: legacy token-bag search vector — no longer written (kept for back-compat
+  // until the column is dropped). Real semantic search uses `embedding` below.
   searchVector       Json?    @map("search_vector")
+  // RAG: pgvector embedding (384-dim, MiniLM). Populated via raw SQL (storeEmbedding)
+  // and queried with a raw ANN <=> in src/lib/ai/executors/rag.ts.
+  embedding          Unsupported("vector(384)")? @map("embedding")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
@@ -896,8 +907,12 @@ model SyncMeeting {
   meetSpaceName      String?  @map("meet_space_name")
   meetConferenceName String?  @map("meet_conference_name")
   artifacts          Json     @default("[]")
-  // RAG: search vector — see Note.searchVector for rationale.
+  // RAG: legacy token-bag search vector — no longer written (kept for back-compat
+  // until the column is dropped). Real semantic search uses `embedding` below.
   searchVector Json?        @map("search_vector")
+  // RAG: pgvector embedding (384-dim, MiniLM). Populated via raw SQL (storeEmbedding)
+  // and queried with a raw ANN <=> in src/lib/ai/executors/rag.ts.
+  embedding   Unsupported("vector(384)")? @map("embedding")
   createdById String        @map("created_by_id") @db.Uuid
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")

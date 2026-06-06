@@ -7,7 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/create";
-import { safeEmbedText } from "@/lib/rag/embed";
+import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
 
@@ -164,19 +164,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
 
     // RAG: re-embed when searchable text changed. Same skip-when-untouched
-    // optimization as the note route.
+    // optimization as the note route. Runs after the update.
     if (data.title !== undefined || data.description !== undefined) {
-      const sv = await safeEmbedText(`${item.title}\n${item.description}`);
-      if (sv) {
-        await prisma.workItem
-          .update({
-            where: { id: itemId },
-            data: { searchVector: sv as unknown as Prisma.InputJsonValue },
-          })
-          .catch((err: unknown) =>
-            console.warn("[rag] failed to persist work item embedding:", (err as Error).message)
-          );
-      }
+      await storeEmbedding("work_items", itemId, `${item.title}\n${item.description}`).catch(
+        (err: unknown) =>
+          console.warn("[rag] failed to persist work item embedding:", (err as Error).message)
+      );
     }
 
     await logAudit({
