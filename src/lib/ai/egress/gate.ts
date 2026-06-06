@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import type { ClassificationLevel } from "@prisma/client";
 import type { EgressContext, EgressResult, ProjectMeta } from "./types";
+import { detectMarkings } from "@/lib/classification/markings";
 
 const ORDER: ClassificationLevel[] = ["PUBLIC", "UNCLASSIFIED", "FOUO", "CUI", "CONFIDENTIAL"];
 const rank = (l: ClassificationLevel) => ORDER.indexOf(l);
@@ -33,6 +34,14 @@ export function projectForModel<T>(value: T, ctx: EgressContext, meta: ProjectMe
   else if (rank(meta.ceiling) >= FOUO) { exposed = false; decidedBy = "classification"; }
   else if (ctx.tenantClass === "commercial") { exposed = true; decidedBy = "none"; }
   else { exposed = false; decidedBy = "tenant"; }
+
+  // Marking-DLP tripwire: a controlled marking ALWAYS withholds (allow→deny only,
+  // never deny→allow). Applies to system/user prompts too — a marked prompt is not
+  // sent to the commercial model.
+  if (exposed && detectMarkings(value)) {
+    exposed = false;
+    decidedBy = "classification";
+  }
 
   return {
     modelValue: exposed ? value : { withheld: true, ref: `withheld:${meta.valueKind}` },
