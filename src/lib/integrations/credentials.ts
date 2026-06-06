@@ -111,6 +111,26 @@ export async function getUserCredential(
 }
 
 /**
+ * Cheap PRESENCE check for a USER-SCOPED connector credential by (provider, userId),
+ * across any of the user's orgs — WITHOUT opening (decrypting) the sealed secret.
+ *
+ * Use this for a "connected?" status check (e.g. the Google-connected indicator)
+ * where the plaintext is not needed — it never touches the vault, so it can't throw
+ * an integrity error and never risks logging/handling secret material. Mirrors the
+ * user-scoped read semantics of {@link getUserCredential}.
+ */
+export async function hasUserCredential(
+  provider: string,
+  userId: string,
+): Promise<boolean> {
+  const row = await prisma.connectorCredential.findFirst({
+    where: { provider, userId },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+/**
  * Read + unseal an ORG-LEVEL (userId-null) connector credential for (orgId,
  * provider), or `null` when no row exists. STRICTLY org-scoped — there is no
  * cross-org fallback. Use for org-SHARED service credentials (GitHub PAT first).

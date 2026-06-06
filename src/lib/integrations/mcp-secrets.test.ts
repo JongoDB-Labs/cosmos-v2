@@ -24,12 +24,14 @@ import { isSealed } from "@/lib/crypto/field-seal";
 
 describe("mcp env/headers seal-at-rest", () => {
   it("seals env into a vault envelope (not plaintext) and opens it back to the map", () => {
-    const envEnc = sealMcpJson({ TOKEN: "X", REGION: "us" });
+    // A distinctive secret value (won't appear by chance in base64 ciphertext).
+    const SECRET = "TOKEN_VALUE_abc123XYZ_secret";
+    const envEnc = sealMcpJson({ TOKEN: SECRET, REGION: "us" });
     expect(envEnc).not.toBeNull();
     expect(envEnc).not.toContain("TOKEN"); // the secret key/value is not visible at rest
-    expect(envEnc).not.toContain("X");
+    expect(envEnc).not.toContain(SECRET);
     expect(isSealed(envEnc!)).toBe(true);
-    expect(getMcpEnv({ envEnc })).toEqual({ TOKEN: "X", REGION: "us" });
+    expect(getMcpEnv({ envEnc })).toEqual({ TOKEN: SECRET, REGION: "us" });
   });
 
   it("seals headers and opens them back via the accessor", () => {

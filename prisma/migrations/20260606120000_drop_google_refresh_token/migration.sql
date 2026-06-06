@@ -1,0 +1,22 @@
+-- Drop the drained legacy plaintext users.google_refresh_token column
+-- (SC-28 / 800-171 3.13.16 protect-at-rest; IA-5; 3.5.10 — no plaintext secret at rest).
+--
+-- The sealed ConnectorCredential store (connector_credentials.secret_enc) has been the
+-- source of truth for Google OAuth refresh tokens since v2.7.0, and the read-path
+-- self-heal has been draining this plaintext column to sealed on first use. This removes
+-- the last plaintext secret column.
+--
+-- ── ORDERING — READ docs/runbooks/secret-rotation.md ──
+-- On a NON-EMPTY instance, run the DRAIN script FIRST, then apply this migration:
+--     node_modules/.bin/tsx scripts/dsop/seal-google-tokens.mjs   # seal + null all rows
+--     npx prisma migrate deploy                                   # then drop the column
+-- The read-path plaintext fallback was REMOVED in the same change (getGoogleClientForUser
+-- now reads ONLY the sealed store), so once this column is gone an UN-SWEPT token is LOST.
+-- The drain script exits non-zero if any token can't be swept (no org membership yet) —
+-- gate on it before dropping. On a GREENFIELD instance there are no rows; this is safe
+-- either way and the drain is a no-op.
+--
+-- Hand-written; applied via `prisma migrate deploy` as the OWNER (cosmos). Idempotent
+-- (IF EXISTS) so a re-applied deploy is a no-op.
+
+ALTER TABLE "users" DROP COLUMN IF EXISTS "google_refresh_token";
