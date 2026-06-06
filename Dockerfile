@@ -24,7 +24,12 @@ RUN npx prisma generate && npm run build
 # hook + its chunks (and the bundled @vercel/otel / OTLP metric SDK inside them) ship.
 # The OTel library chunks ([root-of-the-server]__*) are shared with routes and already
 # copied; this fills the instrumentation-specific gap. Idempotent; no-op if Next fixes it.
-RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy] missing source',s);return;} fs.mkdirSync(p.dirname(d),{recursive:true}); fs.copyFileSync(s,d); console.log('[instr-copy]',rel);}; cp('instrumentation.js'); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''));}} else {console.error('[instr-copy] no nft manifest — instrumentation hook will not run');}"
+# `strict` makes the two TELEMETRY-CRITICAL conditions FAIL THE BUILD (exit 1) rather than
+# ship a silently telemetry-blind image: (1) the instrumentation.js hook artifact is missing,
+# or (2) its NFT manifest is missing — both mean a future Next/Turbopack layout change that
+# this replay no longer matches. Per-traced-file misses stay lenient (the NFT can reference
+# files outside .next/server that legitimately aren't present).
+RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel,strict)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy]'+(strict?' FATAL':'')+' missing source',s); if(strict)process.exit(1); return;} fs.mkdirSync(p.dirname(d),{recursive:true}); fs.copyFileSync(s,d); console.log('[instr-copy]',rel);}; cp('instrumentation.js',true); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''),false);}} else {console.error('[instr-copy] FATAL no nft manifest — instrumentation hook would not run'); process.exit(1);}"
 # Bake the MiniLM embeddings model (~87MB ONNX) into the build layer so the
 # runtime image loads it OFFLINE (gov can't download at runtime). The cache lands
 # in node_modules/@huggingface/transformers/.cache/ (resolved relative to the

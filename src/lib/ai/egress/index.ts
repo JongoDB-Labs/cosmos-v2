@@ -130,7 +130,10 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
       // The chokepoint threw / failed closed by exception. Emit the error signal, mark
       // the span, then RETHROW — never alter the fail-closed outcome.
       recordEgressError(stage);
-      span.recordException(err as Error);
+      // Record ONLY the exception TYPE (name) on the span — never the message or
+      // stacktrace, which a future provider/validation error could interpolate request
+      // content into. Keeps "no CUI/PII in telemetry" unconditional.
+      span.recordException({ name: (err as Error)?.name ?? "Error" });
       span.setStatus({ code: SpanStatusCode.ERROR });
       throw err;
     } finally {
