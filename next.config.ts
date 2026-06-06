@@ -28,7 +28,12 @@ const nextConfig: NextConfig = {
   // pdfkit ships .afm font files it loads at runtime via fs; Turbopack
   // can't rewrite those paths, so leave it externalized.
   // googleapis is a large CJS surface that doesn't bundle cleanly; externalize.
-  serverExternalPackages: ["pdfkit", "googleapis"],
+  // @huggingface/transformers loads the onnxruntime-node native binary + the
+  // bundled MiniLM model cache from disk relative to its own package dir; it must
+  // stay external so Next copies the real package (not a rewritten bundle) into
+  // .next/standalone/node_modules. The Dockerfile additionally bakes in the
+  // onnxruntime native deps + model cache for offline (gov) inference.
+  serverExternalPackages: ["pdfkit", "googleapis", "@huggingface/transformers"],
 };
 
 export default withBundleAnalyzer(nextConfig);
