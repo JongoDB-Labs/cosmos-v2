@@ -5,18 +5,20 @@ import path from "node:path";
 import { prisma } from "@/lib/db/client";
 
 /**
- * Phase 5a — MCP (Model Context Protocol) bridge.
+ * MCP (Model Context Protocol) bridge — DORMANT in Phase 0.
  *
- * The Claude CLI accepts `--mcp-config <path>` pointing at a JSON file with
- * the shape Anthropic publishes in their MCP docs:
+ * This module is retained but UNUSED in cosmos-v2 Phase 0: the host-CLI MCP
+ * flag wiring it served was removed when the agent loop moved onto native
+ * tool_use behind the egress seam. Phase 4 rebuilds MCP as native executors,
+ * at which point this builder is rewired (or replaced). Until then nothing
+ * imports it.
+ *
+ * The file shape it produced (Anthropic's published MCP config JSON):
  *
  *   { "mcpServers": { "<name>": { "command": "...", "args": [...], "env": {...} } | { "url": "...", "transport": "http" } } }
  *
- * For each chat turn we read the org's enabled `McpServer` rows, write a
- * fresh temp file with that shape, and hand the path to the CLI. The caller
- * is responsible for cleaning the file up after the CLI exits — we expose
- * `cleanupMcpConfig()` for that, and also use it on the pool's process-death
- * path so leaked tempfiles don't pile up.
+ * It reads the org's enabled `McpServer` rows and writes a fresh temp file with
+ * that shape; `cleanupMcpConfig()` removes the tempfile afterward.
  */
 
 interface StdioMcpEntry {
@@ -39,8 +41,8 @@ interface McpConfigFile {
 
 /**
  * Build a per-org MCP config file in tmp. Returns the file path, or `null`
- * if the org has no enabled servers (caller should omit `--mcp-config` in
- * that case to avoid the CLI bootstrapping zero servers).
+ * if the org has no enabled servers (caller should pass no config in that
+ * case to avoid bootstrapping zero servers).
  */
 export async function buildMcpConfigForOrg(
   orgId: string,
