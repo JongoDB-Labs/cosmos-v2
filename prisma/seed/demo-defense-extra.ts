@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- WIP investor-demo seed, orphaned (not imported by prisma/seed/index.ts); proper types deferred. Carried over from the v1 import. */
 /**
  * Investor-demo seed (DEPTH): makes the Apex Defense "Sentinel" program look
  * mature — past sprints + velocity history, a fuller board & backlog, logged
