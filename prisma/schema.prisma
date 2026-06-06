@@ -1475,9 +1475,14 @@ model McpServer {
   transport String // "stdio" | "http" | "sse"
   command   String? // for stdio
   args      String[] @default([])
-  env       Json     @default("{}")
-  url       String? // for http/sse
-  headers   Json     @default("{}")
+  // env/headers are SEALED at rest (3.13.16): these columns hold the vault envelope
+  // of `JSON.stringify(env|headers)`, not the plaintext JSON. Read via the
+  // getMcpEnv()/getMcpHeaders() accessors (src/lib/integrations/mcp-secrets.ts).
+  // MCP execution is dormant (Phase 0 dropped --mcp-config), so there is no live
+  // read path yet — these seal-at-rest on write + the accessor is for when MCP wakes.
+  envEnc     String? @map("env_enc")
+  url        String? // for http/sse
+  headersEnc String? @map("headers_enc")
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

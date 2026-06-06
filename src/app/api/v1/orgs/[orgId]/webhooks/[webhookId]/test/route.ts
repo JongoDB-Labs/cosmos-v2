@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { createHmac } from "crypto";
+import { openFieldWithHeal } from "@/lib/crypto/field-seal";
 
 type RouteParams = { params: Promise<{ orgId: string; webhookId: string }> };
 
@@ -31,7 +32,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     };
 
     const body = JSON.stringify(testPayload);
-    const signature = createHmac("sha256", webhook.secret).update(body).digest("hex");
+    // Open the sealed signing secret (transparent to the HMAC); self-heal a legacy
+    // plaintext secret on this dispatch.
+    const signingSecret = await openFieldWithHeal(webhook.secret, async (sealed) => {
+      await prisma.webhook.update({ where: { id: webhook.id }, data: { secret: sealed } });
+    });
+    const signature = createHmac("sha256", signingSecret).update(body).digest("hex");
 
     const delivery = await prisma.webhookDelivery.create({
       data: {

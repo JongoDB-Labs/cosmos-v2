@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import { sealMcpJson } from "@/lib/integrations/mcp-secrets";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
@@ -92,9 +92,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         transport: data.transport,
         command: data.command ?? null,
         args: data.args,
-        env: data.env as Prisma.InputJsonValue,
+        // env/headers (API tokens / auth headers) are SEALED at rest (3.13.16):
+        // the *_enc columns hold the vault envelope of JSON.stringify(map).
+        envEnc: sealMcpJson(data.env),
         url: data.url ?? null,
-        headers: data.headers as Prisma.InputJsonValue,
+        headersEnc: sealMcpJson(data.headers),
         enabled: data.enabled,
       },
     });

@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { webhookUrlSchema } from "@/lib/security/webhook-url";
+import { sealField } from "@/lib/crypto/field-seal";
 
 const createWebhookSchema = z.object({
   url: webhookUrlSchema,
@@ -50,6 +51,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = createWebhookSchema.parse(body);
 
+    // The signing secret is generated once and SEALED at rest (3.13.16): the DB
+    // column holds the vault envelope, never the plaintext HMAC key. We return the
+    // plaintext ONCE in this create response so the caller can configure their
+    // consumer — subsequent GETs only ever expose the sealed envelope.
     const secret = randomBytes(32).toString("hex");
 
     const webhook = await prisma.webhook.create({
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         orgId,
         url: data.url,
         events: data.events,
-        secret,
+        secret: sealField(secret),
         active: true,
       },
     });
@@ -72,7 +77,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    return created(webhook);
+    // Return the PLAINTEXT secret once (so the caller can configure their consumer);
+    // the persisted column holds only the sealed envelope.
+    return created({ ...webhook, secret });
   } catch (error) {
     return handleApiError(error);
   }
