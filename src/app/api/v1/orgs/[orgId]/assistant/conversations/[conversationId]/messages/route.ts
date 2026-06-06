@@ -157,7 +157,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       initialPrompt,
       ipAddress: getIpAddress(request),
       model,
-      tenantClass: org.tenantClass === "GOV" ? "gov" : "commercial",
+      // fail-closed: only an explicit COMMERCIAL org gets the permissive class.
+      tenantClass: org.tenantClass === "COMMERCIAL" ? "commercial" : "gov",
     };
 
     if (wantsStream) {
