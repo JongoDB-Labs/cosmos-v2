@@ -7,15 +7,18 @@
 #
 #   cosmos-uploads      RW  — the S3 storage adapter (app uploads/evidence).
 #   cosmos-pgbackrest   RW  — the pgBackRest backup repo (postgres writes + prunes WAL/backups).
-#   cosmos-audit-worm   WRITE-ONLY, NO-DELETE, object-locked (COMPLIANCE retention)
+#   cosmos-audit-worm   APPEND-ONLY (write + read for verification; NO delete / overwrite /
+#                           retention-bypass), object-locked (COMPLIANCE retention)
 #                           — the AU-9 offsite immutable audit anchor.
 #
 # Service accounts (NOT the root key — root stays inside MinIO only):
 #   - the app/backrest key (S3_ACCESS_KEY): RW on cosmos-uploads + cosmos-pgbackrest only.
-#   - the worm key (WORM_ACCESS_KEY): PutObject + ListBucket on cosmos-audit-worm ONLY.
-#     NO DeleteObject, NO version deletion, NO retention bypass — combined with the
-#     bucket's COMPLIANCE object-lock this makes the audit export append-only by both
-#     IAM policy AND object-lock (defense in depth, AU-9).
+#   - the worm key (WORM_ACCESS_KEY): PutObject + GetObject + ListBucket on cosmos-audit-worm
+#     ONLY. NO DeleteObject, NO version deletion, NO retention bypass. Read (GetObject) is
+#     intentionally granted — a verifier diffing the live DB against the WORM copy needs it
+#     (that IS the AU-9 use case). Combined with the bucket's COMPLIANCE object-lock this
+#     makes the audit export append-only by both IAM policy AND object-lock (defense in
+#     depth, AU-9). "Append-only" = write + read, NO delete / overwrite / retention-bypass.
 set -eu
 
 # --insecure: MinIO serves a self-signed internal cert (a known internal CA, not a
@@ -63,10 +66,13 @@ cat >/tmp/policy-app.json <<JSON
 }
 JSON
 
-# WRITE-ONLY (+ list for pgBackRest-style manifest checks is NOT needed here; the
-# export job only needs Put). NO s3:DeleteObject, NO s3:DeleteObjectVersion, NO
-# s3:BypassGovernanceRetention. ListBucket is allowed so the export job can compute
-# "last toSeq" by listing existing manifests without granting any mutate-delete verb.
+# APPEND-ONLY (write + read for verification; NO delete / overwrite / retention-bypass).
+# NO s3:DeleteObject, NO s3:DeleteObjectVersion, NO s3:BypassGovernanceRetention. Grants:
+#   - PutObject:  write the dump + manifest (object-lock blocks overwrite of an existing key).
+#   - GetObject:  a verifier diffs the live DB against the WORM copy — the AU-9 use case;
+#                 read is legitimate and is NOT a tamper vector (delete/overwrite are).
+#   - ListBucket: the export job derives each table's "last attested toSeq" by listing the
+#                 per-table manifest objects, without granting any mutate/delete verb.
 cat >/tmp/policy-worm.json <<JSON
 {
   "Version": "2012-10-17",
