@@ -1,6 +1,6 @@
 import { cosmosTools, type ToolDefinition } from "./tools";
 import { executeTool } from "./tool-executor";
-import { runModelTurn, toModelTools, projectForModel, type ModelMessage } from "./egress";
+import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
 import { effectiveCeiling } from "@/lib/classification/effective";
 
@@ -99,11 +99,20 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         ? (u.input as { projectId: string }).projectId : undefined;
       const ceiling = await effectiveCeiling(opts.orgId, projectId);
       const projected = projectForModel(output, ctx, { valueKind: "tool_result", toolName: u.name, ceiling });
+      // On WITHHOLD, don't hand the model the opaque placeholder — give it a
+      // STRUCTURAL projection (id + allowlisted enums/dates, never free-text/CUI)
+      // so it can still orchestrate entities by id under the MAC ceiling.
+      // `projectResult` unwraps executor wrappers ({count, items:[...]}) and is
+      // itself default-deny (unknown entity / non-entity ⇒ full withhold).
+      const modelView = projected.decision.exposed
+        ? projected.modelValue                                        // exposed: full value
+        : projectResult(output, entityTypeForTool(u.name));           // withheld: structural-only view
       toolResultBlocks.push({
         type: "tool_result" as const,
         tool_use_id: u.id,
-        content: JSON.stringify(projected.modelValue),
+        content: JSON.stringify(modelView),
       });
+      // userView (the full output) still flows only to the UI, never to the model.
       toolCalls.push({ id: u.id, name: u.name, arguments: u.input, result: output });
     }
     messages.push({ role: "user", content: toolResultBlocks });
