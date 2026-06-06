@@ -8,6 +8,7 @@ import type { EgressContext } from "./types";
 export type { EgressContext, EgressDecision, TenantClass, ValueKind } from "./types";
 export { isWithheld } from "./types";
 export { projectForModel, sha256Hex } from "./gate";
+export { projectStructural, projectResult, entityTypeForTool } from "./projection";
 export type { ModelMessage, ModelTool, ModelToolUse, ModelTurnResult } from "./provider";
 
 /** v1 ToolDefinition already uses Anthropic's `input_schema` shape — map 1:1. */
