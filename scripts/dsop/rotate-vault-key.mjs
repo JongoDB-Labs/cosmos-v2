@@ -28,10 +28,13 @@
 // DATABASE_URL already points at cosmos_app.)
 //
 // ── Scope ──
-// The vault-sealed columns are idp_connections.client_secret_enc (OIDC client secrets)
-// and connector_credentials.secret_enc (connector-layer external creds — Google OAuth
-// refresh tokens first). Both reuse the SAME keyring, so one re-wrap pass covers both —
-// see SEALED_COLUMNS below.
+// The vault-sealed columns are idp_connections.client_secret_enc (OIDC client secrets),
+// connector_credentials.secret_enc (connector-layer external creds — Google OAuth
+// refresh tokens first), webhooks.secret (the live HMAC signing key), and
+// mcp_servers.env_enc / mcp_servers.headers_enc (sealed MCP env/auth-header JSON).
+// All reuse the SAME keyring, so one re-wrap pass covers them all — see SEALED_COLUMNS
+// below. (webhooks.secret can hold a LEGACY plaintext value on a pre-sealing row; the
+// per-row guard below skips a non-envelope rather than failing the whole pass.)
 //
 // Env:
 //   DATABASE_URL          cosmos_app creds (SELECT + UPDATE on idp_connections).
@@ -53,18 +56,31 @@ import {
   activeKid,
   kidOf,
 } from "../../src/lib/crypto/vault.ts";
+import { isSealed } from "../../src/lib/crypto/field-seal.ts";
 
 const CHECK_ONLY = process.argv.includes("--check");
 
 // Every vault-sealed column the re-wrap must cover. Each entry: a table, its PK column,
-// and the sealed column. Both reuse the SAME vault keyring, so one pass migrates them all.
+// and the sealed column. All reuse the SAME vault keyring, so one pass migrates them all.
 //   - idp_connections.client_secret_enc   — per-tenant OIDC RP client secret (SSO).
 //   - connector_credentials.secret_enc     — connector-layer external credentials
 //                                            (Google OAuth refresh tokens first); the
 //                                            connector-layer TODO is now closed.
+//   - webhooks.secret                       — the live HMAC signing key. NOTE: a
+//                                            pre-sealing row can hold a LEGACY PLAINTEXT
+//                                            value (not a vault envelope); those are
+//                                            SKIPPED here (allowLegacyPlaintext) — they
+//                                            self-heal to sealed on the next dispatch, so
+//                                            failing the rotation on them would be wrong.
+//   - mcp_servers.env_enc / headers_enc     — sealed MCP env / auth-header JSON. Nullable
+//                                            and always written sealed, so no legacy
+//                                            plaintext path (allowLegacyPlaintext off).
 const SEALED_COLUMNS = [
   { table: "idp_connections", pk: "id", column: "client_secret_enc" },
   { table: "connector_credentials", pk: "id", column: "secret_enc" },
+  { table: "webhooks", pk: "id", column: "secret", allowLegacyPlaintext: true },
+  { table: "mcp_servers", pk: "id", column: "env_enc" },
+  { table: "mcp_servers", pk: "id", column: "headers_enc" },
 ];
 
 function reqEnv(name) {
@@ -76,7 +92,7 @@ function reqEnv(name) {
   return v;
 }
 
-async function rotateColumn(client, { table, pk, column }, active, summary) {
+async function rotateColumn(client, { table, pk, column, allowLegacyPlaintext }, active, summary) {
   // SELECT every sealed value. Re-wrap is per-row and order-independent.
   const { rows } = await client.query(
     `SELECT ${pk} AS pk, ${column} AS sealed FROM ${table} WHERE ${column} IS NOT NULL`,
@@ -84,6 +100,23 @@ async function rotateColumn(client, { table, pk, column }, active, summary) {
 
   for (const row of rows) {
     summary.scanned++;
+
+    // A column that can hold a LEGACY PLAINTEXT value (webhooks.secret on a pre-sealing
+    // row) is not a vault envelope yet — re-wrap doesn't apply (it self-heals to sealed
+    // on next use). Skip it; failing the whole rotation on a yet-to-drain plaintext
+    // would be wrong. Other columns are always sealed, so a non-envelope there is a hard
+    // error (never silently skip a secret).
+    if (!isSealed(row.sealed)) {
+      if (allowLegacyPlaintext) {
+        summary.legacyPlaintext++;
+        continue;
+      }
+      console.error(
+        `rotate-vault-key: ${table}.${column} pk=${row.pk} is not a vault envelope (unexpected legacy plaintext).`,
+      );
+      process.exit(1);
+    }
+
     let currentKid;
     try {
       currentKid = kidOf(row.sealed);
@@ -134,6 +167,7 @@ async function main() {
     scanned: 0,
     rewrapped: 0,
     alreadyActive: 0,
+    legacyPlaintext: 0, // legacy plaintext values skipped (self-heal on next use)
     nonActive: [], // [{table, column, pk, kid}] — secrets NOT yet on the active kid
   };
 
@@ -156,7 +190,7 @@ async function main() {
   console.error(
     `rotate-vault-key[${summary.mode}]: active kid="${active}" — ` +
       `scanned ${summary.scanned}, rewrapped ${summary.rewrapped}, alreadyActive ${summary.alreadyActive}, ` +
-      `onNonActiveKid ${remaining}.`,
+      `legacyPlaintext ${summary.legacyPlaintext}, onNonActiveKid ${remaining}.`,
   );
   if (remaining > 0) {
     for (const s of summary.nonActive) {
@@ -173,6 +207,7 @@ async function main() {
       scanned: summary.scanned,
       rewrapped: summary.rewrapped,
       alreadyActive: summary.alreadyActive,
+      legacyPlaintext: summary.legacyPlaintext,
       onNonActiveKid: remaining,
     }),
   );

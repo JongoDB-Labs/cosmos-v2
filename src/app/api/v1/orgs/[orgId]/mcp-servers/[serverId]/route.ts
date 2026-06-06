@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import { sealMcpJson } from "@/lib/integrations/mcp-secrets";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
@@ -105,13 +105,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.transport !== undefined && { transport: data.transport }),
         ...(data.command !== undefined && { command: data.command }),
         ...(data.args !== undefined && { args: data.args }),
-        ...(data.env !== undefined && {
-          env: data.env as Prisma.InputJsonValue,
-        }),
+        // env/headers are SEALED at rest (3.13.16): persist the vault envelope of
+        // JSON.stringify(map) into the *_enc columns (null when the map is empty).
+        ...(data.env !== undefined && { envEnc: sealMcpJson(data.env) }),
         ...(data.url !== undefined && { url: data.url }),
-        ...(data.headers !== undefined && {
-          headers: data.headers as Prisma.InputJsonValue,
-        }),
+        ...(data.headers !== undefined && { headersEnc: sealMcpJson(data.headers) }),
         ...(data.enabled !== undefined && { enabled: data.enabled }),
       },
     });
