@@ -18,6 +18,12 @@ import {
   rankOf,
   V2_ONLY_MODELS,
   EXCLUDED_GLOBAL_MODELS,
+  fkEdgesOf,
+  closureTargetTables,
+  discoverOrphanProbeTargets,
+  orphanProbeSql,
+  migratedTableSet,
+  BARE_USER_REF_COLUMNS,
   type ModelPlan,
 } from "./model-graph";
 
@@ -250,5 +256,148 @@ describe("rankOf — classification ordering (fail-closed)", () => {
     expect(rankOf("UNCLASSIFIED")).toBeLessThan(rankOf("FOUO"));
     expect(rankOf("FOUO")).toBeLessThan(rankOf("CUI"));
     expect(rankOf("CUI")).toBeLessThan(rankOf("CONFIDENTIAL"));
+  });
+});
+
+describe("fkEdgesOf — referential-closure edge derivation (C1 + C2)", () => {
+  it("WorkItem: hard FK to WorkItemType (C1 global parent) + bare user refs (C2)", () => {
+    const edges = fkEdgesOf("WorkItem");
+    const wit = edges.find((e) => e.fkColumn === "work_item_type_id");
+    expect(wit).toMatchObject({ targetModel: "WorkItemType", targetTable: "work_item_types", hardFk: true });
+    // bare user refs (no DMMF relation) — assignee_id + created_by_id → users
+    const assignee = edges.find((e) => e.fkColumn === "assignee_id");
+    const creator = edges.find((e) => e.fkColumn === "created_by_id");
+    expect(assignee).toMatchObject({ targetTable: "users", hardFk: false });
+    expect(creator).toMatchObject({ targetTable: "users", hardFk: false });
+  });
+
+  it("HomeWidget: owner_id is a HARD FK to users (relation exists), not a bare ref", () => {
+    const edges = fkEdgesOf("HomeWidget");
+    const owner = edges.find((e) => e.fkColumn === "owner_id");
+    expect(owner).toMatchObject({ targetModel: "User", targetTable: "users", hardFk: true });
+    // it must NOT also be listed as a bare ref (would be a duplicate edge)
+    expect(edges.filter((e) => e.fkColumn === "owner_id").length).toBe(1);
+  });
+
+  it("CycleCapacity: user_id is a HARD FK to users", () => {
+    const owner = fkEdgesOf("CycleCapacity").find((e) => e.fkColumn === "user_id");
+    expect(owner).toMatchObject({ targetTable: "users", hardFk: true });
+  });
+
+  it("DataClassification: applied_by_id is a bare user ref carried by closure", () => {
+    const e = fkEdgesOf("DataClassification").find((x) => x.fkColumn === "applied_by_id");
+    expect(e).toMatchObject({ targetModel: "User", targetTable: "users", hardFk: false });
+  });
+
+  it("the bare-user-ref map only lists columns WITHOUT a DMMF relation", () => {
+    // Cross-check: no bare-ref column is ALSO a hard FK on the same table (would duplicate).
+    for (const [table, cols] of BARE_USER_REF_COLUMNS) {
+      const plan = plans.find((p) => p.table === table);
+      if (!plan) continue;
+      const hard = new Set(fkEdgesOf(plan.model).filter((e) => e.hardFk).map((e) => e.fkColumn));
+      for (const c of cols) {
+        expect(hard.has(c), `${table}.${c} should be a BARE ref, not a hard FK`).toBe(false);
+      }
+    }
+  });
+});
+
+describe("closureTargetTables — the parent tables closure may fetch", () => {
+  it("includes users + the global-parent template tables", () => {
+    const targets = closureTargetTables(plans);
+    expect(targets.has("users")).toBe(true);
+    expect(targets.has("work_item_types")).toBe(true);
+    // users target tracks the single-id PK
+    expect(targets.get("users")?.pk).toBe("id");
+  });
+});
+
+describe("orphanProbeSql — generic dangling-FK detector", () => {
+  it("LEFT JOINs child→parent and finds non-null FKs with no parent", () => {
+    const sql = orphanProbeSql({
+      childTable: "work_items",
+      childColumn: "work_item_type_id",
+      parentTable: "work_item_types",
+      parentColumn: "id",
+      constraint: "fk_test",
+      hardFk: true,
+    });
+    expect(sql).toContain('FROM "work_items" child LEFT JOIN "work_item_types" parent');
+    expect(sql).toContain('child."work_item_type_id" = parent."id"');
+    expect(sql).toContain('child."work_item_type_id" IS NOT NULL AND parent."id" IS NULL');
+    expect(sql).toContain("LIMIT 1");
+  });
+});
+
+describe("discoverOrphanProbeTargets — catalog FKs + bare user refs", () => {
+  // Fake pg client returning a tiny pg_constraint result + zero rows for any other query.
+  function fakeClient(fkRows: Array<Record<string, unknown>>) {
+    return {
+      query: async (q: unknown) => {
+        const text = typeof q === "string" ? q : (q as { text: string }).text;
+        if (text.includes("pg_constraint")) return { rows: fkRows };
+        return { rows: [] };
+      },
+    } as unknown as Parameters<typeof discoverOrphanProbeTargets>[0];
+  }
+
+  it("includes a migrated-table catalog FK and the bare user refs; skips non-migrated children", async () => {
+    const targets = await discoverOrphanProbeTargets(
+      fakeClient([
+        {
+          constraint: "work_items_work_item_type_id_fkey",
+          child_table: "work_items",
+          parent_table: "work_item_types",
+          child_column: "work_item_type_id",
+          parent_column: "id",
+          nkeys: 1,
+        },
+        {
+          // a FK whose child is NOT a migrated table — must be skipped
+          constraint: "some_v2_only_fkey",
+          child_table: "egress_decisions",
+          parent_table: "users",
+          child_column: "user_id",
+          parent_column: "id",
+          nkeys: 1,
+        },
+      ]),
+      plans,
+    );
+    // the migrated catalog FK is present
+    expect(
+      targets.find((t) => t.childTable === "work_items" && t.childColumn === "work_item_type_id" && t.hardFk),
+    ).toBeTruthy();
+    // the non-migrated child FK is dropped
+    expect(targets.find((t) => t.childTable === "egress_decisions")).toBeUndefined();
+    // bare user refs are added (e.g. notes.author_id) with hardFk=false → users
+    const bare = targets.find((t) => t.childTable === "notes" && t.childColumn === "author_id");
+    expect(bare).toMatchObject({ parentTable: "users", hardFk: false });
+  });
+
+  it("skips composite FKs (probe handles single-column)", async () => {
+    const targets = await discoverOrphanProbeTargets(
+      fakeClient([
+        {
+          constraint: "composite_fkey",
+          child_table: "work_items",
+          parent_table: "work_item_types",
+          child_column: "work_item_type_id",
+          parent_column: "id",
+          nkeys: 2,
+        },
+      ]),
+      plans,
+    );
+    expect(targets.find((t) => t.constraint === "composite_fkey")).toBeUndefined();
+  });
+});
+
+describe("migratedTableSet", () => {
+  it("is the set of migrated physical tables", () => {
+    const s = migratedTableSet(plans);
+    expect(s.has("work_items")).toBe(true);
+    expect(s.has("users")).toBe(true);
+    expect(s.has("egress_decisions")).toBe(false); // v2-only, not migrated
   });
 });
