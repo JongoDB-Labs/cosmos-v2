@@ -16,11 +16,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ---------------------------------------------------------------------------
 // Hoisted spies — must be created before any vi.mock() factory executes.
 // ---------------------------------------------------------------------------
-const { callModel, executeTool, effectiveCeiling, logEgressDecision } = vi.hoisted(() => ({
+const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLikelyCui } = vi.hoisted(() => ({
   callModel: vi.fn(),
   executeTool: vi.fn(),
   effectiveCeiling: vi.fn(),
   logEgressDecision: vi.fn(),
+  // Classifier mock: default non-CUI; individual tests override for defense-topic prompts.
+  classifyLikelyCui: vi.fn().mockResolvedValue(false) as ReturnType<typeof vi.fn<() => Promise<boolean>>>,
 }));
 
 // Mock the provider — keeps the real runModelTurn + projectForModel in play;
@@ -38,6 +40,10 @@ vi.mock("@/lib/classification/effective", () => ({ effectiveCeiling }));
 
 // Mock the audit sink — avoids prisma during tests.
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
+
+// Mock the classifier — avoids the ONNX runtime (jsdom-incompatible Float32Array).
+// The classifier has its own dedicated node-env test for behavioral correctness.
+vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,6 +122,9 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
     executeTool.mockReset();
     effectiveCeiling.mockReset();
     logEgressDecision.mockReset();
+    // Reset call count + restore default (benign); tests that need a CUI hit override this.
+    classifyLikelyCui.mockReset();
+    classifyLikelyCui.mockResolvedValue(false);
   });
 
   // -------------------------------------------------------------------------
@@ -348,5 +357,71 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
     const turn1content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
     expect(turn1content).not.toContain("CUI//SP");
     expect(turn1content).toContain("w1"); // id survives structural projection
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase-3 classifier tripwire (gov-only, allow→deny, detector-only)
+  // -------------------------------------------------------------------------
+
+  // Case 12: gov + defense-topic prompt → classifier withholds it (unmarked CUI)
+  it("case 12 — gov defense-topic prompt (unmarked) is withheld by the classifier tripwire", async () => {
+    const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+    callModel.mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    // Classifier detects a defense-topic prompt as CUI-likely.
+    classifyLikelyCui.mockResolvedValue(true);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(
+      loopOpts("gov", { initialPrompt: "describe the weapon system targeting parameters and kill chain" }),
+    );
+
+    expect(callModel).toHaveBeenCalledTimes(1);
+    const messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    // Classifier withheld the unmarked-but-defense-topic prompt.
+    expect(userMsg?.content).toBe("[withheld: classifier]");
+    expect(String(userMsg?.content)).not.toContain("kill chain");
+  });
+
+  // Case 13: gov + benign prompt → classifier does NOT withhold it (no false positive)
+  it("case 13 — gov benign prompt flows verbatim (classifier does not withhold)", async () => {
+    const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+    callModel.mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    // Classifier returns false for benign content (default mock value).
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov", { initialPrompt: "please schedule a marketing standup for next tuesday" }));
+
+    expect(callModel).toHaveBeenCalledTimes(1);
+    const messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    // Benign gov prompt must not be withheld.
+    expect(userMsg?.content).toBe("please schedule a marketing standup for next tuesday");
+  });
+
+  // Case 14: commercial + defense-topic prompt → classifier is NOT invoked (gov-only)
+  it("case 14 — commercial defense-topic prompt is UNAFFECTED by the classifier (gov-only gate)", async () => {
+    const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+    callModel.mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    // Classifier would return true, but it must never be called for a commercial tenant.
+    classifyLikelyCui.mockResolvedValue(true);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(
+      loopOpts("commercial", { initialPrompt: "describe the weapon system targeting parameters and kill chain" }),
+    );
+
+    expect(callModel).toHaveBeenCalledTimes(1);
+    const messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    // Commercial tenant: defense-topic prompt flows verbatim (classifier is gov-only).
+    expect(userMsg?.content).toBe(
+      "describe the weapon system targeting parameters and kill chain",
+    );
+    // The classifier must have been called 0 times (gov-only guard).
+    expect(classifyLikelyCui).not.toHaveBeenCalled();
   });
 });
