@@ -47,7 +47,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const result = await runAgentLoop({
       orgId,
       userId: ctx.userId,
-      tenantClass: org.tenantClass === "GOV" ? "gov" : "commercial",
+      // fail-closed: only an explicit COMMERCIAL org gets the permissive class.
+      tenantClass: org.tenantClass === "COMMERCIAL" ? "commercial" : "gov",
       conversationId: `meeting:${meetingId}`,
       systemPrompt: SUMMARY_SYSTEM_PROMPT,
       initialPrompt: userPrompt,
