@@ -1,0 +1,238 @@
+// scripts/cutover/lib/model-graph.test.ts
+//
+// Unit tests for the schema-driven migration plan. These run against the REAL DMMF
+// (pure, no DB) so they assert the actual derived classification of known models —
+// append-only vs mutable, money columns, and org-scope paths (DIRECT / PARENT / ROOT
+// / MEMBER) — exactly as the export/import/verify steps will consume them.
+//
+// resolveColumns() (which needs a live information_schema) is exercised against a tiny
+// fake pg client so the column-stripping logic (generated / search_vector / db-only) is
+// covered without a database.
+
+import { describe, it, expect } from "vitest";
+import {
+  buildModelPlans,
+  modelPlanByName,
+  buildScopedSelect,
+  resolveColumns,
+  rankOf,
+  V2_ONLY_MODELS,
+  EXCLUDED_GLOBAL_MODELS,
+  type ModelPlan,
+} from "./model-graph";
+
+const plans = buildModelPlans();
+const byName = modelPlanByName();
+
+function plan(name: string): ModelPlan {
+  const p = byName.get(name);
+  if (!p) throw new Error(`expected ${name} to be a migratable model`);
+  return p;
+}
+
+describe("buildModelPlans — classification", () => {
+  it("derives a non-trivial set of org-scoped models (the shared business graph)", () => {
+    // The shared 69-ish org-scoped models minus the excluded globals; not hardcoded but
+    // sanity-bounded so a derivation regression (e.g. dropping all PARENT models) fails.
+    expect(plans.length).toBeGreaterThan(50);
+    expect(plans.length).toBeLessThan(75);
+  });
+
+  it("excludes the 5 v2-only models (no v1 source)", () => {
+    for (const name of V2_ONLY_MODELS) {
+      expect(byName.has(name)).toBe(false);
+    }
+  });
+
+  it("excludes user-global / ephemeral non-tenant tables", () => {
+    for (const name of EXCLUDED_GLOBAL_MODELS) {
+      expect(byName.has(name)).toBe(false);
+    }
+  });
+
+  it("never includes _prisma_migrations (not a DMMF model)", () => {
+    expect(plans.some((p) => p.table === "_prisma_migrations")).toBe(false);
+  });
+
+  it("ChatMessage: append-only, PARENT-scoped via chat_channels.org_id", () => {
+    const p = plan("ChatMessage");
+    expect(p.table).toBe("chat_messages");
+    expect(p.appendOnly).toBe(true); // no updated_at
+    expect(p.updatedAtColumn).toBeNull();
+    expect(p.scope.kind).toBe("PARENT");
+    expect(p.scope.hops?.[0]).toMatchObject({
+      fkColumn: "channel_id",
+      parentTable: "chat_channels",
+      parentPkColumn: "id",
+    });
+    expect(p.scope.parentOrgIdColumn).toBe("org_id");
+  });
+
+  it("ChatMessageReaction: append-only, multi-hop PARENT (message → channel → org)", () => {
+    const p = plan("ChatMessageReaction");
+    expect(p.appendOnly).toBe(true);
+    expect(p.scope.kind).toBe("PARENT");
+    expect(p.scope.hops?.length).toBe(2);
+    expect(p.scope.hops?.[0].parentTable).toBe("chat_messages");
+    expect(p.scope.hops?.[1].parentTable).toBe("chat_channels");
+    expect(p.scope.parentOrgIdColumn).toBe("org_id");
+  });
+
+  it("WorkItem: MUTABLE (has updated_at), DIRECT org_id", () => {
+    const p = plan("WorkItem");
+    expect(p.appendOnly).toBe(false);
+    expect(p.updatedAtColumn).toBe("updated_at");
+    expect(p.scope.kind).toBe("DIRECT");
+    expect(p.scope.orgIdColumn).toBe("org_id");
+    expect(p.moneyColumns).toEqual([]); // work items carry no money
+  });
+
+  it("JournalLine: append-only, DIRECT org_id, money column `amount`", () => {
+    const p = plan("JournalLine");
+    expect(p.appendOnly).toBe(true);
+    expect(p.updatedAtColumn).toBeNull();
+    expect(p.scope.kind).toBe("DIRECT");
+    expect(p.moneyColumns).toEqual(["amount"]);
+  });
+
+  it("Revenue: a model with a money column (DIRECT, mutable)", () => {
+    const p = plan("Revenue");
+    expect(p.moneyColumns).toEqual(["amount"]);
+    expect(p.scope.kind).toBe("DIRECT");
+    expect(p.appendOnly).toBe(false);
+  });
+
+  it("MeetingAttendee: a model org-scoped via a PARENT (sync_meetings.org_id)", () => {
+    const p = plan("MeetingAttendee");
+    expect(p.scope.kind).toBe("PARENT");
+    expect(p.scope.hops?.[0]).toMatchObject({
+      fkColumn: "meeting_id",
+      parentTable: "sync_meetings",
+    });
+    expect(p.scope.parentOrgIdColumn).toBe("org_id");
+  });
+
+  it("Organization: the ROOT, scoped by id", () => {
+    const p = plan("Organization");
+    expect(p.scope.kind).toBe("ROOT");
+    expect(p.table).toBe("organizations");
+  });
+
+  it("User: MEMBER-scoped (via org_members)", () => {
+    const p = plan("User");
+    expect(p.scope.kind).toBe("MEMBER");
+    expect(p.table).toBe("users");
+  });
+
+  it("orders ROOT then MEMBER first (FK-friendly read order)", () => {
+    expect(plans[0].model).toBe("Organization");
+    expect(plans[1].model).toBe("User");
+  });
+
+  it("most plans have a single `id` PK; the join table has a composite PK", () => {
+    const composite = plans.filter((p) => p.pk.length > 1);
+    expect(composite.map((p) => p.model)).toEqual(["OrgMemberWorkRole"]);
+    expect(composite[0].pk).toEqual(["org_member_id", "work_role_id"]);
+    expect(composite[0].appendOnly).toBe(true); // join table has no updated_at
+    for (const p of plans) {
+      if (p.pk.length === 1) expect(p.pk[0]).toBe("id");
+    }
+  });
+});
+
+describe("buildScopedSelect — org-strict SQL", () => {
+  const cols = ["id", "org_id", "title"];
+
+  it("ROOT scopes by id = $1", () => {
+    const { sql, params } = buildScopedSelect(plan("Organization"), ["id", "name"], "ORG");
+    expect(sql).toContain('WHERE "organizations"."id" = $1');
+    expect(params).toEqual(["ORG"]);
+  });
+
+  it("MEMBER scopes via org_members subquery", () => {
+    const { sql, params } = buildScopedSelect(plan("User"), ["id", "email"], "ORG");
+    expect(sql).toContain('"users"."id" IN (SELECT "user_id" FROM "org_members" WHERE "org_id" = $1)');
+    expect(params).toEqual(["ORG"]);
+  });
+
+  it("DIRECT scopes by the table's own org_id", () => {
+    const { sql, params } = buildScopedSelect(plan("WorkItem"), cols, "ORG");
+    expect(sql).toContain('WHERE "work_items"."org_id" = $1');
+    expect(sql).toContain('ORDER BY "work_items"."id" ASC');
+    expect(params).toEqual(["ORG"]);
+  });
+
+  it("PARENT joins up the FK chain and scopes the top ancestor's org_id", () => {
+    const { sql, params } = buildScopedSelect(plan("ChatMessageReaction"), ["id"], "ORG");
+    // two INNER JOINs: reactions → chat_messages → chat_channels
+    expect(sql).toContain('INNER JOIN "chat_messages"');
+    expect(sql).toContain('INNER JOIN "chat_channels"');
+    // org filter is on the TOP ancestor alias, never on the leaf table
+    expect(sql).toMatch(/WHERE "__p1"\."org_id" = \$1/);
+    expect(params).toEqual(["ORG"]);
+  });
+
+  it("never emits a query without an org filter (no unscoped reads)", () => {
+    for (const p of plans) {
+      const { sql } = buildScopedSelect(p, ["id"], "ORG");
+      expect(sql).toMatch(/= \$1|IN \(SELECT/);
+    }
+  });
+});
+
+describe("resolveColumns — strips generated / search_vector / db-only columns", () => {
+  // A fake pg client returning a column list for chat_messages incl. the GENERATED
+  // content_tsv and a hypothetical db-only column.
+  function fakeClient(rows: { column_name: string; is_generated: string }[]) {
+    return {
+      query: async () => ({ rows }),
+    } as unknown as Parameters<typeof resolveColumns>[0];
+  }
+
+  it("drops content_tsv (GENERATED ALWAYS) and keeps real scalars", async () => {
+    const client = fakeClient([
+      { column_name: "id", is_generated: "NEVER" },
+      { column_name: "channel_id", is_generated: "NEVER" },
+      { column_name: "content", is_generated: "NEVER" },
+      { column_name: "content_tsv", is_generated: "ALWAYS" },
+      { column_name: "created_at", is_generated: "NEVER" },
+    ]);
+    const cp = await resolveColumns(client, "ChatMessage");
+    expect(cp.columns).toContain("id");
+    expect(cp.columns).toContain("content");
+    expect(cp.columns).not.toContain("content_tsv");
+    expect(cp.stripped.find((s) => s.column === "content_tsv")?.reason).toMatch(/generated/);
+  });
+
+  it("drops search_vector and the db-only `embedding` (not a DMMF scalar)", async () => {
+    const client = fakeClient([
+      { column_name: "id", is_generated: "NEVER" },
+      { column_name: "org_id", is_generated: "NEVER" },
+      { column_name: "title", is_generated: "NEVER" },
+      { column_name: "search_vector", is_generated: "NEVER" },
+      { column_name: "embedding", is_generated: "NEVER" },
+      { column_name: "updated_at", is_generated: "NEVER" },
+    ]);
+    const cp = await resolveColumns(client, "WorkItem");
+    expect(cp.columns).toContain("title");
+    expect(cp.columns).not.toContain("search_vector");
+    expect(cp.columns).not.toContain("embedding");
+    const reasons = Object.fromEntries(cp.stripped.map((s) => [s.column, s.reason]));
+    expect(reasons["search_vector"]).toMatch(/search_vector/);
+    expect(reasons["embedding"]).toMatch(/not a DMMF scalar/);
+  });
+
+  it("throws if the PK is somehow absent (defensive invariant)", async () => {
+    const client = fakeClient([{ column_name: "org_id", is_generated: "NEVER" }]);
+    await expect(resolveColumns(client, "WorkItem")).rejects.toThrow(/PK/);
+  });
+});
+
+describe("rankOf — classification ordering (fail-closed)", () => {
+  it("orders PUBLIC < UNCLASSIFIED < FOUO < CUI < CONFIDENTIAL", () => {
+    expect(rankOf("PUBLIC")).toBeLessThan(rankOf("UNCLASSIFIED"));
+    expect(rankOf("UNCLASSIFIED")).toBeLessThan(rankOf("FOUO"));
+    expect(rankOf("FOUO")).toBeLessThan(rankOf("CUI"));
+    expect(rankOf("CUI")).toBeLessThan(rankOf("CONFIDENTIAL"));
+  });
+});
