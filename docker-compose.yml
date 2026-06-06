@@ -159,6 +159,13 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cosmos-app}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-cosmos-app-secret}
       NODE_EXTRA_CA_CERTS: /etc/cosmos/minio-ca/public.crt
+      # OBSERVE-ONLY OTel export (SI-4). Points at the in-boundary otel-collector. The
+      # exporter TOLERATES the collector being absent: when the `observability` profile is
+      # NOT up, export attempts log + retry and the app keeps running (base `up` is lean).
+      # In gov, repoint OTEL_EXPORTER_OTLP_ENDPOINT at an enterprise OTel/SIEM backend.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: cosmos-v2
     volumes:
       - cosmos-minio-certs:/etc/cosmos/minio-ca:ro
     depends_on:
@@ -261,11 +268,105 @@ services:
       cosmos-postgres:
         condition: service_healthy
 
+  # ── Observability stack (SI-4 / 800-171 3.14.6-3.14.7) — all under the `observability`
+  # profile so base `up` stays lean (like the `ops` profile). All OSS, digest-pinned. The
+  # collector OTLP ports are NOT published to the host (internal compose network is enough);
+  # only the human UIs (Grafana / Jaeger / Prometheus) are exposed, on FREE host ports
+  # (v1 holds 8080; v2 caddy 8090; MinIO 9001). Gov points these images — or just the
+  # collector exporters — at an enterprise OTel/SIEM backend; only endpoints change. ───────
+
+  # OTel Collector (contrib): receives OTLP from the app, exports metrics to a Prometheus
+  # scrape endpoint (:8889) + traces to Jaeger (OTLP). No host ports — internal only.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib@sha256:e39311df1f3d941923c00da79ac7ba6269124a870ee87e3c3ad24d60f8aee4d2
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./compose/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    healthcheck:
+      # The health_check extension serves 200 on :13133. wget ships in the contrib image.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Prometheus: scrapes the collector (app metrics) + sidecars; holds the alert rules.
+  prometheus:
+    image: prom/prometheus@sha256:6927e0919a144aa7616fd0137d4816816d42f6b816de3af269ab065250859a62
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./compose/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./compose/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - cosmos-prometheus-data:/prometheus
+    depends_on:
+      - otel-collector
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Jaeger all-in-one: trace store + UI. OTLP receiver enabled so the collector can export.
+  jaeger:
+    image: jaegertracing/all-in-one@sha256:34e3d18e0f2eeb9abd9bb53d0dc7abaf2a5b1c884fdca575093af3126811a9d3
+    profiles: ["observability"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      # Jaeger UI only. The OTLP ingest ports (4317/4318) stay internal — the collector
+      # reaches them over the compose network.
+      - "16686:16686"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Grafana: provisioned Prometheus + Jaeger datasources + the COSMOS dashboard.
+  grafana:
+    image: grafana/grafana@sha256:8b37a2f028f164ce7b9889e1765b9d6ee23fec80f871d156fbf436d6198d32b7
+    profiles: ["observability"]
+    environment:
+      # Admin creds from env (placeholders in .env.example; NEVER commit real values).
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # In-boundary, single-operator: no sign-up, no anonymous, no phone-home.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "3009:3000"
+    volumes:
+      - ./compose/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./compose/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - cosmos-grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - jaeger
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   cosmos-pgdata:
   cosmos-minio-data:
   cosmos-minio-certs:
   cosmos-pgsock:
+  cosmos-prometheus-data:
+  cosmos-grafana-data:
   # pgBackRest state dir (stanza ledger + lock state + the .stanza-ready marker). MUST be
   # a named volume so the marker survives container recreate — see the mount comment on
   # cosmos-postgres (FIX: WAL silently dropped post-recreate if this is on the writable layer).

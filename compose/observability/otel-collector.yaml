@@ -1,0 +1,62 @@
+# OpenTelemetry Collector (contrib) config — in-boundary telemetry fan-out (SI-4).
+#
+# Receives OTLP from the cosmos app (traces + the custom metric contract) and fans it out:
+#   - metrics -> a Prometheus exporter scraped by the in-boundary Prometheus on :8889
+#   - traces  -> Jaeger (OTLP) for the trace store + UI
+#
+# OBSERVE-ONLY: the collector only moves telemetry already stripped of CUI by the app
+# (counts/enums/hashes/latency). It does not reach back into the app or alter any decision.
+# In gov, point the exporters at an enterprise OTel/SIEM backend — only this file changes.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Cap memory so a telemetry spike can never starve the collector (it is in-boundary,
+  # next to the chokepoint — it must stay cheap and never backpressure the app).
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  # Prometheus scrape target — renders OTLP metrics at :8889/metrics. Counters get the
+  # _total suffix and dots become underscores (cosmos.egress.decisions ->
+  # cosmos_egress_decisions_total). resource_to_telemetry_conversion surfaces resource
+  # attributes (e.g. service_name="cosmos-v2") as metric labels for dashboard filtering.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+  # Traces -> Jaeger's OTLP/gRPC ingest. tls.insecure: in-boundary compose network only.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+  telemetry:
+    logs:
+      level: info

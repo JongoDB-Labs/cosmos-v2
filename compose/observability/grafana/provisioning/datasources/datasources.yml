@@ -1,0 +1,22 @@
+# Grafana datasource provisioning — in-boundary Prometheus + Jaeger (SI-4).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: cosmos-prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      # Link metrics exemplars to traces in Jaeger (correlate a spike to a trace).
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: cosmos-jaeger
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    uid: cosmos-jaeger
+    url: http://jaeger:16686
