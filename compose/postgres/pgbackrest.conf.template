@@ -1,0 +1,48 @@
+# pgBackRest config TEMPLATE. render-pgbackrest-conf.sh substitutes the __VARS__
+# from env at container start (so no S3 key / cipher pass is baked into the image)
+# and writes /etc/pgbackrest/pgbackrest.conf. See docs/runbooks/backup-dr.md.
+[global]
+# repo1 = the in-boundary MinIO S3 bucket. In gov, point repo1-s3-endpoint at the
+# GovCloud / Assured-Workloads S3 endpoint and flip repo1-s3-uri-style + TLS on —
+# only these endpoint/cred lines change.
+repo1-type=s3
+repo1-s3-endpoint=__REPO1_S3_ENDPOINT__
+repo1-s3-bucket=cosmos-pgbackrest
+repo1-s3-region=us-east-1
+repo1-s3-key=__REPO1_S3_KEY__
+repo1-s3-key-secret=__REPO1_S3_KEY_SECRET__
+# MinIO serves path-style (bucket in the path, not the host); required here.
+repo1-s3-uri-style=path
+# Internal compose link to MinIO is plain HTTP on an isolated network; boundary TLS is
+# at Caddy. In PROD (GovCloud) set this to n and present the real S3 TLS chain.
+repo1-storage-verify-tls=n
+
+# Repo-level encryption: every backup + WAL segment is AES-256-CBC encrypted at rest
+# in the bucket, independent of MinIO's own SSE (defense in depth, 3.8.9). The pass
+# comes from env — LOSING IT MAKES BACKUPS UNRECOVERABLE.
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=__REPO1_CIPHER_PASS__
+
+# Retention: keep 4 full backups (with full weekly that's ~1 month of restore points;
+# WAL needed to make older fulls consistent is auto-expired with them).
+repo1-retention-full=4
+
+# WAL archiving knobs.
+archive-async=y
+spool-path=/var/spool/pgbackrest
+log-path=/var/log/pgbackrest
+log-level-console=info
+log-level-file=detail
+# A spinning-rust-friendly compression; zstd is fast + small.
+compress-type=zst
+compress-level=3
+# Process parallelism for backup/restore.
+process-max=2
+# Don't error if a WAL push briefly races the stanza on first boot.
+start-fast=y
+
+[cosmos]
+# The stanza maps to this cluster's data directory + port.
+pg1-path=/var/lib/postgresql/data
+pg1-port=5432
+pg1-host-user=postgres
