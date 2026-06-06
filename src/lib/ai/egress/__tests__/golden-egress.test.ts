@@ -1,11 +1,15 @@
 // src/lib/ai/egress/__tests__/golden-egress.test.ts
 //
 // End-to-end golden-egress suite: drives `runAgentLoop` with the REAL gate
-// (`projectForModel`) but mocked boundaries (provider, DB, tool-executor) and
-// asserts on what actually reaches the model via `callModel` on the 2nd turn.
+// (`projectForModel`) + the REAL structural projection (`projectResult`) but
+// mocked boundaries (provider, DB, tool-executor) and asserts on what actually
+// reaches the model via `callModel` on the 2nd turn.
 //
-// This is the Phase-1 invariant harness — it verifies the deterministic MAC
-// ceiling at the loop level, not just at the unit level.
+// Phase-1 verified the deterministic MAC ceiling (expose / withhold). Phase-2
+// upgrades the WITHHOLD branch from a blanket `{withheld:true}` to a STRUCTURAL
+// projection: the model can address entities by `id` (+ allowlisted enums/dates)
+// but never sees free-text/content/CUI. These cases pin that behavior on the
+// REAL executor wrapper shapes (`{count, items:[...]}`, `{count, results:[...]}`).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -60,13 +64,11 @@ function loopOpts(
  * messages array passed to `callModel` on the second turn.
  *
  * The loop appends: { role: "user", content: [{ type: "tool_result", tool_use_id, content: string }] }
- * The `content` field on each block is `JSON.stringify(projected.modelValue)`.
+ * The `content` field on each block is `JSON.stringify(modelView)`.
  */
 function extractToolResultContent(callModelMessages: unknown[]): string {
-  // Find the last user message — it is the tool-result message appended by the loop.
   const userMsgs = (callModelMessages as Array<{ role: string; content: unknown }>)
     .filter((m) => m.role === "user");
-  // The tool_result message is after the initial user message (which is a plain string).
   const toolResultMsg = userMsgs.find(
     (m) => Array.isArray(m.content) &&
       (m.content as Array<{ type: string }>).some((b) => b.type === "tool_result"),
@@ -79,125 +81,186 @@ function extractToolResultContent(callModelMessages: unknown[]): string {
     .join(" ");
 }
 
-// ---------------------------------------------------------------------------
-// Setup: a single tool_use on turn 1, then end_turn on turn 2.
-// ---------------------------------------------------------------------------
-const TOOL_USE_TURN = {
-  text: "",
-  toolUses: [{ id: "tu-g1", name: "list_work_items", input: {} }],
-  stopReason: "tool_use",
+/** Build the two model turns: one tool_use, then end_turn. */
+function turns(toolName: string) {
+  const toolUse = {
+    text: "",
+    toolUses: [{ id: "tu-g1", name: toolName, input: {} }],
+    stopReason: "tool_use",
+  };
+  const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+  return { toolUse, end };
+}
+
+// A real `listWorkItems` wrapper carrying a CUI title.
+const WORK_ITEM_RESULT = {
+  count: 1,
+  items: [{ id: "w1", title: "CUI//SP", status: "DONE", columnKey: "done" }],
 };
-const END_TURN = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+// A real `semanticSearch` wrapper carrying a CUI snippet.
+const SEARCH_RESULT = {
+  query: "kill chain",
+  count: 1,
+  results: [{ id: "n1", type: "note", similarity: 0.8, title: "CUI title", snippet: "CUI body" }],
+};
+// A real `getFinanceSummary`-style wrapper (no entity mapping ⇒ full withhold).
+const FINANCE_RESULT = { total: 5000, currency: "USD" };
 
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 
-describe("golden-egress: MAC ceiling end-to-end via runAgentLoop", () => {
+describe("golden-egress: MAC ceiling + structural projection end-to-end via runAgentLoop", () => {
   beforeEach(() => {
     callModel.mockReset();
     executeTool.mockReset();
     effectiveCeiling.mockReset();
     logEgressDecision.mockReset();
-
-    // Default callModel: tool_use on first call, end_turn on second.
-    callModel.mockResolvedValueOnce(TOOL_USE_TURN).mockResolvedValueOnce(END_TURN);
   });
 
   // -------------------------------------------------------------------------
-  // Case 1: CUI withheld for a COMMERCIAL org
+  // Case 1: gov + CUI ceiling → structural projection (id/status, NOT the title)
   // -------------------------------------------------------------------------
-  it("case 1 — CUI tool result is WITHHELD for a commercial org (cross-domain invariant)", async () => {
+  it("case 1 — gov + list_work_items (CUI) → model sees id+status, NOT the CUI title", async () => {
+    const { toolUse, end } = turns("list_work_items");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
     effectiveCeiling.mockResolvedValue("CUI");
-    executeTool.mockResolvedValue("CUI//SP secret");
-
-    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
-    await runAgentLoop(loopOpts("commercial"));
-
-    expect(callModel).toHaveBeenCalledTimes(2);
-    const secondMessages = callModel.mock.calls[1][0].messages as unknown[];
-    const toolResultContent = extractToolResultContent(secondMessages);
-
-    // The raw CUI string must NOT reach the model.
-    expect(toolResultContent).not.toContain("CUI//SP secret");
-    // A withheld marker must be present instead.
-    expect(toolResultContent).toContain("withheld");
-  });
-
-  // -------------------------------------------------------------------------
-  // Case 2: Unclassified EXPOSED for commercial
-  // -------------------------------------------------------------------------
-  it("case 2 — UNCLASSIFIED tool result is EXPOSED for a commercial org", async () => {
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
-    executeTool.mockResolvedValue("3 open tasks");
-
-    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
-    await runAgentLoop(loopOpts("commercial"));
-
-    expect(callModel).toHaveBeenCalledTimes(2);
-    const secondMessages = callModel.mock.calls[1][0].messages as unknown[];
-    const toolResultContent = extractToolResultContent(secondMessages);
-
-    // Unclassified data must be visible to the model for a commercial org.
-    expect(toolResultContent).toContain("3 open tasks");
-  });
-
-  // -------------------------------------------------------------------------
-  // Case 3: Unclassified WITHHELD for gov (default-deny)
-  // -------------------------------------------------------------------------
-  it("case 3 — UNCLASSIFIED tool result is WITHHELD for a gov org (default-deny)", async () => {
-    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
-    executeTool.mockResolvedValue("3 open tasks");
+    executeTool.mockResolvedValue(WORK_ITEM_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
     await runAgentLoop(loopOpts("gov"));
 
     expect(callModel).toHaveBeenCalledTimes(2);
-    const secondMessages = callModel.mock.calls[1][0].messages as unknown[];
-    const toolResultContent = extractToolResultContent(secondMessages);
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
 
-    // Gov tenant default-denies ALL data regardless of classification.
-    expect(toolResultContent).not.toContain("3 open tasks");
-    expect(toolResultContent).toContain("withheld");
+    // Structural identifiers + count survive…
+    expect(content).toContain("w1");
+    expect(content).toContain("DONE");
+    expect(content).toContain("count");
+    // …but the CUI title + free-text columnKey never reach the model.
+    expect(content).not.toContain("CUI//SP");
+    expect(content).not.toContain("\"done\""); // columnKey value dropped (status "DONE" stays)
   });
 
   // -------------------------------------------------------------------------
-  // Case 4: Fail-closed at ≥FOUO regardless of tenant
+  // Case 2: commercial + CUI ceiling → SAME structural-only (mandatory ≥FOUO ceiling)
   // -------------------------------------------------------------------------
-  it("case 4 — FOUO ceiling is WITHHELD for commercial (fail-closed at ≥FOUO)", async () => {
-    effectiveCeiling.mockResolvedValue("FOUO");
-    executeTool.mockResolvedValue("sensitive operational data");
+  it("case 2 — commercial + list_work_items (CUI) → structural-only too (mandatory ceiling)", async () => {
+    const { toolUse, end } = turns("list_work_items");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("CUI");
+    executeTool.mockResolvedValue(WORK_ITEM_RESULT);
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
     await runAgentLoop(loopOpts("commercial"));
 
-    expect(callModel).toHaveBeenCalledTimes(2);
-    const secondMessages = callModel.mock.calls[1][0].messages as unknown[];
-    const toolResultContent = extractToolResultContent(secondMessages);
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
 
-    // FOUO is >= the FOUO threshold: must be withheld for commercial too.
-    expect(toolResultContent).not.toContain("sensitive operational data");
-    expect(toolResultContent).toContain("withheld");
+    expect(content).toContain("w1");
+    expect(content).toContain("DONE");
+    // CUI ceiling withholds the title even for a commercial tenant.
+    expect(content).not.toContain("CUI//SP");
   });
 
   // -------------------------------------------------------------------------
-  // Case 5: Error payload carrying a CUI marker is not echoed
+  // Case 3: commercial + UNCLASSIFIED → FULL exposure (title present)
   // -------------------------------------------------------------------------
-  it("case 5 — error payload with CUI marker is NOT echoed to the model", async () => {
+  it("case 3 — commercial + list_work_items (UNCLASSIFIED) → FULL value incl. title", async () => {
+    const { toolUse, end } = turns("list_work_items");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    executeTool.mockResolvedValue(WORK_ITEM_RESULT);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("commercial"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+
+    // Below the FOUO ceiling, a commercial tenant sees the full value, title included.
+    expect(content).toContain("CUI//SP");
+    expect(content).toContain("w1");
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 4: gov + UNCLASSIFIED → STILL structural-only (gov default-deny)
+  // -------------------------------------------------------------------------
+  it("case 4 — gov + list_work_items (UNCLASSIFIED) → structural-only (gov default-deny)", async () => {
+    const { toolUse, end } = turns("list_work_items");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    executeTool.mockResolvedValue(WORK_ITEM_RESULT);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+
+    // Gov default-denies the full value even at UNCLASSIFIED → structural only.
+    expect(content).toContain("w1");
+    expect(content).not.toContain("CUI//SP");
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 5: gov + semantic_search → id/type/similarity, NEVER the snippet
+  // -------------------------------------------------------------------------
+  it("case 5 — gov + semantic_search → model sees id/type/similarity, NOT the CUI snippet", async () => {
+    const { toolUse, end } = turns("semantic_search");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
     effectiveCeiling.mockResolvedValue("CUI");
-    // The tool-executor returns an error object containing a CUI token.
+    executeTool.mockResolvedValue(SEARCH_RESULT);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+
+    expect(content).toContain("n1");
+    expect(content).toContain("note");
+    expect(content).toContain("0.8");
+    // The snippet/title/query free-text must never reach the model.
+    expect(content).not.toContain("CUI body");
+    expect(content).not.toContain("CUI title");
+    expect(content).not.toContain("kill chain"); // echoed `query` wrapper field dropped
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 6: gov + get_finance_summary → FULL withhold (no allowlist for finance)
+  // -------------------------------------------------------------------------
+  it("case 6 — gov + get_finance_summary → FULL withhold, no structural/numeric leak", async () => {
+    const { toolUse, end } = turns("get_finance_summary");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("CUI");
+    executeTool.mockResolvedValue(FINANCE_RESULT);
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+
+    // No entity mapping ⇒ full withhold; even the (non-CUI) total must not leak.
+    expect(content).toContain("withheld");
+    expect(content).not.toContain("5000");
+    expect(content).not.toContain("USD");
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 7: error payload with a CUI marker on a CUI ceiling → not echoed
+  // -------------------------------------------------------------------------
+  it("case 7 — error payload with CUI marker (CUI ceiling) is NOT echoed to the model", async () => {
+    const { toolUse, end } = turns("list_work_items");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("CUI");
+    // An error object whose message carries a CUI token.
     executeTool.mockResolvedValue({ error: "failed near CUI//token-XYZ" });
 
     const { runAgentLoop } = await import("@/lib/ai/agent-loop");
     await runAgentLoop(loopOpts("commercial"));
 
-    expect(callModel).toHaveBeenCalledTimes(2);
-    const secondMessages = callModel.mock.calls[1][0].messages as unknown[];
-    const toolResultContent = extractToolResultContent(secondMessages);
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
 
-    // The CUI token in the error must NOT reach the model — the entire result
-    // is withheld because ceiling = CUI (≥ FOUO threshold).
-    expect(toolResultContent).not.toContain("CUI//token-XYZ");
-    expect(toolResultContent).toContain("withheld");
+    // ceiling = CUI (≥ FOUO) → withheld; projectResult drops the free-text `error`
+    // string (no allowlisted scalar / array survives) so the token never reaches
+    // the model.
+    expect(content).not.toContain("CUI//token-XYZ");
   });
 });
