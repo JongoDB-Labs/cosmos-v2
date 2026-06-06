@@ -1,7 +1,10 @@
 name: cosmos-v2
 services:
   cosmos-postgres:
-    image: postgres:16
+    # pgvector-enabled Postgres: the 20260606040000_add_pgvector migration runs
+    # `CREATE EXTENSION vector` + adds vector(384) columns + HNSW indexes, which
+    # the stock postgres:16 image can't satisfy.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: cosmos
       POSTGRES_PASSWORD: cosmos
