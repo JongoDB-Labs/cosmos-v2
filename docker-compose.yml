@@ -36,8 +36,14 @@ services:
       - max_wal_senders=3
       - -c
       - archive_timeout=300
+      # Place the Unix socket on a shared volume so the cosmos-backup one-shot can run a
+      # local-mode pgBackRest backup (reads datadir from the shared pgdata volume +
+      # connects to PG over this socket) without a TLS/SSH pgBackRest server.
+      - -c
+      - unix_socket_directories=/var/run/postgresql,/var/run/cosmos-pgsock
     volumes:
       - cosmos-pgdata:/var/lib/postgresql/data
+      - cosmos-pgsock:/var/run/cosmos-pgsock
       # init scripts run ONCE at first DB init (empty volume), before migrations.
       - ./compose/init:/docker-entrypoint-initdb.d:ro
     depends_on:
@@ -151,9 +157,14 @@ services:
       PGBACKREST_REPO1_S3_KEY_SECRET: ${S3_SECRET_KEY:-cosmos-app-secret}
       PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_CIPHER_PASS:-change-me-backup-cipher}
       PGBACKREST_REPO1_S3_ENDPOINT: ${S3_ENDPOINT_HOST:-cosmos-minio:9000}
-      PGBACKREST_PGHOST: cosmos-postgres
+      # libpq connects over the shared Unix socket (pg_backup_start/stop); files are
+      # read locally from the shared pgdata volume.
+      PGBACKREST_PGHOST: /var/run/cosmos-pgsock
       PGBACKREST_BACKUP_TYPE: ${PGBACKREST_BACKUP_TYPE:-incr}
     entrypoint: ["/usr/local/bin/cosmos-backup.sh"]
+    volumes:
+      - cosmos-pgdata:/var/lib/postgresql/data
+      - cosmos-pgsock:/var/run/cosmos-pgsock
     depends_on:
       cosmos-postgres:
         condition: service_healthy
@@ -181,3 +192,4 @@ services:
 volumes:
   cosmos-pgdata:
   cosmos-minio-data:
+  cosmos-pgsock:
