@@ -1,0 +1,1171 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { cn } from "@/lib/utils";
+import { notifyError } from "@/lib/errors/notify";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Plus,
+  Send,
+  Square,
+  Archive,
+  Trash2,
+  Bot,
+  MessageCircle,
+  ChevronRight,
+  ChevronLeft,
+  Paperclip,
+  X,
+  Loader2,
+  Wrench,
+} from "lucide-react";
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface AssistantConversation {
+  id: string;
+  orgId: string;
+  userId: string;
+  title: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages?: AssistantMessage[];
+  _count?: { messages: number };
+}
+
+interface LiveToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  result: unknown | null;
+  status: "running" | "done";
+}
+
+interface AssistantMessage {
+  id: string;
+  conversationId: string;
+  role: "USER" | "ASSISTANT" | "SYSTEM" | "TOOL";
+  content: string;
+  toolCalls: Record<string, unknown>[] | LiveToolCall[];
+  toolCallId: string | null;
+  createdAt: string;
+}
+
+interface Attachment {
+  name: string;
+  content: string;
+  size: number;
+}
+
+interface AssistantPanelProps {
+  orgId: string;
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MODEL_STORAGE_KEY = "cosmos.chatModel";
+const MODEL_OPTIONS = [
+  { value: "sonnet", label: "Sonnet" },
+  { value: "opus", label: "Opus" },
+  { value: "haiku", label: "Haiku" },
+] as const;
+type ModelValue = (typeof MODEL_OPTIONS)[number]["value"];
+const DEFAULT_MODEL: ModelValue = "sonnet";
+
+// Text-only attachment extensions for Phase 4. Binary handling (images, PDFs,
+// .docx) is deferred to Phase 4b — we need to decide how to pipe non-text
+// payloads through the CLI before we can ship that.
+const TEXT_ATTACHMENT_EXTS = [
+  ".txt", ".md", ".csv", ".json", ".yaml", ".yml",
+  ".html", ".js", ".ts", ".py", ".sh", ".sql", ".log",
+];
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5 MB total
+
+// Friendly badges for known tools; falls back to `Running ${name}` for
+// anything not listed. Keep verbs in the present-progressive — these labels
+// surface while the tool is still executing.
+const TOOL_LABELS: Record<string, string> = {
+  create_project: "Creating project",
+  update_project: "Updating project",
+  delete_project: "Deleting project",
+  list_projects: "Listing projects",
+  get_project: "Loading project",
+  create_work_item: "Creating work item",
+  update_work_item: "Updating work item",
+  delete_work_item: "Deleting work item",
+  list_work_items: "Listing work items",
+  create_okr: "Creating OKR",
+  update_okr: "Updating OKR",
+  list_okrs: "Listing OKRs",
+  send_email: "Sending email",
+  search_emails: "Searching emails",
+  list_emails: "Listing emails",
+  create_calendar_event: "Creating calendar event",
+  list_calendar_events: "Listing calendar events",
+  search_files: "Searching files",
+  read_file: "Reading file",
+  write_file: "Writing file",
+};
+
+function labelForTool(name: string | undefined): string {
+  if (!name) return "Running tool";
+  return TOOL_LABELS[name] ?? `Running ${name}`;
+}
+
+/**
+ * Convert a present-progressive tool label ("Creating project") to its
+ * past-tense form ("Created project") for the post-execution badge.
+ * Falls back to `Ran ${name}` when we don't have a canonical mapping —
+ * the naive `-ing` → `-ed` substitution produces garbage like "Runned".
+ */
+function pastTenseLabel(name: string | undefined): string {
+  if (!name) return "Ran tool";
+  const known = TOOL_LABELS[name];
+  if (!known) return `Ran ${name}`;
+  // Curated past-tense mappings keyed by the canonical present label.
+  // Anything not listed falls through to a regex substitution that handles
+  // the common "Verbing" → "Verbed" / "Verb-y" → "Verbed" cases.
+  const map: Record<string, string> = {
+    "Creating project": "Created project",
+    "Updating project": "Updated project",
+    "Deleting project": "Deleted project",
+    "Listing projects": "Listed projects",
+    "Loading project": "Loaded project",
+    "Creating work item": "Created work item",
+    "Updating work item": "Updated work item",
+    "Deleting work item": "Deleted work item",
+    "Listing work items": "Listed work items",
+    "Creating OKR": "Created OKR",
+    "Updating OKR": "Updated OKR",
+    "Listing OKRs": "Listed OKRs",
+    "Sending email": "Sent email",
+    "Searching emails": "Searched emails",
+    "Listing emails": "Listed emails",
+    "Creating calendar event": "Created calendar event",
+    "Listing calendar events": "Listed calendar events",
+    "Searching files": "Searched files",
+    "Reading file": "Read file",
+    "Writing file": "Wrote file",
+  };
+  return map[known] ?? known;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// =============================================================================
+// Component
+// =============================================================================
+
+export function AssistantPanel({ orgId }: AssistantPanelProps) {
+  const [conversations, setConversations] = useState<AssistantConversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loadingConvos, setLoadingConvos] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [model, setModel] = useState<ModelValue>(() => {
+    if (typeof window === "undefined") return DEFAULT_MODEL;
+    try {
+      const stored = window.localStorage.getItem(MODEL_STORAGE_KEY);
+      if (stored && MODEL_OPTIONS.some((m) => m.value === stored)) {
+        return stored as ModelValue;
+      }
+    } catch {
+      /* localStorage unavailable */
+    }
+    return DEFAULT_MODEL;
+  });
+  // Status surfaced inside the streaming bubble before any text arrives.
+  // Pair of (label, startTimestampMs). The elapsed counter is rendered from
+  // an interval that re-renders the bubble once per second.
+  const [streamingStatus, setStreamingStatus] = useState<
+    { label: string; startedAt: number } | null
+  >(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [prevStatusStart, setPrevStatusStart] = useState<number | null>(null);
+  // Reset elapsed when a new status begins or status clears (avoids setState
+  // in effect by leaning on React's "store the previous value" pattern).
+  const currentStart = streamingStatus?.startedAt ?? null;
+  if (prevStatusStart !== currentStart) {
+    setPrevStatusStart(currentStart);
+    setElapsedSeconds(0);
+  }
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Tick the elapsed counter once per second while a status is active.
+  useEffect(() => {
+    if (!streamingStatus) return;
+    const id = setInterval(() => {
+      setElapsedSeconds((n) => n + 1);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [streamingStatus]);
+
+
+  const handleModelChange = useCallback((value: string | null) => {
+    if (!value || !MODEL_OPTIONS.some((m) => m.value === value)) return;
+    setModel(value as ModelValue);
+    try {
+      window.localStorage.setItem(MODEL_STORAGE_KEY, value);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingConvos(true);
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/assistant/conversations`);
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setConversations(Array.isArray(data) ? data : data.conversations || []);
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setLoadingConvos(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [orgId]);
+
+  // The conversation list is an in-flow sidebar on desktop but an overlay
+  // drawer on mobile; default it closed on small screens so the chat pane gets
+  // the full width on first load (set post-mount to avoid a hydration mismatch).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+  }, []);
+
+  const fetchMessages = useCallback(
+    async (conversationId: string) => {
+      setLoadingMessages(true);
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/assistant/conversations/${conversationId}/messages`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(
+            Array.isArray(data) ? data : data.messages || []
+          );
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    [orgId]
+  );
+
+  const selectConversation = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      setMessages([]);
+      fetchMessages(id);
+      // On mobile the conversation list is an overlay drawer — close it so the
+      // selected conversation (and its composer) is visible.
+      if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+    },
+    [fetchMessages]
+  );
+
+  const createConversation = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/assistant/conversations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: "New conversation" }),
+        }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const convo = await res.json();
+      setConversations((prev) => [convo, ...prev]);
+      setActiveId(convo.id);
+      setMessages([]);
+    } catch (err) {
+      console.error("Failed to create conversation:", err);
+      notifyError(err, "Couldn't start a new conversation.");
+    }
+  }, [orgId]);
+
+  const archiveConversation = useCallback(
+    async (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/assistant/conversations/${id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ archived: true }),
+          }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        if (activeId === id) {
+          setActiveId(null);
+          setMessages([]);
+        }
+      } catch (err) {
+        console.error("Failed to archive conversation:", err);
+        notifyError(err, "Couldn't archive the conversation.");
+      }
+    },
+    [orgId, activeId]
+  );
+
+  const deleteConversation = useCallback(
+    async (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/assistant/conversations/${id}`,
+          { method: "DELETE" }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        if (activeId === id) {
+          setActiveId(null);
+          setMessages([]);
+        }
+      } catch (err) {
+        console.error("Failed to delete conversation:", err);
+        notifyError(err, "Couldn't delete the conversation.");
+      }
+    },
+    [orgId, activeId]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Attachments
+  // ---------------------------------------------------------------------------
+
+  const handleFilesSelected = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      // Reset the input so picking the same file twice re-fires onchange.
+      e.target.value = "";
+      if (files.length === 0) return;
+
+      setAttachmentError(null);
+      const next: Attachment[] = [];
+      let runningTotal = attachments.reduce((sum, a) => sum + a.size, 0);
+
+      for (const file of files) {
+        const lowerName = file.name.toLowerCase();
+        const ext = lowerName.includes(".")
+          ? lowerName.slice(lowerName.lastIndexOf("."))
+          : "";
+        if (!TEXT_ATTACHMENT_EXTS.includes(ext)) {
+          setAttachmentError(
+            `${file.name}: only text files are supported right now`,
+          );
+          continue;
+        }
+        if (runningTotal + file.size > MAX_ATTACHMENT_BYTES) {
+          setAttachmentError(
+            `Total attachment size exceeds 5MB. Skipping ${file.name}.`,
+          );
+          continue;
+        }
+        try {
+          const text = await file.text();
+          next.push({ name: file.name, content: text, size: file.size });
+          runningTotal += file.size;
+        } catch {
+          setAttachmentError(`Could not read ${file.name}`);
+        }
+      }
+      if (next.length > 0) {
+        setAttachments((prev) => [...prev, ...next]);
+      }
+    },
+    [attachments],
+  );
+
+  const removeAttachment = useCallback((idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Send / Stop
+  // ---------------------------------------------------------------------------
+
+  const sendMessage = useCallback(async () => {
+    if ((!input.trim() && attachments.length === 0) || sending) return;
+
+    let currentActiveId = activeId;
+
+    if (!currentActiveId) {
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/assistant/conversations`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: (input.trim() || attachments[0]?.name || "New conversation")
+                .slice(0, 60),
+            }),
+          }
+        );
+        if (res.ok) {
+          const convo = await res.json();
+          currentActiveId = convo.id;
+          setConversations((prev) => [convo, ...prev]);
+          setActiveId(convo.id);
+        } else {
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+
+    // Build the payload content with attachment text prepended. The user
+    // bubble still shows the typed message verbatim — only the model sees
+    // the file bodies inline.
+    const trimmedInput = input.trim();
+    const attachmentBlock = attachments
+      .map((a) => `[File: ${a.name}]\n${a.content}`)
+      .join("\n\n");
+    const payloadContent = attachments.length > 0
+      ? `${attachmentBlock}${trimmedInput ? `\n\n${trimmedInput}` : ""}`
+      : trimmedInput;
+
+    // The displayed user message: input plus paperclip chips for context.
+    const displayContent = attachments.length > 0
+      ? `${trimmedInput}${trimmedInput ? "\n\n" : ""}${attachments
+          .map((a) => `[File: ${a.name}]`)
+          .join("\n")}`
+      : trimmedInput;
+
+    const userMessage: AssistantMessage = {
+      id: `temp-${Date.now()}`,
+      conversationId: currentActiveId!,
+      role: "USER",
+      content: displayContent,
+      toolCalls: [],
+      toolCallId: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    const streamingId = `streaming-${Date.now()}`;
+    const streamingMessage: AssistantMessage = {
+      id: streamingId,
+      conversationId: currentActiveId!,
+      role: "ASSISTANT",
+      content: "",
+      toolCalls: [],
+      toolCallId: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, userMessage, streamingMessage]);
+    setInput("");
+    setAttachments([]);
+    setAttachmentError(null);
+    setSending(true);
+    // Start the "Thinking…" indicator immediately; the first text/tool event
+    // will replace it.
+    setStreamingStatus({ label: "Thinking", startedAt: Date.now() });
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/assistant/conversations/${currentActiveId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({ content: payloadContent, model }),
+          signal: controller.signal,
+        }
+      );
+
+      if (!res.ok) {
+        // Let the catch below remove the pending bubble and toast the error.
+        throw new Error(`HTTP ${res.status}`);
+      }
+      if (!res.body) {
+        // OK but non-streaming: use the JSON payload directly.
+        const data = await res.json();
+        const newMsgs: AssistantMessage[] = Array.isArray(data) ? data : [data];
+        setMessages((prev) => {
+          const filtered = prev.filter(
+            (m) => m.id !== userMessage.id && m.id !== streamingId,
+          );
+          return [...filtered, userMessage, ...newMsgs];
+        });
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      const liveToolCalls: LiveToolCall[] = [];
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sepIdx = buffer.indexOf("\n\n");
+        while (sepIdx !== -1) {
+          const chunk = buffer.slice(0, sepIdx);
+          buffer = buffer.slice(sepIdx + 2);
+          const dataLine = chunk
+            .split("\n")
+            .find((l) => l.startsWith("data:"));
+          if (dataLine) {
+            const json = dataLine.slice(5).trim();
+            try {
+              const evt = JSON.parse(json) as {
+                type: string;
+                text?: string;
+                name?: string;
+                arguments?: Record<string, unknown>;
+                id?: string;
+                result?: unknown;
+                content?: string;
+                toolCalls?: Record<string, unknown>[];
+                messageId?: string;
+                message?: string;
+              };
+              if (evt.type === "text" && evt.text) {
+                accumulated += evt.text;
+                // First token clears the "Thinking…" status.
+                setStreamingStatus(null);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? { ...m, content: accumulated }
+                      : m,
+                  ),
+                );
+              } else if (evt.type === "tool_call_start") {
+                const tc: LiveToolCall = {
+                  id: evt.id ?? `tc_${liveToolCalls.length + 1}`,
+                  name: evt.name ?? "tool",
+                  arguments: evt.arguments ?? {},
+                  result: null,
+                  status: "running",
+                };
+                liveToolCalls.push(tc);
+                setStreamingStatus({
+                  label: labelForTool(evt.name),
+                  startedAt: Date.now(),
+                });
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? { ...m, toolCalls: [...liveToolCalls] }
+                      : m,
+                  ),
+                );
+              } else if (evt.type === "tool_call_result") {
+                const tc = liveToolCalls.find((t) => t.id === evt.id);
+                if (tc) {
+                  tc.result = evt.result;
+                  tc.status = "done";
+                }
+                // Clear status — if more tools follow, the next start event
+                // will set a new one.
+                setStreamingStatus(null);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? { ...m, toolCalls: [...liveToolCalls] }
+                      : m,
+                  ),
+                );
+              } else if (evt.type === "done") {
+                setStreamingStatus(null);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? {
+                          ...m,
+                          id: evt.messageId ?? m.id,
+                          content: evt.content ?? accumulated,
+                          toolCalls: evt.toolCalls ?? liveToolCalls,
+                        }
+                      : m,
+                  ),
+                );
+              } else if (evt.type === "error") {
+                setStreamingStatus(null);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? {
+                          ...m,
+                          content:
+                            accumulated +
+                            (accumulated ? "\n\n" : "") +
+                            `_Error: ${evt.message ?? "unknown"}_`,
+                        }
+                      : m,
+                  ),
+                );
+              }
+            } catch {
+              /* skip malformed event */
+            }
+          }
+          sepIdx = buffer.indexOf("\n\n");
+        }
+      }
+    } catch (err) {
+      // AbortError from the Stop button: keep whatever the user has accumulated
+      // so far. Any other failure with no streamed text gets the bubble removed.
+      const isAbort =
+        err instanceof DOMException && err.name === "AbortError";
+      if (!isAbort) {
+        setMessages((prev) => prev.filter((m) => m.id !== streamingId));
+        notifyError(err, "The assistant couldn't respond. Please try again.");
+      }
+    } finally {
+      setSending(false);
+      setStreamingStatus(null);
+      abortRef.current = null;
+    }
+  }, [input, sending, activeId, orgId, attachments, model]);
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    // Defensive cleanup — the fetch's catch/finally also clears these, but
+    // abort() resolution can be asynchronous and we want the UI to flip
+    // immediately.
+    setSending(false);
+    setStreamingStatus(null);
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    },
+    [sendMessage]
+  );
+
+  const toggleToolExpand = useCallback((messageId: string) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return date.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const totalAttachmentSize = useMemo(
+    () => attachments.reduce((s, a) => s + a.size, 0),
+    [attachments],
+  );
+
+  // TODO Phase 4b — voice input (Web Speech API) and binary attachments
+  // (images, PDFs, .docx). The okr-dashboard reference has a SpeechRecognition
+  // integration with a "send it" trigger phrase; we'll port that once we
+  // have product agreement on the UX.
+
+  return (
+    // Fills the host (the page wraps this in a full-height flex column), so the
+    // composer pins to the viewport bottom instead of overflowing below it.
+    <div className="relative flex h-full min-h-0 flex-1 overflow-hidden">
+      {/* Mobile backdrop: the conversation list overlays the chat on small
+          screens (so the chat keeps full width), dismissable by tapping away. */}
+      {sidebarOpen && (
+        <div
+          className="absolute inset-0 z-20 bg-black/30 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
+      )}
+      <div
+        className={cn(
+          // In-flow sidebar on desktop; absolute overlay drawer on mobile so it
+          // never starves the chat pane (which otherwise clipped its content).
+          "flex flex-col border-r bg-muted/30 transition-all duration-200 max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:shadow-xl",
+          sidebarOpen ? "w-60" : "w-0 overflow-hidden"
+        )}
+      >
+        <div className="flex items-center justify-between p-3 border-b">
+          <span className="text-sm font-semibold truncate">Conversations</span>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="New conversation"
+            onClick={createConversation}
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loadingConvos ? (
+            <div className="flex flex-col gap-2 p-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full rounded-md" />
+              ))}
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 p-6 text-center">
+              <MessageCircle className="size-8 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">
+                No conversations yet
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5 p-2">
+              {conversations.map((convo) => (
+                // The row is a plain container; the SELECT action is its own
+                // <button> and the archive/delete buttons are SIBLINGS (overlaid
+                // top-right), never nested inside it — avoiding both invalid
+                // <button>-in-<button> and the ARIA nested-interactive violation.
+                <div
+                  key={convo.id}
+                  className={cn(
+                    "group relative rounded-md transition-colors",
+                    activeId === convo.id
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-muted"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => selectConversation(convo.id)}
+                    className="flex w-full flex-col gap-0.5 rounded-md px-3 py-2 pr-12 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="text-sm font-medium truncate">
+                      {convo.title}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(convo.updatedAt)}
+                    </span>
+                  </button>
+                  <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <button
+                      onClick={(e) => archiveConversation(convo.id, e)}
+                      className="rounded p-0.5 hover:bg-muted-foreground/20"
+                      aria-label="Archive conversation"
+                    >
+                      <Archive className="size-3 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={(e) => deleteConversation(convo.id, e)}
+                      className="rounded p-0.5 hover:bg-destructive/20"
+                      aria-label="Delete conversation"
+                    >
+                      <Trash2 className="size-3 text-destructive" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col min-w-0">
+        <div className="flex items-center gap-2 border-b px-4 py-2">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={sidebarOpen ? "Hide conversation list" : "Show conversation list"}
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            {sidebarOpen ? (
+              <ChevronLeft className="size-4" />
+            ) : (
+              <ChevronRight className="size-4" />
+            )}
+          </Button>
+          <h2 className="text-sm font-medium truncate flex-1">
+            {activeId
+              ? conversations.find((c) => c.id === activeId)?.title ??
+                "Conversation"
+              : "AI Chat"}
+          </h2>
+          <Select value={model} onValueChange={handleModelChange}>
+            <SelectTrigger
+              size="sm"
+              className="min-w-24"
+              aria-label="Select AI model"
+            >
+              <SelectValue placeholder="Model" />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {!activeId ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <div className="flex items-center justify-center size-16 rounded-2xl bg-primary/10">
+                <Bot className="size-8 text-primary" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-semibold">Start a new conversation</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Ask questions about your projects, get insights, or automate tasks.
+                </p>
+              </div>
+              <Button onClick={createConversation}>
+                <Plus className="size-4" />
+                New Conversation
+              </Button>
+            </div>
+          ) : loadingMessages ? (
+            <div className="flex flex-col gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex",
+                    i % 2 === 0 ? "justify-end" : "justify-start"
+                  )}
+                >
+                  <Skeleton
+                    className={cn(
+                      "h-16 rounded-xl",
+                      i % 2 === 0 ? "w-2/5" : "w-3/5"
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <Bot className="size-10 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Send a message to start the conversation.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 max-w-3xl mx-auto">
+              {messages.map((msg) => {
+                const isLastStreaming =
+                  sending &&
+                  msg.role === "ASSISTANT" &&
+                  msg.id.startsWith("streaming-");
+                return (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    expanded={expandedTools.has(msg.id)}
+                    onToggleTool={() => toggleToolExpand(msg.id)}
+                    status={isLastStreaming ? streamingStatus : null}
+                    elapsedSeconds={isLastStreaming ? elapsedSeconds : 0}
+                  />
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        <div className="border-t bg-background px-4 py-3">
+          <div className="flex flex-col gap-2 max-w-3xl mx-auto">
+            {(attachments.length > 0 || attachmentError) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {attachments.map((a, idx) => (
+                  <span
+                    key={`${a.name}-${idx}`}
+                    className="inline-flex items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs"
+                  >
+                    <Paperclip className="size-3 text-muted-foreground" />
+                    <span className="font-medium truncate max-w-40">{a.name}</span>
+                    <span className="text-muted-foreground">
+                      {formatBytes(a.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(idx)}
+                      className="rounded hover:bg-muted-foreground/20 p-0.5"
+                      aria-label={`Remove ${a.name}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+                {attachments.length > 0 && (
+                  <span className="text-xs text-muted-foreground ml-1">
+                    {formatBytes(totalAttachmentSize)} total
+                  </span>
+                )}
+                {attachmentError && (
+                  <span className="text-xs text-destructive">
+                    {attachmentError}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={TEXT_ATTACHMENT_EXTS.join(",")}
+                onChange={handleFilesSelected}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                aria-label="Attach file"
+              >
+                <Paperclip className="size-4" />
+              </Button>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  activeId
+                    ? "Type a message..."
+                    : "Type a message to start a new conversation..."
+                }
+                disabled={sending}
+                rows={1}
+                className="flex-1 resize-none rounded-lg border border-input bg-transparent px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 max-h-32 field-sizing-content"
+              />
+              {sending ? (
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  onClick={handleStop}
+                  aria-label="Stop generating"
+                >
+                  <Square className="size-4 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  onClick={sendMessage}
+                  disabled={!input.trim() && attachments.length === 0}
+                  aria-label="Send message"
+                >
+                  <Send className="size-4" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// MessageBubble
+// =============================================================================
+
+function MessageBubble({
+  message,
+  expanded,
+  onToggleTool,
+  status,
+  elapsedSeconds,
+}: {
+  message: AssistantMessage;
+  expanded: boolean;
+  onToggleTool: () => void;
+  status: { label: string; startedAt: number } | null;
+  elapsedSeconds: number;
+}) {
+  if (message.role === "USER") {
+    return (
+      <div className="flex justify-end">
+        <div className="rounded-xl bg-primary text-primary-foreground px-4 py-2.5 max-w-[80%]">
+          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.role === "TOOL") {
+    return (
+      <div className="flex items-start gap-2">
+        <div className="size-6 shrink-0" />
+        <div className="max-w-[80%]">
+          <button
+            onClick={onToggleTool}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronRight
+              className={cn(
+                "size-3 transition-transform",
+                expanded && "rotate-90"
+              )}
+            />
+            Tool result
+            {message.toolCallId && (
+              <span className="font-mono text-[10px] opacity-60">
+                {message.toolCallId}
+              </span>
+            )}
+          </button>
+          {expanded && (
+            <div className="mt-1.5 rounded-md border bg-muted/50 p-2.5 overflow-x-auto">
+              <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">
+                {message.content}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (message.role === "SYSTEM") {
+    return (
+      <div className="flex justify-center">
+        <span className="text-xs text-muted-foreground italic px-3 py-1 bg-muted/50 rounded-full">
+          {message.content}
+        </span>
+      </div>
+    );
+  }
+
+  // ASSISTANT
+  const toolCalls = (message.toolCalls ?? []) as LiveToolCall[];
+  const hasContent = message.content.length > 0;
+
+  return (
+    <div className="flex items-start gap-2">
+      <div className="flex items-center justify-center size-6 rounded-full bg-muted shrink-0 mt-0.5">
+        <Bot className="size-3.5 text-muted-foreground" />
+      </div>
+      <div className="rounded-xl bg-muted px-4 py-2.5 max-w-[80%] min-w-0">
+        {toolCalls.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {toolCalls.map((tc) => (
+              <span
+                key={tc.id}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px]",
+                  tc.status === "done"
+                    ? "border-border bg-background text-muted-foreground"
+                    : "border-primary/30 bg-primary/10 text-primary",
+                )}
+              >
+                {tc.status === "done" ? (
+                  <Wrench className="size-3" />
+                ) : (
+                  <Loader2 className="size-3 animate-spin" />
+                )}
+                {tc.status === "done"
+                  ? pastTenseLabel(tc.name)
+                  : `${labelForTool(tc.name)}…`}
+              </span>
+            ))}
+          </div>
+        )}
+        {hasContent ? (
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-background prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content}
+            </ReactMarkdown>
+          </div>
+        ) : status ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>
+              {status.label}
+              <span className="opacity-60"> ({elapsedSeconds}s)</span>
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
+            <span className="size-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:150ms]" />
+            <span className="size-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # tsc --noEmit OOMs at the runner's ~2GB Node default on this codebase;
+      # give it (and next build) a 4GB heap. Well within the 7GB runner.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Examples gate
+        run: npm run check:examples
+
+      - name: Build
+        env:
+          # Stub values just to satisfy Next's build-time env checks. Routes
+          # don't execute, so real values aren't required.
+          DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+          DIRECT_URL: postgres://ci:ci@localhost:5432/ci
+          GOOGLE_CLIENT_ID: ci
+          GOOGLE_CLIENT_SECRET: ci
+          GOOGLE_REDIRECT_URI: http://localhost:3000/api/auth/google/callback
+          ALLOWED_EMAILS: ci@example.com
+        run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: check
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        # Hold the job until Postgres is accepting connections.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      DIRECT_URL: postgres://ci:ci@localhost:5432/ci
+      GOOGLE_CLIENT_ID: ci
+      GOOGLE_CLIENT_SECRET: ci
+      GOOGLE_REDIRECT_URI: http://localhost:3000/api/auth/google/callback
+      ALLOWED_EMAILS: ci@example.com
+      # Enables the /api/testenv/sign-in route the Playwright fixtures use.
+      E2E_TEST_AUTH: "1"
+      # next build OOMs at the runner's ~2GB Node default on this codebase.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run e2e:install
+      - run: npx prisma generate
+      # Real schema + the deterministic test-org/alice/bob fixtures the specs
+      # (smoke, a11y, chat) all sign in against.
+      - name: Migrate + seed test fixtures
+        run: |
+          npx prisma migrate deploy
+          npx tsx prisma/seed/test-fixtures.ts
+      - name: Build, start, run e2e
+        run: |
+          npm run build
+          npm start &
+          # Wait for the server to accept requests before driving it. If it
+          # never comes up, fail with a clear message instead of letting
+          # Playwright run against a dead server (cryptic ECONNREFUSED ×retries).
+          ready=0
+          for i in $(seq 1 45); do
+            if curl -sf http://localhost:3000/api/health >/dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::server did not become ready on :3000 within ~90s"
+            exit 1
+          fi
+          npm run e2e
+
+  # Informational ONLY — the flaky dnd-kit drag journey. continue-on-error
+  # means a failure here NEVER blocks the PR (the gate is the `check` + `e2e`
+  # jobs above). The gated `e2e` run excludes e2e/interaction/** via
+  # testIgnore in playwright.config.ts; this job opts back in with
+  # E2E_INCLUDE_INTERACTION=1 and runs ONLY the drag spec.
+  e2e-interaction:
+    runs-on: ubuntu-latest
+    needs: check
+    continue-on-error: true
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        # Hold the job until Postgres is accepting connections.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      DIRECT_URL: postgres://ci:ci@localhost:5432/ci
+      GOOGLE_CLIENT_ID: ci
+      GOOGLE_CLIENT_SECRET: ci
+      GOOGLE_REDIRECT_URI: http://localhost:3000/api/auth/google/callback
+      ALLOWED_EMAILS: ci@example.com
+      # Enables the /api/testenv/sign-in route the Playwright fixtures use.
+      E2E_TEST_AUTH: "1"
+      # Opts the e2e/interaction/** specs back IN (testIgnore drops them by
+      # default — see playwright.config.ts).
+      E2E_INCLUDE_INTERACTION: "1"
+      # next build OOMs at the runner's ~2GB Node default on this codebase.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run e2e:install
+      - run: npx prisma generate
+      # Same deterministic test-org/alice/bob fixtures the gated e2e run uses.
+      - name: Migrate + seed test fixtures
+        run: |
+          npx prisma migrate deploy
+          npx tsx prisma/seed/test-fixtures.ts
+      - name: Build, start, run drag interaction spec
+        run: |
+          npm run build
+          npm start &
+          ready=0
+          for i in $(seq 1 45); do
+            if curl -sf http://localhost:3000/api/health >/dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::server did not become ready on :3000 within ~90s"
+            exit 1
+          fi
+          npx playwright test e2e/interaction/journey-work-item-drag.spec.ts
