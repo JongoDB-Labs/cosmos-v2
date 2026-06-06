@@ -23,6 +23,11 @@ enum Plan {
   GOV
 }
 
+enum TenantClass {
+  GOV
+  COMMERCIAL
+}
+
 enum OrgRole {
   OWNER
   ADMIN
@@ -103,6 +108,7 @@ model Organization {
   slug           String   @unique
   auth0OrgId     String?  @unique @map("auth0_org_id")
   plan           Plan     @default(FREE)
+  tenantClass    TenantClass @default(GOV) @map("tenant_class")
   logoUrl        String?  @map("logo_url")
   themePrimary   String?  @map("theme_primary")
   themeMode      String?  @map("theme_mode")  // "auto" | "dark" | "light"
