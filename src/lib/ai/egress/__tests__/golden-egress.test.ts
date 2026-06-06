@@ -163,9 +163,10 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   });
 
   // -------------------------------------------------------------------------
-  // Case 3: commercial + UNCLASSIFIED → FULL exposure (title present)
+  // Case 3: commercial + UNCLASSIFIED → structural exposure (id present; marked
+  // title withheld by marking-DLP tripwire even at UNCLASSIFIED)
   // -------------------------------------------------------------------------
-  it("case 3 — commercial + list_work_items (UNCLASSIFIED) → FULL value incl. title", async () => {
+  it("case 3 — commercial + list_work_items (UNCLASSIFIED) → id present, marked title withheld by tripwire", async () => {
     const { toolUse, end } = turns("list_work_items");
     callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
     effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
@@ -176,9 +177,15 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
 
     const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
 
-    // Below the FOUO ceiling, a commercial tenant sees the full value, title included.
-    expect(content).toContain("CUI//SP");
+    // The tool result contains title "CUI//SP" — the marking-DLP tripwire withholds
+    // the entire value (allow→deny) even though ceiling=UNCLASSIFIED + commercial
+    // would ordinarily expose it. The structural projection then applies, so the
+    // model still receives the id (w1) and status (DONE) but never the marked title.
     expect(content).toContain("w1");
+    expect(content).toContain("DONE");
+    // Marking tripwire fires: CUI//SP in the tool result → withheld entirely, then
+    // structural projection → id/status survive, free-text title never reaches model.
+    expect(content).not.toContain("CUI//SP");
   });
 
   // -------------------------------------------------------------------------
@@ -262,5 +269,84 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
     // string (no allowlisted scalar / array survives) so the token never reaches
     // the model.
     expect(content).not.toContain("CUI//token-XYZ");
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase-2c: marking-DLP on prompt / history / channel context
+  // -------------------------------------------------------------------------
+
+  // Case 8: marker in the user prompt → withheld before reaching the model
+  it("case 8 — marker in the user prompt is withheld (prompt never reaches callModel)", async () => {
+    const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+    callModel.mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("commercial", { initialPrompt: "summarize CUI//SP-PROPIN notes" }));
+
+    expect(callModel).toHaveBeenCalledTimes(1);
+    const messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    // The marked prompt MUST be substituted — never reach the model verbatim.
+    expect(userMsg?.content).toBe("[withheld: controlled marking]");
+    expect(userMsg?.content).not.toContain("CUI//SP-PROPIN");
+  });
+
+  // Case 9: marker in rendered history (FOUO line) → withheld
+  it("case 9 — marker in rendered history/channel-context blob is withheld", async () => {
+    const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+    callModel.mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov", { initialPrompt: "Channel history:\nFOUO — prior message\nSummarize the above." }));
+
+    expect(callModel).toHaveBeenCalledTimes(1);
+    const messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    expect(userMsg?.content).toBe("[withheld: controlled marking]");
+    expect(String(userMsg?.content)).not.toContain("FOUO");
+  });
+
+  // Case 10: clean prompt flows verbatim (no false positive)
+  it("case 10 — clean prompt flows verbatim through runModelTurn (no false positive)", async () => {
+    const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
+    callModel.mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("commercial", { initialPrompt: "summarize the open tasks" }));
+
+    expect(callModel).toHaveBeenCalledTimes(1);
+    const messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    // Clean prompt must not be withheld.
+    expect(userMsg?.content).toBe("summarize the open tasks");
+  });
+
+  // Case 11: marked tool_result (gate/loop already withholds) + marked prompt → both withheld in one run
+  it("case 11 — marked prompt + marked tool_result both withheld in a single run", async () => {
+    const { toolUse, end } = turns("list_work_items");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("UNCLASSIFIED");
+    // Tool result carries a CUI title — tool_result projection will drop it structurally
+    executeTool.mockResolvedValue(WORK_ITEM_RESULT); // WORK_ITEM_RESULT has title "CUI//SP"
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("commercial", { initialPrompt: "summarize NOFORN briefing notes" }));
+
+    expect(callModel).toHaveBeenCalledTimes(2);
+
+    // Turn 0: the marked prompt is withheld.
+    const turn0messages = callModel.mock.calls[0][0].messages as Array<{ role: string; content: unknown }>;
+    const turn0user = turn0messages.find((m) => m.role === "user");
+    expect(turn0user?.content).toBe("[withheld: controlled marking]");
+
+    // Turn 1: the tool_result title "CUI//SP" never reaches the model (ceiling=UNCLASSIFIED
+    // for a commercial tenant exposes the tool result, but marking tripwire withholds it on
+    // the gate — and the structural projection drops the free-text title in any case).
+    const turn1content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(turn1content).not.toContain("CUI//SP");
+    expect(turn1content).toContain("w1"); // id survives structural projection
   });
 });
