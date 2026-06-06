@@ -1,0 +1,13 @@
+-- chat_alerts_presence
+-- Reconstructed as a NO-OP. This migration directory shipped from the v1 import
+-- without a migration.sql (pre-existing migration-history rot — broken in v1 too).
+-- A `prisma migrate diff` of the post-25-migration DB against schema.prisma shows
+-- NO real schema delta: the only apparent difference is the GENERATED `content_tsv`
+-- full-text column, which is intentionally raw-SQL-managed and NOT modeled in
+-- schema.prisma, so it MUST be preserved (do not drop it). Hence: no statements.
+--
+-- NOTE: the v2 cutover phase (design spec §9) replaces this entire migration
+-- history with a single clean 0000_init reconciled from the prod schema, which
+-- retires this rot permanently. This no-op only unblocks `migrate deploy` for the
+-- Phase 0 container acceptance.
+SELECT 1;

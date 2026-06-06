@@ -15,8 +15,9 @@ services:
       retries: 5
 
   cosmos-migrate:
-    image: cosmos-v2:dev
-    command: ["npx", "prisma", "migrate", "deploy"]
+    # Dedicated migrate image (Dockerfile `migrate` target = build stage with the full
+    # prisma toolchain). Built by: docker build --target migrate -t cosmos-v2-migrate:dev .
+    image: cosmos-v2-migrate:dev
     env_file: .env
     depends_on:
       cosmos-postgres:
@@ -38,7 +39,8 @@ services:
   reverse-proxy:
     image: caddy:2
     ports:
-      - "8080:80"
+      # host 8080 is taken by the v1 stack; expose v2's proxy on 8090.
+      - "8090:80"
     volumes:
       - ./compose/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
