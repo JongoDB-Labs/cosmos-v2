@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { prisma } from "@/lib/db/client";
+import { getMcpEnv, getMcpHeaders } from "@/lib/integrations/mcp-secrets";
 
 /**
  * MCP (Model Context Protocol) bridge — DORMANT in Phase 0.
@@ -59,7 +60,8 @@ export async function buildMcpConfigForOrg(
     const key = sanitizeServerKey(s.name) || s.id;
     if (s.transport === "stdio") {
       if (!s.command) continue; // schema enforces this, but be defensive
-      const env = isStringRecord(s.env) ? s.env : {};
+      // env is SEALED at rest (env_enc); open it server-side here.
+      const env = getMcpEnv(s);
       entries[key] = {
         command: s.command,
         args: s.args ?? [],
@@ -67,7 +69,8 @@ export async function buildMcpConfigForOrg(
       };
     } else if (s.transport === "http" || s.transport === "sse") {
       if (!s.url) continue;
-      const headers = isStringRecord(s.headers) ? s.headers : {};
+      // headers are SEALED at rest (headers_enc); open them server-side here.
+      const headers = getMcpHeaders(s);
       entries[key] = {
         url: s.url,
         transport: s.transport,
@@ -110,12 +113,4 @@ function sanitizeServerKey(name: string): string {
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  for (const v of Object.values(value as Record<string, unknown>)) {
-    if (typeof v !== "string") return false;
-  }
-  return true;
 }

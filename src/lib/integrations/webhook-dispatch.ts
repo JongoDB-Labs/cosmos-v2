@@ -1,6 +1,7 @@
 import { createHmac } from "crypto";
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
+import { openFieldWithHeal } from "@/lib/crypto/field-seal";
 
 export async function dispatchWebhook(
   orgId: string,
@@ -14,7 +15,14 @@ export async function dispatchWebhook(
   const deliveries = await Promise.allSettled(
     hooks.map(async (hook) => {
       const body = JSON.stringify({ event, timestamp: new Date().toISOString(), data: payload });
-      const signature = createHmac("sha256", hook.secret).update(body).digest("hex");
+      // The signing secret is SEALED at rest (3.13.16). Open it to the plaintext HMAC
+      // key — TRANSPARENT to the signature: the HMAC is byte-identical to before for a
+      // given secret. A legacy plaintext secret (pre-sealing row) opens verbatim and
+      // self-heals: it is best-effort re-sealed + re-persisted on this first dispatch.
+      const signingSecret = await openFieldWithHeal(hook.secret, async (sealed) => {
+        await prisma.webhook.update({ where: { id: hook.id }, data: { secret: sealed } });
+      });
+      const signature = createHmac("sha256", signingSecret).update(body).digest("hex");
 
       const delivery = await prisma.webhookDelivery.create({
         data: {
