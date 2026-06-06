@@ -3,6 +3,7 @@ import { callModel, type CallModelRequest, type ModelMessage, type ModelTool, ty
 import { projectForModel } from "./gate";
 import { logEgressDecision } from "./audit";
 import { effectiveCeiling } from "@/lib/classification/effective";
+import { classifyLikelyCui } from "@/lib/classification/classifier";
 import type { EgressContext } from "./types";
 
 export type { EgressContext, EgressDecision, TenantClass, ValueKind } from "./types";
@@ -64,12 +65,19 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
   // Project every string-content message body (initial prompt + any rendered
   // history / channel-context blob). tool_use / tool_result blocks have array
   // content — skip them (already gated by the agent loop upstream).
-  const gatedMessages = input.messages.map((m) => {
+  const gatedMessages = await Promise.all(input.messages.map(async (m) => {
     if (typeof m.content !== "string") return m; // tool_use/tool_result arrays already projected by the loop
     const p = projectForModel(m.content, input.ctx, { valueKind: "user", ceiling: orgCeiling });
     logEgressDecision(p.decision);
-    return { ...m, content: typeof p.modelValue === "string" ? p.modelValue : "[withheld: controlled marking]" };
-  });
+    let body = typeof p.modelValue === "string" ? p.modelValue : "[withheld: controlled marking]";
+    // Gov-only async classifier tripwire (detector-only): catches unmarked CUI in prompt/history.
+    // Only fires when the marking-DLP gate left the body EXPOSED (allow→deny; never loosens a withhold).
+    if (input.ctx.tenantClass === "gov" && p.decision.exposed && await classifyLikelyCui(m.content)) {
+      body = "[withheld: classifier]";
+      logEgressDecision({ ...p.decision, exposed: false, withheldCount: 1, decidedBy: "classification" });
+    }
+    return { ...m, content: body };
+  }));
 
   const req: CallModelRequest = {
     system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld: controlled marking]",
