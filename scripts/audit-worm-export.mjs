@@ -165,10 +165,15 @@ async function main() {
   const dumpKey = `${PREFIX}/dump-toSeq-${toSeq}.ndjson`;
   const manifestKey = `${PREFIX}/manifest-toSeq-${toSeq}.json`;
 
-  // PUT the dump then the manifest. Object-lock COMPLIANCE retention is applied to every
-  // new object by the bucket default — no per-PUT retention header needed (and the
-  // write-only key can't set/bypass retention anyway). A re-PUT of an existing toSeq key
-  // is REJECTED by object-lock (the immutability proof).
+  // PUT the dump then the manifest. Two layers of immutability:
+  //   1. IfNoneMatch:"*" — a conditional write that FAILS (PreconditionFailed) if the key
+  //      already exists, so an export can never overwrite a prior window's record (true
+  //      append-only at the key level; this is what makes a re-PUT a hard rejection).
+  //   2. Bucket-default COMPLIANCE object-lock — the written version can't be DELETED or
+  //      its retention shortened until expiry (not even by root). The write-only key also
+  //      lacks any delete/retention-bypass verb.
+  // Together: written once, never altered, never deleted. The export is idempotent on
+  // toSeq, so a benign re-run hits (1) and is a no-op-by-rejection rather than a tamper.
   try {
     await s3.send(
       new PutObjectCommand({
@@ -176,6 +181,7 @@ async function main() {
         Key: dumpKey,
         Body: Buffer.from(ndjson, "utf8"),
         ContentType: "application/x-ndjson",
+        IfNoneMatch: "*",
       }),
     );
     await s3.send(
@@ -184,6 +190,7 @@ async function main() {
         Key: manifestKey,
         Body: Buffer.from(JSON.stringify(manifest, null, 2), "utf8"),
         ContentType: "application/json",
+        IfNoneMatch: "*",
       }),
     );
   } catch (err) {

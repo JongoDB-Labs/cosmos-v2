@@ -66,3 +66,8 @@ cosign.password
 docker-compose.dex.yml
 /docs/sso-acceptance/*.local.*
 /docs/sso-acceptance/evidence/
+
+# MinIO self-signed TLS material is generated at runtime into a Docker volume by the
+# minio-certs one-shot — NEVER commit a private key. Defensive guard in case a cert is
+# ever written into the worktree out-of-band.
+compose/minio/certs/
