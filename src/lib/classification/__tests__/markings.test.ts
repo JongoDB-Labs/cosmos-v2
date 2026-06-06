@@ -12,15 +12,21 @@ describe("detectMarkings", () => {
       "Distribution NOFORN",
       "CONTROLLED UNCLASSIFIED INFORMATION",
       "Classification: CUI",
+      "Law Enforcement Sensitive",   // LES spelled out (must not be missed)
+      "marked //LES here",           // LES portion mark
+      "(LES)",                       // LES parenthetical mark
     ]) expect(detectMarkings(s), s).toBe(true);
   });
 
-  it("does NOT flag ordinary prose / substrings", () => {
+  it("does NOT flag ordinary prose / substrings (incl. the 'Les'/'les' name trap)", () => {
     for (const s of [
       "summarize the open tasks",
       "the acuity of the issue",   // 'cui' substring, not a marking
       "foul play afoot",           // 'fou' substring
       "fournier needs review",
+      "Les Johnson reviewed the tasks",  // 'Les' is a NAME, not a marking
+      "les valeurs du projet",           // French 'les', not a marking
+      "files were updated",              // 'les' substring
       "",
     ]) expect(detectMarkings(s), s).toBe(false);
   });
