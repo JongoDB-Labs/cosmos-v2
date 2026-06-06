@@ -240,6 +240,24 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model EgressDecisionRow {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String   @map("conversation_id")
+  turn           Int
+  valueKind      String   @map("value_kind")
+  toolName       String?  @map("tool_name")
+  exposed        Boolean
+  withheldCount  Int      @map("withheld_count")
+  contentHash    String   @map("content_hash")
+  decidedBy      String   @map("decided_by")
+  tenantClass    String   @map("tenant_class")
+  ceiling        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([conversationId, createdAt])
+  @@map("egress_decisions")
+}
+
 model ApiKey {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String    @map("org_id") @db.Uuid
