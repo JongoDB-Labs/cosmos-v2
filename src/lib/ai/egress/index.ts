@@ -44,8 +44,11 @@ export interface RunModelTurnInput {
  *
  * TODO(phase-2): project EVERY entry of `input.messages` through the gate here
  * (per-message classification + opaque handles), so a gov tenant's conversation
- * body can never reach the model regardless of caller discipline. Until then,
- * gov reasons over withheld-data receipts only (no live gov model path is wired).
+ * body can never reach the model regardless of caller discipline. Until then, a
+ * gov tenant's tool-result DATA is withheld, but its system prompt + conversation
+ * BODY DO still reach the commercial model (this function forwards input.messages
+ * raw) — so do NOT route a gov tenant that may carry CUI in prompts through this
+ * path until Phase 2 lands. There is no gov-blocking guard here yet.
  */
 export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnResult> {
   // Resolve the org's effective ceiling once. System/user are non-data (the gate
@@ -64,7 +67,7 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
 
   const req: CallModelRequest = {
     system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld]",
-    // TODO(phase-1): forward PROJECTED messages, not the raw array (see above).
+    // TODO(phase-2): forward PROJECTED messages, not the raw array (see above).
     messages: input.messages,
     tools: input.tools,
     model: input.model,
