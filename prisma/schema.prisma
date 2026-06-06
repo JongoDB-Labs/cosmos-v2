@@ -283,6 +283,12 @@ model AuditLog {
   // Optional + no Prisma @default so the client never writes it (DB fills it) and
   // `autoincrement()` doesn't emit SERIAL that would drift from the IDENTITY column.
   seq       BigInt?  @unique
+  // AU-9 in-DB hash-chain (20260606070000). Filled by a BEFORE INSERT trigger exactly
+  // like `seq` — nullable + no @default so the client never writes them. row_hash binds
+  // prev_hash (the prior row's row_hash) + this row's framed columns; prev_hash is NULL
+  // only for the genesis row. verify_audit_chain('audit_logs') walks + recomputes them.
+  rowHash   Bytes?   @map("row_hash")
+  prevHash  Bytes?   @map("prev_hash")
 
   // AU-9: org_id/user_id are recorded *data*, not live FKs — audit survives org/user
   // deletion (no cascade/SET NULL). Relations intentionally removed.
@@ -307,6 +313,10 @@ model EgressDecisionRow {
   createdAt      DateTime @default(now()) @map("created_at")
   // DB-generated monotonic sequence (GENERATED ALWAYS AS IDENTITY in the migration).
   seq            BigInt?  @unique
+  // AU-9 in-DB hash-chain (20260606070000). Filled by a BEFORE INSERT trigger like `seq`;
+  // nullable + no @default so the client never writes them.
+  rowHash        Bytes?   @map("row_hash")
+  prevHash       Bytes?   @map("prev_hash")
 
   @@index([conversationId, createdAt])
   @@map("egress_decisions")
