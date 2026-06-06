@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { callClaudeCli } from "@/lib/ai/claude-cli";
+import { runAgentLoop } from "@/lib/ai/agent-loop";
 import { parseSummaryJson, SUMMARY_SYSTEM_PROMPT } from "@/lib/meetings/summarize";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -43,10 +43,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       `Attendee updates:\n${attendeeBlock || "(none)"}\n\n` +
       `Transcript:\n${existing.transcript || "(none)"}`;
 
-    const result = await callClaudeCli(SUMMARY_SYSTEM_PROMPT, userPrompt, []);
+    // One-shot text completion (no tools) through the single egress path.
+    // TODO(phase-1): read Organization.tenantClass, default "gov".
+    const result = await runAgentLoop({
+      orgId,
+      userId: ctx.userId,
+      tenantClass: "commercial",
+      conversationId: `meeting:${meetingId}`,
+      systemPrompt: SUMMARY_SYSTEM_PROMPT,
+      initialPrompt: userPrompt,
+      tools: [],
+    });
     let parsed;
     try {
-      parsed = parseSummaryJson(result.content);
+      parsed = parseSummaryJson(result.text);
     } catch {
       return Response.json({ error: "The AI returned an unexpected response — please try again." }, { status: 502 });
     }
