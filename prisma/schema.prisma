@@ -44,7 +44,6 @@ enum ProjectRole {
   VIEWER
 }
 
-
 enum BoardType {
   KANBAN
   SCRUM
@@ -60,7 +59,6 @@ enum BoardType {
   CFD
   PROGRAM
 }
-
 
 enum Priority {
   CRITICAL
@@ -103,44 +101,43 @@ enum Visibility {
 // ─────────────────────────────────────────────
 
 model Organization {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String
-  slug           String   @unique
-  auth0OrgId     String?  @unique @map("auth0_org_id")
-  plan           Plan     @default(FREE)
+  slug           String      @unique
+  auth0OrgId     String?     @unique @map("auth0_org_id")
+  plan           Plan        @default(FREE)
   tenantClass    TenantClass @default(GOV) @map("tenant_class")
-  logoUrl        String?  @map("logo_url")
-  themePrimary   String?  @map("theme_primary")
-  themeMode      String?  @map("theme_mode")  // "auto" | "dark" | "light"
-  settings       Json     @default("{}")
-  dbConnectionId String?  @map("db_connection_id")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  logoUrl        String?     @map("logo_url")
+  themePrimary   String?     @map("theme_primary")
+  themeMode      String?     @map("theme_mode") // "auto" | "dark" | "light"
+  settings       Json        @default("{}")
+  dbConnectionId String?     @map("db_connection_id")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  members      OrgMember[]
-  invitations  Invitation[]
-  auditLogs    AuditLog[]
-  apiKeys      ApiKey[]
-  projects     Project[]
-  integrations        Integration[]
-  webhooks            Webhook[]
-  complianceControls  ComplianceControl[]
-  dataClassifications DataClassification[]
-  sessionRecords      SessionRecord[]
-  ipAllowlists        IpAllowlist[]
-  scimTokens          ScimToken[]
-  securitySettings    OrgSecuritySettings?
+  members                OrgMember[]
+  invitations            Invitation[]
+  apiKeys                ApiKey[]
+  projects               Project[]
+  integrations           Integration[]
+  webhooks               Webhook[]
+  complianceControls     ComplianceControl[]
+  dataClassifications    DataClassification[]
+  sessionRecords         SessionRecord[]
+  ipAllowlists           IpAllowlist[]
+  scimTokens             ScimToken[]
+  securitySettings       OrgSecuritySettings?
   assistantConversations AssistantConversation[]
-  chatChannels       ChatChannel[]
-  savedReports        SavedReport[]
-  projectTemplates    ProjectTemplate[]
-  workItemTypes       WorkItemType[]
-  cycles              Cycle[]
-  mcpServers          McpServer[]
-  objectives          Objective[]
-  feedbackItems       FeedbackItem[]
-  homeWidgets         HomeWidget[]
-  workRoles           WorkRole[]
+  chatChannels           ChatChannel[]
+  savedReports           SavedReport[]
+  projectTemplates       ProjectTemplate[]
+  workItemTypes          WorkItemType[]
+  cycles                 Cycle[]
+  mcpServers             McpServer[]
+  objectives             Objective[]
+  feedbackItems          FeedbackItem[]
+  homeWidgets            HomeWidget[]
+  workRoles              WorkRole[]
 
   @@map("organizations")
 }
@@ -157,7 +154,6 @@ model User {
   createdAt          DateTime  @default(now()) @map("created_at")
 
   memberships       OrgMember[]
-  auditLogs         AuditLog[]
   preferences       UserPreferences?
   sessions          Session[]
   cycleCapacities   CycleCapacity[]
@@ -232,11 +228,16 @@ model AuditLog {
   metadata  Json     @default("{}")
   ipAddress String?  @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
+  // DB-generated monotonic sequence (GENERATED ALWAYS AS IDENTITY in the migration).
+  // Optional + no Prisma @default so the client never writes it (DB fills it) and
+  // `autoincrement()` doesn't emit SERIAL that would drift from the IDENTITY column.
+  seq       BigInt?  @unique
 
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user User?        @relation(fields: [userId], references: [id])
+  // AU-9: org_id/user_id are recorded *data*, not live FKs — audit survives org/user
+  // deletion (no cascade/SET NULL). Relations intentionally removed.
 
   @@index([orgId, createdAt])
+  @@index([userId])
   @@map("audit_logs")
 }
 
@@ -253,6 +254,8 @@ model EgressDecisionRow {
   tenantClass    String   @map("tenant_class")
   ceiling        String?
   createdAt      DateTime @default(now()) @map("created_at")
+  // DB-generated monotonic sequence (GENERATED ALWAYS AS IDENTITY in the migration).
+  seq            BigInt?  @unique
 
   @@index([conversationId, createdAt])
   @@map("egress_decisions")
@@ -279,19 +282,19 @@ model ApiKey {
 // ─────────────────────────────────────────────
 
 model Project {
-  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId              String      @map("org_id") @db.Uuid
-  name               String
-  key                String
-  description        String?
-  settings           Json        @default("{}")
-  archived           Boolean     @default(false)
-  projectTemplateId  String?     @map("project_template_id") @db.Uuid
-  enabledFeatures    String[]    @default([]) @map("enabled_features")
-  createdAt          DateTime    @default(now()) @map("created_at")
-  updatedAt          DateTime    @updatedAt @map("updated_at")
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String   @map("org_id") @db.Uuid
+  name              String
+  key               String
+  description       String?
+  settings          Json     @default("{}")
+  archived          Boolean  @default(false)
+  projectTemplateId String?  @map("project_template_id") @db.Uuid
+  enabledFeatures   String[] @default([]) @map("enabled_features")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  org             Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org             Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   members         ProjectMember[]
   boards          Board[]
   cycles          Cycle[]
@@ -350,43 +353,43 @@ model BoardColumn {
 }
 
 model WorkItem {
-  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId           String       @map("org_id") @db.Uuid
-  projectId       String       @map("project_id") @db.Uuid
+  id              String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String                      @map("org_id") @db.Uuid
+  projectId       String                      @map("project_id") @db.Uuid
   title           String
-  description     String       @default("")
-  columnKey       String       @map("column_key")
-  assigneeId      String?      @map("assignee_id") @db.Uuid
-  priority        Priority     @default(MEDIUM)
-  parentId        String?      @map("parent_id") @db.Uuid
-  ticketNumber    Int          @map("ticket_number")
-  storyPoints     Int?         @map("story_points")
-  sortOrder       Int          @default(0) @map("sort_order")
-  dueDate         DateTime?    @map("due_date")
-  startDate       DateTime?    @map("start_date")
-  completedAt     DateTime?    @map("completed_at")
-  columnEnteredAt DateTime?    @map("column_entered_at")
-  tags            String[]     @default([])
-  customFields    Json         @default("{}") @map("custom_fields")
-  createdById     String       @map("created_by_id") @db.Uuid
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
-  workItemTypeId  String       @map("work_item_type_id") @db.Uuid
-  cycleId         String?      @map("cycle_id") @db.Uuid
+  description     String                      @default("")
+  columnKey       String                      @map("column_key")
+  assigneeId      String?                     @map("assignee_id") @db.Uuid
+  priority        Priority                    @default(MEDIUM)
+  parentId        String?                     @map("parent_id") @db.Uuid
+  ticketNumber    Int                         @map("ticket_number")
+  storyPoints     Int?                        @map("story_points")
+  sortOrder       Int                         @default(0) @map("sort_order")
+  dueDate         DateTime?                   @map("due_date")
+  startDate       DateTime?                   @map("start_date")
+  completedAt     DateTime?                   @map("completed_at")
+  columnEnteredAt DateTime?                   @map("column_entered_at")
+  tags            String[]                    @default([])
+  customFields    Json                        @default("{}") @map("custom_fields")
+  createdById     String                      @map("created_by_id") @db.Uuid
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
+  workItemTypeId  String                      @map("work_item_type_id") @db.Uuid
+  cycleId         String?                     @map("cycle_id") @db.Uuid
   // RAG: legacy token-bag search vector — no longer written (kept for back-compat
   // until the column is dropped). Real semantic search uses `embedding` below.
-  searchVector    Json?        @map("search_vector")
+  searchVector    Json?                       @map("search_vector")
   // RAG: pgvector embedding (384-dim, MiniLM). Prisma can't read/write `Unsupported`,
   // so it's populated via raw SQL (see src/lib/rag/embed.ts storeEmbedding) and queried
   // with a raw ANN <=> in src/lib/ai/executors/rag.ts.
   embedding       Unsupported("vector(384)")? @map("embedding")
 
-  parent          WorkItem?      @relation("WorkItemHierarchy", fields: [parentId], references: [id])
-  children        WorkItem[]     @relation("WorkItemHierarchy")
-  workItemType    WorkItemType   @relation(fields: [workItemTypeId], references: [id])
-  cycle           Cycle?         @relation(fields: [cycleId], references: [id])
-  activities      Activity[]
-  comments        Comment[]
+  parent       WorkItem?    @relation("WorkItemHierarchy", fields: [parentId], references: [id])
+  children     WorkItem[]   @relation("WorkItemHierarchy")
+  workItemType WorkItemType @relation(fields: [workItemTypeId], references: [id])
+  cycle        Cycle?       @relation(fields: [cycleId], references: [id])
+  activities   Activity[]
+  comments     Comment[]
 
   @@unique([orgId, projectId, ticketNumber])
   @@index([orgId, columnKey])
@@ -458,7 +461,7 @@ model CrmContact {
   // touches this table, flip the default to 'LEAD'.
   stage        String   @default("lead")
   value        String?
-  dealValue    Decimal? @db.Decimal(19, 4) @map("deal_value")
+  dealValue    Decimal? @map("deal_value") @db.Decimal(19, 4)
   contactInfo  String?  @map("contact_info")
   ownerId      String?  @map("owner_id") @db.Uuid
   notes        String?
@@ -471,20 +474,20 @@ model CrmContact {
 }
 
 model Note {
-  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String     @map("org_id") @db.Uuid
-  authorId   String     @map("author_id") @db.Uuid
-  title      String     @default("")
-  content    String     @default("")
-  visibility Visibility @default(PRIVATE)
+  id           String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String                      @map("org_id") @db.Uuid
+  authorId     String                      @map("author_id") @db.Uuid
+  title        String                      @default("")
+  content      String                      @default("")
+  visibility   Visibility                  @default(PRIVATE)
   // RAG: legacy token-bag search vector — no longer written (kept for back-compat
   // until the column is dropped). Real semantic search uses `embedding` below.
-  searchVector Json?    @map("search_vector")
+  searchVector Json?                       @map("search_vector")
   // RAG: pgvector embedding (384-dim, MiniLM). Populated via raw SQL (storeEmbedding)
   // and queried with a raw ANN <=> in src/lib/ai/executors/rag.ts.
   embedding    Unsupported("vector(384)")? @map("embedding")
-  createdAt  DateTime   @default(now()) @map("created_at")
-  updatedAt  DateTime   @updatedAt @map("updated_at")
+  createdAt    DateTime                    @default(now()) @map("created_at")
+  updatedAt    DateTime                    @updatedAt @map("updated_at")
 
   @@index([orgId, visibility])
   @@map("notes")
@@ -508,18 +511,18 @@ model Notification {
 }
 
 model Partner {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  name      String
-  type      String   @default("vendor")
-  status    String   @default("active")
-  website   String?
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  name         String
+  type         String   @default("vendor")
+  status       String   @default("active")
+  website      String?
   contactName  String?  @map("contact_name")
   contactEmail String?  @map("contact_email")
   contactPhone String?  @map("contact_phone")
-  notes     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   contracts Contract[]
 
@@ -547,29 +550,29 @@ model Product {
 }
 
 model Contract {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String    @map("org_id") @db.Uuid
-  partnerId   String?   @map("partner_id") @db.Uuid
-  productId   String?   @map("product_id") @db.Uuid
-  title       String
-  value       Decimal? @db.Decimal(19, 4)
-  currency    String    @default("USD")
-  status      String    @default("draft")
-  startDate   DateTime? @map("start_date")
-  endDate     DateTime? @map("end_date")
-  terms       String?
-  notes       String?
-  docusignEnvelopeId String?  @map("docusign_envelope_id")
-  docusignStatus     String?  @map("docusign_status")
-  signedAt           DateTime? @map("signed_at")
+  id                 String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String                      @map("org_id") @db.Uuid
+  partnerId          String?                     @map("partner_id") @db.Uuid
+  productId          String?                     @map("product_id") @db.Uuid
+  title              String
+  value              Decimal?                    @db.Decimal(19, 4)
+  currency           String                      @default("USD")
+  status             String                      @default("draft")
+  startDate          DateTime?                   @map("start_date")
+  endDate            DateTime?                   @map("end_date")
+  terms              String?
+  notes              String?
+  docusignEnvelopeId String?                     @map("docusign_envelope_id")
+  docusignStatus     String?                     @map("docusign_status")
+  signedAt           DateTime?                   @map("signed_at")
   // RAG: legacy token-bag search vector — no longer written (kept for back-compat
   // until the column is dropped). Real semantic search uses `embedding` below.
-  searchVector       Json?    @map("search_vector")
+  searchVector       Json?                       @map("search_vector")
   // RAG: pgvector embedding (384-dim, MiniLM). Populated via raw SQL (storeEmbedding)
   // and queried with a raw ANN <=> in src/lib/ai/executors/rag.ts.
   embedding          Unsupported("vector(384)")? @map("embedding")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
 
   partner      Partner?      @relation(fields: [partnerId], references: [id])
   product      Product?      @relation(fields: [productId], references: [id])
@@ -603,45 +606,45 @@ enum FieldType {
 }
 
 model BoardTemplate {
-  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId             String?         @map("org_id") @db.Uuid
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String?  @map("org_id") @db.Uuid
   slug              String
   name              String
   category          String
-  boardType         String          @default("KANBAN") @map("board_type")
+  boardType         String   @default("KANBAN") @map("board_type")
   methodology       String?
-  description       String          @default("")
-  sortOrder         Int             @default(0)    @map("sort_order")
-  thumbnailUrl      String?         @map("thumbnail_url")
-  isBuiltIn         Boolean         @default(false) @map("is_built_in")
-  isPublished       Boolean         @default(true) @map("is_published")
-  defaultConfig     Json            @default("{}") @map("default_config")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  projectTemplateId String?         @map("project_template_id") @db.Uuid
+  description       String   @default("")
+  sortOrder         Int      @default(0) @map("sort_order")
+  thumbnailUrl      String?  @map("thumbnail_url")
+  isBuiltIn         Boolean  @default(false) @map("is_built_in")
+  isPublished       Boolean  @default(true) @map("is_published")
+  defaultConfig     Json     @default("{}") @map("default_config")
+  createdAt         DateTime @default(now()) @map("created_at")
+  projectTemplateId String?  @map("project_template_id") @db.Uuid
   sector            String?
-  sourceTemplateId  String?         @map("source_template_id") @db.Uuid
+  sourceTemplateId  String?  @map("source_template_id") @db.Uuid
 
-  widgets          BoardTemplateWidget[]
-  projectTemplate  ProjectTemplate?  @relation(fields: [projectTemplateId], references: [id])
-  sourceTemplate   BoardTemplate?    @relation("BoardTemplateClones", fields: [sourceTemplateId], references: [id])
-  clones           BoardTemplate[]   @relation("BoardTemplateClones")
+  widgets         BoardTemplateWidget[]
+  projectTemplate ProjectTemplate?      @relation(fields: [projectTemplateId], references: [id])
+  sourceTemplate  BoardTemplate?        @relation("BoardTemplateClones", fields: [sourceTemplateId], references: [id])
+  clones          BoardTemplate[]       @relation("BoardTemplateClones")
 
   @@unique([orgId, slug])
   @@map("board_templates")
 }
 
 model BoardTemplateWidget {
-  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  templateId      String  @map("template_id") @db.Uuid
-  widgetSlug      String  @map("widget_slug")
-  parentWidgetId  String? @map("parent_widget_id") @db.Uuid
-  config          Json    @default("{}")
-  layout          Json    @default("{}")
-  sortOrder       Int     @default(0) @map("sort_order")
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId     String  @map("template_id") @db.Uuid
+  widgetSlug     String  @map("widget_slug")
+  parentWidgetId String? @map("parent_widget_id") @db.Uuid
+  config         Json    @default("{}")
+  layout         Json    @default("{}")
+  sortOrder      Int     @default(0) @map("sort_order")
 
-  template      BoardTemplate        @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  parent        BoardTemplateWidget? @relation("WidgetHierarchy", fields: [parentWidgetId], references: [id])
-  children      BoardTemplateWidget[] @relation("WidgetHierarchy")
+  template BoardTemplate         @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent   BoardTemplateWidget?  @relation("WidgetHierarchy", fields: [parentWidgetId], references: [id])
+  children BoardTemplateWidget[] @relation("WidgetHierarchy")
 
   @@map("board_template_widgets")
 }
@@ -698,8 +701,8 @@ model WorkItemType {
   celebrateOnComplete  Boolean  @default(false) @map("celebrate_on_complete")
   createdAt            DateTime @default(now()) @map("created_at")
 
-  org             Organization?    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  projectTemplate ProjectTemplate? @relation(fields: [projectTemplateId], references: [id])
+  org             Organization?       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectTemplate ProjectTemplate?    @relation(fields: [projectTemplateId], references: [id])
   typeFields      WorkItemTypeField[]
   workItems       WorkItem[]
 
@@ -708,14 +711,14 @@ model WorkItemType {
 }
 
 model WorkItemTypeField {
-  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workItemTypeId String @map("work_item_type_id") @db.Uuid
-  customFieldId  String @map("custom_field_id") @db.Uuid
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workItemTypeId String  @map("work_item_type_id") @db.Uuid
+  customFieldId  String  @map("custom_field_id") @db.Uuid
   required       Boolean @default(false)
   sortOrder      Int     @default(0) @map("sort_order")
 
   workItemType WorkItemType @relation(fields: [workItemTypeId], references: [id], onDelete: Cascade)
-  customField  CustomField       @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  customField  CustomField  @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
 
   @@unique([workItemTypeId, customFieldId])
   @@map("work_item_type_fields")
@@ -736,8 +739,8 @@ model Cycle {
   report      Json?
   createdAt   DateTime     @default(now()) @map("created_at")
 
-  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workItems  WorkItem[]
   capacities CycleCapacity[]
 
@@ -832,7 +835,7 @@ model TimeEntry {
   workItemId   String?         @map("work_item_id") @db.Uuid
   date         DateTime        @db.Date
   hours        Float
-  rate         Decimal? @db.Decimal(19, 4)
+  rate         Decimal?        @db.Decimal(19, 4)
   client       String?
   description  String          @default("")
   billableType BillableType    @default(BILLABLE) @map("billable_type")
@@ -851,7 +854,7 @@ model TimeEntry {
 model Revenue {
   id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String      @map("org_id") @db.Uuid
-  amount      Decimal  @db.Decimal(19, 4)
+  amount      Decimal     @db.Decimal(19, 4)
   currency    String      @default("USD")
   date        DateTime    @db.Date
   client      String?
@@ -867,22 +870,22 @@ model Revenue {
 }
 
 model Expense {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  amount      Decimal  @db.Decimal(19, 4)
-  currency    String   @default("USD")
-  date        DateTime @db.Date
-  category    String
-  vendor      String?
-  description String   @default("")
-  recurring   Boolean  @default(false)
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String        @map("org_id") @db.Uuid
+  amount       Decimal       @db.Decimal(19, 4)
+  currency     String        @default("USD")
+  date         DateTime      @db.Date
+  category     String
+  vendor       String?
+  description  String        @default("")
+  recurring    Boolean       @default(false)
   status       ExpenseStatus @default(DRAFT)
   approvedById String?       @map("approved_by_id") @db.Uuid
   submittedAt  DateTime?     @map("submitted_at")
   approvedAt   DateTime?     @map("approved_at")
-  createdById String   @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdById  String        @map("created_by_id") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
   @@index([orgId, date])
   @@index([orgId, status])
@@ -890,32 +893,32 @@ model Expense {
 }
 
 model SyncMeeting {
-  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String        @map("org_id") @db.Uuid
-  title       String        @default("")
-  projectId   String?       @map("project_id") @db.Uuid
-  sprintId    String?       @map("sprint_id") @db.Uuid
-  meetingDate DateTime      @map("meeting_date")
-  meetingType MeetingType   @default(STANDUP) @map("meeting_type")
-  status      MeetingStatus @default(SCHEDULED)
-  transcript  String?
-  aiSummary   String?       @map("ai_summary")
-  aiTickets   Json          @default("[]") @map("ai_tickets")
-  notes              String        @default("")
-  meetingUrl         String?  @map("meeting_url")
-  videoProvider      String?  @map("video_provider")
-  meetSpaceName      String?  @map("meet_space_name")
-  meetConferenceName String?  @map("meet_conference_name")
-  artifacts          Json     @default("[]")
+  id                 String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String                      @map("org_id") @db.Uuid
+  title              String                      @default("")
+  projectId          String?                     @map("project_id") @db.Uuid
+  sprintId           String?                     @map("sprint_id") @db.Uuid
+  meetingDate        DateTime                    @map("meeting_date")
+  meetingType        MeetingType                 @default(STANDUP) @map("meeting_type")
+  status             MeetingStatus               @default(SCHEDULED)
+  transcript         String?
+  aiSummary          String?                     @map("ai_summary")
+  aiTickets          Json                        @default("[]") @map("ai_tickets")
+  notes              String                      @default("")
+  meetingUrl         String?                     @map("meeting_url")
+  videoProvider      String?                     @map("video_provider")
+  meetSpaceName      String?                     @map("meet_space_name")
+  meetConferenceName String?                     @map("meet_conference_name")
+  artifacts          Json                        @default("[]")
   // RAG: legacy token-bag search vector — no longer written (kept for back-compat
   // until the column is dropped). Real semantic search uses `embedding` below.
-  searchVector Json?        @map("search_vector")
+  searchVector       Json?                       @map("search_vector")
   // RAG: pgvector embedding (384-dim, MiniLM). Populated via raw SQL (storeEmbedding)
   // and queried with a raw ANN <=> in src/lib/ai/executors/rag.ts.
-  embedding   Unsupported("vector(384)")? @map("embedding")
-  createdById String        @map("created_by_id") @db.Uuid
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  embedding          Unsupported("vector(384)")? @map("embedding")
+  createdById        String                      @map("created_by_id") @db.Uuid
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
 
   attendees MeetingAttendee[]
 
@@ -924,13 +927,13 @@ model SyncMeeting {
 }
 
 model MeetingAttendee {
-  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  meetingId      String  @map("meeting_id") @db.Uuid
-  userId         String  @map("user_id") @db.Uuid
-  doneSinceLast  String  @default("") @map("done_since_last")
-  workingOn      String  @default("") @map("working_on")
-  blockers       String  @default("")
-  notes          String  @default("")
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meetingId     String @map("meeting_id") @db.Uuid
+  userId        String @map("user_id") @db.Uuid
+  doneSinceLast String @default("") @map("done_since_last")
+  workingOn     String @default("") @map("working_on")
+  blockers      String @default("")
+  notes         String @default("")
 
   meeting SyncMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
@@ -978,16 +981,16 @@ enum Density {
 }
 
 model Integration {
-  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String            @map("org_id") @db.Uuid
-  provider     String
-  displayName  String            @default("") @map("display_name")
-  config       Json              @default("{}")
-  status       IntegrationStatus @default(ACTIVE)
-  installedById String           @map("installed_by_id") @db.Uuid
-  lastSyncAt   DateTime?         @map("last_sync_at")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String            @map("org_id") @db.Uuid
+  provider      String
+  displayName   String            @default("") @map("display_name")
+  config        Json              @default("{}")
+  status        IntegrationStatus @default(ACTIVE)
+  installedById String            @map("installed_by_id") @db.Uuid
+  lastSyncAt    DateTime?         @map("last_sync_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -1013,16 +1016,16 @@ model Webhook {
 }
 
 model WebhookDelivery {
-  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  webhookId    String                @map("webhook_id") @db.Uuid
-  event        String
-  payload      Json
-  status       WebhookDeliveryStatus @default(PENDING)
-  statusCode   Int?                  @map("status_code")
-  responseBody String?               @map("response_body")
-  attempts     Int                   @default(0)
-  lastAttemptAt DateTime?            @map("last_attempt_at")
-  createdAt    DateTime              @default(now()) @map("created_at")
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  webhookId     String                @map("webhook_id") @db.Uuid
+  event         String
+  payload       Json
+  status        WebhookDeliveryStatus @default(PENDING)
+  statusCode    Int?                  @map("status_code")
+  responseBody  String?               @map("response_body")
+  attempts      Int                   @default(0)
+  lastAttemptAt DateTime?             @map("last_attempt_at")
+  createdAt     DateTime              @default(now()) @map("created_at")
 
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
 
@@ -1031,19 +1034,19 @@ model WebhookDelivery {
 }
 
 model Theme {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String?   @map("org_id") @db.Uuid
-  slug         String
-  name         String
-  mode         ThemeMode @default(DARK)
-  colors       Json      @default("{}")
-  typography   Json      @default("{}")
-  spacing      Json      @default("{}")
-  branding     Json      @default("{}")
-  isBuiltIn    Boolean   @default(false) @map("is_built_in")
-  isActive     Boolean   @default(false) @map("is_active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String?   @map("org_id") @db.Uuid
+  slug       String
+  name       String
+  mode       ThemeMode @default(DARK)
+  colors     Json      @default("{}")
+  typography Json      @default("{}")
+  spacing    Json      @default("{}")
+  branding   Json      @default("{}")
+  isBuiltIn  Boolean   @default(false) @map("is_built_in")
+  isActive   Boolean   @default(false) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   @@unique([orgId, slug])
   @@map("themes")
@@ -1062,9 +1065,9 @@ model UserPreferences {
   bgDarkUrl       String?         @map("bg_dark_url")
   bgLightUrl      String?         @map("bg_light_url")
   dndEnabled      Boolean         @default(false) @map("dnd_enabled")
-  dndStart        String?         @map("dnd_start")    // "HH:MM" 24h, local to dndTimezone
-  dndEnd          String?         @map("dnd_end")       // "HH:MM"
-  dndTimezone     String?         @map("dnd_timezone")  // IANA tz, e.g. "America/New_York"
+  dndStart        String?         @map("dnd_start") // "HH:MM" 24h, local to dndTimezone
+  dndEnd          String?         @map("dnd_end") // "HH:MM"
+  dndTimezone     String?         @map("dnd_timezone") // IANA tz, e.g. "America/New_York"
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
@@ -1137,15 +1140,15 @@ model ComplianceControl {
 }
 
 model DataClassification {
-  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String              @map("org_id") @db.Uuid
-  projectId    String?             @map("project_id") @db.Uuid
-  level        ClassificationLevel @default(UNCLASSIFIED)
-  markings     String[]            @default([])
-  handlingInstructions String      @default("") @map("handling_instructions")
-  appliedById  String              @map("applied_by_id") @db.Uuid
-  createdAt    DateTime            @default(now()) @map("created_at")
-  updatedAt    DateTime            @updatedAt @map("updated_at")
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                String              @map("org_id") @db.Uuid
+  projectId            String?             @map("project_id") @db.Uuid
+  level                ClassificationLevel @default(UNCLASSIFIED)
+  markings             String[]            @default([])
+  handlingInstructions String              @default("") @map("handling_instructions")
+  appliedById          String              @map("applied_by_id") @db.Uuid
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -1154,17 +1157,17 @@ model DataClassification {
 }
 
 model SessionRecord {
-  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String        @map("org_id") @db.Uuid
-  userId      String        @map("user_id") @db.Uuid
-  sessionToken String       @unique @map("session_token")
-  ipAddress   String?       @map("ip_address")
-  userAgent   String?       @map("user_agent")
-  status      SessionStatus @default(ACTIVE)
-  lastActiveAt DateTime     @default(now()) @map("last_active_at")
-  expiresAt   DateTime      @map("expires_at")
-  revokedAt   DateTime?     @map("revoked_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String        @map("org_id") @db.Uuid
+  userId       String        @map("user_id") @db.Uuid
+  sessionToken String        @unique @map("session_token")
+  ipAddress    String?       @map("ip_address")
+  userAgent    String?       @map("user_agent")
+  status       SessionStatus @default(ACTIVE)
+  lastActiveAt DateTime      @default(now()) @map("last_active_at")
+  expiresAt    DateTime      @map("expires_at")
+  revokedAt    DateTime?     @map("revoked_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -1187,14 +1190,14 @@ model IpAllowlist {
 }
 
 model ScimToken {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  tokenHash String   @map("token_hash")
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String    @map("org_id") @db.Uuid
+  tokenHash String    @map("token_hash")
   prefix    String
-  label     String   @default("")
+  label     String    @default("")
   expiresAt DateTime? @map("expires_at")
   lastUsed  DateTime? @map("last_used")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -1265,16 +1268,16 @@ model AssistantMessage {
 }
 
 model SavedReport {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  createdById String  @map("created_by_id") @db.Uuid
-  name       String
-  type       String
-  config     Json     @default("{}")
-  schedule   String?
-  lastRunAt  DateTime? @map("last_run_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  createdById String    @map("created_by_id") @db.Uuid
+  name        String
+  type        String
+  config      Json      @default("{}")
+  schedule    String?
+  lastRunAt   DateTime? @map("last_run_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -1290,11 +1293,11 @@ model McpServer {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String   @map("org_id") @db.Uuid
   name      String
-  transport String   // "stdio" | "http" | "sse"
-  command   String?  // for stdio
+  transport String // "stdio" | "http" | "sse"
+  command   String? // for stdio
   args      String[] @default([])
   env       Json     @default("{}")
-  url       String?  // for http/sse
+  url       String? // for http/sse
   headers   Json     @default("{}")
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
@@ -1329,22 +1332,22 @@ enum ChatNotificationPref {
 }
 
 model ChatChannel {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId         String    @map("org_id") @db.Uuid
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String          @map("org_id") @db.Uuid
   kind          ChatChannelKind
   name          String?
   slug          String?
   description   String?
   topic         String?
-  isPrivate     Boolean   @default(false) @map("is_private")
-  isGeneral     Boolean   @default(false) @map("is_general")
-  projectId     String?   @map("project_id") @db.Uuid
-  createdById   String    @map("created_by_id") @db.Uuid
-  dmKey         String?   @map("dm_key")
-  lastMessageAt DateTime? @map("last_message_at")
-  archivedAt    DateTime? @map("archived_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  isPrivate     Boolean         @default(false) @map("is_private")
+  isGeneral     Boolean         @default(false) @map("is_general")
+  projectId     String?         @map("project_id") @db.Uuid
+  createdById   String          @map("created_by_id") @db.Uuid
+  dmKey         String?         @map("dm_key")
+  lastMessageAt DateTime?       @map("last_message_at")
+  archivedAt    DateTime?       @map("archived_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
 
   org      Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   members  ChatChannelMember[]
@@ -1360,15 +1363,15 @@ model ChatChannel {
 }
 
 model ChatChannelMember {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  channelId         String    @map("channel_id") @db.Uuid
-  userId            String    @map("user_id") @db.Uuid
+  id                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId         String                @map("channel_id") @db.Uuid
+  userId            String                @map("user_id") @db.Uuid
   role              ChatChannelMemberRole @default(MEMBER)
   notificationPref  ChatNotificationPref  @default(MENTIONS) @map("notification_pref")
-  lastReadMessageId String?   @map("last_read_message_id") @db.Uuid
-  lastReadAt        DateTime? @map("last_read_at")
-  mutedUntil        DateTime? @map("muted_until")
-  joinedAt          DateTime  @default(now()) @map("joined_at")
+  lastReadMessageId String?               @map("last_read_message_id") @db.Uuid
+  lastReadAt        DateTime?             @map("last_read_at")
+  mutedUntil        DateTime?             @map("muted_until")
+  joinedAt          DateTime              @default(now()) @map("joined_at")
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
@@ -1391,9 +1394,9 @@ model ChatMessage {
   content         String
   kind            ChatMessageKind @default(USER) @map("kind")
   parentMessageId String?         @map("parent_message_id") @db.Uuid
-  editedAt        DateTime? @map("edited_at")
-  deletedAt       DateTime? @map("deleted_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  editedAt        DateTime?       @map("edited_at")
+  deletedAt       DateTime?       @map("deleted_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
 
   channel       ChatChannel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
   parentMessage ChatMessage?            @relation("Thread", fields: [parentMessageId], references: [id])
@@ -1424,18 +1427,18 @@ model ChatMessageReaction {
 }
 
 model ChatMessageAttachment {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  messageId    String?   @map("message_id") @db.Uuid
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId    String?  @map("message_id") @db.Uuid
   kind         String
   url          String
-  storageKey   String    @map("storage_key")
+  storageKey   String   @map("storage_key")
   filename     String
-  contentType  String    @map("content_type")
+  contentType  String   @map("content_type")
   size         Int
   width        Int?
   height       Int?
-  uploadedById String    @map("uploaded_by_id") @db.Uuid
-  createdAt    DateTime  @default(now()) @map("created_at")
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
 
   message ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
@@ -1703,6 +1706,7 @@ model Account {
   parent        Account?      @relation("AccountTree", fields: [parentId], references: [id])
   children      Account[]     @relation("AccountTree")
   lines         JournalLine[]
+
   @@unique([orgId, code])
   @@index([orgId, type])
   @@map("accounts")
@@ -1725,6 +1729,7 @@ model JournalEntry {
   reverses    JournalEntry?  @relation("Reversal", fields: [reversesId], references: [id])
   reversedBy  JournalEntry[] @relation("Reversal")
   lines       JournalLine[]
+
   @@unique([orgId, entryNumber])
   @@unique([orgId, source, sourceId])
   @@unique([orgId, reversesId])
@@ -1750,6 +1755,7 @@ model JournalLine {
   account         Account        @relation(fields: [accountId], references: [id], onDelete: Restrict)
   project         Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
   contract        Contract?      @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
   @@index([orgId, accountId])
   @@index([journalEntryId])
   @@index([orgId, projectId])
@@ -1758,12 +1764,13 @@ model JournalLine {
 
 model AccountingPeriod {
   id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String        @map("org_id") @db.Uuid
-  startDate  DateTime      @db.Date @map("start_date")
-  endDate    DateTime      @db.Date @map("end_date")
-  status     PeriodStatus  @default(OPEN)
-  closedAt   DateTime?     @map("closed_at")
-  closedById String?       @map("closed_by_id") @db.Uuid
+  orgId      String       @map("org_id") @db.Uuid
+  startDate  DateTime     @map("start_date") @db.Date
+  endDate    DateTime     @map("end_date") @db.Date
+  status     PeriodStatus @default(OPEN)
+  closedAt   DateTime?    @map("closed_at")
+  closedById String?      @map("closed_by_id") @db.Uuid
+
   @@unique([orgId, startDate])
   @@index([orgId, status])
   @@map("accounting_periods")
