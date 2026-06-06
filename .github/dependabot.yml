@@ -1,0 +1,31 @@
+# Dependabot — keeps deps, Actions, and base images patched.
+# Spec §8 gate 2 (SCA): automated dependency updates feed the SCA gate and the
+# 800-171 3.11.2 (flaw remediation) evidence trail. github-actions updates keep
+# the SHA-pins current (gate 8); docker keeps the base image patched (gate 4).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Batch low-risk patch/minor bumps to keep PR noise down; majors stay
+      # individual so breaking changes are reviewed in isolation.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "security"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "ci", "security"]
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "docker", "security"]

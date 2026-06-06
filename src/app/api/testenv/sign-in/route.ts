@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import {
@@ -17,6 +17,14 @@ import {
  * Do NOT use in production. Do NOT ship without the env-gate.
  */
 export async function POST(req: NextRequest) {
+  // Belt-and-suspenders production guard (spec §8 gate 8): this auth-bypass
+  // route is inert in prod even if E2E_TEST_AUTH leaks into the prod env. The
+  // hard NODE_ENV check sits ABOVE the env-gate so a misconfigured prod image
+  // can never mint a session here.
+  if (process.env.NODE_ENV === "production") {
+    return new NextResponse(null, { status: 404 });
+  }
+
   if (process.env.E2E_TEST_AUTH !== "1") {
     return new Response("Disabled", { status: 404 });
   }
