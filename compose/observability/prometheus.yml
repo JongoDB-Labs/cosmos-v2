@@ -1,0 +1,47 @@
+# Prometheus scrape + alerting config — in-boundary monitoring (SI-4 / 800-171 3.14.6-3.14.7).
+#
+# Scrapes the OTel Collector (which carries the app's custom metric contract + HTTP server
+# metrics), itself, and the observability sidecars that expose Prometheus metrics. Holds the
+# alerting rules: the two gov must-have signals (chokepoint erroring, classifier down) plus
+# per-sidecar health (up == 0).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # The app's metrics arrive here: the OTel Collector renders them at :8889/metrics
+  # (cosmos_egress_decisions_total, cosmos_classifier_* , HTTP server metrics, etc.).
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # The collector's OWN internal telemetry (its self-observability port). Useful to see
+  # received/exported spans+metrics and to detect an export backlog.
+  - job_name: otel-collector-internal
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Jaeger all-in-one exposes its own metrics on :14269 (admin port).
+  - job_name: jaeger
+    static_configs:
+      - targets: ["jaeger:14269"]
+
+  # Grafana exposes /metrics on its main port.
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  # NOTE on MinIO: MinIO's cluster metrics endpoint (/minio/v2/metrics/cluster) requires
+  # MINIO_PROMETHEUS_AUTH_TYPE=public OR a signed bearer token. We do NOT flip MinIO to
+  # public metrics here (least-surprise: it would change the base stack's MinIO config and
+  # expose an unauthenticated endpoint). Scraping MinIO is a documented follow-on — wire a
+  # scrape job + bearer_token once MinIO Prometheus auth is provisioned. The base stack's
+  # MinIO health is still observable via its own compose healthcheck.
