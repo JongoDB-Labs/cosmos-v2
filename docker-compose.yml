@@ -238,6 +238,29 @@ services:
       cosmos-minio:
         condition: service_healthy
 
+  # One-shot vault-key RE-WRAP (IA-5 / SC 3.13.10). Re-wraps every vault-sealed secret
+  # (today: idp_connections.client_secret_enc) to the keyring's ACTIVE kid so an old key
+  # can be retired — the engineering half of a rotate-then-retire cycle. Run on demand:
+  #   sudo docker compose --profile ops run --rm rotate-vault-key          # re-wrap
+  #   sudo docker compose --profile ops run --rm rotate-vault-key --check  # completeness gate
+  # Uses the migrate image (full src/ + tsx + prisma toolchain) so it imports the SAME
+  # vault TS the app uses (single source of truth) — invoked via tsx, like the SSO seed.
+  rotate-vault-key:
+    image: cosmos-v2-migrate:dev
+    profiles: ["ops"]
+    # env_file supplies the vault keyring (SSO_VAULT_KEYS + SSO_VAULT_ACTIVE_KID, or the
+    # legacy single SSO_VAULT_KEY). `environment:` below overrides DATABASE_URL to the
+    # LEAST-PRIVILEGE cosmos_app role — re-wrap is SELECT + UPDATE on idp_connections, NOT
+    # DDL, so it must NOT run as the owner (cosmos).
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
+    entrypoint:
+      ["node_modules/.bin/tsx", "scripts/dsop/rotate-vault-key.mjs"]
+    depends_on:
+      cosmos-postgres:
+        condition: service_healthy
+
 volumes:
   cosmos-pgdata:
   cosmos-minio-data:
