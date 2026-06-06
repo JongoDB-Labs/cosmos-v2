@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:examples": "node scripts/check-examples.mjs",
+    "check:control-coverage": "node scripts/check-control-coverage.mjs",
     "analyze": "ANALYZE=true next build",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
