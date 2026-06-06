@@ -64,6 +64,48 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
 });
 
 /**
+ * Revoke (terminate) all sessions for every member of an org. Deletes the global
+ * `Session` rows so they stop authenticating immediately, and marks the org's
+ * `SessionRecord` rows REVOKED for the audit-view mirror.
+ *
+ * Called when an org tightens its auth posture — e.g. a GOV org enabling
+ * `ssoEnforced` or `mfaRequired` — so existing weaker-assurance sessions (Google
+ * / pre-enforcement OIDC) can't ride past the new floor. A global `Session` is
+ * per-user (not per-org), so a member belonging to multiple orgs is logged out
+ * everywhere; that's the intended fail-safe when a gov tenant raises the bar.
+ *
+ * TODO(sso-followon): SCIM deprovisioning (`active:false`) and OIDC back-channel
+ * logout (SLO) must ALSO call this (scoped to the affected user) to terminate
+ * sessions when an identity is disabled upstream. Not wired in this slice.
+ *
+ * Returns the number of global Session rows deleted.
+ */
+export async function revokeOrgSessions(orgId: string): Promise<number> {
+  const members = await prisma.orgMember.findMany({
+    where: { orgId },
+    select: { userId: true },
+  });
+  const userIds = members.map((m) => m.userId);
+  if (userIds.length === 0) return 0;
+
+  // Delete the authenticating Session rows for all of the org's members.
+  const deleted = await prisma.session.deleteMany({
+    where: { userId: { in: userIds } },
+  });
+
+  // Mark this org's active SessionRecord mirrors REVOKED (best-effort; the
+  // Session delete above is what actually terminates auth).
+  await prisma.sessionRecord
+    .updateMany({
+      where: { orgId, status: "ACTIVE" },
+      data: { status: "REVOKED", revokedAt: new Date() },
+    })
+    .catch(() => undefined);
+
+  return deleted.count;
+}
+
+/**
  * Auth context for org-scoped API routes. Returns `null` when:
  * - no valid session,
  * - the user has no row in `users`,
