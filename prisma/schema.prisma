@@ -96,6 +96,10 @@ enum Visibility {
   ORG
 }
 
+enum IdpProtocol {
+  OIDC // SAML added in the Keycloak/SAML translation-appliance follow-on
+}
+
 // ─────────────────────────────────────────────
 // Phase 0: Foundation (Auth, Orgs, RBAC)
 // ─────────────────────────────────────────────
@@ -138,6 +142,7 @@ model Organization {
   feedbackItems          FeedbackItem[]
   homeWidgets            HomeWidget[]
   workRoles              WorkRole[]
+  idpConnection          IdpConnection?
 
   @@map("organizations")
 }
@@ -153,12 +158,13 @@ model User {
   lastActiveAt       DateTime? @map("last_active_at")
   createdAt          DateTime  @default(now()) @map("created_at")
 
-  memberships       OrgMember[]
-  preferences       UserPreferences?
-  sessions          Session[]
-  cycleCapacities   CycleCapacity[]
-  pushSubscriptions PushSubscription[]
-  homeWidgets       HomeWidget[]
+  memberships         OrgMember[]
+  preferences         UserPreferences?
+  sessions            Session[]
+  cycleCapacities     CycleCapacity[]
+  pushSubscriptions   PushSubscription[]
+  homeWidgets         HomeWidget[]
+  federatedIdentities FederatedIdentity[]
 
   @@map("users")
 }
@@ -168,11 +174,56 @@ model Session {
   userId    String   @map("user_id") @db.Uuid
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
+  // SSO assurance columns (additive; null/false for legacy + Google sessions).
+  authMethod   String?  @map("auth_method") // e.g. "oidc"; null = local/Google
+  idpConnId    String?  @map("idp_conn_id") @db.Uuid // the IdpConnection used, if SSO
+  amr          String[] @default([]) // Authentication Methods References from the token
+  mfaSatisfied Boolean  @default(false) @map("mfa_satisfied") // acr/amr met the org's floor
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("sessions")
+}
+
+model IdpConnection {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String      @map("org_id") @db.Uuid
+  protocol         IdpProtocol @default(OIDC)
+  issuerUrl        String      @map("issuer_url") // OIDC discovery base
+  clientId         String      @map("client_id")
+  clientSecretEnc  String      @map("client_secret_enc") // sealed via crypto/vault.ts
+  scopes           String[]    @default(["openid", "email", "profile"])
+  attributeMapping Json        @default("{}") @map("attribute_mapping") // {email,subject,groups} claim names
+  roleMapping      Json        @default("{}") @map("role_mapping") // {"<group>":"ADMIN"} (capped at ADMIN)
+  jitProvisioning  Boolean     @default(true) @map("jit_provisioning")
+  defaultRole      OrgRole     @default(MEMBER) @map("default_role")
+  requiredAcr      String?     @map("required_acr") // gov AAL floor (e.g. phishing-resistant)
+  enabled          Boolean     @default(false)
+  enforced         Boolean     @default(false) // gov: SSO-only, Google rejected
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  org        Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  identities FederatedIdentity[]
+
+  @@unique([orgId]) // one IdP per org for this slice; multi-IdP-per-org is a later refinement
+  @@map("idp_connections")
+}
+
+model FederatedIdentity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  idpConnId String   @map("idp_conn_id") @db.Uuid
+  subject   String // the IdP 'sub' — the stable match key
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idpConn IdpConnection @relation(fields: [idpConnId], references: [id], onDelete: Cascade)
+
+  @@unique([idpConnId, subject]) // THE security-critical key — never match on email
+  @@index([userId])
+  @@map("federated_identities")
 }
 
 model AllowedEmail {

@@ -10,6 +10,11 @@ type SessionUser = {
   email: string;
   displayName: string;
   avatarUrl: string | null;
+  /** SSO assurance, surfaced per-request from the Session row. */
+  authMethod: string | null;
+  idpConnId: string | null;
+  amr: string[];
+  mfaSatisfied: boolean;
 };
 
 /**
@@ -26,7 +31,21 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
 
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
-    include: { user: true },
+    select: {
+      expiresAt: true,
+      authMethod: true,
+      idpConnId: true,
+      amr: true,
+      mfaSatisfied: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          avatarUrl: true,
+        },
+      },
+    },
   });
 
   if (!session) return null;
@@ -37,6 +56,10 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     email: session.user.email,
     displayName: session.user.displayName,
     avatarUrl: session.user.avatarUrl,
+    authMethod: session.authMethod,
+    idpConnId: session.idpConnId,
+    amr: session.amr,
+    mfaSatisfied: session.mfaSatisfied,
   };
 });
 
