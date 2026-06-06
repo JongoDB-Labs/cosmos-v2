@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
 import { sumMoney, moneyToNumber } from "@/lib/money";
-import { executeGoogleTool, GOOGLE_TOOL_NAMES } from "./executors/google";
-import { executeGitHubTool, GITHUB_TOOL_NAMES } from "./executors/github";
+import { connectorToolNames, executeConnectorTool } from "./connectors";
 import {
   createWorkItem,
   updateWorkItem,
@@ -149,20 +148,14 @@ async function dispatchTool(
   input: Record<string, unknown>,
   ctx: ToolContext
 ): Promise<unknown> {
-  // Google Workspace tools (Gmail, Calendar, Drive, Contacts) — dispatched
-  // first so each new Google tool only needs to be added to the executor's
-  // own switch in `executors/google.ts`.
-  if (GOOGLE_TOOL_NAMES.has(name)) {
-    const result = await executeGoogleTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
-    if (result !== null) return result;
-  }
-
-  // GitHub connector tools (read-only issues + PRs) — dispatched early like Google
-  // so each new GitHub tool only needs adding to the executor's own switch. The
-  // executor resolves the org-shared sealed PAT via getOrgCredential(orgId,'github').
-  if (GITHUB_TOOL_NAMES.has(name)) {
-    const result = await executeGitHubTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
-    if (result !== null) return result;
+  // EXTERNAL connector tools (Google Workspace, GitHub, …) are dispatched first
+  // via the declarative registry: if the name belongs to ANY registered connector,
+  // route it to that connector's executor. Adding a connector needs no edit here —
+  // its descriptor (connectors/index.ts) carries its tool names + executor. Native
+  // cosmos tools are NOT connectors (no external creds) and fall through to the
+  // switch below UNCHANGED.
+  if (connectorToolNames().has(name)) {
+    return executeConnectorTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
   }
 
   switch (name) {

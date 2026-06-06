@@ -1,6 +1,15 @@
 // src/lib/ai/egress/projection.ts
 import type { ClassificationLevel } from "@prisma/client";
 import { mintHandle } from "./handles";
+import { connectorEgressMaps } from "../connectors";
+
+// EXTERNAL connectors (github, …) contribute their egress mapping declaratively via
+// the connector registry; we MERGE those contributions into the native static maps
+// below so the global TOOL_ENTITY / EXPOSABLE_FIELDS / HANDLEABLE_FIELDS are byte-
+// identical to the pre-registry literals — just sourced from one place each. Native
+// (non-connector) cosmos entries stay hand-listed here (they are NOT connectors).
+// Computed ONCE at module load (registry is populated by connectors/index.ts import).
+const _connectorEgress = connectorEgressMaps();
 //
 // modelView structural projection. DEFAULT-DENY: only the fields explicitly
 // listed per entityType survive into the model's view; everything else (esp. all
@@ -13,8 +22,12 @@ import { mintHandle } from "./handles";
 // When a field's safety was genuinely ambiguous it was REMOVED — it is always
 // safe to withhold more.
 
-/** Structural, non-CUI fields per entity. NEVER add a free-text/content/money/PII field here. */
-const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
+/**
+ * Structural, non-CUI fields per entity. NEVER add a free-text/content/money/PII
+ * field here. NATIVE cosmos entries are listed inline; EXTERNAL connector entities
+ * (e.g. github_issue/github_pull_request) are merged in from the registry below.
+ */
+const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // listWorkItems/queryWorkItems return `id, ticketNumber, columnKey?, priority,
   // assigneeId, cycleId, storyPoints, dueDate, workItemTypeId, completedAt?, tags`.
   // `columnKey` (FIX A) is unconstrained free text → dropped (orchestrate via id/status).
@@ -56,21 +69,20 @@ const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // semanticSearch hits are `{type, id, title, snippet, similarity, url}`.
   // Expose id/type/similarity ONLY — `title`/`snippet`/`url` are/derive CUI.
   search_result: ["id", "type", "similarity"],
-  // GitHub issues (githubListIssues/githubGetIssue) return `number, state, title,
-  // body?, labels, createdAt, updatedAt, closedAt`. Structural ONLY: number + state
-  // (enum) + timestamps — the agent orchestrates GitHub work BY NUMBER under the MAC
-  // ceiling. `title`/`body` are content (worst-case CUI in a connected repo) → WITHHELD.
-  // `labels` is an array → DROPPED by convention (could carry free-text). No login/PII
-  // field is exposed (we never surfaced assignee/author logins to the model).
-  github_issue: ["number", "state", "createdAt", "updatedAt", "closedAt"],
-  // GitHub pull requests (githubListPullRequests) return `number, state, title, draft,
-  // createdAt, updatedAt, closedAt, mergedAt`. Structural ONLY: number + state + the
-  // `draft` boolean + timestamps. `title` is content → WITHHELD.
-  github_pull_request: ["number", "state", "draft", "createdAt", "updatedAt", "closedAt", "mergedAt"],
+  // EXTERNAL connector entities (github_issue/github_pull_request — structural-only:
+  // number/state/draft/timestamps, title/body WITHHELD) are merged in from the
+  // connector registry (see github.descriptor.ts), not listed here.
+  //
   // Intentionally NO entry (⇒ full withhold) for: finance/accounting (amounts +
   // client are sensitive), google email/doc/event/file/contact (bodies are the
   // worst CUI), generated briefs, fetch_url. Their commercial-unclassified case
   // still flows (the gate exposes BEFORE projection); their withheld case is total.
+};
+
+/** NATIVE static entries merged with EXTERNAL connector contributions (registry). */
+const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
+  ...NATIVE_EXPOSABLE_FIELDS,
+  ..._connectorEgress.exposableFields,
 };
 
 /**
@@ -94,7 +106,7 @@ const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
  * It can be made opt-in per deployment later (the EGRESS_HANDLES_ENABLED flag in
  * the loop already gates the whole mechanism off).
  */
-export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
+const NATIVE_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
   // work-items: create/update/list all return `title` (CUI). `description` is NOT
   // present on any work_item executor return shape today (input/embedding only),
   // so it is intentionally OMITTED — listing it would never mint (default-deny by
@@ -113,9 +125,17 @@ export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
   // No entry (⇒ no handles) for: project/cycle/time_entry/org_member/
   // compliance_control/github_* and all unmapped (finance/google/...) — either
   // their content fields aren't surfaced or referencing them isn't in scope yet.
+  // EXTERNAL connectors may contribute handleable fields via the registry; they
+  // are merged in below. (github contributes none today.)
 };
 
-const TOOL_ENTITY: Record<string, string> = {
+/** NATIVE static entries merged with EXTERNAL connector contributions (registry). */
+export const HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
+  ...NATIVE_HANDLEABLE_FIELDS,
+  ..._connectorEgress.handleableFields,
+};
+
+const NATIVE_TOOL_ENTITY: Record<string, string> = {
   query_work_items: "work_item", list_work_items: "work_item",
   create_work_item: "work_item", update_work_item: "work_item", delete_work_item: "work_item",
   create_note: "note", update_note: "note", delete_note: "note",
@@ -127,15 +147,18 @@ const TOOL_ENTITY: Record<string, string> = {
   list_org_members: "org_member",
   query_compliance_controls: "compliance_control", update_compliance_control: "compliance_control",
   semantic_search: "search_result",
-  // GitHub connector (read-only): map to structural-only entity types so a gov
-  // tenant sees issue/PR numbers + state + timestamps (orchestrate by number),
-  // never titles/bodies. Commercial tenants get the full value (the gate exposes
-  // BEFORE projection); a controlled-marking title still trips the DLP withhold.
-  github_list_issues: "github_issue", github_get_issue: "github_issue",
-  github_list_pull_requests: "github_pull_request",
+  // EXTERNAL connector tools (github read-only → structural-only github_issue/
+  // github_pull_request so a gov tenant sees number/state/timestamps, never
+  // titles/bodies) are merged in from the registry (github.descriptor.ts).
   // No mapping ⇒ undefined ⇒ full withhold: query_finance, get_finance_summary,
   // log_revenue, log_expense, get_trial_balance, get_profit_and_loss,
   // generate_cycle_brief, fetch_url, process_transcript, and all google_* tools.
+};
+
+/** NATIVE static entries merged with EXTERNAL connector contributions (registry). */
+const TOOL_ENTITY: Record<string, string> = {
+  ...NATIVE_TOOL_ENTITY,
+  ..._connectorEgress.toolEntity,
 };
 
 export function entityTypeForTool(toolName: string): string | undefined {

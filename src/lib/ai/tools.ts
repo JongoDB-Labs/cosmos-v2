@@ -1,5 +1,4 @@
-import { googleTools } from "./tools/google";
-import { githubTools } from "./tools/github";
+import { connectorToolDefs } from "./connectors";
 import { workItemTools } from "./tools/work-items";
 import { noteTools } from "./tools/notes";
 import { commentTools } from "./tools/comments";
@@ -181,15 +180,15 @@ export const cosmosTools: ToolDefinition[] = [
   ...ragTools,
   // Compliance: run control checks, drive remediation, resolve members to assign/notify.
   ...complianceTools,
-  // Google Workspace tools (Gmail, Calendar, Drive, Contacts) live in
-  // tools/google.ts so we can keep this file focused on cosmos-native tools.
-  ...googleTools,
-  // GitHub connector (read-only issues + PRs) — org-shared sealed PAT.
-  ...githubTools,
+  // EXTERNAL connectors (Google Workspace, GitHub, …) are no longer hand-listed
+  // here — they come from the declarative connector registry (connectors/index.ts),
+  // so adding a connector is one descriptor + one registration, with no edit to this
+  // file. The registry returns the same tool defs in the same order (google then
+  // github) as the prior explicit spread; the agent loop is order-insensitive anyway.
+  ...connectorToolDefs(),
 ];
 
-// Re-export for callers who want individual catalogs directly.
-export { googleTools, githubTools };
+// Re-export the native sub-catalogs for callers who want them directly.
 export {
   workItemTools,
   noteTools,
