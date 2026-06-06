@@ -143,6 +143,7 @@ model Organization {
   homeWidgets            HomeWidget[]
   workRoles              WorkRole[]
   idpConnection          IdpConnection?
+  connectorCredentials   ConnectorCredential[]
 
   @@map("organizations")
 }
@@ -151,6 +152,12 @@ model User {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   auth0UserId        String?   @unique @map("auth0_user_id")
   googleId           String?   @unique @map("google_id")
+  /// DEPRECATED — plaintext OAuth refresh token. The connector credential vault
+  /// (ConnectorCredential, sealed) is now the source of truth for Google creds.
+  /// This column only survives as a self-healing read-path fallback that
+  /// opportunistically seals the token into ConnectorCredential and NULLs itself
+  /// on first use (see getGoogleClientForUser). Once all rows have drained to
+  /// NULL in prod, drop this column in a future cleanup migration. Do NOT write it.
   googleRefreshToken String?   @map("google_refresh_token")
   email              String
   displayName        String    @map("display_name")
@@ -1057,6 +1064,38 @@ model Integration {
 
   @@unique([orgId, provider])
   @@map("integrations")
+}
+
+/// Vault-sealed external credential store — the connector layer's single,
+/// rotatable, encrypted-at-rest credential path (SC-28 / 3.13.16; IA-5; 3.5.10).
+///
+/// One row per (org, provider, user). `secretEnc` is the AES-256-GCM vault
+/// envelope (`v2.<kid>.<iv>.<tag>.<ct>`) of a JSON secret bundle — refresh
+/// tokens, access tokens, API keys, etc. — sealed via `src/lib/crypto/vault.ts`
+/// and opened ONLY server-side at call time (never returned to a client/the
+/// model). `meta` holds NON-secret hints (scopes, account email, expiry) safe to
+/// read without unsealing. Reach this only through `src/lib/integrations/credentials.ts`.
+///
+/// `userId` is REQUIRED for this slice — Google credentials are per-user. Org-level
+/// credentials (Nango / DocuSign, with a null `userId`) come in the next connector
+/// slice; do NOT prematurely model nullable-userId uniqueness here.
+/// TODO(connector-layer next slice): support org-level creds (userId nullable) +
+/// the partial-unique-index needed for null-userId rows.
+model ConnectorCredential {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  provider  String
+  userId    String   @map("user_id") @db.Uuid
+  secretEnc String   @map("secret_enc") // sealed via crypto/vault.ts — JSON bundle, never plaintext
+  meta      Json     @default("{}") // NON-secret hints only (scopes/account/expiry); never the secret
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider, userId])
+  @@index([orgId, provider])
+  @@map("connector_credentials")
 }
 
 model Webhook {
