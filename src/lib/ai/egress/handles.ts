@@ -31,8 +31,10 @@
 //     a value that can't be opened is treated as unresolvable).
 
 import crypto from "node:crypto";
+import type { ClassificationLevel } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { sealSecret, openSecret } from "@/lib/crypto/vault";
+import { rankOf } from "@/lib/classification/effective";
 
 /** Token prefix + the random-byte width (18 bytes → 144 bits → 24 base64url chars). */
 const HANDLE_PREFIX = "h:";
@@ -73,6 +75,12 @@ function newToken(): string {
  * Seals the value at rest (vault) and stores it keyed by an unguessable token;
  * returns the TOKEN (safe to hand the model — it carries no CUI).
  *
+ * `ceiling` is the data-classification CEILING the value was WITHHELD under at mint
+ * time (e.g. "CUI"). It is persisted and returned by {@link resolveHandle} so the
+ * agent loop can re-gate a RESOLVING turn at ≥ this ceiling (C1 fix) — a value
+ * withheld at a HIGH ceiling can never be resolved-and-echoed under a LOWER per-turn
+ * ceiling. It carries no CUI (just the level string).
+ *
  * The token is generated client-side and inserted with a UNIQUE constraint on
  * `token`; a collision at 144 bits is astronomically unlikely, but if Prisma ever
  * reports a unique violation we retry once with a fresh token.
@@ -81,6 +89,7 @@ export async function mintHandle(
   conversationId: string,
   value: string,
   meta: HandleMeta,
+  ceiling: ClassificationLevel,
 ): Promise<string> {
   const valueEnc = sealSecret(value); // CUI sealed BEFORE it touches the DB.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -93,6 +102,7 @@ export async function mintHandle(
           valueEnc,
           entityType: meta.entityType,
           fieldName: meta.fieldName,
+          ceiling,
         },
       });
       return token;
@@ -106,6 +116,13 @@ export async function mintHandle(
   throw new Error("mintHandle: failed to allocate a unique token");
 }
 
+/** A successfully-resolved handle: the real value + the ceiling it was minted under. */
+export interface ResolvedHandle {
+  value: string;
+  /** The mint-time classification ceiling (e.g. "CUI"); null for legacy/unset rows. */
+  ceiling: ClassificationLevel | null;
+}
+
 /**
  * Resolve a token back to its real value, ENFORCING conversation scope.
  *
@@ -116,6 +133,10 @@ export async function mintHandle(
  *     cross-conversation / cross-tenant boundary), OR
  *   - the sealed value fails to open (tamper / retired key → fail closed).
  *
+ * On success returns `{ value, ceiling }` where `ceiling` is the mint-time
+ * classification ceiling (C1: the loop re-gates the resolving turn at ≥ this ceiling
+ * so a high-ceiling value can never be echoed back under a lower per-turn ceiling).
+ *
  * The lookup is `findUnique({ token })` THEN an in-code equality check on
  * conversationId — so a token from conversation A never yields B's value, and the
  * check is constant w.r.t. which conversation asked.
@@ -123,18 +144,29 @@ export async function mintHandle(
 export async function resolveHandle(
   conversationId: string,
   token: string,
-): Promise<string | null> {
+): Promise<ResolvedHandle | null> {
   if (!isHandle(token)) return null;
   const row = await prisma.egressHandle.findUnique({ where: { token } });
   if (!row) return null;
   // SCOPE CHECK: the handle only resolves inside the conversation it was minted in.
   if (row.conversationId !== conversationId) return null;
   try {
-    return openSecret(row.valueEnc);
+    const value = openSecret(row.valueEnc);
+    return { value, ceiling: (row.ceiling as ClassificationLevel | null) ?? null };
   } catch {
     // Fail closed: an unopenable value is treated as unresolvable (never log it).
     return null;
   }
+}
+
+/** Higher-rank of two (possibly-null) ceilings; null is the lowest (adds no floor). */
+function maxCeilingOf(
+  a: ClassificationLevel | null,
+  b: ClassificationLevel | null,
+): ClassificationLevel | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return rankOf(b) > rankOf(a) ? b : a;
 }
 
 /**
@@ -145,14 +177,19 @@ export async function resolveHandle(
  * unopenable) pass through unchanged.
  *
  * Bounded to MAX_RESOLVE_DEPTH levels of object/array nesting. Returns the resolved
- * structure plus the COUNT of substitutions (for the AC-4 resolve audit). Resolves
- * are done sequentially per node; the arg trees the model produces are tiny.
+ * structure, the COUNT of substitutions (for the AC-4 resolve audit), and the
+ * `maxCeiling` = the HIGHEST-rank mint-time ceiling among ALL handles it resolved
+ * (null when none resolved, or all resolved rows had a null ceiling). C1 fix: the
+ * loop folds `maxCeiling` into the resolving turn's effective gate ceiling so a
+ * high-ceiling value can never be resolved-and-echoed under a lower per-turn ceiling.
+ * Resolves are done sequentially per node; the arg trees the model produces are tiny.
  */
 export async function resolveHandlesDeep(
   input: unknown,
   conversationId: string,
-): Promise<{ resolved: unknown; count: number }> {
+): Promise<{ resolved: unknown; count: number; maxCeiling: ClassificationLevel | null }> {
   let count = 0;
+  let maxCeiling: ClassificationLevel | null = null;
 
   async function walk(node: unknown, depth: number): Promise<unknown> {
     if (depth > MAX_RESOLVE_DEPTH) return node; // bound the recursion (adversarial/cyclic args)
@@ -162,7 +199,8 @@ export async function resolveHandlesDeep(
       const real = await resolveHandle(conversationId, node);
       if (real === null) return node; // wrong conversation / fabricated / unopenable → pass through
       count++;
-      return real;
+      maxCeiling = maxCeilingOf(maxCeiling, real.ceiling); // C1: track the highest mint ceiling
+      return real.value;
     }
 
     if (Array.isArray(node)) {
@@ -183,5 +221,5 @@ export async function resolveHandlesDeep(
   }
 
   const resolved = await walk(input, 0);
-  return { resolved, count };
+  return { resolved, count, maxCeiling };
 }

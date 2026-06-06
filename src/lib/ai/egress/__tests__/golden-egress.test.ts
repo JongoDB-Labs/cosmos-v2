@@ -35,8 +35,12 @@ vi.mock("@/lib/ai/egress/provider", async (importOriginal) => ({
 // Mock the tool-executor — tools return whatever each test provides.
 vi.mock("@/lib/ai/tool-executor", () => ({ executeTool }));
 
-// Mock effectiveCeiling — each test sets the ceiling it needs; avoids the DB.
-vi.mock("@/lib/classification/effective", () => ({ effectiveCeiling }));
+// Mock effectiveCeiling — each test sets the ceiling it needs; avoids the DB. Keep the
+// real pure helpers (maxByRank/rankOf) so the loop's C1 ceiling fold runs for real.
+vi.mock("@/lib/classification/effective", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  effectiveCeiling,
+}));
 
 // Mock the audit sink — avoids prisma during tests.
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));

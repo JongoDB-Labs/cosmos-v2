@@ -9,6 +9,22 @@ export function rankOf(level: ClassificationLevel): number {
 }
 
 /**
+ * The HIGHER-rank (more-restrictive) of two ceilings; `extra` may be null (adds no
+ * floor — returns `base`). Used by the agent loop to FOLD a resolved opaque handle's
+ * mint-time ceiling into a result's effective gate ceiling (C1): resolving a handle
+ * minted under a high ceiling forces the resolving turn's result to be gated at ≥ that
+ * ceiling, so a high-ceiling value can never be echoed back under a lower per-turn
+ * ceiling. This only ever RAISES the ceiling (allow→deny), never lowers it.
+ */
+export function maxByRank(
+  base: ClassificationLevel,
+  extra: ClassificationLevel | null,
+): ClassificationLevel {
+  if (extra === null) return base;
+  return rankOf(extra) > rankOf(base) ? extra : base;
+}
+
+/**
  * The effective classification CEILING for a value: max(org-ceiling row, project row).
  * Org ceiling = the DataClassification row with projectId = null. Default UNCLASSIFIED
  * (conservative — NOT public) when nothing is set. This is the MAC input to the gate.

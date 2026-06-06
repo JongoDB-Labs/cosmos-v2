@@ -31,7 +31,7 @@ const { callModel, executeTool, effectiveCeiling, logEgressDecision, classifyLik
   effectiveCeiling: vi.fn(),
   logEgressDecision: vi.fn(),
   classifyLikelyCui: vi.fn().mockResolvedValue(false),
-  store: new Map<string, { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string }>(),
+  store: new Map<string, { conversationId: string; token: string; valueEnc: string; entityType: string; fieldName: string; ceiling?: string | null }>(),
 }));
 
 vi.mock("@/lib/ai/egress/provider", async (importOriginal) => ({
@@ -39,7 +39,12 @@ vi.mock("@/lib/ai/egress/provider", async (importOriginal) => ({
   callModel,
 }));
 vi.mock("@/lib/ai/tool-executor", () => ({ executeTool }));
-vi.mock("@/lib/classification/effective", () => ({ effectiveCeiling }));
+// Only effectiveCeiling is a spy; maxByRank/rankOf are the REAL pure helpers (the C1
+// fold must exercise the real max-by-rank logic, not a stub).
+vi.mock("@/lib/classification/effective", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  effectiveCeiling,
+}));
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
 
@@ -48,7 +53,7 @@ vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     egressHandle: {
-      create: vi.fn(async ({ data }: { data: { token: string; conversationId: string; valueEnc: string; entityType: string; fieldName: string } }) => {
+      create: vi.fn(async ({ data }: { data: { token: string; conversationId: string; valueEnc: string; entityType: string; fieldName: string; ceiling?: string | null } }) => {
         if (store.has(data.token)) {
           const err = new Error("unique") as Error & { code: string };
           err.code = "P2002";
@@ -317,5 +322,95 @@ describe("red-team: feature flag OFF ⇒ parity with prior behavior", () => {
     expect((createCall[1] as { content: string }).content).toBe(fakeToken); // unchanged
     const resolves = logEgressDecision.mock.calls.map((c) => c[0]).filter((d) => d.decidedBy === "handle_resolve");
     expect(resolves.length).toBe(0);
+  });
+});
+
+// ── C1: cross-turn ceiling-divergence exfiltration — CONFIRMED CRITICAL, now CLOSED ──
+//
+// A handle minted under a HIGH per-project ceiling (CUI) must NOT be resolvable-and-
+// echoable on a LATER turn that re-gates under a LOWER ceiling (the org ceiling, when
+// the tool has no projectId). The fix BINDS the mint ceiling to the handle and folds
+// it (max-by-rank) into the resolving turn's result ceiling BEFORE projectForModel —
+// forcing WITHHOLD for BOTH tenants. These cases drive the REAL runAgentLoop.
+//
+// The CUI here is UNMARKED (no "CUI//" token) so the marking-DLP tripwire is NOT what
+// contains it — only the ceiling fold can. (A marked value would be withheld anyway.)
+const UNMARKED_CUI = "Sentinel program kill-chain timeline 2026 — sensor fusion exfil path";
+// A list result for the MINT turn, scoped to project P (its title is the unmarked CUI).
+const PROJECT_P_LIST = { count: 1, items: [{ id: "wP", title: UNMARKED_CUI, status: "DONE" }] };
+
+// effectiveCeiling that DIVERGES by project: project "P" = CUI, everything else
+// (incl. the no-projectId echo turn → org ceiling) = UNCLASSIFIED. This is exactly
+// the supported attack config (org UNCLASSIFIED, per-project CUI).
+function divergentCeiling(_orgId: string, projectId?: string | null) {
+  return projectId === "P" ? "CUI" : "UNCLASSIFIED";
+}
+
+// Drive the C1 attack for a given tenant and return the model-facing tool_result
+// content of the ECHO turn (turn index 2, the 3rd callModel call).
+async function driveC1(tenantClass: "commercial" | "gov"): Promise<{ echoContent: string; executorArg: string | undefined }> {
+  effectiveCeiling.mockImplementation(async (orgId: string, projectId?: string | null) => divergentCeiling(orgId, projectId));
+  callModel
+    // MINT turn: query project P → its CUI title is withheld at CUI → a handle minted.
+    .mockResolvedValueOnce({ text: "", toolUses: [{ id: "t1", name: "query_work_items", input: { projectId: "P" } }], stopReason: "tool_use" })
+    // ECHO turn: carry the token into update_compliance_control (NO projectId). Its
+    // executor error path echoes the resolved arg back into the result string.
+    .mockImplementationOnce(async (req: { messages: Array<{ role: string; content: unknown }> }) => {
+      const content = (req.messages.find((m) => m.role === "user" && Array.isArray(m.content))!.content as Array<{ content?: string }>)
+        .map((b) => b.content ?? "").join(" ");
+      const token = extractToken(content)!;
+      return { text: "", toolUses: [{ id: "t2", name: "update_compliance_control", input: { controlId: token, status: "IMPLEMENTED" } }], stopReason: "tool_use" };
+    })
+    .mockResolvedValueOnce({ text: "done", toolUses: [], stopReason: "end_turn" });
+
+  executeTool.mockImplementation(async (name: string, input: Record<string, unknown>) => {
+    if (name === "query_work_items") return PROJECT_P_LIST;
+    // update_compliance_control "no match" error path interpolates the (resolved) controlId.
+    if (name === "update_compliance_control") return { error: `No compliance control '${input.controlId}' found in this org.` };
+    return {};
+  });
+
+  const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+  await runAgentLoop(loopOpts("conv-C1", { tenantClass }));
+
+  const executorArg = (executeTool.mock.calls.find((c) => c[0] === "update_compliance_control")?.[1] as { controlId?: string } | undefined)?.controlId;
+  return { echoContent: toolResultContentOnTurn(2), executorArg };
+}
+
+describe("red-team: C1 cross-turn ceiling-divergence exfiltration", () => {
+  it("COMMERCIAL + divergent ceiling (org=UNCLASSIFIED, project P=CUI): the echoed CUI is WITHHELD from the model", async () => {
+    const { echoContent, executorArg } = await driveC1("commercial");
+    // The model-facing echo-turn result must NOT contain the real CUI.
+    expect(echoContent).not.toContain(UNMARKED_CUI);
+    expect(echoContent).not.toContain("Sentinel");
+    expect(echoContent).not.toContain("exfil path");
+    // POSITIVE: the EXECUTOR did receive the REAL value in-boundary (the action ran).
+    expect(executorArg).toBe(UNMARKED_CUI);
+    expect(executorArg).not.toMatch(/^h:/);
+  });
+
+  it("GOV + divergent ceiling: also contained (assert defense-in-depth)", async () => {
+    const { echoContent, executorArg } = await driveC1("gov");
+    expect(echoContent).not.toContain(UNMARKED_CUI);
+    expect(echoContent).not.toContain("Sentinel");
+    // executor still got the real value in-boundary.
+    expect(executorArg).toBe(UNMARKED_CUI);
+  });
+
+  it("the handle is bound at CUI at mint AND the echo turn resolves it (the binding the fold consumes)", async () => {
+    await driveC1("commercial");
+    // The handle minted on the project-P (CUI) turn was sealed with ceiling=CUI — this
+    // is the binding the loop folds into the echo turn's gate ceiling.
+    const minted = [...store.values()].find((r) => r.entityType === "work_item" && r.fieldName === "title");
+    expect(minted).toBeDefined();
+    expect(minted!.ceiling).toBe("CUI");
+    expect(minted!.valueEnc).not.toContain("Sentinel"); // sealed, not plaintext
+    // The echo turn (update_compliance_control) resolved exactly one handle in-boundary,
+    // audited as handle_resolve with NO CUI in the record.
+    const resolves = logEgressDecision.mock.calls.map((c) => c[0]).filter((d) => d.decidedBy === "handle_resolve");
+    expect(resolves.length).toBe(1);
+    expect(resolves[0].toolName).toBe("update_compliance_control");
+    expect(resolves[0].withheldCount).toBe(1);
+    expect(JSON.stringify(resolves[0])).not.toContain("Sentinel");
   });
 });

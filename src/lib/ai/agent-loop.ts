@@ -2,7 +2,8 @@ import { cosmosTools, type ToolDefinition } from "./tools";
 import { executeTool } from "./tool-executor";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
-import { effectiveCeiling } from "@/lib/classification/effective";
+import { effectiveCeiling, maxByRank } from "@/lib/classification/effective";
+import type { ClassificationLevel } from "@prisma/client";
 
 /**
  * Opaque-handle resolver feature flag (default ON). When `EGRESS_HANDLES_ENABLED`
@@ -115,10 +116,16 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // result is re-gated below (no echo-back to the model).
       let execInput: Record<string, unknown> = u.input;
       let resolvedCount = 0;
+      // C1: the HIGHEST mint-time ceiling among the handles resolved in THIS tool's
+      // args. Folded into the result's effective gate ceiling below so a value
+      // withheld under a high ceiling can never be resolved-and-echoed back under a
+      // lower per-turn ceiling (e.g. a no-projectId turn re-gating at the org ceiling).
+      let resolvedMaxCeiling: ClassificationLevel | null = null;
       if (flagOn) {
         const r = await resolveHandlesDeep(u.input, opts.conversationId);
         execInput = r.resolved as Record<string, unknown>;
         resolvedCount = r.count;
+        resolvedMaxCeiling = r.maxCeiling;
         if (resolvedCount > 0) {
           // AC-4: record that N handles (CUI) moved by reference into an in-boundary
           // tool. The hash is of the ORIGINAL (handle) args — never the resolved CUI.
@@ -136,7 +143,13 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // ceiling applies per-result, not just per-org.
       const projectId = typeof (u.input as { projectId?: unknown }).projectId === "string"
         ? (u.input as { projectId: string }).projectId : undefined;
-      const ceiling = await effectiveCeiling(opts.orgId, projectId);
+      // C1 FIX: fold the resolved handles' mint-time ceiling into the result's
+      // effective gate ceiling (max-by-rank). Resolving a CUI-minted handle forces
+      // this turn's result to be gated at ≥CUI ⇒ rank ≥ FOUO ⇒ WITHHELD for BOTH
+      // tenants — so a high-ceiling value can never reach the model via a re-gate at
+      // a lower per-turn ceiling, even on the otherwise-EXPOSED branch. Adds only a
+      // FLOOR (never lowers the per-result ceiling); non-handle turns are unchanged.
+      const ceiling = maxByRank(await effectiveCeiling(opts.orgId, projectId), resolvedMaxCeiling);
       const projected = projectForModel(output, ctx, { valueKind: "tool_result", toolName: u.name, ceiling });
       // On WITHHOLD, don't hand the model the opaque placeholder — give it a
       // STRUCTURAL projection (id + allowlisted enums/dates, never free-text/CUI)
@@ -154,7 +167,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // — and can later carry a token into a tool call (resolved above, in-boundary).
       if (flagOn && !projected.decision.exposed) {
         const entityType = entityTypeForTool(u.name);
-        const aug = await augmentWithHandles(modelView, output, entityType, opts.conversationId);
+        // Bind THIS result's (possibly handle-raised) ceiling to any handle minted on
+        // the withheld structural view, so a downstream resolve of one of these tokens
+        // re-gates at ≥ this ceiling too (C1 binding propagates transitively).
+        const aug = await augmentWithHandles(modelView, output, entityType, opts.conversationId, ceiling);
         modelView = aug.modelView;
         if (aug.minted > 0) {
           // AC-4: record that N withheld CUI fields were minted as opaque handles.
