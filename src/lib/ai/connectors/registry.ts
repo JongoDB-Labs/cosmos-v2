@@ -33,14 +33,20 @@ const toolNameOwner = new Map<string, ConnectorDescriptor>();
 /**
  * Register a connector. Validates the cross-descriptor invariants and fails LOUDLY
  * (throws) on any collision — a duplicate tool name, duplicate provider, or an
- * egress key that isn't one of this descriptor's tools. Idempotent re-registration
- * is NOT allowed (it would be a double-register bug); use {@link resetConnectors}
- * in tests to start clean.
+ * egress key that isn't one of this descriptor's tools.
+ *
+ * IDEMPOTENT for the SAME descriptor instance: re-registering the exact same object
+ * reference is a no-op (some module loaders — e.g. tsx's CJS interop — evaluate
+ * connectors/index.ts more than once, registering the same singleton twice; that is
+ * NOT a collision). A DIFFERENT descriptor reusing an existing provider id or tool
+ * name is still a hard error. Use {@link resetConnectors} in tests to start clean.
  */
 export function registerConnector(d: ConnectorDescriptor): void {
-  if (descriptors.some((x) => x.provider === d.provider)) {
+  const existingProvider = descriptors.find((x) => x.provider === d.provider);
+  if (existingProvider) {
+    if (existingProvider === d) return; // same singleton re-evaluated — no-op.
     throw new Error(
-      `[connector-registry] provider "${d.provider}" is already registered (double registration).`,
+      `[connector-registry] provider "${d.provider}" is already registered by a different descriptor (provider-id collision).`,
     );
   }
 

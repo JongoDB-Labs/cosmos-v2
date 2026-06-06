@@ -99,9 +99,17 @@ describe("connector registry — egress merge", () => {
 });
 
 describe("connector registry — fail-loud collisions", () => {
-  it("rejects a duplicate provider id", () => {
+  it("rejects a DIFFERENT descriptor reusing an existing provider id", () => {
     registerConnector(alpha);
-    expect(() => registerConnector(makeDescriptor({ provider: "alpha" }))).toThrow(/already registered/);
+    expect(() => registerConnector(makeDescriptor({ provider: "alpha" }))).toThrow(/provider-id collision/);
+  });
+
+  it("is idempotent for the SAME descriptor instance (re-evaluated module is a no-op)", () => {
+    registerConnector(alpha);
+    expect(() => registerConnector(alpha)).not.toThrow();
+    // No duplication: still exactly one alpha, its tools listed once.
+    expect(getConnectorDescriptors().filter((d) => d.provider === "alpha")).toHaveLength(1);
+    expect(connectorToolDefs().filter((t) => t.name === "alpha_read")).toHaveLength(1);
   });
 
   it("rejects a duplicate tool name across descriptors", () => {
