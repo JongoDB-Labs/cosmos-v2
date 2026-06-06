@@ -59,6 +59,41 @@ export async function getCredential(
 }
 
 /**
+ * Read + unseal a USER-SCOPED connector credential by (provider, userId), regardless
+ * of which org row it is stored under. Use this ONLY for providers whose credential is
+ * the USER'S OWN resource and is therefore valid across every org the user belongs to —
+ * e.g. a personal Google OAuth grant (the same refresh token works whether the user is
+ * acting in their primary org or any other). Org-OWNED shared credentials (DocuSign /
+ * Nango service creds) must use the strictly org-scoped {@link getCredential} instead —
+ * do NOT use this for those, or you would read one org's credential while acting in
+ * another (a cross-tenant leak). The row is stored under the user's primary org (see the
+ * write path); this lookup just doesn't re-narrow by the CURRENT org on read, so the
+ * user's Google tools keep working in their non-primary orgs (which strict org-scoping
+ * would otherwise break — a regression vs the prior user-level token).
+ *
+ * Returns the most-recently-updated matching bundle, or `null` when none exists.
+ */
+export async function getUserCredential(
+  provider: string,
+  userId: string,
+): Promise<CredentialBundle | null> {
+  const row = await prisma.connectorCredential.findFirst({
+    where: { provider, userId },
+    orderBy: { updatedAt: "desc" },
+    select: { secretEnc: true },
+  });
+  if (!row) return null;
+
+  const parsed: unknown = JSON.parse(openSecret(row.secretEnc));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `connector credential for provider="${provider}" decoded to a non-object bundle`,
+    );
+  }
+  return parsed as CredentialBundle;
+}
+
+/**
  * Seal + upsert a connector credential. `sealSecret(JSON.stringify(bundle))`
  * produces the at-rest envelope under the active keyring kid; the row is upserted
  * on the (orgId, provider, userId) unique key so re-connecting refreshes in place.
