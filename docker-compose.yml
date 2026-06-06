@@ -48,6 +48,13 @@ services:
     volumes:
       - cosmos-pgdata:/var/lib/postgresql/data
       - cosmos-pgsock:/var/run/cosmos-pgsock
+      # pgBackRest state dir (stanza/lock-ledger AND the .stanza-ready marker) on a NAMED
+      # volume so it SURVIVES container recreate (image rebuild, down/up, --force-recreate,
+      # host reboot). If this lived in the writable layer the marker would vanish on
+      # recreate and pgbackrest-archive-push.sh would silently skip every WAL segment →
+      # un-archived WAL gets recycled → unrecoverable PITR/RPO hole (CP-9/CP-10). The
+      # Dockerfile chowns this path to postgres:postgres so the fresh volume inherits it.
+      - cosmos-pgbackrest-state:/var/lib/pgbackrest
       # init scripts run ONCE at first DB init (empty volume), before migrations.
       - ./compose/init:/docker-entrypoint-initdb.d:ro
     depends_on:
@@ -196,6 +203,10 @@ services:
     volumes:
       - cosmos-pgdata:/var/lib/postgresql/data
       - cosmos-pgsock:/var/run/cosmos-pgsock
+      # Share the SAME pgBackRest state dir as cosmos-postgres so the stanza/lock ledger
+      # and the .stanza-ready marker are consistent across the postgres service and this
+      # backup one-shot (and stanza-create, which runs via `exec` inside cosmos-postgres).
+      - cosmos-pgbackrest-state:/var/lib/pgbackrest
     depends_on:
       cosmos-postgres:
         condition: service_healthy
@@ -208,8 +219,10 @@ services:
     image: cosmos-v2-migrate:dev
     profiles: ["ops"]
     environment:
-      # Reads the audit tables as the migrate (owner) creds; SELECT is sufficient.
-      DATABASE_URL: ${WORM_EXPORT_DATABASE_URL:-postgres://cosmos:cosmos@cosmos-postgres:5432/cosmos}
+      # Reads the audit tables as the LEAST-PRIVILEGE cosmos_app role (SELECT-only on the
+      # audit tables — it is REVOKEd UPDATE/DELETE/TRUNCATE and does NOT own the append-only
+      # triggers). NOT the owner (cosmos) role: the exporter never needs DDL/DML, only SELECT.
+      DATABASE_URL: ${WORM_EXPORT_DATABASE_URL:-postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos}
       WORM_S3_ENDPOINT: https://cosmos-minio:9000
       WORM_S3_BUCKET: cosmos-audit-worm
       WORM_S3_ACCESS_KEY: ${WORM_ACCESS_KEY:-cosmos-worm}
@@ -230,3 +243,7 @@ volumes:
   cosmos-minio-data:
   cosmos-minio-certs:
   cosmos-pgsock:
+  # pgBackRest state dir (stanza ledger + lock state + the .stanza-ready marker). MUST be
+  # a named volume so the marker survives container recreate — see the mount comment on
+  # cosmos-postgres (FIX: WAL silently dropped post-recreate if this is on the writable layer).
+  cosmos-pgbackrest-state:
