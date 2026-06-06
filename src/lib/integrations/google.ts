@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { prisma } from "@/lib/db/client";
-import { getCredential, setCredential } from "@/lib/integrations/credentials";
+import { getUserCredential, setCredential } from "@/lib/integrations/credentials";
 
 const GOOGLE_PROVIDER = "google";
 
@@ -78,20 +78,21 @@ async function selfHealLegacyToken(
  * a successful fallback, opportunistically seals it + nulls the plaintext column
  * (self-heal — no plaintext left at rest after first use).
  *
- * `orgId` scopes the sealed lookup/heal. It is optional for backward compat with
- * call sites that don't yet thread it (those skip the vault and use the legacy
- * column without healing); the agent loop + org-scoped routes pass it so the heal
- * runs. Throws the existing "Google not connected" error when neither source has a
- * token (callers translate this into a graceful tool error).
+ * The sealed lookup is USER-SCOPED (getUserCredential): a personal Google grant is
+ * the user's own and works in EVERY org they belong to, so we do NOT re-narrow by the
+ * current org on read (strict org-scoping would break Google in a user's non-primary
+ * orgs — a regression vs the prior user-level token). `orgId` is now only used to pick
+ * the storage org when self-healing a legacy plaintext token (falls back to the user's
+ * primary org). Throws the existing "Google not connected" error when neither source
+ * has a token (callers translate this into a graceful tool error).
  */
 export async function getGoogleClientForUser(userId: string, orgId?: string) {
   let refreshToken: string | null = null;
 
-  // 1. Sealed store first (the source of truth post-migration).
-  if (orgId) {
-    const bundle = await getCredential(orgId, GOOGLE_PROVIDER, userId);
-    refreshToken = bundle?.refreshToken ?? null;
-  }
+  // 1. Sealed store first (the source of truth post-migration) — user-scoped: the
+  //    user's Google grant is valid across all their orgs, regardless of orgId.
+  const bundle = await getUserCredential(GOOGLE_PROVIDER, userId);
+  refreshToken = bundle?.refreshToken ?? null;
 
   // 2. Fall back to the legacy plaintext column; self-heal on a hit.
   if (!refreshToken) {

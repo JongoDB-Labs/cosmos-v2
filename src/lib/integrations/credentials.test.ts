@@ -10,6 +10,7 @@ const { prisma } = vi.hoisted(() => ({
   prisma: {
     connectorCredential: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       upsert: vi.fn(),
     },
   },
@@ -24,7 +25,7 @@ process.env.SSO_VAULT_KEY = TEST_KEY;
 delete process.env.SSO_VAULT_KEYS;
 delete process.env.SSO_VAULT_ACTIVE_KID;
 
-import { getCredential, setCredential } from "./credentials";
+import { getCredential, getUserCredential, setCredential } from "./credentials";
 
 const ORG = "00000000-0000-0000-0000-0000000000aa";
 const USER = "00000000-0000-0000-0000-0000000000bb";
@@ -99,5 +100,36 @@ describe("getCredential", () => {
       where: { orgId_provider_userId: { orgId: ORG, provider: "google", userId: USER } },
       select: { secretEnc: true },
     });
+  });
+});
+
+describe("getUserCredential (user-scoped, org-independent)", () => {
+  it("looks up by (provider, userId) only — NOT narrowed by org — newest first", async () => {
+    prisma.connectorCredential.findFirst.mockResolvedValue(null);
+    await getUserCredential("google", USER);
+    expect(prisma.connectorCredential.findFirst).toHaveBeenCalledWith({
+      where: { provider: "google", userId: USER },
+      orderBy: { updatedAt: "desc" },
+      select: { secretEnc: true },
+    });
+  });
+
+  it("returns null when the user has no credential for the provider", async () => {
+    prisma.connectorCredential.findFirst.mockResolvedValue(null);
+    expect(await getUserCredential("google", USER)).toBeNull();
+  });
+
+  it("opens the user's sealed bundle regardless of which org row stored it", async () => {
+    // The row was sealed under the user's primary org; the user-scoped lookup opens it
+    // for use in ANY org (a personal Google grant is valid across all the user's orgs).
+    let sealed = "";
+    prisma.connectorCredential.upsert.mockImplementation((arg) => {
+      sealed = arg.create.secretEnc;
+      return Promise.resolve({});
+    });
+    await setCredential(ORG, "google", USER, { refreshToken: "USERTOK" });
+
+    prisma.connectorCredential.findFirst.mockResolvedValue({ secretEnc: sealed });
+    expect(await getUserCredential("google", USER)).toEqual({ refreshToken: "USERTOK" });
   });
 });
