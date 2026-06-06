@@ -222,6 +222,22 @@ describe("resolveColumns — strips generated / search_vector / db-only columns"
     expect(reasons["embedding"]).toMatch(/not a DMMF scalar/);
   });
 
+  it("KEEPS enum columns (kind:enum, not scalar — would NULL out on import if dropped)", async () => {
+    // Account has enum columns `type` (AccountType) + `normal_balance` (NormalBalance).
+    const client = fakeClient([
+      { column_name: "id", is_generated: "NEVER" },
+      { column_name: "org_id", is_generated: "NEVER" },
+      { column_name: "code", is_generated: "NEVER" },
+      { column_name: "type", is_generated: "NEVER" },
+      { column_name: "normal_balance", is_generated: "NEVER" },
+      { column_name: "updated_at", is_generated: "NEVER" },
+    ]);
+    const cp = await resolveColumns(client, "Account");
+    expect(cp.columns).toContain("type");
+    expect(cp.columns).toContain("normal_balance");
+    expect(cp.stripped.find((s) => s.column === "type")).toBeUndefined();
+  });
+
   it("throws if the PK is somehow absent (defensive invariant)", async () => {
     const client = fakeClient([{ column_name: "org_id", is_generated: "NEVER" }]);
     await expect(resolveColumns(client, "WorkItem")).rejects.toThrow(/PK/);
