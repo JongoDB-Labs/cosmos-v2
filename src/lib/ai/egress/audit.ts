@@ -1,14 +1,21 @@
 // src/lib/ai/egress/audit.ts
+import { prisma } from "@/lib/db/client";
 import type { EgressDecision } from "./types";
 
 /**
- * Phase 0: emit the decision as one structured stdout line (no CUI in it).
- * Phase 1 swaps this to write an append-only AuditLog/EgressDecision row
- * (AU-2/3/12 + AC-4 evidence). Keep the call sites stable so that swap is
- * internal to this function.
+ * Persist the decision (hashes/counts, never CUI) to the append-only egress_decisions
+ * table — the AC-4 information-flow evidence trail. Fire-and-forget: a logging failure
+ * must never block or crash the agent turn.
  */
 export function logEgressDecision(d: EgressDecision): void {
-  // Intentional structured, CUI-free stdout sink for Phase 0 (no no-console rule
-  // configured; Phase 1 replaces this with an append-only AuditLog row).
-  console.info(`[egress] ${JSON.stringify(d)}`);
+  void prisma.egressDecisionRow
+    .create({
+      data: {
+        conversationId: d.conversationId, turn: d.turn, valueKind: d.valueKind,
+        toolName: d.toolName, exposed: d.exposed, withheldCount: d.withheldCount,
+        contentHash: d.contentHash, decidedBy: d.decidedBy, tenantClass: d.tenantClass,
+        ceiling: d.ceiling,
+      },
+    })
+    .catch((e: unknown) => console.warn("[egress] decision persist failed:", (e as Error).message));
 }
