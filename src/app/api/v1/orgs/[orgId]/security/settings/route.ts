@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { getAuthContext, revokeOrgSessions } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -77,6 +77,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // AU-11: enforce the gov retention floor (>=3yr) for GOV-class tenants.
     data.auditRetentionDays = clampGovRetentionDays(org.tenantClass, data.auditRetentionDays);
 
+    // Snapshot the prior posture so we can detect a *tightening* below (false→true).
+    const prior = await prisma.orgSecuritySettings.findUnique({
+      where: { orgId },
+      select: { ssoEnforced: true, mfaRequired: true },
+    });
+
     const settings = await prisma.orgSecuritySettings.upsert({
       where: { orgId },
       create: {
@@ -105,6 +111,30 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       metadata: { changes: Object.keys(data).join(", ") } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
+
+    // When a GOV org TIGHTENS its auth posture (SSO enforced or MFA required,
+    // false→true), revoke all existing member sessions so weaker-assurance
+    // sessions (Google / pre-enforcement) can't ride past the new floor. Only
+    // on the rising edge — re-saving an already-strict policy is a no-op.
+    const tightenedSso =
+      data.ssoEnforced === true && prior?.ssoEnforced !== true;
+    const tightenedMfa =
+      data.mfaRequired === true && prior?.mfaRequired !== true;
+    if (org.tenantClass === "GOV" && (tightenedSso || tightenedMfa)) {
+      const revoked = await revokeOrgSessions(orgId);
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "security_settings.sessions_revoked",
+        entity: "org_security_settings",
+        entityId: settings.id,
+        metadata: {
+          reason: tightenedSso ? "sso_enforced" : "mfa_required",
+          revokedCount: String(revoked),
+        } as Record<string, string>,
+        ipAddress: getIpAddress(request),
+      });
+    }
 
     return success(settings);
   } catch (error) {
