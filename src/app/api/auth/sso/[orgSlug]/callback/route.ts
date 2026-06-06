@@ -90,7 +90,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
     claimsRaw = idClaims as Record<string, unknown>;
   } catch (err) {
-    console.error("[sso] code grant / token validation failed", { orgSlug }, err);
+    // M1: log only the message, never the full error object (openid-client errors
+    // can carry the token-endpoint response body / raw ID-token internals).
+    console.error("[sso] code grant / token validation failed", { orgSlug, error: (err as Error).message });
     return redirectToLogin(origin, "auth_failed");
   }
 

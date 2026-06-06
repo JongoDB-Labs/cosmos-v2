@@ -15,7 +15,7 @@ import type { IdpConnection } from "@prisma/client";
 const { prisma, logAudit, autoJoinGeneral } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
-    federatedIdentity: { findUnique: vi.fn(), create: vi.fn() },
+    federatedIdentity: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     user: { findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     orgMember: { upsert: vi.fn(), findUnique: vi.fn() },
     invitation: { findMany: vi.fn(), delete: vi.fn() },
@@ -78,6 +78,7 @@ beforeEach(() => {
   // sensible defaults; individual tests override
   prisma.organization.findUnique.mockResolvedValue(org());
   prisma.federatedIdentity.findUnique.mockResolvedValue(null);
+  prisma.federatedIdentity.findFirst.mockResolvedValue(null); // default: candidate not already federated
   prisma.user.findMany.mockResolvedValue([]);
   prisma.user.create.mockImplementation((args: { data: Record<string, unknown> }) =>
     Promise.resolve({ id: "new-user-id", ...args.data }),
@@ -176,6 +177,32 @@ describe("completeSsoLogin", () => {
     expect(prisma.federatedIdentity.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ userId: "the-only-match" }),
+      }),
+    );
+  });
+
+  it("(c4) C1 GUARD: never email-link a user ALREADY federated to this conn (sub rotation = takeover)", async () => {
+    prisma.federatedIdentity.findUnique.mockResolvedValue(null); // brand-new subject
+    prisma.user.findMany.mockResolvedValue([
+      { id: "already-fed-user", email: "alice@agency.gov" }, // exactly one verified-email match
+    ]);
+    // …but that user is ALREADY federated to THIS conn under a DIFFERENT subject:
+    prisma.federatedIdentity.findFirst.mockResolvedValue({ id: "existing-fed" });
+
+    const res = await completeSsoLogin(
+      "agency",
+      conn(),
+      claims({ subject: "idp-sub-EVIL" }),
+      {},
+    );
+
+    expect(res.ok).toBe(true);
+    // Must NOT link to the already-federated user → a fresh user is created instead.
+    expect(res.ok && res.userId).toBe("new-user-id");
+    expect(prisma.user.create).toHaveBeenCalledOnce();
+    expect(prisma.federatedIdentity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: "new-user-id", subject: "idp-sub-EVIL" }),
       }),
     );
   });
