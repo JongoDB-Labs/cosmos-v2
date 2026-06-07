@@ -198,6 +198,23 @@ services:
     depends_on:
       - cosmos
 
+  # ── Cutover reverse proxy (per-tenant v1/v2 routing + per-org write-freeze) ──────────────
+  # A SEPARATE Caddy from `reverse-proxy` above (the app proxy). It sits in front of the v1
+  # (source) + v2 (target) stacks during a per-tenant cutover and is driven LIVE via the Caddy
+  # admin API by scripts/cutover/lib/proxy-control.ts (freeze/flip/rollback). See
+  # compose/cutover-proxy/README.md. The admin API listens INTERNAL-ONLY (localhost:2019, NOT
+  # exposed to the host) per the prod-intent base config; the synthetic acceptance boots its own
+  # config that exposes admin on a free host port. `cutover` profile ⇒ off by default.
+  cutover-proxy:
+    image: caddy@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
+    profiles: ["cutover"]
+    command: ["caddy", "run", "--config", "/etc/caddy/caddy.base.json"]
+    ports:
+      # host 8090 is taken by the app proxy; expose the cutover proxy on 8091.
+      - "8091:80"
+    volumes:
+      - ./compose/cutover-proxy/caddy.base.json:/etc/caddy/caddy.base.json:ro
+
   # One-shot periodic Postgres backup to the MinIO S3 repo (CP-9). Run on demand or on
   # a host cron / scheduler: `docker compose run --rm cosmos-backup`. Full weekly + incr
   # daily is the documented schedule (see docs/runbooks/backup-dr.md). Shares the postgres
