@@ -310,6 +310,7 @@ export function ProductsList({ orgId }: ProductsListProps) {
 
       {products.length === 0 ? (
         <EmptyState
+          icon={Package}
           title="No products yet"
           description="Add your first product or service to start building your catalog."
           action={
