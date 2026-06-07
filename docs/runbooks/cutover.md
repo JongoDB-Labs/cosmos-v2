@@ -555,10 +555,23 @@ The bulk catch-up (soak) and the exact reconciliation (including deletes) alread
 - [ ] **Credential re-vaulting — COPY, not move (deferred automation):** copy each
       plaintext credential into the v2 vault; **keep the source columns intact** so v1
       stays a working rollback target. NULL the source columns **only after** finalize.
-- [ ] **Provider-side revoke (deferred automation):** after finalize, revoke the migrated
-      Google refresh tokens provider-side (a copied-then-nulled token is still live at
-      Google). Note: a rollback past the provider's token-rotation window needs user
-      re-consent.
+- [ ] **Provider-side Google-token revoke (POST-FLIP ONLY):** after finalize, revoke the
+      migrated Google refresh tokens provider-side (a copied-then-nulled token is still live
+      at Google). Run **only after a permanent flip** — NEVER during soak, because v1 still
+      needs the token as a rollback target. **A rollback PAST this revoke requires the user to
+      re-consent** (the token is gone at Google).
+
+      ```sh
+      # DRY-RUN (default): lists which users' google tokens WOULD be revoked; calls nothing.
+      npx tsx scripts/cutover/revoke-google-tokens.mjs --target "$TARGET_DATABASE_URL" --org "<orgId>"
+      # EXECUTE: add --confirm. Idempotent (an already-revoked token returns 400 invalid_token
+      # ⇒ treated as already-done). The refresh token is opened in-boundary for the one revoke
+      # call and NEVER logged; the per-token report keys on user_id only.
+      npx tsx scripts/cutover/revoke-google-tokens.mjs --target "$TARGET_DATABASE_URL" --org "<orgId>" --confirm
+      ```
+
+      Synthetic/test runs pass `--fetch-impl test` (an in-boundary FAKE Google endpoint) so
+      they **never hit real Google**.
 - [ ] **Finalize:** once the tenant is confirmed healthy on v2 and the soak window has
       passed with approver sign-off — remove the source-side route, NULL the copied source
       credentials, and securely delete the export directory. The tenant is now v2-only.
@@ -618,4 +631,5 @@ v2-side writes made in that short window.
 | verify  | `tsx scripts/cutover/verify-org.mjs --source … --target … --org … --out …` |
 | flip (at the cutover proxy) | `proxy-control.setOrgUpstream(slug, "v2")` (orchestrated; edge DNS/tunnel deferred) |
 | rollback (orchestrated) | `setOrgUpstream(slug,"v1")` + `unfreezeOrg(slug)` + restore pre-flip snapshot if v2 took writes |
+| provider-side google revoke (POST-FLIP) | `tsx scripts/cutover/revoke-google-tokens.mjs --target <owner-url> --org … [--confirm] [--fetch-impl test]` — **DRY-RUN by default; --confirm executes; idempotent; never logs the token; run only after a permanent flip** |
 | synthetic acceptance | `npm run cutover:acceptance-orchestrate` (proxy + v1/v2 stubs + reconcile + rollback; no prod) · `npm run cutover:soak-acceptance` (soak+reconcile) |
