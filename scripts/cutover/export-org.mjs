@@ -32,14 +32,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
-import {
-  buildModelPlans,
-  resolveColumns,
-  buildScopedSelect,
-  fkEdgesOf,
-  quoteIdent,
-} from "./lib/model-graph.ts";
-import { categoryForOid, encodeRow } from "./lib/ndjson-codec.ts";
+import { buildModelPlans } from "./lib/model-graph.ts";
+import { collectOrgRows } from "./lib/export-core.ts";
 
 function parseArgs(argv) {
   const out = {};
@@ -88,149 +82,17 @@ async function main() {
   await client.connect();
 
   const plans = buildModelPlans();
-  const planByModel = new Map(plans.map((p) => [p.model, p]));
-  const planByTable = new Map(plans.map((p) => [p.table, p]));
-
-  // Per-table accumulated state, so the closure pass can append rows + re-scan for new refs
-  // before we write the NDJSON files. Keyed by physical table.
-  //   rows       : encoded-row objects (column→encoded value), in insertion order
-  //   ids        : Set of exported single-PK ids (closure dedupe; composite-PK tables don't
-  //                participate as closure TARGETS — only User/globals are targets here)
-  //   columns    : the resolved copyable column list
-  //   categories : column→PgTypeCategory
-  //   pk         : single PK column (for closure id tracking)
-  //   scopedCount: rows from the strict org-scope (before closure) — reported in the manifest
-  const state = new Map();
 
   let grandTotal = 0;
+  let state;
 
   try {
-    // Read-only, repeatable snapshot for a self-consistent multi-table export.
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-
-    // ── Phase 1: strict org-scoped export of every migratable model ──
-    for (const plan of plans) {
-      const colPlan = await resolveColumns(client, plan.model);
-      const { sql, params } = buildScopedSelect(plan, colPlan.columns, org);
-      const res = await client.query({ text: sql, values: params, rowMode: "array" });
-
-      // Map field OIDs → decode categories, in column order.
-      const categories = {};
-      res.fields.forEach((f, i) => {
-        categories[colPlan.columns[i]] = categoryForOid(f.dataTypeID);
-      });
-
-      const pkCol = plan.pk[0];
-      const ids = new Set();
-      const rows = res.rows.map((arr) => {
-        const obj = {};
-        colPlan.columns.forEach((c, i) => (obj[c] = arr[i]));
-        if (plan.pk.length === 1 && obj[pkCol] != null) ids.add(obj[pkCol]);
-        return encodeRow(obj, colPlan.columns);
-      });
-
-      state.set(plan.table, {
-        model: plan.model,
-        rows,
-        ids,
-        columns: colPlan.columns,
-        categories,
-        pk: pkCol,
-        stripped: colPlan.stripped,
-        scopedCount: rows.length,
-        closureCount: 0,
-      });
-      console.log(
-        `export-org: ${plan.table.padEnd(28)} ${String(rows.length).padStart(7)} rows  [${plan.scope.kind}]`,
-      );
-    }
-
-    // ── Phase 2: REFERENTIAL CLOSURE — pull referenced parent rows the strict scope missed ──
-    //
-    // Iterate to a FIXPOINT: each pass collects, per target table, the distinct non-null FK
-    // values referenced by rows already in `state` but NOT yet exported into that target
-    // table; fetches those parent rows BY ID (no org filter); appends them; repeats until a
-    // pass adds nothing. The org-scope SELECTs are NOT touched — this only ADDS referenced
-    // parents (users/globals), never widening the org's own business data.
-    let closureAdded = 0;
-    for (let pass = 1; ; pass++) {
-      // target table → Set of ids we need but don't yet have
-      const want = new Map();
-      for (const [, st] of state) {
-        const edges = fkEdgesOf(st.model);
-        if (edges.length === 0) continue;
-        for (const e of edges) {
-          const target = state.get(e.targetTable);
-          // Closure only follows targets we actually migrate (have a plan/state for).
-          if (!target) continue;
-          for (const row of st.rows) {
-            const v = row[e.fkColumn];
-            if (v == null) continue;
-            if (target.ids.has(v)) continue; // already exported (org-scoped or earlier pass)
-            let set = want.get(e.targetTable);
-            if (!set) {
-              set = new Set();
-              want.set(e.targetTable, set);
-            }
-            set.add(v);
-          }
-        }
-      }
-
-      if (want.size === 0) break;
-
-      let addedThisPass = 0;
-      for (const [table, idSet] of want) {
-        const st = state.get(table);
-        const plan = planByTable.get(table);
-        if (!st || !plan) continue;
-        const ids = [...idSet].filter((id) => !st.ids.has(id));
-        if (ids.length === 0) continue;
-
-        // Fetch the referenced parent rows BY ID — regardless of org_id / membership. This is
-        // the ONLY non-org-strict read in the exporter, and it is BOUNDED to exactly the ids a
-        // migrated child references (a global built-in or a shared user). It can NEVER pull
-        // another org's BUSINESS rows: only a row whose id is referenced by THIS org's data,
-        // and such parents are shared-by-design (users, global templates).
-        const t = quoteIdent(table);
-        const cols = st.columns.map((c) => `${t}.${quoteIdent(c)}`).join(", ");
-        const idCol = quoteIdent(st.pk);
-        const { rows: parentRows } = await client.query({
-          text: `SELECT ${cols} FROM ${t} WHERE ${t}.${idCol} = ANY($1::uuid[]) ORDER BY ${t}.${idCol} ASC`,
-          values: [ids],
-          rowMode: "array",
-        });
-
-        for (const arr of parentRows) {
-          const obj = {};
-          st.columns.forEach((c, i) => (obj[c] = arr[i]));
-          const id = obj[st.pk];
-          if (id == null || st.ids.has(id)) continue;
-          st.ids.add(id);
-          st.rows.push(encodeRow(obj, st.columns));
-          st.closureCount++;
-          addedThisPass++;
-        }
-      }
-
-      closureAdded += addedThisPass;
-      console.log(
-        `export-org: closure pass ${pass}: +${addedThisPass} referenced parent row(s)` +
-          (addedThisPass === 0 ? " (fixpoint reached)" : ""),
-      );
-      if (addedThisPass === 0) break;
-    }
-    if (closureAdded > 0) {
-      console.log(`export-org: referential closure added ${closureAdded} shared parent row(s) total`);
-    }
-
-    await client.query("COMMIT");
+    // Phases 1 (strict org-scope) + 2 (referential closure) are the SHARED export core,
+    // reused verbatim by soak-sync's delta replay. No deltaFilters ⇒ a FULL export.
+    state = await collectOrgRows(client, plans, org, {
+      log: (m) => console.log(m.replace(/^export-core:/, "export-org:")),
+    });
   } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      /* ignore */
-    }
     await client.end();
     console.error(`export-org: FAILED — ${err?.stack ?? err}`);
     process.exit(1);
