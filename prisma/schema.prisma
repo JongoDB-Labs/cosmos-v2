@@ -149,19 +149,19 @@ model Organization {
 }
 
 model User {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  auth0UserId        String?   @unique @map("auth0_user_id")
-  googleId           String?   @unique @map("google_id")
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  auth0UserId  String?   @unique @map("auth0_user_id")
+  googleId     String?   @unique @map("google_id")
   // The legacy plaintext google_refresh_token column has been swept into the sealed
   // ConnectorCredential store (scripts/dsop/seal-google-tokens.mjs) and DROPPED
   // (migration 20260606120000_drop_google_refresh_token). The sealed connector
   // credential vault is the SOLE source of truth for Google OAuth refresh tokens —
   // no plaintext secret column remains on User.
-  email              String
-  displayName        String    @map("display_name")
-  avatarUrl          String?   @map("avatar_url")
-  lastActiveAt       DateTime? @map("last_active_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
+  email        String
+  displayName  String    @map("display_name")
+  avatarUrl    String?   @map("avatar_url")
+  lastActiveAt DateTime? @map("last_active_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   memberships         OrgMember[]
   preferences         UserPreferences?
@@ -175,10 +175,10 @@ model User {
 }
 
 model Session {
-  id        String   @id
-  userId    String   @map("user_id") @db.Uuid
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id
+  userId       String   @map("user_id") @db.Uuid
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
   // SSO assurance columns (additive; null/false for legacy + Google sessions).
   authMethod   String?  @map("auth_method") // e.g. "oidc"; null = local/Google
   idpConnId    String?  @map("idp_conn_id") @db.Uuid // the IdpConnection used, if SSO
@@ -436,13 +436,14 @@ model Project {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  org             Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  members         ProjectMember[]
-  boards          Board[]
-  cycles          Cycle[]
-  objectives      Objective[]
-  projectTemplate ProjectTemplate? @relation(fields: [projectTemplateId], references: [id])
-  journalLines    JournalLine[]
+  org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members             ProjectMember[]
+  boards              Board[]
+  cycles              Cycle[]
+  objectives          Objective[]
+  projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
+  journalLines        JournalLine[]
+  dataClassifications DataClassification[]
 
   @@unique([orgId, key])
   @@map("projects")
@@ -1334,7 +1335,13 @@ model DataClassification {
   createdAt            DateTime            @default(now()) @map("created_at")
   updatedAt            DateTime            @updatedAt @map("updated_at")
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  // Per-project classification reconciled from the classification-propagation line:
+  // the project_id FK is the §9.2 cutover-baseline marker (its presence in a restored
+  // prod snapshot proves the baseline came from the classification line, not an older
+  // branch). Nullable = the org-ceiling row (project_id IS NULL); a non-null project_id
+  // references the owning project and cascades on project delete.
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, projectId])
   @@map("data_classifications")
@@ -1418,12 +1425,12 @@ model OrgSecuritySettings {
 /// (scripts/cutover/lib/model-graph.ts EXCLUDED_GLOBAL_MODELS) — a frozen flag must never
 /// be exported/imported as part of a tenant's data.
 model FrozenOrg {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @unique @map("org_id") @db.Uuid
-  orgSlug   String   @unique @map("org_slug")
-  reason    String   @default("")
-  frozenBy  String?  @map("frozen_by")
-  frozenAt  DateTime @default(now()) @map("frozen_at")
+  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId    String   @unique @map("org_id") @db.Uuid
+  orgSlug  String   @unique @map("org_slug")
+  reason   String   @default("")
+  frozenBy String?  @map("frozen_by")
+  frozenAt DateTime @default(now()) @map("frozen_at")
 
   @@index([orgSlug])
   @@map("frozen_orgs")
@@ -1495,23 +1502,23 @@ model SavedReport {
 // ─────────────────────────────────────────────
 
 model McpServer {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  name      String
-  transport String // "stdio" | "http" | "sse"
-  command   String? // for stdio
-  args      String[] @default([])
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  name       String
+  transport  String // "stdio" | "http" | "sse"
+  command    String? // for stdio
+  args       String[] @default([])
   // env/headers are SEALED at rest (3.13.16): these columns hold the vault envelope
   // of `JSON.stringify(env|headers)`, not the plaintext JSON. Read via the
   // getMcpEnv()/getMcpHeaders() accessors (src/lib/integrations/mcp-secrets.ts).
   // MCP execution is dormant (Phase 0 dropped --mcp-config), so there is no live
   // read path yet — these seal-at-rest on write + the accessor is for when MCP wakes.
-  envEnc     String? @map("env_enc")
+  envEnc     String?  @map("env_enc")
   url        String? // for http/sse
-  headersEnc String? @map("headers_enc")
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  headersEnc String?  @map("headers_enc")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
