@@ -132,6 +132,7 @@ model Organization {
   scimTokens             ScimToken[]
   securitySettings       OrgSecuritySettings?
   runtimeConfig          OrgRuntimeConfig?
+  agentPolicy            AgentPolicy?
   assistantConversations AssistantConversation[]
   chatChannels           ChatChannel[]
   savedReports           SavedReport[]
@@ -1457,6 +1458,61 @@ model OrgRuntimeConfig {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_runtime_config")
+}
+
+/// AGENT POLICY (design D9/§8) — the MIDDLE gate of `RBAC ∩ AgentPolicy ∩ Classification`
+/// (narrowest wins). A per-org (1:1) tenant-admin-managed authorization on what the AI agent
+/// may do PER TOOL CALL, enforced in the agent loop BEFORE executeTool (after handle-resolve,
+/// before the write-path taint check). This is NOT the egress gate (which governs what the
+/// model may SEE) — it governs which TOOLS/DOMAINS the agent may CALL and bounds their args.
+///
+/// THE LOAD-BEARING DEFAULT: the ABSENCE of a row ⇒ PERMISSIVE (all tools/domains, no arg
+/// bounds) = EXACTLY today's behavior. getAgentPolicy() normalizes a missing row to that
+/// default, so existing orgs are UNAFFECTED until an admin opts in. This is additive.
+///
+/// The 3 axes (D9 thin slice, extensible to the 10-axis model):
+///   1. TOOLS  — allowedTools (tri-state, see below) + deniedTools (denylist always wins).
+///   2. DOMAIN — deniedDomains: a tool whose coarse data-domain (TOOL_DOMAIN map) is listed
+///               is refused (e.g. block all `finance`/`crm` tools).
+///   3. ARGS   — allowedProjectIds (tri-state): a tool call carrying a `projectId` not in the
+///               list is refused; maxResultLimit: a `limit`/`maxResults` arg above it is
+///               CLAMPED DOWN (not refused) before the executor runs.
+///
+/// Tri-state (Prisma has no nullable scalar list, so a flag + array stand in for the spec's
+/// `String[]?`):
+///   - <flag>Set = false ⇒ "NULL" / NO restriction on that axis (the default). The array is
+///     ignored. allowedTools: ALL tools allowed (subject to deniedTools/deniedDomains).
+///     allowedProjectIds: ANY projectId allowed.
+///   - <flag>Set = true  ⇒ only the listed values are allowed (a subset; [] then = NONE).
+/// getAgentPolicy() collapses these to the clean `string[] | null` contract.
+model AgentPolicy {
+  id    String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId String @unique @map("org_id") @db.Uuid
+
+  /// AXIS 1 (tools) — tri-state ALLOWLIST. allowedToolsSet=false ⇒ all tools allowed (default);
+  /// true ⇒ only `allowedTools` are allowed. `deniedTools` is an always-applied denylist (wins
+  /// over the allowlist).
+  allowedToolsSet Boolean  @default(false) @map("allowed_tools_set")
+  allowedTools    String[] @default([]) @map("allowed_tools")
+  deniedTools     String[] @default([]) @map("denied_tools")
+
+  /// AXIS 2 (domain) — deniedDomains: coarse data-domains (work_items/finance/crm/…) the agent
+  /// may NOT touch. A tool whose TOOL_DOMAIN is listed is refused. Empty ⇒ no domain blocked.
+  deniedDomains String[] @default([]) @map("denied_domains")
+
+  /// AXIS 3 (args) — maxResultLimit: a `limit`/`maxResults` arg above this is CLAMPED to it
+  /// (null ⇒ no clamp). allowedProjectIds: tri-state ALLOWLIST of project scopes — a tool call
+  /// carrying a `projectId` not in the list is refused (allowedProjectIdsSet=false ⇒ any allowed).
+  maxResultLimit        Int?     @map("max_result_limit")
+  allowedProjectIdsSet  Boolean  @default(false) @map("allowed_project_ids_set")
+  allowedProjectIds     String[] @default([]) @map("allowed_project_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("agent_policy")
 }
 
 /// Cutover write-freeze flag (design spec §9.4). A row here means the org is in a short
