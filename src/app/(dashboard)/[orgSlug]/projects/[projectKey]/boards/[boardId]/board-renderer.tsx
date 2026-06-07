@@ -6,7 +6,7 @@ import { CalendarView } from "@/components/boards/calendar/calendar-view";
 import { TimelineView } from "@/components/boards/timeline/timeline-view";
 import { DashboardView } from "@/components/boards/dashboard/dashboard-view";
 import { CfdView } from "@/components/boards/cfd/cfd-view";
-import { LayoutGrid } from "lucide-react";
+import { OkrBoard } from "@/components/okrs/okr-board";
 
 interface BoardRendererProps {
   orgId: string;
@@ -16,16 +16,17 @@ interface BoardRendererProps {
   boardType: string;
 }
 
-const COMING_SOON_TYPES = [
-  "SCRUM",
-  "BACKLOG",
-  "OKR",
-  "PORTFOLIO",
-  "RAID",
-  "ROADMAP",
-  "PROGRAM",
-];
-
+/**
+ * Maps a board's `type` to a view. Every type renders a functional view — there
+ * are no "coming soon" stubs. Several gov/PM board types are expressed in terms
+ * of the proven core views until a bespoke view ships:
+ *   SCRUM    → Kanban (filter by the active cycle/sprint via the board filter bar)
+ *   BACKLOG  → Table  (the ranked work-item list)
+ *   RAID     → Table  (risks / assumptions / issues / dependencies log)
+ *   ROADMAP  → Timeline
+ *   PORTFOLIO/PROGRAM → Dashboard (rollup widgets)
+ *   OKR      → the dedicated objectives/key-results board
+ */
 export function BoardRenderer({
   orgId,
   projectId,
@@ -33,91 +34,35 @@ export function BoardRenderer({
   boardId,
   boardType,
 }: BoardRendererProps) {
-  switch (boardType) {
-    case "KANBAN":
-      return (
-        <KanbanBoard
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+  const viewProps = { orgId, projectId, projectKey, boardId };
 
+  switch (boardType) {
     case "TABLE":
-      return (
-        <TableView
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+    case "BACKLOG":
+    case "RAID":
+      return <TableView {...viewProps} />;
 
     case "CALENDAR":
-      return (
-        <CalendarView
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+      return <CalendarView {...viewProps} />;
 
     case "TIMELINE":
-      return (
-        <TimelineView
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+    case "ROADMAP":
+      return <TimelineView {...viewProps} />;
 
     case "DASHBOARD":
-      return (
-        <DashboardView
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+    case "PORTFOLIO":
+    case "PROGRAM":
+      return <DashboardView {...viewProps} />;
 
     case "CFD":
-      return (
-        <CfdView
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+      return <CfdView {...viewProps} />;
 
+    case "OKR":
+      return <OkrBoard orgId={orgId} projectId={projectId} />;
+
+    case "KANBAN":
+    case "SCRUM":
     default:
-      if (COMING_SOON_TYPES.includes(boardType)) {
-        return (
-          <div className="flex flex-col items-center justify-center h-64 gap-3">
-            <LayoutGrid className="h-10 w-10 text-muted-foreground/50" />
-            <div className="text-center">
-              <p className="text-sm font-medium text-muted-foreground">
-                {boardType.charAt(0) + boardType.slice(1).toLowerCase()} View
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Coming soon
-              </p>
-            </div>
-          </div>
-        );
-      }
-
-      return (
-        <KanbanBoard
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-        />
-      );
+      return <KanbanBoard {...viewProps} />;
   }
 }
