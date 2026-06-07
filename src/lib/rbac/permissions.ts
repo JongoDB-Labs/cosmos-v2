@@ -124,6 +124,10 @@ export const Permission = {
   ACCOUNTING_READ:   1n << 113n,
   ACCOUNTING_MANAGE: 1n << 114n,
   ACCOUNTING_CLOSE:  1n << 115n,
+
+  // AI Agent Policy (design D9/§8) — manage the per-org AgentPolicy (the middle gate of
+  // RBAC ∩ AgentPolicy ∩ Classification: which tools/domains the agent may call + arg bounds).
+  AGENT_POLICY_MANAGE: 1n << 116n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -216,6 +220,7 @@ export const RolePermissions = {
     Permission.ORG_EXPORT,
     Permission.ORG_IMPORT,
     Permission.MCP_MANAGE,
+    Permission.AGENT_POLICY_MANAGE,
   ),
 
   BILLING_ADMIN: combine(
