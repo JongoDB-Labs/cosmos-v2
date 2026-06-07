@@ -1,8 +1,8 @@
 // @vitest-environment node
 //
-// Verifies the REAL google + github + jira + slack + nango descriptors register
-// cleanly via connectors/index.ts and contribute exactly the expected tool defs +
-// egress maps. This is the per-descriptor contract check; the cross-system byte-
+// Verifies the REAL google + github + jira + slack + microsoft365 + nango descriptors
+// register cleanly via connectors/index.ts and contribute exactly the expected tool
+// defs + egress maps. This is the per-descriptor contract check; the cross-system byte-
 // identity lock against the locked literals lives in connectors/invariant.test.ts.
 import { describe, it, expect } from "vitest";
 import {
@@ -15,48 +15,50 @@ import { googleTools } from "../tools/google";
 import { githubTools } from "../tools/github";
 import { jiraTools } from "../tools/jira";
 import { slackTools } from "../tools/slack";
+import { microsoft365Tools } from "../tools/microsoft365";
 import { nangoTools } from "../tools/nango";
 
 describe("real connector descriptors", () => {
-  it("registers exactly google + github + jira + slack + nango", () => {
+  it("registers exactly google + github + jira + slack + microsoft365 + nango", () => {
     expect(getConnectorDescriptors().map((d) => d.provider).sort()).toEqual([
-      "github", "google", "jira", "nango", "slack",
+      "github", "google", "jira", "microsoft365", "nango", "slack",
     ]);
   });
 
-  it("nango is the only COMMERCIAL-ONLY connector; google + github + jira + slack are 'all'", () => {
+  it("nango is the only COMMERCIAL-ONLY connector; google + github + jira + slack + microsoft365 are 'all'", () => {
     const byProvider = new Map(getConnectorDescriptors().map((d) => [d.provider, d]));
     expect(byProvider.get("nango")?.availability).toBe("commercial-only");
-    // google/github omit availability ⇒ default "all"; jira/slack set it explicitly.
+    // google/github omit availability ⇒ default "all"; jira/slack/m365 set it explicitly.
     expect(byProvider.get("google")?.availability ?? "all").toBe("all");
     expect(byProvider.get("github")?.availability ?? "all").toBe("all");
     expect(byProvider.get("jira")?.availability).toBe("all");
     expect(byProvider.get("slack")?.availability).toBe("all");
+    expect(byProvider.get("microsoft365")?.availability).toBe("all");
   });
 
-  it("connectorToolDefs == the google + github + jira + slack + nango tool defs (same names, same schemas)", () => {
+  it("connectorToolDefs == the google + github + jira + slack + m365 + nango tool defs (same names, same schemas)", () => {
     const names = connectorToolDefs().map((t) => t.name);
-    const expected = [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...nangoTools].map((t) => t.name);
+    const expected = [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...microsoft365Tools, ...nangoTools].map((t) => t.name);
     expect(names.sort()).toEqual(expected.sort());
     // schemas referenced verbatim — identity, not copies.
     const byName = new Map(connectorToolDefs().map((t) => [t.name, t]));
-    for (const t of [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...nangoTools]) {
+    for (const t of [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...microsoft365Tools, ...nangoTools]) {
       expect(byName.get(t.name)).toBe(t); // same object reference
     }
   });
 
-  it("connectorToolDefs('gov') EXCLUDES every nango tool (D5); jira+slack present; 'commercial' includes nango", () => {
+  it("connectorToolDefs('gov') EXCLUDES every nango tool (D5); jira+slack+m365 present; 'commercial' includes nango", () => {
     const govNames = connectorToolDefs("gov").map((t) => t.name);
     for (const t of nangoTools) expect(govNames).not.toContain(t.name);
-    // google + github + jira + slack (availability 'all') are present for gov.
-    for (const t of [...googleTools, ...githubTools, ...jiraTools, ...slackTools]) expect(govNames).toContain(t.name);
+    // google + github + jira + slack + microsoft365 (availability 'all') are present for gov.
+    for (const t of [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...microsoft365Tools]) expect(govNames).toContain(t.name);
     const commNames = connectorToolDefs("commercial").map((t) => t.name);
     for (const t of nangoTools) expect(commNames).toContain(t.name);
   });
 
-  it("connectorToolNames covers every google + github + jira + slack + nango tool", () => {
+  it("connectorToolNames covers every google + github + jira + slack + m365 + nango tool", () => {
     const names = connectorToolNames();
-    for (const t of [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...nangoTools]) expect(names.has(t.name)).toBe(true);
+    for (const t of [...googleTools, ...githubTools, ...jiraTools, ...slackTools, ...microsoft365Tools, ...nangoTools]) expect(names.has(t.name)).toBe(true);
   });
 
   it("google contributes NO egress (full withhold for gov); github maps to structural-only entities", () => {
@@ -107,6 +109,23 @@ describe("real connector descriptors", () => {
     expect(maps.exposableFields.slack_message).toEqual(["ts", "channel", "user", "type"]);
     expect(maps.exposableFields.slack_channel).toEqual(["id", "is_private", "is_archived", "created"]);
     expect("slack_message" in maps.handleableFields).toBe(false);
+  });
+
+  it("microsoft365 maps all read tools to structural-only entities (content/PII withheld)", () => {
+    const maps = connectorEgressMaps();
+    expect(maps.toolEntity).toMatchObject({
+      m365_list_messages: "m365_message",
+      m365_list_events: "m365_event",
+      m365_list_drive_items: "m365_drive_item",
+      m365_list_users: "m365_user",
+    });
+    expect(maps.exposableFields.m365_message).toEqual(["id", "receivedDateTime", "isRead", "hasAttachments", "importance"]);
+    expect(maps.exposableFields.m365_event).toEqual(["id", "start", "end", "isAllDay", "isCancelled", "showAs"]);
+    expect(maps.exposableFields.m365_drive_item).toEqual(["id", "size", "createdDateTime", "lastModifiedDateTime", "isFolder"]);
+    expect(maps.exposableFields.m365_user).toEqual(["id", "accountEnabled"]);
+    // M365 has NO handleable CUI string field.
+    expect("m365_message" in maps.handleableFields).toBe(false);
+    expect("m365_user" in maps.handleableFields).toBe(false);
   });
 
   it("nango contributes NO egress mapping (commercial-only; gov is blocked, commercial flows full below FOUO)", () => {
