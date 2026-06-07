@@ -9,7 +9,7 @@ import {
 } from "@/lib/chat/access";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { createUserMessage } from "@/lib/chat/messages";
-import { runChatBot, detectBotMention } from "@/lib/chat/bot-runner";
+import { runChatBot, resolveBotMention } from "@/lib/chat/bot-runner";
 import { hasPermission } from "@/lib/rbac/permissions";
 import { Permission } from "@/lib/rbac/permissions";
 import { z } from "zod";
@@ -135,10 +135,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       kind: parsed.data.kind ?? "USER",
     });
 
-    // AI bots: a text @assistant / @notetaker / @ai mention triggers a detached
-    // bot run (it posts its reply when done). Rate-limited; skipped (not
-    // blocked) when over budget so the human message still posts.
-    const bot = detectBotMention(parsed.data.content);
+    // AI bots: a text @assistant/@notetaker/@answerer/@ai handle OR a
+    // <@bot-user-uuid> mention (mention-picker form) triggers a detached bot run
+    // (it posts its reply when done). Rate-limited; skipped (not blocked) when
+    // over budget so the human message still posts. The bot runs through v2's
+    // CUI-blind agent loop (egress-gated) — never a raw model call.
+    const bot = await resolveBotMention(orgId, parsed.data.content);
     if (bot && hasPermission(ctx.permissions, Permission.CHAT_USE)) {
       const botLimited = checkRateLimit(req, "chat.ai", ctx.userId, {
         capacity: 5,
