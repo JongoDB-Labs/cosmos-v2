@@ -44,8 +44,10 @@ beforeEach(() => {
 });
 
 describe("POST /integrations guardrail", () => {
-  it("rejects installing a coming_soon provider (slack) with 400 and no DB write", async () => {
-    const res = await POST(post({ provider: "slack" }), { params });
+  it("rejects installing a coming_soon provider (basecamp) with 400 and no DB write", async () => {
+    // basecamp is still status:"coming_soon" (slack/jira were promoted to available
+    // as native token-auth connectors in v2.20 — see the connector registry).
+    const res = await POST(post({ provider: "basecamp" }), { params });
     expect(res.status).toBe(400);
     expect(prisma.integration.create).not.toHaveBeenCalled();
   });
