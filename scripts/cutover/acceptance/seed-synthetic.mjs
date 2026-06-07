@@ -36,6 +36,11 @@ const OTHER = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const U1 = "11111111-0000-0000-0000-000000000001";
 const U2 = "11111111-0000-0000-0000-000000000002";
 const UOTHER = "11111111-0000-0000-0000-0000000000ff";
+// A user who is a member of BOTH orgs (TENANT and OTHER). This is the explicit "shared closure
+// parent" the reconcile must NEVER delete: it is in TENANT's member scope (so it's carried) but
+// it is ALSO an OTHER member — deleting it as "extra for TENANT" would corrupt OTHER. (Users are
+// MEMBER-scoped, never delete-extras-eligible, so this also documents that invariant by example.)
+export const USHARED = "11111111-0000-0000-0000-0000000000aa";
 const M1 = "22222222-0000-0000-0000-000000000001";
 const M2 = "22222222-0000-0000-0000-000000000002";
 const PROJ = "33333333-0000-0000-0000-000000000001";
@@ -88,8 +93,9 @@ async function main() {
          ($1,'alice@tenant.test','Alice',$5),
          ($2,'bob@tenant.test','Bob',$5),
          ($3,'carol@other.test','Carol',$5),
-         ($4,'ghost@tenant.test','Ghost (removed member)',$5)`,
-      [U1, U2, UOTHER, UGHOST, T0],
+         ($4,'ghost@tenant.test','Ghost (removed member)',$5),
+         ($6,'dave@shared.test','Dave (in BOTH orgs)',$5)`,
+      [U1, U2, UOTHER, UGHOST, T0, USHARED],
     );
 
     // Organizations.
@@ -100,13 +106,16 @@ async function main() {
       [TENANT, OTHER, T0],
     );
 
-    // Members.
+    // Members. USHARED (Dave) is a MEMBER of BOTH TENANT and OTHER — the shared-closure-parent
+    // the reconcile must never delete as "extra for TENANT".
     await c.query(
       `INSERT INTO org_members (id, org_id, user_id, role, joined_at) VALUES
          ($1,$3,$5,'OWNER',$7),
          ($2,$3,$6,'MEMBER',$7),
-         ($4,$8,$9,'OWNER',$7)`,
-      [M1, M2, TENANT, "22222222-0000-0000-0000-0000000000ff", U1, U2, T0, OTHER, UOTHER],
+         ($4,$8,$9,'OWNER',$7),
+         ('22222222-0000-0000-0000-0000000000a1',$3,$10,'MEMBER',$7),
+         ('22222222-0000-0000-0000-0000000000a2',$8,$10,'MEMBER',$7)`,
+      [M1, M2, TENANT, "22222222-0000-0000-0000-0000000000ff", U1, U2, T0, OTHER, UOTHER, USHARED],
     );
 
     // Project + work-item-type (org-scoped so it migrates) + board.
