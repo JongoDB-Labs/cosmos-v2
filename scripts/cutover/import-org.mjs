@@ -31,14 +31,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
-import {
-  buildModelPlans,
-  rankOf,
-  discoverOrphanProbeTargets,
-  orphanProbeSql,
-} from "./lib/model-graph.ts";
-import { decodeRow } from "./lib/ndjson-codec.ts";
-import { buildUpsert, dedupeClassifications } from "./lib/upsert.ts";
+import { buildModelPlans } from "./lib/model-graph.ts";
+import { importUnits } from "./lib/import-core.ts";
 
 function parseArgs(argv) {
   const out = {};
@@ -92,137 +86,43 @@ async function main() {
 
   // Cross-check the export manifest against the LIVE plan so a schema drift between export
   // and import is caught loudly (a table in the manifest we no longer migrate, or vice versa).
-  const planByModel = new Map(buildModelPlans().map((p) => [p.model, p]));
+  const plans = buildModelPlans();
+
+  // Read every manifest table's NDJSON into an in-memory import unit. The actual UPSERT loop +
+  // DataClassification dedupe + the in-transaction orphan-probe backstop live in the SHARED
+  // import core (lib/import-core.ts), reused verbatim by soak-sync's delta replay.
+  const units = [];
+  for (const t of manifest.tables) {
+    const ndjsonPath = path.join(inDir, t.file);
+    let rows;
+    try {
+      rows = parseNdjson(await readFile(ndjsonPath, "utf8"));
+    } catch (e) {
+      if (e?.code === "ENOENT") rows = [];
+      else throw e;
+    }
+    units.push({ model: t.model, table: t.table, columns: t.columns, categories: t.categories, rows });
+  }
 
   const client = new pg.Client({ connectionString: target });
   await client.connect();
 
-  const results = []; // per-table { table, inserted, updated, skipped }
-  let dedupDrops = [];
-  let totalInserted = 0;
-  let totalUpdated = 0;
-  let totalSkipped = 0;
-
+  let summaryCore;
   try {
-    await client.query("BEGIN");
-    // Confirm we're the owner / can set session_replication_role; this throws for cosmos_app.
-    await client.query("SET LOCAL session_replication_role = replica");
-
-    for (const t of manifest.tables) {
-      const plan = planByModel.get(t.model);
-      if (!plan) {
-        throw new Error(
-          `import-org: manifest table ${t.table} (${t.model}) is not a migratable model in the current schema — aborting`,
-        );
-      }
-
-      const ndjsonPath = path.join(inDir, t.file);
-      let rows;
-      try {
-        rows = parseNdjson(await readFile(ndjsonPath, "utf8"));
-      } catch (e) {
-        if (e?.code === "ENOENT") rows = [];
-        else throw e;
-      }
-
-      // DataClassification: dedupe-with-audit BEFORE inserting (one ceiling per org).
-      let importRows = rows;
-      if (plan.model === "DataClassification") {
-        const { kept, drops } = dedupeClassifications(rows, rankOf);
-        importRows = kept;
-        dedupDrops = drops;
-        for (const d of drops) {
-          console.log(
-            `import-org: DataClassification DEDUPE — org ${d.orgId} ceiling: keep ${d.keptLevel} (${d.keptId}), ` +
-              `drop ${d.droppedLevel} (${d.droppedId})${d.droppedMarkings.length ? ` [dropped markings: ${d.droppedMarkings.join(", ")}]` : ""}`,
-          );
-        }
-      }
-
-      let inserted = 0;
-      let updated = 0;
-      let skipped = 0;
-      for (const row of importRows) {
-        // Strict org-scope re-assertion on rows that carry an org_id: never write a row
-        // belonging to another org, even if the export somehow contained one. (MEMBER-scoped
-        // Users carry no org_id; the ROOT Organization row's id == org and is checked below.)
-        if ("org_id" in row && row.org_id !== null && row.org_id !== org) {
-          throw new Error(
-            `import-org: row in ${t.table} has org_id ${row.org_id} != ${org} — refusing cross-org write`,
-          );
-        }
-        if (plan.scope.kind === "ROOT" && row.id !== org) {
-          throw new Error(
-            `import-org: organizations row id ${row.id} != ${org} — refusing cross-org write`,
-          );
-        }
-        const values = decodeRow(row, t.columns, t.categories);
-        const stmt = buildUpsert(plan, t.columns, values);
-        const r = await client.query(stmt.sql, stmt.params);
-        // RETURNING (xmax = 0) AS __inserted: a returned row means a real write —
-        // __inserted true ⇒ INSERT, false ⇒ UPDATE. No returned row ⇒ conflict skipped.
-        if (r.rowCount === 0) {
-          skipped++;
-        } else if (r.rows[0].__inserted === true) {
-          inserted++;
-        } else {
-          updated++;
-        }
-      }
-
-      results.push({ table: t.table, model: t.model, rowsInFile: rows.length, inserted, updated, skipped });
-      console.log(
-        `import-org: ${t.table.padEnd(28)} +${String(inserted).padStart(6)} ~${String(updated).padStart(6)} =${String(skipped).padStart(6)} (skipped)`,
-      );
-    }
-
-    // ── REFERENTIAL-INTEGRITY BACKSTOP (C-fix) — fail the WHOLE import if any FK dangles. ──
-    //
-    // The load ran under session_replication_role = replica, so FK triggers were SUPPRESSED:
-    // a child whose parent is missing from the migrated set would commit as a DANGLING FK
-    // SILENTLY. Before COMMIT we run the GENERIC orphan probe (every catalog FK on a migrated
-    // table + the bare logical user refs). ANY orphan ⇒ throw ⇒ ROLLBACK: a referentially
-    // incomplete import is rejected here rather than committed. (verify-org runs the same probe
-    // post-cutover as the flip gate; this is the in-transaction first line of defense.)
-    const probeTargets = await discoverOrphanProbeTargets(client, [...planByModel.values()]);
-    const orphans = [];
-    for (const pt of probeTargets) {
-      const r = await client.query(orphanProbeSql(pt));
-      if (r.rowCount > 0) {
-        orphans.push(
-          `${pt.childTable}.${pt.childColumn} -> ${pt.parentTable}.${pt.parentColumn} ` +
-            `(${pt.hardFk ? "FK " + pt.constraint : pt.constraint}) e.g. ${JSON.stringify(r.rows[0].orphan_fk)}`,
-        );
-      }
-    }
-    if (orphans.length > 0) {
-      throw new Error(
-        `import-org: REFERENTIAL INTEGRITY FAILURE — ${orphans.length} dangling FK(s) after load; ` +
-          `rolling back (the migrated set is incomplete):\n  - ${orphans.join("\n  - ")}`,
-      );
-    }
-    console.log(
-      `import-org: referential probe CLEAN — ${probeTargets.length} FK target(s) checked, 0 orphans.`,
-    );
-
-    await client.query("COMMIT");
+    summaryCore = await importUnits(client, plans, org, units, {
+      log: (m) => console.log(m.replace(/^import-core:/, "import-org:")),
+    });
   } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      /* ignore */
-    }
     await client.end();
     console.error(`import-org: FAILED — ${err?.stack ?? err}`);
     process.exit(1);
   }
   await client.end();
 
-  for (const r of results) {
-    totalInserted += r.inserted;
-    totalUpdated += r.updated;
-    totalSkipped += r.skipped;
-  }
+  const { results, dedupDrops, totals } = summaryCore;
+  const totalInserted = totals.inserted;
+  const totalUpdated = totals.updated;
+  const totalSkipped = totals.skipped;
 
   const summary = {
     kind: "cosmos-cutover-import",
