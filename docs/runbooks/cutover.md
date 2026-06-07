@@ -30,10 +30,91 @@ markings, and idempotent replay**. The model is **unidirectional, per-tenant**
 > insert/update-only (a deleted row just stops appearing), so deleted rows **linger** in v2
 > until the under-freeze reconcile removes them by an exact org-scoped PK-set diff.
 
-This runbook is the **first delivered slice**: the core engine + the source-side
-write-freeze. The DEFERRED-to-automation steps (snapshot/provenance reconstruction,
-the soak-sync scheduler, the automated reverse-proxy flip, provider-side Google token
-revoke, the exposability-map gate) are called out inline as **manual / deferred**.
+The cutover is now driven by **one orchestrator** (`scripts/cutover/orchestrate.mjs`) that
+sequences the whole per-tenant procedure — parity precheck → soak → freeze → reconcile →
+verify-gate → flip → unfreeze — and **rolls back on any failure**. The **freeze and flip
+happen at a dedicated cutover reverse proxy** (a SEPARATE Caddy from the app's
+`compose/Caddyfile`) that routes by `orgSlug` to v1 or v2 and enforces the per-org
+write-freeze at the edge. **§A below is the primary procedure; §2–§8 document the underlying
+manual steps the orchestrator drives.**
+
+The remaining DEFERRED-to-automation steps (automated snapshot capture/restore for the data
+rollback, the soak-sync scheduler/cron, the edge DNS / Cloudflare-tunnel cutover,
+provider-side Google token revoke, the exposability-map gate) are called out inline as
+**manual / deferred**.
+
+---
+
+## A. Orchestrated cutover (the primary path) — `orchestrate.mjs`
+
+> ## ⛔ BUILD-ONLY — `--dry-run` IS THE DEFAULT; `--confirm` IS REQUIRED TO EXECUTE ⛔
+>
+> The orchestrator is **safe-by-default**: with no `--confirm` it prints the plan and
+> **touches nothing** (no parity run, no soak, no freeze, no reconcile, no flip). Only
+> `--confirm` executes. It **rolls back on ANY failure at or after the freeze** (routes the
+> org back to v1 + unfreezes + prints the snapshot-restore step + exits non-zero), so an org
+> is **never left frozen or half-flipped**. Never point `--source` / `--target` /
+> `--proxy-admin` at a real production stack without Step 0 green + change-approver sign-off
+> + (gov) the §9 gov-go-live gate, and live coordination.
+
+**A.0 — Stand up the cutover reverse proxy** (`compose/cutover-proxy/`, see its README). It
+boots from `caddy.base.json` (admin API internal on `localhost:2019`, every org on **v1** by
+default). The orchestrator drives the admin API to freeze/flip/rollback per-org. The proxy
+routes by the dashboard path token `/<orgSlug>/…`; the API form `/api/v1/orgs/<id>/…` is
+covered by v2's in-app freeze, not the proxy (the documented **slug-vs-id** assumption).
+
+**A.1 — Run the orchestrator** (dry-run first, ALWAYS, to review the plan):
+
+```sh
+# DRY-RUN (default): prints the plan, touches nothing.
+npx tsx scripts/cutover/orchestrate.mjs \
+  --org   "<orgId-uuid>" --slug "<orgSlug>" \
+  --source "$SOURCE_DATABASE_URL" --target "$TARGET_OWNER_DATABASE_URL" \
+  --scratch "$SCRATCH_URL" --shadow "$SHADOW_URL" \
+  --prod-schema-dump /secure/cutover/prod-schema.sql \
+  --state  "/secure/cutover/<slug>/soak-state.json" \
+  --proxy-admin http://<cutover-proxy-admin>:2019 \
+  --v1 <v1-dial>:80 --v2 <v2-dial>:80 \
+  --max-cycles 10 --stamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# EXECUTE: add --confirm (everything else identical).
+npx tsx scripts/cutover/orchestrate.mjs … --confirm
+```
+
+The orchestrator sequence (each step timestamp-logged; the final line is a machine-readable
+`ORCHESTRATE_REPORT {…}`):
+
+1. **Parity-gate precheck** — runs `parity-gate.mjs` (Step 0) against the restored snapshot.
+   A fail **aborts before any freeze** (nothing to roll back).
+2. **Soak loop** — runs `soak-sync.mjs` repeatedly until a cycle reports **0 upserts**
+   (caught up) or `--max-cycles`. (Hitting the cap is fine — the final reconcile is exact.)
+3. **Freeze** — `proxy-control.freezeOrg(slug)`: writes to the org **405** at the proxy,
+   reads pass. **From here, any failure triggers rollback.**
+4. **Reconcile** — `reconcile-org.mjs` (final force-exact import + delete-extras + in-txn
+   orphan probe; it also runs verify as its Phase-4 gate).
+5. **Verify gate** — `verify-org.mjs` explicitly (the canonical rollback trigger). Any
+   mismatch ⇒ **rollback**.
+6. **Flip** — `proxy-control.setOrgUpstream(slug,"v2")`: the org's path now routes to v2.
+7. **Unfreeze** — `proxy-control.unfreezeOrg(slug)`: writes resume, served by v2.
+
+**Rollback (any failure at/after the freeze):** `setOrgUpstream(slug,"v1")` + `unfreezeOrg(slug)`
+(the org goes back to v1, unfrozen), then the orchestrator prints the **data-restore** step.
+The data rollback is the **pre-flip v1 snapshot**: v1 is the source and was **not** mutated by
+the cutover and **its columns are kept intact** (§7 keeps the source credentials/columns until
+finalize), so v1 itself is the live rollback — a snapshot restore of v2 is only needed if v2
+already took post-flip writes. The orchestrator prints the exact pgBackRest point-in-time
+restore command to run for that case.
+
+- [ ] **Dry-run reviewed** (the printed plan matches the tenant + URLs you intend).
+- [ ] Step 0 parity gate is green for the current v2 schema (the orchestrator re-checks it).
+- [ ] `--confirm` run exits **0** with `ORCHESTRATE_REPORT {"ok":true,…}`; the org now serves
+      v2 and writes are resumed. On a non-zero exit, read the step log: the org has been routed
+      back to v1 + unfrozen, and the snapshot-restore step is printed — fix the cause and re-run.
+
+**Commercial-first / gov-last (orchestrated):** run commercial tenants first. For a **gov**
+tenant, the §9 gov-go-live gate + the per-tenant exposability-map review must be cleared
+**before** that tenant's `--confirm` run (the orchestrator does not enforce the gov gate — it
+is an out-of-band human sign-off that precedes the orchestrated gov flip).
 
 ---
 
@@ -162,9 +243,19 @@ See `compliance/provenance/README.md` for field meanings and the hash semantics.
 > consistent; it is the entire downtime window, so it should be measured in **seconds to a
 > few minutes** thanks to the soak having already drained the bulk of the changes.
 
-A short write-freeze on the org in the **source** app lets the last delta drain
-consistently. The proxy (`src/proxy.ts`) returns **HTTP 405** on mutating verbs
-(POST/PUT/PATCH/DELETE) for a frozen org; **reads keep working**.
+A short write-freeze on the org lets the last delta drain consistently. Mutating verbs
+(POST/PUT/PATCH/DELETE) for a frozen org return **HTTP 405**; **reads keep working**.
+
+> **Orchestrated path (preferred):** the **cutover reverse proxy** enforces the freeze at the
+> edge — `proxy-control.freezeOrg(slug)` / `unfreezeOrg(slug)` add/remove a per-org 405 route
+> via the Caddy admin API (§A). The freeze MUST be at the proxy because the **v1 (source)
+> stack lacks the in-app freeze middleware** — only the proxy sits in front of v1. The
+> orchestrator does this automatically (sequence step 3 / 7); you do not run the in-app
+> helpers below during an orchestrated cutover.
+
+The in-app freeze (below) is the **v2-side / API** primitive: `src/proxy.ts` returns 405 for a
+frozen org's id-keyed API path. It is kept for the `/api/v1/orgs/<id>/…` surface and as a
+permanent no-op-unless-frozen guard inside v2; it does **not** cover v1.
 
 Freeze / unfreeze via the helpers in `src/lib/cutover/freeze.ts` (run in an app context,
 e.g. a one-off `tsx` script or an ops console):
@@ -384,18 +475,30 @@ marking: source == target); a **sampled content checksum** over mutable rows; an
 
 ---
 
-## 6. Flip (MANUAL reverse-proxy route change — deferred automation)
+## 6. Flip (cutover reverse-proxy route change — orchestrated)
 
-> **Deferred:** the automated reverse-proxy flip + DNS is a later slice. For now this is a
-> documented manual step.
+> **Now automated at the cutover reverse proxy** (§A). The orchestrator runs
+> `proxy-control.setOrgUpstream(slug, "v2")` (sequence step 6) — the per-org route's upstream
+> flips from v1 to v2 via the Caddy admin API (`POST /load` of the full rewritten config:
+> atomic, zero-downtime, auto-rollback on a bad config). The **edge DNS / Cloudflare-tunnel**
+> cutover (pointing the public name at the cutover proxy) remains ops/deferred.
 
-Point the tenant's route at v2:
+Manual equivalent (if driving the proxy directly rather than via the orchestrator):
 
-- Edit the reverse proxy (Caddy/nginx) so requests for this `orgSlug` (host or path) route
-  to the **v2** stack instead of v1. Reload the proxy.
-- [ ] Confirm a v2 page loads for the tenant and an authenticated write succeeds **on v2**.
-- [ ] Keep **v1 frozen** until finalize so no split-brain writes land on v1 (v1 remains the
-      read-only rollback target).
+```sh
+# flip one org to v2 (idempotent):
+npx tsx -e 'import("./scripts/cutover/lib/proxy-control.ts").then(async m => {
+  const p = new m.ProxyControl({ adminUrl: process.env.PROXY_ADMIN,
+    upstreams: { v1: process.env.V1_DIAL, v2: process.env.V2_DIAL } });
+  await p.setOrgUpstream(process.env.SLUG, "v2");
+  console.log(await p.getOrgState(process.env.SLUG));
+})'
+```
+
+- [ ] Confirm a v2 page loads for the tenant (`GET /<slug>/…` reaches v2) and an authenticated
+      write succeeds **on v2** after the unfreeze.
+- [ ] Keep **v1 the read-only rollback target** until finalize so no split-brain writes land
+      on v1 (the orchestrator unfreezes only after the flip, and v1 columns stay intact).
 
 ---
 
@@ -425,11 +528,20 @@ The bulk catch-up (soak) and the exact reconciliation (including deletes) alread
 Rollback is safe **because** the window is write-frozen — you accept the loss of any
 v2-side writes made in that short window.
 
-- [ ] Re-route the `orgSlug` back to **v1** on the reverse proxy; reload.
-- [ ] **Restore the org from its pre-flip snapshot** (pgBackRest restore for the whole-DB
-      case; the scoped logical dump for a single org). Source credentials were never
-      nulled pre-finalize, so v1 still authenticates.
-- [ ] `unfreezeOrg(orgId)` on v1 once the tenant is confirmed working there again.
+> **Orchestrated rollback (automatic):** on ANY failure at/after the freeze the orchestrator
+> runs `setOrgUpstream(slug,"v1")` + `unfreezeOrg(slug)` itself (the org is back on v1,
+> unfrozen) and prints the data-restore step + exits non-zero. The steps below are the manual
+> equivalent / the data-restore the orchestrator instructs you to perform.
+
+- [ ] The cutover proxy routes the `orgSlug` back to **v1** (orchestrator does this; verify via
+      `proxy-control.getOrgState(slug)` → `{ upstream: "v1", frozen: false }`).
+- [ ] **Data restore — only if v2 took post-flip writes.** v1 was not mutated by the cutover
+      and its columns are kept intact (§7), so v1 is the live rollback. If v2 received writes
+      after the flip, **restore the per-tenant data from its pre-flip snapshot** (pgBackRest
+      point-in-time restore for the whole-DB case; the scoped logical dump for a single org).
+      The orchestrator prints the exact `pgbackrest … --type=time --target="<PRE-FLIP ts>"`
+      command. Source credentials were never nulled pre-finalize, so v1 still authenticates.
+- [ ] Confirm the org is healthy on v1 again (the orchestrator already unfroze it at the proxy).
 - [ ] Record the rollback + cause. Do not retry the cutover until the cause is fixed and
       re-verified in a synthetic run.
 
@@ -450,13 +562,14 @@ v2-side writes made in that short window.
 
 | step    | command |
 |---------|---------|
+| **orchestrate (the whole thing)** | `tsx scripts/cutover/orchestrate.mjs --org … --slug … --source … --target <owner-url> --scratch … --shadow … --prod-schema-dump … --state … --proxy-admin … --v1 … --v2 … [--max-cycles N] [--stamp …]` — **DRY-RUN by default; `--confirm` to execute; rolls back on any post-freeze failure** |
 | parity (Step 0, HARD) | `tsx scripts/cutover/parity-gate.mjs --prod-schema-dump … --prod-migrations … --prod-commit … --scratch-url … --shadow-url … --stamp …` |
 | export  | `tsx scripts/cutover/export-org.mjs --source … --org … --out … --stamp …` |
 | import  | `tsx scripts/cutover/import-org.mjs --target <owner-url> --in … --org …` |
 | soak-sync (cadence, v1 live) | `tsx scripts/cutover/soak-sync.mjs --source … --target <owner-url> --org … --state … [--loop --interval <sec>] --stamp …` |
-| freeze  | `freezeOrg(orgId, orgSlug, …)` / SQL insert into `frozen_orgs` |
+| freeze (at the cutover proxy) | `proxy-control.freezeOrg(slug)` (orchestrated) / in-app `freezeOrg(orgId, orgSlug, …)` for the API path |
 | final reconcile (under freeze, applies DELETES) | `tsx scripts/cutover/reconcile-org.mjs --source … --target <owner-url> --org … --stamp … [--confirm-large]` |
 | verify  | `tsx scripts/cutover/verify-org.mjs --source … --target … --org … --out …` |
-| flip    | manual reverse-proxy route change (deferred automation) |
-| rollback| re-route to v1 + restore pre-flip snapshot + `unfreezeOrg(orgId)` |
-| synthetic acceptance | `npm run cutover:soak-acceptance` (soak-sync + reconcile; no prod) |
+| flip (at the cutover proxy) | `proxy-control.setOrgUpstream(slug, "v2")` (orchestrated; edge DNS/tunnel deferred) |
+| rollback (orchestrated) | `setOrgUpstream(slug,"v1")` + `unfreezeOrg(slug)` + restore pre-flip snapshot if v2 took writes |
+| synthetic acceptance | `npm run cutover:acceptance-orchestrate` (proxy + v1/v2 stubs + reconcile + rollback; no prod) · `npm run cutover:soak-acceptance` (soak+reconcile) |
