@@ -1,4 +1,5 @@
 import { cosmosTools, type ToolDefinition } from "./tools";
+import { connectorToolDefs, connectorToolNames } from "./connectors";
 import { executeTool } from "./tool-executor";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
@@ -66,7 +67,23 @@ export interface RunAgentLoopOptions {
 }
 
 export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoopResult> {
-  const tools = toModelTools(opts.tools ?? cosmosTools);
+  // ── D5 gov-block, LAYER 1 (the model never SEES a commercial-only tool) ────────
+  // The base catalog (`cosmosTools`) has every connector tool baked in at module
+  // load (the full, tenant-agnostic snapshot). Rebuild a TENANT-FILTERED list:
+  // start from the base, drop ALL connector tools, then re-append exactly the
+  // connector tools this tenant class may see (`connectorToolDefs(tenantClass)` —
+  // which excludes commercial-only descriptors for gov). Native + "all"-availability
+  // connectors (Google/GitHub) are unchanged for BOTH classes; only commercial-only
+  // (Nango) tools are withheld from a gov tenant's model. A caller-supplied
+  // `opts.tools` is treated the same way (filtered), so no surface bypasses L1.
+  const allConnectorNames = connectorToolNames(); // full set (no class) — to subtract
+  const baseTools = opts.tools ?? cosmosTools;
+  const nativeAndForeign = baseTools.filter((t) => !allConnectorNames.has(t.name));
+  const tenantTools: ToolDefinition[] = [
+    ...nativeAndForeign,
+    ...connectorToolDefs(opts.tenantClass),
+  ];
+  const tools = toModelTools(tenantTools);
   const max = opts.maxIterations ?? MAX_TOOL_ITERATIONS;
   const model = opts.model ?? DEFAULT_MODEL;
   const messages: ModelMessage[] = [{ role: "user", content: opts.initialPrompt }];
@@ -178,7 +195,14 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
           });
         }
       }
-      const output = await executeTool(u.name, execInput, { orgId: opts.orgId, userId: opts.userId });
+      // Thread the tenant class + conversation id so the connector dispatch layer
+      // (L2) can hard-refuse a commercial-only tool for a gov tenant and AUDIT it.
+      const output = await executeTool(u.name, execInput, {
+        orgId: opts.orgId,
+        userId: opts.userId,
+        tenantClass: opts.tenantClass,
+        conversationId: opts.conversationId,
+      });
       // C1 FIX: fold the resolved handles' mint-time ceiling into the result's
       // effective gate ceiling (max-by-rank). Resolving a CUI-minted handle forces
       // this turn's result to be gated at ≥CUI ⇒ rank ≥ FOUO ⇒ WITHHELD for BOTH

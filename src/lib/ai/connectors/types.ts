@@ -18,6 +18,26 @@
 // tenant — preserve that exactly.
 
 import type { ToolDefinition } from "../tools";
+// Type-only import straight from the egress TYPES module (not its index) to avoid
+// dragging the egress runtime graph into the connector type layer — and `import type`
+// is erased at compile time, so there is no runtime cycle either way.
+import type { TenantClass } from "../egress/types";
+
+/**
+ * A connector's tenant AVAILABILITY — the D5 gov-block axis.
+ *  - "all"             — available to BOTH tenant classes (Google, GitHub: native
+ *                        top-N behind our own fence; unchanged behavior).
+ *  - "commercial-only" — available to COMMERCIAL tenants ONLY. A gov tenant must
+ *                        NEVER see its tools, reach its executor, or get a connection.
+ *                        This is the load-bearing control for COMMERCIAL-breadth
+ *                        connectors (Nango): commercial-only by construction.
+ * Default (when a descriptor omits it) is "all" — every existing connector keeps
+ * its exact behavior; only an explicitly commercial-only connector is gov-blocked.
+ */
+export type ConnectorAvailability = "all" | "commercial-only";
+
+/** Re-exported so connector consumers don't reach into the egress layer directly. */
+export type { TenantClass };
 
 /**
  * The execution context a connector executor receives. Mirrors the `ToolContext`
@@ -29,6 +49,15 @@ import type { ToolDefinition } from "../tools";
 export interface ConnectorToolContext {
   orgId: string;
   userId: string;
+  /**
+   * The org's data-sensitivity class (D5 gov-block axis). The dispatcher threads it
+   * through so `executeConnectorTool` can hard-refuse a `commercial-only` tool for a
+   * gov tenant (defense-in-depth LAYER 2). OPTIONAL for backward compatibility — when
+   * absent, a commercial-only tool is refused (fail closed toward the gov rule).
+   */
+  tenantClass?: TenantClass;
+  /** Conversation id for the L2 refusal audit record (egress-decision trail). */
+  conversationId?: string;
 }
 
 /** Per-tool egress mapping a connector contributes → merged into TOOL_ENTITY. */
@@ -57,6 +86,13 @@ export interface ConnectorEgressEntry {
  */
 export interface ConnectorDescriptor {
   provider: string;
+  /**
+   * Tenant availability — the D5 gov-block axis. DEFAULT "all" (omit for the native
+   * top-N: Google/GitHub). Set "commercial-only" to make a connector unreachable to
+   * gov tenants at EVERY layer (tool-list filter, dispatch refusal, executor check,
+   * connect route). See {@link ConnectorAvailability}.
+   */
+  availability?: ConnectorAvailability;
   toolDefs: ToolDefinition[];
   execute(
     name: string,

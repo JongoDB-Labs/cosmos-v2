@@ -35,7 +35,7 @@ describe("runAgentLoop (native tool_use)", () => {
       systemPrompt: "sys", initialPrompt: "list projects", conversationId: "c1",
     });
 
-    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1" });
+    expect(executeTool).toHaveBeenCalledWith("list_projects", {}, { orgId: "o1", userId: "u1", tenantClass: "commercial", conversationId: "c1" });
     expect(res.text).toBe("You have 2 projects.");
     expect(res.toolCalls).toHaveLength(1);
     expect(res.toolCalls[0].name).toBe("list_projects");
@@ -44,5 +44,56 @@ describe("runAgentLoop (native tool_use)", () => {
     expect(JSON.stringify(secondCallMessages)).toContain("tool_result");
     // commercial + UNCLASSIFIED ceiling => the result is EXPOSED (not withheld).
     expect(JSON.stringify(secondCallMessages)).toContain("p1");
+  });
+});
+
+// ── D5 gov-block, LAYER 1 at the AGENT LOOP (the model never SEES a commercial-only
+// tool) ─────────────────────────────────────────────────────────────────────────
+describe("runAgentLoop — D5 commercial-only tool-list filter", () => {
+  beforeEach(() => {
+    runModelTurn.mockReset(); executeTool.mockReset();
+    effectiveCeiling.mockReset().mockResolvedValue("UNCLASSIFIED");
+  });
+
+  async function toolNamesForClass(tenantClass: "gov" | "commercial"): Promise<string[]> {
+    const { registerConnector, resetConnectors, getConnectorDescriptors } = await import("../connectors/registry");
+    // Snapshot the REAL connectors so we can restore them after (other tests rely on
+    // google/github being registered — the registry is a global singleton).
+    const saved = [...getConnectorDescriptors()];
+    resetConnectors();
+    // A commercial-only fixture connector (the Nango case) registered into the live
+    // registry the loop reads from.
+    registerConnector({
+      provider: "broker_fixture",
+      availability: "commercial-only",
+      toolDefs: [{ name: "broker_fixture_proxy", description: "p", input_schema: { type: "object", properties: {}, required: [] } }],
+      execute: async () => ({}),
+      egress: {},
+    });
+    // One turn, no tool use → the loop returns immediately after building `tools`.
+    runModelTurn.mockResolvedValueOnce({ text: "ok", toolUses: [], stopReason: "end_turn" });
+    const { runAgentLoop } = await import("../agent-loop");
+    await runAgentLoop({
+      orgId: "o1", userId: "u1", tenantClass,
+      systemPrompt: "sys", initialPrompt: "hi", conversationId: "c1",
+    });
+    const tools = runModelTurn.mock.calls[0][0].tools as { name: string }[];
+    // Restore the real registry exactly as it was.
+    resetConnectors();
+    for (const d of saved) registerConnector(d);
+    return tools.map((t) => t.name);
+  }
+
+  it("a GOV tenant's model tool list contains NO commercial-only (nango_*-style) tool", async () => {
+    const names = await toolNamesForClass("gov");
+    expect(names).not.toContain("broker_fixture_proxy");
+    // Native tools are still present (the filter only removes commercial-only connectors).
+    expect(names).toContain("list_projects");
+  });
+
+  it("a COMMERCIAL tenant's model tool list DOES contain the commercial-only tool", async () => {
+    const names = await toolNamesForClass("commercial");
+    expect(names).toContain("broker_fixture_proxy");
+    expect(names).toContain("list_projects");
   });
 });
