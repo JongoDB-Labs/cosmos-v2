@@ -96,6 +96,65 @@ enum Visibility {
   ORG
 }
 
+// ─────────────────────────────────────────────
+// Prod-parity enums (ported verbatim from prod for the per-tenant cutover —
+// migration 20260607030000_prod_parity_reconciliation). DO NOT reorder values:
+// the cutover does a structural copy and the enum label SET must match prod.
+// ─────────────────────────────────────────────
+
+// Directed work-item dependency vocabularies (Jira deps, VITL/POA&M chains).
+enum LinkType {
+  BLOCKS
+  BLOCKED_BY
+  RELATES
+  DUPLICATES
+  PREDECESSOR
+  SUCCESSOR
+  CLONES
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIAL
+  PAID
+  VOID
+}
+
+enum EmploymentType {
+  SALARY
+  HOURLY
+}
+
+enum PayRunStatus {
+  DRAFT
+  POSTED
+}
+
+// Tool access ceiling for a chat bot. NONE = no cosmos tools (chat-only);
+// READONLY = read/query/search tools only (never a mutation tool); FULL = the
+// whole catalog. This is a CEILING applied on top of the invoking human's own
+// per-tool permission scoping — a bot can never exceed the human who summoned
+// it (see src/lib/chat/bot-runner.ts + tool-filter.ts).
+enum ChatBotToolScope {
+  NONE
+  READONLY
+  FULL
+}
+
+enum BankAccountProvider {
+  MANUAL_IMPORT
+  AKOYA
+}
+
+enum BankTxnStatus {
+  IMPORTED
+  CATEGORIZED
+  MATCHED
+  POSTED
+  EXCLUDED
+}
+
 enum IdpProtocol {
   OIDC // SAML added in the Keycloak/SAML translation-appliance follow-on
 }
@@ -146,6 +205,10 @@ model Organization {
   workRoles              WorkRole[]
   idpConnection          IdpConnection?
   connectorCredentials   ConnectorCredential[]
+  // Prod-parity back-relations.
+  documents              Document[]
+  chatBots               ChatBot[]
+  aiSettings             OrgAiSettings?
 
   @@map("organizations")
 }
@@ -163,6 +226,11 @@ model User {
   displayName  String    @map("display_name")
   avatarUrl    String?   @map("avatar_url")
   lastActiveAt DateTime? @map("last_active_at")
+  // Synthetic AI-bot accounts (chat bots) carry isBot=true so their messages are
+  // authored by the bot rather than the invoking human and they appear in the
+  // mention picker. Added for prod-parity (chat_bots feature + cutover round-trip
+  // of prod's 12 bot users); additive, default false for all real users.
+  isBot        Boolean   @default(false) @map("is_bot")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   memberships         OrgMember[]
@@ -172,6 +240,11 @@ model User {
   pushSubscriptions   PushSubscription[]
   homeWidgets         HomeWidget[]
   federatedIdentities FederatedIdentity[]
+  // Prod-parity back-relations (chat bots + chat follows/alerts).
+  chatBot             ChatBot?
+  chatBotRuns         ChatBotRun[]
+  chatThreadFollows   ChatThreadFollower[]
+  chatAlertKeywords   ChatAlertKeyword[]
 
   @@map("users")
 }
@@ -446,6 +519,7 @@ model Project {
   projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
   journalLines        JournalLine[]
   dataClassifications DataClassification[]
+  documents           Document[]
 
   @@unique([orgId, key])
   @@map("projects")
@@ -535,6 +609,10 @@ model WorkItem {
   cycle        Cycle?       @relation(fields: [cycleId], references: [id])
   activities   Activity[]
   comments     Comment[]
+  // Prod-parity back-relations (dependency links + attachments).
+  outgoingLinks WorkItemLink[]       @relation("WorkItemLinkSource")
+  incomingLinks WorkItemLink[]       @relation("WorkItemLinkTarget")
+  attachments   WorkItemAttachment[]
 
   @@unique([orgId, projectId, ticketNumber])
   @@index([orgId, columnKey])
@@ -1670,6 +1748,9 @@ model ChatChannel {
   members  ChatChannelMember[]
   messages ChatMessage[]
   pins     ChatPinnedMessage[]
+  // Prod-parity back-relations.
+  botChannels     ChatBotChannel[]
+  threadFollowers ChatThreadFollower[]
 
   @@unique([orgId, slug])
   @@unique([orgId, dmKey])
@@ -1722,6 +1803,9 @@ model ChatMessage {
   attachments   ChatMessageAttachment[]
   mentions      ChatMessageMention[]
   pins          ChatPinnedMessage[]
+  // Prod-parity back-relations.
+  botRuns         ChatBotRun[]
+  threadFollowers ChatThreadFollower[] @relation("ThreadFollowers")
 
   @@index([channelId, createdAt])
   @@index([channelId, parentMessageId, createdAt])
@@ -2091,4 +2175,383 @@ model AccountingPeriod {
   @@unique([orgId, startDate])
   @@index([orgId, status])
   @@map("accounting_periods")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PROD-PARITY MODELS (migration 20260607030000_prod_parity_reconciliation)
+//
+// 18 tables ported VERBATIM from prod (/home/defcon/cosmos-prod) so the
+// per-tenant cutover does a lossless structural copy of prod rows into v2.
+// SHAPE matches prod EXACTLY (column types/nullability/defaults/@map/indexes/
+// FKs) — do NOT "improve" these; a divergence breaks the cutover parity gate.
+//
+//  • FULLY WIRED (prod has rows): ChatBot (12) + WorkItemLink (42).
+//  • SCHEMA-ONLY (empty in prod; ports the shape so data migrates + the parity
+//    gate is clean — UI/routes deferred to roadmap): the finance tables
+//    (Invoice/InvoiceLineItem/Payment/Employee/PayRun/TaxRate, Bank*),
+//    Document, OrgAiSettings, the chat aux tables (ChatThreadFollower /
+//    ChatAlertKeyword / ChatBotChannel / ChatBotRun), WorkItemAttachment.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Per-org AI provider credentials (one row per org). Secret values are stored
+/// as AES-256-GCM blobs encrypted with the app key — never plaintext. SCHEMA-ONLY
+/// in v2 today (v2 resolves provider creds via its own ConnectorCredential vault);
+/// ported so any prod rows migrate. TODO(roadmap): reconcile with v2 creds store.
+model OrgAiSettings {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String    @unique @map("org_id") @db.Uuid
+  provider          String    @default("anthropic")
+  model             String?
+  anthropicApiKey   Json?     @map("anthropic_api_key")
+  claudeOAuthToken  Json?     @map("claude_oauth_token")
+  openaiApiKey      Json?     @map("openai_api_key")
+  oauthAccessToken  Json?     @map("oauth_access_token")
+  oauthRefreshToken Json?     @map("oauth_refresh_token")
+  oauthExpiresAt    DateTime? @map("oauth_expires_at")
+  updatedById       String?   @map("updated_by_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_ai_settings")
+}
+
+// Directed dependency/relation edge between two work items (FULLY WIRED).
+model WorkItemLink {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  sourceItemId String   @map("source_item_id") @db.Uuid
+  targetItemId String   @map("target_item_id") @db.Uuid
+  type         LinkType
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  sourceItem WorkItem @relation("WorkItemLinkSource", fields: [sourceItemId], references: [id], onDelete: Cascade)
+  targetItem WorkItem @relation("WorkItemLinkTarget", fields: [targetItemId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, sourceItemId])
+  @@map("work_item_links")
+}
+
+// Attachment metadata for a work item (SCHEMA-ONLY; no upload UI in v2 yet).
+model WorkItemAttachment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  workItemId  String   @map("work_item_id") @db.Uuid
+  fileName    String   @map("file_name")
+  url         String
+  mimeType    String?  @map("mime_type")
+  sizeBytes   Int?     @map("size_bytes")
+  externalRef String?  @map("external_ref")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, workItemId])
+  @@map("work_item_attachments")
+}
+
+// ─── Finance (SCHEMA-ONLY in v2; empty in prod — UI/routes deferred) ───────────
+
+model Invoice {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String        @map("org_id") @db.Uuid
+  number      String
+  contactId   String?       @map("contact_id") @db.Uuid
+  contractId  String?       @map("contract_id") @db.Uuid
+  billToName  String        @map("bill_to_name")
+  billToEmail String?       @map("bill_to_email")
+  status      InvoiceStatus @default(DRAFT)
+  issueDate   DateTime?     @map("issue_date") @db.Date
+  dueDate     DateTime?     @map("due_date") @db.Date
+  currency    String        @default("USD")
+  subtotal    Decimal       @default(0) @db.Decimal(19, 4)
+  taxTotal    Decimal       @default(0) @map("tax_total") @db.Decimal(19, 4)
+  total       Decimal       @default(0) @db.Decimal(19, 4)
+  amountPaid  Decimal       @default(0) @map("amount_paid") @db.Decimal(19, 4)
+  terms       String?
+  notes       String?
+  createdById String        @map("created_by_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  lineItems InvoiceLineItem[]
+  payments  Payment[]
+
+  @@unique([orgId, number])
+  @@index([orgId, status])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId   String  @map("invoice_id") @db.Uuid
+  description String
+  quantity    Decimal @default(1) @db.Decimal(19, 4)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(19, 4)
+  taxRate     Decimal @default(0) @map("tax_rate") @db.Decimal(9, 6)
+  amount      Decimal @db.Decimal(19, 4)
+  productId   String? @map("product_id") @db.Uuid
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  amount      Decimal  @db.Decimal(19, 4)
+  method      String   @default("other")
+  reference   String?
+  receivedAt  DateTime @map("received_at") @db.Date
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, invoiceId])
+  @@map("payments")
+}
+
+model Employee {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String         @map("org_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  employmentType EmploymentType @default(HOURLY) @map("employment_type")
+  costRate       Decimal        @map("cost_rate") @db.Decimal(19, 4)
+  laborCategory  String?        @map("labor_category")
+  classification String?
+  status         String         @default("active")
+  startDate      DateTime?      @map("start_date") @db.Date
+  endDate        DateTime?      @map("end_date") @db.Date
+  createdById    String         @map("created_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@unique([orgId, userId])
+  @@index([orgId, status])
+  @@map("employees")
+}
+
+model PayRun {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String       @map("org_id") @db.Uuid
+  label       String       @default("")
+  periodStart DateTime     @map("period_start") @db.Date
+  periodEnd   DateTime     @map("period_end") @db.Date
+  status      PayRunStatus @default(DRAFT)
+  laborCost   Decimal      @default(0) @map("labor_cost") @db.Decimal(19, 4)
+  postedAt    DateTime?    @map("posted_at")
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@index([orgId, status])
+  @@map("pay_runs")
+}
+
+model TaxRate {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  name         String
+  rate         Decimal  @db.Decimal(9, 6)
+  jurisdiction String?
+  isDefault    Boolean  @default(false) @map("is_default")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdById  String   @map("created_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId, isActive])
+  @@map("tax_rates")
+}
+
+// ─── Documents (SCHEMA-ONLY in v2; empty in prod) ─────────────────────────────
+
+model Document {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String              @map("org_id") @db.Uuid
+  projectId           String              @map("project_id") @db.Uuid
+  title               String
+  classificationLevel ClassificationLevel @default(UNCLASSIFIED) @map("classification_level")
+  storageKey          String              @map("storage_key")
+  filename            String
+  contentType         String              @map("content_type")
+  size                Int
+  uploadedById        String              @map("uploaded_by_id") @db.Uuid
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, projectId])
+  @@map("documents")
+}
+
+// ─── Chat aux + bots ──────────────────────────────────────────────────────────
+
+// Per-user thread follow (SCHEMA-ONLY in v2; empty in prod).
+model ChatThreadFollower {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  channelId       String    @map("channel_id") @db.Uuid
+  parentMessageId String    @map("parent_message_id") @db.Uuid
+  lastReadAt      DateTime? @map("last_read_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel       ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  parentMessage ChatMessage @relation("ThreadFollowers", fields: [parentMessageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, parentMessageId])
+  @@index([userId])
+  @@index([parentMessageId])
+  @@map("chat_thread_followers")
+}
+
+// Per-user alert keywords (SCHEMA-ONLY in v2; empty in prod).
+model ChatAlertKeyword {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  keyword   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, keyword])
+  @@index([userId])
+  @@map("chat_alert_keywords")
+}
+
+// A first-class AI bot scoped to an org (FULLY WIRED — drives bot-runner via the
+// CUI-blind agent loop). Backed by a synthetic User (isBot=true) so its messages
+// are authored by the bot. toolScope is a hard tool-ceiling; enabledMcp stays
+// OFF for gov.
+model ChatBot {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String           @map("org_id") @db.Uuid
+  key          String
+  displayName  String           @map("display_name")
+  persona      String           @default("")
+  model        String           @default("sonnet")
+  toolScope    ChatBotToolScope @default(NONE) @map("tool_scope")
+  enabledMcp   Boolean          @default(false) @map("enabled_mcp")
+  scheduleCron String?          @map("schedule_cron")
+  userId       String           @unique @map("user_id") @db.Uuid
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  org      Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channels ChatBotChannel[]
+  runs     ChatBotRun[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+  @@map("chat_bots")
+}
+
+// Per-channel bot configuration (SCHEMA-ONLY in v2; empty in prod).
+model ChatBotChannel {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  botId       String   @map("bot_id") @db.Uuid
+  channelId   String   @map("channel_id") @db.Uuid
+  autoRespond Boolean  @default(false) @map("auto_respond")
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  bot     ChatBot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, channelId])
+  @@index([channelId])
+  @@map("chat_bot_channels")
+}
+
+// Audit trail of a single bot invocation (SCHEMA-ONLY in v2; empty in prod).
+model ChatBotRun {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  botId             String   @map("bot_id") @db.Uuid
+  messageId         String   @map("message_id") @db.Uuid
+  triggeredByUserId String   @map("triggered_by_user_id") @db.Uuid
+  status            String   @default("pending")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  bot         ChatBot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  message     ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  triggeredBy User        @relation(fields: [triggeredByUserId], references: [id])
+
+  @@index([botId, createdAt])
+  @@index([messageId])
+  @@map("chat_bot_runs")
+}
+
+// ─── Banking (SCHEMA-ONLY in v2; empty in prod) ───────────────────────────────
+
+model BankAccount {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String              @map("org_id") @db.Uuid
+  name            String
+  institution     String?
+  mask            String?
+  currency        String              @default("USD")
+  provider        BankAccountProvider @default(MANUAL_IMPORT)
+  ledgerAccountId String?             @map("ledger_account_id") @db.Uuid
+  isActive        Boolean             @default(true) @map("is_active")
+  createdById     String              @map("created_by_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  transactions BankTransaction[]
+
+  @@index([orgId])
+  @@map("bank_accounts")
+}
+
+model BankTransaction {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String        @map("org_id") @db.Uuid
+  bankAccountId    String        @map("bank_account_id") @db.Uuid
+  externalId       String?       @map("external_id")
+  fingerprint      String        @map("fingerprint")
+  postedDate       DateTime      @map("posted_date") @db.Date
+  amount           Decimal       @db.Decimal(19, 4)
+  description      String        @default("")
+  pending          Boolean       @default(false)
+  status           BankTxnStatus @default(IMPORTED)
+  matchedExpenseId String?       @map("matched_expense_id") @db.Uuid
+  matchedRevenueId String?       @map("matched_revenue_id") @db.Uuid
+  category         String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  account BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([bankAccountId, externalId])
+  @@unique([bankAccountId, fingerprint])
+  @@index([orgId, bankAccountId, status])
+  @@map("bank_transactions")
+}
+
+model BankRule {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String   @map("org_id") @db.Uuid
+  name                String   @default("")
+  descriptionContains String?  @map("description_contains")
+  direction           String   @default("any")
+  amountMin           Decimal? @map("amount_min") @db.Decimal(19, 4)
+  amountMax           Decimal? @map("amount_max") @db.Decimal(19, 4)
+  category            String
+  priority            Int      @default(0)
+  isActive            Boolean  @default(true) @map("is_active")
+  createdById         String   @map("created_by_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId, isActive, priority])
+  @@map("bank_rules")
 }
