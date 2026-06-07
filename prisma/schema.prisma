@@ -226,6 +226,11 @@ model User {
   displayName  String    @map("display_name")
   avatarUrl    String?   @map("avatar_url")
   lastActiveAt DateTime? @map("last_active_at")
+  // ── Presence / availability (prod-parity; cosmetic, mostly NULL) ─────────────
+  // Free-text custom status, an optional emoji, and a do-not-disturb expiry.
+  customStatus      String?   @map("custom_status")
+  customStatusEmoji String?   @map("custom_status_emoji")
+  dndUntilAt        DateTime? @map("dnd_until_at")
   // Synthetic AI-bot accounts (chat bots) carry isBot=true so their messages are
   // authored by the bot rather than the invoking human and they appear in the
   // mention picker. Added for prod-parity (chat_bots feature + cutover round-trip
@@ -543,6 +548,10 @@ model Board {
   orgId     String    @map("org_id") @db.Uuid
   projectId String    @map("project_id") @db.Uuid
   name      String
+  // URL slug, unique per project (prod-parity). Nullable so the additive migration
+  // can land before any backfill populates existing rows (Postgres treats NULLs as
+  // distinct, so the unique index coexists with not-yet-slugged rows).
+  slug      String?
   type      BoardType
   config    Json      @default("{}")
   sortOrder Int       @default(0) @map("sort_order")
@@ -552,6 +561,7 @@ model Board {
   columns          BoardColumn[]
   dashboardWidgets DashboardWidget[]
 
+  @@unique([projectId, slug])
   @@map("boards")
 }
 
@@ -603,6 +613,25 @@ model WorkItem {
   // with a raw ANN <=> in src/lib/ai/executors/rag.ts.
   embedding       Unsupported("vector(384)")? @map("embedding")
 
+  // ── Superset / import-provenance fields (prod-parity column reconciliation) ──
+  // All nullable; carry imported-record provenance so a v1→v2 cutover loses no
+  // data and future re-import stays lossless. Origin system, e.g. "jira" | "linear".
+  externalSource    String?  @map("external_source")
+  // Stable internal id from the source system (used for idempotent re-import).
+  externalId        String?  @map("external_id")
+  // Human-readable source key, e.g. "PROJ-123".
+  externalKey       String?  @map("external_key")
+  // Original workflow status text from the source (before mapping to a column).
+  sourceStatus      String?  @map("source_status")
+  // Original resolution text from the source (e.g. "Fixed", "Won't Do").
+  resolution        String?
+  // Verbatim original source row — true losslessness for unmapped columns.
+  sourceRecord      Json?    @map("source_record")
+  // Time tracking, stored in SECONDS to match Jira's worklog unit.
+  originalEstimate  Int?     @map("original_estimate")
+  remainingEstimate Int?     @map("remaining_estimate")
+  timeSpent         Int?     @map("time_spent")
+
   parent       WorkItem?    @relation("WorkItemHierarchy", fields: [parentId], references: [id])
   children     WorkItem[]   @relation("WorkItemHierarchy")
   workItemType WorkItemType @relation(fields: [workItemTypeId], references: [id])
@@ -615,6 +644,8 @@ model WorkItem {
   attachments   WorkItemAttachment[]
 
   @@unique([orgId, projectId, ticketNumber])
+  // Idempotent re-import key (prod-parity): one imported record per source per org.
+  @@unique([orgId, externalSource, externalId])
   @@index([orgId, columnKey])
   @@index([orgId, assigneeId])
   @@map("work_items")
@@ -1066,6 +1097,10 @@ model TimeEntry {
   approvedById String?         @map("approved_by_id") @db.Uuid
   approvedAt   DateTime?       @map("approved_at")
   tags         String[]        @default([])
+  // Pay run this entry was rolled into (prod-parity). Plain scalar, NO relation/FK —
+  // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
+  // prod's Prisma defines it as a bare scalar, not a PayRun relation).
+  payRunId     String?         @map("pay_run_id") @db.Uuid
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
@@ -1487,6 +1522,26 @@ model OrgSecuritySettings {
   ssoConnectionId    String?  @map("sso_connection_id")
   allowedDomains     String[] @default([]) @map("allowed_domains")
   auditRetentionDays Int      @default(365) @map("audit_retention_days")
+
+  // ── Session policy (prod-parity; enforced server-side in the auth path) ──────
+  // Absolute max age of a session regardless of activity (minutes). 0 disables
+  // the absolute cap and falls back to the session's own expiry.
+  maxSessionAgeMins     Int @default(0) @map("max_session_age_mins")
+  // Idle timeout: invalidate after this many minutes with no activity. 0 disables.
+  idleTimeoutMins       Int @default(0) @map("idle_timeout_mins")
+  // Max concurrent ACTIVE sessions per user. 0 = unlimited.
+  maxConcurrentSessions Int @default(0) @map("max_concurrent_sessions")
+
+  // ── MFA enrollment readiness flag (prod-parity) ─────────────────────────────
+  // Gates the mfaRequired enforcement hook until first-party enrollment ships.
+  // When false (default) the MFA gate is INERT.
+  mfaEnrollmentReady Boolean @default(false) @map("mfa_enrollment_ready")
+
+  // ── Per-action restrictions (prod-parity; org-level ABAC deny rules) ─────────
+  // Org-wide DENY rules folded into the actor's abacRules and evaluated by the
+  // existing ABAC engine. Shape: { rules: AbacRule[] } or AbacRule[].
+  actionRestrictions Json @default("{}") @map("action_restrictions")
+
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -1769,6 +1824,9 @@ model ChatChannelMember {
   lastReadMessageId String?               @map("last_read_message_id") @db.Uuid
   lastReadAt        DateTime?             @map("last_read_at")
   mutedUntil        DateTime?             @map("muted_until")
+  // Per-user channel pin (prod-parity): each member pins channels for themselves,
+  // so this lives on the membership row (not the channel). Drives sidebar ordering.
+  pinned            Boolean               @default(false)
   joinedAt          DateTime              @default(now()) @map("joined_at")
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
