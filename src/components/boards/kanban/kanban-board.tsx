@@ -39,6 +39,13 @@ interface KanbanBoardProps {
   projectId: string;
   projectKey: string;
   boardId: string;
+  /**
+   * Default cycle/sprint to scope the board to when the URL carries no explicit
+   * cycle filter. The Sprint board passes the active sprint here so a SCRUM board
+   * opens already focused on the current sprint (the user can still clear it via
+   * the filter bar).
+   */
+  initialCycleId?: string;
 }
 
 // Separator for composite swimlane droppable ids: `${laneId}::${columnKey}`.
@@ -79,6 +86,7 @@ function KanbanBoardInner({
   projectId,
   projectKey,
   boardId,
+  initialCycleId,
 }: KanbanBoardProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -94,9 +102,15 @@ function KanbanBoardInner({
   // Initialize filter state FROM the URL so a shared/reloaded link restores the
   // filtered + swim-laned view. Computed once on mount (searchParams is stable
   // for the initializer); subsequent URL writes flow the other direction.
-  const [filters, setFilters] = useState<BoardFilters>(() =>
-    parseFilters(searchParams),
-  );
+  const [filters, setFilters] = useState<BoardFilters>(() => {
+    const parsed = parseFilters(searchParams);
+    // Seed the sprint scope from the caller (Sprint board) only when the URL
+    // doesn't already pin a cycle — so a shared/filtered link still wins.
+    if (initialCycleId && !parsed.cycleId) {
+      return { ...parsed, cycleId: initialCycleId };
+    }
+    return parsed;
+  });
   // Snapshot of items at drag START (before handleDragOver mutates them for the
   // live preview), so a rejected move can be truly reverted.
   const beforeDragItemsRef = useRef<WorkItem[]>([]);
