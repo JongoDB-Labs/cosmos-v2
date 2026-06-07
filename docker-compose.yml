@@ -320,15 +320,18 @@ services:
       WORM_S3_SECRET_KEY: ${WORM_SECRET_KEY:-cosmos-worm-secret}
       WORM_MANIFEST_HMAC_KEY: ${WORM_MANIFEST_HMAC_KEY:-change-me-manifest-hmac}
       NODE_EXTRA_CA_CERTS: /etc/cosmos/minio-ca/public.crt
-    # PURGE_TABLE / PURGE_RETENTION_DAYS map to the script's flags via the shell entrypoint so
-    # they can be supplied with `-e` at `run` time. Defaults: audit_logs / 1095d (gov floor).
+    # PURGE_TABLE / PURGE_RETENTION_DAYS / PURGE_EXTRA_ARGS map to the script's flags via the
+    # shell entrypoint so they can be supplied with `-e` at `run` time. The `$$` escapes
+    # docker-compose's OWN config-time interpolation so the CONTAINER's /bin/sh expands them
+    # from the container env (where `-e` overrides land — NOT the host env). Defaults:
+    # audit_logs / 1095d (gov floor) / no extra args.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
         node scripts/dsop/purge-audit.mjs
-        --table "${PURGE_TABLE:-audit_logs}"
-        --retention-days "${PURGE_RETENTION_DAYS:-1095}"
-        ${PURGE_EXTRA_ARGS:-}
+        --table "$${PURGE_TABLE:-audit_logs}"
+        --retention-days "$${PURGE_RETENTION_DAYS:-1095}"
+        $${PURGE_EXTRA_ARGS:-}
     volumes:
       - cosmos-minio-certs:/etc/cosmos/minio-ca:ro
     depends_on:

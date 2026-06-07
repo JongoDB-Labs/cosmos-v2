@@ -203,7 +203,7 @@ The CI pipeline provides automated vulnerability identification (3.14.1/3.14.2):
 This SSP documents the **technical security controls** implemented in the COSMOS v2 codebase and CI/CD pipeline. These controls are implemented, evidenced, and CI-gate-enforced:
 - The CUI-blind egress chokepoint (AC-4): single-path, fail-closed, arch-tested
 - Per-tool RBAC (AC-3/AC-6): 42 executors, assertPermission(), least-privilege DB role
-- Append-only audit logging + gov retention floor (AU-2/AU-3/AU-9/AU-11): DB triggers, role-split, 1095-day floor
+- Append-only audit logging + gov retention floor (AU-2/AU-3/AU-9/AU-11): DB triggers, role-split, 1095-day floor; in-DB hash-chain (per-row sha256 linked list) + offsite WORM anchor; AU-11 sanctioned owner-only retention-purge with a signed chain-checkpoint (verify_audit_chain re-anchors at the checkpoint so the chain stays verifiable across the purge boundary — the app still cannot delete audit rows)
 - SAST/SCA/secrets/image scan pipeline (RA-5/SI-2): CodeQL, Trivy, OSV, gitleaks, Dependabot
 - Container configuration hardening + SBOM + code signing (CM-6/SR-3/SR-4): hadolint, Checkov, Syft, cosign
 - In-boundary content classifier / DLP tripwire (SI-4): MiniLM + pgvector, detector-not-declassifier
