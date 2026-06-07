@@ -1,6 +1,7 @@
 import { cosmosTools, type ToolDefinition } from "./tools";
 import { connectorToolDefs, connectorToolNames } from "./connectors";
 import { executeTool } from "./tool-executor";
+import { getRuntimeConfig } from "@/lib/runtime-config";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
 import { effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
@@ -76,12 +77,23 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   // connectors (Google/GitHub) are unchanged for BOTH classes; only commercial-only
   // (Nango) tools are withheld from a gov tenant's model. A caller-supplied
   // `opts.tools` is treated the same way (filtered), so no surface bypasses L1.
+  // ── GUI runtime-config (design §8) — per-org connector ENABLEMENT ──────────────
+  // Load the org's runtime config (a MISSING row ⇒ all enabled / breadth on / mcp off —
+  // today's behavior). The connector tool list is narrowed by it: a disabled provider's
+  // tools and (when breadthEnabled=false) breadth-connector tools are excluded. The SAME
+  // filter is threaded into executeTool below so dispatch refuses a disabled connector too
+  // (defense in depth). Default-config ⇒ no narrowing ⇒ behavior unchanged.
+  const runtimeConfig = await getRuntimeConfig(opts.orgId);
+  const enabledFilter = {
+    enabledConnectors: runtimeConfig.enabledConnectors,
+    breadthEnabled: runtimeConfig.breadthEnabled,
+  };
   const allConnectorNames = connectorToolNames(); // full set (no class) — to subtract
   const baseTools = opts.tools ?? cosmosTools;
   const nativeAndForeign = baseTools.filter((t) => !allConnectorNames.has(t.name));
   const tenantTools: ToolDefinition[] = [
     ...nativeAndForeign,
-    ...connectorToolDefs(opts.tenantClass),
+    ...connectorToolDefs(opts.tenantClass, enabledFilter),
   ];
   const tools = toModelTools(tenantTools);
   const max = opts.maxIterations ?? MAX_TOOL_ITERATIONS;
@@ -202,6 +214,8 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         userId: opts.userId,
         tenantClass: opts.tenantClass,
         conversationId: opts.conversationId,
+        // Defense in depth: dispatch refuses a tool whose connector this org disabled.
+        enabled: enabledFilter,
       });
       // C1 FIX: fold the resolved handles' mint-time ceiling into the result's
       // effective gate ceiling (max-by-rank). Resolving a CUI-minted handle forces

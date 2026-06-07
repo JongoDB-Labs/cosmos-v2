@@ -34,6 +34,15 @@ interface ToolContext {
   tenantClass?: "gov" | "commercial";
   /** Conversation id for the connector-block audit record. */
   conversationId?: string;
+  /**
+   * The org's per-org RUNTIME ENABLEMENT (design §8 GUI runtime-config) — threaded so the
+   * connector dispatch layer can hard-refuse a tool whose connector the org DISABLED (or a
+   * breadth connector when breadthEnabled=false). OPTIONAL; absent ⇒ no extra narrowing.
+   */
+  enabled?: {
+    enabledConnectors?: string[] | null;
+    breadthEnabled?: boolean;
+  };
 }
 
 /**
@@ -174,6 +183,9 @@ async function dispatchTool(
       orgId: ctx.orgId,
       tenantClass: ctx.tenantClass,
       conversationId: ctx.conversationId,
+      // The org's runtime-config enablement — so dispatch hard-refuses a disabled
+      // connector (defense in depth behind the tool-list filter).
+      enabled: ctx.enabled,
     });
   }
 
