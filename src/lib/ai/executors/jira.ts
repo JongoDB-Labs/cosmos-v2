@@ -60,6 +60,9 @@ interface JiraAccess {
 async function resolveJiraAccess(
   ctx: JiraToolContext,
 ): Promise<{ error: string } | JiraAccess> {
+  // The sealed bundle holds the secret fields { email, apiToken } (both marked
+  // secret:true so the Atlassian email — mild PII — is also vault-sealed, never in
+  // plaintext config). The non-secret baseUrl/defaultProjectKey live in config below.
   const bundle = await getOrgCredential(ctx.orgId, "jira");
   if (!bundle || !bundle.email || !bundle.apiToken) {
     return { error: NOT_CONNECTED };
