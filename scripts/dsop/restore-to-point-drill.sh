@@ -34,10 +34,18 @@ DOCKER="sudo docker"
 # ── args ──
 TARGET_NAME=""
 TARGET_TIME=""
+TARGET_LSN=""   # optional: the LSN of the named restore point (from the snapshot record). Used to
+                # pick the correct BASE backup (the latest whose start LSN precedes the target) so
+                # recovery can replay FORWARD to the target — pgBackRest otherwise defaults to the
+                # latest backup, which for a PAST target may start AFTER it ("recovery ended before
+                # the target was reached"). For --target-time the base is picked by backup stop time.
+STATE=""        # optional: a cutover state.json; .snapshot.lsn is read as TARGET_LSN if not given.
 while [ $# -gt 0 ]; do
   case "$1" in
     --target-name) TARGET_NAME="$2"; shift 2 ;;
     --target-time) TARGET_TIME="$2"; shift 2 ;;
+    --target-lsn)  TARGET_LSN="$2"; shift 2 ;;
+    --state)       STATE="$2"; shift 2 ;;
     *) echo "restore-to-point-drill: unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -81,6 +89,13 @@ else
 fi
 echo "restore-to-point-drill: target ${TARGET_KIND}=\"${TARGET_VAL}\" (stanza=${STANZA})"
 
+# If no --target-lsn was given but a --state was, read the captured restore-point LSN from it
+# (snapshot-capture writes .snapshot.lsn). Used only to pick the correct base backup below.
+if [ -z "$TARGET_LSN" ] && [ -n "$STATE" ] && [ -f "$STATE" ]; then
+  TARGET_LSN="$(node -e 'try{const s=require(process.argv[1]);process.stdout.write((s.snapshot&&s.snapshot.lsn)||"")}catch(e){}' "$STATE" 2>/dev/null || true)"
+  [ -n "$TARGET_LSN" ] && echo "restore-to-point-drill: read target LSN ${TARGET_LSN} from ${STATE} (.snapshot.lsn)"
+fi
+
 cleanup() {
   $DOCKER rm -f "$SCRATCH_NAME" >/dev/null 2>&1 || true
   $DOCKER volume rm "$SCRATCH_VOL" >/dev/null 2>&1 || true
@@ -113,14 +128,55 @@ dex_pg_sh() { $DOCKER exec -u postgres "$SCRATCH_NAME" bash -c "export PATH=$PG_
 echo "==> restore-to-point-drill: rendering pgBackRest config in scratch container"
 dex /usr/local/bin/render-pgbackrest-conf.sh
 
+# ── pick the correct BASE backup for the target (--set) ──
+# pgBackRest defaults to the LATEST backup. For a target in the PAST relative to the latest
+# backup (the usual cutover case: the pre-flip restore point precedes later incr backups), the
+# latest backup STARTS after the target and recovery "ends before the target was reached". So we
+# select the latest backup whose START precedes the target (by LSN for a named point, by stop
+# time for a time target) and replay FORWARD from it to the target.
+SET_ARG=""
+INFO_JSON="$(dex_pg pgbackrest --stanza="$STANZA" info --output=json 2>/dev/null || true)"
+if [ -n "$INFO_JSON" ]; then
+  CHOSEN="$(printf '%s' "$INFO_JSON" | node -e '
+    let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+      try{
+        const stanza=process.argv[1], kind=process.argv[2], lsn=process.argv[3], time=process.argv[4];
+        const arr=JSON.parse(s); const st=Array.isArray(arr)?arr.find(x=>x.name===stanza):null;
+        const backups=(st&&st.backup)||[];
+        const lsnNum=(v)=>{ if(!v)return null; const [h,l]=String(v).split("/"); return BigInt("0x"+h)*(2n**32n)+BigInt("0x"+l); };
+        let chosen=null;
+        for(const b of backups){ // backups are oldest→newest
+          if(kind==="name"){
+            const tgt=lsnNum(lsn); const start=lsnNum(b.lsn&&b.lsn.start);
+            if(tgt===null||start===null){ chosen=b; continue; } // no LSN info → fall back to latest
+            if(start<=tgt) chosen=b; // latest whose start ≤ target LSN
+          } else {
+            const tgt=Date.parse(time); const stop=(b.timestamp&&b.timestamp.stop)?b.timestamp.stop*1000:null;
+            if(isNaN(tgt)||stop===null){ chosen=b; continue; }
+            if(stop<=tgt) chosen=b; // latest whose stop time ≤ target time
+          }
+        }
+        if(chosen&&chosen.label) process.stdout.write(chosen.label);
+      }catch(e){}
+    });
+  ' "$STANZA" "$TARGET_KIND" "$TARGET_LSN" "$TARGET_VAL" 2>/dev/null || true)"
+  if [ -n "$CHOSEN" ]; then
+    SET_ARG="--set=$CHOSEN"
+    echo "restore-to-point-drill: selected base backup ${CHOSEN} (starts at/before the target; replay forward to it)"
+  else
+    echo "restore-to-point-drill: could not select a base backup from info — letting pgBackRest default (latest)"
+  fi
+fi
+
 # Empty the scratch datadir (fresh volume, but be defensive about lost+found).
 dex bash -lc 'rm -rf /var/lib/postgresql/data/* /var/lib/postgresql/data/.* 2>/dev/null || true'
 dex bash -lc 'chown -R postgres:postgres /var/lib/postgresql/data && chmod 700 /var/lib/postgresql/data'
 
-echo "==> restore-to-point-drill: pgbackrest restore --type=${TARGET_KIND} --target=\"${TARGET_VAL}\" --target-action=promote → scratch datadir"
+echo "==> restore-to-point-drill: pgbackrest restore ${SET_ARG:+$SET_ARG }--type=${TARGET_KIND} --target=\"${TARGET_VAL}\" --target-action=promote → scratch datadir"
 # --target-action=promote: recover up to the target then promote to a normal R/W cluster.
 # --delta against a fresh datadir is a clean full restore (no existing files to delta against).
 if ! dex_pg pgbackrest --stanza="$STANZA" --log-level-console=info --delta \
+    ${SET_ARG:+$SET_ARG} \
     --type="$TARGET_KIND" --target="$TARGET_VAL" --target-action=promote restore; then
   echo "RESTORE-TO-POINT: FAIL (pgbackrest restore errored)"
   exit 1
