@@ -82,6 +82,13 @@ export const V2_ONLY_MODELS: ReadonlySet<string> = new Set([
   "ConnectorCredential",
   "EgressDecisionRow",
   "EgressHandle",
+  // Added post-v2.11 — these v2-only models exist in NO v1/prod DB (nothing to migrate
+  // into them). The export ALSO defensively skips any table absent from the SOURCE DB
+  // (export-org.mjs sourceExistingTables filter), so a future v2-only model can't break
+  // the cutover even if not listed here.
+  "AgentPolicy",
+  "OrgRuntimeConfig",
+  "AuditChainCheckpoint",
 ]);
 
 /** Non-org-scoped, non-tenant globals / ephemeral state. Not migrated per-tenant.
