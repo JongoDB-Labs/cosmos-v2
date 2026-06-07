@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.18.0",
+  "version": "2.19.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -20,7 +20,8 @@
     "cutover:acceptance": "bash scripts/cutover/acceptance/run-acceptance.sh",
     "cutover:parity-acceptance": "bash scripts/cutover/acceptance/run-parity-acceptance.sh",
     "cutover:soak-acceptance": "bash scripts/cutover/acceptance/run-soak-reconcile-acceptance.sh",
-    "cutover:acceptance-orchestrate": "bash scripts/cutover/acceptance/run-cutover-acceptance.sh"
+    "cutover:acceptance-orchestrate": "bash scripts/cutover/acceptance/run-cutover-acceptance.sh",
+    "cutover:gov-gate-acceptance": "bash scripts/cutover/acceptance/run-gov-gate-revoke-acceptance.sh"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed/index.ts"
