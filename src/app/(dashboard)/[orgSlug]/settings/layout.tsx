@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   Server,
   UserCog,
+  Cpu,
 } from "lucide-react";
 import {
   Select,
@@ -32,6 +33,7 @@ const settingsNav = [
   { icon: User, label: "Profile", href: "/settings/profile" },
   { icon: Puzzle, label: "Integrations", href: "/settings/integrations" },
   { icon: Server, label: "MCP Servers", href: "/settings/mcp-servers" },
+  { icon: Cpu, label: "Runtime Config", href: "/settings/runtime-config" },
   { icon: Webhook, label: "Webhooks", href: "/settings/webhooks" },
   { icon: Palette, label: "Themes", href: "/settings/themes" },
   { icon: SlidersHorizontal, label: "Preferences", href: "/settings/preferences" },
