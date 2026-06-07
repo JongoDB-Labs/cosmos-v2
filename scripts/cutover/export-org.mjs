@@ -81,7 +81,21 @@ async function main() {
   const client = new pg.Client({ connectionString: source });
   await client.connect();
 
-  const plans = buildModelPlans();
+  const allPlans = buildModelPlans();
+
+  // Defensive source-existence filter: a migratable v2 model whose table does NOT exist in
+  // the SOURCE (prod) DB is a v2-only addition (e.g. agent_policy/org_runtime_config) with
+  // nothing to migrate — skip it rather than fail resolveColumns. Belt-and-suspenders on top
+  // of V2_ONLY_MODELS, so a future v2-only model can't break a cutover.
+  const { rows: srcTblRows } = await client.query(
+    "SELECT table_name FROM information_schema.tables WHERE table_schema='public'",
+  );
+  const sourceTables = new Set(srcTblRows.map((r) => r.table_name));
+  const plans = allPlans.filter((p) => sourceTables.has(p.table));
+  const skipped = allPlans.filter((p) => !sourceTables.has(p.table)).map((p) => p.table);
+  if (skipped.length) {
+    console.log(`export-org: skipping ${skipped.length} table(s) absent from the source (v2-only): ${skipped.join(", ")}`);
+  }
 
   let grandTotal = 0;
   let state;
