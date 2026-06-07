@@ -72,14 +72,15 @@ describe("buildFreezeRoute — the 405 write-freeze route", () => {
 });
 
 describe("buildUpstreamRoute — the per-org flip route", () => {
-  it("routes the org's path to the given dial + records the logical upstream", () => {
-    const r = buildUpstreamRoute("tenant", "v2-stub:80", "v2");
+  it("routes the org's path to the given dial (Caddy-clean: NO private annotation field)", () => {
+    const r = buildUpstreamRoute("tenant", "v2-stub:80");
     expect(r.match).toEqual([{ path: ["/tenant", "/tenant/*"] }]);
     const h = r.handle[0] as Record<string, unknown>;
     expect(h.handler).toBe("reverse_proxy");
     expect(h.upstreams).toEqual([{ dial: "v2-stub:80" }]);
     expect(r.terminal).toBe(true);
-    expect((r as Record<string, unknown>)._cutover_upstream).toBe("v2");
+    // Caddy STRICTLY rejects unknown route fields — the route must carry ONLY Caddy-known keys.
+    expect(Object.keys(r).sort()).toEqual(["@id", "handle", "match", "terminal"]);
   });
 });
 
@@ -141,7 +142,7 @@ describe("buildCaddyConfig / decodeState — the FULL config round-trip", () => 
       gamma: { upstream: "v2", frozen: false },
     };
     const cfg = buildCaddyConfig({ state, upstreams: UPSTREAMS, adminListen: "localhost:2019" });
-    const decoded = decodeState(cfg);
+    const decoded = decodeState(cfg, UPSTREAMS); // resolve the exact backend by dial
     expect(decoded).toEqual({
       tenant: { upstream: "v2", frozen: true },
       beta: { upstream: "v1", frozen: true },
@@ -200,11 +201,12 @@ describe("frozenBody", () => {
  */
 function mockCaddy(initial: Record<string, unknown>) {
   let config = initial;
-  const calls: Array<{ method: string; url: string }> = [];
+  const calls: Array<{ method: string; url: string; origin?: string }> = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     const method = (init?.method ?? "GET").toUpperCase();
-    calls.push({ method, url: u });
+    const origin = (init?.headers as Record<string, string> | undefined)?.Origin;
+    calls.push({ method, url: u, origin });
     if (u.endsWith("/config/") && method === "GET") {
       return new Response(JSON.stringify(config), { status: 200 });
     }
@@ -216,7 +218,7 @@ function mockCaddy(initial: Record<string, unknown>) {
   }) as unknown as typeof fetch;
 
   const control = new ProxyControl({ adminUrl: "http://proxy:2019", upstreams: UPSTREAMS, fetchImpl });
-  return { control, getConfig: () => config, getState: () => decodeState(config), calls };
+  return { control, getConfig: () => config, getState: () => decodeState(config, UPSTREAMS), calls };
 }
 
 const BASE = buildCaddyConfig({ state: {}, upstreams: UPSTREAMS, adminListen: "0.0.0.0:2019" });
@@ -286,6 +288,12 @@ describe("ProxyControl client (mocked admin HTTP)", () => {
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
+  it("sends the admin URL's Origin header (satisfies Caddy's allowlist on a non-loopback bind)", async () => {
+    const { control, calls } = mockCaddy(BASE);
+    await control.freezeOrg("tenant");
+    for (const c of calls) expect(c.origin).toBe("http://proxy:2019");
+  });
+
   it("preserves the admin + http listen addresses across a mutation", async () => {
     const { control, getConfig } = mockCaddy(BASE);
     await control.freezeOrg("tenant");
@@ -297,5 +305,25 @@ describe("ProxyControl client (mocked admin HTTP)", () => {
     const fetchImpl = (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
     const control = new ProxyControl({ adminUrl: "http://proxy:2019", upstreams: UPSTREAMS, fetchImpl });
     await expect(control.getOrgState("tenant")).rejects.toThrow(/GET \/config\/ failed 500/);
+  });
+
+  it("retries a TRANSIENT network error then succeeds (the first-connection flake)", async () => {
+    let n = 0;
+    const fetchImpl = (async () => {
+      n++;
+      if (n === 1) throw new TypeError("fetch failed"); // transient on the first attempt
+      return new Response(JSON.stringify(BASE), { status: 200 });
+    }) as unknown as typeof fetch;
+    const control = new ProxyControl({ adminUrl: "http://proxy:2019", upstreams: UPSTREAMS, fetchImpl });
+    expect(await control.getOrgState("tenant")).toEqual({ upstream: "v1", frozen: false });
+    expect(n).toBe(2); // one retry
+  });
+
+  it("gives up after exhausting retries on a persistent network error (fail-closed)", async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    const control = new ProxyControl({ adminUrl: "http://proxy:2019", upstreams: UPSTREAMS, fetchImpl });
+    await expect(control.getOrgState("tenant")).rejects.toThrow(/network error after \d+ attempts/);
   });
 });
