@@ -4,7 +4,7 @@
 // derivation, the delta WHERE-clause fragment builder, the watermark advance, and the state
 // validation. No DB — these are the correctness crux of "never skip a changed row".
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   watermarkColumnFor,
   deltaWhereFragment,
@@ -142,6 +142,47 @@ describe("advanceWatermark — never goes backwards, max of observed", () => {
     // 09:00 vs 10:00 — lexical compare must pick 10:00 as the max.
     const next = advanceWatermark(wm, null, ["2026-06-01T09:00:00.000Z", "2026-06-01T10:00:00.000Z"]);
     expect(next).toBe("2026-06-01T10:00:00.000Z");
+  });
+});
+
+describe("M1 — compare/advance is STABLE under a non-UTC process.env.TZ (no boundary skip)", () => {
+  const wm = watermarkColumnFor(mutablePlan, true);
+  let savedTz: string | undefined;
+  beforeEach(() => {
+    savedTz = process.env.TZ;
+  });
+  afterEach(() => {
+    if (savedTz === undefined) delete process.env.TZ;
+    else process.env.TZ = savedTz;
+  });
+
+  it("advance + the next-cycle `> $last` boundary are identical under UTC and America/New_York", () => {
+    // The watermark values are ALWAYS UTC ISO `…Z` (the OID-1114 parser guarantees that — see
+    // pg-utc.test.ts). advanceWatermark/deltaWhereFragment are pure string ops, so they must NOT
+    // depend on the host TZ. Run the same inputs under a west TZ and under UTC and compare.
+    const observed = ["2026-06-07T01:00:00Z", "2026-06-07T00:30:00Z"];
+
+    process.env.TZ = "America/New_York";
+    const advWest = advanceWatermark(wm, "2026-06-06T00:00:00Z", observed);
+    const fragWest = deltaWhereFragment(wm, advWest, 2);
+
+    process.env.TZ = "UTC";
+    const advUtc = advanceWatermark(wm, "2026-06-06T00:00:00Z", observed);
+    const fragUtc = deltaWhereFragment(wm, advUtc, 2);
+
+    expect(advWest).toBe("2026-06-07T01:00:00Z");
+    expect(advWest).toBe(advUtc); // host TZ does not move the watermark
+    expect(fragWest).toEqual(fragUtc);
+    expect(fragWest.value).toBe("2026-06-07T01:00:00Z");
+  });
+
+  it("a row at the offset-sized boundary is INCLUDED by the next cycle (the bug it fixes)", () => {
+    process.env.TZ = "America/New_York"; // WEST of UTC — the original silently-skip condition
+    // Last watermark (UTC ISO, offset-free). A row written 1 minute later must be `> $last`.
+    const last = advanceWatermark(wm, null, ["2026-06-07T01:00:00Z"]);
+    const frag = deltaWhereFragment(wm, last, 2);
+    // The boundary row's UTC ISO compares strictly greater (lexical == chronological in Z form).
+    expect("2026-06-07T01:01:00Z" > String(frag.value)).toBe(true); // caught, never skipped
   });
 });
 

@@ -62,16 +62,22 @@ export interface ImportSummary {
  *
  * Set `runOrphanProbe=false` ONLY when an outer transaction will run it (e.g. the reconcile
  * does its delete-extras + a single orphan probe in its own transaction). Default true.
+ *
+ * Set `force=true` ONLY for the FINAL under-freeze reconcile (L1): mutable rows are overwritten
+ * UNCONDITIONALLY (the source is authoritative; the target must match it EXACTLY — catches a
+ * SetNull that didn't bump updated_at + any silent drift). Append-only stays DO NOTHING. Default
+ * false = the guarded last-writer-wins path (soak deltas + the full first import) — byte-unchanged.
  */
 export async function importUnits(
   client: pg.Client,
   plans: ModelPlan[],
   org: string,
   units: ImportTableUnit[],
-  opts: { log?: (msg: string) => void; runOrphanProbe?: boolean } = {},
+  opts: { log?: (msg: string) => void; runOrphanProbe?: boolean; force?: boolean } = {},
 ): Promise<ImportSummary> {
   const log = opts.log ?? ((m: string) => console.log(m));
   const runOrphanProbe = opts.runOrphanProbe ?? true;
+  const force = opts.force ?? false;
   const planByModel = new Map(plans.map((p) => [p.model, p]));
 
   const results: ImportResult[] = [];
@@ -82,6 +88,12 @@ export async function importUnits(
     await client.query("BEGIN");
     // Confirms owner (cosmos_app cannot set this) AND suppresses FK + append-only triggers.
     await client.query("SET LOCAL session_replication_role = replica");
+    if (force) {
+      log(
+        "import-core: FORCE (EXACT) mode — mutable rows overwrite UNCONDITIONALLY to match the " +
+          "authoritative frozen source (append-only stays DO NOTHING). Final reconcile only.",
+      );
+    }
 
     for (const unit of units) {
       const plan = planByModel.get(unit.model);
@@ -123,7 +135,7 @@ export async function importUnits(
           );
         }
         const values = decodeRow(row, unit.columns, unit.categories);
-        const stmt = buildUpsert(plan, unit.columns, values);
+        const stmt = buildUpsert(plan, unit.columns, values, force);
         const r = await client.query(stmt.sql, stmt.params);
         if (!r.rowCount) skipped++;
         else if (r.rows[0].__inserted === true) inserted++;

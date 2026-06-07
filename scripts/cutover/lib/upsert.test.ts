@@ -69,6 +69,34 @@ describe("buildUpsert — SQL shape", () => {
     expect(s.sql).toContain('ON CONFLICT ("org_member_id", "work_role_id") DO NOTHING');
   });
 
+  // ── L1: force/exact mode ──
+  it("DEFAULT (force omitted) is the GUARDED last-writer-wins path — byte-unchanged", () => {
+    const guarded = buildUpsert(mutablePlan, ["id", "org_id", "title", "updated_at"], ["1", "o", "T", "2026"]);
+    const explicitFalse = buildUpsert(mutablePlan, ["id", "org_id", "title", "updated_at"], ["1", "o", "T", "2026"], false);
+    expect(guarded.sql).toContain('WHERE EXCLUDED."updated_at" > "work_items"."updated_at"');
+    expect(guarded.sql).toBe(explicitFalse.sql); // omitting the arg == passing false
+  });
+
+  it("force=true on a MUTABLE model DROPS the updated_at guard (unconditional DO UPDATE)", () => {
+    const s = buildUpsert(mutablePlan, ["id", "org_id", "title", "updated_at"], ["1", "o", "T", "2026"], true);
+    expect(s.sql).toContain("ON CONFLICT (\"id\") DO UPDATE SET");
+    expect(s.sql).toContain('"title" = EXCLUDED."title"');
+    // The guard is GONE — the target is overwritten to match the source exactly.
+    expect(s.sql).not.toContain("WHERE EXCLUDED.");
+    expect(s.sql).not.toContain("> \"work_items\".\"updated_at\"");
+  });
+
+  it("force=true on an APPEND-ONLY model STILL does DO NOTHING (immutable history, never forced)", () => {
+    const s = buildUpsert(appendOnlyPlan, ["id", "content"], ["x", "hi"], true);
+    expect(s.sql).toContain("ON CONFLICT (\"id\") DO NOTHING");
+    expect(s.sql).not.toContain("DO UPDATE");
+  });
+
+  it("force=true on a composite append-only model STILL does DO NOTHING", () => {
+    const s = buildUpsert(compositePlan, ["org_member_id", "work_role_id", "scope"], ["m", "r", null], true);
+    expect(s.sql).toContain('ON CONFLICT ("org_member_id", "work_role_id") DO NOTHING');
+  });
+
   it("rejects column/value arity mismatch", () => {
     expect(() => buildUpsert(appendOnlyPlan, ["id", "content"], ["x"])).toThrow(/arity/);
   });
@@ -171,7 +199,7 @@ maybe("buildUpsert — idempotent replay against real PG16", () => {
     await client.query(`SET search_path TO ${SCHEMA}`);
     await client.query(`CREATE TABLE chat_messages (id uuid primary key, content text)`);
     await client.query(
-      `CREATE TABLE work_items (id uuid primary key, org_id uuid, title text, updated_at timestamptz)`,
+      `CREATE TABLE work_items (id uuid primary key, org_id uuid, title text, parent_id uuid, updated_at timestamptz)`,
     );
   });
 
@@ -227,5 +255,45 @@ maybe("buildUpsert — idempotent replay against real PG16", () => {
     const rOld = await client.query(older.sql, older.params);
     expect(rOld.rowCount).toBe(0);
     expect((await client.query("SELECT title FROM work_items WHERE id=$1", [id])).rows[0].title).toBe("v2");
+  });
+
+  // ── L1: force/exact mode — the SetNull-no-bump scenario the final reconcile must fix ──
+  it("force=true overwrites a stale parent_id to NULL even when updated_at did NOT bump (SetNull)", async () => {
+    const child = "44444444-4444-4444-4444-444444444444";
+    const parent = "55555555-5555-5555-5555-555555555555";
+    const org = "33333333-3333-3333-3333-333333333333";
+    const cols = ["id", "org_id", "title", "parent_id", "updated_at"];
+    const t1 = new Date("2026-06-06T10:00:00Z");
+
+    // TARGET state (post-soak): the child still points at its parent; updated_at = t1.
+    const seed = buildUpsert(mutablePlan, cols, [child, org, "child", parent, t1]);
+    await client.query(seed.sql, seed.params);
+    expect((await client.query("SELECT parent_id FROM work_items WHERE id=$1", [child])).rows[0].parent_id).toBe(parent);
+
+    // SOURCE state under freeze: the parent was deleted ⇒ the child's parent_id was SetNull'd, but
+    // a cascaded SetNull does NOT bump updated_at — so the source row is { parent_id: NULL, t1 }.
+    // The GUARDED path (soak/default) would SKIP it (EXCLUDED.updated_at == target.updated_at):
+    const guarded = buildUpsert(mutablePlan, cols, [child, org, "child", null, t1], false);
+    const rGuard = await client.query(guarded.sql, guarded.params);
+    expect(rGuard.rowCount).toBe(0); // skipped — the stale parent_id LINGERS (the bug)
+    expect((await client.query("SELECT parent_id FROM work_items WHERE id=$1", [child])).rows[0].parent_id).toBe(parent);
+
+    // The FORCE path (final reconcile) overwrites UNCONDITIONALLY ⇒ parent_id becomes NULL,
+    // matching the source exactly — so the parent's later delete leaves NO dangling self-FK.
+    const forced = buildUpsert(mutablePlan, cols, [child, org, "child", null, t1], true);
+    const rForce = await client.query(forced.sql, forced.params);
+    expect(rForce.rowCount).toBe(1);
+    expect(rForce.rows[0].__inserted).toBe(false); // an UPDATE
+    expect((await client.query("SELECT parent_id FROM work_items WHERE id=$1", [child])).rows[0].parent_id).toBeNull();
+  });
+
+  it("force=true on append-only is STILL a no-op on conflict (immutable, never forced)", async () => {
+    const id = "66666666-6666-6666-6666-666666666666";
+    const a = buildUpsert(appendOnlyPlan, ["id", "content"], [id, "original"], true);
+    expect((await client.query(a.sql, a.params)).rows[0].__inserted).toBe(true);
+    const b = buildUpsert(appendOnlyPlan, ["id", "content"], [id, "TAMPERED-even-with-force"], true);
+    const rb = await client.query(b.sql, b.params);
+    expect(rb.rowCount).toBe(0); // DO NOTHING even under force
+    expect((await client.query("SELECT content FROM chat_messages WHERE id=$1", [id])).rows[0].content).toBe("original");
   });
 });

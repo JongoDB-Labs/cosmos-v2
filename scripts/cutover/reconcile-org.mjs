@@ -30,6 +30,11 @@
 //
 // BUILD-ONLY / SYNTHETIC-TEST ONLY. Never point at production without the runbook + sign-off.
 
+import { setupUtcTimestamps } from "./lib/pg-utc.ts";
+// M1: force UTC + register the OID-1114 (timestamp without tz) parser BEFORE any pg/Date use, so
+// the final reconcile's timestamp round-trip is offset-free regardless of host TZ.
+setupUtcTimestamps();
+
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -89,8 +94,14 @@ async function main() {
   console.log(`\n════════ reconcile-org: org ${org} @ ${stamp} ════════`);
   console.log("PRECONDITION: the SOURCE must be write-FROZEN. This applies DELETES to the target.\n");
 
-  // ── Phase 1: FINAL FULL IDEMPOTENT IMPORT (catch any last delta) ──
-  console.log("──── Phase 1: final full idempotent import ────");
+  // ── Phase 1: FINAL FULL IDEMPOTENT IMPORT — FORCE/EXACT (catch any last delta + drift) ──
+  // The source is write-FROZEN and AUTHORITATIVE here, so we import in FORCE mode: mutable rows
+  // are overwritten UNCONDITIONALLY (the updated_at last-writer-wins guard is dropped) so the
+  // target matches the source EXACTLY. This catches a source-side cascaded SetNull that did NOT
+  // bump updated_at (e.g. work_items.parent_id) which the soak delta + a guarded import would
+  // miss — so the subsequent delete-extras of the parent leaves NO dangling child (no spurious
+  // orphan rollback). Append-only/audit tables stay DO NOTHING (immutable).
+  console.log("──── Phase 1: final full idempotent import (FORCE/EXACT — match the frozen source) ────");
   const src1 = new pg.Client({ connectionString: source });
   await src1.connect();
   let collected;
@@ -110,6 +121,7 @@ async function main() {
   let importSummary;
   try {
     importSummary = await importUnits(tgt1, plans, org, units, {
+      force: true, // EXACT mode: overwrite mutable rows to match the authoritative frozen source.
       log: (m) => console.log(m.replace(/^import-core:/, "reconcile-org[import]:")),
     });
   } finally {

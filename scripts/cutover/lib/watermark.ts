@@ -23,6 +23,16 @@
 //     that was written slightly later — there is no clock-skew window. The cost is that rows
 //     sharing the exact max timestamp are re-scanned next cycle (they UPSERT idempotently),
 //     which is correct-by-construction (no loss) and cheap.
+//   - TIMEZONE CORRECTNESS (the watermark round-trip is UTC-normalized): every DateTime column
+//     in this schema is `timestamp WITHOUT time zone`. The watermark round-trip MUST be offset-
+//     free or it would shift by the host's TZ offset and silently skip the rows written in the
+//     offset-sized window after a cycle. Both runner scripts (soak-sync.mjs, reconcile-org.mjs)
+//     force `process.env.TZ = "UTC"` at the very top (before any pg/Date use) AND register a
+//     node-pg type parser for OID 1114 (`timestamp without time zone`) that appends a `Z` so the
+//     value parses as UTC regardless of host TZ — belt and suspenders. So a value read from the
+//     DB, ISO-stringified, compared against `$last`, and cast back to `timestamp` on the next
+//     SELECT is interpreted as the SAME wall-clock instant the source stored. There is no
+//     clock-skew window AND no TZ-offset window — the delta can never miss a change.
 //   - created_at watermarks assume created_at is immutable (true in this schema: created_at is
 //     set once at insert and never updated). An append-only row never changes after insert, so
 //     `created_at > last` catches every NEW row exactly once it appears.

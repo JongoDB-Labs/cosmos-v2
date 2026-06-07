@@ -13,6 +13,20 @@
 //     EXCLUDED.updated_at > <table>.updated_at — last-writer-wins by SOURCE updatedAt.
 //     A re-run with an unchanged source updates 0 (timestamps equal ⇒ WHERE false).
 //
+// L1 — `force` (EXACT) MODE for the FINAL under-freeze reconcile:
+//   The last-writer-wins guard is CORRECT for SOAK deltas (the source is non-authoritative
+//   live; we must not clobber). But the FINAL reconcile runs UNDER FREEZE where the source is
+//   the AUTHORITATIVE exact state — the target must be made to EXACTLY match it. A source-side
+//   cascaded SetNull (e.g. work_items.parent_id, an optional self-relation whose Prisma-default
+//   onDelete is SetNull) does NOT bump the child's updated_at, so the guarded UPSERT never
+//   propagates the NULL → the target keeps a stale parent_id → after delete-extras removes the
+//   parent the child dangles → spurious orphan rollback (a fail-closed cutover HALT).
+//   With `force: true`, a MUTABLE row's ON CONFLICT DO UPDATE drops the `WHERE EXCLUDED.updated_at
+//   >` guard and overwrites UNCONDITIONALLY, so the target row matches the source EXACTLY
+//   (catches SetNull-no-bump + any silent content drift). APPEND-ONLY models stay DO NOTHING
+//   (immutable history — NEVER force-updated) in BOTH modes. Default (force omitted/false) is the
+//   byte-unchanged v2.11 guarded path: ONLY the final reconcile passes force; soak deltas do not.
+//
 // The PK conflict target uses the FULL primary key (composite for the one join table),
 // so a composite-key row replays on its real identity.
 //
@@ -32,11 +46,17 @@ export interface UpsertStatement {
  * Build one parameterized UPSERT statement for a single row.
  *   columns : the exact column list (PK + data), in bind order.
  *   values  : decoded bind values aligned to `columns`.
+ *   force   : EXACT mode (L1). When true, a MUTABLE row's ON CONFLICT DO UPDATE drops the
+ *             `WHERE EXCLUDED.updated_at >` guard and overwrites UNCONDITIONALLY (the target is
+ *             made to EXACTLY match the authoritative frozen source). APPEND-ONLY models stay
+ *             DO NOTHING regardless (immutable history). Default false = the guarded last-writer-
+ *             wins path used by soak deltas (byte-unchanged from v2.11).
  */
 export function buildUpsert(
   plan: ModelPlan,
   columns: string[],
   values: unknown[],
+  force = false,
 ): UpsertStatement {
   if (columns.length !== values.length) {
     throw new Error(
@@ -82,6 +102,19 @@ export function buildUpsert(
   if (setClause.length === 0) {
     return {
       sql: `INSERT INTO ${t} (${colList}) VALUES (${placeholders}) ON CONFLICT (${conflictTarget}) DO NOTHING${returning}`,
+      params: values,
+    };
+  }
+
+  if (force) {
+    // EXACT mode (final reconcile, under freeze): overwrite UNCONDITIONALLY so the target row
+    // matches the authoritative source exactly. No updated_at guard — this is what catches a
+    // source-side SetNull that did NOT bump updated_at (e.g. work_items.parent_id) and any other
+    // silent content drift the last-writer-wins delta would miss.
+    return {
+      sql:
+        `INSERT INTO ${t} (${colList}) VALUES (${placeholders}) ` +
+        `ON CONFLICT (${conflictTarget}) DO UPDATE SET ${setClause}${returning}`,
       params: values,
     };
   }

@@ -310,7 +310,19 @@ npx tsx scripts/cutover/reconcile-org.mjs \
 
 It runs four phases, **fail-closed** at each:
 
-1. **Final full idempotent import** — catches any last delta.
+1. **Final full idempotent import (FORCE / EXACT)** — catches any last delta **and any silent
+   drift the soak's last-writer-wins delta can't see**. Under freeze the source is the
+   **authoritative exact state**, so mutable rows are overwritten **unconditionally** (the
+   `WHERE EXCLUDED.updated_at >` guard is dropped) to make the target match the source **exactly**.
+   This specifically handles a **source-side cascaded `SetNull`** that did **not** bump the child's
+   `updated_at` — e.g. `work_items.parent_id` (an optional self-relation whose Prisma-default
+   `onDelete` is `SetNull`): the soak delta never sees it (no `updated_at` change), so without the
+   force import the target would keep a **stale `parent_id`**, the delete-extras of the parent would
+   leave a **dangling self-FK**, and the orphan probe would **spuriously roll the reconcile back**.
+   Force mode force-updates the child's `parent_id` to `NULL` first, so the parent delete leaves no
+   dangle. **Append-only / audit** tables stay `DO NOTHING` (immutable) even under force — they are
+   never overwritten. The **soak deltas use the guarded last-writer-wins path**; force applies
+   **only** to this under-freeze final import.
 2. **Delete-extras** — for each **mutable, org-owned (DIRECT/PARENT), non-audit** table, it
    computes the org-scoped PK set in source vs target and `DELETE`s from the target the PKs in
    **target-but-not-source** (the rows deleted in the source during soak), in **one** owner
