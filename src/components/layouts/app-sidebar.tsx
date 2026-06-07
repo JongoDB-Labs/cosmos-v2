@@ -136,6 +136,11 @@ export function AppSidebar({ open, onToggle, orgs, user }: AppSidebarProps) {
           // path — e.g. Finance (/finance) must not highlight when Accounting
           // (/finance/accounting) is the active item.
           const isActive = (() => {
+            // No org context (pathname has no valid org slug, href collapses to
+            // "/") → nothing is active. Without this, at "/" every item's href
+            // is "/" and the matcher lights them ALL up (except a parent like
+            // Finance that a child suppresses) — the "everything selected" bug.
+            if (!currentOrg) return false;
             if (item.href === "") return pathname === href;
             if (pathname !== href && !pathname.startsWith(href + "/"))
               return false;
