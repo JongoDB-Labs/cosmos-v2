@@ -19,6 +19,16 @@
 //                                          Commercial flips are UNAFFECTED — the gate passes.) \
 //       [--max-cycles N]                  (soak loop cap; default 10) \
 //       [--stamp <iso8601>]               (the run timestamp; a CLI arg like the other tools) \
+//       [--stanza <name>]                 (pgBackRest stanza for the pre-flip snapshot; default cosmos) \
+//       [--snapshot-label <name>]         (the named restore point; default cutover-<slug>-preflip) \
+//       [--pgbackrest-exec '<cmd…>']      (a command prefix that runs pgBackRest against the TARGET
+//                                          cluster, e.g. "sudo docker compose exec -T -u postgres
+//                                          cosmos-postgres". When set, capture also triggers an incr
+//                                          backup; when absent the restore point + LSN/time is the target.) \
+//       [--validate-snapshot]             (restore the captured point into a SCRATCH cluster (the drill)
+//                                          before the flip to PROVE rollback works. Default: ON when
+//                                          --pgbackrest-exec is set, OFF otherwise. --no-validate-snapshot
+//                                          forces off.) \
 //       [--dry-run | --confirm]           (DEFAULT --dry-run: print the plan, touch NOTHING)
 //
 // THE SEQUENCE (each step timestamp-logged; the verify gate is the canonical flip gate):
@@ -29,13 +39,20 @@
 //   4. RECONCILE — reconcile-org.mjs (final force-exact import + delete-extras + in-txn orphan
 //      probe). It also runs verify-org internally as its Phase-4 gate.
 //   5. VERIFY GATE — verify-org.mjs explicitly (the hard flip gate). ANY failure ⇒ ROLLBACK.
+//   5b. SNAPSHOT CAPTURE — snapshot-capture.mjs on the TARGET: a NAMED pre-flip restore point
+//       (pg_create_restore_point) + LSN/time/timeline (+ optional incr backup), recorded into the
+//       run --state under .snapshot. The exact pre-flip PITR target the rollback restores to.
+//   5c. SNAPSHOT VALIDATE (optional, --validate-snapshot) — restore-to-point-drill.sh restores the
+//       captured point into a SCRATCH cluster (never the live one), proving the rollback works.
 //   6. FLIP — proxy-control.setOrgUpstream(slug, "v2"): the org's path now routes to v2.
 //   7. UNFREEZE — proxy-control.unfreezeOrg(slug): writes resume, now served by v2.
 //
 // ROLLBACK (any failure AT or AFTER freeze): setOrgUpstream(slug,"v1") + unfreezeOrg(slug) so the
-// org is NEVER left frozen or half-flipped; then print the documented snapshot-restore step (the
-// data rollback is the pre-flip v1 snapshot — v1's columns are kept intact per §9.3-5) and exit
-// NON-ZERO. A failure BEFORE freeze (parity/soak) simply aborts (no proxy state to undo).
+// org is NEVER left frozen or half-flipped — this is the EXECUTED, NON-DESTRUCTIVE primary rollback
+// (v1's columns are kept intact per §9.3-5, so v1 IS the live data rollback). Then EMIT the EXACT,
+// DESTRUCTIVE, OPERATOR-GATED PITR restore command for the captured pre-flip restore point (needed
+// only if v2 took post-flip writes) — the orchestrator NEVER auto-runs the destructive restore — and
+// exit NON-ZERO. A failure BEFORE freeze (parity/soak) simply aborts (no proxy state to undo).
 //
 // SAFE-BY-DEFAULT: --dry-run is the DEFAULT. It prints the full plan + the resolved args and
 // touches NOTHING — no parity run, no soak, no freeze, no reconcile, no flip. Only --confirm
@@ -46,8 +63,10 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { ProxyControl } from "./lib/proxy-control.ts";
 import { requireExposabilitySignoff, loadSignoffFromDisk } from "./lib/exposability.ts";
+import { parseSnapshotRecord, restoreCommandsForRecord } from "./lib/snapshot.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -73,6 +92,11 @@ function parseArgs(argv) {
     else if (a === "--tenant-class") out.tenantClass = argv[++i];
     else if (a === "--max-cycles") out.maxCycles = Number(argv[++i]);
     else if (a === "--stamp") out.stamp = argv[++i];
+    else if (a === "--stanza") out.stanza = argv[++i];
+    else if (a === "--snapshot-label") out.snapshotLabel = argv[++i];
+    else if (a === "--pgbackrest-exec") out.pgbackrestExec = argv[++i];
+    else if (a === "--validate-snapshot") out.validateSnapshot = true;
+    else if (a === "--no-validate-snapshot") out.validateSnapshot = false;
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--confirm") out.confirm = true;
     else fail(`orchestrate: unknown arg ${a}`);
@@ -150,6 +174,18 @@ async function main() {
   // gate is then a no-op pass) so existing commercial runs are UNAFFECTED; a gov flip
   // MUST pass --tenant-class gov, which arms the sign-off gate (fail-closed).
   const tenantClass = args.tenantClass ?? "commercial";
+  // Pre-flip snapshot capture (Step 5b). The named restore point label defaults to a
+  // per-tenant, deterministic name. The stanza is the pgBackRest stanza ("cosmos").
+  const stanza = args.stanza ?? "cosmos";
+  const snapshotLabel = args.snapshotLabel ?? `cutover-${slug}-preflip`;
+  // --pgbackrest-exec is the command prefix that runs pgBackRest against the TARGET cluster
+  // (e.g. "sudo docker compose exec -T -u postgres cosmos-postgres"). When set, the capture
+  // also triggers an incr backup; when absent the restore point + LSN/time alone is the target.
+  const pgbackrestExec = args.pgbackrestExec ?? null;
+  // Validate the captured point by restoring it into a SCRATCH cluster (the drill) before the
+  // flip. Default: ON when --pgbackrest-exec is configured (the drill needs the pgbackrest
+  // stack), OFF otherwise. Explicit --validate-snapshot / --no-validate-snapshot override.
+  const validateSnapshot = args.validateSnapshot ?? Boolean(pgbackrestExec);
 
   if (!UUID_RE.test(org)) fail(`--org ${org} is not a UUID`);
   if (!SLUG_RE.test(slug)) fail(`--slug ${slug} is not a path-safe slug`);
@@ -188,6 +224,9 @@ async function main() {
   console.log(`  upstreams    : v1=${v1}  v2=${v2}`);
   console.log(`  tenant-class : ${tenantClass}`);
   console.log(`  max-cycles   : ${args.maxCycles}`);
+  console.log(`  snapshot     : label "${snapshotLabel}"  stanza "${stanza}"`);
+  console.log(`  snapshot bkup: ${pgbackrestExec ? `incr via "${pgbackrestExec}"` : "none (restore point + LSN/time only)"}`);
+  console.log(`  validate snap: ${validateSnapshot ? "YES (restore-to-point drill into scratch before flip)" : "no"}`);
   console.log("");
   console.log(
     `  GOV EXPOSABILITY GATE: ${govGate.ok ? "✅ PASS" : "❌ FAIL"} — ${govGate.reason}`,
@@ -200,6 +239,20 @@ async function main() {
     tenantClass === "gov"
       ? `0. GOV EXPOSABILITY SIGN-OFF GATE (gov tenant): ${govGate.ok ? "ALLOWED — valid sign-off" : "BLOCKED — " + govGate.reason}`
       : `0. gov exposability sign-off gate: N/A (commercial tenant — not applicable)`;
+  // The exact, precise PITR restore command the rollback WOULD emit for this run's captured
+  // point. Built from the resolved label/stanza so the dry-run plan shows the operator EXACTLY
+  // what they'd run (it is DESTRUCTIVE + operator-gated; the orchestrator never auto-runs it).
+  const plannedRestoreCmd = restoreCommandsForRecord(
+    {
+      label: snapshotLabel,
+      lsn: null,
+      restorePointTime: "<captured restorePointTime>",
+      stanza,
+      timeline: null,
+      capturedAt: stamp,
+    },
+    { delta: true, promote: true },
+  ).named;
   const PLAN = [
     govGateLine,
     "1. parity-gate precheck (abort on fail — no freeze yet)",
@@ -207,9 +260,16 @@ async function main() {
     `3. FREEZE org "${slug}" at the proxy (writes ⇒ 405, reads pass)`,
     "4. reconcile-org (final force-exact import + delete-extras + orphan probe)",
     "5. VERIFY GATE (verify-org — any failure ⇒ ROLLBACK)",
+    `5b. CAPTURE pre-flip restore point "${snapshotLabel}" on the TARGET (snapshot-capture → state.snapshot)` +
+      (pgbackrestExec ? " + incr pgBackRest backup" : ""),
+    validateSnapshot
+      ? `5c. VALIDATE: restore-to-point-drill.sh --target-name "${snapshotLabel}" into a SCRATCH cluster (prove rollback works)`
+      : `5c. validate snapshot: SKIPPED (pass --validate-snapshot to run the restore-to-point drill)`,
     `6. FLIP: setOrgUpstream("${slug}", "v2")`,
     `7. UNFREEZE org "${slug}" (writes resume, served by v2)`,
-    "ROLLBACK on any failure at/after freeze: setOrgUpstream(v1) + unfreeze + print snapshot-restore + exit non-zero",
+    "ROLLBACK on any failure at/after freeze: setOrgUpstream(v1) + unfreeze (the EXECUTED, non-destructive rollback) + exit non-zero",
+    `   then EMIT the precise DESTRUCTIVE + operator-gated PITR restore command for the captured point (NOT auto-run):`,
+    `     ${plannedRestoreCmd}`,
   ];
 
   if (!confirm) {
@@ -236,6 +296,7 @@ async function main() {
 
   // ════════════════ EXECUTE (--confirm) ════════════════
   let frozen = false; // becomes true once we've frozen; gates the rollback path.
+  let capturedSnapshot = null; // the captured pre-flip restore-point record (Step 5b) for rollback.
 
   try {
     // ── 0. GOV EXPOSABILITY SIGN-OFF GATE (gov only) — BEFORE any state is touched. ──
@@ -319,6 +380,47 @@ async function main() {
     if (verify.code !== 0) throw new Error(`verify-org GATE FAILED (exit ${verify.code}) — do NOT flip`);
     step("verify gate", "ok", "v2 exactly matches the frozen source");
 
+    // ── 5b. CAPTURE the pre-flip restore point on the TARGET (the precise data-rollback target) ──
+    // This runs AFTER verify (v2 is exactly the frozen source) and BEFORE the flip, so the
+    // captured point is the exact pre-flip state. The ONLY write is a WAL restore-point record.
+    step("snapshot capture", "run", `label "${snapshotLabel}" on the target`);
+    const captureArgs = [
+      "--db", target,
+      "--label", snapshotLabel,
+      "--stamp", stamp,
+      "--state", state,
+      "--stanza", stanza,
+    ];
+    if (pgbackrestExec) captureArgs.push("--pgbackrest-exec", pgbackrestExec);
+    const capture = await tsx("snapshot-capture.mjs", captureArgs);
+    if (capture.code !== 0) throw new Error(`snapshot-capture FAILED (exit ${capture.code}) — do NOT flip without a pre-flip restore point`);
+    // Read back the recorded snapshot from --state so rollback can emit the exact restore command.
+    try {
+      const stTxt = await readFile(state, "utf8");
+      capturedSnapshot = parseSnapshotRecord(JSON.parse(stTxt).snapshot);
+    } catch (e) {
+      throw new Error(`snapshot-capture wrote no readable .snapshot into ${state}: ${e?.message ?? e}`);
+    }
+    step("snapshot capture", "ok", `restore point "${capturedSnapshot.label}" lsn=${capturedSnapshot.lsn ?? "n/a"} backup=${capturedSnapshot.backupLabel ?? "none"}`);
+
+    // ── 5c. VALIDATE (optional): restore the captured point into a SCRATCH cluster (the drill) ──
+    // Proves the rollback WOULD work before the flip. Uses a SCRATCH cluster ONLY — the live one
+    // is never touched. Gated by --validate-snapshot (default on when pgbackrest is configured).
+    if (validateSnapshot) {
+      step("snapshot validate", "run", `restore-to-point drill (scratch) → target-name "${capturedSnapshot.label}"`);
+      const drill = await run("bash", [
+        path.join(__dirname, "..", "dsop", "restore-to-point-drill.sh"),
+        "--target-name", capturedSnapshot.label,
+        "--state", state,
+      ], { capture: true });
+      if (drill.code !== 0 || !/RESTORE-TO-POINT: PASS/.test(drill.stdout)) {
+        throw new Error(`snapshot validate FAILED (exit ${drill.code}) — the captured restore point is NOT restorable; do NOT flip`);
+      }
+      step("snapshot validate", "ok", "RESTORE-TO-POINT: PASS (scratch cluster restored to the point)");
+    } else {
+      step("snapshot validate", "skip", "pass --validate-snapshot to drill the captured point into a scratch cluster");
+    }
+
     // ── 6. FLIP ──
     step("flip", "run", `setOrgUpstream("${slug}", "v2")`);
     await proxy.setOrgUpstream(slug, "v2");
@@ -342,7 +444,7 @@ async function main() {
     step("FAILURE", "fail", String(err?.message ?? err));
     console.error(`\norchestrate: ${err?.stack ?? err}`);
     if (frozen) {
-      await rollback(proxy, slug);
+      await rollback(proxy, slug, capturedSnapshot, { stanza, snapshotLabel, stamp });
     } else {
       console.error("orchestrate: failure occurred BEFORE freeze — no proxy state to roll back.");
     }
@@ -353,12 +455,20 @@ async function main() {
 
 /**
  * ROLLBACK — route the org back to v1 + unfreeze, so it is NEVER left frozen or half-flipped.
- * Then print the documented data-rollback (snapshot-restore) instruction. The proxy ops are
- * best-effort and idempotent; even if one throws we still print the snapshot step (it's the
- * authoritative data rollback).
+ * This (re-route to v1 + unfreeze) is the EXECUTED, NON-DESTRUCTIVE primary rollback — v1 was
+ * not mutated by the cutover (§9.3-5), so it is the live data rollback.
+ *
+ * Then EMIT the precise, DESTRUCTIVE, OPERATOR-GATED PITR restore command for the captured
+ * pre-flip restore point — needed ONLY if v2 already took post-flip writes. The orchestrator
+ * NEVER auto-runs this restore (a DB restore is destructive); it only emits the exact command
+ * for an operator to run deliberately. The proxy ops are best-effort + idempotent; even if one
+ * throws we still emit the restore command (it's the authoritative data rollback target).
+ *
+ * @param capturedSnapshot the SnapshotRecord captured at Step 5b (or null if the failure
+ *   happened before capture, e.g. reconcile/verify failed — then no exact point exists yet).
  */
-async function rollback(proxy, slug) {
-  step("ROLLBACK", "run", `route org "${slug}" → v1 + unfreeze`);
+async function rollback(proxy, slug, capturedSnapshot, fallback) {
+  step("ROLLBACK", "run", `route org "${slug}" → v1 + unfreeze (executed, non-destructive)`);
   let proxyOk = true;
   try {
     await proxy.setOrgUpstream(slug, "v1");
@@ -381,29 +491,58 @@ async function rollback(proxy, slug) {
     /* already counted */
   }
 
+  // Build the PRECISE restore commands from the captured record when we have one (failure was
+  // AT/after capture); otherwise the failure was before capture (reconcile/verify) — no exact
+  // point was stamped, so emit the documented placeholder form (still operator-gated).
+  const haveExact = capturedSnapshot !== null && capturedSnapshot !== undefined;
+  let namedCmd;
+  let timeCmd;
+  if (haveExact) {
+    const cmds = restoreCommandsForRecord(capturedSnapshot, { delta: true, promote: true });
+    namedCmd = cmds.named;
+    timeCmd = cmds.time;
+  } else {
+    namedCmd =
+      `pgbackrest --stanza=${fallback.stanza} --type=name --target=${fallback.snapshotLabel} ` +
+      `--target-action=promote --delta restore  # (NOTE: failure occurred BEFORE the restore point ` +
+      `was captured — no exact pre-flip point exists; capture one or use a prior pgBackRest backup)`;
+    timeCmd = `pgbackrest --stanza=${fallback.stanza} --type=time --target="<PRE-FLIP timestamp>" --target-action=promote --delta restore`;
+  }
+
   console.error("\n══════════════════════════════════════════════════════════════════════");
-  console.error("  ROLLBACK — DATA RESTORE (manual, documented):");
+  console.error("  ROLLBACK — DATA RESTORE (DESTRUCTIVE — OPERATOR-GATED — NOT auto-run):");
   console.error("══════════════════════════════════════════════════════════════════════");
   console.error(`  The proxy has been routed back to v1${proxyOk ? "" : " (⚠ a proxy op FAILED — verify manually)"}.`);
-  console.error("  v1 (the source) was NOT mutated by the cutover and its columns are kept intact");
-  console.error("  per §9.3-5, so v1 IS the live data rollback — no restore is needed if the org");
-  console.error("  never started writing to v2. If v2 DID receive writes post-flip, restore the");
-  console.error("  per-tenant data from the PRE-FLIP v1 snapshot:");
+  console.error("  That re-route + unfreeze IS the EXECUTED, non-destructive rollback: v1 (the source)");
+  console.error("  was NOT mutated by the cutover and its columns are kept intact per §9.3-5, so v1 IS");
+  console.error("  the live data rollback — NO restore is needed if v2 never took post-flip writes.");
   console.error("");
-  console.error("    # 1. Confirm the org is back on v1 at the proxy (done above).");
-  console.error("    # 2. Restore the pre-flip snapshot of the TARGET (v2) org data, e.g. pgBackRest:");
-  console.error("    #      pgbackrest --stanza=cosmos --type=time \\");
-  console.error("    #        --target=\"<PRE-FLIP timestamp>\" --delta restore");
-  console.error("    #    (or your snapshot tool's point-in-time restore to just before the flip).");
+  if (haveExact) {
+    console.error(`  A precise PRE-FLIP restore point WAS captured: "${capturedSnapshot.label}"`);
+    console.error(`    (lsn=${capturedSnapshot.lsn ?? "n/a"}, restorePointTime=${capturedSnapshot.restorePointTime}, ` +
+      `backup=${capturedSnapshot.backupLabel ?? "none"}, stanza=${capturedSnapshot.stanza})`);
+  } else {
+    console.error("  ⚠ The failure occurred BEFORE a restore point was captured (reconcile/verify) —");
+    console.error("    no EXACT pre-flip point exists. The command below is the documented form.");
+  }
+  console.error("  If v2 DID receive writes post-flip, an operator (NOT this script) restores the TARGET");
+  console.error("  (v2) to the PRE-FLIP point with the EXACT command below. VALIDATE it into a scratch");
+  console.error("  cluster first (restore-to-point-drill.sh) — then it overwrites the live datadir:");
+  console.error("");
+  console.error("    # 1. (validate first) scripts/dsop/restore-to-point-drill.sh \\");
+  console.error(`    #        --target-name ${haveExact ? capturedSnapshot.label : fallback.snapshotLabel}`);
+  console.error("    # 2. (DESTRUCTIVE) on the TARGET cluster — operator runs this by hand:");
+  console.error(`    #      ${namedCmd}`);
+  console.error("    #    (fallback by time:)");
+  console.error(`    #      ${timeCmd}`);
   console.error("    # 3. Re-run parity/soak/verify before attempting the cutover again.");
   console.error("══════════════════════════════════════════════════════════════════════");
-  // Also emit the snapshot-restore as a STEP (→ stdout + the ORCHESTRATE_REPORT) so the
+  // Also emit the precise restore command as a STEP (→ stdout + the ORCHESTRATE_REPORT) so the
   // instruction is captured authoritatively even when stderr interleaves with child output.
   step(
-    "rollback: data-restore (manual)",
+    "rollback: data-restore (DESTRUCTIVE, operator-gated, NOT auto-run)",
     "ok",
-    'restore the TARGET v2 org data from the PRE-FLIP v1 snapshot, e.g. ' +
-      'pgbackrest --stanza=cosmos --type=time --target="<PRE-FLIP timestamp>" --delta restore',
+    `${haveExact ? "precise PITR restore for captured point" : "documented PITR restore (no exact point captured)"}: ${namedCmd}`,
   );
 }
 
