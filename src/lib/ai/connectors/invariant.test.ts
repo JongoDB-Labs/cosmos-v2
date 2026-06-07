@@ -16,6 +16,7 @@ import { connectorToolDefs, connectorToolNames, connectorEgressMaps } from "./in
 import { entityTypeForTool, projectStructural } from "../egress/projection";
 import { GOOGLE_TOOL_NAMES } from "../executors/google";
 import { GITHUB_TOOL_NAMES } from "../executors/github";
+import { JIRA_TOOL_NAMES } from "../executors/jira";
 import { nangoTools } from "../tools/nango";
 
 // The COMMERCIAL-ONLY nango connector was added AFTER this refactor. It contributes
@@ -23,6 +24,17 @@ import { nangoTools } from "../tools/nango";
 // pre-refactor GOV invariants below are preserved EXACTLY — nango only adds to the
 // COMMERCIAL (full-set) surface. These names lock that delta.
 const NANGO_TOOL_NAMES = nangoTools.map((t) => t.name);
+
+// The v2.20 NATIVE token-auth connector Jira is availability:"all" — so, like
+// google/github, it is in BOTH the gov AND commercial tool lists, and its egress maps
+// merge in. The invariant intentionally INCLUDES it in the gov surface (gov-usable
+// behind the egress fence; structural-only projection still applies — asserted below).
+const JIRA_TOOL_NAME_LIST = [
+  "jira_search_issues",
+  "jira_get_issue",
+  "jira_list_projects",
+  "jira_create_issue",
+];
 
 // ── PRE-REFACTOR LITERALS (the v2.9.0 ground truth) ────────────────────────────
 
@@ -45,68 +57,85 @@ const PRE_REFACTOR_GITHUB_TOOL_NAMES = [
   "github_get_issue",
   "github_list_pull_requests",
 ];
-const PRE_REFACTOR_CONNECTOR_TOOL_NAMES = [
+// The GOV tool surface = the pre-refactor google+github list PLUS the v2.20 native
+// all-availability connector (jira), in registration order. Nango (commercial-only)
+// is still EXCLUDED from gov.
+const GOV_CONNECTOR_TOOL_NAMES = [
   ...PRE_REFACTOR_GOOGLE_TOOL_NAMES,
   ...PRE_REFACTOR_GITHUB_TOOL_NAMES,
+  ...JIRA_TOOL_NAME_LIST,
 ];
 
-// The github egress entries that lived in projection.ts pre-refactor. Google had
-// NONE (full withhold for gov) — so the connector TOOL_ENTITY/EXPOSABLE/HANDLEABLE
-// contributions are EXACTLY github's.
-const PRE_REFACTOR_CONNECTOR_TOOL_ENTITY: Record<string, string> = {
+// The connector TOOL_ENTITY / EXPOSABLE / HANDLEABLE maps = github's (google empty)
+// PLUS jira's contributions. jira_create_issue is UNMAPPED on purpose (write result →
+// full withhold floor for gov).
+const CONNECTOR_TOOL_ENTITY: Record<string, string> = {
   github_list_issues: "github_issue",
   github_get_issue: "github_issue",
   github_list_pull_requests: "github_pull_request",
+  jira_search_issues: "jira_issue",
+  jira_get_issue: "jira_issue",
+  jira_list_projects: "jira_project",
 };
-const PRE_REFACTOR_CONNECTOR_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
+const CONNECTOR_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   github_issue: ["number", "state", "createdAt", "updatedAt", "closedAt"],
   github_pull_request: ["number", "state", "draft", "createdAt", "updatedAt", "closedAt", "mergedAt"],
+  jira_issue: ["key", "status", "priority", "issueType", "created", "updated", "resolutiondate", "assigneeAccountId"],
+  jira_project: ["id", "key", "projectTypeKey"],
 };
-// github (and google) contributed NO handleable fields pre-refactor.
-const PRE_REFACTOR_CONNECTOR_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {};
+// github/google/jira contribute NO handleable fields.
+const CONNECTOR_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {};
 
-describe("INVARIANT LOCK — connector tool list is byte-identical to pre-refactor", () => {
+describe("INVARIANT LOCK — connector tool list (google+github pinned; jira added)", () => {
   it("the executor TOOL_NAMES sets are unchanged (descriptors still reference them)", () => {
     expect([...GOOGLE_TOOL_NAMES].sort()).toEqual([...PRE_REFACTOR_GOOGLE_TOOL_NAMES].sort());
     expect([...GITHUB_TOOL_NAMES].sort()).toEqual([...PRE_REFACTOR_GITHUB_TOOL_NAMES].sort());
+    // v2.20 native connector locks its own name set.
+    expect([...JIRA_TOOL_NAMES].sort()).toEqual([...JIRA_TOOL_NAME_LIST].sort());
   });
 
-  it("a GOV tenant's connectorToolDefs is byte-identical to the pre-refactor list (nango excluded)", () => {
-    // The gov surface is the load-bearing invariant: a gov tenant must see EXACTLY
-    // the pre-refactor google+github tools, in order — and NO nango tool.
-    expect(connectorToolDefs("gov").map((t) => t.name)).toEqual(PRE_REFACTOR_CONNECTOR_TOOL_NAMES);
+  it("a GOV tenant's connectorToolDefs = google+github+jira, in order (nango excluded)", () => {
+    // The gov surface is the load-bearing invariant: a gov tenant sees EXACTLY the
+    // all-availability connectors' tools, in registration order — and NO nango tool.
+    expect(connectorToolDefs("gov").map((t) => t.name)).toEqual(GOV_CONNECTOR_TOOL_NAMES);
   });
 
-  it("the FULL (commercial) connectorToolDefs is the pre-refactor list PLUS nango, in order", () => {
-    expect(connectorToolDefs().map((t) => t.name)).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
-    expect(connectorToolDefs("commercial").map((t) => t.name)).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
+  it("the FULL (commercial) connectorToolDefs is the gov list PLUS nango, in order", () => {
+    expect(connectorToolDefs().map((t) => t.name)).toEqual([...GOV_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
+    expect(connectorToolDefs("commercial").map((t) => t.name)).toEqual([...GOV_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
   });
 
-  it("connectorToolNames('gov') == the pre-refactor connector tool-name set (no nango)", () => {
-    expect([...connectorToolNames("gov")].sort()).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES].sort());
+  it("connectorToolNames('gov') == google+github+jira name set (no nango)", () => {
+    expect([...connectorToolNames("gov")].sort()).toEqual([...GOV_CONNECTOR_TOOL_NAMES].sort());
   });
 
-  it("every pre-refactor connector tool name still matches its owning executor's TOOL_NAMES set (dispatch unchanged)", () => {
+  it("every gov connector tool name still matches its owning executor's TOOL_NAMES set (dispatch unchanged)", () => {
     for (const n of PRE_REFACTOR_GOOGLE_TOOL_NAMES) expect(GOOGLE_TOOL_NAMES.has(n)).toBe(true);
     for (const n of PRE_REFACTOR_GITHUB_TOOL_NAMES) expect(GITHUB_TOOL_NAMES.has(n)).toBe(true);
-    // The gov name set leaks NOTHING beyond google ∪ github (nango is excluded).
-    const govUnion = new Set([...PRE_REFACTOR_GOOGLE_TOOL_NAMES, ...PRE_REFACTOR_GITHUB_TOOL_NAMES]);
+    for (const n of JIRA_TOOL_NAME_LIST) expect(JIRA_TOOL_NAMES.has(n)).toBe(true);
+    // The gov name set leaks NOTHING beyond google ∪ github ∪ jira (no nango).
+    const govUnion = new Set(GOV_CONNECTOR_TOOL_NAMES);
     for (const n of connectorToolNames("gov")) expect(govUnion.has(n)).toBe(true);
   });
 });
 
-describe("INVARIANT LOCK — merged egress maps equal the pre-refactor literals", () => {
-  it("connectorEgressMaps() deep-equals the pre-refactor github (+empty google) contributions", () => {
+describe("INVARIANT LOCK — merged egress maps equal the locked literals", () => {
+  it("connectorEgressMaps() deep-equals the github+jira (+empty google) contributions", () => {
     const maps = connectorEgressMaps();
-    expect(maps.toolEntity).toEqual(PRE_REFACTOR_CONNECTOR_TOOL_ENTITY);
-    expect(maps.exposableFields).toEqual(PRE_REFACTOR_CONNECTOR_EXPOSABLE_FIELDS);
-    expect(maps.handleableFields).toEqual(PRE_REFACTOR_CONNECTOR_HANDLEABLE_FIELDS);
+    expect(maps.toolEntity).toEqual(CONNECTOR_TOOL_ENTITY);
+    expect(maps.exposableFields).toEqual(CONNECTOR_EXPOSABLE_FIELDS);
+    expect(maps.handleableFields).toEqual(CONNECTOR_HANDLEABLE_FIELDS);
   });
 
-  it("entityTypeForTool resolves the connector tools exactly as before (google ⇒ undefined ⇒ full withhold)", () => {
+  it("entityTypeForTool resolves the connector tools exactly (google + write tools ⇒ undefined ⇒ full withhold)", () => {
     expect(entityTypeForTool("github_list_issues")).toBe("github_issue");
     expect(entityTypeForTool("github_get_issue")).toBe("github_issue");
     expect(entityTypeForTool("github_list_pull_requests")).toBe("github_pull_request");
+    expect(entityTypeForTool("jira_search_issues")).toBe("jira_issue");
+    expect(entityTypeForTool("jira_get_issue")).toBe("jira_issue");
+    expect(entityTypeForTool("jira_list_projects")).toBe("jira_project");
+    // The write tool is UNMAPPED ⇒ full withhold floor for gov.
+    expect(entityTypeForTool("jira_create_issue")).toBeUndefined();
     // Every google tool stays unmapped ⇒ full withhold for gov.
     for (const n of PRE_REFACTOR_GOOGLE_TOOL_NAMES) expect(entityTypeForTool(n)).toBeUndefined();
   });
@@ -121,6 +150,23 @@ describe("INVARIANT LOCK — merged egress maps equal the pre-refactor literals"
     expect(mv).toEqual({
       number: 42, state: "open",
       createdAt: "2026-06-01T00:00:00Z", updatedAt: "2026-06-02T00:00:00Z",
+    });
+    expect(JSON.stringify(mv)).not.toContain("CUI");
+    expect(JSON.stringify(mv)).not.toContain("secret");
+  });
+
+  it("a gov jira issue is projected to structural-only (key/status/timestamps; summary/description withheld)", () => {
+    const issue = {
+      key: "ABC-1", status: "In Progress", priority: "High", issueType: "Bug",
+      summary: "CUI//SP exfil path", description: "secret repro",
+      assigneeAccountId: "acc-1",
+      created: "2026-06-01T00:00:00Z", updated: "2026-06-02T00:00:00Z", resolutiondate: null,
+    };
+    const mv = projectStructural(issue, "jira_issue") as Record<string, unknown>;
+    expect(mv).toEqual({
+      key: "ABC-1", status: "In Progress", priority: "High", issueType: "Bug",
+      assigneeAccountId: "acc-1",
+      created: "2026-06-01T00:00:00Z", updated: "2026-06-02T00:00:00Z",
     });
     expect(JSON.stringify(mv)).not.toContain("CUI");
     expect(JSON.stringify(mv)).not.toContain("secret");
