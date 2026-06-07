@@ -1,6 +1,11 @@
 :80 {
 	reverse_proxy cosmos:3000 {
 		header_up X-Forwarded-Host {host}
-		header_up X-Forwarded-Proto {scheme}
+		# This caddy is ONLY reached via nginx, which sits behind the Cloudflare
+		# tunnel (TLS terminates at Cloudflare). The caddy<-nginx hop is plaintext
+		# :80, so {scheme} would mislabel the public request as http and make
+		# getPublicOrigin() emit http:// Location headers. The public scheme is
+		# always https for real traffic, so pin it.
+		header_up X-Forwarded-Proto https
 	}
 }
