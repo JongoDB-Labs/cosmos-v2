@@ -166,6 +166,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: cosmos-v2
+      # Nango (COMMERCIAL-ONLY connector breadth). NANGO_HOST is the INTERNAL compose
+      # URL (the app talks to Nango server-side only); NANGO_SECRET_KEY is a PLATFORM
+      # secret from .env (placeholder in .env.example; inject as a Docker secret in
+      # prod). When the `nango` profile is NOT up these are harmless — the wrapper's
+      # nangoEnabled() guard short-circuits and the connector degrades gracefully. The
+      # gov-block is code-enforced regardless of these values.
+      NANGO_HOST: ${NANGO_HOST:-http://cosmos-nango-server:3003}
+      NANGO_SECRET_KEY: ${NANGO_SECRET_KEY:-}
     volumes:
       - cosmos-minio-certs:/etc/cosmos/minio-ca:ro
     depends_on:
@@ -427,6 +435,103 @@ services:
       retries: 5
       start_period: 15s
 
+  # ── Nango (self-hosted OSS unified-API / OAuth broker) — COMMERCIAL connector
+  # breadth (~180 providers), wired through the v2.10 connector registry + the egress
+  # chokepoint. ALL under the `nango` profile so base `up` stays lean (like `ops` /
+  # `observability`). The app reaches `cosmos-nango-server` over the INTERNAL compose
+  # network only; its DB + Redis are NOT host-published. Only the connect-flow ports
+  # (the API server + the Connect UI) are exposed on FREE host ports for the OAuth/
+  # API-key grant dance (v1 holds 8080; v2 caddy 8090; Grafana 3009; Jaeger 16686;
+  # Prom 9090; MinIO 9001 — so Nango takes 3013 [server] + 3019 [connect UI]).
+  #
+  # Versions PINNED to a known-good self-host shape (researched 2026-06-06 against
+  # NangoHQ/nango docker-compose.yaml + Docker Hub):
+  #   - nango-server  hosted-0.70.6   (matches the @nangohq/node@0.70.6 SDK)
+  #   - postgres      16.0-alpine     (Nango's bundled DB version)
+  #   - redis         7.2.4           (Nango's bundled cache version)
+  # Elasticsearch (NANGO_LOGS_ENABLED) is OFF — logs go to stdout (lean self-host).
+  # D5: Nango is COMMERCIAL-ONLY. A gov tenant is code-blocked from ever reaching it
+  # (tool-list filter, dispatch refusal, executor hard-check, connect-route 403) — the
+  # stack running does NOT widen gov's surface. ─────────────────────────────────────
+
+  # Dedicated Postgres for Nango (separate from cosmos-postgres — Nango owns its own
+  # schema/migrations). Internal-only: NO host port. Data on a named volume.
+  cosmos-nango-db:
+    image: postgres@sha256:d171d14965e28764824b33974d038aea3a6be3bf0ced3c8656c848df9b7218c5 # postgres:16.0-alpine (linux/amd64)
+    profiles: ["nango"]
+    environment:
+      POSTGRES_USER: ${NANGO_DB_USER:-nango}
+      POSTGRES_PASSWORD: ${NANGO_DB_PASSWORD:-nango}
+      POSTGRES_DB: ${NANGO_DB_NAME:-nango}
+    volumes:
+      - cosmos-nango-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${NANGO_DB_USER:-nango}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache for Nango. Internal-only: NO host port.
+  cosmos-nango-redis:
+    image: redis@sha256:9341b6548cc35b64a6de0085555264336e2f570e17ecff20190bf62222f2bd64 # redis:7.2.4 (linux/amd64)
+    profiles: ["nango"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # The Nango server: the OAuth/API-key broker + proxy + Connect UI. The app calls it
+  # at http://cosmos-nango-server:3003 over the internal network (NANGO_HOST). The
+  # server (3003) + Connect UI (3009) are host-published on FREE ports for the grant
+  # flow. NANGO_ENCRYPTION_KEY (required for Connect UI sessions) + the dashboard
+  # creds come from .env (placeholders in .env.example). FLAG_AUTH_ENABLED is left at
+  # the self-host default (no public signup); the dashboard is basic-auth protected.
+  cosmos-nango-server:
+    image: nangohq/nango-server@sha256:acb67345804907fa77e721ba484277b0075220477262d669add770070e97fc2b # nangohq/nango-server:hosted-0.70.6 (linux/amd64)
+    profiles: ["nango"]
+    platform: linux/amd64
+    environment:
+      NANGO_ENCRYPTION_KEY: ${NANGO_ENCRYPTION_KEY:-}
+      NANGO_DB_USER: ${NANGO_DB_USER:-nango}
+      NANGO_DB_PASSWORD: ${NANGO_DB_PASSWORD:-nango}
+      NANGO_DB_HOST: cosmos-nango-db
+      NANGO_DB_PORT: "5432"
+      NANGO_DB_NAME: ${NANGO_DB_NAME:-nango}
+      NANGO_DB_SSL: "false"
+      RECORDS_DATABASE_URL: postgresql://${NANGO_DB_USER:-nango}:${NANGO_DB_PASSWORD:-nango}@cosmos-nango-db:5432/${NANGO_DB_NAME:-nango}
+      NANGO_REDIS_URL: redis://cosmos-nango-redis:6379
+      SERVER_PORT: "3003"
+      CSP_REPORT_ONLY: "true"
+      # The in-boundary URL the app uses (NANGO_HOST) is the internal name; these two
+      # are the externally-reachable URLs the Connect UI / OAuth callbacks use.
+      NANGO_SERVER_URL: ${NANGO_SERVER_URL:-http://localhost:3013}
+      NANGO_PUBLIC_SERVER_URL: ${NANGO_PUBLIC_SERVER_URL:-http://localhost:3013}
+      NANGO_DASHBOARD_USERNAME: ${NANGO_DASHBOARD_USERNAME:-nango}
+      NANGO_DASHBOARD_PASSWORD: ${NANGO_DASHBOARD_PASSWORD:-nango}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Elasticsearch OFF — logs to stdout (lean self-host). FLAG_SERVE_CONNECT_UI on
+      # so the connect flow is available on the published Connect-UI port.
+      NANGO_LOGS_ENABLED: "false"
+      FLAG_SERVE_CONNECT_UI: "true"
+      NANGO_CONNECT_UI_PORT: "3009"
+    ports:
+      # host:container — Nango's 3003 (server) → host 3013; 3009 (Connect UI) → host 3019.
+      - "3013:3003"
+      - "3019:3009"
+    depends_on:
+      cosmos-nango-db:
+        condition: service_healthy
+      cosmos-nango-redis:
+        condition: service_healthy
+    healthcheck:
+      # The image ships node; hit the server's /health over loopback inside the container.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+
 volumes:
   cosmos-pgdata:
   cosmos-minio-data:
@@ -434,6 +539,8 @@ volumes:
   cosmos-pgsock:
   cosmos-prometheus-data:
   cosmos-grafana-data:
+  # Nango's dedicated Postgres data (nango profile).
+  cosmos-nango-pgdata:
   # pgBackRest state dir (stanza ledger + lock state + the .stanza-ready marker). MUST be
   # a named volume so the marker survives container recreate — see the mount comment on
   # cosmos-postgres (FIX: WAL silently dropped post-recreate if this is on the writable layer).
