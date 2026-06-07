@@ -34,6 +34,11 @@
 //
 // `--stamp` is a CLI arg (Date.now() may be restricted under tsx); used only for the cycle log.
 
+import { setupUtcTimestamps } from "./lib/pg-utc.ts";
+// M1: force UTC + register the OID-1114 (timestamp without tz) parser BEFORE any pg/Date use, so
+// the watermark round-trip is offset-free regardless of host TZ (no silently-skipped rows).
+setupUtcTimestamps();
+
 import { readFile, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import pg from "pg";
