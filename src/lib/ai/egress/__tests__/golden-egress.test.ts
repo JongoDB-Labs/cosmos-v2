@@ -34,6 +34,11 @@ vi.mock("@/lib/ai/egress/provider", async (importOriginal) => ({
 
 // Mock the tool-executor — tools return whatever each test provides.
 vi.mock("@/lib/ai/tool-executor", () => ({ executeTool }));
+// The loop loads the org's runtime config (DB-backed). Mock to the DEFAULT (all connectors
+// enabled / breadth on) so the egress behavior under test is unchanged from today.
+vi.mock("@/lib/runtime-config", () => ({
+  getRuntimeConfig: vi.fn().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false }),
+}));
 
 // Mock effectiveCeiling — each test sets the ceiling it needs; avoids the DB. Keep the
 // real pure helpers (maxByRank/rankOf) so the loop's C1 ceiling fold runs for real.

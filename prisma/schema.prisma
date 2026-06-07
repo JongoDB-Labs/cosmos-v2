@@ -131,6 +131,7 @@ model Organization {
   ipAllowlists           IpAllowlist[]
   scimTokens             ScimToken[]
   securitySettings       OrgSecuritySettings?
+  runtimeConfig          OrgRuntimeConfig?
   assistantConversations AssistantConversation[]
   chatChannels           ChatChannel[]
   savedReports           SavedReport[]
@@ -1413,6 +1414,49 @@ model OrgSecuritySettings {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_security_settings")
+}
+
+/// Per-org RUNTIME CONFIG (design §8) — the GUI/API-tunable connector + agent surface,
+/// kept SEPARATE from OrgSecuritySettings (auth posture) so the two concerns stay clean.
+/// 1:1 with Organization. A MISSING row (no config) is the load-bearing default: it means
+/// "all registered connectors enabled, breadth on, MCP off" — i.e. EXACTLY today's behavior.
+/// getRuntimeConfig() normalizes null → that default; the tool-list gating treats a null
+/// `enabledConnectors` as "all enabled" (an explicit list opts into a SUBSET).
+///
+/// GOV GUARDRAILS (applyGovGuardrails, enforced server-side on a flip-to-GOV AND on every
+/// tenant-admin PATCH): a GOV org has breadthEnabled=false + mcpEnabled=false and may NOT
+/// list a commercial-only connector in enabledConnectors. tenantClass itself lives on
+/// Organization and is platform-owner-only — never settable here.
+model OrgRuntimeConfig {
+  id    String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId String @unique @map("org_id") @db.Uuid
+
+  /// Tri-state connector enablement, modeled Prisma-native (Prisma has no nullable scalar
+  /// list, so a flag + array stand in for the plan's `enabledConnectors String[]?`):
+  ///   - allowlistEnabled = false ⇒ "NULL" / ALL registered connectors enabled. This is the
+  ///     DEFAULT and preserves CURRENT behavior. `enabledConnectors` is ignored here.
+  ///   - allowlistEnabled = true  ⇒ only providers listed in `enabledConnectors` are enabled
+  ///     (an explicit SUBSET; an empty array then means NONE enabled).
+  /// getRuntimeConfig() collapses this to `enabledConnectors: string[] | null` so the rest of
+  /// the system sees the clean `null = all` contract.
+  allowlistEnabled  Boolean  @default(false) @map("allowlist_enabled")
+  enabledConnectors String[] @default([]) @map("enabled_connectors")
+
+  /// The Nango/commercial-breadth toggle. Default ON for commercial; forced OFF for GOV by
+  /// the guardrails. When false, no commercial-only (breadth) connector tool is offered or
+  /// dispatched, even for a commercial tenant. (This is ADDITIVE on top of the v2.15 Nango
+  /// gov-block — gov still never sees Nango regardless of this flag.)
+  breadthEnabled Boolean @default(true) @map("breadth_enabled")
+
+  /// External-MCP exposure. Dormant (default OFF); forced OFF for GOV by the guardrails.
+  mcpEnabled Boolean @default(false) @map("mcp_enabled")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_runtime_config")
 }
 
 /// Cutover write-freeze flag (design spec §9.4). A row here means the org is in a short

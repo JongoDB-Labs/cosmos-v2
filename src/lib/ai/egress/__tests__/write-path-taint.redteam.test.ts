@@ -45,6 +45,11 @@ vi.mock("@/lib/ai/egress/provider", async (importOriginal) => ({
   callModel,
 }));
 vi.mock("@/lib/ai/tool-executor", () => ({ executeTool }));
+// The loop loads the org's runtime config (DB-backed). Mock to the DEFAULT (all connectors
+// enabled / breadth on) so the write-path taint behavior under test is unchanged from today.
+vi.mock("@/lib/runtime-config", () => ({
+  getRuntimeConfig: vi.fn().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false }),
+}));
 // Only effectiveCeiling is a spy; maxByRank/rankOf are the REAL pure helpers — the
 // taint comparison MUST exercise the real rank logic, not a stub.
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
