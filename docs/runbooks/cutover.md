@@ -45,6 +45,74 @@ gate the flip is conditioned on.
 
 ---
 
+## Step 0. Schema-parity gate — HARD, before any freeze
+
+> **This is a HARD §9.2 prerequisite for the WHOLE cutover programme, not just one
+> tenant.** It runs **once per v2 schema revision** (re-run whenever either prod's
+> schema or v2's `prisma/schema.prisma` changes), and it must be **green before any
+> tenant is frozen**. A non-empty diff **or** a missing classification FK **BLOCKS every
+> cutover** until the v2 schema / baseline is reconciled.
+
+The cutover engine migrates tenant data into v2's schema. That is only trustworthy if
+v2's schema is **structurally identical to what production actually runs**. This gate
+proves it and records prod provenance into `compliance/provenance/prod-baseline.json`.
+
+It runs against a **RESTORED snapshot in a throwaway scratch DB — NEVER against live
+prod.** The only thing taken from prod is a schema-only dump + the migration history
+(no tenant rows).
+
+**0a. Capture from prod (out-of-band, schema only):**
+
+```sh
+# Schema only — NO tenant data leaves prod here.
+pg_dump --schema-only "$PROD_DATABASE_URL" > /secure/cutover/prod-schema.sql
+
+# Prod's applied-migration history (for the provenance fingerprint):
+psql "$PROD_DATABASE_URL" --csv -c \
+  "SELECT migration_name, checksum FROM _prisma_migrations ORDER BY migration_name" \
+  > /secure/cutover/prod-migrations.csv
+
+# And note the prod git commit the deploy is on (rev-parse on the prod checkout).
+```
+
+**0b. Run the gate against a RESTORED scratch DB:**
+
+```sh
+npx tsx scripts/cutover/parity-gate.mjs \
+  --prod-schema-dump /secure/cutover/prod-schema.sql \
+  --prod-migrations  /secure/cutover/prod-migrations.csv \
+  --prod-commit      "<prod-git-sha>" \
+  --scratch-url      "postgres://cosmos:cosmos@localhost:5599/scratch" \
+  --stamp            "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # stamp is a CLI arg on purpose
+```
+
+The script (1) ensures `pgcrypto`+`pgvector` and restores the dump into the scratch DB,
+then runs the **two-part gate**:
+
+1. **Parity** — `prisma migrate diff` between the restored snapshot and v2's datamodel
+   must be **EMPTY**. A non-empty diff is captured (SQL) and the gate FAILS.
+2. **Classification FK** — the snapshot must carry the FK
+   `data_classifications.project_id → projects.id` (the §9.2 baseline marker proving the
+   snapshot came from the classification-propagation line). Missing ⇒ FAIL.
+
+On success it writes `compliance/provenance/prod-baseline.json` (`prodCommit`,
+`migrationHistoryHash`, `migrationCount`, `parityGate: "pass"`, `classificationFk: true`,
+`checkedAt`) and exits 0.
+
+- [ ] **The gate exits 0** (PASS). If it exits non-zero, **DO NOT proceed to any tenant
+      cutover.** A non-empty diff means v2's schema must be reconciled to prod (or vice
+      versa); a missing classification FK means the snapshot is not the reconciled
+      baseline. Fix the cause, re-run the gate, and only then continue.
+- [ ] The provenance record is committed (`compliance/provenance/prod-baseline.json`) so
+      the cutover's source-of-truth is auditable.
+- [ ] **Scratch DB + the prod schema dump are destroyed/secured after the run** (the dump
+      is schema-only, but treat it as sensitive infra detail). Never leave the scratch DB
+      reachable.
+
+See `compliance/provenance/README.md` for field meanings and the hash semantics.
+
+---
+
 ## 1. Pre-flight (per tenant)
 
 - [ ] The target v2 DB is up with the `0000_init` superset migrations applied (incl.
@@ -236,6 +304,7 @@ v2-side writes made in that short window.
 
 | step    | command |
 |---------|---------|
+| parity (Step 0, HARD) | `tsx scripts/cutover/parity-gate.mjs --prod-schema-dump … --prod-migrations … --prod-commit … --scratch-url … --stamp …` |
 | freeze  | `freezeOrg(orgId, orgSlug, …)` / SQL insert into `frozen_orgs` |
 | export  | `tsx scripts/cutover/export-org.mjs --source … --org … --out … --stamp …` |
 | import  | `tsx scripts/cutover/import-org.mjs --target <owner-url> --in … --org …` |

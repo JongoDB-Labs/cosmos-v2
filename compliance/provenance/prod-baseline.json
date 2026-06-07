@@ -1,0 +1,10 @@
+{
+  "_comment": "EXAMPLE / TEMPLATE — replace with REAL values at cutover. This file is OVERWRITTEN by scripts/cutover/parity-gate.mjs when it is run against a restored prod schema snapshot. Until then it carries placeholder/null fields and MUST NOT be read as an attestation. See compliance/provenance/README.md.",
+  "_status": "EXAMPLE — NOT A REAL ATTESTATION",
+  "prodCommit": null,
+  "migrationHistoryHash": null,
+  "migrationCount": null,
+  "parityGate": "fail",
+  "classificationFk": false,
+  "checkedAt": null
+}
