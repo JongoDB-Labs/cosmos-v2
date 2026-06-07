@@ -16,6 +16,13 @@ import { connectorToolDefs, connectorToolNames, connectorEgressMaps } from "./in
 import { entityTypeForTool, projectStructural } from "../egress/projection";
 import { GOOGLE_TOOL_NAMES } from "../executors/google";
 import { GITHUB_TOOL_NAMES } from "../executors/github";
+import { nangoTools } from "../tools/nango";
+
+// The COMMERCIAL-ONLY nango connector was added AFTER this refactor. It contributes
+// EMPTY egress (no TOOL_ENTITY) and is excluded from a GOV tenant's tool list, so the
+// pre-refactor GOV invariants below are preserved EXACTLY — nango only adds to the
+// COMMERCIAL (full-set) surface. These names lock that delta.
+const NANGO_TOOL_NAMES = nangoTools.map((t) => t.name);
 
 // ── PRE-REFACTOR LITERALS (the v2.9.0 ground truth) ────────────────────────────
 
@@ -64,21 +71,27 @@ describe("INVARIANT LOCK — connector tool list is byte-identical to pre-refact
     expect([...GITHUB_TOOL_NAMES].sort()).toEqual([...PRE_REFACTOR_GITHUB_TOOL_NAMES].sort());
   });
 
-  it("connectorToolDefs() yields exactly the pre-refactor connector tools, in order", () => {
-    expect(connectorToolDefs().map((t) => t.name)).toEqual(PRE_REFACTOR_CONNECTOR_TOOL_NAMES);
+  it("a GOV tenant's connectorToolDefs is byte-identical to the pre-refactor list (nango excluded)", () => {
+    // The gov surface is the load-bearing invariant: a gov tenant must see EXACTLY
+    // the pre-refactor google+github tools, in order — and NO nango tool.
+    expect(connectorToolDefs("gov").map((t) => t.name)).toEqual(PRE_REFACTOR_CONNECTOR_TOOL_NAMES);
   });
 
-  it("connectorToolNames() == the pre-refactor connector tool-name set", () => {
-    expect([...connectorToolNames()].sort()).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES].sort());
+  it("the FULL (commercial) connectorToolDefs is the pre-refactor list PLUS nango, in order", () => {
+    expect(connectorToolDefs().map((t) => t.name)).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
+    expect(connectorToolDefs("commercial").map((t) => t.name)).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
   });
 
-  it("every connector tool name matches its owning executor's TOOL_NAMES set (dispatch unchanged)", () => {
-    const names = connectorToolNames();
+  it("connectorToolNames('gov') == the pre-refactor connector tool-name set (no nango)", () => {
+    expect([...connectorToolNames("gov")].sort()).toEqual([...PRE_REFACTOR_CONNECTOR_TOOL_NAMES].sort());
+  });
+
+  it("every pre-refactor connector tool name still matches its owning executor's TOOL_NAMES set (dispatch unchanged)", () => {
     for (const n of PRE_REFACTOR_GOOGLE_TOOL_NAMES) expect(GOOGLE_TOOL_NAMES.has(n)).toBe(true);
     for (const n of PRE_REFACTOR_GITHUB_TOOL_NAMES) expect(GITHUB_TOOL_NAMES.has(n)).toBe(true);
-    // no extra connector tool leaked in beyond google ∪ github.
-    const union = new Set([...PRE_REFACTOR_GOOGLE_TOOL_NAMES, ...PRE_REFACTOR_GITHUB_TOOL_NAMES]);
-    for (const n of names) expect(union.has(n)).toBe(true);
+    // The gov name set leaks NOTHING beyond google ∪ github (nango is excluded).
+    const govUnion = new Set([...PRE_REFACTOR_GOOGLE_TOOL_NAMES, ...PRE_REFACTOR_GITHUB_TOOL_NAMES]);
+    for (const n of connectorToolNames("gov")) expect(govUnion.has(n)).toBe(true);
   });
 });
 

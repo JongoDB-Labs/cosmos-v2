@@ -20,6 +20,10 @@ import {
   executeConnectorTool,
 } from "./registry";
 import type { ConnectorDescriptor } from "./types";
+// The REAL nango tool names + the egress projection, to prove no Nango tool maps to a
+// gov-exposed entity (it has no TOOL_ENTITY ⇒ full withhold; gov is blocked anyway).
+import { nangoTools } from "../tools/nango";
+import { entityTypeForTool, projectResult } from "../egress/projection";
 
 function makeDescriptor(over: Partial<ConnectorDescriptor> & { provider: string }): ConnectorDescriptor {
   return { toolDefs: [], execute: async () => ({}), egress: {}, ...over };
@@ -125,5 +129,26 @@ describe("L2 — executeConnectorTool dispatch refuses commercial-only for gov",
       name: "native_read",
     });
     expect(logEgressDecision).not.toHaveBeenCalled();
+  });
+});
+
+// ── Egress contract: NO Nango tool is gov-exposed ─────────────────────────────────
+// The Nango descriptor declares EMPTY egress (no TOOL_ENTITY), so every Nango tool
+// result has no structural entity type ⇒ projectResult() returns the WITHHELD marker
+// (full withhold) for the gov/withheld path. (Gov never reaches a Nango tool anyway —
+// L1-L4 — but this proves the egress floor is fail-closed even if it somehow did.)
+describe("egress — no Nango tool maps to a gov-exposed entity", () => {
+  it("every real nango tool has NO TOOL_ENTITY mapping (entityTypeForTool ⇒ undefined)", () => {
+    for (const t of nangoTools) {
+      expect(entityTypeForTool(t.name)).toBeUndefined();
+    }
+  });
+
+  it("projectResult full-withholds a Nango tool result on the withheld path (no fields survive)", () => {
+    // A representative Nango proxy result body — none of it may reach a withheld-path model.
+    const result = { success: true, status: 200, data: { contacts: [{ id: "1", email: "a@b.com" }] } };
+    const view = projectResult(result, entityTypeForTool("nango_proxy_request"));
+    expect(view).toEqual({ withheld: true, ref: "withheld:structural" });
+    expect(JSON.stringify(view)).not.toContain("a@b.com");
   });
 });

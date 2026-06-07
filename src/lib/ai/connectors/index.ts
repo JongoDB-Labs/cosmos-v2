@@ -13,9 +13,14 @@
 import { registerConnector } from "./registry";
 import { googleConnector } from "./google.descriptor";
 import { githubConnector } from "./github.descriptor";
+import { nangoConnector } from "./nango.descriptor";
 
 registerConnector(googleConnector);
 registerConnector(githubConnector);
+// COMMERCIAL-ONLY connector breadth (Nango). Gov tenants never see/reach it (D5) —
+// the descriptor's availability:"commercial-only" drives the registry's tenant filter
+// + dispatch refusal; the executor + connect route hard-block gov too.
+registerConnector(nangoConnector);
 
 export {
   connectorToolDefs,
