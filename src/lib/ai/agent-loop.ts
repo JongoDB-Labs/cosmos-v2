@@ -2,6 +2,8 @@ import { cosmosTools, type ToolDefinition } from "./tools";
 import { connectorToolDefs, connectorToolNames } from "./connectors";
 import { executeTool } from "./tool-executor";
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { getAgentPolicy } from "./policy";
+import { checkAgentPolicy } from "./policy/enforce";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
 import { effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
@@ -84,6 +86,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   // filter is threaded into executeTool below so dispatch refuses a disabled connector too
   // (defense in depth). Default-config ⇒ no narrowing ⇒ behavior unchanged.
   const runtimeConfig = await getRuntimeConfig(opts.orgId);
+  // ── AGENT POLICY (design D9/§8) — the MIDDLE gate of RBAC ∩ AgentPolicy ∩ Classification.
+  // Load the org's per-call policy ONCE (a MISSING row ⇒ PERMISSIVE: all tools/domains, no arg
+  // bounds = today's behavior). It is enforced per-tool BELOW, after handle-resolve and before
+  // the write-path taint check (order: resolve → agentpolicy → taint → execute).
+  const agentPolicy = await getAgentPolicy(opts.orgId);
   const enabledFilter = {
     enabledConnectors: runtimeConfig.enabledConnectors,
     breadthEnabled: runtimeConfig.breadthEnabled,
@@ -160,6 +167,53 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         execInput = r.resolved as Record<string, unknown>;
         resolvedCount = r.count;
         resolvedMaxCeiling = r.maxCeiling;
+      }
+
+      // ── AGENT POLICY (the MIDDLE gate, design D9/§8) ─────────────────────────────
+      // Order: resolve → AGENTPOLICY → taint → execute. Runs on the RESOLVED args
+      // (execInput) so a clamp/deny is decided against what the executor would actually
+      // receive (handles only ever resolve CUI *string* fields — never the numeric
+      // `limit`/`maxResults` or the allowlist-key `projectId` this gate reads — so the
+      // tools/domain/arg axes are stable across resolution).
+      //   • deny  ⇒ DO NOT execute. Hand the model a block error (names the axis/reason,
+      //             NEVER CUI) + audit decidedBy:"agentpolicy" (hash of the ORIGINAL args,
+      //             counts only) + continue. The PERMISSIVE default (no policy row) makes
+      //             this a no-op, so a no-policy org runs every tool unchanged.
+      //   • clamp ⇒ execute with the clamped args (the executor receives the reduced
+      //             limit) + a non-blocking audit note. Clamp re-applies to execInput so
+      //             both the clamp AND any handle resolution reach the executor.
+      const policyDecision = checkAgentPolicy(agentPolicy, u.name, execInput);
+      if (policyDecision.action === "deny") {
+        logEgressDecision({
+          conversationId: opts.conversationId, turn, valueKind: "tool_args",
+          toolName: u.name, exposed: false, withheldCount: 1,
+          contentHash: sha256Hex(JSON.stringify(u.input)), decidedBy: "agentpolicy",
+          tenantClass: opts.tenantClass, mode: "enforced",
+        });
+        const policyError = { error: `blocked by agent policy: ${policyDecision.reason}` };
+        toolResultBlocks.push({
+          type: "tool_result" as const,
+          tool_use_id: u.id,
+          content: JSON.stringify(policyError),
+        });
+        // Record the ORIGINAL (handle) args in the UI/audit trail — never the resolved
+        // CUI — consistent with the taint-block path; nothing was executed.
+        toolCalls.push({ id: u.id, name: u.name, arguments: u.input, result: policyError });
+        continue;
+      }
+      if (policyDecision.action === "clamp" && policyDecision.clampedArgs) {
+        execInput = policyDecision.clampedArgs;
+        // Non-blocking AC-3/AC-6 evidence: an arg was bounded down by policy (the tool
+        // still runs). exposed:true marks this as an ALLOW-path (clamp, not a withhold).
+        logEgressDecision({
+          conversationId: opts.conversationId, turn, valueKind: "tool_args",
+          toolName: u.name, exposed: true, withheldCount: 0,
+          contentHash: sha256Hex(JSON.stringify(execInput)), decidedBy: "agentpolicy",
+          tenantClass: opts.tenantClass, mode: "enforced",
+        });
+      }
+
+      if (flagOn) {
         if (resolvedCount > 0) {
           // ── WRITE-PATH TAINT (fail-closed) ────────────────────────────────────
           // A value resolved from a handle minted at ceiling X may only be used in a
