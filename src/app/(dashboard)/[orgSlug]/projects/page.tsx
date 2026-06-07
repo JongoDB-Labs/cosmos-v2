@@ -7,7 +7,7 @@ import {
 } from "@/lib/cache/queries";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, FolderKanban } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
@@ -104,6 +104,7 @@ async function ProjectGrid({
   if (projects.length === 0) {
     return (
       <EmptyState
+        icon={FolderKanban}
         title="No projects yet"
         description="Projects organize your work with boards, timelines, and dashboards."
         action={
