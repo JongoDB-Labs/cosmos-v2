@@ -25,9 +25,15 @@ cutover-readiness gate, and it precedes soak-sync and the reverse-proxy flip.
 
 ## The two-part gate
 
-1. **Parity** — `prisma migrate diff` between the restored prod snapshot and v2's
-   `prisma/schema.prisma` datamodel must be **EMPTY**. Any difference means v2's model is
-   not structurally identical to prod's real schema.
+1. **Parity** — `prisma migrate diff` between the restored prod snapshot and v2's **real**
+   schema must be **EMPTY**. v2's real schema is built by replaying `prisma/migrations` into
+   a throwaway shadow DB (`--to-migrations` + `--shadow-database-url`), **not** read from
+   `prisma/schema.prisma`: the datamodel deliberately omits raw-SQL-only objects (the audit
+   `seq` BIGINT GENERATED IDENTITY, the GENERATED `content_tsv` column, the pgvector HNSW
+   indexes, the hash-chain trigger/state objects, `audit_chain_head`), so a datamodel diff is
+   non-empty even on a true match. The migrations replay reproduces those objects, so an
+   exact prod match diffs EMPTY. Any difference means prod's real schema is not what v2's
+   migrations produce.
 2. **Classification FK** — the restored snapshot must carry the foreign key
    `data_classifications.project_id → projects.id`. Its presence proves the baseline was
    reconciled from the classification-propagation line (per-project classification), not
@@ -48,12 +54,14 @@ Run against a **RESTORED** snapshot in a scratch DB — **never against live pro
 #        > prod-migrations.csv
 #    and note the prod git commit SHA.
 
-# 2. Run the gate against a THROWAWAY scratch Postgres (it restores the dump there):
+# 2. Run the gate against TWO throwaway Postgres (scratch = restore the dump; shadow =
+#    Prisma replays prisma/migrations to build v2's reference schema — reset by Prisma):
 npx tsx scripts/cutover/parity-gate.mjs \
   --prod-schema-dump prod-schema.sql \
   --prod-migrations  prod-migrations.csv \
   --prod-commit      "$(git -C /path/to/prod/checkout rev-parse HEAD)" \
   --scratch-url      "postgres://cosmos:cosmos@localhost:5599/scratch" \
+  --shadow-url       "postgres://cosmos:cosmos@localhost:5600/shadow" \
   --stamp            "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 

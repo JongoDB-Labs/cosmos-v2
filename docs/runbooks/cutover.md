@@ -83,14 +83,21 @@ npx tsx scripts/cutover/parity-gate.mjs \
   --prod-migrations  /secure/cutover/prod-migrations.csv \
   --prod-commit      "<prod-git-sha>" \
   --scratch-url      "postgres://cosmos:cosmos@localhost:5599/scratch" \
+  --shadow-url       "postgres://cosmos:cosmos@localhost:5600/shadow" \
   --stamp            "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # stamp is a CLI arg on purpose
 ```
+
+Two throwaway Postgres are needed: `--scratch-url` (the gate restores the prod dump here)
+and `--shadow-url` (Prisma RESETS this and replays `prisma/migrations` here to build v2's
+reference schema — it must be a different, disposable DB).
 
 The script (1) ensures `pgcrypto`+`pgvector` and restores the dump into the scratch DB,
 then runs the **two-part gate**:
 
-1. **Parity** — `prisma migrate diff` between the restored snapshot and v2's datamodel
-   must be **EMPTY**. A non-empty diff is captured (SQL) and the gate FAILS.
+1. **Parity** — `prisma migrate diff` between the restored snapshot and v2's REAL schema
+   (what `prisma/migrations` produces, replayed into the shadow DB — NOT the lossy
+   `schema.prisma` datamodel, which omits raw-SQL-only objects) must be **EMPTY**. A
+   non-empty diff is captured (SQL) and the gate FAILS.
 2. **Classification FK** — the snapshot must carry the FK
    `data_classifications.project_id → projects.id` (the §9.2 baseline marker proving the
    snapshot came from the classification-propagation line). Missing ⇒ FAIL.
@@ -304,7 +311,7 @@ v2-side writes made in that short window.
 
 | step    | command |
 |---------|---------|
-| parity (Step 0, HARD) | `tsx scripts/cutover/parity-gate.mjs --prod-schema-dump … --prod-migrations … --prod-commit … --scratch-url … --stamp …` |
+| parity (Step 0, HARD) | `tsx scripts/cutover/parity-gate.mjs --prod-schema-dump … --prod-migrations … --prod-commit … --scratch-url … --shadow-url … --stamp …` |
 | freeze  | `freezeOrg(orgId, orgSlug, …)` / SQL insert into `frozen_orgs` |
 | export  | `tsx scripts/cutover/export-org.mjs --source … --org … --out … --stamp …` |
 | import  | `tsx scripts/cutover/import-org.mjs --target <owner-url> --in … --org …` |

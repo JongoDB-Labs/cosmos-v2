@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.15.0",
+  "version": "2.16.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -17,7 +17,8 @@
     "prepare": "husky",
     "seed": "tsx prisma/seed/index.ts",
     "test:arch": "vitest run src/lib/ai/egress/__tests__/single-path.arch.test.ts",
-    "cutover:acceptance": "bash scripts/cutover/acceptance/run-acceptance.sh"
+    "cutover:acceptance": "bash scripts/cutover/acceptance/run-acceptance.sh",
+    "cutover:parity-acceptance": "bash scripts/cutover/acceptance/run-parity-acceptance.sh"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed/index.ts"

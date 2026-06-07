@@ -5,6 +5,8 @@
 //     npx tsx scripts/cutover/parity-gate.mjs \
 //       --prod-schema-dump <path.sql>   (a `pg_dump --schema-only` of the live prod DB) \
 //       --scratch-url      <url>        (a THROWAWAY Postgres to restore the dump into) \
+//       --shadow-url       <url>        (a SECOND throwaway Postgres; Prisma builds v2's \
+//                                        reference schema here from prisma/migrations) \
 //       --stamp            <iso8601>    (the check timestamp — a CLI arg on purpose) \
 //       [--prod-migrations <path>]      (prod's _prisma_migrations rows: JSON or psql CSV) \
 //       [--prod-commit     <sha>]       (the prod git commit the dump was taken at) \
@@ -14,14 +16,21 @@
 // THE TWO-PART HARD GATE (both must pass or the script exits NON-ZERO — fail closed):
 //
 //   Gate part 1 — PARITY: `prisma migrate diff` between the RESTORED prod snapshot (the
-//     scratch DB) and v2's prisma/schema.prisma datamodel must be EMPTY. A non-empty diff
-//     means v2's model is NOT structurally identical to what prod actually runs — the
-//     cutover would migrate into an unproven schema. On drift the diff SQL is captured.
+//     scratch DB) and v2's REAL schema — the schema v2's migrations produce — must be EMPTY.
+//     v2's real schema is built into the throwaway --shadow-url by replaying prisma/migrations
+//     (`--to-migrations`), NOT read from prisma/schema.prisma. That matters: the datamodel
+//     deliberately omits raw-SQL-only objects (the BIGINT GENERATED IDENTITY audit `seq`,
+//     the GENERATED `content_tsv`, the pgvector HNSW indexes, the hash-chain trigger objects,
+//     the audit_chain_head table) so a datamodel diff is non-empty even on a true match. The
+//     migrations replay reproduces those objects faithfully, so an exact prod match diffs
+//     EMPTY. A non-empty diff means prod's real schema is NOT what v2's migrations produce —
+//     the cutover would migrate into an unproven schema. On drift the diff SQL is captured.
 //
 //   Gate part 2 — CLASSIFICATION FK: the restored snapshot must carry a FOREIGN KEY
 //     data_classifications.project_id -> projects.id. Its presence proves the baseline was
 //     reconciled from the classification-propagation line (per-project classification), not
-//     an older branch. Missing ⇒ FAIL.
+//     an older branch. Missing ⇒ FAIL. (This is an independent, dedicated pg_constraint
+//     assertion — it does not rely on the diff — so the §9.2 marker is asserted explicitly.)
 //
 // Then PROVENANCE: a stable sha256 over prod's ordered (migration_name, checksum) history
 // + the prod commit + the gate verdict is written to compliance/provenance/prod-baseline.json
@@ -49,7 +58,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
-const SCHEMA_PATH = path.join(REPO_ROOT, "prisma", "schema.prisma");
+const MIGRATIONS_DIR = path.join(REPO_ROOT, "prisma", "migrations");
 const DEFAULT_OUT = path.join(REPO_ROOT, "compliance", "provenance", "prod-baseline.json");
 
 function parseArgs(argv) {
@@ -60,6 +69,7 @@ function parseArgs(argv) {
     else if (a === "--prod-migrations") out.migrations = argv[++i];
     else if (a === "--prod-commit") out.commit = argv[++i];
     else if (a === "--scratch-url") out.scratch = argv[++i];
+    else if (a === "--shadow-url") out.shadow = argv[++i];
     else if (a === "--stamp") out.stamp = argv[++i];
     else if (a === "--out") out.outPath = argv[++i];
     else if (a === "--no-write") out.write = false;
@@ -115,6 +125,7 @@ async function main() {
   const args = parseArgs(process.argv);
   const dump = req(args, "dump", "prod-schema-dump");
   const scratch = req(args, "scratch", "scratch-url");
+  const shadow = req(args, "shadow", "shadow-url");
   const stamp = req(args, "stamp", "stamp");
   const outPath = args.outPath ? path.resolve(args.outPath) : DEFAULT_OUT;
 
@@ -122,9 +133,15 @@ async function main() {
   if (args.migrations && !existsSync(args.migrations)) {
     fail(`--prod-migrations not found: ${args.migrations}`);
   }
-  // Reject an obvious live-prod URL guard is the operator's job; we only require a URL.
+  // Reject an obvious live-prod URL guard is the operator's job; we only require URLs.
   if (!/^postgres(ql)?:\/\//.test(scratch)) {
     fail(`--scratch-url must be a postgres:// URL (got ${scratch})`);
+  }
+  if (!/^postgres(ql)?:\/\//.test(shadow)) {
+    fail(`--shadow-url must be a postgres:// URL (got ${shadow})`);
+  }
+  if (shadow === scratch) {
+    fail("--shadow-url must differ from --scratch-url (Prisma RESETS the shadow DB)");
   }
 
   console.log("══════════════════════════════════════════════════════════════════════");
@@ -132,6 +149,7 @@ async function main() {
   console.log("══════════════════════════════════════════════════════════════════════");
   console.log(`  prod schema dump : ${dump}`);
   console.log(`  scratch DB       : ${redactUrl(scratch)}`);
+  console.log(`  shadow DB        : ${redactUrl(shadow)}`);
   console.log(`  checkedAt (stamp): ${stamp}`);
   console.log(`  prod commit      : ${args.commit ?? "(not provided)"}`);
   console.log(`  prod migrations  : ${args.migrations ?? "(not provided)"}`);
@@ -146,16 +164,16 @@ async function main() {
   console.log("    restore OK.\n");
 
   // ── Step 2: gate part 1 — migrate diff parity ──────────────────────────────────────
-  console.log("── Step 2: gate part 1 — prisma migrate diff (scratch ⟶ v2 datamodel) ──");
-  const diff = runMigrateDiff(scratch);
+  console.log("── Step 2: gate part 1 — prisma migrate diff (scratch ⟶ v2 migrations via shadow) ──");
+  const diff = runMigrateDiff(scratch, shadow);
   let parityPass;
   if (diff.exitCode === 0) {
     parityPass = true;
-    console.log("    PASS — migrate diff is EMPTY (structural parity with v2's model).\n");
+    console.log("    PASS — migrate diff is EMPTY (structural parity with v2's migrations).\n");
   } else if (diff.exitCode === 2) {
     parityPass = false;
-    console.log("    FAIL — migrate diff is NON-EMPTY (v2's model differs from prod's schema).");
-    console.log("    ── captured diff (scratch ⟶ v2 datamodel) ──");
+    console.log("    FAIL — migrate diff is NON-EMPTY (prod's schema differs from v2's migrations).");
+    console.log("    ── captured diff (scratch ⟶ v2 migrations) ──");
     console.log(indent(diff.script || "(empty diff script)"));
     console.log("");
   } else {
@@ -234,24 +252,36 @@ async function main() {
 }
 
 /**
- * Run `prisma migrate diff --from-url <scratch> --to-schema-datamodel schema --exit-code`.
+ * Run `prisma migrate diff --from-url <scratch> --to-migrations prisma/migrations
+ * --shadow-database-url <shadow> --exit-code`.
  * Exit-code contract (Prisma): 0 = empty (parity), 2 = non-empty (drift), 1 = error.
  * On drift we re-run with --script (no --exit-code) to capture the human/SQL diff text.
  *
- * NOTE on flag choice: the plan wrote `--from-schema-datasource <scratch-url>`, but that
- * Prisma flag takes a SCHEMA FILE path (it reads the datasource URL from the file), not a
- * raw URL. `--from-url <scratch-url>` is the direct, equivalent form for "diff this live DB
- * against v2's datamodel" — documented deviation, same semantics.
+ * NOTE on flag choice (documented deviation from the plan's literal wording):
+ *   - The plan wrote `--from-schema-datasource <scratch-url>`; that Prisma flag takes a
+ *     SCHEMA FILE path, not a raw URL. `--from-url <scratch-url>` is the direct equivalent.
+ *   - The plan wrote `--to-schema-datamodel prisma/schema.prisma`. Diffing against the
+ *     DATAMODEL is WRONG for this schema: prisma/schema.prisma deliberately omits raw-SQL-
+ *     only objects (the audit `seq` BIGINT GENERATED IDENTITY, the GENERATED `content_tsv`
+ *     column, the pgvector HNSW indexes, the hash-chain trigger/state objects, the
+ *     audit_chain_head table), so even a byte-perfect prod match diffs NON-EMPTY against it
+ *     (empirically: ~17 phantom diff items). We instead diff against v2's REAL schema —
+ *     what its migrations produce — by replaying `prisma/migrations` into the throwaway
+ *     shadow DB (`--to-migrations` + `--shadow-database-url`). That reproduces every raw-SQL
+ *     object, so an exact prod match diffs EMPTY and any genuine drift is reported. Same
+ *     §9.2 intent ("structural parity between prod's real schema and v2's"), correct tool.
  */
-function runMigrateDiff(scratchUrl) {
+function runMigrateDiff(scratchUrl, shadowUrl) {
   const base = [
     "prisma",
     "migrate",
     "diff",
     "--from-url",
     scratchUrl,
-    "--to-schema-datamodel",
-    SCHEMA_PATH,
+    "--to-migrations",
+    MIGRATIONS_DIR,
+    "--shadow-database-url",
+    shadowUrl,
   ];
   const r = spawnSync("npx", [...base, "--exit-code"], {
     cwd: REPO_ROOT,
