@@ -18,8 +18,17 @@
 How COSMOS migrates **one tenant at a time** from v1 (the source app + its DB) to v2
 (the new stack + its dedicated DB), with **zero row loss, exact money, preserved CUI
 markings, and idempotent replay**. The model is **unidirectional, per-tenant**
-`freeze → export → import → verify (HARD gate) → flip → soak → finalize`, with
+`export → import → **soak-sync (continuous catch-up while v1 is live)** → freeze →
+**final reconcile (deletes applied)** → verify (HARD gate) → flip → finalize`, with
 **commercial tenants first, gov tenants last** (behind the gov-go-live gate).
+
+> **Why the soak-then-reconcile shape:** the freeze window is the only downtime, so we
+> shrink it to near-zero. `soak-sync` runs on a cadence **before** the freeze, draining
+> inserts/updates continuously while v1 keeps serving. The freeze then only needs to cover
+> the **final reconcile** — a small last delta plus the one thing the delta can't do:
+> applying the **DELETES** that happened in the source during the soak. A watermark delta is
+> insert/update-only (a deleted row just stops appearing), so deleted rows **linger** in v2
+> until the under-freeze reconcile removes them by an exact org-scoped PK-set diff.
 
 This runbook is the **first delivered slice**: the core engine + the source-side
 write-freeze. The DEFERRED-to-automation steps (snapshot/provenance reconstruction,
@@ -40,8 +49,18 @@ load), **idempotently** (append-only ⇒ `ON CONFLICT DO NOTHING`; mutable ⇒
 `DataClassification` org-ceiling rows fail-closed (keep the highest level, markings
 verbatim, every drop logged). `verify-org.mjs` then compares source↔target
 (per-model exact counts, **per-row** money equality, the CUI/FOUO marking invariant, a
-sampled content checksum) and **exits non-zero on ANY mismatch** — that clean exit is the
-gate the flip is conditioned on.
+sampled content checksum, **and a generic dangling-FK orphan probe**) and **exits non-zero
+on ANY mismatch** — that clean exit is the gate the flip is conditioned on.
+
+Two more scripts make the cutover **near-zero-downtime**: `soak-sync.mjs` is an
+**incremental watermark delta replay** — while v1 is still live it repeatedly re-exports and
+re-imports only the rows changed since the last cycle (per-table watermark =
+`updated_at` if present, else `created_at`, else a full scan), keeping v2 caught up so the
+freeze window is tiny. `reconcile-org.mjs` is the **final reconcile** run ONCE under freeze:
+a final full idempotent import, then **delete-extras** (it removes from v2 the rows that were
+DELETED in the now-frozen source during the soak — which the insert/update-only delta
+**cannot** see), then the orphan probe + verify gate. Both reuse the same export/import cores
+as the one-shot engine (`lib/export-core.ts`, `lib/import-core.ts`).
 
 ---
 
@@ -135,7 +154,13 @@ See `compliance/provenance/README.md` for field meanings and the hash semantics.
 
 ---
 
-## 2. Freeze (source-side write-freeze)
+## 2. Freeze (source-side write-freeze) — AFTER the soak, RIGHT BEFORE the reconcile
+
+> **Ordering:** do the initial export+import (§3-4) and run the **soak-sync** (§4b) on a
+> cadence **while v1 is still live and unfrozen**. Freeze **only** once you're ready to run
+> the **final reconcile** (§5). The freeze is what makes the final delta + the deletes
+> consistent; it is the entire downtime window, so it should be measured in **seconds to a
+> few minutes** thanks to the soak having already drained the bulk of the changes.
 
 A short write-freeze on the org in the **source** app lets the last delta drain
 consistently. The proxy (`src/proxy.ts`) returns **HTTP 405** on mutating verbs
@@ -225,7 +250,107 @@ fabricate a chain over rows the source already attested.
 
 ---
 
-## 5. Verify — THE HARD FLIP GATE
+## 4b. Soak-sync — continuous incremental catch-up (WHILE v1 IS LIVE)
+
+After the initial import seeds v2, keep v2 caught up with the **still-live** source by
+running the incremental delta replay on a cadence. Each cycle re-exports/re-imports only the
+rows changed since the last cycle, selected by a per-table watermark. The org is **NOT**
+frozen during the soak — v1 keeps serving; this is the work that shrinks the freeze window.
+
+Run as the **owner** on the target (it imports under `session_replication_role = replica`).
+The `--state` file is the soak's only memory (per-table watermarks keyed by orgId); a missing
+file = a full first sync.
+
+```sh
+# one cycle (drain the current delta):
+npx tsx scripts/cutover/soak-sync.mjs \
+  --source "$SOURCE_DATABASE_URL" \
+  --target "$TARGET_OWNER_DATABASE_URL" \
+  --org    "<orgId-uuid>" \
+  --state  "/secure/cutover/<slug>/soak-state.json" \
+  --stamp  "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# or run it as a cadence (the documented soak loop; the scheduler/cron is ops):
+npx tsx scripts/cutover/soak-sync.mjs … --loop --interval 300   # every 5 min
+```
+
+- **Watermark per table:** `updated_at` if the table has one, else `created_at`, else (the
+  ~11 join/config tables with neither) a **full scan every cycle** (idempotent UPSERT, so a
+  full re-scan can never miss a change). The watermark advances to the **max value observed**
+  in the exported rows (never a wall clock) — no clock-skew window, no skipped row.
+- **The referential closure runs every cycle**, so a changed/new child pulls its global/shared
+  parent in; the delta is always referentially complete.
+- [ ] Each cycle prints per-table `scanned` / `upserted`. A steady-state cycle on an idle org
+      is cheap (mostly 0 upserts). Re-running drains whatever changed.
+
+> **⚠ Delta replay CANNOT see DELETES.** A row deleted in the source during the soak simply
+> stops appearing in the delta, so it **lingers in v2**. This is **by design** — the soak is
+> insert/update catch-up only. The lingering deletes are removed by the **final reconcile**
+> (§5) under freeze. Do **not** try to make the soak delete rows; deletes are applied exactly
+> once, under freeze, by the reconcile's PK-set diff.
+
+---
+
+## 5. Final reconcile + verify — THE HARD FLIP GATE (under freeze)
+
+**Precondition: the source is now write-FROZEN (§2).** With the bulk already drained by the
+soak, the freeze covers only this final pass. `reconcile-org.mjs` makes v2 **EXACTLY** match
+the frozen source — including the deletes the delta couldn't see — then runs the verify gate.
+
+Run as the **owner** on the target:
+
+```sh
+npx tsx scripts/cutover/reconcile-org.mjs \
+  --source "$SOURCE_DATABASE_URL" \
+  --target "$TARGET_OWNER_DATABASE_URL" \
+  --org    "<orgId-uuid>" \
+  --stamp  "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # [--confirm-large] [--large-threshold <n>]  — see the delete-count guard below
+```
+
+It runs four phases, **fail-closed** at each:
+
+1. **Final full idempotent import** — catches any last delta.
+2. **Delete-extras** — for each **mutable, org-owned (DIRECT/PARENT), non-audit** table, it
+   computes the org-scoped PK set in source vs target and `DELETE`s from the target the PKs in
+   **target-but-not-source** (the rows deleted in the source during soak), in **one** owner
+   transaction (`session_replication_role = replica`), ordered **children-before-parents**
+   (reverse FK-topological) so a parent delete never strands a retained child.
+3. **Orphan probe** inside that same transaction — **any** dangling FK ⇒ the whole reconcile
+   **ROLLS BACK** (all-or-nothing; a delete that would strand a child is rejected and the
+   target is left untouched).
+4. **Verify gate** — `verify-org` (counts now match exactly, per-row money, markings,
+   checksums, orphan probe). A clean exit (0) is the flip precondition.
+
+### The never-delete invariants (the crux — these MUST hold)
+
+The reconcile deletes **strictly** the set `org-owned ∩ mutable ∩ non-audit`, by org-scoped
+PK-set diff. It therefore **NEVER**:
+
+- **deletes from append-only / audit tables** — immutable history; `audit_logs` /
+  `egress_decisions` are also refused **by name** (defense in depth) and their DELETE trigger
+  would block it anyway. v1 never deletes them, so there is nothing to reconcile.
+- **deletes the referential-closure parents** — a **global built-in** (`work_item_type` /
+  template with `org_id IS NULL`) or a **shared user** (incl. a user who is a member of
+  **two** orgs) is not org-owned. Because the diff uses the **strict org-scope** SELECT, such
+  a row is in **neither** the source-scoped nor the target-scoped PK set, so it can **never**
+  be a delete candidate. Deleting a shared user because it looks "extra for this org" would
+  corrupt another org — that must never happen.
+- **touches another org's rows** — same org-scoped diff; DIRECT deletes also re-assert
+  `org_id` in the `DELETE … WHERE` as a final safety net.
+
+### The delete-count guard
+
+A delete-extras count over `--large-threshold` (default **10000**) makes the reconcile
+**fail-closed** unless you pass `--confirm-large`. A huge delete count is almost always a
+**scoping bug**, not a real mass-deletion — investigate the per-table planned counts the
+script prints before overriding.
+
+- [ ] `reconcile-org` exits **0**. If it exits non-zero, **DO NOT FLIP** — read the failure
+      (a verify mismatch, an orphan rollback, or the large-delete guard), fix the cause, and
+      re-run. The reconcile is idempotent: a clean re-run reports **0 deleted**.
+
+### verify-org standalone (the same gate the reconcile runs)
 
 ```sh
 npx tsx scripts/cutover/verify-org.mjs \
@@ -235,16 +360,15 @@ npx tsx scripts/cutover/verify-org.mjs \
   --out    "/secure/cutover/<slug>/verify-report.json"
 ```
 
-- Per-model **exact** row-count match (DataClassification compared against the deduped
-  expected count).
-- **Per-row** money equality (PK-join; Decimal exact / Float round-4) — never an aggregate
-  SUM.
-- The **CUI/FOUO marking invariant** (orgs bearing any CUI/FOUO marking: source == target).
-- A **sampled content checksum** over mutable rows.
+The gate checks: per-model **exact** row-count match (DataClassification compared against the
+deduped expected count); **per-row** money equality (PK-join; Decimal exact / Float round-4 —
+never an aggregate SUM); the **CUI/FOUO marking invariant** (orgs bearing any CUI/FOUO
+marking: source == target); a **sampled content checksum** over mutable rows; and the generic
+**dangling-FK orphan probe**. It **exits 0 only when CLEAN** — `mismatches` is empty.
 
 - [ ] **`verify-org` exits 0** (CLEAN). If it exits non-zero, **DO NOT FLIP** — read the
-      `mismatches` array, fix the cause, re-import, re-verify. A clean verify is the
-      precondition for the flip.
+      `mismatches` array, fix the cause, re-run the reconcile, re-verify. A clean verify is
+      the precondition for the flip.
 
 ---
 
@@ -258,16 +382,19 @@ Point the tenant's route at v2:
 - Edit the reverse proxy (Caddy/nginx) so requests for this `orgSlug` (host or path) route
   to the **v2** stack instead of v1. Reload the proxy.
 - [ ] Confirm a v2 page loads for the tenant and an authenticated write succeeds **on v2**.
-- [ ] **Unfreeze** is NOT yet done — keep v1 frozen during soak so no split-brain writes
-      land on v1.
+- [ ] Keep **v1 frozen** until finalize so no split-brain writes land on v1 (v1 remains the
+      read-only rollback target).
 
 ---
 
-## 7. Soak + finalize
+## 7. Finalize
 
-- [ ] **Soak:** watch v2 for the tenant. The import engine IS the replay primitive — if
-      you took the export before the freeze, re-run export→import to drain the final delta
-      (idempotent), then re-verify. (The standalone soak-sync scheduler is **deferred**.)
+The bulk catch-up (soak) and the exact reconciliation (including deletes) already happened in
+§4b–§5; the flip is done. Finalize the tenant:
+
+- [ ] **Post-flip confidence check:** watch v2 for the tenant. The reconcile already made v2
+      exactly match the frozen source and the verify gate passed, so no further data sync is
+      needed — but you may re-run `verify-org` for peace of mind (it must stay CLEAN).
 - [ ] **Credential re-vaulting — COPY, not move (deferred automation):** copy each
       plaintext credential into the v2 vault; **keep the source columns intact** so v1
       stays a working rollback target. NULL the source columns **only after** finalize.
@@ -312,9 +439,12 @@ v2-side writes made in that short window.
 | step    | command |
 |---------|---------|
 | parity (Step 0, HARD) | `tsx scripts/cutover/parity-gate.mjs --prod-schema-dump … --prod-migrations … --prod-commit … --scratch-url … --shadow-url … --stamp …` |
-| freeze  | `freezeOrg(orgId, orgSlug, …)` / SQL insert into `frozen_orgs` |
 | export  | `tsx scripts/cutover/export-org.mjs --source … --org … --out … --stamp …` |
 | import  | `tsx scripts/cutover/import-org.mjs --target <owner-url> --in … --org …` |
+| soak-sync (cadence, v1 live) | `tsx scripts/cutover/soak-sync.mjs --source … --target <owner-url> --org … --state … [--loop --interval <sec>] --stamp …` |
+| freeze  | `freezeOrg(orgId, orgSlug, …)` / SQL insert into `frozen_orgs` |
+| final reconcile (under freeze, applies DELETES) | `tsx scripts/cutover/reconcile-org.mjs --source … --target <owner-url> --org … --stamp … [--confirm-large]` |
 | verify  | `tsx scripts/cutover/verify-org.mjs --source … --target … --org … --out …` |
 | flip    | manual reverse-proxy route change (deferred automation) |
 | rollback| re-route to v1 + restore pre-flip snapshot + `unfreezeOrg(orgId)` |
+| synthetic acceptance | `npm run cutover:soak-acceptance` (soak-sync + reconcile; no prod) |
