@@ -38,10 +38,13 @@ function plan(name: string): ModelPlan {
 
 describe("buildModelPlans — classification", () => {
   it("derives a non-trivial set of org-scoped models (the shared business graph)", () => {
-    // The shared 69-ish org-scoped models minus the excluded globals; not hardcoded but
+    // The shared ~84 org-scoped models minus the excluded globals; not hardcoded but
     // sanity-bounded so a derivation regression (e.g. dropping all PARENT models) fails.
+    // Bumped from <75 when the prod-parity reconciliation added 17 org-scoped models
+    // (chat_bots, work_item_links, finance/bank/document tables — migration
+    // 20260607030000); ChatAlertKeyword is user-scoped so it's not a plan here.
     expect(plans.length).toBeGreaterThan(50);
-    expect(plans.length).toBeLessThan(75);
+    expect(plans.length).toBeLessThan(95);
   });
 
   it("excludes the 5 v2-only models (no v1 source)", () => {
