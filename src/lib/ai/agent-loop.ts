@@ -2,7 +2,7 @@ import { cosmosTools, type ToolDefinition } from "./tools";
 import { executeTool } from "./tool-executor";
 import { runModelTurn, toModelTools, projectForModel, projectResult, entityTypeForTool, augmentWithHandles, resolveHandlesDeep, sha256Hex, logEgressDecision, type ModelMessage } from "./egress";
 import type { TenantClass } from "./egress";
-import { effectiveCeiling, maxByRank } from "@/lib/classification/effective";
+import { effectiveCeiling, maxByRank, rankOf } from "@/lib/classification/effective";
 import type { ClassificationLevel } from "@prisma/client";
 
 /**
@@ -114,6 +114,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // a non-matching / wrong-conversation / fabricated handle passes through
       // literally (harmless). The RESOLVED value goes ONLY to the executor; its
       // result is re-gated below (no echo-back to the model).
+      // The tool's TARGET project scope (if the tool was called with a string
+      // projectId). Used both for the WRITE-PATH TAINT check below (where the data
+      // would LAND) and for the per-result effective ceiling after execution.
+      const projectId = typeof (u.input as { projectId?: unknown }).projectId === "string"
+        ? (u.input as { projectId: string }).projectId : undefined;
       let execInput: Record<string, unknown> = u.input;
       let resolvedCount = 0;
       // C1: the HIGHEST mint-time ceiling among the handles resolved in THIS tool's
@@ -127,8 +132,44 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         resolvedCount = r.count;
         resolvedMaxCeiling = r.maxCeiling;
         if (resolvedCount > 0) {
+          // ── WRITE-PATH TAINT (fail-closed) ────────────────────────────────────
+          // A value resolved from a handle minted at ceiling X may only be used in a
+          // tool call whose TARGET context is classified ≥ X. `targetCeiling` is the
+          // RAW effective ceiling of where the data would LAND (org ceiling when no
+          // projectId) — NOT the v2.9.0-folded result ceiling. If the target is below
+          // the resolved value's mint ceiling, executing this tool would PERSIST CUI
+          // into a lower-classification container (down-classification laundering by
+          // reference). REJECT before executeTool: the CUI is never written, never
+          // logged, and never reaches the model (the error names only LEVELS).
+          const targetCeiling = await effectiveCeiling(opts.orgId, projectId);
+          if (resolvedMaxCeiling !== null && rankOf(targetCeiling) < rankOf(resolvedMaxCeiling)) {
+            // AC-4 evidence: a down-classification write was PREVENTED. The hash is of
+            // the ORIGINAL (handle) args — never the resolved CUI.
+            logEgressDecision({
+              conversationId: opts.conversationId, turn, valueKind: "tool_args",
+              toolName: u.name, exposed: false, withheldCount: resolvedCount,
+              contentHash: sha256Hex(JSON.stringify(u.input)), decidedBy: "handle_taint_block",
+              tenantClass: opts.tenantClass, mode: "enforced", ceiling: resolvedMaxCeiling,
+            });
+            // Hand the model a structured taint-violation error (LEVELS only, no CUI)
+            // so it sees the rejection and can retarget; do NOT execute the tool.
+            const taintError = {
+              error: `blocked: a value classified ${resolvedMaxCeiling} cannot be written into a context cleared only for ${targetCeiling} (would spill CUI into a lower-classification container). Use a project cleared for ${resolvedMaxCeiling}.`,
+            };
+            toolResultBlocks.push({
+              type: "tool_result" as const,
+              tool_use_id: u.id,
+              content: JSON.stringify(taintError),
+            });
+            // Record the ORIGINAL (handle) args in the trail — never the resolved CUI,
+            // consistent with the existing "userView/arguments → UI" rule. The result
+            // is the levels-only error (no CUI), since nothing was executed.
+            toolCalls.push({ id: u.id, name: u.name, arguments: u.input, result: taintError });
+            continue;
+          }
           // AC-4: record that N handles (CUI) moved by reference into an in-boundary
-          // tool. The hash is of the ORIGINAL (handle) args — never the resolved CUI.
+          // tool (allow path — target cleared ≥ resolved). The hash is of the ORIGINAL
+          // (handle) args — never the resolved CUI.
           logEgressDecision({
             conversationId: opts.conversationId, turn, valueKind: "tool_args",
             toolName: u.name, exposed: false, withheldCount: resolvedCount,
@@ -138,11 +179,6 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         }
       }
       const output = await executeTool(u.name, execInput, { orgId: opts.orgId, userId: opts.userId });
-      // Resolve the value's effective ceiling from the tool's project scope (if
-      // the tool was called with a string projectId) so the data-driven MAC
-      // ceiling applies per-result, not just per-org.
-      const projectId = typeof (u.input as { projectId?: unknown }).projectId === "string"
-        ? (u.input as { projectId: string }).projectId : undefined;
       // C1 FIX: fold the resolved handles' mint-time ceiling into the result's
       // effective gate ceiling (max-by-rank). Resolving a CUI-minted handle forces
       // this turn's result to be gated at ≥CUI ⇒ rank ≥ FOUO ⇒ WITHHELD for BOTH
