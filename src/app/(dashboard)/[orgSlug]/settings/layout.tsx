@@ -20,6 +20,7 @@ import {
   UserCog,
   Cpu,
   Bot,
+  Gavel,
 } from "lucide-react";
 import {
   Select,
@@ -36,6 +37,7 @@ const settingsNav = [
   { icon: Server, label: "MCP Servers", href: "/settings/mcp-servers" },
   { icon: Cpu, label: "Runtime Config", href: "/settings/runtime-config" },
   { icon: Bot, label: "Agent Policy", href: "/settings/agent-policy" },
+  { icon: Gavel, label: "Agent Governance", href: "/settings/agent-governance" },
   { icon: Webhook, label: "Webhooks", href: "/settings/webhooks" },
   { icon: Palette, label: "Themes", href: "/settings/themes" },
   { icon: SlidersHorizontal, label: "Preferences", href: "/settings/preferences" },
