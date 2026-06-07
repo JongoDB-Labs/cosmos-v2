@@ -42,6 +42,46 @@ function isAvailableTo(d: ConnectorDescriptor, tenantClass: TenantClass | undefi
   return true;
 }
 
+/**
+ * The per-org RUNTIME ENABLEMENT filter (design §8 GUI runtime-config). ADDITIVE on top of
+ * the tenantClass/availability rule — it never WIDENS access, only narrows it further.
+ *  - `enabledConnectors`: provider allowlist, or `null`/`undefined` for "all enabled"
+ *    (the DEFAULT — preserves current behavior). An explicit array opts into a SUBSET.
+ *  - `breadthEnabled`: the Nango/commercial-breadth toggle. When false, every BREADTH
+ *    connector (availability:"commercial-only") is hidden/refused even for commercial.
+ *    `undefined` ⇒ true (default-on). (Gov never reaches breadth regardless — the
+ *    availability rule above already blocks it.)
+ * OMITTING the whole filter ⇒ no extra narrowing (today's behavior). This is the object
+ * `getRuntimeConfig()` produces (minus mcpEnabled, which isn't a connector axis yet).
+ */
+export interface ConnectorEnabledFilter {
+  enabledConnectors?: string[] | null;
+  breadthEnabled?: boolean;
+}
+
+/** Is a descriptor a BREADTH (commercial-only) connector — the Nango case the breadth
+ *  toggle governs? Today's only breadth connector is Nango (availability:"commercial-only"). */
+function isBreadthConnector(d: ConnectorDescriptor): boolean {
+  return (d.availability ?? "all") === "commercial-only";
+}
+
+/**
+ * Apply the per-org runtime enablement filter to a descriptor. A descriptor passes only if
+ * BOTH hold:
+ *   1. provider ∈ enabledConnectors  OR  enabledConnectors is null/undefined (= all enabled);
+ *   2. it is NOT a breadth connector  OR  breadthEnabled is true.
+ * (The tenantClass/availability rule is applied SEPARATELY by the callers; this is purely
+ * the org-runtime narrowing.) Omitting `filter` ⇒ always true (no extra narrowing).
+ */
+function isEnabledByConfig(d: ConnectorDescriptor, filter?: ConnectorEnabledFilter): boolean {
+  if (!filter) return true;
+  const allowlist = filter.enabledConnectors;
+  if (allowlist != null && !allowlist.includes(d.provider)) return false;
+  const breadthOn = filter.breadthEnabled ?? true;
+  if (isBreadthConnector(d) && !breadthOn) return false;
+  return true;
+}
+
 /** The live set of registered descriptors, keyed by provider for dup-detection. */
 const descriptors: ConnectorDescriptor[] = [];
 /** tool name → owning descriptor, the dispatch index (rebuilt on each register). */
@@ -119,9 +159,17 @@ export function getConnectorDescriptors(): readonly ConnectorDescriptor[] {
  * GitHub/native behave exactly as before. Omitting `tenantClass` returns the full set
  * (the legacy/static `cosmosTools` snapshot path; the agent loop ALWAYS passes a class).
  */
-export function connectorToolDefs(tenantClass?: TenantClass): ConnectorDescriptor["toolDefs"] {
+export function connectorToolDefs(
+  tenantClass?: TenantClass,
+  enabled?: ConnectorEnabledFilter,
+): ConnectorDescriptor["toolDefs"] {
   return descriptors
     .filter((d) => isAvailableTo(d, tenantClass ?? "commercial"))
+    // ── GUI runtime-config (design §8) — per-org connector ENABLEMENT ──────────────
+    // Narrow further by the org's runtime config: a disabled provider's tools are not
+    // offered, and a breadth connector's tools are hidden when breadthEnabled=false.
+    // Omitting `enabled` ⇒ no narrowing (today's behavior; the invariant default case).
+    .filter((d) => isEnabledByConfig(d, enabled))
     .flatMap((d) => d.toolDefs);
 }
 
@@ -131,11 +179,19 @@ export function connectorToolDefs(tenantClass?: TenantClass): ConnectorDescripto
  * won't route it to the connector layer for a gov tenant — though L2/L3 below still
  * hard-refuse if it somehow reaches here). Omitting the class returns the full set.
  */
-export function connectorToolNames(tenantClass?: TenantClass): ReadonlySet<string> {
-  if (tenantClass === undefined) return new Set(toolNameOwner.keys());
+export function connectorToolNames(
+  tenantClass?: TenantClass,
+  enabled?: ConnectorEnabledFilter,
+): ReadonlySet<string> {
+  // No tenant class AND no enablement filter ⇒ the FULL set (the dispatcher's membership
+  // path uses this so a forged call still ROUTES into the connector layer and is refused
+  // there — never falls through to "Unknown tool").
+  if (tenantClass === undefined && enabled === undefined) return new Set(toolNameOwner.keys());
   const names = new Set<string>();
   for (const [name, owner] of toolNameOwner) {
-    if (isAvailableTo(owner, tenantClass)) names.add(name);
+    if (isAvailableTo(owner, tenantClass ?? "commercial") && isEnabledByConfig(owner, enabled)) {
+      names.add(name);
+    }
   }
   return names;
 }
@@ -183,6 +239,33 @@ export function executeConnectorTool(
       new Error(
         `[connector-registry] tool "${name}" belongs to a commercial-only connector ` +
           `("${owner.provider}") and is NOT available to a gov tenant — refusing dispatch (D5).`,
+      ),
+    );
+  }
+
+  // ── GUI runtime-config gate (DEFENSE IN DEPTH behind the tool-list filter) ───────
+  // The org's runtime config may have DISABLED this connector (provider not in the
+  // enabledConnectors allowlist) or DISABLED breadth (breadthEnabled=false). The model
+  // never saw the tool (the tool-list filter excluded it), but a DIRECT/forged call must
+  // still be refused HERE. AUDIT the refusal as an egress decision (the hash is of the
+  // ARGS — nothing executes, no CUI is added).
+  if (ctx.enabled && !isEnabledByConfig(owner, ctx.enabled)) {
+    logEgressDecision({
+      conversationId: ctx.conversationId ?? "n/a",
+      turn: -1,
+      valueKind: "tool_args",
+      toolName: name,
+      exposed: false,
+      withheldCount: 1,
+      contentHash: sha256Hex(JSON.stringify(input ?? {})),
+      decidedBy: "connector_disabled_block",
+      tenantClass: ctx.tenantClass ?? "gov",
+      mode: "enforced",
+    });
+    return Promise.reject(
+      new Error(
+        `[connector-registry] tool "${name}" belongs to connector "${owner.provider}", ` +
+          `which is DISABLED by this org's runtime config — refusing dispatch (runtime-config gate).`,
       ),
     );
   }

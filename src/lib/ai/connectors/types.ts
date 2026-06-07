@@ -58,6 +58,17 @@ export interface ConnectorToolContext {
   tenantClass?: TenantClass;
   /** Conversation id for the L2 refusal audit record (egress-decision trail). */
   conversationId?: string;
+  /**
+   * The org's per-org RUNTIME ENABLEMENT (design §8 GUI runtime-config). The dispatcher
+   * threads it through so `executeConnectorTool` can hard-refuse a tool whose connector
+   * the org has DISABLED (or a breadth connector when breadthEnabled=false) — defense in
+   * depth behind the tool-list filter. OPTIONAL: absent ⇒ no extra narrowing (today's
+   * behavior). Shape mirrors {@link ConnectorEnabledFilter} in registry.ts.
+   */
+  enabled?: {
+    enabledConnectors?: string[] | null;
+    breadthEnabled?: boolean;
+  };
 }
 
 /** Per-tool egress mapping a connector contributes → merged into TOOL_ENTITY. */

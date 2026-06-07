@@ -53,9 +53,14 @@ export interface EgressDecision {
    *                          commercial-only tool for a gov tenant (executeConnectorTool).
    *   - "connector_gov_block":          the connector EXECUTOR's own top-of-function gov
    *                          hard-check refused (the last in-code layer before the broker).
+   * The GUI runtime-config (design §8) adds one NON-"none" denial event (evidence that a
+   * connector the org DISABLED — or a breadth connector with breadthEnabled=false — was
+   * refused at dispatch, defense in depth behind the tool-list filter):
+   *   - "connector_disabled_block":     the connector-registry DISPATCH layer refused a tool
+   *                          whose connector the org's runtime config disabled.
    * The DB column (egress_decisions.decided_by) is TEXT, so no migration is needed.
    */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block";
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block" | "connector_disabled_block";
   tenantClass: TenantClass;
   mode: EgressMode;
   /** The data's effective classification ceiling at decision time (audit evidence). */
