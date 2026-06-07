@@ -98,16 +98,27 @@ The orchestrator sequence (each step timestamp-logged; the final line is a machi
    orphan probe; it also runs verify as its Phase-4 gate).
 5. **Verify gate** — `verify-org.mjs` explicitly (the canonical rollback trigger). Any
    mismatch ⇒ **rollback**.
+5b. **Pre-flip restore-point CAPTURE** (`snapshot-capture.mjs`, AFTER verify, BEFORE the flip) —
+   creates a NAMED pgBackRest/PG restore point on the target (`pg_create_restore_point`),
+   captures its LSN + server `now()` + timeline, optionally triggers an incr backup, and records
+   `{label, lsn, restorePointTime, stanza, timeline, capturedAt, backupLabel?}` into the run
+   **`--state`**. This is the EXACT pre-flip PITR target the rollback restores to.
+5c. **Validate (optional, `--validate-snapshot`)** — `restore-to-point-drill.sh --target-name
+   <label>` restores the captured point into a **scratch** cluster (never the live one), proving
+   the rollback WOULD work *before* the flip. Default on when pgBackRest is configured.
 6. **Flip** — `proxy-control.setOrgUpstream(slug,"v2")`: the org's path now routes to v2.
 7. **Unfreeze** — `proxy-control.unfreezeOrg(slug)`: writes resume, served by v2.
 
 **Rollback (any failure at/after the freeze):** `setOrgUpstream(slug,"v1")` + `unfreezeOrg(slug)`
-(the org goes back to v1, unfrozen), then the orchestrator prints the **data-restore** step.
+(the org goes back to v1, unfrozen) — this is the **executed, non-destructive** primary rollback.
 The data rollback is the **pre-flip v1 snapshot**: v1 is the source and was **not** mutated by
 the cutover and **its columns are kept intact** (§7 keeps the source credentials/columns until
 finalize), so v1 itself is the live rollback — a snapshot restore of v2 is only needed if v2
-already took post-flip writes. The orchestrator prints the exact pgBackRest point-in-time
-restore command to run for that case.
+already took post-flip writes. For that case the orchestrator emits the **EXACT, precise**
+pgBackRest point-in-time restore command for the captured named restore point, e.g.
+`pgbackrest --stanza=cosmos --type=name --target=<label> --target-action=promote --delta restore`
+(plus a `--type=time` fallback). This command is **DESTRUCTIVE** (it overwrites a datadir) and is
+**operator-gated** — the orchestrator NEVER auto-runs it; an operator runs it deliberately.
 
 - [ ] **Dry-run reviewed** (the printed plan matches the tenant + URLs you intend).
 - [ ] Step 0 parity gate is green for the current v2 schema (the orchestrator re-checks it).
@@ -272,8 +283,34 @@ See `compliance/provenance/README.md` for field meanings and the hash semantics.
       deploy (verify supports a Float source via round-4, but Decimal-on-Decimal is the
       expected, exact path).
 - [ ] A pre-flip **snapshot** of the source org exists (for rollback). For the whole-DB
-      case this is the pgBackRest base backup; for a single org, a scoped logical dump.
+      case this is the pgBackRest base backup; for a single org, a scoped logical dump. The
+      orchestrator additionally **captures a precise NAMED pre-flip restore point** (Step 5b,
+      `snapshot-capture.mjs`) on the target right before the flip and **validates** it is
+      restorable into a scratch cluster (Step 5c, `restore-to-point-drill.sh`) so the data
+      rollback is a tested, precise PITR target — not just a printed instruction. See the
+      **capture → validate → flip** flow below.
 - [ ] Change-approver sign-off recorded (see the banner). Gov: gates cleared.
+
+### Capture → validate → flip (the precise data-rollback target)
+
+The cutover does NOT flip on a generic "restore the snapshot" instruction. The sequence is:
+
+1. **Capture** (`snapshot-capture.mjs --db <target-owner-url> --label cutover-<slug>-preflip
+   --stamp <iso> --state <state.json> [--pgbackrest-exec '<docker compose exec …>']`): creates a
+   NAMED restore point (`pg_create_restore_point`) on the target, captures its LSN + server
+   `now()` + timeline, optionally takes an incr pgBackRest backup, and records the snapshot into
+   the cutover `--state`. The ONLY write is a WAL restore-point record — no tenant table is mutated.
+2. **Validate** (`restore-to-point-drill.sh --target-name cutover-<slug>-preflip`): restores that
+   exact point into a **scratch** cluster (never the live one), asserts it promoted AT/after the
+   target, runs the verification query (audit_logs present) — proving the rollback would work.
+   In a synthetic run, rows written AFTER the captured point are ABSENT in the scratch restore
+   (PITR stopped at the point).
+3. **Flip** — only after capture (+ validate) is the org routed to v2.
+
+On rollback the orchestrator emits the **EXACT** restore command for the recorded point
+(`pgbackrest --stanza=… --type=name --target=cutover-<slug>-preflip --target-action=promote
+--delta restore`). It is **DESTRUCTIVE + operator-gated** — never auto-run; the re-route to v1
+stays the executed non-destructive rollback (§8).
 
 ---
 
@@ -590,12 +627,29 @@ v2-side writes made in that short window.
 
 - [ ] The cutover proxy routes the `orgSlug` back to **v1** (orchestrator does this; verify via
       `proxy-control.getOrgState(slug)` → `{ upstream: "v1", frozen: false }`).
-- [ ] **Data restore — only if v2 took post-flip writes.** v1 was not mutated by the cutover
-      and its columns are kept intact (§7), so v1 is the live rollback. If v2 received writes
-      after the flip, **restore the per-tenant data from its pre-flip snapshot** (pgBackRest
-      point-in-time restore for the whole-DB case; the scoped logical dump for a single org).
-      The orchestrator prints the exact `pgbackrest … --type=time --target="<PRE-FLIP ts>"`
-      command. Source credentials were never nulled pre-finalize, so v1 still authenticates.
+- [ ] **Data restore — only if v2 took post-flip writes (DESTRUCTIVE, operator-gated).** v1 was
+      not mutated by the cutover and its columns are kept intact (§7), so v1 is the live rollback.
+      If v2 received writes after the flip, **restore the per-tenant data from its pre-flip
+      snapshot**. The orchestrator captured a NAMED restore point at Step 5b (recorded in the run
+      `--state` under `.snapshot`) and emits the **EXACT precise PITR command** on rollback —
+      run it deliberately (the orchestrator does NOT auto-run it; a DB restore is destructive):
+
+      ```bash
+      # Stop the target cluster, then restore to the captured PRE-FLIP restore point:
+      sudo docker compose stop cosmos-postgres
+      sudo docker compose run --rm --entrypoint bash cosmos-postgres -lc '
+        /usr/local/bin/render-pgbackrest-conf.sh &&
+        gosu postgres pgbackrest --stanza=cosmos \
+          --type=name --target="<PRE-FLIP restore-point label>" \
+          --target-action=promote --delta restore'
+      sudo docker compose start cosmos-postgres   # recovers to the point + promotes
+      ```
+
+      A `--type=time --target="<restorePointTime>"` form is the fallback (same point, by server
+      clock). VALIDATE the same target into a scratch cluster FIRST with
+      `scripts/dsop/restore-to-point-drill.sh --target-name "<label>"` (proves it restores +
+      excludes the post-capture writes) before touching the live cluster. Source credentials were
+      never nulled pre-finalize, so v1 still authenticates.
 - [ ] Confirm the org is healthy on v1 again (the orchestrator already unfroze it at the proxy).
 - [ ] Record the rollback + cause. Do not retry the cutover until the cause is fixed and
       re-verified in a synthetic run.
