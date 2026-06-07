@@ -327,6 +327,34 @@ model EgressDecisionRow {
   @@map("egress_decisions")
 }
 
+/// AU-11 retention-purge chain-checkpoint (20260606130000_audit_retention_checkpoint).
+///
+/// Records, at each sanctioned retention-purge boundary, the seq + row_hash of the LAST
+/// PURGED row, HMAC-signed. The LATEST checkpoint per table (max checkpointSeq) is the
+/// active anchor for verify_audit_chain() once the genesis row has been purged: the first
+/// RETAINED row's prev_hash equals checkpointRowHash, so the chain stays verifiable across
+/// the purge boundary. The HMAC sig is checked by scripts/dsop/verify-audit-chain.mjs (a SQL
+/// function can't read the key from env); the SQL function anchors STRUCTURALLY at the hash.
+///
+/// Written ONLY by the owner-run scripts/dsop/purge-audit.mjs (one replica-mode txn).
+/// Append-only for the app: cosmos_app holds SELECT, is REVOKEd INSERT/UPDATE/DELETE/TRUNCATE
+/// (a forged checkpoint must be detectable, never silently editable by the running system).
+model AuditChainCheckpoint {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 'audit_logs' | 'egress_decisions' (CHECK-constrained in the migration).
+  tableName         String   @map("table_name")
+  /// N = max(seq) of the purged rows; the boundary verify_audit_chain re-anchors above.
+  checkpointSeq     BigInt   @map("checkpoint_seq")
+  /// row_hash of the row AT seq N (the last purged row); equals the first retained row's prev_hash.
+  checkpointRowHash Bytes    @map("checkpoint_row_hash")
+  /// HMAC(tableName || checkpointSeq || checkpointRowHash) — forged-checkpoint detection.
+  sig               Bytes
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([tableName, checkpointSeq(sort: Desc)])
+  @@map("audit_chain_checkpoint")
+}
+
 /// Opaque-handle resolver store (AC-4 / 3.1.3 — controlled CUI-by-reference flow).
 ///
 /// When the egress gate WITHHOLDS a CUI field from the model's view, we mint an
