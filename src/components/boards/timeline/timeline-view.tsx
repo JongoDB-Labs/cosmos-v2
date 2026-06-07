@@ -15,6 +15,17 @@ interface TimelineViewProps {
   boardId: string;
 }
 
+/** A work-item dependency link as returned by the work-item-links endpoint. */
+interface WorkItemLink {
+  id: string;
+  type: string;
+  sourceItemId: string;
+  targetItemId: string;
+  sourceTicketNumber: number;
+  targetTicketNumber: number;
+  createdAt: string;
+}
+
 const typeColorMap: Record<string, { fill: string; stroke: string; text: string }> = {
   EPIC: { fill: "#8b5cf6", stroke: "#7c3aed", text: "text-purple-200" },
   STORY: { fill: "#3b82f6", stroke: "#2563eb", text: "text-blue-200" },
@@ -52,8 +63,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
+  const linksKey = useOrgQueryKey("work-item-links", projectId);
 
-  const [itemsQ, membersQ] = useQueries({
+  const [itemsQ, membersQ, linksQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -63,11 +75,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         queryKey: membersKey,
         queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
       },
+      {
+        // Dependency links (prod-parity): drives the Gantt dependency arrows.
+        queryKey: linksKey,
+        queryFn: () => jsonFetch<WorkItemLink[]>(`${basePath}/work-item-links`),
+      },
     ],
   });
 
   const items: WorkItem[] = itemsQ.data ?? [];
   const members: OrgMember[] = membersQ.data ?? [];
+  const links: WorkItemLink[] = linksQ.data ?? [];
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
@@ -177,6 +195,28 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return labels;
   }, [dateHeaders]);
 
+  // Bar geometry per item id — the SAME formulas the bar renderer below uses,
+  // so the dependency-arrow layer can resolve each end's bar position. Keyed by
+  // item id; only items with a visible row appear.
+  const barPositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number; w: number; h: number }>();
+    sortedItems.forEach((item, i) => {
+      const start = item.startDate
+        ? startOfDay(new Date(item.startDate))
+        : startOfDay(new Date(item.createdAt));
+      const end = item.dueDate ? startOfDay(new Date(item.dueDate)) : addDays(start, 7);
+      const startOffset = diffDays(timelineStart, start);
+      const duration = Math.max(diffDays(start, end), 1);
+      map.set(item.id, {
+        x: startOffset * DAY_WIDTH,
+        y: HEADER_HEIGHT + i * ROW_HEIGHT + 8,
+        w: Math.max(duration * DAY_WIDTH, DAY_WIDTH),
+        h: ROW_HEIGHT - 16,
+      });
+    });
+    return map;
+  }, [sortedItems, timelineStart]);
+
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
@@ -252,6 +292,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             height={svgHeight}
             className="block"
           >
+            <defs>
+              {/* Arrowhead for dependency links. */}
+              <marker
+                id="timeline-dep-arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
+              </marker>
+            </defs>
+
             {/* Month headers */}
             {monthLabels.map((m, i) => (
               <g key={i}>
@@ -334,6 +389,36 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 strokeWidth={0.5}
               />
             ))}
+
+            {/* Dependency links (prod-parity): a curved connector from the
+                source bar's right edge to the target bar's left edge, with an
+                arrowhead at the target. Rendered UNDER the bars. Endpoints whose
+                bar isn't currently on a visible row are skipped. */}
+            {links.map((link) => {
+              const from = barPositions.get(link.sourceItemId);
+              const to = barPositions.get(link.targetItemId);
+              if (!from || !to) return null;
+              const x1 = from.x + from.w;
+              const y1 = from.y + from.h / 2;
+              const x2 = to.x;
+              const y2 = to.y + to.h / 2;
+              const midX = (x1 + x2) / 2;
+              return (
+                <path
+                  key={link.id}
+                  d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+                  className="stroke-muted-foreground/60"
+                  strokeWidth={1.5}
+                  fill="none"
+                  markerEnd="url(#timeline-dep-arrow)"
+                >
+                  <title>
+                    {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
+                    {projectKey}-{link.targetTicketNumber}
+                  </title>
+                </path>
+              );
+            })}
 
             {/* Work item bars */}
             {sortedItems.map((item, i) => {
