@@ -25,6 +25,15 @@ import { queryComplianceControls, updateComplianceControl, listOrgMembers } from
 interface ToolContext {
   orgId: string;
   userId: string;
+  /**
+   * The org's data-sensitivity class — threaded through so the connector dispatch
+   * layer can enforce the D5 commercial-only gov-block (LAYER 2). OPTIONAL: callers
+   * that don't supply it get the registry's fail-closed behavior (a commercial-only
+   * tool is refused). The agent loop always supplies it.
+   */
+  tenantClass?: "gov" | "commercial";
+  /** Conversation id for the connector-block audit record. */
+  conversationId?: string;
 }
 
 /**
@@ -154,8 +163,18 @@ async function dispatchTool(
   // its descriptor (connectors/index.ts) carries its tool names + executor. Native
   // cosmos tools are NOT connectors (no external creds) and fall through to the
   // switch below UNCHANGED.
+  // Membership uses the FULL connector set (no tenant filter) ON PURPOSE: a gov
+  // tenant's model never sees a commercial-only tool (L1), but a DIRECT/forged call
+  // for one must still ROUTE into the connector layer so L2 hard-refuses + audits it
+  // (rather than falling through to "Unknown tool", which wouldn't be recorded as a
+  // gov-block). The tenant class is threaded so executeConnectorTool can enforce L2.
   if (connectorToolNames().has(name)) {
-    return executeConnectorTool(name, input, { userId: ctx.userId, orgId: ctx.orgId });
+    return executeConnectorTool(name, input, {
+      userId: ctx.userId,
+      orgId: ctx.orgId,
+      tenantClass: ctx.tenantClass,
+      conversationId: ctx.conversationId,
+    });
   }
 
   switch (name) {

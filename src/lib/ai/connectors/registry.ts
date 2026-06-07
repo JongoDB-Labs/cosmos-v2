@@ -23,7 +23,24 @@ import type {
   ConnectorDescriptor,
   ConnectorEgressMaps,
   ConnectorToolContext,
+  TenantClass,
 } from "./types";
+// Import the audit + hash helpers DIRECTLY from their leaf modules (NOT the egress
+// index) so registry.ts doesn't pull egress/projection.ts → connectors/index.ts back
+// into itself (a runtime import cycle). audit.ts / gate.ts have no ../connectors edge.
+import { logEgressDecision } from "../egress/audit";
+import { sha256Hex } from "../egress/gate";
+
+/** Is this descriptor reachable by the given tenant class? (D5 gov-block axis.) */
+function isAvailableTo(d: ConnectorDescriptor, tenantClass: TenantClass | undefined): boolean {
+  // "commercial-only" is blocked for gov; "all" (or unset) is available to both.
+  // When tenantClass is undefined (a non-tenant-scoped caller), be PERMISSIVE only
+  // for "all" and STILL block "commercial-only" — fail closed toward the gov rule.
+  if ((d.availability ?? "all") === "commercial-only") {
+    return tenantClass === "commercial";
+  }
+  return true;
+}
 
 /** The live set of registered descriptors, keyed by provider for dup-detection. */
 const descriptors: ConnectorDescriptor[] = [];
@@ -93,14 +110,34 @@ export function getConnectorDescriptors(): readonly ConnectorDescriptor[] {
  * order (which is also the order descriptors append to the model tool list). The
  * agent loop is order-insensitive — it routes tool_use by name — but we keep a
  * deterministic order so the tool list is stable across runs.
+ *
+ * ── D5 gov-block, LAYER 1 (the model never SEES it) ────────────────────────────
+ * When `tenantClass` is supplied, EXCLUDE every `commercial-only` descriptor's tools
+ * for `tenantClass === "gov"` — so a gov tenant's model tool list contains NO Nango
+ * tool at all (it cannot ask for what it cannot see). For "commercial" (and for
+ * "all"-availability connectors regardless of class) the list is UNCHANGED — Google/
+ * GitHub/native behave exactly as before. Omitting `tenantClass` returns the full set
+ * (the legacy/static `cosmosTools` snapshot path; the agent loop ALWAYS passes a class).
  */
-export function connectorToolDefs(): ConnectorDescriptor["toolDefs"] {
-  return descriptors.flatMap((d) => d.toolDefs);
+export function connectorToolDefs(tenantClass?: TenantClass): ConnectorDescriptor["toolDefs"] {
+  return descriptors
+    .filter((d) => isAvailableTo(d, tenantClass ?? "commercial"))
+    .flatMap((d) => d.toolDefs);
 }
 
-/** The set of every registered connector tool name — O(1) dispatch membership. */
-export function connectorToolNames(): ReadonlySet<string> {
-  return new Set(toolNameOwner.keys());
+/**
+ * The set of connector tool names — O(1) dispatch membership. Tenant-aware: when a
+ * class is given, a `commercial-only` tool is NOT a member for gov (so the dispatcher
+ * won't route it to the connector layer for a gov tenant — though L2/L3 below still
+ * hard-refuse if it somehow reaches here). Omitting the class returns the full set.
+ */
+export function connectorToolNames(tenantClass?: TenantClass): ReadonlySet<string> {
+  if (tenantClass === undefined) return new Set(toolNameOwner.keys());
+  const names = new Set<string>();
+  for (const [name, owner] of toolNameOwner) {
+    if (isAvailableTo(owner, tenantClass)) names.add(name);
+  }
+  return names;
 }
 
 /**
@@ -120,6 +157,36 @@ export function executeConnectorTool(
       `[connector-registry] no connector owns tool "${name}" — gate on connectorToolNames() before dispatching.`,
     );
   }
+
+  // ── D5 gov-block, LAYER 2 (dispatch refusal) ─────────────────────────────────
+  // Even if a commercial-only tool somehow reached dispatch for a gov tenant (it
+  // can't via L1 — the model never saw it — but a direct/forged call must still
+  // fail), refuse HARD here before the executor runs. AUDIT the refusal as an
+  // egress decision (AC-3/AU evidence: a commercial-only tool was denied to gov).
+  // The hash is of the ARGS (no CUI is added; this is a denial, nothing executes).
+  if (!isAvailableTo(owner, ctx.tenantClass)) {
+    logEgressDecision({
+      conversationId: ctx.conversationId ?? "n/a",
+      turn: -1,
+      valueKind: "tool_args",
+      toolName: name,
+      exposed: false,
+      withheldCount: 1,
+      contentHash: sha256Hex(JSON.stringify(input ?? {})),
+      decidedBy: "connector_availability_block",
+      tenantClass: ctx.tenantClass ?? "gov",
+      mode: "enforced",
+    });
+    // Reject (not a SYNC throw) so the refusal is a clean Promise rejection — the
+    // function's contract is Promise<unknown> and every caller `await`s it.
+    return Promise.reject(
+      new Error(
+        `[connector-registry] tool "${name}" belongs to a commercial-only connector ` +
+          `("${owner.provider}") and is NOT available to a gov tenant — refusing dispatch (D5).`,
+      ),
+    );
+  }
+
   return owner.execute(name, input, ctx);
 }
 

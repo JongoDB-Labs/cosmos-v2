@@ -47,9 +47,15 @@ export interface EgressDecision {
    *                          (write-path taint — would spill CUI into a lower-classification
    *                          container). The executor was NOT called; the CUI was never
    *                          written and never reached the model.
+   * The D5 commercial-only gov-block adds two NON-"none" denial events (AC-3 evidence
+   * that a commercial-only connector was refused to a gov tenant — defense in depth):
+   *   - "connector_availability_block": the connector-registry DISPATCH layer refused a
+   *                          commercial-only tool for a gov tenant (executeConnectorTool).
+   *   - "connector_gov_block":          the connector EXECUTOR's own top-of-function gov
+   *                          hard-check refused (the last in-code layer before the broker).
    * The DB column (egress_decisions.decided_by) is TEXT, so no migration is needed.
    */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block";
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block" | "connector_availability_block" | "connector_gov_block";
   tenantClass: TenantClass;
   mode: EgressMode;
   /** The data's effective classification ceiling at decision time (audit evidence). */
