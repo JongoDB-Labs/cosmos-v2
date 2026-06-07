@@ -34,4 +34,7 @@ export {
   executeConnectorTool,
   connectorEgressMaps,
   getConnectorDescriptors,
+  allConnectorProviders,
+  commercialOnlyProviders,
 } from "./registry";
+export type { ConnectorEnabledFilter } from "./registry";

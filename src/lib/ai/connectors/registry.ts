@@ -145,6 +145,17 @@ export function getConnectorDescriptors(): readonly ConnectorDescriptor[] {
   return [...descriptors];
 }
 
+/** Every registered provider id (for runtime-config enablement validation/UI). */
+export function allConnectorProviders(): string[] {
+  return descriptors.map((d) => d.provider);
+}
+
+/** The provider ids of every COMMERCIAL-ONLY (breadth) connector — the set the gov
+ *  guardrails strip from an org's enabledConnectors on a flip to GOV (Nango today). */
+export function commercialOnlyProviders(): string[] {
+  return descriptors.filter((d) => (d.availability ?? "all") === "commercial-only").map((d) => d.provider);
+}
+
 /**
  * The flat list of every registered connector's tool schemas, in registration
  * order (which is also the order descriptors append to the model tool list). The
