@@ -11,6 +11,12 @@
 //       [--v1 <dial>] [--v2 <dial>]       (logical upstream dials for a /load rewrite; defaults
 //                                          read from the proxy's live config are NOT possible via
 //                                          POST /load, so these MUST be supplied to drive a flip) \
+//       [--tenant-class gov|commercial]   (DEFAULT commercial. "gov" ARMS the exposability
+//                                          sign-off gate: a gov flip is BLOCKED unless a
+//                                          human-reviewed + leak-tested sign-off matching the
+//                                          CURRENT exposability-map hash exists at
+//                                          compliance/exposability/signoff/<slug>.json.
+//                                          Commercial flips are UNAFFECTED — the gate passes.) \
 //       [--max-cycles N]                  (soak loop cap; default 10) \
 //       [--stamp <iso8601>]               (the run timestamp; a CLI arg like the other tools) \
 //       [--dry-run | --confirm]           (DEFAULT --dry-run: print the plan, touch NOTHING)
@@ -41,11 +47,13 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProxyControl } from "./lib/proxy-control.ts";
+import { requireExposabilitySignoff, loadSignoffFromDisk } from "./lib/exposability.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/i; // a path-safe slug (the dashboard route token)
 const DEFAULT_MAX_CYCLES = 10;
+const TENANT_CLASSES = new Set(["gov", "commercial"]);
 
 function parseArgs(argv) {
   const out = { confirm: false, dryRun: false, maxCycles: DEFAULT_MAX_CYCLES };
@@ -62,6 +70,7 @@ function parseArgs(argv) {
     else if (a === "--proxy-admin") out.proxyAdmin = argv[++i];
     else if (a === "--v1") out.v1 = argv[++i];
     else if (a === "--v2") out.v2 = argv[++i];
+    else if (a === "--tenant-class") out.tenantClass = argv[++i];
     else if (a === "--max-cycles") out.maxCycles = Number(argv[++i]);
     else if (a === "--stamp") out.stamp = argv[++i];
     else if (a === "--dry-run") out.dryRun = true;
@@ -137,13 +146,24 @@ async function main() {
   const v1 = args.v1 ?? "cutover-v1:80";
   const v2 = args.v2 ?? "cutover-v2:80";
   const stamp = args.stamp ?? ts();
+  // Tenant class drives the gov exposability sign-off gate. DEFAULT "commercial" (the
+  // gate is then a no-op pass) so existing commercial runs are UNAFFECTED; a gov flip
+  // MUST pass --tenant-class gov, which arms the sign-off gate (fail-closed).
+  const tenantClass = args.tenantClass ?? "commercial";
 
   if (!UUID_RE.test(org)) fail(`--org ${org} is not a UUID`);
   if (!SLUG_RE.test(slug)) fail(`--slug ${slug} is not a path-safe slug`);
   if (!existsSync(dump)) fail(`--prod-schema-dump not found: ${dump}`);
+  if (!TENANT_CLASSES.has(tenantClass)) fail(`--tenant-class must be "gov" or "commercial" (got "${tenantClass}")`);
   if (args.confirm && args.dryRun) fail("pass EITHER --confirm OR --dry-run, not both");
   if (!Number.isInteger(args.maxCycles) || args.maxCycles < 1) fail(`--max-cycles must be a positive integer`);
   const confirm = args.confirm; // dry-run is the DEFAULT unless --confirm is explicitly given.
+
+  // The gov exposability sign-off gate — evaluated up-front (read-only). For a gov tenant
+  // this is the human-reviewed + leak-tested approval of the EXACT field-level default-deny
+  // exposability map (bound to its hash). FAIL ⇒ a gov flip is BLOCKED (fail-closed). For a
+  // commercial tenant it always passes (no sign-off required). It touches no proxy/DB state.
+  const govGate = requireExposabilitySignoff(slug, tenantClass, loadSignoffFromDisk);
 
   const proxy = new ProxyControl({
     adminUrl: proxyAdmin,
@@ -166,11 +186,22 @@ async function main() {
   console.log(`  state        : ${state}`);
   console.log(`  proxy admin  : ${proxyAdmin}`);
   console.log(`  upstreams    : v1=${v1}  v2=${v2}`);
+  console.log(`  tenant-class : ${tenantClass}`);
   console.log(`  max-cycles   : ${args.maxCycles}`);
+  console.log("");
+  console.log(
+    `  GOV EXPOSABILITY GATE: ${govGate.ok ? "✅ PASS" : "❌ FAIL"} — ${govGate.reason}`,
+  );
+  console.log(`  current exposability hash: ${govGate.currentHash}`);
   console.log("");
 
   // The planned sequence (printed always; in dry-run it's the WHOLE output).
+  const govGateLine =
+    tenantClass === "gov"
+      ? `0. GOV EXPOSABILITY SIGN-OFF GATE (gov tenant): ${govGate.ok ? "ALLOWED — valid sign-off" : "BLOCKED — " + govGate.reason}`
+      : `0. gov exposability sign-off gate: N/A (commercial tenant — not applicable)`;
   const PLAN = [
+    govGateLine,
     "1. parity-gate precheck (abort on fail — no freeze yet)",
     `2. soak loop (soak-sync until 0 upserts, ≤ ${args.maxCycles} cycles)`,
     `3. FREEZE org "${slug}" at the proxy (writes ⇒ 405, reads pass)`,
@@ -185,6 +216,19 @@ async function main() {
     console.log("── DRY-RUN PLAN (no step is executed; re-run with --confirm to EXECUTE) ──");
     for (const p of PLAN) console.log(`   ${p}`);
     console.log("");
+    // Record the gov-gate outcome as a STEP so the dry-run report machine-line carries it.
+    if (tenantClass === "gov") {
+      step(
+        "gov exposability gate",
+        govGate.ok ? "ok" : "fail",
+        govGate.ok ? "ALLOWED (valid sign-off)" : `BLOCKED — ${govGate.reason}`,
+      );
+      if (!govGate.ok) {
+        console.log(
+          `   NOTE: under --confirm this gov flip would be ABORTED before any freeze (fail-closed).`,
+        );
+      }
+    }
     step("dry-run", "skip", "plan printed; nothing touched");
     printReport(true);
     process.exit(0);
@@ -194,6 +238,24 @@ async function main() {
   let frozen = false; // becomes true once we've frozen; gates the rollback path.
 
   try {
+    // ── 0. GOV EXPOSABILITY SIGN-OFF GATE (gov only) — BEFORE any state is touched. ──
+    // A gov flip requires a human-reviewed + leak-tested sign-off bound to the CURRENT
+    // exposability-map hash. FAIL ⇒ ABORT here (no parity run, no freeze ⇒ nothing to roll
+    // back). Commercial tenants pass automatically (the gate is a no-op for them).
+    step("gov exposability gate", "run", `tenant-class ${tenantClass}`);
+    if (!govGate.ok) {
+      step("gov exposability gate", "fail", govGate.reason);
+      console.error(
+        "\norchestrate: GOV EXPOSABILITY SIGN-OFF GATE FAILED — aborting BEFORE any freeze. " +
+          "Nothing to roll back. The gov flip is BLOCKED until a valid sign-off (matching the " +
+          "current map hash, leakTestPassed) exists at " +
+          `compliance/exposability/signoff/${slug}.json.`,
+      );
+      printReport(false);
+      process.exit(1);
+    }
+    step("gov exposability gate", "ok", tenantClass === "gov" ? "valid sign-off" : "N/A (commercial)");
+
     // ── 1. PARITY-GATE PRECHECK (no proxy state yet ⇒ a fail just aborts) ──
     step("parity-gate precheck", "run");
     const parity = await tsx("parity-gate.mjs", [

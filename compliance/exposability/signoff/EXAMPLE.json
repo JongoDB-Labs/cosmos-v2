@@ -1,0 +1,8 @@
+{
+  "_comment": "EXAMPLE ONLY — not a real sign-off. The gov-flip gate (requireExposabilitySignoff) looks for compliance/exposability/signoff/<orgSlug>.json. Copy this to <orgSlug>.json, set mapHash to the CURRENT exposability hash (run: npx tsx scripts/cutover/exposability-snapshot.mjs --out <dir> — the hash is in exposability-map.hash), set leakTestPassed:true ONLY after `npm test` is green (golden-egress + projection contract suites), then fill reviewer/signedAt. A flip is BLOCKED if the hash is stale (map changed since sign-off), the file is missing, or leakTestPassed is not true. The _comment field is ignored by the gate.",
+  "orgSlug": "EXAMPLE",
+  "mapHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "reviewer": "Jane Reviewer <security@example.gov>",
+  "signedAt": "2026-06-07T00:00:00Z",
+  "leakTestPassed": true
+}

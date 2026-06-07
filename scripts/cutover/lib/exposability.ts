@@ -26,6 +26,9 @@
 // it is unit-testable without the filesystem.
 
 import { createHash } from "node:crypto";
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   EXPOSABLE_FIELDS,
   HANDLEABLE_FIELDS,
@@ -331,4 +334,35 @@ export function requireExposabilitySignoff(
     currentHash,
     reason: `gov tenant "${orgSlug}" — exposability sign-off valid: hash matches (${currentHash.slice(0, 12)}…), leak test passed, reviewer "${raw.reviewer}" @ ${raw.signedAt}.`,
   };
+}
+
+// ── On-disk sign-off store ─────────────────────────────────────────────────────────────
+
+/** The repo-relative directory the per-gov-tenant sign-off files live in. */
+export const SIGNOFF_DIR = "compliance/exposability/signoff";
+
+/** Absolute path to this repo's sign-off directory (resolved from this module's location). */
+function signoffDirAbs(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url)); // scripts/cutover/lib
+  return path.resolve(here, "../../..", SIGNOFF_DIR);
+}
+
+/** Absolute path to a given org's sign-off file. Slug is validated to a path-safe token. */
+export function signoffPath(orgSlug: string): string {
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(orgSlug)) {
+    throw new Error(`refusing to resolve a sign-off path for an unsafe slug "${orgSlug}".`);
+  }
+  return path.join(signoffDirAbs(), `${orgSlug}.json`);
+}
+
+/**
+ * Default disk loader for {@link requireExposabilitySignoff}: read + JSON-parse
+ * `compliance/exposability/signoff/<orgSlug>.json`, or `null` when it does not exist.
+ * A present-but-unreadable/unparseable file THROWS (the gate turns that into a
+ * fail-closed reason). The orchestrator passes this as the loader for a gov flip.
+ */
+export function loadSignoffFromDisk(orgSlug: string): unknown | null {
+  const p = signoffPath(orgSlug);
+  if (!existsSync(p)) return null;
+  return JSON.parse(readFileSync(p, "utf8"));
 }
