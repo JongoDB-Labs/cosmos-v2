@@ -214,6 +214,56 @@ echo "$RECON2" | grep RECONCILE_TOTALS
 echo "$RECON2" | grep -q '"deleted":0' && ok "reconcile re-run is idempotent (0 deletes, verify still clean)" || bad "reconcile re-run not idempotent"
 
 echo ""
+echo "════════════════════ 5b. L1 REGRESSION: cascaded SetNull (no updated_at bump) → force reconcile is CLEAN ════════════════════"
+# The bug (review M1/L1): a source-side cascaded SetNull on an OPTIONAL SELF-RELATION
+# (work_items.parent_id, Prisma-default onDelete:SetNull) does NOT bump the child's updated_at.
+# So the soak delta (and a GUARDED final import) never propagates the NULL → the target keeps a
+# stale parent_id → after delete-extras removes the parent the child has a DANGLING self-FK →
+# the orphan probe ROLLS BACK the entire reconcile (a spurious cutover HALT). The fix: the FINAL
+# reconcile imports in FORCE/EXACT mode → the child's parent_id is force-updated to NULL to match
+# the frozen source → the parent delete leaves no dangle → orphan probe CLEAN, no rollback.
+L1_PARENT="66666666-0000-0000-0000-0000000000b1"  # a parent work_item (will be deleted in source)
+L1_CHILD="66666666-0000-0000-0000-0000000000b2"   # a child whose parent_id -> L1_PARENT
+# Insert the parent + child into the SOURCE (newer updated_at so the soak delta picks them up).
+psql_t "$SRC_NAME" "INSERT INTO work_items (id, org_id, project_id, title, column_key, ticket_number, work_item_type_id, created_by_id, created_at, updated_at) VALUES ('$L1_PARENT','$TENANT','33333333-0000-0000-0000-000000000001','L1 parent','todo',20,'44444444-0000-0000-0000-000000000001','11111111-0000-0000-0000-000000000001','2026-06-07T03:00:00Z','2026-06-07T03:00:00Z')" >/dev/null
+psql_t "$SRC_NAME" "INSERT INTO work_items (id, org_id, project_id, title, column_key, ticket_number, work_item_type_id, parent_id, created_by_id, created_at, updated_at) VALUES ('$L1_CHILD','$TENANT','33333333-0000-0000-0000-000000000001','L1 child','todo',21,'44444444-0000-0000-0000-000000000001','$L1_PARENT','11111111-0000-0000-0000-000000000001','2026-06-07T03:00:00Z','2026-06-07T03:00:00Z')" >/dev/null
+# Soak the pair into the target.
+npx tsx scripts/cutover/soak-sync.mjs --source "$SRC" --target "$TGT" --org "$TENANT" --state "$STATE" --stamp "$STAMP" >/dev/null
+L1_CHILD_PARENT_TGT="$(psql_t "$TGT_NAME" "SELECT parent_id FROM work_items WHERE id='$L1_CHILD'")"
+[ "$L1_CHILD_PARENT_TGT" = "$L1_PARENT" ] && ok "L1 setup: child synced to target WITH parent_id set" || bad "L1 setup: child parent_id not synced ($L1_CHILD_PARENT_TGT)"
+# Now in the SOURCE: delete the parent. The real FK is ON DELETE SET NULL, so the child's
+# parent_id is cascaded to NULL by the DB — and a cascaded SetNull does NOT bump updated_at.
+# Force the updated_at to STAY at its old value to model the no-bump precisely (belt + suspenders).
+psql_t "$SRC_NAME" "DELETE FROM work_items WHERE id='$L1_PARENT'" >/dev/null
+psql_t "$SRC_NAME" "UPDATE work_items SET updated_at='2026-06-07T03:00:00Z' WHERE id='$L1_CHILD'" >/dev/null
+L1_CHILD_PARENT_SRC="$(psql_t "$SRC_NAME" "SELECT parent_id FROM work_items WHERE id='$L1_CHILD'")"
+[ -z "$L1_CHILD_PARENT_SRC" ] && ok "L1 source: parent deleted, child's parent_id cascaded to NULL (no updated_at bump)" || bad "L1 source: child parent_id not NULL in source ($L1_CHILD_PARENT_SRC)"
+# Soak delta: the guarded path MISSES the SetNull (updated_at unchanged) → the target STILL points
+# the child at the now-deleted parent (the lingering stale self-FK the review describes).
+npx tsx scripts/cutover/soak-sync.mjs --source "$SRC" --target "$TGT" --org "$TENANT" --state "$STATE" --stamp "$STAMP" >/dev/null
+L1_CHILD_PARENT_AFTER_DELTA="$(psql_t "$TGT_NAME" "SELECT parent_id FROM work_items WHERE id='$L1_CHILD'")"
+[ "$L1_CHILD_PARENT_AFTER_DELTA" = "$L1_PARENT" ] && ok "L1: soak delta MISSED the SetNull (target keeps stale parent_id — the gap force-reconcile closes)" || bad "L1: delta unexpectedly cleared parent_id ($L1_CHILD_PARENT_AFTER_DELTA)"
+# FINAL reconcile (force/exact import). It must: (a) force-update the child's parent_id to NULL to
+# match the frozen source, (b) delete-extras the now-extra parent, (c) orphan probe CLEAN (no
+# dangling self-FK) → COMMIT (NOT roll back). WITHOUT the force fix this would have rolled back on
+# the dangling work_items.parent_id self-FK (see review L1).
+RECON_L1="$(npx tsx scripts/cutover/reconcile-org.mjs --source "$SRC" --target "$TGT" --org "$TENANT" --stamp "$STAMP")"
+RECON_L1_CODE=$?
+echo "$RECON_L1" | grep -E 'FORCE|delete-extras|orphan probe CLEAN|RECONCILE_TOTALS' | tail -6
+[ "$RECON_L1_CODE" = "0" ] && ok "L1: force reconcile exited 0 (orphan probe CLEAN — NO spurious rollback)" || { bad "L1: force reconcile exited $RECON_L1_CODE (the SetNull-no-bump rollback regressed)"; echo "$RECON_L1" | tail -20; }
+echo "$RECON_L1" | grep -q 'FORCE (EXACT) mode' && ok "L1: Phase-1 import ran in FORCE/EXACT mode" || bad "L1: force mode not engaged in the reconcile"
+# The child's parent_id is now NULL in the target (force-updated to match source) and the parent is gone.
+L1_CHILD_PARENT_FINAL="$(psql_t "$TGT_NAME" "SELECT parent_id FROM work_items WHERE id='$L1_CHILD'")"
+L1_PARENT_GONE="$(psql_t "$TGT_NAME" "SELECT count(*) FROM work_items WHERE id='$L1_PARENT'")"
+{ [ -z "$L1_CHILD_PARENT_FINAL" ] && [ "$L1_PARENT_GONE" = "0" ]; } && ok "L1: child parent_id force-updated to NULL + parent deleted as extra (target EXACTLY matches source)" || bad "L1: not exact (child parent_id='$L1_CHILD_PARENT_FINAL', parent rows=$L1_PARENT_GONE)"
+# Verify CLEAN (the child is retained, no orphan, exact counts).
+if npx tsx scripts/cutover/verify-org.mjs --source "$SRC" --target "$TGT" --org "$TENANT" --out "$WORKDIR/v-l1.json" >/dev/null 2>&1; then
+  ok "L1: verify CLEAN after force reconcile (child retained, self-FK resolved, no orphan)"
+else
+  bad "L1: verify FAILED after force reconcile"; cat "$WORKDIR/v-l1.json"
+fi
+
+echo ""
 echo "════════════════════ 6. NEGATIVE: a deliberately-orphaning delete is caught (rollback) ════════════════════"
 # A genuine orphaning delete that exercises the delete-extras orphan gate: delete a MUTABLE,
 # org-owned, delete-eligible PARENT (chat_channels) from the SOURCE while its APPEND-ONLY children
