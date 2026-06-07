@@ -148,6 +148,8 @@ All maintenance practices (3.7.1–3.7.6) are **policy-required-not-yet-authored
 ### 3.8 Media Protection (MP)
 Data-at-rest encryption for PostgreSQL and MinIO is planned (application-level AES-256-GCM envelope encryption for secrets; MinIO at-rest encryption). CUI markings are persisted per-entity (`DataClassification` model) and propagated to PDF/CSV/JSON exports via `src/lib/classification/markings.ts`. Physical media practices (3.8.1, 3.8.3, 3.8.7–3.8.8) are **policy-required-not-yet-authored** or inherited from cloud provider. 3.8.5 (media transport) is **inherited** from GCC-High / Assured Workloads.
 
+**Migration-integrity tooling (v1→v2 per-tenant cutover; adjacent to CP-10, not a control per se).** The cutover engine (`scripts/cutover/`) preserves CUI markings + money exactly across a tenant migration and is verifiable + reversible. The near-zero-downtime path: `soak-sync.mjs` (an incremental watermark delta replay that keeps v2 caught up while v1 is live — deletes are invisible to a delta by design) then, under a source write-freeze, `reconcile-org.mjs` (a final idempotent import + **delete-extras** that applies the deletes a delta can't see, by an org-scoped PK-set diff over **mutable, org-owned, non-audit** tables ONLY — **never** append-only/audit tables, **never** the shared referential-closure parents (a global built-in / a user in two orgs), **never** another org's rows — children-before-parents in one owner transaction with an in-transaction orphan probe that rolls the whole reconcile back on any dangling FK) then the `verify-org` hard gate. Synthetic-tested in Docker (`npm run cutover:soak-acceptance`). BUILD-ONLY today (the runbook `docs/runbooks/cutover.md` carries the never-run-vs-prod-without-sign-off banner). See §3.7 / the 3.8.9 control-coverage note for the full description.
+
 ### 3.9 Personnel Security (PS)
 Both practices (3.9.1–3.9.2) are **policy-required-not-yet-authored**. Personnel screening and separation procedures are HR/legal policy artifacts required by the deploying organization.
 
@@ -232,3 +234,4 @@ See §4.12 above. Five items are open; none are ignored — they are tracked and
 |------|---------|--------|--------|
 | 2026-06-06 | 2.1.0-pre | COSMOS Agent | Initial living SSP — Task 3 of DSOP pipeline |
 | 2026-06-06 | 2.2.0-pre | COSMOS Agent | SSO phase 1 (in-app OIDC RP): IA-2/3.5.3, 3.5.4, 3.7.5 + SSO POA&M moved planned→partial; gov AAL floor + enforced-SSO guard + break-glass documented |
+| 2026-06-07 | 2.17.0 | COSMOS Agent | Cutover near-zero-downtime: incremental soak-sync (watermark delta replay) + final reconcile (delete-extras, orphan-safe, never-delete invariants) — migration-integrity tooling note added to MP/3.8.9 |
