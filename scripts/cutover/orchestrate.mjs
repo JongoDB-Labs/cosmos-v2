@@ -335,6 +335,14 @@ async function rollback(proxy, slug) {
   console.error("    #    (or your snapshot tool's point-in-time restore to just before the flip).");
   console.error("    # 3. Re-run parity/soak/verify before attempting the cutover again.");
   console.error("══════════════════════════════════════════════════════════════════════");
+  // Also emit the snapshot-restore as a STEP (→ stdout + the ORCHESTRATE_REPORT) so the
+  // instruction is captured authoritatively even when stderr interleaves with child output.
+  step(
+    "rollback: data-restore (manual)",
+    "ok",
+    'restore the TARGET v2 org data from the PRE-FLIP v1 snapshot, e.g. ' +
+      'pgbackrest --stanza=cosmos --type=time --target="<PRE-FLIP timestamp>" --delta restore',
+  );
 }
 
 /** Parse the SOAK_SYNC_CYCLE machine line for this cycle's upsert count. */

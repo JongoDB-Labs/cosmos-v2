@@ -103,15 +103,18 @@ export function buildFreezeRoute(slug: string): CaddyRoute {
   };
 }
 
-/** The UPSTREAM route for one org pinned to a non-default backend (post-flip → v2). */
-export function buildUpstreamRoute(slug: string, dial: string, upstream: Upstream): CaddyRoute {
+/**
+ * The UPSTREAM route for one org pinned to a non-default backend (post-flip → v2). Caddy
+ * STRICTLY rejects unknown route fields, so we CANNOT stash a private annotation on the route —
+ * the logical upstream is instead recovered by `decodeState` matching the route's `dial` back to
+ * the known upstreams map. The `@id` (`upstream_<slug>`) marks it as a per-org override.
+ */
+export function buildUpstreamRoute(slug: string, dial: string): CaddyRoute {
   return {
     "@id": `upstream_${slug}`,
     match: [{ path: orgPathPatterns(slug) }],
     handle: [{ handler: "reverse_proxy", upstreams: [{ dial }] }],
     terminal: true,
-    // Record the logical upstream so getOrgState can decode it back without parsing dials.
-    _cutover_upstream: upstream,
   };
 }
 
@@ -139,7 +142,7 @@ export function buildRoutes(state: ProxyState, upstreams: Upstreams): CaddyRoute
   // 2. per-org upstream overrides (only orgs NOT on the default v1 upstream)
   for (const slug of slugs) {
     const up = state[slug]?.upstream ?? "v1";
-    if (up !== "v1") routes.push(buildUpstreamRoute(slug, upstreams[up], up));
+    if (up !== "v1") routes.push(buildUpstreamRoute(slug, upstreams[up]));
   }
   // 3. fallback → v1 (the default; un-flipped orgs + every non-org path land here)
   routes.push(buildFallbackRoute(upstreams.v1));
@@ -156,10 +159,14 @@ export function buildCaddyConfig(opts: {
   upstreams: Upstreams;
   adminListen: string; // e.g. "0.0.0.0:2019" (test) or "localhost:2019" (prod-intent)
   httpListen?: string; // default ":80"
+  // Allowed admin-API Host origins. ONLY needed when admin binds a NON-loopback address (the
+  // synthetic test exposes admin on a host port): Caddy 403s a cross-origin admin request whose
+  // Host isn't allowlisted here. Omit for the prod-intent loopback bind (loopback is exempt).
+  adminOrigins?: string[];
 }): Record<string, unknown> {
-  const { state, upstreams, adminListen, httpListen = ":80" } = opts;
+  const { state, upstreams, adminListen, httpListen = ":80", adminOrigins } = opts;
   return {
-    admin: { listen: adminListen },
+    admin: adminOrigins && adminOrigins.length > 0 ? { listen: adminListen, origins: adminOrigins } : { listen: adminListen },
     apps: {
       http: {
         servers: {
@@ -176,10 +183,16 @@ export function buildCaddyConfig(opts: {
 /**
  * Decode the per-org state back OUT of a live Caddy config's route list — the inverse of
  * buildRoutes. A `freeze_<slug>` route ⇒ that org is frozen; an `upstream_<slug>` route ⇒ that
- * org is pinned to its `_cutover_upstream` (default v1 when no upstream route exists). This lets
+ * org is pinned to a non-default backend (its logical upstream is recovered by matching the
+ * route's `dial` to the known `upstreams` map — Caddy rejects a private annotation field, so the
+ * dial IS the source of truth). An org with no upstream route is on the default v1. This lets
  * each mutation read→modify→rewrite the FULL config idempotently without server-side surgery.
+ *
+ * `upstreams` is optional: pass it (the client always does) to resolve the exact backend by dial;
+ * omit it (pure tests of the topology) and an `upstream_<slug>` route is taken to mean v2 (the
+ * only non-default upstream a flip produces).
  */
-export function decodeState(config: Record<string, unknown>): ProxyState {
+export function decodeState(config: Record<string, unknown>, upstreams?: Upstreams): ProxyState {
   const routes = routesOf(config);
   const state: ProxyState = {};
   const ensure = (slug: string): OrgState => (state[slug] ??= { upstream: "v1", frozen: false });
@@ -189,11 +202,27 @@ export function decodeState(config: Record<string, unknown>): ProxyState {
       ensure(id.slice("freeze_".length)).frozen = true;
     } else if (id.startsWith("upstream_")) {
       const slug = id.slice("upstream_".length);
-      const up = (r as Record<string, unknown>)._cutover_upstream;
-      ensure(slug).upstream = up === "v2" ? "v2" : "v1";
+      ensure(slug).upstream = upstreamForDial(dialOf(r), upstreams);
     }
   }
   return state;
+}
+
+/** The reverse_proxy dial of a route (first upstream), or "" if absent. */
+function dialOf(route: CaddyRoute): string {
+  const handler = route.handle?.[0] as Record<string, unknown> | undefined;
+  const ups = handler?.upstreams as Array<{ dial?: string }> | undefined;
+  return ups?.[0]?.dial ?? "";
+}
+
+/** Map a dial back to its logical upstream. With the map, match exactly; without, assume v2
+ *  (an upstream_<slug> route only ever exists for a non-default/flipped org). */
+function upstreamForDial(dial: string, upstreams?: Upstreams): Upstream {
+  if (upstreams) {
+    if (dial === upstreams.v2) return "v2";
+    if (dial === upstreams.v1) return "v1";
+  }
+  return "v2";
 }
 
 /** Read the cutover server's route array out of a config object (empty if absent). */
@@ -211,6 +240,14 @@ function adminListenOf(config: Record<string, unknown>): string {
   const admin = config?.admin as Record<string, unknown> | undefined;
   const listen = admin?.listen;
   return typeof listen === "string" ? listen : "localhost:2019";
+}
+
+/** Read the admin origins allowlist out of a live config (so a rewrite preserves it — else the
+ *  first POST /load on a non-loopback admin bind would drop origins and lock the client out). */
+function adminOriginsOf(config: Record<string, unknown>): string[] | undefined {
+  const admin = config?.admin as Record<string, unknown> | undefined;
+  const origins = admin?.origins;
+  return Array.isArray(origins) ? (origins as string[]) : undefined;
 }
 
 /** Read the cutover server's http listen address (so a rewrite preserves it). */
@@ -261,16 +298,47 @@ export class ProxyControl {
   private readonly fetchImpl: typeof fetch;
   private readonly log: (msg: string) => void;
 
+  private readonly origin: string;
+
   constructor(opts: ProxyControlOptions) {
     this.adminUrl = opts.adminUrl.replace(/\/+$/, "");
     this.upstreams = opts.upstreams;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.log = opts.log ?? (() => {});
+    // Caddy's admin API enforces an Origin allowlist when bound to a non-loopback address (the
+    // synthetic test exposes admin on a host port). A non-browser client (node fetch) sends NO
+    // Origin header, which Caddy rejects as origin ''. So we present the admin URL's own origin
+    // (host:port) — which the test config allowlists. Harmless for the prod-intent loopback bind.
+    this.origin = originOf(this.adminUrl);
+  }
+
+  /** Headers every admin request carries (the Origin satisfies Caddy's allowlist). */
+  private adminHeaders(extra?: Record<string, string>): Record<string, string> {
+    return { Origin: this.origin, ...(extra ?? {}) };
+  }
+
+  /**
+   * fetch with a few short retries on a TRANSIENT network error ("fetch failed" — a connection
+   * reset/refused during admin-API setup, which can happen on the very first connection). A non-OK
+   * HTTP status is NOT retried (that's a real error the caller must see). Keeps every op robust
+   * without masking genuine failures.
+   */
+  private async fetchRetry(url: string, init: RequestInit, attempts = 4): Promise<Response> {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await this.fetchImpl(url, init);
+      } catch (e) {
+        lastErr = e; // a thrown fetch = a transient network error; back off + retry.
+        await new Promise((r) => setTimeout(r, 100 * (i + 1)));
+      }
+    }
+    throw new Error(`proxy-control: ${init.method ?? "GET"} ${url} network error after ${attempts} attempts — ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
   }
 
   /** GET the full live config. */
   async getConfig(): Promise<Record<string, unknown>> {
-    const res = await this.fetchImpl(`${this.adminUrl}/config/`, { method: "GET" });
+    const res = await this.fetchRetry(`${this.adminUrl}/config/`, { method: "GET", headers: this.adminHeaders() });
     if (!res.ok) throw new Error(`proxy-control: GET /config/ failed ${res.status} ${await safeText(res)}`);
     const text = await res.text();
     return text && text !== "null" ? (JSON.parse(text) as Record<string, unknown>) : {};
@@ -278,9 +346,9 @@ export class ProxyControl {
 
   /** POST a FULL config via /load (atomic, zero-downtime, auto-rollback on a bad config). */
   async load(config: Record<string, unknown>): Promise<void> {
-    const res = await this.fetchImpl(`${this.adminUrl}/load`, {
+    const res = await this.fetchRetry(`${this.adminUrl}/load`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.adminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(config),
     });
     if (!res.ok) throw new Error(`proxy-control: POST /load failed ${res.status} ${await safeText(res)}`);
@@ -289,19 +357,20 @@ export class ProxyControl {
   /** Read the decoded per-org state from the live config. */
   async getOrgState(slug: string): Promise<OrgState> {
     const cfg = await this.getConfig();
-    const state = decodeState(cfg);
+    const state = decodeState(cfg, this.upstreams);
     return state[slug] ?? { upstream: "v1", frozen: false };
   }
 
   /** Read→transform→rewrite the FULL config idempotently, preserving the live listen addresses. */
   private async mutate(transform: (s: ProxyState) => ProxyState): Promise<void> {
     const cfg = await this.getConfig();
-    const next = transform(decodeState(cfg));
+    const next = transform(decodeState(cfg, this.upstreams));
     const config = buildCaddyConfig({
       state: next,
       upstreams: this.upstreams,
       adminListen: adminListenOf(cfg),
       httpListen: httpListenOf(cfg),
+      adminOrigins: adminOriginsOf(cfg), // preserve the allowlist across the rewrite
     });
     await this.load(config);
   }
@@ -330,5 +399,15 @@ async function safeText(res: Response): Promise<string> {
     return (await res.text()).slice(0, 2000);
   } catch {
     return "";
+  }
+}
+
+/** The scheme://host:port origin of an admin URL (for the Origin header Caddy checks). */
+function originOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin; // e.g. http://localhost:2120
+  } catch {
+    return url;
   }
 }
