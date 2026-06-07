@@ -79,8 +79,15 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // still flows (the gate exposes BEFORE projection); their withheld case is total.
 };
 
-/** NATIVE static entries merged with EXTERNAL connector contributions (registry). */
-const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
+/**
+ * NATIVE static entries merged with EXTERNAL connector contributions (registry).
+ *
+ * EXPORTED (read-only) so the cutover exposability-map snapshot/gate
+ * (scripts/cutover/lib/exposability.ts) serializes the EXACT same merged map the
+ * gate enforces — never a re-hardcoded copy that could drift. This is a pure
+ * read of the already-computed constant; the gate/projection behavior is unchanged.
+ */
+export const EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   ...NATIVE_EXPOSABLE_FIELDS,
   ..._connectorEgress.exposableFields,
 };
@@ -155,8 +162,15 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   // generate_cycle_brief, fetch_url, process_transcript, and all google_* tools.
 };
 
-/** NATIVE static entries merged with EXTERNAL connector contributions (registry). */
-const TOOL_ENTITY: Record<string, string> = {
+/**
+ * NATIVE static entries merged with EXTERNAL connector contributions (registry).
+ *
+ * EXPORTED (read-only) for the cutover exposability-map snapshot/gate — see the
+ * EXPOSABLE_FIELDS note above. `entityTypeForTool` remains the single-lookup
+ * accessor used by the loop; the snapshot needs the WHOLE map, so the merged
+ * constant is exported too (a pure read; no behavior change).
+ */
+export const TOOL_ENTITY: Record<string, string> = {
   ...NATIVE_TOOL_ENTITY,
   ..._connectorEgress.toolEntity,
 };
