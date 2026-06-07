@@ -50,6 +50,11 @@ vi.mock("@/lib/ai/tool-executor", () => ({ executeTool }));
 vi.mock("@/lib/runtime-config", () => ({
   getRuntimeConfig: vi.fn().mockResolvedValue({ enabledConnectors: null, breadthEnabled: true, mcpEnabled: false }),
 }));
+// The loop loads the org's AgentPolicy (DB-backed). Mock to the PERMISSIVE default (no
+// restriction) so the write-path taint behavior under test is unchanged from today.
+vi.mock("@/lib/ai/policy", () => ({
+  getAgentPolicy: vi.fn().mockResolvedValue({ allowedTools: null, deniedTools: [], deniedDomains: [], maxResultLimit: null, allowedProjectIds: null }),
+}));
 // Only effectiveCeiling is a spy; maxByRank/rankOf are the REAL pure helpers — the
 // taint comparison MUST exercise the real rank logic, not a stub.
 vi.mock("@/lib/classification/effective", async (importOriginal) => ({
