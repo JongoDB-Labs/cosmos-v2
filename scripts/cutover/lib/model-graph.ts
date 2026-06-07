@@ -441,22 +441,33 @@ export async function resolveColumns(
  *   PARENT  : INNER JOINs up the FK chain to the org_id-bearing ancestor; WHERE that = $1
  *   ROOT    : WHERE <table>.id = $1   (the Organization row itself)
  *   MEMBER  : WHERE <table>.id IN (SELECT user_id FROM org_members WHERE org_id = $1)
+ *
+ * `extraFilter` (optional, for the incremental soak-sync delta) appends an additional
+ * `AND (<sql>)` to the WHERE with its bind value spliced in as `$2`. It is `$2` because the
+ * org-scope always binds `$1`; the watermark builder is told to use placeholder index 2. This
+ * keeps the org-scope STRICT — the extra filter can only NARROW the result (it is ANDed), it
+ * can NEVER widen it to another org. When omitted, the SQL+params are byte-identical to the
+ * original full-scope select (so every existing caller is unaffected).
  */
 export function buildScopedSelect(
   plan: ModelPlan,
   columns: string[],
   orgId: string,
+  extraFilter?: { sql: string; value: unknown },
 ): { sql: string; params: unknown[] } {
   const t = quoteIdent(plan.table);
   const cols = columns.map((c) => `${t}.${quoteIdent(c)}`).join(", ");
+  // The extra (delta) filter, when present, ANDs an additional predicate that binds $2.
+  const andExtra = extraFilter ? ` AND (${extraFilter.sql})` : "";
+  const extraParams = extraFilter ? [extraFilter.value] : [];
 
   switch (plan.scope.kind) {
     case "ROOT": {
       // Organization: single-UUID PK by construction.
       const idCol = quoteIdent(plan.pk[0]);
       return {
-        sql: `SELECT ${cols} FROM ${t} WHERE ${t}.${idCol} = $1 ORDER BY ${t}.${idCol} ASC`,
-        params: [orgId],
+        sql: `SELECT ${cols} FROM ${t} WHERE ${t}.${idCol} = $1${andExtra} ORDER BY ${t}.${idCol} ASC`,
+        params: [orgId, ...extraParams],
       };
     }
     case "MEMBER": {
@@ -465,16 +476,16 @@ export function buildScopedSelect(
       return {
         sql:
           `SELECT ${cols} FROM ${t} WHERE ${t}.${idCol} IN ` +
-          `(SELECT ${quoteIdent("user_id")} FROM ${quoteIdent(ORG_MEMBERS_TABLE)} WHERE ${quoteIdent("org_id")} = $1) ` +
+          `(SELECT ${quoteIdent("user_id")} FROM ${quoteIdent(ORG_MEMBERS_TABLE)} WHERE ${quoteIdent("org_id")} = $1)${andExtra} ` +
           `ORDER BY ${t}.${idCol} ASC`,
-        params: [orgId],
+        params: [orgId, ...extraParams],
       };
     }
     case "DIRECT": {
       const orgCol = plan.scope.orgIdColumn!;
       return {
-        sql: `SELECT ${cols} FROM ${t} WHERE ${t}.${quoteIdent(orgCol)} = $1 ORDER BY ${orderByClause(plan, t)}`,
-        params: [orgId],
+        sql: `SELECT ${cols} FROM ${t} WHERE ${t}.${quoteIdent(orgCol)} = $1${andExtra} ORDER BY ${orderByClause(plan, t)}`,
+        params: [orgId, ...extraParams],
       };
     }
     case "PARENT": {
@@ -492,8 +503,8 @@ export function buildScopedSelect(
       const orgCol = plan.scope.parentOrgIdColumn!;
       const topAlias = aliases[aliases.length - 1];
       return {
-        sql: `SELECT ${cols} FROM ${fromSql} WHERE ${topAlias}.${quoteIdent(orgCol)} = $1 ORDER BY ${orderByClause(plan, t)}`,
-        params: [orgId],
+        sql: `SELECT ${cols} FROM ${fromSql} WHERE ${topAlias}.${quoteIdent(orgCol)} = $1${andExtra} ORDER BY ${orderByClause(plan, t)}`,
+        params: [orgId, ...extraParams],
       };
     }
   }
