@@ -36,15 +36,20 @@ export interface EgressDecision {
   contentHash: string;
   /**
    * Which gate withheld; "none" when exposed. "tenant" = gov fail-closed (P0).
-   * The opaque-handle resolver adds two NON-withhold audit events (AC-4 evidence of
-   * controlled CUI-by-reference movement, NOT a gate verdict):
-   *   - "handle_mint":    N withheld CUI fields were minted as opaque handles for a
-   *                       tool result (the model got tokens, never the values).
-   *   - "handle_resolve": N handles in a tool's args were resolved to real values
-   *                       IN-BOUNDARY before the executor ran.
+   * The opaque-handle resolver adds three NON-"none" audit events (AC-4 evidence of
+   * controlled CUI-by-reference movement / its enforcement, NOT the standard gate verdict):
+   *   - "handle_mint":       N withheld CUI fields were minted as opaque handles for a
+   *                          tool result (the model got tokens, never the values).
+   *   - "handle_resolve":    N handles in a tool's args were resolved to real values
+   *                          IN-BOUNDARY before the executor ran (allow path).
+   *   - "handle_taint_block": a WRITE that resolved N handles minted at ceiling X was
+   *                          REJECTED because its target context is cleared only below X
+   *                          (write-path taint — would spill CUI into a lower-classification
+   *                          container). The executor was NOT called; the CUI was never
+   *                          written and never reached the model.
    * The DB column (egress_decisions.decided_by) is TEXT, so no migration is needed.
    */
-  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve";
+  decidedBy: "rbac" | "agentpolicy" | "classification" | "tenant" | "none" | "handle_mint" | "handle_resolve" | "handle_taint_block";
   tenantClass: TenantClass;
   mode: EgressMode;
   /** The data's effective classification ceiling at decision time (audit evidence). */
