@@ -84,6 +84,10 @@ npx tsx scripts/cutover/orchestrate.mjs … --confirm
 The orchestrator sequence (each step timestamp-logged; the final line is a machine-readable
 `ORCHESTRATE_REPORT {…}`):
 
+0. **Gov exposability sign-off gate** (when `--tenant-class gov`) — `requireExposabilitySignoff`
+   runs FIRST, before any parity/freeze. A fail (missing/stale/leak-failed sign-off) **aborts
+   the flip** (exit non-zero, nothing frozen, nothing to roll back). Commercial tenants pass
+   this automatically.
 1. **Parity-gate precheck** — runs `parity-gate.mjs` (Step 0) against the restored snapshot.
    A fail **aborts before any freeze** (nothing to roll back).
 2. **Soak loop** — runs `soak-sync.mjs` repeatedly until a cycle reports **0 upserts**
@@ -113,8 +117,46 @@ restore command to run for that case.
 
 **Commercial-first / gov-last (orchestrated):** run commercial tenants first. For a **gov**
 tenant, the §9 gov-go-live gate + the per-tenant exposability-map review must be cleared
-**before** that tenant's `--confirm` run (the orchestrator does not enforce the gov gate — it
-is an out-of-band human sign-off that precedes the orchestrated gov flip).
+**before** that tenant's `--confirm` run. Pass **`--tenant-class gov`** for a gov flip: this
+**arms the exposability sign-off gate** (Step A.2 below) — the orchestrator now **enforces**
+it as Step 0 of the run (before any parity/freeze) and **ABORTS the flip** (exit non-zero,
+nothing frozen, nothing to roll back) unless a valid sign-off exists. Commercial flips default
+to `--tenant-class commercial` and are **unaffected** (the gate passes automatically).
+
+**A.2 — Gov exposability sign-off gate (gov tenants only).** The field-level default-deny
+**exposability map** (what a CUI-blind commercial model is allowed to SEE per tool result) is a
+security control authored by a script; a gov tenant's flip is gated on a **human review +
+leak-test sign-off** of the EXACT map:
+
+```sh
+# 1. Snapshot the CURRENT effective exposability map (canonical JSON + reviewer markdown + hash).
+#    Reads code only — no DB, no prod, no Google.
+npx tsx scripts/cutover/exposability-snapshot.mjs --out /secure/cutover/<slug>/exposability
+#    → exposability-map.md  (the artifact the security reviewer reads)
+#    → exposability-map.hash (the sha256 the sign-off is BOUND to)
+
+# 2. SECURITY REVIEW: read exposability-map.md — confirm every exposed field is structural
+#    (id/enum/iso-date/non-money number/non-PII boolean) and that all content/free-text/
+#    money/PII is WITHHELD (default-deny). Confirm the full-withhold tool families (Google/
+#    Nango) expose nothing.
+
+# 3. LEAK TEST: run the suite — the golden-egress + projection contract tests PROVE no
+#    CUI/free-text field is ever exposed. They MUST be green to set leakTestPassed:true.
+npm test   # (golden-egress.test.ts + projection.test.ts among them)
+
+# 4. SIGN OFF: write compliance/exposability/signoff/<orgSlug>.json (see EXAMPLE.json) =
+#    { "orgSlug": "<slug>", "mapHash": "<the hash from step 1>", "reviewer": "<name>",
+#      "signedAt": "<iso8601>", "leakTestPassed": true }
+```
+
+The gate (`requireExposabilitySignoff`, wired into the orchestrator) then **PASSES** for that
+gov tenant only if the sign-off's `mapHash` equals the **current** map hash AND
+`leakTestPassed` is true. A **missing** file, a **stale** hash (the map changed since
+sign-off ⇒ re-snapshot + re-review + re-sign), or `leakTestPassed:false` ⇒ the gov flip is
+**BLOCKED** (fail-closed). The snapshot reflects the **live merged map the gate enforces**
+(it imports `projection.ts`'s `EXPOSABLE_FIELDS`/`HANDLEABLE_FIELDS`/`TOOL_ENTITY`, already
+merged with the connector registry) — so a sign-off can never authorize a map that differs
+from what actually runs.
 
 ---
 
@@ -554,7 +596,9 @@ v2-side writes made in that short window.
 - **Gov** tenants cut over **last**, behind the §6 gov-go-live gate. For gov, shadow the
   **data layer only** during soak — **never invoke the model for gov orgs during soak** —
   and clear the §9.3-step-9 exposability-map review + leak-test sign-off **per gov tenant**
-  before that tenant's flip.
+  before that tenant's flip. This sign-off is now **enforced by the orchestrator**: a gov
+  flip (`--tenant-class gov`) runs the exposability sign-off gate as Step 0 and is **BLOCKED**
+  (fail-closed) without a valid sign-off matching the current map hash (see §A.2).
 
 ---
 
@@ -562,7 +606,9 @@ v2-side writes made in that short window.
 
 | step    | command |
 |---------|---------|
-| **orchestrate (the whole thing)** | `tsx scripts/cutover/orchestrate.mjs --org … --slug … --source … --target <owner-url> --scratch … --shadow … --prod-schema-dump … --state … --proxy-admin … --v1 … --v2 … [--max-cycles N] [--stamp …]` — **DRY-RUN by default; `--confirm` to execute; rolls back on any post-freeze failure** |
+| **orchestrate (the whole thing)** | `tsx scripts/cutover/orchestrate.mjs --org … --slug … --source … --target <owner-url> --scratch … --shadow … --prod-schema-dump … --state … --proxy-admin … --v1 … --v2 … [--tenant-class gov\|commercial] [--max-cycles N] [--stamp …]` — **DRY-RUN by default; `--confirm` to execute; rolls back on any post-freeze failure; `--tenant-class gov` arms+enforces the exposability sign-off gate** |
+| exposability snapshot (gov sign-off artifact) | `tsx scripts/cutover/exposability-snapshot.mjs --out <dir>` — canonical JSON + reviewer markdown + sha256 hash of the LIVE merged exposability map (code-only; no DB/prod) |
+| gov exposability sign-off | write `compliance/exposability/signoff/<orgSlug>.json` = `{orgSlug, mapHash, reviewer, signedAt, leakTestPassed}` at the current hash (see `EXAMPLE.json`); gates the gov flip |
 | parity (Step 0, HARD) | `tsx scripts/cutover/parity-gate.mjs --prod-schema-dump … --prod-migrations … --prod-commit … --scratch-url … --shadow-url … --stamp …` |
 | export  | `tsx scripts/cutover/export-org.mjs --source … --org … --out … --stamp …` |
 | import  | `tsx scripts/cutover/import-org.mjs --target <owner-url> --in … --org …` |
