@@ -1,0 +1,22 @@
+# Minimal, self-contained Postgres for the native-connectors Docker acceptance.
+# Uses the already-built pgvector image (satisfies the CREATE EXTENSION vector
+# migration) on a FREE host port (55432; 5432 is taken). No MinIO/pgBackRest/Caddy
+# — the acceptance only needs a real DB to prove the connector seal/dispatch/egress
+# mechanics. Tear down with: sudo docker compose -f docker-compose.acceptance.yml down -v
+name: cosmos-accept
+services:
+  accept-postgres:
+    image: cosmos-v2-postgres:dev
+    environment:
+      POSTGRES_USER: cosmos
+      POSTGRES_PASSWORD: cosmos
+      POSTGRES_DB: cosmos
+    # pgBackRest archive_command is skipped pre-stanza, so plain postgres is fine here.
+    command: ["postgres"]
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "cosmos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
