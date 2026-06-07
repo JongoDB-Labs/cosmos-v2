@@ -18,6 +18,7 @@ import { GOOGLE_TOOL_NAMES } from "../executors/google";
 import { GITHUB_TOOL_NAMES } from "../executors/github";
 import { JIRA_TOOL_NAMES } from "../executors/jira";
 import { SLACK_TOOL_NAMES } from "../executors/slack";
+import { M365_TOOL_NAMES } from "../executors/microsoft365";
 import { nangoTools } from "../tools/nango";
 
 // The COMMERCIAL-ONLY nango connector was added AFTER this refactor. It contributes
@@ -42,6 +43,16 @@ const SLACK_TOOL_NAME_LIST = [
   "slack_search_messages",
   "slack_post_message",
 ];
+// The v2.23 NATIVE M365 (Graph, org-app client-credentials) connector is also
+// availability:"all" — gov-usable behind the egress fence (GCC-High cloud toggle). It
+// joins the gov + commercial tool lists and merges its egress maps in (structural-only
+// projection asserted in the projection section below).
+const M365_TOOL_NAME_LIST = [
+  "m365_list_users",
+  "m365_list_messages",
+  "m365_list_events",
+  "m365_list_drive_items",
+];
 
 // ── PRE-REFACTOR LITERALS (the v2.9.0 ground truth) ────────────────────────────
 
@@ -65,13 +76,14 @@ const PRE_REFACTOR_GITHUB_TOOL_NAMES = [
   "github_list_pull_requests",
 ];
 // The GOV tool surface = the pre-refactor google+github list PLUS the v2.20 native
-// all-availability connectors (jira, slack), in registration order. Nango (commercial-
-// only) is still EXCLUDED from gov.
+// all-availability connectors (jira, slack) PLUS the v2.23 M365 connector, in
+// registration order. Nango (commercial-only) is still EXCLUDED from gov.
 const GOV_CONNECTOR_TOOL_NAMES = [
   ...PRE_REFACTOR_GOOGLE_TOOL_NAMES,
   ...PRE_REFACTOR_GITHUB_TOOL_NAMES,
   ...JIRA_TOOL_NAME_LIST,
   ...SLACK_TOOL_NAME_LIST,
+  ...M365_TOOL_NAME_LIST,
 ];
 
 // The connector TOOL_ENTITY / EXPOSABLE / HANDLEABLE maps = github's (google empty)
@@ -86,6 +98,10 @@ const CONNECTOR_TOOL_ENTITY: Record<string, string> = {
   jira_list_projects: "jira_project",
   slack_search_messages: "slack_message",
   slack_list_channels: "slack_channel",
+  m365_list_messages: "m365_message",
+  m365_list_events: "m365_event",
+  m365_list_drive_items: "m365_drive_item",
+  m365_list_users: "m365_user",
 };
 const CONNECTOR_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   github_issue: ["number", "state", "createdAt", "updatedAt", "closedAt"],
@@ -94,6 +110,10 @@ const CONNECTOR_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   jira_project: ["id", "key", "projectTypeKey"],
   slack_message: ["ts", "channel", "user", "type"],
   slack_channel: ["id", "is_private", "is_archived", "created"],
+  m365_message: ["id", "receivedDateTime", "isRead", "hasAttachments", "importance"],
+  m365_event: ["id", "start", "end", "isAllDay", "isCancelled", "showAs"],
+  m365_drive_item: ["id", "size", "createdDateTime", "lastModifiedDateTime", "isFolder"],
+  m365_user: ["id", "accountEnabled"],
 };
 // github/google/jira/slack contribute NO handleable fields.
 const CONNECTOR_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {};
@@ -105,9 +125,11 @@ describe("INVARIANT LOCK — connector tool list (google+github pinned; jira+sla
     // v2.20 native connectors lock their own name sets.
     expect([...JIRA_TOOL_NAMES].sort()).toEqual([...JIRA_TOOL_NAME_LIST].sort());
     expect([...SLACK_TOOL_NAMES].sort()).toEqual([...SLACK_TOOL_NAME_LIST].sort());
+    // v2.23 M365 connector locks its own name set.
+    expect([...M365_TOOL_NAMES].sort()).toEqual([...M365_TOOL_NAME_LIST].sort());
   });
 
-  it("a GOV tenant's connectorToolDefs = google+github+jira+slack, in order (nango excluded)", () => {
+  it("a GOV tenant's connectorToolDefs = google+github+jira+slack+m365, in order (nango excluded)", () => {
     // The gov surface is the load-bearing invariant: a gov tenant sees EXACTLY the
     // all-availability connectors' tools, in registration order — and NO nango tool.
     expect(connectorToolDefs("gov").map((t) => t.name)).toEqual(GOV_CONNECTOR_TOOL_NAMES);
@@ -118,7 +140,7 @@ describe("INVARIANT LOCK — connector tool list (google+github pinned; jira+sla
     expect(connectorToolDefs("commercial").map((t) => t.name)).toEqual([...GOV_CONNECTOR_TOOL_NAMES, ...NANGO_TOOL_NAMES]);
   });
 
-  it("connectorToolNames('gov') == google+github+jira+slack name set (no nango)", () => {
+  it("connectorToolNames('gov') == google+github+jira+slack+m365 name set (no nango)", () => {
     expect([...connectorToolNames("gov")].sort()).toEqual([...GOV_CONNECTOR_TOOL_NAMES].sort());
   });
 
@@ -127,7 +149,8 @@ describe("INVARIANT LOCK — connector tool list (google+github pinned; jira+sla
     for (const n of PRE_REFACTOR_GITHUB_TOOL_NAMES) expect(GITHUB_TOOL_NAMES.has(n)).toBe(true);
     for (const n of JIRA_TOOL_NAME_LIST) expect(JIRA_TOOL_NAMES.has(n)).toBe(true);
     for (const n of SLACK_TOOL_NAME_LIST) expect(SLACK_TOOL_NAMES.has(n)).toBe(true);
-    // The gov name set leaks NOTHING beyond google ∪ github ∪ jira ∪ slack (no nango).
+    for (const n of M365_TOOL_NAME_LIST) expect(M365_TOOL_NAMES.has(n)).toBe(true);
+    // The gov name set leaks NOTHING beyond google ∪ github ∪ jira ∪ slack ∪ m365 (no nango).
     const govUnion = new Set(GOV_CONNECTOR_TOOL_NAMES);
     for (const n of connectorToolNames("gov")) expect(govUnion.has(n)).toBe(true);
   });
@@ -150,6 +173,10 @@ describe("INVARIANT LOCK — merged egress maps equal the locked literals", () =
     expect(entityTypeForTool("jira_list_projects")).toBe("jira_project");
     expect(entityTypeForTool("slack_search_messages")).toBe("slack_message");
     expect(entityTypeForTool("slack_list_channels")).toBe("slack_channel");
+    expect(entityTypeForTool("m365_list_messages")).toBe("m365_message");
+    expect(entityTypeForTool("m365_list_events")).toBe("m365_event");
+    expect(entityTypeForTool("m365_list_drive_items")).toBe("m365_drive_item");
+    expect(entityTypeForTool("m365_list_users")).toBe("m365_user");
     // The write tools are UNMAPPED ⇒ full withhold floor for gov.
     expect(entityTypeForTool("jira_create_issue")).toBeUndefined();
     expect(entityTypeForTool("slack_post_message")).toBeUndefined();
@@ -195,5 +222,26 @@ describe("INVARIANT LOCK — merged egress maps equal the locked literals", () =
     expect(mv).toEqual({ ts: "1700000000.000100", channel: "C123", user: "U456", type: "message" });
     expect(JSON.stringify(mv)).not.toContain("text");
     expect(JSON.stringify(mv)).not.toContain("CUI");
+  });
+
+  it("a gov m365 message is projected to structural-only (id/flags/timestamp; subject/from withheld)", () => {
+    const msg = {
+      id: "m1", receivedDateTime: "2026-06-01T12:00:00Z", isRead: false, hasAttachments: true,
+      importance: "high", subject: "CUI//SP exfil path", bodyPreview: "secret repro", from: "boss@acme.us",
+    };
+    const mv = projectStructural(msg, "m365_message") as Record<string, unknown>;
+    expect(mv).toEqual({
+      id: "m1", receivedDateTime: "2026-06-01T12:00:00Z", isRead: false, hasAttachments: true, importance: "high",
+    });
+    expect(JSON.stringify(mv)).not.toContain("CUI");
+    expect(JSON.stringify(mv)).not.toContain("boss@acme.us");
+  });
+
+  it("a gov m365 user is projected to structural-only (id/accountEnabled; displayName/mail withheld)", () => {
+    const u = { id: "u1", accountEnabled: true, displayName: "Jane Doe", mail: "jane@acme.us", userPrincipalName: "jane@acme.us" };
+    const mv = projectStructural(u, "m365_user") as Record<string, unknown>;
+    expect(mv).toEqual({ id: "u1", accountEnabled: true });
+    expect(JSON.stringify(mv)).not.toContain("Jane");
+    expect(JSON.stringify(mv)).not.toContain("jane@acme.us");
   });
 });
