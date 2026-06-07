@@ -170,33 +170,96 @@ matches the last anchored head.
 
 ---
 
-## 4. Retention-purge constraint (DEFERRED — read before building purge)
+## 4. Retention-purge with chain-checkpoint (AU-11) — IMPLEMENTED
 
-Gov **over-retains** (audit retention ≥ 1095 days; often longer), so there is currently **no
-purge** and the chain runs unbroken from genesis. When a retention-purge job is eventually
-built, it will truncate the **head** of the chain (the oldest rows) — which would make a
-naive genesis-to-now `verify_audit_chain` fail (no `prev_hash IS NULL` genesis row, or
-unreachable older rows). The purge job MUST therefore:
+Gov **over-retains** (audit retention ≥ 1095 days; often longer). When the retention floor is
+reached, the **sanctioned** way to remove the oldest rows is the owner-only purge job
+`scripts/dsop/purge-audit.mjs` (compose one-shot `purge-audit`). It deletes the chain **head**
+(the oldest rows) WITHOUT breaking `verify_audit_chain`, because it records a **signed
+chain-checkpoint** at the purge boundary first. Migration
+`20260606130000_audit_retention_checkpoint` adds the `audit_chain_checkpoint` table and makes
+`verify_audit_chain` checkpoint-aware.
 
-1. **Verify intact up to the purge boundary first** — never purge over an already-broken chain.
-2. **Record a signed checkpoint** at the new boundary: the `seq` and `row_hash` of the
-   oldest *retained* row (the new genesis-after-purge), signed the same way the WORM manifest
-   is (HMAC), and ideally co-located with the WORM anchor.
-3. **Re-anchor verification** to "verify FROM the last WORM-anchored / checkpointed `seq`
-   forward" — i.e. `verify_audit_chain` (or a `from_seq` variant of it) treats the
-   checkpointed row as the trusted genesis, and the purged prefix is vouched for by the WORM
-   export that captured it before deletion.
-4. Run as the **owner** with the append-only guard explicitly disabled for the purge window
-   only (the only legitimate deletion path), inside a single transaction, logged as an AU
-   event.
+### How it stays tamper-evident across the boundary
 
-Until that exists, **do not delete audit rows by any means** — the guards will block it and
-that is the intended behavior.
+The purge, in **one owner transaction**:
 
-> **Out of scope / noted:** multi-statement insert ordering within one transaction and
-> logical-replication replay are not specially handled; the chain is correct for the
-> single-row fire-and-forget INSERT path the app uses (see `src/lib/audit.ts` and
-> `src/lib/ai/egress/audit.ts`).
+1. Computes `N = max(seq)` among rows with `created_at < now() - retentionDays`.
+2. Records a checkpoint row `(table_name, checkpoint_seq = N, checkpoint_row_hash = <row_hash
+   at seq N>, sig)` where `sig = HMAC_sha256(key, table_name || N || hex(row_hash@N))` (the
+   key is `WORM_MANIFEST_HMAC_KEY` by default, or `--hmac-key-env <NAME>`).
+3. `SET LOCAL session_replication_role = replica` (the **only** way to bypass the layer-1
+   append-only trigger — for this transaction only) and `DELETE FROM <table> WHERE seq <= N`.
+
+The deleted row at seq N is gone, but the **first retained row's `prev_hash` still equals the
+checkpoint's `checkpoint_row_hash`** (that link lives on the *retained* successor row, which is
+not deleted). So `verify_audit_chain` re-anchors there: with a checkpoint present it walks from
+the unique retained row whose `prev_hash = checkpoint_row_hash` instead of from a
+`prev_hash IS NULL` genesis, recomputing every hash through the tail (scoped to
+`seq > checkpoint_seq`). The purged prefix is vouched for by the WORM export that captured it
+before deletion, plus the signed checkpoint.
+
+### Two-layer checkpoint verification (structural in SQL, sig in JS)
+
+A SQL function **cannot read the HMAC key from env**, so the split is deliberate:
+
+- **`verify_audit_chain` (SQL) anchors STRUCTURALLY** at `checkpoint_row_hash`. It detects a
+  missing/altered anchor (`no row anchors at checkpoint`), a boundary fork, content tamper,
+  mid-chain deletes, etc. — but it does **not** check the checkpoint's signature.
+- **`scripts/dsop/verify-audit-chain.mjs` (the wrapper) checks the HMAC sig** of the latest
+  checkpoint per table by recomputing `HMAC(key, table || seq || hex(row_hash))` and comparing
+  (constant-time). A **forged checkpoint** — inserted by an attacker who reached owner and
+  disabled the guards, to re-anchor a tampered chain — has a sig that does not recompute, so
+  the wrapper exits **2** (`checkpoint sig INVALID (forged/altered checkpoint)`). It also fails
+  closed (exit 2) if a checkpoint exists but no key is supplied to verify it.
+
+So a forged checkpoint can pass the structural SQL check yet is still caught by the wrapper's
+sig check — empirically proven on PG16 (see the proof matrix referenced below).
+
+### Hard guards (the purge refuses rather than risk integrity)
+
+1. **WORM-export-FIRST ordering.** The script refuses if `N > the latest WORM-attested toSeq`
+   for the table (read from the `cosmos-audit-worm` bucket's signed `manifest-toSeq-<N>.json`
+   keys, or `--worm-toseq`). **Never delete a row that wasn't anchored offsite first.** So the
+   operational order is always: **WORM export → purge → verify.**
+2. **Gov retention floor (≥ 1095 days).** The script refuses `--retention-days < 1095` UNLESS
+   the explicit, loud, **TEST-ONLY** env `AUDIT_PURGE_ALLOW_BELOW_FLOOR_DAYS=<min-days>` is
+   set (used only by the Docker acceptance / tests — never in production).
+3. **Owner-only.** The script refuses if `DATABASE_URL` points at `cosmos_app` (which cannot
+   `DELETE` and cannot even `SET session_replication_role` — proven). The purge MUST run as
+   the owner (`cosmos`).
+4. **Idempotent.** Re-running is a clean no-op (a checkpoint already covering `N`, or nothing
+   below the cutoff).
+
+### Operator procedure
+
+```sh
+# 1. Anchor the rows being purged offsite FIRST (advances the WORM high-water mark).
+sudo docker compose --profile ops run --rm audit-worm-export
+
+# 2. Verify the chain is intact BEFORE purging (never purge over an already-broken chain).
+sudo docker compose --profile ops run --rm verify-audit-chain
+
+# 3. Purge (owner; default table audit_logs, default retention 1095d = the gov floor).
+sudo docker compose --profile ops run --rm \
+  -e PURGE_TABLE=audit_logs -e PURGE_RETENTION_DAYS=1095 purge-audit
+sudo docker compose --profile ops run --rm \
+  -e PURGE_TABLE=egress_decisions -e PURGE_RETENTION_DAYS=1095 purge-audit
+
+# 4. Verify AFTER the purge — INTACT means it re-anchored at the checkpoint with a valid sig.
+sudo docker compose --profile ops run --rm verify-audit-chain
+```
+
+**`cosmos_app` still cannot delete audit rows** after this change — the layer-1 REVOKE +
+append-only trigger are untouched; only the owner, in explicit replica mode, can. The
+checkpoint table is itself append-only for the app (`cosmos_app` has `SELECT` only; INSERT/
+UPDATE/DELETE/TRUNCATE are REVOKEd) so the app cannot forge or alter a checkpoint.
+
+> **Out of scope / noted:** an automated purge scheduler/cron is ops (the script + this
+> runbook are the engineering deliverable); per-org retention overrides; purging other large
+> tables. Multi-statement insert ordering within one transaction and logical-replication
+> replay are not specially handled; the chain is correct for the single-row fire-and-forget
+> INSERT path the app uses (see `src/lib/audit.ts` and `src/lib/ai/egress/audit.ts`).
 
 ---
 

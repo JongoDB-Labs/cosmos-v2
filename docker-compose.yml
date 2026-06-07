@@ -274,14 +274,63 @@ services:
   # demand or on a scheduler (pairs with the audit-worm-export anchor):
   #   sudo docker compose --profile ops run --rm verify-audit-chain
   # Uses the migrate image (has the `pg` dep + scripts/). Reads as the LEAST-PRIVILEGE
-  # cosmos_app role — verification is SELECT-only (+ EXECUTE on verify_audit_chain), NEVER
-  # the owner. See docs/runbooks/audit-integrity.md.
+  # cosmos_app role — verification is SELECT-only (+ EXECUTE on verify_audit_chain + SELECT
+  # on audit_chain_checkpoint), NEVER the owner. The WORM_MANIFEST_HMAC_KEY lets it ALSO
+  # verify the latest AU-11 retention-purge checkpoint's HMAC sig (forged-checkpoint
+  # detection — the SQL function anchors structurally, this wrapper checks the sig). See
+  # docs/runbooks/audit-integrity.md.
   verify-audit-chain:
     image: cosmos-v2-migrate:dev
     profiles: ["ops"]
     environment:
       DATABASE_URL: postgres://cosmos_app:${COSMOS_APP_PASSWORD:-cosmos_app}@cosmos-postgres:5432/cosmos
+      WORM_MANIFEST_HMAC_KEY: ${WORM_MANIFEST_HMAC_KEY:-change-me-manifest-hmac}
     entrypoint: ["node", "scripts/dsop/verify-audit-chain.mjs"]
+    depends_on:
+      cosmos-postgres:
+        condition: service_healthy
+
+  # One-shot AU-11 audit RETENTION-PURGE (the ONLY sanctioned audit-delete path). Deletes
+  # rows older than the retention floor from audit_logs / egress_decisions WITHOUT breaking
+  # the AU-9 hash-chain: records a signed chain-checkpoint at the boundary, then deletes
+  # rows <= N in ONE owner txn (SET LOCAL session_replication_role = replica — the only way
+  # to bypass the append-only trigger, for that txn only). Connects as the OWNER (cosmos)
+  # from .env's DATABASE_URL — NOT cosmos_app (which can't delete or set replica role).
+  #
+  # ORDERING IS LOAD-BEARING — run a WORM export FIRST so the purged rows are anchored
+  # offsite; the script REFUSES if N > the latest WORM-attested toSeq (reads the bucket's
+  # signed manifest keys). NEVER purges below the 1095-day gov floor unless the explicit,
+  # TEST-ONLY env AUDIT_PURGE_ALLOW_BELOW_FLOOR_DAYS is set. Example:
+  #   sudo docker compose --profile ops run --rm audit-worm-export        # 1. anchor offsite
+  #   sudo docker compose --profile ops run --rm \
+  #     -e PURGE_TABLE=audit_logs -e PURGE_RETENTION_DAYS=1095 purge-audit # 2. purge
+  #   sudo docker compose --profile ops run --rm verify-audit-chain        # 3. confirm intact
+  # See docs/runbooks/audit-integrity.md (owner-only, WORM-first, verify-after).
+  purge-audit:
+    image: cosmos-v2-migrate:dev
+    profiles: ["ops"]
+    # env_file supplies the OWNER DATABASE_URL (cosmos) — the purge MUST run as the owner.
+    env_file: .env
+    environment:
+      # WORM env so the script can read the latest attested toSeq (the WORM-ordering guard),
+      # unless --worm-toseq is passed. Same bucket/creds the exporter writes.
+      WORM_S3_ENDPOINT: https://cosmos-minio:9000
+      WORM_S3_BUCKET: cosmos-audit-worm
+      WORM_S3_ACCESS_KEY: ${WORM_ACCESS_KEY:-cosmos-worm}
+      WORM_S3_SECRET_KEY: ${WORM_SECRET_KEY:-cosmos-worm-secret}
+      WORM_MANIFEST_HMAC_KEY: ${WORM_MANIFEST_HMAC_KEY:-change-me-manifest-hmac}
+      NODE_EXTRA_CA_CERTS: /etc/cosmos/minio-ca/public.crt
+    # PURGE_TABLE / PURGE_RETENTION_DAYS map to the script's flags via the shell entrypoint so
+    # they can be supplied with `-e` at `run` time. Defaults: audit_logs / 1095d (gov floor).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        node scripts/dsop/purge-audit.mjs
+        --table "${PURGE_TABLE:-audit_logs}"
+        --retention-days "${PURGE_RETENTION_DAYS:-1095}"
+        ${PURGE_EXTRA_ARGS:-}
+    volumes:
+      - cosmos-minio-certs:/etc/cosmos/minio-ca:ro
     depends_on:
       cosmos-postgres:
         condition: service_healthy
