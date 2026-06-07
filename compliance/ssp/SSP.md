@@ -90,6 +90,7 @@ The in-boundary classifier/embeddings sidecar (MiniLM + pgvector) is **inside** 
 | Nango (commercial overlay only) | NO | Token vault for commercial long-tail; not available to gov |
 | External MCP sidecars (commercial only) | NO | Gov tenants code-blocked by invariant |
 | Google / M365 GovCloud connectors | Partially in-boundary | Gov uses provider-native gov-cloud (GCC-High / Assured Workloads); data returned is processed in-boundary via executors before any chokepoint decision |
+| Native token-auth connectors (GitHub / Jira / Slack) | External SaaS; treated like the connectors above | `availability:"all"` (gov-usable) connectors registered in the connector registry. The provider token (GitHub PAT; Jira email+API-token; Slack `xoxb-` bot token) is sealed at rest in the `connector_credentials` vault (AES-256-GCM `v2.<kid>` envelopes, SC-28 / 3.13.16) via the sealed-install path — never written to `Integration.config`, never logged, never returned to the model. The executor returns a shallow shape that the egress chokepoint projects: a **gov** tenant sees STRUCTURAL fields only (issue/PR number/key + status/timestamps; channel/message ids), while free-text content (issue summary/description/comments, message text, channel name/topic, reporter/assignee names/emails) is WITHHELD by field-allowlist default-deny. Write tools (create issue / post message) return only the created id and are re-gated structurally for gov. |
 | GitHub Actions CI/CD | NO | Build pipeline; no CUI; SBOM/signature artifacts stored in GHCR |
 
 ---
