@@ -1,23 +1,28 @@
+import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { redirect } from "next/navigation";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Target } from "lucide-react";
+import { redirect, notFound } from "next/navigation";
+import { GoalsBoard } from "@/components/goals/goals-board";
 
-type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
+type PageParams = {
+  params: Promise<{ orgSlug: string; projectKey: string }>;
+};
 
 export default async function GoalsPage({ params }: PageParams) {
-  const { orgSlug } = await params;
+  const { orgSlug, projectKey } = await params;
+
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
 
-  // Project layout owns the page <h1>; this is a section, not a new page title.
-  return (
-    <div className="mx-auto max-w-5xl p-8">
-      <EmptyState
-        illustration={<Target className="size-10" />}
-        title="Goals"
-        description="Track high-level goals for this project. Full goal management is coming soon."
-      />
-    </div>
-  );
+  const project = await prisma.project.findFirst({
+    where: {
+      orgId: ctx.orgId,
+      key: { equals: projectKey, mode: "insensitive" },
+      archived: false,
+    },
+    select: { id: true },
+  });
+
+  if (!project) notFound();
+
+  return <GoalsBoard orgId={ctx.orgId} projectId={project.id} />;
 }

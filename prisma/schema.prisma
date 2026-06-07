@@ -200,6 +200,9 @@ model Organization {
   cycles                 Cycle[]
   mcpServers             McpServer[]
   objectives             Objective[]
+  goals                  Goal[]
+  milestones             Milestone[]
+  kpis                   Kpi[]
   feedbackItems          FeedbackItem[]
   homeWidgets            HomeWidget[]
   workRoles              WorkRole[]
@@ -214,18 +217,18 @@ model Organization {
 }
 
 model User {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  auth0UserId  String?   @unique @map("auth0_user_id")
-  googleId     String?   @unique @map("google_id")
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  auth0UserId       String?   @unique @map("auth0_user_id")
+  googleId          String?   @unique @map("google_id")
   // The legacy plaintext google_refresh_token column has been swept into the sealed
   // ConnectorCredential store (scripts/dsop/seal-google-tokens.mjs) and DROPPED
   // (migration 20260606120000_drop_google_refresh_token). The sealed connector
   // credential vault is the SOLE source of truth for Google OAuth refresh tokens —
   // no plaintext secret column remains on User.
-  email        String
-  displayName  String    @map("display_name")
-  avatarUrl    String?   @map("avatar_url")
-  lastActiveAt DateTime? @map("last_active_at")
+  email             String
+  displayName       String    @map("display_name")
+  avatarUrl         String?   @map("avatar_url")
+  lastActiveAt      DateTime? @map("last_active_at")
   // ── Presence / availability (prod-parity; cosmetic, mostly NULL) ─────────────
   // Free-text custom status, an optional emoji, and a do-not-disturb expiry.
   customStatus      String?   @map("custom_status")
@@ -235,8 +238,8 @@ model User {
   // authored by the bot rather than the invoking human and they appear in the
   // mention picker. Added for prod-parity (chat_bots feature + cutover round-trip
   // of prod's 12 bot users); additive, default false for all real users.
-  isBot        Boolean   @default(false) @map("is_bot")
-  createdAt    DateTime  @default(now()) @map("created_at")
+  isBot             Boolean   @default(false) @map("is_bot")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   memberships         OrgMember[]
   preferences         UserPreferences?
@@ -521,6 +524,9 @@ model Project {
   boards              Board[]
   cycles              Cycle[]
   objectives          Objective[]
+  goals               Goal[]
+  milestones          Milestone[]
+  kpis                Kpi[]
   projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
   journalLines        JournalLine[]
   dataClassifications DataClassification[]
@@ -616,28 +622,28 @@ model WorkItem {
   // ── Superset / import-provenance fields (prod-parity column reconciliation) ──
   // All nullable; carry imported-record provenance so a v1→v2 cutover loses no
   // data and future re-import stays lossless. Origin system, e.g. "jira" | "linear".
-  externalSource    String?  @map("external_source")
+  externalSource    String? @map("external_source")
   // Stable internal id from the source system (used for idempotent re-import).
-  externalId        String?  @map("external_id")
+  externalId        String? @map("external_id")
   // Human-readable source key, e.g. "PROJ-123".
-  externalKey       String?  @map("external_key")
+  externalKey       String? @map("external_key")
   // Original workflow status text from the source (before mapping to a column).
-  sourceStatus      String?  @map("source_status")
+  sourceStatus      String? @map("source_status")
   // Original resolution text from the source (e.g. "Fixed", "Won't Do").
   resolution        String?
   // Verbatim original source row — true losslessness for unmapped columns.
-  sourceRecord      Json?    @map("source_record")
+  sourceRecord      Json?   @map("source_record")
   // Time tracking, stored in SECONDS to match Jira's worklog unit.
-  originalEstimate  Int?     @map("original_estimate")
-  remainingEstimate Int?     @map("remaining_estimate")
-  timeSpent         Int?     @map("time_spent")
+  originalEstimate  Int?    @map("original_estimate")
+  remainingEstimate Int?    @map("remaining_estimate")
+  timeSpent         Int?    @map("time_spent")
 
-  parent       WorkItem?    @relation("WorkItemHierarchy", fields: [parentId], references: [id])
-  children     WorkItem[]   @relation("WorkItemHierarchy")
-  workItemType WorkItemType @relation(fields: [workItemTypeId], references: [id])
-  cycle        Cycle?       @relation(fields: [cycleId], references: [id])
-  activities   Activity[]
-  comments     Comment[]
+  parent        WorkItem?            @relation("WorkItemHierarchy", fields: [parentId], references: [id])
+  children      WorkItem[]           @relation("WorkItemHierarchy")
+  workItemType  WorkItemType         @relation(fields: [workItemTypeId], references: [id])
+  cycle         Cycle?               @relation(fields: [cycleId], references: [id])
+  activities    Activity[]
+  comments      Comment[]
   // Prod-parity back-relations (dependency links + attachments).
   outgoingLinks WorkItemLink[]       @relation("WorkItemLinkSource")
   incomingLinks WorkItemLink[]       @relation("WorkItemLinkTarget")
@@ -1542,8 +1548,8 @@ model OrgSecuritySettings {
   // existing ABAC engine. Shape: { rules: AbacRule[] } or AbacRule[].
   actionRestrictions Json @default("{}") @map("action_restrictions")
 
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -1636,9 +1642,9 @@ model AgentPolicy {
   /// AXIS 3 (args) — maxResultLimit: a `limit`/`maxResults` arg above this is CLAMPED to it
   /// (null ⇒ no clamp). allowedProjectIds: tri-state ALLOWLIST of project scopes — a tool call
   /// carrying a `projectId` not in the list is refused (allowedProjectIdsSet=false ⇒ any allowed).
-  maxResultLimit        Int?     @map("max_result_limit")
-  allowedProjectIdsSet  Boolean  @default(false) @map("allowed_project_ids_set")
-  allowedProjectIds     String[] @default([]) @map("allowed_project_ids")
+  maxResultLimit       Int?     @map("max_result_limit")
+  allowedProjectIdsSet Boolean  @default(false) @map("allowed_project_ids_set")
+  allowedProjectIds    String[] @default([]) @map("allowed_project_ids")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1799,10 +1805,10 @@ model ChatChannel {
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
 
-  org      Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  members  ChatChannelMember[]
-  messages ChatMessage[]
-  pins     ChatPinnedMessage[]
+  org             Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members         ChatChannelMember[]
+  messages        ChatMessage[]
+  pins            ChatPinnedMessage[]
   // Prod-parity back-relations.
   botChannels     ChatBotChannel[]
   threadFollowers ChatThreadFollower[]
@@ -1854,16 +1860,16 @@ model ChatMessage {
   deletedAt       DateTime?       @map("deleted_at")
   createdAt       DateTime        @default(now()) @map("created_at")
 
-  channel       ChatChannel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  parentMessage ChatMessage?            @relation("Thread", fields: [parentMessageId], references: [id])
-  replies       ChatMessage[]           @relation("Thread")
-  reactions     ChatMessageReaction[]
-  attachments   ChatMessageAttachment[]
-  mentions      ChatMessageMention[]
-  pins          ChatPinnedMessage[]
+  channel         ChatChannel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  parentMessage   ChatMessage?            @relation("Thread", fields: [parentMessageId], references: [id])
+  replies         ChatMessage[]           @relation("Thread")
+  reactions       ChatMessageReaction[]
+  attachments     ChatMessageAttachment[]
+  mentions        ChatMessageMention[]
+  pins            ChatPinnedMessage[]
   // Prod-parity back-relations.
   botRuns         ChatBotRun[]
-  threadFollowers ChatThreadFollower[] @relation("ThreadFollowers")
+  threadFollowers ChatThreadFollower[]    @relation("ThreadFollowers")
 
   @@index([channelId, createdAt])
   @@index([channelId, parentMessageId, createdAt])
@@ -1993,6 +1999,153 @@ model KeyResult {
 
   @@index([objectiveId])
   @@map("key_results")
+}
+
+// ─────────────────────────────────────────────
+// Goals, Milestones, KPIs (project delivery tracking)
+// ─────────────────────────────────────────────
+
+enum GoalStatus {
+  PLANNED
+  ON_TRACK
+  AT_RISK
+  OFF_TRACK
+  ACHIEVED
+}
+
+enum GoalProgressMode {
+  MANUAL
+  AUTO
+}
+
+enum GoalLinkKind {
+  WORK_ITEM
+  OBJECTIVE
+}
+
+model Goal {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String           @map("org_id") @db.Uuid
+  projectId    String           @map("project_id") @db.Uuid
+  title        String
+  description  String?
+  status       GoalStatus       @default(PLANNED)
+  progress     Int              @default(0) // 0-100; manual or rolled up from links
+  progressMode GoalProgressMode @default(MANUAL) @map("progress_mode")
+  targetDate   DateTime?        @map("target_date")
+  ownerId      String?          @map("owner_id") @db.Uuid
+  sortOrder    Int              @default(0) @map("sort_order")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links   GoalLink[]
+
+  @@index([orgId, projectId])
+  @@map("goals")
+}
+
+// Links a goal to a work item OR an OKR objective (the rollup source for AUTO
+// progress). Soft references by id (no hard FK) so deleting a linked item never
+// cascades into the goal; the resolver tolerates dangling links.
+model GoalLink {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goalId      String       @map("goal_id") @db.Uuid
+  kind        GoalLinkKind
+  workItemId  String?      @map("work_item_id") @db.Uuid
+  objectiveId String?      @map("objective_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@map("goal_links")
+}
+
+enum MilestoneStatus {
+  UPCOMING
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+}
+
+model Milestone {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String          @map("org_id") @db.Uuid
+  projectId   String          @map("project_id") @db.Uuid
+  title       String
+  description String?
+  dueDate     DateTime        @map("due_date")
+  status      MilestoneStatus @default(UPCOMING)
+  autoStatus  Boolean         @default(true) @map("auto_status") // derive from linked items
+  completedAt DateTime?       @map("completed_at")
+  ownerId     String?         @map("owner_id") @db.Uuid
+  sortOrder   Int             @default(0) @map("sort_order")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links   MilestoneLink[]
+
+  @@index([orgId, projectId])
+  @@map("milestones")
+}
+
+model MilestoneLink {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  milestoneId String   @map("milestone_id") @db.Uuid
+  workItemId  String   @map("work_item_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+  @@map("milestone_links")
+}
+
+enum KpiDirection {
+  UP_GOOD
+  DOWN_GOOD
+}
+
+model Kpi {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  projectId    String       @map("project_id") @db.Uuid
+  name         String
+  description  String?
+  unit         String       @default("")
+  targetValue  Float        @default(0) @map("target_value")
+  currentValue Float        @default(0) @map("current_value")
+  direction    KpiDirection @default(UP_GOOD)
+  sortOrder    Int          @default(0) @map("sort_order")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dataPoints KpiDataPoint[]
+
+  @@index([orgId, projectId])
+  @@map("kpis")
+}
+
+// A measurement of a KPI at a point in time — powers the trend chart and keeps
+// the KPI's currentValue in sync (the API stamps currentValue from the latest).
+model KpiDataPoint {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kpiId      String   @map("kpi_id") @db.Uuid
+  value      Float
+  recordedAt DateTime @default(now()) @map("recorded_at")
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  kpi Kpi @relation(fields: [kpiId], references: [id], onDelete: Cascade)
+
+  @@index([kpiId, recordedAt])
+  @@map("kpi_data_points")
 }
 
 // ─────────────────────────────────────────────
