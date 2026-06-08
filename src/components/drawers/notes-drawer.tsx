@@ -1,12 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Plus, X, Lock, FolderKanban, Building2 } from "lucide-react";
+import {
+  FileText,
+  Plus,
+  X,
+  Lock,
+  FolderKanban,
+  Building2,
+  ArrowLeft,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { NoteEditor } from "@/components/notes/note-editor";
 import { stripMarkdown } from "@/components/notes/note-markdown";
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
@@ -24,12 +34,12 @@ const visibilityIcon: Record<Note["visibility"], React.ReactNode> = {
 };
 
 /**
- * Global slide-over for notes. A compact list + quick create/edit that REUSES
- * the existing notes API (`/api/v1/orgs/[orgId]/notes`) and the shared
- * {@link NoteEditor} (Lexical rich-text + mentions) — the editor is NOT rebuilt.
- *
- * In list mode it shows a scrollable list of the org's notes; tapping one (or
- * "New") swaps the body to the full NoteEditor in-place.
+ * Global slide-over for notes. Purpose-built for the ~460px drawer: a compact
+ * list of the org's notes and a lightweight title + markdown-textarea editor
+ * (NOT the full Lexical NoteEditor). Reads/writes the notes API:
+ *   GET    /api/v1/orgs/[orgId]/notes            → Note[]
+ *   POST   /api/v1/orgs/[orgId]/notes            → { title, content } (created)
+ *   PUT    /api/v1/orgs/[orgId]/notes/[noteId]   → { title, content } (updated)
  */
 export function NotesDrawer({ orgId }: NotesDrawerProps) {
   const { isOpen, close } = useDrawers();
@@ -38,7 +48,12 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // null = list view. "new" = blank composer. A Note = editing that note.
   const [editing, setEditing] = useState<Note | null | "new">(null);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const fetchNotes = useCallback(async () => {
     setLoading(true);
@@ -46,7 +61,12 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/notes`);
       if (!res.ok) throw new Error("Failed to load notes");
-      setNotes(await res.json());
+      // success() returns a bare array; tolerate a {notes:[...]} envelope too.
+      const json: unknown = await res.json();
+      const list = Array.isArray(json)
+        ? (json as Note[])
+        : ((json as { notes?: Note[] }).notes ?? []);
+      setNotes(list);
     } catch (err) {
       notifyError(err, "Couldn't load notes.");
       setError(true);
@@ -55,28 +75,57 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
     }
   }, [orgId]);
 
-  // Load (or refresh) the list whenever the drawer is opened. fetchNotes sets
-  // loading state synchronously — the established pattern in FeedbackPortal —
-  // so the set-state-in-effect rule is scoped-disabled here.
+  // Refresh the list whenever the drawer opens. fetchNotes sets loading state
+  // synchronously — the established pattern — so scope-disable the rule here.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) fetchNotes();
   }, [open, fetchNotes]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  function handleSave(saved: Note) {
-    setNotes((prev) => {
-      const existing = prev.find((n) => n.id === saved.id);
-      return existing
-        ? prev.map((n) => (n.id === saved.id ? saved : n))
-        : [saved, ...prev];
-    });
-    setEditing(null);
+  function openEditor(note: Note | "new") {
+    setEditing(note);
+    setTitle(note === "new" ? "" : note.title);
+    setContent(note === "new" ? "" : note.content);
   }
 
-  function handleDelete(noteId: string) {
-    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+  function backToList() {
     setEditing(null);
+    setTitle("");
+    setContent("");
+  }
+
+  async function save() {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle || saving || editing === null) return;
+    setSaving(true);
+    try {
+      const isNew = editing === "new";
+      const res = await fetch(
+        isNew
+          ? `/api/v1/orgs/${orgId}/notes`
+          : `/api/v1/orgs/${orgId}/notes/${editing.id}`,
+        {
+          method: isNew ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: trimmedTitle, content }),
+        },
+      );
+      if (!res.ok) throw new Error("Failed to save note");
+      const saved = (await res.json()) as Note;
+      setNotes((prev) => {
+        const exists = prev.find((n) => n.id === saved.id);
+        return exists
+          ? prev.map((n) => (n.id === saved.id ? saved : n))
+          : [saved, ...prev];
+      });
+      toast.success(isNew ? "Note created." : "Note saved.");
+      backToList();
+    } catch (err) {
+      notifyError(err, "Couldn't save the note.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -85,7 +134,7 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
       onOpenChange={(o) => {
         if (!o) {
           close();
-          setEditing(null);
+          backToList();
         }
       }}
     >
@@ -95,14 +144,76 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
         className="flex w-full flex-col p-0 sm:max-w-[460px]"
       >
         {editing !== null ? (
-          <NoteEditor
-            note={editing === "new" ? null : editing}
-            orgId={orgId}
-            onSave={handleSave}
-            onDelete={handleDelete}
-            onClose={() => setEditing(null)}
-          />
+          /* ── Compact editor ── */
+          <>
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
+              <button
+                type="button"
+                onClick={backToList}
+                aria-label="Back to notes"
+                className="flex items-center gap-2 rounded p-1 text-sm font-semibold text-[var(--text)] hover:bg-[var(--primary-tint)]"
+              >
+                <ArrowLeft className="h-4 w-4 text-[var(--text-muted)]" />
+                {editing === "new" ? "New note" : "Edit note"}
+              </button>
+              <button
+                type="button"
+                onClick={() => close()}
+                aria-label="Close notes"
+                className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <form
+                className="flex h-full flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void save();
+                }}
+              >
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Note title…"
+                  aria-label="Note title"
+                  autoComplete="off"
+                />
+                <Textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="Write your note in Markdown…"
+                  aria-label="Note content"
+                  className="min-h-[240px] flex-1 resize-none font-mono text-xs"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={backToList}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={saving || !title.trim()}
+                  >
+                    {saving
+                      ? "Saving…"
+                      : editing === "new"
+                        ? "Create"
+                        : "Save"}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </>
         ) : (
+          /* ── List view ── */
           <>
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
               <span className="flex items-center gap-2 text-sm font-semibold">
@@ -113,7 +224,7 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
                 <Button
                   size="sm"
                   className="h-7 gap-1.5"
-                  onClick={() => setEditing("new")}
+                  onClick={() => openEditor("new")}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   New
@@ -138,7 +249,7 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center gap-3 py-12 text-center">
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-[var(--text-muted)]">
                     Couldn&apos;t load notes.
                   </p>
                   <Button variant="outline" size="sm" onClick={fetchNotes}>
@@ -154,7 +265,7 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
                     <Button
                       size="sm"
                       className="gap-1.5"
-                      onClick={() => setEditing("new")}
+                      onClick={() => openEditor("new")}
                     >
                       <Plus className="h-3.5 w-3.5" />
                       New Note
@@ -167,25 +278,25 @@ export function NotesDrawer({ orgId }: NotesDrawerProps) {
                     <li key={note.id}>
                       <button
                         type="button"
-                        onClick={() => setEditing(note)}
+                        onClick={() => openEditor(note)}
                         className={cn(
-                          "block w-full rounded-lg border bg-card p-3 text-left transition-colors",
-                          "hover:border-primary/50",
+                          "block w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-left transition-colors",
+                          "hover:border-[var(--primary)]/50",
                         )}
                       >
                         <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">
+                          <span className="text-[var(--text-muted)]">
                             {visibilityIcon[note.visibility]}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text)]">
                             {note.title || "Untitled"}
                           </span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                          <span className="shrink-0 text-[10px] text-[var(--text-muted)]">
                             {new Date(note.updatedAt).toLocaleDateString()}
                           </span>
                         </div>
                         {note.content && (
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          <p className="mt-1 line-clamp-2 text-xs text-[var(--text-muted)]">
                             {stripMarkdown(note.content)}
                           </p>
                         )}
