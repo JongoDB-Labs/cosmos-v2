@@ -17,6 +17,10 @@ import {
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSection } from "@/components/ui/page-section";
 import { Skeleton } from "@/components/ui/skeleton";
+import { prisma } from "@/lib/db/client";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { OrgGeneralSettings } from "@/components/settings/org-general-settings";
+import { OrgDangerZone } from "@/components/settings/org-danger-zone";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -71,8 +75,38 @@ async function SettingsHubContent({ params }: PageParams) {
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
 
+  const org = await prisma.organization.findUnique({
+    where: { id: ctx.orgId },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      logoUrl: true,
+      plan: true,
+      tenantClass: true,
+    },
+  });
+  if (!org) redirect("/");
+
+  const canUpdate = hasPermission(ctx.permissions, Permission.ORG_UPDATE);
+  const canDelete = hasPermission(ctx.permissions, Permission.ORG_DELETE);
+
   return (
-    <PageShell title="Settings" description={`Configure ${orgSlug}`}>
+    <PageShell title="Settings" description={`Configure ${org.name}`}>
+      <PageSection title="Organization">
+        <OrgGeneralSettings
+          orgId={org.id}
+          canUpdate={canUpdate}
+          initial={{
+            name: org.name,
+            slug: org.slug,
+            logoUrl: org.logoUrl,
+            plan: org.plan,
+            tenantClass: org.tenantClass,
+          }}
+        />
+      </PageSection>
+
       {GROUPS.map((g) => (
         <PageSection key={g.title} title={g.title}>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -90,6 +124,12 @@ async function SettingsHubContent({ params }: PageParams) {
           </div>
         </PageSection>
       ))}
+
+      {canDelete && (
+        <PageSection title="Danger zone">
+          <OrgDangerZone orgId={org.id} orgName={org.name} />
+        </PageSection>
+      )}
     </PageShell>
   );
 }

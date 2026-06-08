@@ -11,6 +11,7 @@ export async function GET() {
   const user = await prisma.user.findUnique({
     where: { id: me.id },
     select: {
+      email: true,
       passwordHash: true,
       passwordSetAt: true,
       mfaEnabled: true,
@@ -19,6 +20,10 @@ export async function GET() {
   });
 
   return NextResponse.json({
+    // The login email is the account's existing email (set by Google/SSO at
+    // first sign-in) — there's no separate "username" to choose. Surface it so
+    // users know exactly what to type at the email/password sign-in screen.
+    email: user?.email ?? null,
     hasPassword: Boolean(user?.passwordHash),
     passwordSetAt: user?.passwordSetAt ?? null,
     mfaEnabled: user?.mfaEnabled ?? false,

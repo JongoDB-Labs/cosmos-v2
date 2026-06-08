@@ -6,10 +6,19 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress, noContent } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrg } from "@/lib/cache/queries";
+import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { z } from "zod";
 
 const updateOrgSchema = z.object({
   name: z.string().min(2).max(100).optional(),
+  // Renaming the slug changes the workspace URL — same format rules as
+  // creation. Uniqueness + reserved-word checks happen below.
+  slug: z
+    .string()
+    .min(2)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
   logoUrl: z.string().url().nullable().optional(),
   themePrimary: z.string().nullable().optional(),
   themeMode: z.string().nullable().optional(),
@@ -64,10 +73,34 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateOrgSchema.parse(body);
 
+    // Slug rename: validate it's free and not a reserved route segment before
+    // we change the workspace URL. Only act when it actually differs.
+    const slugChanged = data.slug !== undefined && data.slug !== org.slug;
+    if (slugChanged) {
+      const slug = data.slug!;
+      if (isReservedSlug(slug)) {
+        return Response.json(
+          { error: "That URL is reserved. Pick a different one." },
+          { status: 409 },
+        );
+      }
+      const taken = await prisma.organization.findUnique({
+        where: { slug },
+        select: { id: true },
+      });
+      if (taken && taken.id !== orgId) {
+        return Response.json(
+          { error: "That URL is already taken." },
+          { status: 409 },
+        );
+      }
+    }
+
     const updated = await prisma.organization.update({
       where: { id: orgId },
       data: {
         name: data.name,
+        slug: slugChanged ? data.slug : undefined,
         logoUrl: data.logoUrl,
         themePrimary: data.themePrimary,
         themeMode: data.themeMode,
@@ -86,8 +119,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
 
     // Bust the cached org row (name/plan/theme) so dashboard headers see
-    // updates on next render.
+    // updates on next render. On a slug rename, expire BOTH the old and new
+    // slug tags — getOrgBySlug is keyed on the slug.
     revalidateOrg({ id: orgId, slug: org.slug });
+    if (slugChanged) revalidateOrg({ slug: data.slug });
 
     return success(updated);
   } catch (error) {
@@ -105,7 +140,40 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_DELETE);
 
+    // Defense-in-depth against an accidental/forged delete: the caller must
+    // echo the exact org name (the UI requires typing it). Origin-CSRF is
+    // already enforced in middleware; this is the second, intentional gate.
+    const body = await request.json().catch(() => ({}));
+    const confirmName =
+      body && typeof body === "object" ? (body as { confirmName?: unknown }).confirmName : undefined;
+    if (confirmName !== org.name) {
+      return Response.json(
+        { error: "Type the organization name exactly to confirm deletion." },
+        { status: 400 },
+      );
+    }
+
+    // Snapshot for the audit trail BEFORE the cascade wipes the membership.
+    const memberCount = await prisma.orgMember.count({ where: { orgId } });
+
+    // Hard delete cascades every org-scoped row. AuditLog has no FK to the org
+    // (scalar orgId), so this record survives the deletion as the tombstone.
     await prisma.organization.delete({ where: { id: orgId } });
+
+    await logAudit({
+      orgId,
+      userId: ctx.userId,
+      action: "org.deleted",
+      entity: "organization",
+      entityId: orgId,
+      metadata: {
+        name: org.name,
+        slug: org.slug,
+        plan: org.plan,
+        memberCount,
+      },
+      ipAddress: getIpAddress(request),
+    });
 
     revalidateOrg({ id: orgId, slug: org.slug });
 

@@ -8,6 +8,7 @@ import { ensureGeneralChannel, autoJoinGeneral } from "@/lib/chat/seed-general";
 import { z } from "zod";
 import { Plan } from "@prisma/client";
 import { provisionComplianceBaseline } from "@/lib/compliance/provision";
+import { isReservedSlug } from "@/lib/org/reserved-slugs";
 
 const createOrgSchema = z.object({
   name: z.string().min(2).max(100),
@@ -59,6 +60,13 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const data = createOrgSchema.parse(body);
+
+    if (isReservedSlug(data.slug)) {
+      return new Response(
+        JSON.stringify({ error: "That URL is reserved. Pick a different one." }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     const existing = await prisma.organization.findUnique({
       where: { slug: data.slug },
