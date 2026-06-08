@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { notifyError } from "@/lib/errors/notify";
 
 interface Status {
+  email: string | null;
   hasPassword: boolean;
   passwordSetAt: string | null;
   mfaEnabled: boolean;
@@ -165,6 +166,15 @@ export function AccountSecurityPanel() {
           )}
         </div>
         <form onSubmit={savePassword} className="grid max-w-md gap-2">
+          {/* There's no username/email field to fill in — your login email is
+              the account email you already signed in with. Show it so it's
+              clear what to enter at the email/password sign-in screen. */}
+          {status?.email && (
+            <div className="mb-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--text-muted)]">
+              You&apos;ll sign in with your account email:{" "}
+              <span className="font-medium text-[var(--text)]">{status.email}</span>
+            </div>
+          )}
           {status?.hasPassword && (
             <div className="space-y-1">
               <Label htmlFor="cur-pw">Current password</Label>
