@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CosmosMark } from "@/components/brand/cosmos-mark";
 import { Starfield } from "@/components/brand/starfield";
 
@@ -58,6 +59,80 @@ function LoginInner() {
   // is the real enforcement boundary).
   const hideGoogle = sso?.enforced === true;
 
+  // ── Email + password (+ TOTP) sign-in ──
+  const [showPw, setShowPw] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [phase, setPhase] = useState<"creds" | "mfa">("creds");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+
+  async function submitCreds(e: React.FormEvent) {
+    e.preventDefault();
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      const res = await fetch("/api/auth/password/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        mfaRequired?: boolean;
+        error?: string;
+      };
+      if (data.mfaRequired) {
+        setPhase("mfa");
+        setPassword("");
+        return;
+      }
+      if (!res.ok || !data.ok) {
+        setPwError(data.error ?? "Invalid email or password.");
+        return;
+      }
+      window.location.href = "/";
+    } catch {
+      setPwError("Something went wrong. Please try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function submitMfa(e: React.FormEvent) {
+    e.preventDefault();
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      const res = await fetch("/api/auth/password/mfa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        const msg = data.error ?? "Invalid code.";
+        // The pending token expired — drop back to email + password so the user
+        // can restart rather than being stuck on a dead code field.
+        if (/expired|start over/i.test(msg)) {
+          setPhase("creds");
+          setCode("");
+        }
+        setPwError(msg);
+        return;
+      }
+      window.location.href = "/";
+    } catch {
+      setPwError("Something went wrong. Please try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4">
       <Starfield className="absolute inset-0 h-full w-full" />
@@ -106,6 +181,73 @@ function LoginInner() {
           >
             {submitting ? "Redirecting to Google…" : "Sign in with Google"}
           </Button>
+        )}
+
+        {!hideGoogle && (
+          <div className="mt-4">
+            <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+              <span className="h-px flex-1 bg-[var(--border)]" />
+              or
+              <span className="h-px flex-1 bg-[var(--border)]" />
+            </div>
+
+            {!showPw ? (
+              <Button
+                variant="secondary"
+                className="mt-3 w-full"
+                onClick={() => setShowPw(true)}
+              >
+                Sign in with email &amp; password
+              </Button>
+            ) : phase === "creds" ? (
+              <form onSubmit={submitCreds} className="mt-3 space-y-2">
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                {pwError && (
+                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                )}
+                <Button type="submit" className="w-full" disabled={pwBusy}>
+                  {pwBusy ? "Signing in…" : "Sign in"}
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={submitMfa} className="mt-3 space-y-2">
+                <p className="text-xs text-[var(--text-muted)]">
+                  Enter the 6-digit code from your authenticator app (or a
+                  recovery code).
+                </p>
+                <Input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                />
+                {pwError && (
+                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                )}
+                <Button type="submit" className="w-full" disabled={pwBusy}>
+                  {pwBusy ? "Verifying…" : "Verify"}
+                </Button>
+              </form>
+            )}
+          </div>
         )}
 
         {hideGoogle && (

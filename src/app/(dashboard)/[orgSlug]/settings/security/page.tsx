@@ -2,6 +2,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
 import { SecuritySettingsPanel } from "@/components/security/security-settings-panel";
+import { AccountSecurityPanel } from "@/components/security/account-security-panel";
 import { PageShell } from "@/components/ui/page-shell";
 import {
   makeServerQueryClient,
@@ -54,11 +55,24 @@ export default async function SecurityPage({ params }: PageParams) {
   return (
     <PageShell
       title="Security"
-      description="SSO, sessions, and IP allowlists"
+      description="Your account security, SSO, sessions, and IP allowlists"
     >
-      <HydrationBoundary state={dehydrate(qc)}>
-        <SecuritySettingsPanel orgId={ctx.orgId} />
-      </HydrationBoundary>
+      <div className="space-y-8">
+        <div>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            Your account
+          </h2>
+          <AccountSecurityPanel />
+        </div>
+        <div>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            Organization policy
+          </h2>
+          <HydrationBoundary state={dehydrate(qc)}>
+            <SecuritySettingsPanel orgId={ctx.orgId} />
+          </HydrationBoundary>
+        </div>
+      </div>
     </PageShell>
   );
 }
