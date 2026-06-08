@@ -52,6 +52,10 @@ export interface DataTableProps<T> {
   getGroupLabel?: (columnId: string, value: unknown) => React.ReactNode;
   /** Add sticky top-of-viewport header */
   stickyHeader?: boolean;
+  /** When provided, clicking a (non-grouped) row calls this with the row's
+   * original data, and rows get a pointer cursor. Interactive cell content
+   * (buttons/links/menus) should stopPropagation so it doesn't also fire this. */
+  onRowClick?: (row: T) => void;
 }
 
 export function DataTable<T>({
@@ -68,6 +72,7 @@ export function DataTable<T>({
   onGroupingChange,
   getGroupLabel,
   stickyHeader,
+  onRowClick,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
@@ -260,9 +265,13 @@ export function DataTable<T>({
             return (
               <Fragment key={row.id}>
                 <tr
+                  onClick={
+                    onRowClick ? () => onRowClick(row.original) : undefined
+                  }
                   className={cn(
                     "group block space-y-2 border-b border-[var(--border)]/40 p-4 transition-colors last:border-0 hover:bg-[var(--bg)] md:table-row md:space-y-0 md:p-0",
                     row.getIsSelected() && "bg-[var(--primary-tint)]/40",
+                    onRowClick && "cursor-pointer",
                   )}
                 >
                   {renderExpanded ? (

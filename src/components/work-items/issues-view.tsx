@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -23,8 +23,11 @@ import {
 } from "@/components/ui/select";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog";
+import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
+import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2 } from "lucide-react";
+import { toast } from "sonner";
 
 /** Row shape returned by GET /api/v1/orgs/[orgId]/work-items/search. Mirrors
  *  IssueRow in @/lib/work-items/query (kept local to avoid a server import). */
@@ -143,6 +146,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [textDraft, setTextDraft] = useState("");
   const [page, setPage] = useState(1);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<IssueRow | null>(null);
+  const router = useRouter();
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -190,21 +195,17 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         accessorKey: "ticketKey",
         header: "Key",
         cell: ({ row }) => (
-          <Link
-            href={`/${orgSlug}/projects/${row.original.project.key}`}
-            className="font-mono text-xs text-[var(--primary)] hover:underline"
-          >
+          <span className="font-mono text-xs text-[var(--primary)]">
             {row.original.ticketKey}
-          </Link>
+          </span>
         ),
       },
       {
         accessorKey: "title",
         header: "Title",
         cell: ({ row }) => (
-          <Link
-            href={`/${orgSlug}/projects/${row.original.project.key}`}
-            className="block max-w-md truncate font-medium hover:underline"
+          <span
+            className="block max-w-md truncate font-medium"
             title={row.original.title}
           >
             {row.original.title}
@@ -213,7 +214,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                 ↳ {row.original.parent.ticketKey}
               </span>
             )}
-          </Link>
+          </span>
         ),
       },
       {
@@ -286,8 +287,55 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             <span className="text-sm text-[var(--text-muted)]">—</span>
           ),
       },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => {
+          const r = row.original;
+          const boardHref = `/${orgSlug}/projects/${r.project.key}`;
+          const groups: ActionMenuGroup[] = [
+            {
+              items: [
+                { label: "View details", icon: Eye, onClick: () => setDetailRow(r) },
+                {
+                  label: "Open in board",
+                  icon: ExternalLink,
+                  onClick: () => router.push(boardHref),
+                },
+                {
+                  label: "Copy link",
+                  icon: Link2,
+                  onClick: () => {
+                    try {
+                      void navigator.clipboard?.writeText(
+                        `${window.location.origin}${boardHref}`,
+                      );
+                      toast.success("Board link copied");
+                    } catch {
+                      /* clipboard unavailable */
+                    }
+                  },
+                },
+              ],
+            },
+          ];
+          return (
+            // group/action reveals the ⋯ on row hover; stopPropagation so using
+            // the menu doesn't also fire the row's open-detail click. Right-click
+            // on this cell opens the same menu.
+            <div
+              className="group/action flex justify-end"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ActionMenu groups={groups} triggerClassName="opacity-100">
+                <span className="sr-only">Row actions</span>
+              </ActionMenu>
+            </div>
+          );
+        },
+      },
     ],
-    [orgSlug, facets],
+    [orgSlug, facets, router],
   );
 
   return (
@@ -361,7 +409,12 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               </Button>
             )}
           </div>
-          <DataTable columns={columns} data={rows} getRowId={(r) => r.id} />
+          <DataTable
+            columns={columns}
+            data={rows}
+            getRowId={(r) => r.id}
+            onRowClick={(r) => setDetailRow(r)}
+          />
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
               <span>
@@ -389,6 +442,15 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           )}
         </>
       )}
+
+      <IssueDetailSheet
+        row={detailRow}
+        open={detailRow !== null}
+        onOpenChange={(o) => !o && setDetailRow(null)}
+        orgId={orgId}
+        orgSlug={orgSlug}
+        statuses={facets?.statuses ?? []}
+      />
 
       {canCreateBoard && facets && (
         <SaveAsBoardDialog
