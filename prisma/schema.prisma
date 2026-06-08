@@ -239,6 +239,16 @@ model User {
   // mention picker. Added for prod-parity (chat_bots feature + cutover round-trip
   // of prod's 12 bot users); additive, default false for all real users.
   isBot             Boolean   @default(false) @map("is_bot")
+  // Local username/password auth (additive; null for Google/SSO-only users).
+  // passwordHash is scrypt "salt:hash" hex; mfaSecret is the TOTP secret SEALED
+  // via the vault; mfaRecoveryCodes are stored HASHED. None are ever returned
+  // to the client.
+  passwordHash      String?   @map("password_hash")
+  passwordSetAt     DateTime? @map("password_set_at")
+  mfaEnabled        Boolean   @default(false) @map("mfa_enabled")
+  mfaSecret         String?   @map("mfa_secret")
+  mfaRecoveryCodes  String[]  @default([]) @map("mfa_recovery_codes")
+  mfaEnrolledAt     DateTime? @map("mfa_enrolled_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
   memberships         OrgMember[]
