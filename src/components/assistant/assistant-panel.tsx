@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -28,6 +30,8 @@ import {
   X,
   Loader2,
   Wrench,
+  Settings,
+  ExternalLink,
 } from "lucide-react";
 
 // =============================================================================
@@ -86,6 +90,21 @@ const MODEL_OPTIONS = [
 ] as const;
 type ModelValue = (typeof MODEL_OPTIONS)[number]["value"];
 const DEFAULT_MODEL: ModelValue = "sonnet";
+
+// Provider settings (merged in from the former drawer panel) — the agent auths
+// via the org's chosen provider; this lets the user switch it inline.
+type ProviderId = "claude-oauth" | "anthropic" | "openai";
+interface ProviderStatus {
+  provider: ProviderId | string;
+  anthropic: { configured: boolean };
+  openai: { configured: boolean; baseUrl?: string; model?: string };
+  claudeOAuth: { connected: boolean; email?: string | null };
+}
+const PROVIDER_LABEL: Record<ProviderId, string> = {
+  "claude-oauth": "Claude subscription (OAuth)",
+  anthropic: "Anthropic API key",
+  openai: "OpenAI-compatible",
+};
 
 // Text-only attachment extensions for Phase 4. Binary handling (images, PDFs,
 // .docx) is deferred to Phase 4b — we need to decide how to pipe non-text
@@ -176,6 +195,11 @@ function formatBytes(n: number): string {
 // =============================================================================
 
 export function AssistantPanel({ orgId }: AssistantPanelProps) {
+  const pathname = usePathname();
+  const orgSlug = pathname.split("/")[1] ?? "";
+  const [showSettings, setShowSettings] = useState(false);
+  const [provider, setProvider] = useState<ProviderStatus | null>(null);
+  const [providerSaving, setProviderSaving] = useState(false);
   const [conversations, setConversations] = useState<AssistantConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -239,6 +263,43 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       /* ignore */
     }
   }, []);
+
+  const fetchProvider = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/ai/provider`);
+      if (!res.ok) return;
+      setProvider((await res.json()) as ProviderStatus);
+    } catch {
+      /* provider panel is best-effort — silent on failure */
+    }
+  }, [orgId]);
+
+  // Lazily load provider status the first time the settings panel opens.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (showSettings && !provider) void fetchProvider();
+  }, [showSettings, provider, fetchProvider]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const switchProvider = useCallback(
+    async (next: ProviderId) => {
+      setProviderSaving(true);
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/ai/provider`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: next }),
+        });
+        if (!res.ok) throw new Error("Failed to switch provider");
+        setProvider((prev) => (prev ? { ...prev, provider: next } : prev));
+      } catch (err) {
+        notifyError(err, "Couldn't switch the AI provider.");
+      } finally {
+        setProviderSaving(false);
+      }
+    },
+    [orgId],
+  );
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -875,7 +936,69 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="AI settings"
+            aria-pressed={showSettings}
+            onClick={() => setShowSettings((s) => !s)}
+            className={cn(showSettings && "bg-accent text-accent-foreground")}
+          >
+            <Settings className="size-4" />
+          </Button>
         </div>
+
+        {/* Inline provider settings (gear) — pick which credential the agent
+            uses. Mirrors the former drawer panel; the model selector lives in
+            the header above. */}
+        {showSettings && (
+          <div className="shrink-0 space-y-1.5 border-b bg-muted/30 px-4 py-3 text-sm">
+            <label
+              htmlFor="assistant-provider"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              Active provider
+            </label>
+            {provider ? (
+              <select
+                id="assistant-provider"
+                value={(provider.provider ?? "") as ProviderId}
+                disabled={providerSaving}
+                onChange={(e) =>
+                  void switchProvider(e.target.value as ProviderId)
+                }
+                className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring disabled:opacity-50"
+              >
+                <option value="claude-oauth">
+                  {PROVIDER_LABEL["claude-oauth"]}
+                  {provider.claudeOAuth.connected ? " ✓" : ""}
+                </option>
+                <option value="anthropic">
+                  {PROVIDER_LABEL.anthropic}
+                  {provider.anthropic.configured ? " ✓" : ""}
+                </option>
+                <option value="openai">
+                  {PROVIDER_LABEL.openai}
+                  {provider.openai.configured ? " ✓" : ""}
+                </option>
+              </select>
+            ) : (
+              <p className="text-xs text-muted-foreground">Loading providers…</p>
+            )}
+            {provider?.claudeOAuth.connected && provider.claudeOAuth.email && (
+              <p className="text-[11px] text-muted-foreground">
+                Signed in as {provider.claudeOAuth.email}
+              </p>
+            )}
+            <Link
+              href={`/${orgSlug}/settings/ai`}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              Configure providers
+              <ExternalLink className="size-3" />
+            </Link>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {!activeId ? (
