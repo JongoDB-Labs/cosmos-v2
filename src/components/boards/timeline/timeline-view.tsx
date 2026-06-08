@@ -7,6 +7,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
 import type { WorkItem, OrgMember } from "@/types/models";
+import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 
 interface TimelineViewProps {
   orgId: string;
@@ -261,7 +262,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             Work Items
           </div>
           {sortedItems.map((item) => {
-            const colors = typeColorMap[item.workItemType?.key ?? ""] ?? typeColorMap.TASK;
+            const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             return (
               <div
                 key={item.id}
@@ -437,7 +438,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const w = Math.max(duration * DAY_WIDTH, DAY_WIDTH);
               const h = ROW_HEIGHT - 16;
 
-              const colors = typeColorMap[item.workItemType?.key ?? ""] ?? typeColorMap.TASK;
+              const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =

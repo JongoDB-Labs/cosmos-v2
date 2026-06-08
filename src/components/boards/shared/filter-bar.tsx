@@ -71,6 +71,17 @@ interface FilterBarProps {
 const WORK_ITEM_TYPES = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
+/**
+ * The Type filter (and the type color maps) key off the bare type — EPIC,
+ * STORY, … — but a WorkItemType.key is sector-PREFIXED and lowercase
+ * ("software.epic", "aec.rfi"). Normalize to the bare uppercase suffix so the
+ * filter actually matches (this prefix mismatch is why filtering by a type
+ * showed nothing on the board) and color lookups resolve.
+ */
+export function bareTypeKey(key: string | null | undefined): string {
+  return (key ?? "").split(".").pop()?.toUpperCase() ?? "";
+}
+
 const VALID_SWIMLANES = new Set<string>(SWIMLANE_OPTIONS.map((o) => o.value));
 
 /**
