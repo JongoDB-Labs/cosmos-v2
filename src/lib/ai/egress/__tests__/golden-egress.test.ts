@@ -58,10 +58,10 @@ vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 // Mock the classifier — avoids the ONNX runtime (jsdom-incompatible Float32Array).
 // The classifier has its own dedicated node-env test for behavioral correctness.
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
-// The egress layer resolves the org's Claude subscription token (DB-backed); no DB
-// in these unit tests, so stub it to "not connected" (the env-key credential path).
-vi.mock("@/lib/ai/claude-subscription", () => ({
-  getOrgClaudeToken: vi.fn().mockResolvedValue(null),
+// The egress layer resolves the org's ACTIVE model credential (DB-backed); no DB
+// in these unit tests, so stub it to "none configured" (the env-key credential path).
+vi.mock("@/lib/ai/ai-credentials", () => ({
+  resolveOrgModelCredential: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock the opaque-handle store — avoids prisma/vault during the golden suite while

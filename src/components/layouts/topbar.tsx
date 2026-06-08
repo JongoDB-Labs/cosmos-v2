@@ -1,16 +1,26 @@
 "use client";
 
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Menu, Search, MessageSquarePlus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Menu,
+  Search,
+  MessageSquarePlus,
+  Sparkles,
+  FileText,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "./breadcrumbs";
 import { NotificationDropdown } from "@/components/notifications/notification-dropdown";
-import { usePermissions } from "@/components/providers/permissions-provider";
+import {
+  usePermissions,
+  Permission,
+} from "@/components/providers/permissions-provider";
 import { visibleTopbarNav } from "./topbar-nav";
 import { isHrefActive, resolveHref } from "./nav-active";
 import { useTotalUnread } from "@/hooks/use-total-unread";
+import { useDrawers } from "@/components/drawers/drawer-provider";
 
 interface TopbarProps {
   orgs: {
@@ -28,6 +38,7 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
   const currentOrg = orgs.find((o) => o.slug === pathname.split("/")[1]);
   const orgSlug = currentOrg?.slug;
   const { can } = usePermissions();
+  const { openDrawer } = useDrawers();
 
   // useTotalUnread must run unconditionally to keep hook order stable; empty
   // orgId is a no-op inside the hook.
@@ -105,22 +116,45 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
           </kbd>
         </Button>
 
-        {/* Feedback: a subtle, persistent affordance (item 8). Mature SaaS
-            (Linear, Vercel) keep feedback as a low-profile topbar control
-            rather than a sidebar entry. */}
+        {/* Global drawer triggers (item 8): Assistant, Notes, Feedback open a
+            right-side slide-over that OVERLAYS the current screen, so the user
+            keeps their work in view. Feedback was previously a link to a route;
+            it now opens the in-place drawer. */}
         {currentOrg && (
-          <Link
-            href={`/${currentOrg.slug}/feedback`}
-            aria-label="Send feedback"
-            title="Send feedback"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "hidden gap-1.5 text-[var(--text-muted)] hover:text-[var(--text)] sm:flex",
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)]"
+              onClick={() => openDrawer("assistant")}
+              aria-label="Open assistant"
+              title="Assistant"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+            {can(Permission.NOTE_READ) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)]"
+                onClick={() => openDrawer("notes")}
+                aria-label="Open notes"
+                title="Notes"
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
             )}
-          >
-            <MessageSquarePlus className="h-3.5 w-3.5" />
-            <span className="hidden text-xs lg:inline">Feedback</span>
-          </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)]"
+              onClick={() => openDrawer("feedback")}
+              aria-label="Send feedback"
+              title="Feedback"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </Button>
+          </div>
         )}
 
         {currentOrg && <NotificationDropdown orgId={currentOrg.id} />}

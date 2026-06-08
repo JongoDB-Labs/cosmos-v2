@@ -1,6 +1,6 @@
 // src/lib/ai/egress/index.ts
 import { callModel, type CallModelRequest, type ModelCredential, type ModelMessage, type ModelTool, type ModelTurnResult } from "./provider";
-import { getOrgClaudeToken } from "@/lib/ai/claude-subscription";
+import { resolveOrgModelCredential } from "@/lib/ai/ai-credentials";
 import { projectForModel } from "./gate";
 import { logEgressDecision } from "./audit";
 import { effectiveCeiling } from "@/lib/classification/effective";
@@ -117,15 +117,16 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
         return { ...m, content: body };
       }));
 
-      // Per-org credential: prefer the org's connected Claude SUBSCRIPTION token
-      // (sk-ant-oat… → Bearer + oauth beta in the chokepoint); fall back to the
-      // env ANTHROPIC_API_KEY (credential undefined). Resolved HERE (egress has
-      // org context) and passed in — the chokepoint stays stateless + config-blind.
-      // A resolution failure must never widen egress: degrade to the env key.
+      // Per-org credential: resolve the org's ACTIVE model provider — Claude
+      // subscription (oauth), a per-org Anthropic API key, or an OpenAI-compatible
+      // endpoint — to a stateless ModelCredential. Falls back to the env
+      // ANTHROPIC_API_KEY (credential undefined) when the org has none configured.
+      // Resolved HERE (egress has org context) and passed in by value — the
+      // chokepoint stays stateless + config-blind. A resolution failure must never
+      // widen egress: degrade to the env key.
       let credential: ModelCredential | undefined;
       try {
-        const subToken = await getOrgClaudeToken(input.ctx.orgId);
-        if (subToken) credential = { kind: "oauth", token: subToken };
+        credential = await resolveOrgModelCredential(input.ctx.orgId);
       } catch {
         credential = undefined;
       }

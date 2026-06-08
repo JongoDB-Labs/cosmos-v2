@@ -13,6 +13,8 @@ import { MobileBottomNav } from "./mobile-bottom-nav";
 import { FloatingAgentBubble } from "./floating-agent-bubble";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { WakeWordProvider } from "@/components/wake-word/wake-word-provider";
+import { DrawerProvider } from "@/components/drawers/drawer-provider";
+import { DrawerHost } from "@/components/drawers/drawer-host";
 
 interface DashboardShellProps {
   user: {
@@ -45,6 +47,7 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
   useHashAnchorScroll(mainRef);
 
   return (
+    <DrawerProvider>
     <div className="flex h-screen overflow-hidden bg-[var(--bg)] dark:bg-transparent">
       <a
         href="#main"
@@ -102,6 +105,12 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
 
       {/* Persistent COSMOS Agent overlay (item 9). */}
       <FloatingAgentBubble orgId={currentOrgId} />
+
+      {/* Global slide-over drawers (Assistant / Notes / Feedback), opened from
+          the topbar icon buttons. Overlay the current screen so work stays
+          visible. */}
+      <DrawerHost orgId={currentOrgId} orgSlug={orgSlug} />
     </div>
+    </DrawerProvider>
   );
 }
