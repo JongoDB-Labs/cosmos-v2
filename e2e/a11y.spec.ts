@@ -2,10 +2,19 @@ import { test, expect } from "./fixtures/auth";
 import { runAxe, blocking } from "./fixtures/axe";
 
 /**
- * Accessibility regression harness (codifies the manual axe audits of rounds
- * 16/17). Signs in and runs a WCAG 2 A/AA scan on each key authenticated
- * surface, failing on any serious/critical violation. Keeps the a11y wins from
- * rotting as the UI changes.
+ * Accessibility regression harness (ported from cosmos-prod). Signs in and runs
+ * a WCAG 2 A/AA scan on each key authenticated surface, failing on any
+ * serious/critical violation. Keeps the a11y wins from rotting as the UI
+ * changes.
+ *
+ * The route list is reconciled to v2's actual IA (see nav-config.ts /
+ * topbar-nav.ts): the grouped sidebar (Overview / Projects / Issues /
+ * Time-Tracking / CRM group / Accounting group / Analytics / Settings) plus the
+ * topbar tabs (Chat / Meetings / Notes / Team). Project-scoped feature tabs
+ * (goals / kpis / milestones) are excluded because they sit behind per-project
+ * feature toggles the CI seed doesn't enable — visiting them would render an
+ * error/empty surface and pass falsely; their components are covered by the
+ * static audit instead.
  */
 
 const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
@@ -19,23 +28,39 @@ const KEY = process.env.E2E_PROJECT_KEY ?? "test";
 // dynamic board id is hardcoded. Raw /boards/[id] and /chat/[id] stay excluded.
 const PAGES: Array<{ name: string; path: string }> = [
   { name: "overview", path: "" },
+  // Top-level sidebar nav.
   { name: "projects", path: "/projects" },
   { name: "project board (kanban)", path: `/projects/${KEY}` },
   { name: "board templates", path: `/projects/${KEY}/boards/new` },
+  { name: "issues", path: "/issues" },
+  { name: "time-tracking", path: "/time-tracking" },
+  // CRM group.
   { name: "crm", path: "/crm" },
+  { name: "crm/partners", path: "/partners" },
+  { name: "crm/products", path: "/products" },
+  { name: "crm/contracts", path: "/contracts" },
+  // Accounting group.
   { name: "finance", path: "/finance" },
+  { name: "finance/accounting", path: "/finance/accounting" },
+  { name: "finance/invoices", path: "/finance/invoices" },
+  { name: "finance/banking", path: "/finance/banking" },
+  { name: "finance/payroll", path: "/finance/payroll" },
+  { name: "finance/tax", path: "/finance/tax" },
+  // Analytics.
   { name: "analytics", path: "/analytics" },
   { name: "analytics/reports", path: "/analytics/reports" },
-  { name: "notes", path: "/notes" },
-  { name: "meetings", path: "/meetings" },
-  { name: "time-tracking", path: "/time-tracking" },
-  { name: "assistant", path: "/assistant" },
+  // Topbar tabs.
   { name: "chat", path: "/chat" },
+  { name: "meetings", path: "/meetings" },
+  { name: "notes", path: "/notes" },
   { name: "team", path: "/team" },
+  { name: "assistant", path: "/assistant" },
+  // Settings.
   { name: "settings", path: "/settings" },
   { name: "settings/profile", path: "/settings/profile" },
   { name: "settings/preferences", path: "/settings/preferences" },
   { name: "settings/security", path: "/settings/security" },
+  { name: "settings/roles", path: "/settings/roles" },
   { name: "settings/webhooks", path: "/settings/webhooks" },
   { name: "settings/integrations", path: "/settings/integrations" },
   { name: "settings/mcp-servers", path: "/settings/mcp-servers" },
@@ -58,8 +83,8 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
 
       // Fail loudly if we didn't land on the authenticated org page. Without
       // this, a sign-in / org-membership regression redirects every page to
-      // /login (a clean screen with no violations) and all 11 tests pass
-      // falsely — silently disabling the entire a11y gate.
+      // /login (a clean screen with no violations) and all tests pass falsely
+      // — silently disabling the entire a11y gate.
       const landedPath = new URL(page.url()).pathname;
       expect(
         landedPath.startsWith(`/${ORG}`),

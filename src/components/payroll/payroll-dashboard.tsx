@@ -232,16 +232,16 @@ function NewPayRunForm({ orgId }: { orgId: string }) {
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
       <div className="flex flex-col gap-1">
-        <Label className="text-xs">Period start</Label>
-        <Input className="h-8" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+        <Label className="text-xs" htmlFor="pay-run-start">Period start</Label>
+        <Input id="pay-run-start" className="h-8" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
       </div>
       <div className="flex flex-col gap-1">
-        <Label className="text-xs">Period end</Label>
-        <Input className="h-8" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+        <Label className="text-xs" htmlFor="pay-run-end">Period end</Label>
+        <Input id="pay-run-end" className="h-8" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
       </div>
       <div className="flex flex-1 flex-col gap-1">
-        <Label className="text-xs">Label (optional)</Label>
-        <Input className="h-8" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="June 1–15" />
+        <Label className="text-xs" htmlFor="pay-run-label">Label (optional)</Label>
+        <Input id="pay-run-label" className="h-8" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="June 1–15" />
       </div>
       <Button size="sm" disabled={!valid || create.isPending} onClick={() => create.mutate()}>
         Create pay run
@@ -296,8 +296,9 @@ function AddEmployeeDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <Label className="text-xs">Member</Label>
+            <Label className="text-xs" htmlFor="add-employee-member">Member</Label>
             <select
+              id="add-employee-member"
               className="h-9 rounded-md border bg-background px-2 text-sm"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
@@ -312,8 +313,9 @@ function AddEmployeeDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <Label className="text-xs">Type</Label>
+              <Label className="text-xs" htmlFor="add-employee-type">Type</Label>
               <select
+                id="add-employee-type"
                 className="h-9 rounded-md border bg-background px-2 text-sm"
                 value={employmentType}
                 onChange={(e) => setEmploymentType(e.target.value as "HOURLY" | "SALARY")}
@@ -323,8 +325,9 @@ function AddEmployeeDialog({
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <Label className="text-xs">Cost rate / hr</Label>
+              <Label className="text-xs" htmlFor="add-employee-cost-rate">Cost rate / hr</Label>
               <Input
+                id="add-employee-cost-rate"
                 className="h-9"
                 type="number"
                 step="0.01"
@@ -336,8 +339,9 @@ function AddEmployeeDialog({
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            <Label className="text-xs">Labor category (optional)</Label>
+            <Label className="text-xs" htmlFor="add-employee-labor-category">Labor category (optional)</Label>
             <Input
+              id="add-employee-labor-category"
               className="h-9"
               value={laborCategory}
               onChange={(e) => setLaborCategory(e.target.value)}

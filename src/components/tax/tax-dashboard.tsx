@@ -166,12 +166,13 @@ function NewTaxRateForm({ orgId }: { orgId: string }) {
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
       <div className="flex flex-1 flex-col gap-1">
-        <Label className="text-xs">Name</Label>
-        <Input className="h-8" value={name} onChange={(e) => setName(e.target.value)} placeholder="CA Sales Tax" />
+        <Label className="text-xs" htmlFor="tax-rate-name">Name</Label>
+        <Input id="tax-rate-name" className="h-8" value={name} onChange={(e) => setName(e.target.value)} placeholder="CA Sales Tax" />
       </div>
       <div className="flex flex-col gap-1">
-        <Label className="text-xs">Rate %</Label>
+        <Label className="text-xs" htmlFor="tax-rate-pct">Rate %</Label>
         <Input
+          id="tax-rate-pct"
           className="h-8 w-20"
           type="number"
           step="0.001"
@@ -183,8 +184,8 @@ function NewTaxRateForm({ orgId }: { orgId: string }) {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <Label className="text-xs">Jurisdiction</Label>
-        <Input className="h-8 w-32" value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} placeholder="CA" />
+        <Label className="text-xs" htmlFor="tax-rate-jurisdiction">Jurisdiction</Label>
+        <Input id="tax-rate-jurisdiction" className="h-8 w-32" value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} placeholder="CA" />
       </div>
       <label className="flex items-center gap-1.5 pb-1.5 text-xs">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
