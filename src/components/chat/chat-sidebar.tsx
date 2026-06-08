@@ -20,6 +20,12 @@ import { LoadError } from "@/components/ui/load-error";
 interface ChatSidebarProps {
   orgId: string;
   activeChannelId?: string;
+  /**
+   * When provided, channel/DM rows select IN PLACE (call this) instead of
+   * navigating to /chat/[id] — used by the docked Chat drawer so the page
+   * behind it stays put. Absent (the /chat page) → normal link navigation.
+   */
+  onSelectChannel?: (channelId: string) => void;
 }
 
 type OrgProject = { id: string; name: string };
@@ -44,7 +50,11 @@ function loadCollapsed(): Record<string, boolean> {
   }
 }
 
-export function ChatSidebar({ orgId, activeChannelId }: ChatSidebarProps) {
+export function ChatSidebar({
+  orgId,
+  activeChannelId,
+  onSelectChannel,
+}: ChatSidebarProps) {
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1] ?? "";
   const { data, isLoading, isError, refetch } = useChatChannels(orgId);
@@ -187,6 +197,7 @@ export function ChatSidebar({ orgId, activeChannelId }: ChatSidebarProps) {
                     channels={g.channels}
                     orgSlug={orgSlug}
                     activeChannelId={activeChannelId}
+                    onSelectChannel={onSelectChannel}
                   />
                 </div>
               )}
@@ -208,6 +219,7 @@ export function ChatSidebar({ orgId, activeChannelId }: ChatSidebarProps) {
           orgSlug={orgSlug}
           activeChannelId={activeChannelId}
           online={online}
+          onSelectChannel={onSelectChannel}
         />
       </div>
       <div className="px-2 pb-2">

@@ -9,11 +9,14 @@ export function DmList({
   orgSlug,
   activeChannelId,
   online,
+  onSelectChannel,
 }: {
   channels: ChatChannelSummary[];
   orgSlug: string;
   activeChannelId?: string;
   online: Set<string>;
+  /** See ChannelList — select-in-place for the docked Chat drawer. */
+  onSelectChannel?: (channelId: string) => void;
 }) {
   if (channels.length === 0) return null;
   return (
@@ -24,17 +27,30 @@ export function DmList({
           c.otherParticipants.length === 0
             ? "You"
             : c.otherParticipants.map((p) => p.displayName).join(", ");
-        return (
-          <Link
-            key={c.id}
-            href={`/${orgSlug}/chat/${c.id}`}
-            className={cn(
-              "flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-accent",
-              active && "bg-accent font-medium",
-            )}
-          >
-            <PresenceDot online={c.otherParticipants.some((p) => online.has(p.id))} />
+        const className = cn(
+          "flex w-full items-center gap-2 px-2 py-1 rounded text-sm text-left hover:bg-accent",
+          active && "bg-accent font-medium",
+        );
+        const inner = (
+          <>
+            <PresenceDot
+              online={c.otherParticipants.some((p) => online.has(p.id))}
+            />
             <span className="truncate">{label}</span>
+          </>
+        );
+        return onSelectChannel ? (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onSelectChannel(c.id)}
+            className={className}
+          >
+            {inner}
+          </button>
+        ) : (
+          <Link key={c.id} href={`/${orgSlug}/chat/${c.id}`} className={className}>
+            {inner}
           </Link>
         );
       })}
