@@ -1,0 +1,99 @@
+/**
+ * JQL-lite cross-project work-item query — the TYPED FILTER MODEL.
+ *
+ * This is the foundation for an org-wide Issues view and, eventually, "save a
+ * search as a board". The model is intentionally serialisable (plain JSON) so a
+ * filter can round-trip through a URL, a saved view, or a board's `config`.
+ *
+ * Semantics (mirrors JQL's mental model):
+ *   - AND across distinct fields (project AND type AND status …).
+ *   - OR within a single multi-select field (project in [A, B] → A OR B).
+ *   - A multi-select with one value behaves like equality.
+ *   - An omitted / empty field is INERT (does not constrain).
+ *
+ * The where-builder (`build-where.ts`) is PURE — it never touches the DB. RBAC
+ * scoping (which projects the actor may see) is resolved separately in
+ * `scope.ts` and folded in as an `allowedProjectIds` constraint, so the
+ * builder can stay synchronous + exhaustively unit-tested.
+ */
+import { Priority } from "@prisma/client";
+
+/** A boolean-ish parent constraint plus an optional specific-parent filter. */
+export type ParentFilter =
+  | { mode: "any" } // no constraint
+  | { mode: "has_parent" } // parentId IS NOT NULL (sub-items only)
+  | { mode: "no_parent" } // parentId IS NULL (top-level only)
+  | { mode: "is"; parentIds: string[] }; // parentId IN [...]
+
+/** An inclusive date-range bound. Either edge may be omitted (open-ended). */
+export interface DateRange {
+  /** ISO-8601 date/datetime string, inclusive lower bound. */
+  from?: string;
+  /** ISO-8601 date/datetime string, inclusive upper bound. */
+  to?: string;
+}
+
+/**
+ * The full filter model. Every field is optional; an absent/empty field is
+ * inert. Multi-value array fields are OR-within, AND-across.
+ */
+export interface WorkItemFilter {
+  /** Project.id values — OR within, scoped to allowed projects by the builder. */
+  projectIds?: string[];
+  /** WorkItemType.id values. */
+  typeIds?: string[];
+  /** Board column keys (the work item's status lane), e.g. "in-progress". */
+  columnKeys?: string[];
+  /** Priority enum values. */
+  priorities?: Priority[];
+  /**
+   * Assignee User.id values. The sentinel "unassigned" matches items with a
+   * NULL assignee, and can be mixed with real ids (e.g. "me OR unassigned").
+   */
+  assigneeIds?: string[];
+  /** Tag/label values — HAS-ANY semantics (item.tags overlaps the set). */
+  labels?: string[];
+  /** Cycle/sprint Cycle.id values. The sentinel "none" matches NULL cycleId. */
+  cycleIds?: string[];
+  /** Parent (hierarchy) constraint. */
+  parent?: ParentFilter;
+  /** Inclusive range over WorkItem.startDate. */
+  startDate?: DateRange;
+  /** Inclusive range over WorkItem.dueDate. */
+  dueDate?: DateRange;
+  /** Free-text — case-insensitive contains over title OR description. */
+  text?: string;
+}
+
+/** Matches a NULL assignee when present in `assigneeIds`. */
+export const UNASSIGNED = "unassigned" as const;
+/** Matches a NULL cycle when present in `cycleIds`. */
+export const NO_CYCLE = "none" as const;
+
+/** Sort fields the list view + API expose (whitelist — anything else falls
+ *  back to a stable default in the builder). */
+export type WorkItemSortField =
+  | "createdAt"
+  | "updatedAt"
+  | "priority"
+  | "dueDate"
+  | "startDate"
+  | "ticketNumber";
+
+export interface WorkItemSort {
+  field: WorkItemSortField;
+  direction: "asc" | "desc";
+}
+
+export const SORT_FIELDS: readonly WorkItemSortField[] = [
+  "createdAt",
+  "updatedAt",
+  "priority",
+  "dueDate",
+  "startDate",
+  "ticketNumber",
+] as const;
+
+/** Hard cap on page size — protects the DB from an unbounded scan. */
+export const MAX_PAGE_SIZE = 100;
+export const DEFAULT_PAGE_SIZE = 25;

@@ -2285,6 +2285,9 @@ enum JournalSource {
   MANUAL
   REVENUE
   EXPENSE
+  INVOICE
+  PAYMENT
+  PAYROLL
 }
 
 enum JournalStatus {

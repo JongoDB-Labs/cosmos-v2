@@ -33,7 +33,7 @@ export type PostEntryInput = {
   createdById: string;
   date: Date;
   memo?: string;
-  source?: "MANUAL" | "REVENUE" | "EXPENSE";
+  source?: "MANUAL" | "REVENUE" | "EXPENSE" | "INVOICE" | "PAYMENT" | "PAYROLL";
   sourceId?: string | null;
   lines: PostingLine[];
 };
