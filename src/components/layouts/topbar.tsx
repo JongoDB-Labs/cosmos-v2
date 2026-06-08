@@ -1,26 +1,28 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Menu,
-  Search,
-  MessageSquarePlus,
-  Sparkles,
-  FileText,
-} from "lucide-react";
+import { Menu, Search, MessageSquarePlus, Sparkles } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "./breadcrumbs";
 import { NotificationDropdown } from "@/components/notifications/notification-dropdown";
-import {
-  usePermissions,
-  Permission,
-} from "@/components/providers/permissions-provider";
+import { usePermissions } from "@/components/providers/permissions-provider";
 import { visibleTopbarNav } from "./topbar-nav";
 import { isHrefActive, resolveHref } from "./nav-active";
 import { useTotalUnread } from "@/hooks/use-total-unread";
-import { useDrawers } from "@/components/drawers/drawer-provider";
+import {
+  useDrawers,
+  type DrawerTool,
+} from "@/components/drawers/drawer-provider";
+
+// Topbar tabs whose destination is now a DOCKED DRAWER (opened in place) rather
+// than a full page. Team has no drawer, so it stays a normal page link.
+const DRAWER_TABS: Record<string, DrawerTool> = {
+  chat: "chat",
+  meetings: "meetings",
+  notes: "notes",
+};
 
 interface TopbarProps {
   orgs: {
@@ -38,7 +40,7 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
   const currentOrg = orgs.find((o) => o.slug === pathname.split("/")[1]);
   const orgSlug = currentOrg?.slug;
   const { can } = usePermissions();
-  const { openDrawer } = useDrawers();
+  const { openDrawer, isOpen } = useDrawers();
 
   // useTotalUnread must run unconditionally to keep hook order stable; empty
   // orgId is a no-op inside the hook.
@@ -71,10 +73,43 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
             className="mr-1 hidden items-center gap-0.5 md:flex"
           >
             {tabItems.map((item) => {
-              const href = resolveHref(orgSlug, item.href);
-              const active = isHrefActive(pathname, href, false);
               const Icon = item.icon;
               const showBadge = item.unreadBadge && totalUnread > 0;
+              const drawerTool = DRAWER_TABS[item.id];
+              const badge = showBadge && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[8px] font-bold text-destructive-foreground">
+                  {totalUnread > 9 ? "9+" : totalUnread}
+                </span>
+              );
+
+              // Drawer-backed tabs (Chat / Meetings / Notes) open in place; the
+              // active state tracks the open drawer, not the route.
+              if (drawerTool) {
+                const active = isOpen(drawerTool);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => openDrawer(drawerTool)}
+                    aria-pressed={active}
+                    title={item.label}
+                    className={cn(
+                      "relative flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                      active
+                        ? "bg-[var(--primary-tint)] text-[var(--primary)]"
+                        : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="hidden lg:inline">{item.label}</span>
+                    {badge}
+                  </button>
+                );
+              }
+
+              // Page-backed tabs (Team) stay normal links.
+              const href = resolveHref(orgSlug, item.href);
+              const active = isHrefActive(pathname, href, false);
               return (
                 <Link
                   key={item.id}
@@ -90,11 +125,7 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="hidden lg:inline">{item.label}</span>
-                  {showBadge && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[8px] font-bold text-destructive-foreground">
-                      {totalUnread > 9 ? "9+" : totalUnread}
-                    </span>
-                  )}
+                  {badge}
                 </Link>
               );
             })}
@@ -132,18 +163,6 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
             >
               <Sparkles className="h-4 w-4" />
             </Button>
-            {can(Permission.NOTE_READ) && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)]"
-                onClick={() => openDrawer("notes")}
-                aria-label="Open notes"
-                title="Notes"
-              >
-                <FileText className="h-4 w-4" />
-              </Button>
-            )}
             <Button
               variant="ghost"
               size="icon"
