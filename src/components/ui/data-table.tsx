@@ -97,11 +97,30 @@ export function DataTable<T>({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuGroups, setMenuGroups] = useState<ActionMenuGroup[]>([]);
   const ctxBtnRef = useRef<HTMLButtonElement>(null);
+  const resetCtxBtn = () => {
+    const btn = ctxBtnRef.current;
+    if (btn) {
+      Object.assign(btn.style, {
+        position: "",
+        left: "",
+        top: "",
+        width: "",
+        height: "",
+        padding: "",
+        overflow: "",
+        pointerEvents: "",
+      });
+    }
+  };
   const openRowMenu = (x: number, y: number, groups: ActionMenuGroup[]) => {
     if (groups.every((g) => g.items.length === 0)) return;
     setMenuGroups(groups);
     const btn = ctxBtnRef.current;
     if (!btn) return;
+    // Pin the (1px, invisible) anchor at the cursor and KEEP it there while the
+    // menu is open — base-ui auto-positions the popup to the live anchor rect,
+    // so resetting too early made the menu jump to the trigger's natural
+    // (top-left) spot instead of following the click. Reset on close instead.
     Object.assign(btn.style, {
       position: "fixed",
       left: `${x}px`,
@@ -113,18 +132,6 @@ export function DataTable<T>({
       pointerEvents: "none",
     });
     btn.click();
-    requestAnimationFrame(() => {
-      Object.assign(btn.style, {
-        position: "",
-        left: "",
-        top: "",
-        width: "",
-        height: "",
-        padding: "",
-        overflow: "",
-        pointerEvents: "",
-      });
-    });
   };
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const paginationObj = typeof pagination === "object" ? pagination : null;
@@ -248,7 +255,13 @@ export function DataTable<T>({
   return (
     <>
     {rowActions && (
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <DropdownMenu
+        open={menuOpen}
+        onOpenChange={(o) => {
+          setMenuOpen(o);
+          if (!o) resetCtxBtn();
+        }}
+      >
         <DropdownMenuTrigger
           render={<button ref={ctxBtnRef} type="button" aria-hidden tabIndex={-1} className="opacity-0" />}
         />
