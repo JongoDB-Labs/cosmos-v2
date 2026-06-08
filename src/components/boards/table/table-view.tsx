@@ -38,7 +38,20 @@ import {
   Permission,
 } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
-import { Check, X, Trash2, Rows3, Rows4 } from "lucide-react";
+import {
+  Check,
+  X,
+  Trash2,
+  Rows3,
+  Rows4,
+  Pencil,
+  Flag,
+  CircleDot,
+  UserCog,
+  CalendarClock,
+  Copy,
+} from "lucide-react";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { WorkItem, Board, BoardColumn, OrgMember, Cycle } from "@/types/models";
 
 interface TableViewProps {
@@ -315,6 +328,97 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       setConfirmBulkDelete(false);
     },
   });
+
+  // Surface the per-row operations already reachable by clicking a cell
+  // (inline-edit openers via setEditingCell) plus a single-row delete (reusing
+  // bulkDeleteMutation with a one-id array) and a copy-key helper, as a
+  // right-click / ⋯ menu. Delete is gated by the same ITEM_DELETE check used by
+  // the bulk toolbar.
+  const rowActions = useCallback(
+    (item: WorkItem): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        {
+          items: [
+            {
+              label: "Edit title",
+              icon: Pencil,
+              onClick: () =>
+                setEditingCell({
+                  rowId: item.id,
+                  columnId: "title",
+                  value: item.title,
+                }),
+            },
+            {
+              label: "Change status",
+              icon: CircleDot,
+              onClick: () =>
+                setEditingCell({
+                  rowId: item.id,
+                  columnId: "columnKey",
+                  value: item.columnKey,
+                }),
+            },
+            {
+              label: "Set priority",
+              icon: Flag,
+              onClick: () =>
+                setEditingCell({
+                  rowId: item.id,
+                  columnId: "priority",
+                  value: item.priority,
+                }),
+            },
+            {
+              label: "Assign",
+              icon: UserCog,
+              onClick: () =>
+                setEditingCell({
+                  rowId: item.id,
+                  columnId: "assigneeId",
+                  value: item.assigneeId ?? "",
+                }),
+            },
+            {
+              label: "Set due date",
+              icon: CalendarClock,
+              onClick: () =>
+                setEditingCell({
+                  rowId: item.id,
+                  columnId: "dueDate",
+                  value: item.dueDate ?? "",
+                }),
+            },
+            {
+              label: "Copy issue key",
+              icon: Copy,
+              onClick: () => {
+                void navigator.clipboard.writeText(
+                  `${projectKey}-${item.ticketNumber}`,
+                );
+              },
+            },
+          ],
+        },
+      ];
+
+      if (canBulkDelete) {
+        groups.push({
+          items: [
+            {
+              label: "Delete",
+              icon: Trash2,
+              variant: "destructive",
+              onClick: () => bulkDeleteMutation.mutate([item.id]),
+            },
+          ],
+        });
+      }
+
+      return groups;
+    },
+    [canBulkDelete, bulkDeleteMutation, projectKey],
+  );
 
   const columnHelper = createColumnHelper<WorkItem>();
 
@@ -734,6 +838,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           onRowSelectionChange={setRowSelection}
           grouping={grouping}
           onGroupingChange={setGrouping}
+          rowActions={rowActions}
           pagination={{ pageSize: 50 }}
           stickyHeader
         />

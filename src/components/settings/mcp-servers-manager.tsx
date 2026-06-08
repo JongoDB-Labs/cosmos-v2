@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -10,6 +10,8 @@ import {
   Trash2,
   AlertTriangle,
   Server,
+  Power,
+  PowerOff,
 } from "lucide-react";
 
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -26,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { DataTable } from "@/components/ui/data-table";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import {
   Dialog,
   DialogContent,
@@ -279,12 +282,51 @@ export function McpServersManager({ orgId }: McpServersManagerProps) {
     deleteMutation.mutate(deleting.id);
   }
 
-  function handleToggleEnabled(server: McpServer) {
-    updateMutation.mutate({
-      id: server.id,
-      body: { enabled: !server.enabled },
-    });
-  }
+  const handleToggleEnabled = useCallback(
+    (server: McpServer) => {
+      updateMutation.mutate({
+        id: server.id,
+        body: { enabled: !server.enabled },
+      });
+    },
+    [updateMutation],
+  );
+
+  // Surface the existing per-row operations (edit / enable-disable toggle /
+  // delete) as a right-click + ⋯ menu, reusing the same handlers as the
+  // inline action buttons and the Enabled toggle.
+  const rowActions = useCallback(
+    (server: McpServer): ActionMenuGroup[] => [
+      {
+        items: [
+          {
+            label: "Edit",
+            icon: Pencil,
+            onClick: () => openEdit(server),
+          },
+          {
+            label: server.enabled ? "Disable" : "Enable",
+            icon: server.enabled ? PowerOff : Power,
+            onClick: () => handleToggleEnabled(server),
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            label: "Delete",
+            icon: Trash2,
+            variant: "destructive",
+            onClick: () => openDelete(server),
+          },
+        ],
+      },
+    ],
+    // openEdit/openDelete are stable setState-only closures; handleToggleEnabled
+    // forwards to a memoized mutation. Listed for exhaustive-deps correctness.
+
+    [handleToggleEnabled],
+  );
 
   const columns: ColumnDef<McpServer>[] = [
     {
@@ -524,6 +566,7 @@ export function McpServersManager({ orgId }: McpServersManagerProps) {
         columns={columns}
         data={servers}
         getRowId={(row) => row.id}
+        rowActions={rowActions}
         emptyState={
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-12">
             <Server className="h-10 w-10 text-muted-foreground/40" />

@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { Check, Link2, Ban } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { BankRulesDialog } from "./bank-rules-dialog";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 const fmtCurrency = (v: string | number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -169,6 +171,51 @@ export function BankingInbox({ orgId }: { orgId: string }) {
     onSuccess: () => setMatchTxn(null),
     onError: (e) => notifyError(e, "Couldn't match transaction."),
   });
+
+  // Surface the same per-row operations the inline buttons expose (categorize /
+  // match / exclude) as a right-click + ⋯ menu. Reuses the existing mutations,
+  // dialog opener, and the identical per-row gating (empty category, in-flight).
+  const rowActions = useCallback(
+    (row: Txn): ActionMenuGroup[] => {
+      const txnId = row.id;
+      const cat = catMap[txnId] ?? "";
+      const isOutflow = Number(row.amount) < 0;
+      const rowBusy =
+        (categorize.isPending && categorize.variables === txnId) ||
+        (exclude.isPending && exclude.variables === txnId) ||
+        (match.isPending && match.variables?.txnId === txnId);
+      return [
+        {
+          items: [
+            {
+              label: isOutflow ? "Add as expense" : "Add as revenue",
+              icon: Check,
+              disabled: cat.trim() === "" || rowBusy,
+              onClick: () => categorize.mutate(txnId),
+            },
+            {
+              label: "Match…",
+              icon: Link2,
+              disabled: rowBusy,
+              onClick: () => setMatchTxn(row),
+            },
+          ],
+        },
+        {
+          items: [
+            {
+              label: "Exclude",
+              icon: Ban,
+              variant: "destructive",
+              disabled: rowBusy,
+              onClick: () => exclude.mutate(txnId),
+            },
+          ],
+        },
+      ];
+    },
+    [catMap, categorize, exclude, match, setMatchTxn],
+  );
 
   if (accountsQ.isError || txnsQ.isError) {
     return (
@@ -360,6 +407,7 @@ export function BankingInbox({ orgId }: { orgId: string }) {
         <DataTable
           columns={columns}
           data={txnsQ.data ?? []}
+          rowActions={rowActions}
           emptyState={
             <EmptyState title="No transactions to review — all caught up." />
           }

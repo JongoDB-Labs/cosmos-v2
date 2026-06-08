@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -13,6 +14,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -86,6 +88,23 @@ export function TaxDashboard({ orgId }: { orgId: string }) {
     },
   ];
 
+  const rowActions = useCallback(
+    (r: TaxRate): ActionMenuGroup[] => [
+      {
+        items: [
+          {
+            label: "Delete",
+            icon: Trash2,
+            variant: "destructive",
+            disabled: remove.isPending && remove.variables === r.id,
+            onClick: () => remove.mutate(r.id),
+          },
+        ],
+      },
+    ],
+    [remove],
+  );
+
   const liability = liabilityQ.data;
 
   return (
@@ -125,6 +144,7 @@ export function TaxDashboard({ orgId }: { orgId: string }) {
           <DataTable
             columns={cols}
             data={ratesQ.data ?? []}
+            rowActions={rowActions}
             emptyState={<EmptyState title="No tax rates yet — add one above." />}
           />
         )}

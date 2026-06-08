@@ -38,6 +38,7 @@ import {
   Trash2,
   Filter,
 } from "lucide-react";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 
@@ -693,6 +694,35 @@ function ListView({
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
+  // Surface the same row operations available in the inline actions column
+  // (edit / submit / delete) via right-click + the trailing ⋯ menu. Gated on
+  // the SAME `status === "DRAFT"` condition the inline buttons use, so the menu
+  // is empty for submitted/approved/rejected entries.
+  const rowActions = useCallback(
+    (entry: TimeEntry): ActionMenuGroup[] => {
+      if (entry.status !== "DRAFT") return [];
+      return [
+        {
+          items: [
+            { label: "Edit", icon: Pencil, onClick: () => onEdit(entry) },
+            { label: "Submit for approval", icon: Send, onClick: () => onSubmit(entry.id) },
+          ],
+        },
+        {
+          items: [
+            {
+              label: "Delete",
+              icon: Trash2,
+              variant: "destructive",
+              onClick: () => onDelete(entry.id),
+            },
+          ],
+        },
+      ];
+    },
+    [onEdit, onSubmit, onDelete],
+  );
+
   const columns: ColumnDef<TimeEntry>[] = [
     {
       accessorKey: "date",
@@ -783,6 +813,7 @@ function ListView({
     <DataTable
       columns={columns}
       data={sorted}
+      rowActions={rowActions}
       emptyState={<EmptyState title="No time entries found." />}
     />
   );

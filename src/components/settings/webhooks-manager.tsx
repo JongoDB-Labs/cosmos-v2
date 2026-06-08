@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -30,6 +31,7 @@ import {
   Pencil,
   Trash2,
   Play,
+  Power,
   Copy,
   Check,
   AlertTriangle,
@@ -237,36 +239,78 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
     deleteMutation.mutate(deletingWebhook.id);
   }
 
-  async function handleToggleActive(webhook: Webhook) {
-    updateMutation.mutate({
-      id: webhook.id,
-      body: { active: !webhook.active },
-    });
-  }
-
-  async function handleTest(webhookId: string) {
-    setTestingId(webhookId);
-    setTestResult(null);
-    try {
-      const res = await fetch(`${apiBase}/${webhookId}/test`, { method: "POST" });
-      const json = await res.json();
-      setTestResult({
-        id: webhookId,
-        success: res.ok,
-        message: json.message ?? (res.ok ? "Test delivery sent" : "Test failed"),
+  const handleToggleActive = useCallback(
+    (webhook: Webhook) => {
+      updateMutation.mutate({
+        id: webhook.id,
+        body: { active: !webhook.active },
       });
-    } catch {
-      setTestResult({ id: webhookId, success: false, message: "Network error" });
-    } finally {
-      setTestingId(null);
-    }
-  }
+    },
+    [updateMutation],
+  );
+
+  const handleTest = useCallback(
+    async (webhookId: string) => {
+      setTestingId(webhookId);
+      setTestResult(null);
+      try {
+        const res = await fetch(`${apiBase}/${webhookId}/test`, { method: "POST" });
+        const json = await res.json();
+        setTestResult({
+          id: webhookId,
+          success: res.ok,
+          message: json.message ?? (res.ok ? "Test delivery sent" : "Test failed"),
+        });
+      } catch {
+        setTestResult({ id: webhookId, success: false, message: "Network error" });
+      } finally {
+        setTestingId(null);
+      }
+    },
+    [apiBase],
+  );
 
   function copySecret() {
     navigator.clipboard.writeText(createdSecret);
     setCopiedSecret(true);
     setTimeout(() => setCopiedSecret(false), 2000);
   }
+
+  const rowActions = useCallback(
+    (webhook: Webhook): ActionMenuGroup[] => [
+      {
+        items: [
+          {
+            label: "Edit",
+            icon: Pencil,
+            onClick: () => openEditDialog(webhook),
+          },
+          {
+            label: "Send test",
+            icon: Play,
+            onClick: () => handleTest(webhook.id),
+            disabled: testingId === webhook.id,
+          },
+          {
+            label: webhook.active ? "Deactivate" : "Activate",
+            icon: Power,
+            onClick: () => handleToggleActive(webhook),
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            label: "Delete",
+            icon: Trash2,
+            variant: "destructive",
+            onClick: () => openDeleteDialog(webhook),
+          },
+        ],
+      },
+    ],
+    [testingId, handleTest, handleToggleActive],
+  );
 
   const columns: ColumnDef<Webhook>[] = [
     {
@@ -409,6 +453,7 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
         columns={columns}
         data={webhooks}
         getRowId={(row) => row.id}
+        rowActions={rowActions}
         emptyState={
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-12">
             <WebhookIcon className="h-10 w-10 text-muted-foreground/40" />

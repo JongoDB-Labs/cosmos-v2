@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -83,18 +83,59 @@ export function TeamTable({ rows }: { rows: Row[] }) {
     }
   };
 
-  const handleRemoveMember = async (memberId: string) => {
-    try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/members/${memberId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error(`Failed to remove member (HTTP ${res.status})`);
-      router.refresh();
-    } catch (err) {
-      console.error("Failed to remove member", err);
-      notifyError(err, "Couldn't remove the member.");
-    }
-  };
+  const handleRemoveMember = useCallback(
+    async (memberId: string) => {
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/members/${memberId}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`Failed to remove member (HTTP ${res.status})`);
+        router.refresh();
+      } catch (err) {
+        console.error("Failed to remove member", err);
+        notifyError(err, "Couldn't remove the member.");
+      }
+    },
+    [orgId, router],
+  );
+
+  // Surface each row's existing operations (change role / remove) as a
+  // right-click context menu + trailing ⋯ column via DataTable's rowActions.
+  // Reuses the same handlers + permission gate as the inline actions column.
+  const rowActions = useCallback(
+    (r: Row): ActionMenuGroup[] => {
+      const isOwner = r.role === "OWNER";
+      const isMember = r.kind === "member";
+      const canManage = can(Permission.ORG_MANAGE_MEMBERS) && isMember && !isOwner;
+      return [
+        {
+          items: canManage
+            ? [
+                {
+                  label: "Change role",
+                  icon: Shield,
+                  onClick: () =>
+                    setRoleTarget({ id: r.id, name: r.name, role: r.role }),
+                },
+              ]
+            : [],
+        },
+        {
+          items: canManage
+            ? [
+                {
+                  label: "Remove from org",
+                  icon: UserMinus,
+                  variant: "destructive" as const,
+                  onClick: () => handleRemoveMember(r.id),
+                },
+              ]
+            : [],
+        },
+      ];
+    },
+    [can, handleRemoveMember],
+  );
 
   const columns: ColumnDef<Row>[] = [
     {
@@ -207,7 +248,7 @@ export function TeamTable({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <DataTable columns={columns} data={rows} />
+      <DataTable columns={columns} data={rows} rowActions={rowActions} />
 
       <Dialog
         open={roleTarget !== null}
