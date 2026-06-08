@@ -68,12 +68,18 @@ function clientFor(credential: ModelCredential | undefined): Anthropic {
     return _envClient;
   }
   if (credential.kind === "oauth") {
+    // apiKey:null is REQUIRED — without it the SDK auto-reads ANTHROPIC_API_KEY
+    // from env and sends BOTH x-api-key AND Authorization:Bearer, so Anthropic
+    // 401s on the (stale) x-api-key. null ⇒ Bearer only (and the SDK only injects
+    // the oauth beta header when apiKey is null).
     return new Anthropic({
+      apiKey: null,
       authToken: credential.token,
       defaultHeaders: { "anthropic-beta": OAUTH_BETA },
     });
   }
-  return new Anthropic({ apiKey: credential.apiKey });
+  // Likewise pin apiKey explicitly so an env var can't shadow the resolved key.
+  return new Anthropic({ apiKey: credential.apiKey, authToken: null });
 }
 
 /**
