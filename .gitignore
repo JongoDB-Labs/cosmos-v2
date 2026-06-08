@@ -71,3 +71,6 @@ docker-compose.dex.yml
 # minio-certs one-shot — NEVER commit a private key. Defensive guard in case a cert is
 # ever written into the worktree out-of-band.
 compose/minio/certs/
+
+# local pre-deploy DB snapshots (never commit)
+.deploy/backups/
