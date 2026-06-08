@@ -35,9 +35,13 @@ interface ActionMenuProps {
   groups: ActionMenuGroup[];
   children: ReactNode;
   triggerClassName?: string;
+  /** Accessible name for the ⋯ trigger. Defaults to "Open menu"; pass a
+   *  contextual label (e.g. `Actions for ${name}`) so screen-reader users can
+   *  tell repeated triggers apart in a list. */
+  triggerLabel?: string;
 }
 
-export function ActionMenu({ groups, children, triggerClassName }: ActionMenuProps) {
+export function ActionMenu({ groups, children, triggerClassName, triggerLabel }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
 
@@ -90,13 +94,17 @@ export function ActionMenu({ groups, children, triggerClassName }: ActionMenuPro
             <button
               ref={btnRef}
               type="button"
-              aria-label="Open menu"
+              aria-label={triggerLabel ?? "Open menu"}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
               className={cn(
                 "inline-flex items-center justify-center rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/action:opacity-100 focus:opacity-100 data-[popup-open]:opacity-100",
+                // Touch devices have no hover, focus-on-tab, or right-click, so
+                // the hover-only reveal leaves the menu undiscoverable. On a
+                // coarse pointer keep it visible with a real tap target.
+                "[@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:p-2",
                 triggerClassName,
               )}
             >

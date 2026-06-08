@@ -21,9 +21,15 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * integrations working — extend this list carefully.
  */
 const CSRF_EXEMPT_PREFIXES = [
+  // External IdP redirect lands here without an Origin header.
   "/api/auth/google/callback",
-  "/api/v1/orgs/", // sub-routes do their own auth; some legitimate redirects skip Origin
 ];
+// NOTE: "/api/v1/orgs/" was previously exempted wholesale ("sub-routes do their
+// own auth") — but auth is not CSRF defense, and that silently disabled the
+// Origin check for every mutating verb on the entire org API (delete org,
+// rename slug, members, invitations, projects, work items, …). There are no
+// cross-origin callback/redirect targets under that tree, so it is enforced
+// like any other API surface now.
 
 function isCsrfExempt(pathname: string): boolean {
   return CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));

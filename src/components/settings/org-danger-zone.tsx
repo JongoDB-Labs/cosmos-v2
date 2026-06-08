@@ -32,6 +32,7 @@ export function OrgDangerZone({ orgId, orgName }: OrgDangerZoneProps) {
   const [busy, setBusy] = useState(false);
 
   const armed = confirm === orgName && !busy;
+  const nameMismatch = confirm.length > 0 && confirm !== orgName;
 
   async function del() {
     setBusy(true);
@@ -102,6 +103,11 @@ export function OrgDangerZone({ orgId, orgName }: OrgDangerZoneProps) {
               autoComplete="off"
               placeholder={orgName}
             />
+            {nameMismatch && (
+              <p className="text-[11px] text-[var(--text-muted)]">
+                The name doesn&apos;t match yet.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
