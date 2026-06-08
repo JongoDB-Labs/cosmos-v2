@@ -53,6 +53,19 @@ const CLAUDE_CODE_IDENTITY =
   "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA = "oauth-2025-04-20";
 
+// Short aliases (sonnet/opus/haiku) are a Claude Code CLI convenience — the raw
+// Messages API rejects them with 404 not_found. Normalize to full model IDs here
+// (the single egress point) so every caller works regardless of credential path.
+// A value that's already a full id passes through unchanged.
+const MODEL_ALIASES: Record<string, string> = {
+  sonnet: "claude-sonnet-4-6",
+  opus: "claude-opus-4-1",
+  haiku: "claude-haiku-4-5-20251001",
+};
+function resolveModel(model: string): string {
+  return MODEL_ALIASES[model.trim().toLowerCase()] ?? model;
+}
+
 let _envClient: Anthropic | null = null;
 
 /** Build the SDK client for the resolved credential (env key cached; others per-call). */
@@ -110,7 +123,7 @@ function buildSystem(
 export async function callModel(req: CallModelRequest): Promise<ModelTurnResult> {
   const c = clientFor(req.credential);
   const params: Anthropic.MessageCreateParamsNonStreaming = {
-    model: req.model,
+    model: resolveModel(req.model),
     max_tokens: req.maxTokens ?? 4096,
     system: buildSystem(req.system, req.credential),
     messages: req.messages,
