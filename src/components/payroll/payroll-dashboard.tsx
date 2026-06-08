@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { Eye } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -19,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { PayRunDialog } from "./pay-run-dialog";
 
 const fmt = (v: string | number) =>
@@ -73,6 +75,23 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
 
   const nameFor = (userId: string) =>
     (membersQ.data ?? []).find((m) => m.userId === userId)?.user.displayName ?? "Member";
+
+  // Surface the pay-run row's existing operation (open the PayRunDialog) as a
+  // right-click / ⋯ menu item. Reuses setOpenRun — no new endpoints.
+  const payRunActions = useCallback(
+    (run: PayRun): ActionMenuGroup[] => [
+      {
+        items: [
+          {
+            label: run.status === "POSTED" ? "View" : "Preview & post",
+            icon: Eye,
+            onClick: () => setOpenRun(run),
+          },
+        ],
+      },
+    ],
+    [],
+  );
 
   const employees = employeesQ.data ?? [];
   const employeeUserIds = new Set(employees.map((e) => e.userId));
@@ -184,6 +203,7 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
           <DataTable
             columns={payRunCols}
             data={payRunsQ.data ?? []}
+            rowActions={payRunActions}
             emptyState={<EmptyState title="No pay runs yet — create a period above." />}
           />
         )}
