@@ -446,13 +446,31 @@ function GoalCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon-xs" onClick={onLink} title="Link items">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onLink}
+            aria-label="Link items"
+            title="Link items"
+          >
             <Link2 className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={onEdit} title="Edit goal">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onEdit}
+            aria-label="Edit goal"
+            title="Edit goal"
+          >
             <Pencil className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={onDelete} title="Delete goal">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onDelete}
+            aria-label="Delete goal"
+            title="Delete goal"
+          >
             <Trash2 className="size-3.5" />
           </Button>
         </div>
@@ -723,6 +741,7 @@ function LinkDialog({
                     <button
                       type="button"
                       className="shrink-0 rounded-full text-[var(--text-muted)] hover:text-[var(--text)]"
+                      aria-label="Remove link"
                       title="Remove link"
                       disabled={removeLinkMutation.isPending}
                       onClick={() =>

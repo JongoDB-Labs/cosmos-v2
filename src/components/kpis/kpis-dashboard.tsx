@@ -584,13 +584,31 @@ function KpiCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon-xs" onClick={onAddPoint} title="Add data point">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onAddPoint}
+            aria-label="Add data point"
+            title="Add data point"
+          >
             <Plus className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={onEdit} title="Edit KPI">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onEdit}
+            aria-label="Edit KPI"
+            title="Edit KPI"
+          >
             <Pencil className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={onDelete} title="Delete KPI">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onDelete}
+            aria-label="Delete KPI"
+            title="Delete KPI"
+          >
             <Trash2 className="size-3.5" />
           </Button>
         </div>

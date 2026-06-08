@@ -238,6 +238,7 @@ export function BankingInbox({ orgId }: { orgId: string }) {
         return (
           <Input
             className="h-7 min-w-32 text-xs"
+            aria-label={isOutflow ? "Category" : "Source"}
             placeholder={isOutflow ? "Category…" : "Source…"}
             value={catMap[row.original.id] ?? ""}
             onChange={(e) =>
