@@ -70,8 +70,16 @@ export default async function ProjectLayout({
         }
       />
 
-      {/* Board content */}
-      <div className="flex-1 overflow-hidden">{children}</div>
+      {/* Project content. overflow-y-auto + min-h-0 so CONTENT sub-pages
+          (settings, milestones, OKRs, KPIs, goals — plain max-w blocks with no
+          inner scroll) can scroll; board/kanban views are h-full and manage
+          their OWN internal scroll, so they fill this box exactly and aren't
+          affected. overflow-x-hidden keeps wide boards scrolling inside their
+          own container, not this one. (Was overflow-hidden, which clipped every
+          content sub-page.) */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+        {children}
+      </div>
     </div>
   );
 }
