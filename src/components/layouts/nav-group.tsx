@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { motion as fm, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { NavGroupDef } from "./nav-config";
-import { isHrefActive, resolveHref } from "./nav-active";
+import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 
 /**
  * A Monograph-style collapsible parent group: a parent row with a chevron that
@@ -23,6 +23,7 @@ export function NavGroup({
   expanded,
   onToggle,
   railOpen,
+  allHrefs,
 }: {
   group: NavGroupDef;
   orgSlug: string | undefined;
@@ -30,18 +31,28 @@ export function NavGroup({
   expanded: boolean;
   onToggle: () => void;
   railOpen: boolean;
+  /**
+   * Every visible leaf href across the WHOLE nav (not just this group), so
+   * sibling-suppression works cross-group — e.g. /finance (Accounting group) is
+   * suppressed when /finance/invoices (CRM group) is the active page.
+   */
+  allHrefs?: string[];
 }) {
+  // resolveHref → for active comparison (NO_MATCH when no org). hrefFor → for the
+  // actual <Link> (falls back to "/" so children are never dead-linked).
   const childHrefs = group.children.map((c) => resolveHref(orgSlug, c.href));
+  const childLinks = group.children.map((c) => hrefFor(orgSlug, c.href));
+  const siblings = allHrefs ?? childHrefs;
   // A group is "active" when any child route is active.
   const groupActive = group.children.some((c, i) =>
-    isHrefActive(pathname, childHrefs[i], c.href === "", childHrefs),
+    isHrefActive(pathname, childHrefs[i], c.href === "", siblings),
   );
   const GroupIcon = group.icon;
 
   // Collapsed rail: show only the group icon, linking to the first child so the
   // group is still reachable. Hover title surfaces the label.
   if (!railOpen) {
-    const firstHref = childHrefs[0];
+    const firstHref = childLinks[0];
     return (
       <Link
         href={firstHref}
@@ -93,18 +104,17 @@ export function NavGroup({
           >
             <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
               {group.children.map((child, i) => {
-                const href = childHrefs[i];
                 const active = isHrefActive(
                   pathname,
-                  href,
+                  childHrefs[i],
                   child.href === "",
-                  childHrefs,
+                  siblings,
                 );
                 const ChildIcon = child.icon;
                 return (
                   <Link
                     key={child.id}
-                    href={href}
+                    href={childLinks[i]}
                     aria-current={active ? "page" : undefined}
                     className={cn(
                       "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
