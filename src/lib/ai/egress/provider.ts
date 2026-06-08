@@ -21,6 +21,20 @@ export interface ModelTurnResult {
   stopReason: string | null;
 }
 
+/**
+ * How the chokepoint authenticates to the model for THIS call. Resolved by the
+ * egress layer (which has org context) and passed in — the chokepoint stays
+ * stateless and never reads org config itself.
+ *  - apiKey: a standard `sk-ant-api…` key → `x-api-key`.
+ *  - oauth:  a Claude **subscription** access token (`sk-ant-oat…`) → `Authorization:
+ *            Bearer` + the oauth beta header. Subscription tokens are scoped to
+ *            Claude Code, so the request must lead with the Claude Code system
+ *            identity block or Anthropic rejects it (see buildSystem).
+ */
+export type ModelCredential =
+  | { kind: "apiKey"; apiKey: string }
+  | { kind: "oauth"; token: string };
+
 export interface CallModelRequest {
   system: string;
   messages: ModelMessage[];
@@ -29,15 +43,56 @@ export interface CallModelRequest {
   maxTokens?: number;
   /** When provided, stream text deltas to the caller (final result still returned). */
   onTextDelta?: (delta: string) => void;
+  /** Per-call credential resolved by the egress layer. Omit ⇒ env ANTHROPIC_API_KEY. */
+  credential?: ModelCredential;
 }
 
-let _client: Anthropic | null = null;
-function client(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set — the egress provider cannot reach the model");
-  if (_client) return _client;
-  _client = new Anthropic({ apiKey });
-  return _client;
+// Claude subscription (OAuth) tokens are authorized only for Claude Code; the API
+// requires the system to lead with this identity block or it 401/403s the call.
+const CLAUDE_CODE_IDENTITY =
+  "You are Claude Code, Anthropic's official CLI for Claude.";
+const OAUTH_BETA = "oauth-2025-04-20";
+
+let _envClient: Anthropic | null = null;
+
+/** Build the SDK client for the resolved credential (env key cached; others per-call). */
+function clientFor(credential: ModelCredential | undefined): Anthropic {
+  if (!credential) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey)
+      throw new Error(
+        "No model credential: ANTHROPIC_API_KEY is unset and no org Claude subscription is connected.",
+      );
+    if (_envClient) return _envClient;
+    _envClient = new Anthropic({ apiKey });
+    return _envClient;
+  }
+  if (credential.kind === "oauth") {
+    return new Anthropic({
+      authToken: credential.token,
+      defaultHeaders: { "anthropic-beta": OAUTH_BETA },
+    });
+  }
+  return new Anthropic({ apiKey: credential.apiKey });
+}
+
+/**
+ * System payload for the call. A subscription (oauth) token must lead with the
+ * Claude Code identity as a SEPARATE system block (the real instructions follow
+ * in a second block, so agent behavior is preserved). API-key calls send the
+ * system string unchanged.
+ */
+function buildSystem(
+  system: string,
+  credential: ModelCredential | undefined,
+): Anthropic.MessageCreateParams["system"] {
+  if (credential?.kind === "oauth") {
+    return [
+      { type: "text", text: CLAUDE_CODE_IDENTITY },
+      { type: "text", text: system },
+    ];
+  }
+  return system;
 }
 
 /**
@@ -47,11 +102,11 @@ function client(): Anthropic {
  * have been retained from an earlier one. Reachable only via `egress/` (arch test).
  */
 export async function callModel(req: CallModelRequest): Promise<ModelTurnResult> {
-  const c = client();
+  const c = clientFor(req.credential);
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: req.model,
     max_tokens: req.maxTokens ?? 4096,
-    system: req.system,
+    system: buildSystem(req.system, req.credential),
     messages: req.messages,
     tools: req.tools as unknown as Anthropic.Tool[],
   };

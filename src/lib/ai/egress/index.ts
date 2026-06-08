@@ -1,5 +1,6 @@
 // src/lib/ai/egress/index.ts
-import { callModel, type CallModelRequest, type ModelMessage, type ModelTool, type ModelTurnResult } from "./provider";
+import { callModel, type CallModelRequest, type ModelCredential, type ModelMessage, type ModelTool, type ModelTurnResult } from "./provider";
+import { getOrgClaudeToken } from "@/lib/ai/claude-subscription";
 import { projectForModel } from "./gate";
 import { logEgressDecision } from "./audit";
 import { effectiveCeiling } from "@/lib/classification/effective";
@@ -116,6 +117,19 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
         return { ...m, content: body };
       }));
 
+      // Per-org credential: prefer the org's connected Claude SUBSCRIPTION token
+      // (sk-ant-oat… → Bearer + oauth beta in the chokepoint); fall back to the
+      // env ANTHROPIC_API_KEY (credential undefined). Resolved HERE (egress has
+      // org context) and passed in — the chokepoint stays stateless + config-blind.
+      // A resolution failure must never widen egress: degrade to the env key.
+      let credential: ModelCredential | undefined;
+      try {
+        const subToken = await getOrgClaudeToken(input.ctx.orgId);
+        if (subToken) credential = { kind: "oauth", token: subToken };
+      } catch {
+        credential = undefined;
+      }
+
       const req: CallModelRequest = {
         system: typeof sys.modelValue === "string" ? sys.modelValue : "[withheld: controlled marking]",
         messages: gatedMessages,
@@ -123,6 +137,7 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
         model: input.model,
         maxTokens: input.maxTokens,
         onTextDelta: input.onTextDelta,
+        credential,
       };
       stage = "model";
       const result = await callModel(req);

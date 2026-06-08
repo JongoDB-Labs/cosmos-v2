@@ -35,6 +35,11 @@ vi.mock("@/lib/classification/effective", async (importOriginal) => ({
 }));
 vi.mock("@/lib/ai/egress/audit", () => ({ logEgressDecision }));
 vi.mock("@/lib/classification/classifier", () => ({ classifyLikelyCui }));
+// The egress layer resolves the org's Claude subscription token (DB-backed); in
+// these unit tests there's no DB, so stub it to "not connected" (env-key path).
+vi.mock("@/lib/ai/claude-subscription", () => ({
+  getOrgClaudeToken: vi.fn().mockResolvedValue(null),
+}));
 // Spy on the metrics seam so we can assert the signals fire WITHOUT asserting on OTel internals.
 vi.mock("@/lib/observability/metrics", () => ({
   recordClassifierError,
