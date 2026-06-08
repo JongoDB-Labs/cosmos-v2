@@ -14,16 +14,26 @@ import {
   type RowSelectionState,
   type GroupingState,
 } from "@tanstack/react-table";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "./checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "./dropdown-menu";
+import type { ActionMenuGroup } from "./action-menu";
 
 export interface DataTableProps<T> {
   columns: ColumnDef<T>[];
@@ -56,6 +66,10 @@ export interface DataTableProps<T> {
    * original data, and rows get a pointer cursor. Interactive cell content
    * (buttons/links/menus) should stopPropagation so it doesn't also fire this. */
   onRowClick?: (row: T) => void;
+  /** When provided, every row supports RIGHT-CLICK (a context menu opens at the
+   * cursor) AND gets a trailing ⋯ actions column (for touch / discoverability).
+   * Both render the same menu. Return [] for a row to give it no actions. */
+  rowActions?: (row: T) => ActionMenuGroup[];
 }
 
 export function DataTable<T>({
@@ -73,8 +87,45 @@ export function DataTable<T>({
   getGroupLabel,
   stickyHeader,
   onRowClick,
+  rowActions,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
+
+  // Shared row context menu (right-click anywhere on a row + the ⋯ column).
+  // Reuses ActionMenu's trick: position one hidden DropdownMenu trigger at the
+  // cursor, click it, reset — so a single menu serves every row.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuGroups, setMenuGroups] = useState<ActionMenuGroup[]>([]);
+  const ctxBtnRef = useRef<HTMLButtonElement>(null);
+  const openRowMenu = (x: number, y: number, groups: ActionMenuGroup[]) => {
+    if (groups.every((g) => g.items.length === 0)) return;
+    setMenuGroups(groups);
+    const btn = ctxBtnRef.current;
+    if (!btn) return;
+    Object.assign(btn.style, {
+      position: "fixed",
+      left: `${x}px`,
+      top: `${y}px`,
+      width: "1px",
+      height: "1px",
+      padding: "0",
+      overflow: "hidden",
+      pointerEvents: "none",
+    });
+    btn.click();
+    requestAnimationFrame(() => {
+      Object.assign(btn.style, {
+        position: "",
+        left: "",
+        top: "",
+        width: "",
+        height: "",
+        padding: "",
+        overflow: "",
+        pointerEvents: "",
+      });
+    });
+  };
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const paginationObj = typeof pagination === "object" ? pagination : null;
   const [paginationState, setPaginationState] = useState<PaginationState>({
@@ -86,31 +137,63 @@ export function DataTable<T>({
   const paginate = Boolean(pagination);
 
   const columnsWithSelection = useMemo<ColumnDef<T>[]>(() => {
-    if (rowSelection === undefined) return columns;
-    const selectionCol: ColumnDef<T> = {
-      id: "__select",
-      size: 36,
-      enableSorting: false,
-      enableGrouping: false,
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          indeterminate={table.getIsSomePageRowsSelected()}
-          onChange={(e) => table.toggleAllPageRowsSelected(e.target.checked)}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          disabled={!row.getCanSelect()}
-          onChange={(e) => row.toggleSelected(e.target.checked)}
-          aria-label="Select row"
-        />
-      ),
-    };
-    return [selectionCol, ...columns];
-  }, [columns, rowSelection]);
+    let cols = columns;
+    if (rowSelection !== undefined) {
+      const selectionCol: ColumnDef<T> = {
+        id: "__select",
+        size: 36,
+        enableSorting: false,
+        enableGrouping: false,
+        header: ({ table }) => (
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected()}
+            indeterminate={table.getIsSomePageRowsSelected()}
+            onChange={(e) => table.toggleAllPageRowsSelected(e.target.checked)}
+            aria-label="Select all"
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            disabled={!row.getCanSelect()}
+            onChange={(e) => row.toggleSelected(e.target.checked)}
+            aria-label="Select row"
+          />
+        ),
+      };
+      cols = [selectionCol, ...cols];
+    }
+    if (rowActions) {
+      const actionsCol: ColumnDef<T> = {
+        id: "__actions",
+        size: 40,
+        enableSorting: false,
+        enableGrouping: false,
+        header: "",
+        cell: ({ row }) => (
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              aria-label="Row actions"
+              onClick={(e) => {
+                e.stopPropagation();
+                const r = e.currentTarget.getBoundingClientRect();
+                openRowMenu(r.right, r.bottom, rowActions(row.original));
+              }}
+              className="rounded-md p-1 text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--primary-tint)] hover:text-[var(--text)] focus:opacity-100 group-hover:opacity-100"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+        ),
+      };
+      cols = [...cols, actionsCol];
+    }
+    return cols;
+    // openRowMenu is stable across renders (refs/setState); excluded to keep the
+    // memo from rebuilding the columns every render.
+     
+  }, [columns, rowSelection, rowActions]);
 
   const table = useReactTable({
     data,
@@ -163,6 +246,43 @@ export function DataTable<T>({
   const expandableColCount = columnsWithSelection.length + (renderExpanded ? 1 : 0);
 
   return (
+    <>
+    {rowActions && (
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger
+          render={<button ref={ctxBtnRef} type="button" aria-hidden tabIndex={-1} className="opacity-0" />}
+        />
+        <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="min-w-[160px]">
+          {menuGroups.map((group, gi) => {
+            if (group.items.length === 0) return null;
+            return (
+              <div key={gi}>
+                {gi > 0 && <DropdownMenuSeparator />}
+                {group.label && <DropdownMenuLabel>{group.label}</DropdownMenuLabel>}
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={item.label}
+                      variant={item.variant}
+                      disabled={item.disabled}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        item.onClick();
+                        setMenuOpen(false);
+                      }}
+                    >
+                      {Icon && <Icon className="h-4 w-4" />}
+                      {item.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )}
     <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
       <table className="w-full text-sm block md:table">
         <thead
@@ -267,6 +387,18 @@ export function DataTable<T>({
                 <tr
                   onClick={
                     onRowClick ? () => onRowClick(row.original) : undefined
+                  }
+                  onContextMenu={
+                    rowActions
+                      ? (e) => {
+                          e.preventDefault();
+                          openRowMenu(
+                            e.clientX,
+                            e.clientY,
+                            rowActions(row.original),
+                          );
+                        }
+                      : undefined
                   }
                   className={cn(
                     "group block space-y-2 border-b border-[var(--border)]/40 p-4 transition-colors last:border-0 hover:bg-[var(--bg)] md:table-row md:space-y-0 md:p-0",
@@ -373,5 +505,6 @@ export function DataTable<T>({
         </div>
       )}
     </div>
+    </>
   );
 }
