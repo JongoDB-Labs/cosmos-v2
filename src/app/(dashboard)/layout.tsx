@@ -25,9 +25,7 @@ export default function DashboardLayout({
 }) {
   return (
     <QueryProvider>
-      <Suspense
-        fallback={<DashboardLayoutFallback>{children}</DashboardLayoutFallback>}
-      >
+      <Suspense fallback={<DashboardLayoutFallback />}>
         <AuthedShell>{children}</AuthedShell>
       </Suspense>
       <Toaster position="top-right" richColors />
@@ -89,11 +87,13 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
  * yet, so the sidebar and topbar render as skeletons. Auth is ~1-2 DB
  * queries — users see the real shell within tens of milliseconds.
  */
-function DashboardLayoutFallback({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+// A PURE static skeleton — it must NOT render {children}. Rendering the page
+// tree (with its own dynamic Suspense boundaries) inside this fallback AND again
+// inside the resolved <AuthedShell> double-mounts those boundaries; under
+// streaming the fallback's copy "can't finish" and React recovers by switching
+// to client rendering → the recoverable hydration error #419 on every page.
+// The page streams in with the authed shell once cookies resolve.
+function DashboardLayoutFallback() {
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <aside className="hidden md:block w-64 border-r border-[var(--border)] bg-[image:var(--sidebar-gradient)]">
@@ -105,7 +105,11 @@ function DashboardLayoutFallback({
         <header className="flex h-14 items-center border-b border-[var(--border)] px-4">
           <Skeleton className="h-6 w-32" />
         </header>
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto p-8">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="mt-4 h-4 w-full max-w-2xl" />
+          <Skeleton className="mt-2 h-4 w-full max-w-xl" />
+        </main>
       </div>
     </div>
   );
