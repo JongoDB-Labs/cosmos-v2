@@ -21,6 +21,7 @@ import {
   Cpu,
   Bot,
   Gavel,
+  Sparkles,
 } from "lucide-react";
 import {
   Select,
@@ -36,6 +37,7 @@ const settingsNav = [
   { icon: Puzzle, label: "Integrations", href: "/settings/integrations" },
   { icon: Server, label: "MCP Servers", href: "/settings/mcp-servers" },
   { icon: Cpu, label: "Runtime Config", href: "/settings/runtime-config" },
+  { icon: Sparkles, label: "AI / Model", href: "/settings/ai" },
   { icon: Bot, label: "Agent Policy", href: "/settings/agent-policy" },
   { icon: Gavel, label: "Agent Governance", href: "/settings/agent-governance" },
   { icon: Webhook, label: "Webhooks", href: "/settings/webhooks" },
