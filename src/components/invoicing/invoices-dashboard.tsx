@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { Copy, Eye } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -10,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadError } from "@/components/ui/load-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { InvoiceBuilderDialog } from "./invoice-builder-dialog";
 import { InvoiceDetailDialog } from "./invoice-detail-dialog";
 
@@ -106,6 +108,28 @@ export function InvoicesDashboard({ orgId }: { orgId: string }) {
     },
   ];
 
+  const rowActions = useCallback(
+    (r: InvoiceRow): ActionMenuGroup[] => [
+      {
+        items: [
+          {
+            label: "View invoice",
+            icon: Eye,
+            onClick: () => setDetailId(r.id),
+          },
+          {
+            label: "Copy invoice number",
+            icon: Copy,
+            onClick: () => {
+              void navigator.clipboard?.writeText(r.number);
+            },
+          },
+        ],
+      },
+    ],
+    [],
+  );
+
   if (invoicesQ.isError) {
     return (
       <div className="p-6">
@@ -154,6 +178,7 @@ export function InvoicesDashboard({ orgId }: { orgId: string }) {
         <DataTable
           columns={columns}
           data={invoicesQ.data ?? []}
+          rowActions={rowActions}
           emptyState={<EmptyState title="No invoices yet — create your first one." />}
         />
       )}
