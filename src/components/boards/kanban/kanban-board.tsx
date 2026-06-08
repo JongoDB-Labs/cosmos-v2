@@ -20,6 +20,7 @@ import {
   FilterBar,
   parseFilters,
   serializeFilters,
+  bareTypeKey,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
@@ -201,7 +202,10 @@ function KanbanBoardInner({
     ) {
       return false;
     }
-    if (filters.types.length > 0 && !filters.types.includes(item.workItemType?.key ?? "")) {
+    if (
+      filters.types.length > 0 &&
+      !filters.types.includes(bareTypeKey(item.workItemType?.key))
+    ) {
       return false;
     }
     if (
