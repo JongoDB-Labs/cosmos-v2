@@ -15,7 +15,8 @@
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
 
-function loadEnv() {
+function loadEnv(): string | undefined {
+  let dbUrl: string | undefined;
   try {
     const txt = readFileSync(process.cwd() + "/.env.local", "utf8");
     for (const line of txt.split("\n")) {
@@ -24,12 +25,15 @@ function loadEnv() {
       let v = m[2];
       if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
       if (!process.env[m[1]]) process.env[m[1]] = v;
+      if (m[1] === "DATABASE_URL") dbUrl = v;
     }
   } catch {}
+  return dbUrl;
 }
-loadEnv();
-
-const prisma = new PrismaClient();
+// Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
+// .env's in-container `cosmos-postgres` hostname (importing @prisma/client auto-loads .env).
+const DB_URL = loadEnv();
+const prisma = new PrismaClient(DB_URL ? { datasourceUrl: DB_URL } : undefined);
 const SLUG = "apex-defense", PKEY = "SENTINEL";
 const NOW = Date.now(), DAY = 86400000;
 const d = (days: number) => new Date(NOW + days * DAY);
