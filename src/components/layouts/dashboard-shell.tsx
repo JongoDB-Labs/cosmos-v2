@@ -10,6 +10,7 @@ import { usePathname } from "next/navigation";
 import { AppSidebar } from "./app-sidebar";
 import { Topbar } from "./topbar";
 import { MobileBottomNav } from "./mobile-bottom-nav";
+import { FloatingAgentBubble } from "./floating-agent-bubble";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { WakeWordProvider } from "@/components/wake-word/wake-word-provider";
 
@@ -72,6 +73,10 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
               onToggle={() => setMobileOpen(false)}
               orgs={orgs}
               user={user}
+              // Surface the topbar-only destinations (Notes/Chat/Team/Meetings +
+              // Feedback) in the drawer — on mobile the topbar nav is hidden, so
+              // this is the only place they're reachable (item 2).
+              showMovedNav
             />
           </SheetContent>
         </Sheet>
@@ -94,6 +99,9 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
       </div>
 
       <MobileBottomNav orgSlug={orgSlug} orgId={currentOrgId} />
+
+      {/* Persistent COSMOS Agent overlay (item 9). */}
+      <FloatingAgentBubble orgId={currentOrgId} />
     </div>
   );
 }

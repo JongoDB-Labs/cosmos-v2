@@ -5,32 +5,16 @@ import { usePathname, useRouter } from "next/navigation";
 import { motion as fm, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  BarChart3,
-  Briefcase,
-  FileText,
-  Clock,
-  DollarSign,
-  Video,
-  MessageSquare,
-  Sparkles,
+  PanelLeftClose,
+  PanelLeft,
   LogOut,
   Sun,
   Moon,
   ChevronsUpDown,
-  FolderKanban,
-  Users,
   Mic,
-  Megaphone,
-  FileSignature,
-  Package,
-  Handshake,
-  BookOpen,
+  MessageSquarePlus,
 } from "lucide-react";
-import { CosmosMark } from "@/components/brand/cosmos-mark";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -40,6 +24,17 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { motion } from "@/lib/motion";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import {
+  SIDEBAR_NAV,
+  visibleNav,
+  applyAdminLayout,
+  type NavEntry,
+} from "./nav-config";
+import { isHrefActive, resolveHref } from "./nav-active";
+import { NavGroup } from "./nav-group";
+import { visibleTopbarNav } from "./topbar-nav";
+import { useNavGroups } from "@/lib/hooks/use-nav-groups";
 
 interface AppSidebarProps {
   open: boolean;
@@ -58,32 +53,56 @@ interface AppSidebarProps {
     displayName: string;
     avatarUrl: string | null;
   };
+  /** Optional admin nav layout from Organization.settings.nav. */
+  navLayout?: { order?: string[]; hidden?: string[] };
+  /**
+   * Render the topbar-only destinations (Notes / Chat / Team / Meetings +
+   * Feedback) as an extra "Workspace" section. Set on the MOBILE drawer, where
+   * the topbar's moved-nav is `hidden md:flex` — without this they'd be
+   * unreachable on a phone (item 2). The desktop rail leaves it off because the
+   * topbar already surfaces them.
+   */
+  showMovedNav?: boolean;
 }
 
-const navItems = [
-  { icon: LayoutDashboard, label: "Overview", href: "" },
-  { icon: FolderKanban, label: "Projects", href: "/projects" },
-  { icon: MessageSquare, label: "Chat", href: "/chat" },
-  { icon: Briefcase, label: "CRM", href: "/crm" },
-  { icon: Handshake, label: "Partners", href: "/partners" },
-  { icon: Package, label: "Products", href: "/products" },
-  { icon: FileSignature, label: "Contracts", href: "/contracts" },
-  { icon: Clock, label: "Time Tracking", href: "/time-tracking" },
-  { icon: DollarSign, label: "Finance", href: "/finance" },
-  { icon: BookOpen, label: "Accounting", href: "/finance/accounting" },
-  { icon: Video, label: "Meetings", href: "/meetings" },
-  { icon: Sparkles, label: "Assistant", href: "/assistant" },
-  { icon: FileText, label: "Notes", href: "/notes" },
-  { icon: Megaphone, label: "Feedback", href: "/feedback" },
-  { icon: Users, label: "Team", href: "/team" },
-  { icon: BarChart3, label: "Analytics", href: "/analytics" },
-  { icon: Settings, label: "Settings", href: "/settings" },
-];
-
-export function AppSidebar({ open, onToggle, orgs, user }: AppSidebarProps) {
+export function AppSidebar({
+  open,
+  onToggle,
+  orgs,
+  user,
+  navLayout,
+  showMovedNav = false,
+}: AppSidebarProps) {
   const pathname = usePathname();
-  const orgSlug = pathname.split("/")[1];
-  const currentOrg = orgs.find((o) => o.slug === orgSlug);
+  // Derive the effective org slug from a MATCHED membership — NOT the raw path
+  // segment. On non-org routes (/onboarding, /admin) the first segment is a
+  // truthy string ("onboarding") that no org matches, so currentOrg is
+  // undefined and orgSlug stays undefined. That lets resolveHref() return its
+  // NO_MATCH sentinel so nothing (including Overview) highlights.
+  const currentOrg = orgs.find((o) => o.slug === pathname.split("/")[1]);
+  const orgSlug = currentOrg?.slug;
+  const { can } = usePermissions();
+
+  // RBAC/ABAC-gated: drop items + groups the user can't access (item 4),
+  // then apply any admin-defined order/visibility (item 12).
+  const entries = applyAdminLayout(visibleNav(SIDEBAR_NAV, can), navLayout);
+
+  // Seed expanded groups: any group whose child route is active starts open.
+  const activeGroupIds = entries
+    .filter((e): e is Extract<NavEntry, { type: "group" }> => e.type === "group")
+    .filter((g) =>
+      g.children.some((c) =>
+        isHrefActive(
+          pathname,
+          resolveHref(orgSlug, c.href),
+          c.href === "",
+          g.children.map((cc) => resolveHref(orgSlug, cc.href)),
+        ),
+      ),
+    )
+    .map((g) => g.id);
+
+  const { isExpanded, toggle } = useNavGroups(activeGroupIds);
 
   return (
     <fm.aside
@@ -91,19 +110,20 @@ export function AppSidebar({ open, onToggle, orgs, user }: AppSidebarProps) {
       transition={motion.spring}
       className="flex h-full flex-col border-r bg-[image:var(--sidebar-gradient)] text-[var(--text)]"
     >
-      {/* Header */}
+      {/* Header — brand slot + single toggle (item 1: logo keeps a constant
+          size; item 2: one consolidated collapse control). */}
       <div className="flex h-14 shrink-0 items-center justify-between px-3">
-        <Link href="/" className="flex items-center gap-2 min-w-0">
-          <CosmosMark size={open ? "md" : "sm"} />
+        <Link href="/" className="flex min-w-0 items-center gap-2">
+          <BrandLogo logoUrl={currentOrg?.logoUrl} orgName={currentOrg?.name} />
           <AnimatePresence>
             {open && (
               <fm.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1, transition: { delay: 0.1 } }}
                 exit={{ opacity: 0 }}
-                className="font-semibold text-sm truncate"
+                className="truncate text-sm font-semibold"
               >
-                COSMOS
+                {currentOrg?.name ?? "COSMOS"}
               </fm.span>
             )}
           </AnimatePresence>
@@ -111,12 +131,12 @@ export function AppSidebar({ open, onToggle, orgs, user }: AppSidebarProps) {
         <button
           onClick={onToggle}
           aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-          className="rounded p-1 hover:bg-[var(--primary-tint)] text-[var(--text-muted)]"
+          className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--primary-tint)]"
         >
           {open ? (
-            <ChevronLeft className="h-4 w-4" />
+            <PanelLeftClose className="h-4 w-4" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <PanelLeft className="h-4 w-4" />
           )}
         </button>
       </div>
@@ -125,57 +145,106 @@ export function AppSidebar({ open, onToggle, orgs, user }: AppSidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
-        {navItems.map((item) => {
-          const href = currentOrg ? `/${currentOrg.slug}${item.href}` : "/";
-          // The org-root link (Overview, empty href) must match EXACTLY —
-          // otherwise a prefix check lights it up on every sub-page, double-
-          // highlighting two items at once. All other links use segment-aware
-          // prefix matching so e.g. /projects stays active under /projects/r11,
-          // BUT a parent item must NOT stay active when a more-specific child
-          // item's href is itself a prefix of (or exact match for) the current
-          // path — e.g. Finance (/finance) must not highlight when Accounting
-          // (/finance/accounting) is the active item.
-          const isActive = (() => {
-            // No org context (pathname has no valid org slug, href collapses to
-            // "/") → nothing is active. Without this, at "/" every item's href
-            // is "/" and the matcher lights them ALL up (except a parent like
-            // Finance that a child suppresses) — the "everything selected" bug.
-            if (!currentOrg) return false;
-            if (item.href === "") return pathname === href;
-            if (pathname !== href && !pathname.startsWith(href + "/"))
-              return false;
-            // Suppress the parent when a longer sibling item also matches.
-            const longerSiblingMatches = navItems.some((other) => {
-              if (other === item) return false;
-              if (!other.href.startsWith(item.href + "/")) return false;
-              const otherHref = currentOrg
-                ? `/${currentOrg.slug}${other.href}`
-                : "/";
-              return (
-                pathname === otherHref ||
-                pathname.startsWith(otherHref + "/")
-              );
-            });
-            return !longerSiblingMatches;
-          })();
+        {entries.map((entry) => {
+          if (entry.type === "group") {
+            return (
+              <NavGroup
+                key={entry.id}
+                group={entry}
+                orgSlug={orgSlug}
+                pathname={pathname}
+                expanded={isExpanded(entry.id)}
+                onToggle={() => toggle(entry.id)}
+                railOpen={open}
+              />
+            );
+          }
+          const href = resolveHref(orgSlug, entry.href);
+          const active = isHrefActive(pathname, href, entry.href === "");
+          const Icon = entry.icon;
           return (
             <Link
-              key={item.label}
+              key={entry.id}
               href={href}
-              title={!open ? item.label : undefined}
-              aria-current={isActive ? "page" : undefined}
+              title={!open ? entry.label : undefined}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-[var(--primary-tint)] text-[var(--primary)] border-l-2 border-[var(--primary)] pl-2"
+                active
+                  ? "border-l-2 border-[var(--primary)] bg-[var(--primary-tint)] pl-2 text-[var(--primary)]"
                   : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
               )}
             >
-              <item.icon className="h-4 w-4 shrink-0" />
-              {open && <span className="truncate">{item.label}</span>}
+              <Icon className="h-4 w-4 shrink-0" />
+              {open && <span className="truncate">{entry.label}</span>}
             </Link>
           );
         })}
+
+        {/* Workspace section: the topbar-only destinations, surfaced here on
+            the mobile drawer so every primary destination stays reachable on a
+            phone (item 2). The desktop topbar renders these instead. */}
+        {showMovedNav && (
+          <div className="mt-2 space-y-0.5 border-t border-[var(--border)] pt-2">
+            {open && (
+              <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Workspace
+              </p>
+            )}
+            {visibleTopbarNav(can).map((item) => {
+              const href = resolveHref(orgSlug, item.href);
+              const active = isHrefActive(pathname, href, false);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.id}
+                  href={href}
+                  title={!open ? item.label : undefined}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
+                    active
+                      ? "border-l-2 border-[var(--primary)] bg-[var(--primary-tint)] pl-2 text-[var(--primary)]"
+                      : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {open && <span className="truncate">{item.label}</span>}
+                </Link>
+              );
+            })}
+            {/* Feedback also lives only in the topbar (sm:flex) — surface it
+                here too so it's reachable on mobile. */}
+            {currentOrg && (
+              <Link
+                href={resolveHref(orgSlug, "/feedback")}
+                title={!open ? "Feedback" : undefined}
+                aria-current={
+                  isHrefActive(
+                    pathname,
+                    resolveHref(orgSlug, "/feedback"),
+                    false,
+                  )
+                    ? "page"
+                    : undefined
+                }
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
+                  isHrefActive(
+                    pathname,
+                    resolveHref(orgSlug, "/feedback"),
+                    false,
+                  )
+                    ? "border-l-2 border-[var(--primary)] bg-[var(--primary-tint)] pl-2 text-[var(--primary)]"
+                    : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
+                )}
+              >
+                <MessageSquarePlus className="h-4 w-4 shrink-0" />
+                {open && <span className="truncate">Feedback</span>}
+              </Link>
+            )}
+          </div>
+        )}
       </nav>
 
       <div className="shrink-0 border-t border-[var(--border)]" />
@@ -209,22 +278,22 @@ function OrgSwitcher({
   const initial = (currentOrg?.name ?? "?").charAt(0).toUpperCase();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--primary-tint)] transition-colors">
+      <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--primary-tint)]">
         {currentOrg?.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={currentOrg.logoUrl}
             alt=""
-            className="h-6 w-6 rounded shrink-0"
+            className="h-6 w-6 shrink-0 rounded object-contain"
           />
         ) : (
-          <div className="h-6 w-6 rounded bg-[var(--primary-tint)] flex items-center justify-center text-[10px] font-semibold text-[var(--primary)] shrink-0">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--primary-tint)] text-[10px] font-semibold text-[var(--primary)]">
             {initial}
           </div>
         )}
         {open && (
           <>
-            <span className="truncate flex-1 text-left">{label}</span>
+            <span className="flex-1 truncate text-left">{label}</span>
             <ChevronsUpDown className="h-3.5 w-3.5 text-[var(--text-muted)]" />
           </>
         )}
@@ -267,13 +336,13 @@ function UserCard({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--primary-tint)] transition-colors">
+      <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--primary-tint)]">
         <Avatar className="h-6 w-6 shrink-0">
           <AvatarImage src={user.avatarUrl ?? undefined} />
           <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
         </Avatar>
         {open && (
-          <div className="flex-1 min-w-0 text-left">
+          <div className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-medium">{user.displayName}</p>
             <p className="truncate text-[10px] text-[var(--text-muted)]">
               v{process.env.NEXT_PUBLIC_APP_VERSION}
