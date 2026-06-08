@@ -227,10 +227,14 @@ export async function exchangeClaudeCode(
     const email = await fetchAccountEmail(accessToken);
     const oauthExpiresAt = new Date(Date.now() + expiresIn * 1000);
 
+    // Connecting a subscription ACTIVATES it as the org's model provider — the
+    // multi-provider resolver (ai-credentials) keys off `provider`, so without
+    // this the freshly-connected token would never be used.
     await prisma.orgAiSettings.upsert({
       where: { orgId },
       create: {
         orgId,
+        provider: "claude-oauth",
         oauthAccessToken: toSealedJson(accessToken),
         oauthRefreshToken: refreshToken
           ? toSealedJson(refreshToken)
@@ -239,6 +243,7 @@ export async function exchangeClaudeCode(
         updatedById,
       },
       update: {
+        provider: "claude-oauth",
         oauthAccessToken: toSealedJson(accessToken),
         oauthRefreshToken: refreshToken
           ? toSealedJson(refreshToken)
