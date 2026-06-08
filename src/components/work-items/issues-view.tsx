@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog";
-import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2 } from "lucide-react";
@@ -287,55 +287,36 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             <span className="text-sm text-[var(--text-muted)]">—</span>
           ),
       },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }) => {
-          const r = row.original;
-          const boardHref = `/${orgSlug}/projects/${r.project.key}`;
-          const groups: ActionMenuGroup[] = [
-            {
-              items: [
-                { label: "View details", icon: Eye, onClick: () => setDetailRow(r) },
-                {
-                  label: "Open in board",
-                  icon: ExternalLink,
-                  onClick: () => router.push(boardHref),
-                },
-                {
-                  label: "Copy link",
-                  icon: Link2,
-                  onClick: () => {
-                    try {
-                      void navigator.clipboard?.writeText(
-                        `${window.location.origin}${boardHref}`,
-                      );
-                      toast.success("Board link copied");
-                    } catch {
-                      /* clipboard unavailable */
-                    }
-                  },
-                },
-              ],
-            },
-          ];
-          return (
-            // group/action reveals the ⋯ on row hover; stopPropagation so using
-            // the menu doesn't also fire the row's open-detail click. Right-click
-            // on this cell opens the same menu.
-            <div
-              className="group/action flex justify-end"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ActionMenu groups={groups} triggerClassName="opacity-100">
-                <span className="sr-only">Row actions</span>
-              </ActionMenu>
-            </div>
-          );
-        },
-      },
     ],
-    [orgSlug, facets, router],
+    [facets],
+  );
+
+  // Per-row actions — surfaced by DataTable as a ⋯ column AND on right-click.
+  const rowActions = useCallback(
+    (r: IssueRow): ActionMenuGroup[] => {
+      const boardHref = `/${orgSlug}/projects/${r.project.key}`;
+      return [
+        {
+          items: [
+            { label: "View details", icon: Eye, onClick: () => setDetailRow(r) },
+            { label: "Open in board", icon: ExternalLink, onClick: () => router.push(boardHref) },
+            {
+              label: "Copy link",
+              icon: Link2,
+              onClick: () => {
+                try {
+                  void navigator.clipboard?.writeText(`${window.location.origin}${boardHref}`);
+                  toast.success("Board link copied");
+                } catch {
+                  /* clipboard unavailable */
+                }
+              },
+            },
+          ],
+        },
+      ];
+    },
+    [orgSlug, router],
   );
 
   return (
@@ -414,6 +395,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             data={rows}
             getRowId={(r) => r.id}
             onRowClick={(r) => setDetailRow(r)}
+            rowActions={rowActions}
           />
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
