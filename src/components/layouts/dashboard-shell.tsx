@@ -102,7 +102,11 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
         <main
           ref={mainRef}
           id="main"
-          className="flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"
+          // min-h-0 is REQUIRED: as a flex-1 child its default min-height:auto
+          // makes it grow to content height, so the overflow-hidden column clips
+          // tall pages instead of letting main scroll. min-h-0 lets it shrink to
+          // the flex-allocated height so overflow-y-auto actually scrolls.
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"
         >
           {children}
         </main>
