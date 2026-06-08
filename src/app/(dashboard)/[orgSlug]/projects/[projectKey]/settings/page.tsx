@@ -15,7 +15,13 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
       orgId: ctx.orgId,
       key: { equals: projectKey, mode: "insensitive" },
     },
-    select: { id: true, name: true, key: true, description: true },
+    select: {
+      id: true,
+      name: true,
+      key: true,
+      description: true,
+      enabledFeatures: true,
+    },
   });
 
   if (!project) notFound();
@@ -34,6 +40,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         projectName={project.name}
         projectKey={project.key}
         projectDescription={project.description ?? ""}
+        enabledFeatures={project.enabledFeatures}
       />
     </div>
   );

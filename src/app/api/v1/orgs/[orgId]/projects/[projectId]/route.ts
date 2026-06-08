@@ -9,11 +9,22 @@ import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 
+// Project features that drive the optional board tabs (see board-tabs.tsx).
+// Toggleable from Project Settings; validated here so only known flags persist.
+export const TOGGLEABLE_FEATURES = [
+  "okr",
+  "goal",
+  "kpi",
+  "milestone",
+  "cycle",
+] as const;
+
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().nullish(),
   settings: z.record(z.string(), z.unknown()).optional(),
   archived: z.boolean().optional(),
+  enabledFeatures: z.array(z.enum(TOGGLEABLE_FEATURES)).optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -84,6 +95,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.description !== undefined && { description: data.description ?? "" }),
         ...(data.settings !== undefined && { settings: data.settings as Prisma.InputJsonValue }),
         ...(data.archived !== undefined && { archived: data.archived }),
+        ...(data.enabledFeatures !== undefined && { enabledFeatures: data.enabledFeatures }),
       },
       include: {
         _count: { select: { boards: true, cycles: true, members: true } },

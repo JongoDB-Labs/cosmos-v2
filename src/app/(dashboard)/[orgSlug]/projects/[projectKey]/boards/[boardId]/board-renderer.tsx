@@ -7,6 +7,8 @@ import { TimelineView } from "@/components/boards/timeline/timeline-view";
 import { DashboardView } from "@/components/boards/dashboard/dashboard-view";
 import { CfdView } from "@/components/boards/cfd/cfd-view";
 import { SprintBoard } from "@/components/boards/scrum/sprint-board";
+import { BacklogView } from "@/components/boards/backlog/backlog-view";
+import { RaidView } from "@/components/boards/raid/raid-view";
 import { OkrBoard } from "@/components/okrs/okr-board";
 
 interface BoardRendererProps {
@@ -22,8 +24,8 @@ interface BoardRendererProps {
  * are no "coming soon" stubs. Several gov/PM board types are expressed in terms
  * of the proven core views until a bespoke view ships:
  *   SCRUM    → Sprint board (active-sprint header + the Kanban scoped to it)
- *   BACKLOG  → Table  (the ranked work-item list)
- *   RAID     → Table  (risks / assumptions / issues / dependencies log)
+ *   BACKLOG  → ranked product backlog (re-rank + assign-to-sprint)
+ *   RAID     → RAID log (risks/assumptions/issues/dependencies, grouped by tag)
  *   ROADMAP  → Timeline
  *   PORTFOLIO/PROGRAM → Dashboard (rollup widgets)
  *   OKR      → the dedicated objectives/key-results board
@@ -39,9 +41,13 @@ export function BoardRenderer({
 
   switch (boardType) {
     case "TABLE":
-    case "BACKLOG":
-    case "RAID":
       return <TableView {...viewProps} />;
+
+    case "BACKLOG":
+      return <BacklogView {...viewProps} />;
+
+    case "RAID":
+      return <RaidView {...viewProps} />;
 
     case "CALENDAR":
       return <CalendarView {...viewProps} />;

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +28,18 @@ interface ProjectSettingsClientProps {
   projectName: string;
   projectKey: string;
   projectDescription: string;
+  enabledFeatures: string[];
 }
+
+// The optional project features that surface as board tabs (board-tabs.tsx).
+// Keep keys in sync with TOGGLEABLE_FEATURES in the project PUT route.
+const FEATURE_OPTIONS: { key: string; label: string; description: string }[] = [
+  { key: "okr", label: "OKRs", description: "Objectives & key results board." },
+  { key: "goal", label: "Goals", description: "Track project goals with rollup progress." },
+  { key: "kpi", label: "KPIs", description: "Track metrics with targets and trend charts." },
+  { key: "milestone", label: "Milestones", description: "Key dates on a delivery timeline." },
+  { key: "cycle", label: "Cycles / Sprints", description: "Time-boxed iterations of work." },
+];
 
 export function ProjectSettingsClient({
   orgId,
@@ -36,6 +48,7 @@ export function ProjectSettingsClient({
   projectName,
   projectKey,
   projectDescription,
+  enabledFeatures,
 }: ProjectSettingsClientProps) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -47,6 +60,8 @@ export function ProjectSettingsClient({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [features, setFeatures] = useState<string[]>(enabledFeatures);
+  const [savingFeatures, setSavingFeatures] = useState(false);
 
   const canUpdate = can(Permission.PROJECT_UPDATE);
   const canDelete = can(Permission.PROJECT_DELETE);
@@ -74,6 +89,30 @@ export function ProjectSettingsClient({
       toast.error("Failed to update project");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleFeature(key: string, on: boolean) {
+    const next = on
+      ? [...new Set([...features, key])]
+      : features.filter((f) => f !== key);
+    const prev = features;
+    setFeatures(next); // optimistic
+    setSavingFeatures(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabledFeatures: next }),
+      });
+      if (!res.ok) throw new Error("Failed to update features");
+      toast.success(on ? "Feature enabled" : "Feature disabled");
+      router.refresh(); // re-render the project tabs
+    } catch {
+      setFeatures(prev); // rollback
+      toast.error("Failed to update features");
+    } finally {
+      setSavingFeatures(false);
     }
   }
 
@@ -170,6 +209,46 @@ export function ProjectSettingsClient({
               )
             ) : null}
           </div>
+        </div>
+      </div>
+
+      {/* Features */}
+      <div className="rounded-lg border">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">Features</h3>
+          {savingFeatures ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+        <div className="divide-y">
+          {FEATURE_OPTIONS.map((f) => {
+            const on = features.includes(f.key);
+            return (
+              <div
+                key={f.key}
+                className="flex items-center justify-between gap-4 px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium">{f.label}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {f.description}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={on}
+                  onCheckedChange={(v) => toggleFeature(f.key, v)}
+                  disabled={!canUpdate || savingFeatures}
+                  aria-label={`${on ? "Disable" : "Enable"} ${f.label}`}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="border-t px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            Enabled features appear as tabs on this project. Disabling a feature
+            hides its tab; existing data is kept.
+          </p>
         </div>
       </div>
 
