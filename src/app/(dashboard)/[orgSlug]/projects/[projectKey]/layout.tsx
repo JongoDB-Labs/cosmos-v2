@@ -4,7 +4,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
-import { Settings } from "lucide-react";
+import { Settings, Upload } from "lucide-react";
 import { ProjectBoardTabs } from "./board-tabs";
 
 type LayoutParams = {
@@ -50,13 +50,22 @@ export default async function ProjectLayout({
           </span>
           <h1 className="text-lg font-semibold">{project.name}</h1>
         </div>
-        <Link
-          href={`/${orgSlug}/projects/${projectKey}/settings`}
-          aria-label="Project settings"
-          className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
-        >
-          <Settings className="h-4 w-4" />
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link
+            href={`/${orgSlug}/projects/${projectKey}/import`}
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}
+          >
+            <Upload className="h-4 w-4" />
+            Import
+          </Link>
+          <Link
+            href={`/${orgSlug}/projects/${projectKey}/settings`}
+            aria-label="Project settings"
+            className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
 
       {/* Board tabs */}
