@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Target, CalendarDays } from "lucide-react";
+import { Target, CalendarDays, Plus } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { Cycle } from "@/types/models";
 
 interface SprintBoardProps {
@@ -31,6 +35,9 @@ export function SprintBoard({
   boardId,
 }: SprintBoardProps) {
   const [cycles, setCycles] = useState<CycleWithCount[] | null>(null);
+  const pathname = usePathname();
+  const orgSlug = pathname.split("/")[1];
+  const cyclesHref = `/${orgSlug}/projects/${projectKey}/cycles`;
 
   useEffect(() => {
     let cancelled = false;
@@ -59,10 +66,17 @@ export function SprintBoard({
       ) : active ? (
         <SprintHeader sprint={active} />
       ) : (
-        <div className="border-b border-[var(--border)] px-6 py-3 text-sm text-[var(--text-muted)]">
-          No active sprint — showing the full board. Create a sprint in the{" "}
-          <span className="font-medium text-[var(--text)]">Cycles</span> tab to
-          plan one.
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3">
+          <p className="text-sm text-[var(--text-muted)]">
+            No active sprint — showing the full board. Create one to start
+            planning into time-boxed iterations.
+          </p>
+          <Link
+            href={cyclesHref}
+            className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
+          >
+            <Plus className="h-3.5 w-3.5" /> New sprint
+          </Link>
         </div>
       )}
 
