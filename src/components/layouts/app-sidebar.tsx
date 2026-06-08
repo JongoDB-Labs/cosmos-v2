@@ -137,17 +137,24 @@ export function AppSidebar({
             )}
           </AnimatePresence>
         </Link>
-        <button
-          onClick={onToggle}
-          aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-          className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--primary-tint)]"
-        >
-          {open ? (
-            <PanelLeftClose className="h-4 w-4" />
-          ) : (
-            <PanelLeft className="h-4 w-4" />
-          )}
-        </button>
+        {/* Collapse control: only on the MOBILE drawer (showMovedNav), where it
+            doubles as the drawer's close button. On the DESKTOP rail it's gone —
+            the topbar hamburger is the single expand/collapse control — so the
+            icon no longer crowds/covers the brand logo in the 56px collapsed
+            rail. */}
+        {showMovedNav && (
+          <button
+            onClick={onToggle}
+            aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
+            className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--primary-tint)]"
+          >
+            {open ? (
+              <PanelLeftClose className="h-4 w-4" />
+            ) : (
+              <PanelLeft className="h-4 w-4" />
+            )}
+          </button>
+        )}
       </div>
 
       <div className="shrink-0 border-b border-[var(--border)]" />

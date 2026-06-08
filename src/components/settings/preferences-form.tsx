@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,6 +128,7 @@ function applyBgVar(mode: "dark" | "light", url: string | null) {
 }
 
 export function PreferencesForm({ orgId }: PreferencesFormProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -300,6 +302,25 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
         return false;
       }
 
+      // The dark/light <html> class is driven by the `theme` COOKIE (read by the
+      // no-FOUC bootstrap in app/layout.tsx), NOT by UserPreferences.themeMode —
+      // so persist the cookie too, or the chosen mode reverts on the next
+      // reload. SYSTEM clears the cookie → falls back to prefers-color-scheme.
+      if (committed.themeMode !== draft.themeMode) {
+        await fetch("/api/theme", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode:
+              draft.themeMode === "SYSTEM"
+                ? null
+                : draft.themeMode.toLowerCase(),
+          }),
+        }).catch(() => {
+          /* cookie is best-effort; applyTheme already toggled the live class */
+        });
+      }
+
       const committedNext: PrefState = {
         ...draft,
         bgDarkUrl: newDarkUrl,
@@ -313,6 +334,9 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
       setDraft(committedNext);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      // Re-render server chrome (sidebar/background read org + prefs server-side)
+      // so saved preferences are reflected without a manual hard reload.
+      router.refresh();
       return true;
     } catch (err) {
       notifyError(err, "Couldn't save your preferences.");
