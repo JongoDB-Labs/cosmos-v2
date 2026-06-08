@@ -4,48 +4,97 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 
 /**
- * The set of global slide-over drawers. These OVERLAY the current screen
- * (board, list, …) so the user can chat with the assistant, jot a note, or
- * file feedback without leaving their work — mirroring the okr-dashboard UX.
+ * The set of global DOCKED drawers. Unlike a modal sheet, these are NON-MODAL:
+ * no backdrop, no blur, no focus trap — they dock on the right and the main
+ * content reflows beside them, so the drawer is a true side-by-side
+ * multitasking tool (take notes while watching the kanban board, chat with
+ * someone while viewing a page, etc.). Only one is open at a time.
  */
-export type DrawerId = "assistant" | "notes" | "feedback";
+export type DrawerTool =
+  | "assistant"
+  | "chat"
+  | "notes"
+  | "feedback"
+  | "meetings";
+
+const WIDTH_KEY = "cosmos:drawer-width";
+export const DRAWER_MIN_WIDTH = 320;
+export const DRAWER_MAX_WIDTH = 900;
+const DRAWER_DEFAULT_WIDTH = 460;
+
+function clampWidth(n: number): number {
+  return Math.max(DRAWER_MIN_WIDTH, Math.min(DRAWER_MAX_WIDTH, Math.round(n)));
+}
 
 interface DrawerContextValue {
-  /** The currently open drawer, or null when all are closed. */
-  open: DrawerId | null;
-  /** Open a specific drawer (replaces any currently-open one). */
-  openDrawer: (id: DrawerId) => void;
-  /** Close whatever drawer is open. */
+  /** The currently open tool, or null when closed. */
+  tool: DrawerTool | null;
+  /** Open (or switch to) a tool. */
+  open: (tool: DrawerTool) => void;
+  /** Back-compat alias for `open`. */
+  openDrawer: (tool: DrawerTool) => void;
+  /** Toggle a tool — opens it, or closes if it's already the open one. */
+  toggle: (tool: DrawerTool) => void;
   close: () => void;
-  /** True when the given drawer is the open one. */
-  isOpen: (id: DrawerId) => boolean;
+  isOpen: (tool: DrawerTool) => boolean;
+  /** Current docked width in px (persisted). */
+  width: number;
+  setWidth: (n: number) => void;
 }
 
 const DrawerContext = createContext<DrawerContextValue | null>(null);
 
-/**
- * Mounted once in the dashboard shell. Exposes a tiny store so any client
- * surface (topbar icon buttons, command palette, mobile nav) can drive the
- * global drawers via `openDrawer(...)` / `close()`.
- *
- * Only one drawer is open at a time — opening another swaps it, which keeps
- * the overlay model simple and avoids stacking sheets.
- */
 export function DrawerProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState<DrawerId | null>(null);
+  const [tool, setTool] = useState<DrawerTool | null>(null);
+  const [width, setWidthState] = useState<number>(DRAWER_DEFAULT_WIDTH);
 
-  const openDrawer = useCallback((id: DrawerId) => setOpen(id), []);
-  const close = useCallback(() => setOpen(null), []);
-  const isOpen = useCallback((id: DrawerId) => open === id, [open]);
+  // Restore the persisted width on mount (client-only → no hydration mismatch).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = Number(window.localStorage.getItem(WIDTH_KEY));
+    // One-shot restore of the persisted width after mount; the default ships in
+    // the server render so there's no hydration mismatch (the drawer is closed
+    // initially, so nothing width-dependent is in the DOM yet).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (Number.isFinite(saved) && saved > 0) setWidthState(clampWidth(saved));
+  }, []);
+
+  const setWidth = useCallback((n: number) => {
+    const w = clampWidth(n);
+    setWidthState(w);
+    try {
+      window.localStorage.setItem(WIDTH_KEY, String(w));
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, []);
+
+  const open = useCallback((t: DrawerTool) => setTool(t), []);
+  const close = useCallback(() => setTool(null), []);
+  const toggle = useCallback(
+    (t: DrawerTool) => setTool((cur) => (cur === t ? null : t)),
+    [],
+  );
+  const isOpen = useCallback((t: DrawerTool) => tool === t, [tool]);
 
   const value = useMemo<DrawerContextValue>(
-    () => ({ open, openDrawer, close, isOpen }),
-    [open, openDrawer, close, isOpen],
+    () => ({
+      tool,
+      open,
+      openDrawer: open,
+      toggle,
+      close,
+      isOpen,
+      width,
+      setWidth,
+    }),
+    [tool, open, toggle, close, isOpen, width, setWidth],
   );
 
   return (
@@ -53,18 +102,19 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * Access the global drawer store. Returns a no-op fallback when used outside a
- * provider so a stray render (e.g. on a non-dashboard route) never throws.
- */
+/** No-op fallback outside a provider so a stray render never throws. */
 export function useDrawers(): DrawerContextValue {
   const ctx = useContext(DrawerContext);
   if (!ctx) {
     return {
-      open: null,
+      tool: null,
+      open: () => {},
       openDrawer: () => {},
+      toggle: () => {},
       close: () => {},
       isOpen: () => false,
+      width: DRAWER_DEFAULT_WIDTH,
+      setWidth: () => {},
     };
   }
   return ctx;

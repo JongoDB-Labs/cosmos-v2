@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.33.3",
+  "version": "2.34.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,6 +16,7 @@
     "e2e:install": "playwright install chromium",
     "prepare": "husky",
     "seed": "tsx prisma/seed/index.ts",
+    "seed:demo": "tsx prisma/seed/demo-defense.ts && tsx prisma/seed/demo-defense-extra.ts && tsx prisma/seed/demo-defense-fill.ts",
     "test:arch": "vitest run src/lib/ai/egress/__tests__/single-path.arch.test.ts",
     "cutover:acceptance": "bash scripts/cutover/acceptance/run-acceptance.sh",
     "cutover:parity-acceptance": "bash scripts/cutover/acceptance/run-parity-acceptance.sh",
