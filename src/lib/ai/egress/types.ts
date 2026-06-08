@@ -4,6 +4,23 @@ import type { ClassificationLevel } from "@prisma/client";
 /** Tenant data-sensitivity class. Drives which paths/connectors are allowed. */
 export type TenantClass = "gov" | "commercial";
 
+/**
+ * How the chokepoint authenticates to the model for THIS call. Resolved by the
+ * egress layer (which has org context, via `@/lib/ai/ai-credentials`) and passed
+ * BY VALUE into the stateless `provider.callModel` — the chokepoint never reads
+ * org config itself. Lives here (the dependency-free types module) so the
+ * resolver can reference it without importing the model-calling provider (which
+ * the single-path arch test forbids outside `egress/`).
+ *  - apiKey: a standard `sk-ant-api…` key → `x-api-key`.
+ *  - oauth:  a Claude **subscription** access token (`sk-ant-oat…`) → Bearer + oauth beta.
+ *  - openai: an OpenAI-COMPATIBLE endpoint (`baseURL` + key + model) — raw Chat
+ *            Completions over fetch (NOT the Anthropic SDK).
+ */
+export type ModelCredential =
+  | { kind: "apiKey"; apiKey: string }
+  | { kind: "oauth"; token: string }
+  | { kind: "openai"; baseURL: string; apiKey: string; model: string };
+
 /** What kind of value is crossing the boundary toward the model. */
 export type ValueKind = "system" | "user" | "tool_result" | "tool_args" | "error";
 
