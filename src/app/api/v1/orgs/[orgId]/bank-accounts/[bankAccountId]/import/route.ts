@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { parseOfx } from "@/lib/bank/parsers/ofx";
-import { parseCsv } from "@/lib/bank/parsers/csv";
+import { parseCsv, type CsvMapping } from "@/lib/bank/parsers/csv";
 import { importTransactions } from "@/lib/bank/import";
 
 type RouteParams = { params: Promise<{ orgId: string; bankAccountId: string }> };
@@ -40,14 +40,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const format = String(formData.get("format") || "ofx");
     const mappingRaw = formData.get("mapping");
-    const mapping = mappingRaw ? JSON.parse(String(mappingRaw)) : undefined;
+    let mapping: CsvMapping | undefined;
+    try {
+      mapping = mappingRaw
+        ? (JSON.parse(String(mappingRaw)) as CsvMapping)
+        : undefined;
+    } catch {
+      return new Response("mapping must be valid JSON", { status: 400 });
+    }
 
     if (format === "csv" && !mapping) {
       return new Response("mapping is required for CSV import", { status: 400 });
     }
 
     const text = await file.text();
-    const parsed = format === "csv" ? parseCsv(text, mapping) : parseOfx(text);
+    // mapping is guaranteed defined in the csv branch by the guard above.
+    const parsed =
+      format === "csv" ? parseCsv(text, mapping as CsvMapping) : parseOfx(text);
 
     return success(await importTransactions(orgId, bankAccountId, parsed));
   } catch (error) {

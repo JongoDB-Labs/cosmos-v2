@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import { NotFoundError, ConflictError } from "@/lib/rbac/check";
 import {
   postExpenseToLedger,
   postRevenueToLedger,
@@ -63,12 +64,12 @@ async function loadReconcilable(orgId: string, txnId: string) {
   const txn = await prisma.bankTransaction.findFirst({
     where: { id: txnId, orgId },
   });
-  if (!txn) throw new Error("Bank transaction not found");
+  if (!txn) throw new NotFoundError("Bank transaction not found");
   // Only an IMPORTED txn is reconcilable. Whitelisting the start state (rather
   // than blacklisting terminal ones) also covers CATEGORIZED and any future
   // intermediate state — no reconciled txn can be acted on twice.
   if (txn.status !== "IMPORTED") {
-    throw new Error("Transaction already reconciled");
+    throw new ConflictError("Transaction already reconciled");
   }
   return txn;
 }
@@ -95,7 +96,7 @@ export async function categorizeTransaction(
         where: { id: txn.id, orgId, status: "IMPORTED" },
         data: { status: "POSTED", category: label },
       });
-      if (claim.count === 0) throw new Error("Transaction already reconciled");
+      if (claim.count === 0) throw new ConflictError("Transaction already reconciled");
       const expense = await tx.expense.create({
         data: {
           orgId,
@@ -125,7 +126,7 @@ export async function categorizeTransaction(
       where: { id: txn.id, orgId, status: "IMPORTED" },
       data: { status: "POSTED", category: label },
     });
-    if (claim.count === 0) throw new Error("Transaction already reconciled");
+    if (claim.count === 0) throw new ConflictError("Transaction already reconciled");
     const revenue = await tx.revenue.create({
       data: {
         orgId,
@@ -161,20 +162,20 @@ export async function matchTransaction(
 ) {
   const txn = await loadReconcilable(orgId, txnId);
   if (reconcileKind(txn.amount) !== targetType) {
-    throw new Error("Target type does not match the transaction direction");
+    throw new ConflictError("Target type does not match the transaction direction");
   }
   if (targetType === "expense") {
     const expense = await prisma.expense.findFirst({
       where: { id: targetId, orgId },
       select: { id: true },
     });
-    if (!expense) throw new Error("Expense not found");
+    if (!expense) throw new NotFoundError("Expense not found");
   } else {
     const revenue = await prisma.revenue.findFirst({
       where: { id: targetId, orgId },
       select: { id: true },
     });
-    if (!revenue) throw new Error("Revenue not found");
+    if (!revenue) throw new NotFoundError("Revenue not found");
   }
   // Atomic claim: only an IMPORTED txn transitions to MATCHED.
   const claim = await prisma.bankTransaction.updateMany({
@@ -185,7 +186,7 @@ export async function matchTransaction(
       matchedRevenueId: targetType === "revenue" ? targetId : null,
     },
   });
-  if (claim.count === 0) throw new Error("Transaction already reconciled");
+  if (claim.count === 0) throw new ConflictError("Transaction already reconciled");
   // The row certainly exists (we just claimed it) — return the non-null type so the
   // route never serializes a null 200.
   return prisma.bankTransaction.findUniqueOrThrow({ where: { id: txn.id } });

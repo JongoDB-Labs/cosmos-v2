@@ -31,7 +31,7 @@ import {
   applyAdminLayout,
   type NavEntry,
 } from "./nav-config";
-import { isHrefActive, resolveHref } from "./nav-active";
+import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 import { NavGroup } from "./nav-group";
 import { visibleTopbarNav } from "./topbar-nav";
 import { useNavGroups } from "@/lib/hooks/use-nav-groups";
@@ -86,6 +86,15 @@ export function AppSidebar({
   // RBAC/ABAC-gated: drop items + groups the user can't access (item 4),
   // then apply any admin-defined order/visibility (item 12).
   const entries = applyAdminLayout(visibleNav(SIDEBAR_NAV, can), navLayout);
+
+  // Every visible leaf href across the WHOLE nav (top-level leaves + all group
+  // children), for cross-group sibling-suppression — e.g. /finance (Accounting)
+  // must NOT stay active when /finance/invoices (CRM) is the page.
+  const allLeafHrefs = entries.flatMap((e) =>
+    e.type === "group"
+      ? e.children.map((c) => resolveHref(orgSlug, c.href))
+      : [resolveHref(orgSlug, e.href)],
+  );
 
   // Seed expanded groups: any group whose child route is active starts open.
   const activeGroupIds = entries
@@ -156,16 +165,21 @@ export function AppSidebar({
                 expanded={isExpanded(entry.id)}
                 onToggle={() => toggle(entry.id)}
                 railOpen={open}
+                allHrefs={allLeafHrefs}
               />
             );
           }
-          const href = resolveHref(orgSlug, entry.href);
-          const active = isHrefActive(pathname, href, entry.href === "");
+          const active = isHrefActive(
+            pathname,
+            resolveHref(orgSlug, entry.href),
+            entry.href === "",
+            allLeafHrefs,
+          );
           const Icon = entry.icon;
           return (
             <Link
               key={entry.id}
-              href={href}
+              href={hrefFor(orgSlug, entry.href)}
               title={!open ? entry.label : undefined}
               aria-current={active ? "page" : undefined}
               className={cn(
@@ -192,13 +206,16 @@ export function AppSidebar({
               </p>
             )}
             {visibleTopbarNav(can).map((item) => {
-              const href = resolveHref(orgSlug, item.href);
-              const active = isHrefActive(pathname, href, false);
+              const active = isHrefActive(
+                pathname,
+                resolveHref(orgSlug, item.href),
+                false,
+              );
               const Icon = item.icon;
               return (
                 <Link
                   key={item.id}
-                  href={href}
+                  href={hrefFor(orgSlug, item.href)}
                   title={!open ? item.label : undefined}
                   aria-current={active ? "page" : undefined}
                   className={cn(

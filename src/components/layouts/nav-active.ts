@@ -28,6 +28,20 @@ export function resolveHref(
 }
 
 /**
+ * The href to put in an actual <Link>. Unlike resolveHref (which returns the
+ * NO_MATCH sentinel for active-state comparison when there's no org), this
+ * always returns a navigable path — falling back to "/" when there's no org so
+ * sidebar links never become dead links to the sentinel string.
+ */
+export function hrefFor(
+  orgSlug: string | undefined,
+  relativeHref: string,
+): string {
+  if (!orgSlug) return "/";
+  return `/${orgSlug}${relativeHref}`;
+}
+
+/**
  * Is `pathname` active for the absolute `href`?
  *
  * @param pathname  current pathname
