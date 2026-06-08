@@ -45,6 +45,12 @@ import type { SyncMeeting } from "@/types/models";
 
 interface MeetingsListProps {
   orgId: string;
+  /**
+   * When provided, opening a meeting calls this instead of routing to
+   * `meetings/[id]` — lets the docked Meetings drawer show the detail IN PLACE
+   * (no page navigation behind it). Absent (the /meetings page) → router.push.
+   */
+  onOpenMeeting?: (meetingId: string) => void;
 }
 
 const MEETING_TYPE_CONFIG: Record<
@@ -141,8 +147,11 @@ function isThisWeek(date: Date): boolean {
   return date >= startOfWeek && date <= endOfWeek;
 }
 
-export function MeetingsList({ orgId }: MeetingsListProps) {
+export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
   const router = useRouter();
+  // Drawer passes onOpenMeeting (select in place); the page omits it → route.
+  const openMeeting =
+    onOpenMeeting ?? ((id: string) => router.push(`meetings/${id}`));
   const [meetings, setMeetings] = useState<SyncMeeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -415,7 +424,7 @@ export function MeetingsList({ orgId }: MeetingsListProps) {
               title="Today"
               meetings={grouped.today}
               orgId={orgId}
-              onNavigate={(id) => router.push(`meetings/${id}`)}
+              onNavigate={openMeeting}
               onDelete={(id) =>
                 setMeetings((prev) => prev.filter((m) => m.id !== id))
               }
@@ -426,7 +435,7 @@ export function MeetingsList({ orgId }: MeetingsListProps) {
               title="This Week"
               meetings={grouped.thisWeek}
               orgId={orgId}
-              onNavigate={(id) => router.push(`meetings/${id}`)}
+              onNavigate={openMeeting}
               onDelete={(id) =>
                 setMeetings((prev) => prev.filter((m) => m.id !== id))
               }
@@ -437,7 +446,7 @@ export function MeetingsList({ orgId }: MeetingsListProps) {
               title="Past"
               meetings={grouped.past}
               orgId={orgId}
-              onNavigate={(id) => router.push(`meetings/${id}`)}
+              onNavigate={openMeeting}
               onDelete={(id) =>
                 setMeetings((prev) => prev.filter((m) => m.id !== id))
               }

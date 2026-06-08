@@ -19,7 +19,7 @@ import {
   DRAWER_MIN_WIDTH,
   DRAWER_MAX_WIDTH,
 } from "./drawer-provider";
-import { AssistantPanel } from "./panels/assistant-panel";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { ChatPanel } from "./panels/chat-panel";
 import { NotesPanel } from "./panels/notes-panel";
 import { FeedbackPanel } from "./panels/feedback-panel";
@@ -32,11 +32,13 @@ interface DockedDrawerProps {
   userId: string;
 }
 
+// Order mirrors the topbar nav "Chat · Meetings · Notes" (Meetings before
+// Notes), with Assistant leading and Feedback trailing.
 const TOOLS: { id: DrawerTool; label: string; icon: typeof Sparkles }[] = [
   { id: "assistant", label: "Assistant", icon: Sparkles },
   { id: "chat", label: "Chat", icon: MessagesSquare },
-  { id: "notes", label: "Notes", icon: FileText },
   { id: "meetings", label: "Meetings", icon: Video },
+  { id: "notes", label: "Notes", icon: FileText },
   { id: "feedback", label: "Feedback", icon: MessageSquarePlus },
 ];
 
@@ -181,9 +183,7 @@ export function DockedDrawer({ orgId, orgSlug, userId }: DockedDrawerProps) {
 
       {/* Active tool body. Each panel mounts only while selected. */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {tool === "assistant" && (
-          <AssistantPanel orgId={orgId} orgSlug={orgSlug} />
-        )}
+        {tool === "assistant" && <AssistantPanel orgId={orgId} />}
         {tool === "chat" && (
           <ChatPanel orgId={orgId} orgSlug={orgSlug} userId={userId} />
         )}
