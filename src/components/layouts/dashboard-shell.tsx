@@ -14,7 +14,7 @@ import { FloatingAgentBubble } from "./floating-agent-bubble";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { WakeWordProvider } from "@/components/wake-word/wake-word-provider";
 import { DrawerProvider } from "@/components/drawers/drawer-provider";
-import { DrawerHost } from "@/components/drawers/drawer-host";
+import { DockedDrawer } from "@/components/drawers/docked-drawer";
 
 interface DashboardShellProps {
   user: {
@@ -48,7 +48,14 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
 
   return (
     <DrawerProvider>
-    <div className="flex h-screen overflow-hidden bg-[var(--bg)] dark:bg-transparent">
+    {/* The whole shell reflows LEFT when a docked drawer is open: the
+        right padding (published as --cosmos-drawer-w by DockedDrawer, 0 on
+        mobile / when closed) opens a gap the fixed drawer fills, so the page
+        stays fully visible and interactive beside it — no overlay, no blur. */}
+    <div
+      className="flex h-screen overflow-hidden bg-[var(--bg)] transition-[padding] duration-200 ease-out dark:bg-transparent"
+      style={{ paddingRight: "var(--cosmos-drawer-w, 0px)" }}
+    >
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[var(--primary)] focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg"
@@ -106,10 +113,11 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
       {/* Persistent COSMOS Agent overlay (item 9). */}
       <FloatingAgentBubble orgId={currentOrgId} />
 
-      {/* Global slide-over drawers (Assistant / Notes / Feedback), opened from
-          the topbar icon buttons. Overlay the current screen so work stays
-          visible. */}
-      <DrawerHost orgId={currentOrgId} orgSlug={orgSlug} />
+      {/* The single NON-MODAL docked drawer (Assistant / Chat / Notes /
+          Meetings / Feedback), opened from the topbar. It docks on the right
+          and the shell reflows beside it (see paddingRight above) — no
+          backdrop, no blur, page stays interactive for true multitasking. */}
+      <DockedDrawer orgId={currentOrgId} orgSlug={orgSlug} userId={user.id} />
     </div>
     </DrawerProvider>
   );
