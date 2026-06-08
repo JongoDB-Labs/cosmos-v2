@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
-import { ClaudeSubscriptionPanel } from "@/components/settings/claude-subscription-panel";
+import { AiProviderPanel } from "@/components/settings/ai-provider-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
@@ -47,9 +47,9 @@ async function Gate({ params }: PageParams) {
   return (
     <PageShell
       title="AI / Model"
-      description="Connect a Claude (Pro/Max) subscription to power this org's AI agent"
+      description="Choose and configure the AI provider that powers this org's agent"
     >
-      <ClaudeSubscriptionPanel orgId={ctx.orgId} />
+      <AiProviderPanel orgId={ctx.orgId} />
     </PageShell>
   );
 }

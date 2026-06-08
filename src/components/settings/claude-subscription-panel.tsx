@@ -52,7 +52,28 @@ function formatExpiry(iso?: string): string | null {
   });
 }
 
+/**
+ * Self-contained Claude-subscription panel — the inner connect flow wrapped in a
+ * SectionCard. Kept for any surface that renders Claude on its own.
+ */
 export function ClaudeSubscriptionPanel({ orgId }: { orgId: string }) {
+  return (
+    <SectionCard
+      icon={Sparkles}
+      title="Claude subscription"
+      description="Connect a Claude (Pro/Max) subscription to power this org's AI agent."
+    >
+      <ClaudeSubscriptionConnect orgId={orgId} />
+    </SectionCard>
+  );
+}
+
+/**
+ * The Claude-subscription CONNECT flow without its own card chrome, so it can be
+ * embedded inside the multi-provider selector's "Claude subscription" card. THIN:
+ * GETs status, POSTs initiate / exchange / disconnect.
+ */
+export function ClaudeSubscriptionConnect({ orgId }: { orgId: string }) {
   const queryKey = useOrgQueryKey("claude-subscription");
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey,
@@ -138,50 +159,39 @@ export function ClaudeSubscriptionPanel({ orgId }: { orgId: string }) {
   // ── Connected ──────────────────────────────────────────────────────────────
   if (data.connected) {
     return (
-      <SectionCard
-        icon={Sparkles}
-        title="Claude subscription"
-        description="This org's AI agent runs on a connected Claude (Pro/Max) subscription."
-      >
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <Badge variant="done">Connected</Badge>
-              {data.email ? (
-                <span className="text-sm font-medium text-[var(--text)]">
-                  {data.email}
-                </span>
-              ) : null}
-            </div>
-            <span className="text-xs text-[var(--text-muted)]">
-              {expiry
-                ? `Authorization valid until ${expiry}.`
-                : "Authorization active."}
-            </span>
-          </div>
-          <Button
-            variant="destructive"
-            disabled={disconnect.isPending}
-            onClick={() => disconnect.mutate(undefined)}
-          >
-            {disconnect.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <Badge variant="done">Connected</Badge>
+            {data.email ? (
+              <span className="text-sm font-medium text-[var(--text)]">
+                {data.email}
+              </span>
             ) : null}
-            Disconnect
-          </Button>
+          </div>
+          <span className="text-xs text-[var(--text-muted)]">
+            {expiry
+              ? `Authorization valid until ${expiry}.`
+              : "Authorization active."}
+          </span>
         </div>
-      </SectionCard>
+        <Button
+          variant="destructive"
+          disabled={disconnect.isPending}
+          onClick={() => disconnect.mutate(undefined)}
+        >
+          {disconnect.isPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : null}
+          Disconnect
+        </Button>
+      </div>
     );
   }
 
   // ── Not connected — connect flow ─────────────────────────────────────────────
   return (
-    <SectionCard
-      icon={Sparkles}
-      title="Claude subscription"
-      description="Connect a Claude (Pro/Max) subscription to power this org's AI agent."
-    >
-      <div className="space-y-4">
+    <div className="space-y-4">
         <p className="text-sm text-[var(--text-muted)]">
           Click <span className="font-medium text-[var(--text)]">Connect</span>{" "}
           to open Claude in a new tab. Log into your Claude (Pro or Max)
@@ -256,6 +266,5 @@ export function ClaudeSubscriptionPanel({ orgId }: { orgId: string }) {
           </div>
         ) : null}
       </div>
-    </SectionCard>
   );
 }
