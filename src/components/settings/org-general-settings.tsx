@@ -45,7 +45,10 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
 
   const nameValid = name.trim().length >= 2 && name.trim().length <= 100;
   const slugValid = /^[a-z0-9-]{2,50}$/.test(slug.trim());
-  const canSave = canUpdate && dirty && nameValid && slugValid && !saving;
+  // Mirror the server's z.string().url(): empty clears the logo, otherwise it
+  // must be an http(s) URL. Without this the whole save (incl. name/slug) 400s.
+  const logoValid = trimmedLogo === "" || /^https?:\/\/.+/.test(trimmedLogo);
+  const canSave = canUpdate && dirty && nameValid && slugValid && logoValid && !saving;
 
   async function save() {
     setSaving(true);
@@ -137,7 +140,13 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
             onChange={(e) => setLogoUrl(e.target.value)}
             disabled={!canUpdate}
             placeholder="https://…"
+            aria-invalid={!logoValid}
           />
+          {canUpdate && !logoValid && (
+            <p className="text-[11px] text-[var(--status-critical)]">
+              Enter a full URL starting with http:// or https:// (or leave blank).
+            </p>
+          )}
         </div>
 
         {/* Reference metadata — not editable here. */}
