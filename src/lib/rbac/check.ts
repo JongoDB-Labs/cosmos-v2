@@ -48,3 +48,11 @@ export class NotFoundError extends Error {
     this.name = "NotFoundError";
   }
 }
+
+/** A business-rule / state-conflict violation — maps to HTTP 409, not 500. */
+export class ConflictError extends Error {
+  constructor(message = "Conflict") {
+    super(message);
+    this.name = "ConflictError";
+  }
+}

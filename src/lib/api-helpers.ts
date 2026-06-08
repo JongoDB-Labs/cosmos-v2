@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { ForbiddenError, NotFoundError } from "./rbac/check";
+import { Prisma } from "@prisma/client";
+import { ForbiddenError, NotFoundError, ConflictError } from "./rbac/check";
 import { serverReportError } from "./telemetry/server";
 
 export function success<T>(data: T, status = 200) {
@@ -26,6 +27,25 @@ export function handleApiError(error: unknown) {
     return NextResponse.json(
       { error: error.message },
       { status: 404 }
+    );
+  }
+  if (error instanceof ConflictError) {
+    // Business-rule / state violations (e.g. "payment exceeds balance") are client
+    // errors — a 409, not a 500 that pollutes the error budget.
+    return NextResponse.json(
+      { error: error.message },
+      { status: 409 }
+    );
+  }
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  ) {
+    // A unique-constraint race (e.g. two posts of the same source landing at once)
+    // is a conflict, not a server error.
+    return NextResponse.json(
+      { error: "Conflicting concurrent request — please retry" },
+      { status: 409 }
     );
   }
   if (error instanceof ZodError) {
