@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Plan } from "@prisma/client";
 import { provisionComplianceBaseline } from "@/lib/compliance/provision";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
+import { isInternalAdmin } from "@/lib/internal/access";
 
 const createOrgSchema = z.object({
   name: z.string().min(2).max(100),
@@ -57,6 +58,26 @@ export async function POST(request: NextRequest) {
       where: { id: currentUser.id },
     });
     if (!user) return new Response("User not found", { status: 404 });
+
+    // Login-gate: being able to sign in (allowlisted/federated) does NOT by
+    // itself grant the ability to bootstrap an org and self-assign OWNER. Only
+    // a SYSTEM admin or an EXISTING org member may create an org — everyone else
+    // must be invited/provisioned by an admin.
+    if (!isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) {
+      const existingMembership = await prisma.orgMember.findFirst({
+        where: { userId: user.id },
+        select: { id: true },
+      });
+      if (!existingMembership) {
+        return new Response(
+          JSON.stringify({
+            error:
+              "You need an invitation to join. Ask an admin to invite you to an organization.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     const body = await request.json();
     const data = createOrgSchema.parse(body);
