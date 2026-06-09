@@ -42,9 +42,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Claude Code worktrees + Superpowers brainstorm scratch
+# Claude Code config + Superpowers design scratch — local-only, never push
 .claude/
 .superpowers/
+CLAUDE.md
+/docs/superpowers/
 
 # user-uploaded assets
 /public/uploads/
