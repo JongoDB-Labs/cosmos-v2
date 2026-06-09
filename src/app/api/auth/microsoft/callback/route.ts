@@ -14,8 +14,7 @@ import {
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
-import { OrgRole } from "@prisma/client";
-import { autoJoinGeneral } from "@/lib/chat/seed-general";
+import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
 import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
 
 function redirectToLogin(origin: string, error: string) {
@@ -112,36 +111,9 @@ export async function GET(request: NextRequest) {
     return res;
   }
 
-  // Consume pending invitations addressed to this email (skips the empty
-  // /onboarding redirect for invited users).
-  const pendingInvites = await prisma.invitation.findMany({
-    where: { email, expiresAt: { gt: new Date() } },
-  });
-  for (const invite of pendingInvites) {
-    const newMember = await prisma.orgMember
-      .create({
-        data: { orgId: invite.orgId, userId: user.id, role: invite.role },
-      })
-      .catch(() => undefined); // race: already a member is fine
-    if (newMember) {
-      try {
-        await autoJoinGeneral(
-          newMember.orgId,
-          newMember.userId,
-          newMember.role === OrgRole.OWNER || newMember.role === OrgRole.ADMIN,
-        );
-      } catch (err) {
-        console.warn(
-          "[chat] failed to auto-join invited OrgMember to #general",
-          { orgId: newMember.orgId, userId: newMember.userId },
-          err,
-        );
-      }
-    }
-    await prisma.invitation
-      .delete({ where: { id: invite.id } })
-      .catch(() => undefined);
-  }
+  // Consume pending invitations (membership + invite-time work-roles + #general),
+  // so an invited user lands in their org instead of the empty /onboarding screen.
+  await consumePendingInvitations(user.id, email);
 
   const sessionId = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);

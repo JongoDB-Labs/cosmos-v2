@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, isPermissionSubset } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
@@ -14,6 +14,9 @@ import { OrgRole } from "@prisma/client";
 const inviteSchema = z.object({
   email: z.string().email(),
   role: z.nativeEnum(OrgRole).default(OrgRole.MEMBER),
+  // Optional work-roles to assign on acceptance (granular permission grants +
+  // ABAC policies). Validated against the inviter's ceiling below.
+  workRoleIds: z.array(z.string().uuid()).max(50).default([]),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -72,6 +75,35 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Validate any chosen work-roles: each must belong to THIS org, and the
+    // inviter may only assign roles whose grants are within their OWN base
+    // permissions (same escalation ceiling as direct work-role assignment, so
+    // an ORG_MANAGE_MEMBERS holder can't hand out an over-privileged role).
+    const workRoleIds = data.workRoleIds ?? [];
+    if (workRoleIds.length > 0) {
+      const roles = await prisma.workRole.findMany({
+        where: { id: { in: workRoleIds }, orgId },
+        select: { id: true, grants: true },
+      });
+      if (roles.length !== new Set(workRoleIds).size) {
+        return new Response(
+          JSON.stringify({ error: "One or more work-roles don't exist in this org." }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      const overreach = roles.find(
+        (r) => !isPermissionSubset(r.grants ?? 0n, ctx.basePermissions),
+      );
+      if (overreach) {
+        return new Response(
+          JSON.stringify({
+            error: "You can't assign a work-role that grants permissions you don't have.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     const existingUser = await prisma.user.findFirst({ where: { email } });
     if (existingUser) {
       const existingMember = await prisma.orgMember.findUnique({
@@ -99,7 +131,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     expiresAt.setDate(expiresAt.getDate() + 7);
 
     const invitation = await prisma.invitation.create({
-      data: { orgId, email, role: data.role, expiresAt },
+      data: { orgId, email, role: data.role, workRoleIds, expiresAt },
     });
 
     const inviter = await getCurrentUser();

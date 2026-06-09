@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,10 +32,13 @@ const inviteSchema = z.object({
   email: z.email("Enter a valid email address."),
   // Full assignable org-role set (OWNER excluded — ownership transfer is a
   // separate, deliberate flow). Granular per-permission / ABAC access is layered
-  // on top via work-roles in Settings → Roles & Access.
+  // on top via work-roles (selectable below; defined in Settings → Roles & Access).
   role: z.enum(["VIEWER", "MEMBER", "ADMIN", "BILLING_ADMIN", "GUEST"]),
+  workRoleIds: z.array(z.string()),
 });
 type InviteValues = z.infer<typeof inviteSchema>;
+
+type WorkRoleOption = { id: string; name: string; grants: string[] };
 
 type InviteResponse = {
   invitation: { id: string; email: string; role: string };
@@ -59,10 +62,26 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
     formState: { errors },
   } = useForm<InviteValues>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { email: "", role: "MEMBER" },
+    defaultValues: { email: "", role: "MEMBER", workRoleIds: [] },
   });
 
   const role = watch("role");
+  const selectedRoles = watch("workRoleIds") ?? [];
+
+  // Work-roles available to assign at invite time (granular permission grants +
+  // ABAC policies, defined in Settings → Roles & Access).
+  const { data: workRoles = [] } = useQuery({
+    queryKey: ["work-roles", "invite", orgId],
+    queryFn: () => jsonFetch<WorkRoleOption[]>(`/api/v1/orgs/${orgId}/work-roles`),
+    enabled: open,
+  });
+
+  function toggleRole(id: string) {
+    const next = selectedRoles.includes(id)
+      ? selectedRoles.filter((r) => r !== id)
+      : [...selectedRoles, id];
+    setValue("workRoleIds", next, { shouldValidate: true });
+  }
 
   const invite = useMutation({
     mutationFn: (payload: InviteValues) =>
@@ -227,12 +246,39 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
                   <SelectItem value="ADMIN">Admin — manage the whole org</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-[var(--text-muted)]">
-                Finer access (extra permissions + attribute rules) is set with
-                work-roles in <span className="font-medium">Settings → Roles &amp; Access</span>,
-                assigned after they join.
-              </p>
             </div>
+
+            {workRoles.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                  Work-roles (optional)
+                </Label>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Extra permissions + attribute rules applied on top of the org
+                  role when they accept. Manage these in Settings → Roles &amp; Access.
+                </p>
+                <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-[var(--border)] p-2">
+                  {workRoles.map((wr) => (
+                    <label
+                      key={wr.id}
+                      className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-[var(--primary-tint)]"
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-3.5 rounded border-border"
+                        checked={selectedRoles.includes(wr.id)}
+                        onChange={() => toggleRole(wr.id)}
+                        disabled={invite.isPending}
+                      />
+                      <span className="flex-1 truncate">{wr.name}</span>
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        {wr.grants.length} perm{wr.grants.length === 1 ? "" : "s"}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <DialogFooter className="sm:justify-between">
               <Button
