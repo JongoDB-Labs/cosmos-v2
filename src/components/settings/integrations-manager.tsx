@@ -133,6 +133,16 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
     () => new Set(installed.map((i) => i.provider)),
     [installed],
   );
+  // Google-auth integrations (Gmail/Calendar/Meet/Drive) connect via the user's
+  // Google sign-in, NOT as installed Integration rows — so they belong in the
+  // "Connected" section too when Google is linked, otherwise they look absent.
+  const googleConnected = useMemo(
+    () =>
+      google?.connected
+        ? available.filter((p) => p.connect === "google" && p.status === "available")
+        : [],
+    [google?.connected, available],
+  );
 
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
@@ -288,7 +298,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
 
   return (
     <div className="flex flex-col gap-8">
-      {installed.length > 0 && (
+      {(installed.length > 0 || googleConnected.length > 0) && (
         <section>
           <div className="mb-4">
             <h2 className="text-xl font-semibold">Connected</h2>
@@ -297,6 +307,29 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {googleConnected.map((provider) => (
+              <div
+                key={`google:${provider.slug}`}
+                className="flex flex-col gap-3 rounded-lg border bg-card p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                    <BrandIcon slug={provider.icon} name={provider.name} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{provider.name}</p>
+                    <span className="mt-0.5 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Connected via Google
+                    </span>
+                  </div>
+                </div>
+                <p className="mt-auto border-t pt-2 text-xs text-muted-foreground">
+                  Linked through your Google sign-in. Manage access from your
+                  Google Account, or sign out to disconnect.
+                </p>
+              </div>
+            ))}
             {installed.map((integration) => {
               const provider = available.find((p) => p.slug === integration.provider);
               const status = statusConfig[integration.status];
