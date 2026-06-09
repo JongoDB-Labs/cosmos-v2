@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/create";
+import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
@@ -182,6 +183,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Live updates: tell other clients viewing this project's boards/issues to
+    // refresh (FR: "issue updates without manual refresh"). Best-effort — the
+    // broker error is swallowed so it never breaks the PUT response.
+    try {
+      publishToOrg(orgId, "work-item.updated", {
+        id: itemId,
+        projectId,
+        columnKey: item.columnKey,
+        ticketNumber: item.ticketNumber,
+      });
+    } catch {
+      /* never let a broker error break the update response */
+    }
+
     // Notify the new assignee when assignee changes to a non-null user
     // who isn't the actor themselves. Best-effort — never break the PUT.
     if (
@@ -248,6 +263,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       metadata: { title: existing.title, ticketNumber: String(existing.ticketNumber) } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
+
+    try {
+      publishToOrg(orgId, "work-item.deleted", {
+        id: itemId,
+        projectId,
+        ticketNumber: existing.ticketNumber,
+      });
+    } catch {
+      /* never let a broker error break the delete response */
+    }
 
     return noContent();
   } catch (error) {
