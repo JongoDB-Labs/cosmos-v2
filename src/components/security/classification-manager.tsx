@@ -429,9 +429,23 @@ export function ClassificationManager({ orgId }: { orgId: string }) {
                   >
                     <td className="px-3 py-2 text-sm">
                       {cls.projectId ? (
-                        <span className="font-mono text-xs">
-                          {cls.projectId.substring(0, 8)}...
-                        </span>
+                        (() => {
+                          // Resolve the project name/key — never show a raw UUID.
+                          const p = projects.find((x) => x.id === cls.projectId);
+                          return p ? (
+                            <span title={p.name}>
+                              {p.name}{" "}
+                              <span className="text-xs text-muted-foreground">
+                                ({p.key})
+                              </span>
+                            </span>
+                          ) : (
+                            // Project list not loaded yet / project since deleted.
+                            <span className="text-xs text-muted-foreground">
+                              Project
+                            </span>
+                          );
+                        })()
                       ) : (
                         <Badge variant="neutral">Org-wide</Badge>
                       )}

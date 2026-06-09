@@ -106,10 +106,19 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.command !== undefined && { command: data.command }),
         ...(data.args !== undefined && { args: data.args }),
         // env/headers are SEALED at rest (3.13.16): persist the vault envelope of
-        // JSON.stringify(map) into the *_enc columns (null when the map is empty).
-        ...(data.env !== undefined && { envEnc: sealMcpJson(data.env) }),
+        // JSON.stringify(map) into the *_enc columns. The edit form can't
+        // repopulate these (GET never returns the plaintext), so it submits an
+        // EMPTY map for an untouched field — treat empty as "keep existing" so a
+        // name-only edit doesn't silently wipe configured secrets. A non-empty
+        // map replaces them. (Clearing all env/headers isn't expressible here by
+        // design; delete + recreate the server instead.)
+        ...(data.env !== undefined &&
+          Object.keys(data.env).length > 0 && { envEnc: sealMcpJson(data.env) }),
         ...(data.url !== undefined && { url: data.url }),
-        ...(data.headers !== undefined && { headersEnc: sealMcpJson(data.headers) }),
+        ...(data.headers !== undefined &&
+          Object.keys(data.headers).length > 0 && {
+            headersEnc: sealMcpJson(data.headers),
+          }),
         ...(data.enabled !== undefined && { enabled: data.enabled }),
       },
     });

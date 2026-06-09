@@ -497,7 +497,14 @@ export function McpServersManager({ orgId }: McpServersManagerProps) {
                 />
               )}
             </FormField>
-            <FormField label="Environment" hint="One KEY=value per line.">
+            <FormField
+              label="Environment"
+              hint={
+                editing
+                  ? "One KEY=value per line. Stored encrypted and not shown — leave blank to keep the current values, or re-enter the full set to replace them."
+                  : "One KEY=value per line."
+              }
+            >
               {(p) => (
                 <Textarea
                   {...p}
@@ -525,7 +532,14 @@ export function McpServersManager({ orgId }: McpServersManagerProps) {
                 />
               )}
             </FormField>
-            <FormField label="Headers" hint="One Header=value per line.">
+            <FormField
+              label="Headers"
+              hint={
+                editing
+                  ? "One Header=value per line. Stored encrypted and not shown — leave blank to keep the current values, or re-enter the full set to replace them."
+                  : "One Header=value per line."
+              }
+            >
               {(p) => (
                 <Textarea
                   {...p}

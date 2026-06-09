@@ -32,13 +32,16 @@ async function Gate({ params }: PageParams) {
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
 
-  // Tenant-admin gate (the panel mirrors the route's INTEGRATION_MANAGE check).
-  if (!hasPermission(ctx.permissions, Permission.INTEGRATION_MANAGE)) {
+  // Gate MUST match what the /ai/* routes actually enforce (ORG_MANAGE_SETTINGS)
+  // — they all use it, so gating the page on INTEGRATION_MANAGE let the page
+  // render for users whose every fetch/mutation then 403'd, and blocked users
+  // the routes would have allowed.
+  if (!hasPermission(ctx.permissions, Permission.ORG_MANAGE_SETTINGS)) {
     return (
       <PageShell title="AI / Model" description="Connect a Claude subscription">
         <EmptyState
           title="You don't have access"
-          description="Connecting a Claude subscription requires the Integration Manage permission."
+          description="Configuring the org's AI provider requires the Manage Settings permission."
         />
       </PageShell>
     );
