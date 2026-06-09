@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
+import { Prisma } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -17,22 +18,34 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.AUDIT_LOG_READ);
 
+    // Mirror the list route's filters EXACTLY so an export honors the same
+    // action/entity/user/date filters the viewer has applied — otherwise an
+    // export taken with filters active silently returns the broader, unfiltered
+    // set (a compliance-reporting hazard).
+    const action = request.nextUrl.searchParams.get("action");
+    const entity = request.nextUrl.searchParams.get("entity");
+    const userId = request.nextUrl.searchParams.get("userId");
     const startDate = request.nextUrl.searchParams.get("startDate");
     const endDate = request.nextUrl.searchParams.get("endDate");
     const format = request.nextUrl.searchParams.get("format") ?? "json";
 
+    const where: Prisma.AuditLogWhereInput = {
+      orgId,
+      ...(action ? { action } : {}),
+      ...(entity ? { entity } : {}),
+      ...(userId ? { userId } : {}),
+      ...(startDate || endDate
+        ? {
+            createdAt: {
+              ...(startDate ? { gte: new Date(startDate) } : {}),
+              ...(endDate ? { lte: new Date(endDate) } : {}),
+            },
+          }
+        : {}),
+    };
+
     const logs = await prisma.auditLog.findMany({
-      where: {
-        orgId,
-        ...(startDate || endDate
-          ? {
-              createdAt: {
-                ...(startDate ? { gte: new Date(startDate) } : {}),
-                ...(endDate ? { lte: new Date(endDate) } : {}),
-              },
-            }
-          : {}),
-      },
+      where,
       orderBy: { createdAt: "desc" },
     });
 
