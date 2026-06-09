@@ -3,7 +3,22 @@ import { cache } from "react";
 import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
+import { isInternalAdmin } from "@/lib/internal/access";
 import { SESSION_COOKIE } from "./client";
+
+/**
+ * Whether a session satisfies an org's Require-MFA floor, under the
+ * "provider-trusted" policy: a federated login (Google / Microsoft / SSO, i.e.
+ * any authMethod that isn't first-party "password") is trusted to have done its
+ * own MFA; a first-party password login only counts once it completed TOTP
+ * (mfaSatisfied). Legacy sessions (authMethod null) are treated as federated.
+ */
+function sessionSatisfiesMfa(user: {
+  authMethod: string | null;
+  mfaSatisfied: boolean;
+}): boolean {
+  return user.mfaSatisfied || user.authMethod !== "password";
+}
 
 type SessionUser = {
   id: string;
@@ -130,6 +145,24 @@ export const getAuthContext = cache(
     // rules; one query, memoized by the cache() wrapper above.
     const effective = await loadEffectivePermissions(org.id, user.id);
     if (!effective) return null;
+
+    // Require-MFA enforcement (request-time): when the org mandates MFA, a
+    // session that doesn't satisfy the floor is denied org access. Enforced
+    // HERE so every org-scoped API route and SSR page inherits it. Break-glass:
+    // system admins (INTERNAL_ADMINS) are never locked out. The per-user MFA
+    // enroll endpoints use getCurrentUser (not this), so a denied user can still
+    // reach enrollment.
+    const sec = await prisma.orgSecuritySettings.findUnique({
+      where: { orgId: org.id },
+      select: { mfaRequired: true },
+    });
+    if (
+      sec?.mfaRequired &&
+      !sessionSatisfiesMfa(user) &&
+      !isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)
+    ) {
+      return null;
+    }
 
     return {
       userId: user.id,
