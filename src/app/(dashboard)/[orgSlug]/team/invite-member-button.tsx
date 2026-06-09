@@ -30,7 +30,10 @@ import { useRouter } from "next/navigation";
 
 const inviteSchema = z.object({
   email: z.email("Enter a valid email address."),
-  role: z.enum(["MEMBER", "ADMIN", "VIEWER"]),
+  // Full assignable org-role set (OWNER excluded — ownership transfer is a
+  // separate, deliberate flow). Granular per-permission / ABAC access is layered
+  // on top via work-roles in Settings → Roles & Access.
+  role: z.enum(["VIEWER", "MEMBER", "ADMIN", "BILLING_ADMIN", "GUEST"]),
 });
 type InviteValues = z.infer<typeof inviteSchema>;
 
@@ -217,11 +220,18 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="GUEST">Guest — comment on items only</SelectItem>
                   <SelectItem value="VIEWER">Viewer — read-only access</SelectItem>
                   <SelectItem value="MEMBER">Member — standard access</SelectItem>
-                  <SelectItem value="ADMIN">Admin — can manage team</SelectItem>
+                  <SelectItem value="BILLING_ADMIN">Billing admin — finance & billing</SelectItem>
+                  <SelectItem value="ADMIN">Admin — manage the whole org</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-[var(--text-muted)]">
+                Finer access (extra permissions + attribute rules) is set with
+                work-roles in <span className="font-medium">Settings → Roles &amp; Access</span>,
+                assigned after they join.
+              </p>
             </div>
 
             <DialogFooter className="sm:justify-between">
