@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuLabel,
@@ -119,10 +120,17 @@ export function ActionMenu({ groups, children, triggerClassName, triggerLabel }:
         sideOffset={2}
         className="min-w-[160px]"
       >
-        {groups.map((group, gi) => {
-          if (group.items.length === 0) return null;
-          return (
-            <div key={gi}>
+        {groups
+          .filter((group) => group.items.length > 0)
+          .map((group, gi) => (
+            // base-ui's Menu.GroupLabel REQUIRES a Menu.Group ancestor — a bare
+            // label throws production error #31 the instant the menu opens (the
+            // Radix/shadcn pattern this was ported from allowed it; base-ui
+            // hard-enforces the contract). Wrapping each group in
+            // DropdownMenuGroup also restores role="group"/aria-labelledby.
+            // Index the FILTERED list so an empty leading group (e.g. no edit
+            // perms) doesn't leave a stray separator before the first one.
+            <DropdownMenuGroup key={group.label ?? gi}>
               {gi > 0 && <DropdownMenuSeparator />}
               {group.label && (
                 <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
@@ -145,9 +153,8 @@ export function ActionMenu({ groups, children, triggerClassName, triggerLabel }:
                   </DropdownMenuItem>
                 );
               })}
-            </div>
-          );
-        })}
+            </DropdownMenuGroup>
+          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
