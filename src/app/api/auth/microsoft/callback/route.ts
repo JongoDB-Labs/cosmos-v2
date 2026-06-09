@@ -9,9 +9,9 @@ import {
   MS_STATE_COOKIE,
   exchangeMicrosoftCode,
   fetchMicrosoftProfile,
-  microsoftConfigured,
   microsoftRedirectUri,
 } from "@/lib/auth/microsoft";
+import { getProviderConfig } from "@/lib/auth/provider-config";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { OrgRole } from "@prisma/client";
@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const origin = getPublicOrigin(request);
 
-  if (!microsoftConfigured()) {
+  const cfg = await getProviderConfig("microsoft");
+  if (!cfg || !cfg.enabled) {
     return redirectToLogin(origin, "ms_not_configured");
   }
 
@@ -52,6 +53,9 @@ export async function GET(request: NextRequest) {
   let displayName: string;
   try {
     const tokens = await exchangeMicrosoftCode({
+      clientId: cfg.clientId,
+      clientSecret: cfg.clientSecret,
+      tenant: cfg.tenant,
       code,
       redirectUri: microsoftRedirectUri(request),
     });

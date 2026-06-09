@@ -5,16 +5,18 @@ import { getPublicOrigin } from "@/lib/auth/public-url";
 import {
   MS_STATE_COOKIE,
   microsoftAuthorizeUrl,
-  microsoftConfigured,
   microsoftRedirectUri,
 } from "@/lib/auth/microsoft";
+import { getProviderConfig } from "@/lib/auth/provider-config";
 
 /** Begin Microsoft (Entra ID) sign-in: stash a CSRF state cookie and redirect
- *  to the Microsoft authorize endpoint. */
+ *  to the Microsoft authorize endpoint. Creds come from the vault-backed
+ *  provider config (set in /admin), not env. */
 export async function GET(request: NextRequest) {
   const origin = getPublicOrigin(request);
 
-  if (!microsoftConfigured()) {
+  const cfg = await getProviderConfig("microsoft");
+  if (!cfg || !cfg.enabled) {
     return NextResponse.redirect(
       new URL("/login?error=ms_not_configured", origin),
     );
@@ -30,6 +32,8 @@ export async function GET(request: NextRequest) {
 
   const state = crypto.randomBytes(16).toString("hex");
   const authUrl = microsoftAuthorizeUrl({
+    clientId: cfg.clientId,
+    tenant: cfg.tenant,
     state,
     redirectUri: microsoftRedirectUri(request),
   });
