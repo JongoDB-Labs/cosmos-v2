@@ -17,11 +17,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import { Permission } from "@/lib/rbac/permissions";
 import { MentionPicker, useOrgMembers } from "@/components/chat/mention-typeahead";
 import {
   MessageSquare,
@@ -35,6 +45,8 @@ import {
   Target,
   Hash,
   Check,
+  Copy,
+  Trash2,
 } from "lucide-react";
 import type {
   WorkItem,
@@ -55,6 +67,10 @@ interface CardDetailSheetProps {
   cycles: Cycle[];
   columns: BoardColumn[];
   onUpdate: (updated: WorkItem) => void;
+  /** Remove the item from the parent's local state after a successful delete. */
+  onDelete?: (id: string) => void;
+  /** Append a freshly-duplicated item to the parent's local state. */
+  onDuplicate?: (created: WorkItem) => void;
 }
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -69,7 +85,12 @@ export function CardDetailSheet({
   cycles,
   columns,
   onUpdate,
+  onDelete,
+  onDuplicate,
 }: CardDetailSheetProps) {
+  const { can } = usePermissions();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
@@ -108,6 +129,8 @@ export function CardDetailSheet({
       setStoryPoints(item.storyPoints);
       setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
       setDirty(false);
+      setConfirmDelete(false);
+      setActionPending(null);
     }
   }, [item]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -310,7 +333,45 @@ export function CardDetailSheet({
     });
   }
 
+  async function handleDuplicate() {
+    if (!item) return;
+    setActionPending("duplicate");
+    try {
+      const res = await fetch(`${basePath}/${item.id}/duplicate`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(`Failed to duplicate (HTTP ${res.status})`);
+      const dupe: WorkItem = await res.json();
+      onDuplicate?.(dupe);
+    } catch (err) {
+      notifyError(err, "Couldn't duplicate this item.");
+    } finally {
+      setActionPending(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!item) return;
+    setActionPending("delete");
+    try {
+      const res = await fetch(`${basePath}/${item.id}`, { method: "DELETE" });
+      // DELETE returns 204; a raw fetch doesn't reject on non-2xx.
+      if (!res.ok) throw new Error(`Failed to delete (HTTP ${res.status})`);
+      const deletedId = item.id;
+      setConfirmDelete(false);
+      onOpenChange(false);
+      onDelete?.(deletedId);
+    } catch (err) {
+      notifyError(err, "Couldn't delete this item.");
+    } finally {
+      setActionPending(null);
+    }
+  }
+
   if (!item) return null;
+
+  const canDuplicate = can(Permission.ITEM_CREATE);
+  const canDelete = can(Permission.ITEM_DELETE);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -323,15 +384,50 @@ export function CardDetailSheet({
       >
         <SheetHeader>
           {/* Single identity line: "#1 · Task". The title is shown once, in the
-              editable input below — not duplicated here. */}
-          <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-            <span className="font-mono">#{item.ticketNumber}</span>
-            {item.workItemType && (
-              <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-muted-foreground">
-                {item.workItemType.name}
-              </span>
+              editable input below — not duplicated here. Item-level actions
+              (duplicate / delete) sit on the right, each permission-gated. */}
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+              <span className="font-mono">#{item.ticketNumber}</span>
+              {item.workItemType && (
+                <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-muted-foreground">
+                  {item.workItemType.name}
+                </span>
+              )}
+            </SheetTitle>
+            {(canDuplicate || canDelete) && (
+              <div className="flex items-center gap-1">
+                {canDuplicate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={handleDuplicate}
+                    disabled={actionPending !== null}
+                  >
+                    {actionPending === "duplicate" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    Duplicate
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-destructive hover:text-destructive"
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={actionPending !== null}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </Button>
+                )}
+              </div>
             )}
-          </SheetTitle>
+          </div>
         </SheetHeader>
 
         <div className="px-4 pb-4 space-y-4">
@@ -676,6 +772,40 @@ export function CardDetailSheet({
           )}
         </div>
       </SheetContent>
+
+      <Dialog
+        open={confirmDelete}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDelete(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete work item?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete #{item.ticketNumber}
+              {item.title ? ` "${item.title}"` : ""}. This action cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDelete(false)}
+              disabled={actionPending === "delete"}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={actionPending === "delete"}
+            >
+              {actionPending === "delete" ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }
