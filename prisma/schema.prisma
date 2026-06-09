@@ -272,6 +272,10 @@ model Session {
   userId       String   @map("user_id") @db.Uuid
   expiresAt    DateTime @map("expires_at")
   createdAt    DateTime @default(now()) @map("created_at")
+  // Sliding-window idle-timeout anchor: stamped (throttled) on each org-scoped
+  // request and read by getAuthContext to enforce OrgSecuritySettings
+  // .sessionTimeoutMins. Defaults to now() so pre-existing sessions start fresh.
+  lastActivityAt DateTime @default(now()) @map("last_activity_at")
   // SSO assurance columns (additive; null/false for legacy + Google sessions).
   authMethod   String?  @map("auth_method") // e.g. "oidc"; null = local/Google
   idpConnId    String?  @map("idp_conn_id") @db.Uuid // the IdpConnection used, if SSO

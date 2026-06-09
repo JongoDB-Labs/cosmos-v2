@@ -21,6 +21,13 @@ function sessionSatisfiesMfa(user: {
   return user.mfaSatisfied || user.authMethod !== "password";
 }
 
+/**
+ * Don't write `lastActivityAt` on every request — only once the anchor is this
+ * stale. Idle timeouts are configured in minutes, so a 60s write throttle keeps
+ * the sliding window accurate without a DB write per request.
+ */
+const ACTIVITY_WRITE_THROTTLE_MS = 60_000;
+
 type SessionUser = {
   id: string;
   email: string;
@@ -31,6 +38,12 @@ type SessionUser = {
   idpConnId: string | null;
   amr: string[];
   mfaSatisfied: boolean;
+  /** The authenticating Session's id + sliding-window idle anchor, used by
+   * getAuthContext to enforce the org's session-timeout floor (read here as a
+   * pure value; the throttled write lives in getAuthContext where the policy
+   * is known, so an idle-expired request can't revive its own session). */
+  sessionId: string;
+  lastActivityAt: Date;
 };
 
 /**
@@ -49,6 +62,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     where: { id: sessionId },
     select: {
       expiresAt: true,
+      lastActivityAt: true,
       authMethod: true,
       idpConnId: true,
       amr: true,
@@ -76,6 +90,8 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     idpConnId: session.idpConnId,
     amr: session.amr,
     mfaSatisfied: session.mfaSatisfied,
+    sessionId,
+    lastActivityAt: session.lastActivityAt,
   };
 });
 
@@ -154,11 +170,39 @@ export const getAuthContext = cache(
     // this), so a denied user can still reach enrollment.
     const sec = await prisma.orgSecuritySettings.findUnique({
       where: { orgId: org.id },
-      select: { mfaRequired: true, ipAllowlistEnabled: true },
+      select: {
+        mfaRequired: true,
+        ipAllowlistEnabled: true,
+        sessionTimeoutMins: true,
+      },
     });
     if (sec && !isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) {
       // Require-MFA: deny a session that doesn't satisfy the org's MFA floor.
       if (sec.mfaRequired && !sessionSatisfiesMfa(user)) return null;
+
+      // Idle timeout (sliding window): deny — and tear down — a session that
+      // has gone untouched longer than the org's session-timeout floor. The
+      // decision uses lastActivityAt AS READ (before this request's bump) so an
+      // expired request can't revive itself; a live request then refreshes the
+      // anchor (throttled) so the window slides forward. sessionTimeoutMins <= 0
+      // disables the gate.
+      if (sec.sessionTimeoutMins > 0) {
+        const idleMs = Date.now() - user.lastActivityAt.getTime();
+        if (idleMs > sec.sessionTimeoutMins * 60_000) {
+          await prisma.session
+            .delete({ where: { id: user.sessionId } })
+            .catch(() => undefined);
+          return null;
+        }
+        if (idleMs > ACTIVITY_WRITE_THROTTLE_MS) {
+          await prisma.session
+            .update({
+              where: { id: user.sessionId },
+              data: { lastActivityAt: new Date() },
+            })
+            .catch(() => undefined);
+        }
+      }
 
       // IP allowlist: when enabled AND at least one CIDR is configured, the
       // client IP must fall within it. An empty list never blocks (anti-lockout).
