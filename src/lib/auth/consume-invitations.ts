@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
+import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { OrgRole } from "@prisma/client";
 
 /**
@@ -20,6 +21,19 @@ export async function consumePendingInvitations(
   });
 
   for (const invite of pending) {
+    // Re-check the org's allowed-domains at acceptance (defense in depth: the
+    // domain list may have tightened since the invite was created). If the
+    // email's domain is no longer allowed, drop the stale invite without
+    // granting membership.
+    const sec = await prisma.orgSecuritySettings.findUnique({
+      where: { orgId: invite.orgId },
+      select: { allowedDomains: true },
+    });
+    if (!emailDomainAllowed(email, sec?.allowedDomains)) {
+      await prisma.invitation.delete({ where: { id: invite.id } }).catch(() => undefined);
+      continue;
+    }
+
     const newMember = await prisma.orgMember
       .create({
         data: { orgId: invite.orgId, userId, role: invite.role },
