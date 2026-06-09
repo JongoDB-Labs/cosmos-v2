@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { normalizeCidr } from "@/lib/auth/cidr";
 import { z } from "zod";
 
 const createEntrySchema = z.object({
@@ -48,10 +49,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = createEntrySchema.parse(body);
 
+    // Reject anything that isn't a parseable CIDR or bare IP. An enabled
+    // allowlist with only unparseable entries denies everyone, so a malformed
+    // entry must never be stored. Bare IPs are normalized to a host route.
+    const cidr = normalizeCidr(data.cidr);
+    if (!cidr) {
+      return success(
+        { error: "Enter a valid IP address or CIDR range (e.g. 203.0.113.0/24)." },
+        422,
+      );
+    }
+
     const entry = await prisma.ipAllowlist.create({
       data: {
         orgId,
-        cidr: data.cidr,
+        cidr,
         label: data.label ?? "",
       },
     });
