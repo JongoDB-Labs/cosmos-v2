@@ -72,7 +72,7 @@ jobs:
 
       # OSV-Scanner over the lockfile.
       - name: OSV-Scanner (lockfile)
-        uses: google/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         continue-on-error: true # report captured below; HARD failure is Trivy's job
         with:
           scan-args: |-
