@@ -31,10 +31,12 @@ interface DashboardShellProps {
     logoUrl: string | null;
     role: string;
   }[];
+  /** Platform/system admin (INTERNAL_ADMINS) — surfaces the System Admin menu. */
+  isSystemAdmin?: boolean;
   children: React.ReactNode;
 }
 
-export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
+export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: DashboardShellProps) {
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -69,6 +71,7 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
           onToggle={() => setSidebarOpen(!sidebarOpen)}
           orgs={orgs}
           user={user}
+          isSystemAdmin={isSystemAdmin}
         />
       )}
 
@@ -83,6 +86,7 @@ export function DashboardShell({ user, orgs, children }: DashboardShellProps) {
               onToggle={() => setMobileOpen(false)}
               orgs={orgs}
               user={user}
+              isSystemAdmin={isSystemAdmin}
               // Surface the topbar-only destinations (Notes/Chat/Team/Meetings +
               // Feedback) in the drawer — on mobile the topbar nav is hidden, so
               // this is the only place they're reachable (item 2).
