@@ -1,0 +1,17 @@
+# .trivyignore — accepted-risk register for the Trivy vulnerability gates.
+#
+# Each entry below is a CRITICAL with NO upstream fix available (as of
+# 2026-06-09). Retained as a POA&M item (NIST 800-171 3.12.2), reviewed when a
+# fix ships. CRITICALs that ARE fixable are deliberately NOT listed here — they
+# are remediated by rebuilding on a patched base image, not suppressed.
+#
+# CVE-2026-42496  perl-base / perl-archive-tar — path traversal. Debian status:
+#                 fix_deferred (no fixed version). The app does not extract
+#                 untrusted tar archives via perl; base-image package only.
+# CVE-2026-8376   perl-base — heap buffer overflow (Perl <= 5.43.10). No fix.
+#                 perl is not invoked at runtime by the application.
+# CVE-2023-45853  zlib1g — MiniZip integer overflow. Debian status: will_not_fix
+#                 (the flaw is in bundled MiniZip, not linked by the runtime).
+CVE-2026-42496
+CVE-2026-8376
+CVE-2023-45853
