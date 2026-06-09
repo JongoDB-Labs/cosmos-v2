@@ -68,8 +68,8 @@ function LoginInner() {
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
 
-  async function submitCreds(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitCreds(e?: React.FormEvent) {
+    e?.preventDefault();
     setPwBusy(true);
     setPwError(null);
     try {
@@ -100,8 +100,8 @@ function LoginInner() {
     }
   }
 
-  async function submitMfa(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitMfa(e?: React.FormEvent) {
+    e?.preventDefault();
     setPwBusy(true);
     setPwError(null);
     try {
@@ -200,13 +200,17 @@ function LoginInner() {
                 Sign in with email &amp; password
               </Button>
             ) : phase === "creds" ? (
-              <form onSubmit={submitCreds} className="mt-3 space-y-2">
+              // Submission is JS-controlled (type="button" + onClick, Enter via
+              // onKeyDown) — no native <form> submit, so nothing can POST to
+              // /login (which 405s, since it's a page route).
+              <div className="mt-3 space-y-2">
                 <Input
                   type="email"
                   autoComplete="email"
                   placeholder="you@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitCreds()}
                   required
                 />
                 <Input
@@ -215,17 +219,23 @@ function LoginInner() {
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitCreds()}
                   required
                 />
                 {pwError && (
                   <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
                 )}
-                <Button type="submit" className="w-full" disabled={pwBusy}>
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={pwBusy}
+                  onClick={() => void submitCreds()}
+                >
                   {pwBusy ? "Signing in…" : "Sign in"}
                 </Button>
-              </form>
+              </div>
             ) : (
-              <form onSubmit={submitMfa} className="mt-3 space-y-2">
+              <div className="mt-3 space-y-2">
                 <p className="text-xs text-[var(--text-muted)]">
                   Enter the 6-digit code from your authenticator app (or a
                   recovery code).
@@ -237,15 +247,21 @@ function LoginInner() {
                   placeholder="123456"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitMfa()}
                   required
                 />
                 {pwError && (
                   <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
                 )}
-                <Button type="submit" className="w-full" disabled={pwBusy}>
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={pwBusy}
+                  onClick={() => void submitMfa()}
+                >
                   {pwBusy ? "Verifying…" : "Verify"}
                 </Button>
-              </form>
+              </div>
             )}
           </div>
         )}

@@ -23,6 +23,17 @@ interface OrgGeneralSettingsProps {
 
 const CARD = "rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5";
 
+/** True when the value parses as a URL (matches the server's zod url() — accepts
+ *  http(s) and data: URIs, rejects bare strings like "logo"). */
+function isParsableUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Organization identity: name, workspace URL (slug), and logo. Editable only
  * with ORG_UPDATE (owner/admin); everyone else sees a read-only view. Plan,
@@ -37,17 +48,21 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
   const [copied, setCopied] = useState(false);
 
   const trimmedLogo = logoUrl.trim();
+  const logoChanged = trimmedLogo !== (initial.logoUrl ?? "");
   const dirty =
     name.trim() !== initial.name ||
     slug.trim() !== initial.slug ||
-    trimmedLogo !== (initial.logoUrl ?? "");
+    logoChanged;
   const slugChanged = slug.trim() !== initial.slug;
 
   const nameValid = name.trim().length >= 2 && name.trim().length <= 100;
   const slugValid = /^[a-z0-9-]{2,50}$/.test(slug.trim());
-  // Mirror the server's z.string().url(): empty clears the logo, otherwise it
-  // must be an http(s) URL. Without this the whole save (incl. name/slug) 400s.
-  const logoValid = trimmedLogo === "" || /^https?:\/\/.+/.test(trimmedLogo);
+  // Mirror the server's z.string().url() (zod 4): empty clears the logo,
+  // otherwise it must parse as a URL — which accepts data: URIs (logos are
+  // commonly stored as base64 data URIs) as well as http(s), and rejects bare
+  // strings. Only gate on it when the logo was actually edited, so an existing
+  // data-URI logo never blocks an unrelated name/slug save.
+  const logoValid = !logoChanged || trimmedLogo === "" || isParsableUrl(trimmedLogo);
   const canSave = canUpdate && dirty && nameValid && slugValid && logoValid && !saving;
 
   async function save() {
@@ -59,7 +74,9 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
         body: JSON.stringify({
           name: name.trim(),
           slug: slug.trim(),
-          logoUrl: trimmedLogo === "" ? null : trimmedLogo,
+          // Only send the logo if it changed — avoids re-validating (and
+          // re-sending) a pre-existing data-URI logo on every save.
+          ...(logoChanged ? { logoUrl: trimmedLogo === "" ? null : trimmedLogo } : {}),
         }),
       });
       if (!res.ok) {
@@ -144,7 +161,7 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
           />
           {canUpdate && !logoValid && (
             <p className="text-[11px] text-[var(--status-critical)]">
-              Enter a full URL starting with http:// or https:// (or leave blank).
+              Enter a full URL (https://… or a data: URI), or leave blank.
             </p>
           )}
         </div>

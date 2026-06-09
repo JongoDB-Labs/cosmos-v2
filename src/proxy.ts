@@ -60,6 +60,11 @@ const PUBLIC_PATH_PREFIXES = [
   // probe are all unauthenticated by definition (they're how a user GETS a
   // session). Covers /api/auth/sso/<orgSlug>/{login,callback,status}.
   "/api/auth/sso",
+  // Local email/password sign-in + the TOTP challenge are how a user GETS a
+  // session, so they're unauthenticated by definition. Covers
+  // /api/auth/password/{login,mfa}. (CSRF is still enforced — these are
+  // same-origin POSTs from /login — only the session check is bypassed.)
+  "/api/auth/password",
   "/api/auth/logout",
   "/api/health",
   "/api/theme",
