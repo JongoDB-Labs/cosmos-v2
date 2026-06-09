@@ -20,6 +20,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   sso_no_account: "No account found. Ask an admin to invite you first.",
   // Returned by the Google callback when a gov org enforces SSO-only.
   sso_enforced: "This organization requires single sign-on. Google is disabled.",
+  ms_not_configured: "Microsoft sign-in isn't configured yet.",
 };
 
 type SsoStatus = { enabled: boolean; enforced: boolean };
@@ -52,6 +53,22 @@ function LoginInner() {
       cancelled = true;
     };
   }, [orgSlug]);
+
+  // Microsoft (Entra) sign-in is shown only when the server has the Entra app
+  // credentials configured. null = still probing.
+  const [msEnabled, setMsEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/microsoft/status")
+      .then((r) => (r.ok ? (r.json() as Promise<{ configured: boolean }>) : null))
+      .then((d) => {
+        if (!cancelled) setMsEnabled(Boolean(d?.configured));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const ssoEnabled = sso?.enabled ?? false;
   // Hide Google only once we KNOW the org enforces SSO. While discovery is in
@@ -180,6 +197,21 @@ function LoginInner() {
             }}
           >
             {submitting ? "Redirecting to Google…" : "Sign in with Google"}
+          </Button>
+        )}
+
+        {!hideGoogle && msEnabled && (
+          <Button
+            size="lg"
+            variant="secondary"
+            className="mt-3 w-full"
+            disabled={submitting}
+            onClick={() => {
+              setSubmitting(true);
+              window.location.href = "/api/auth/microsoft";
+            }}
+          >
+            {submitting ? "Redirecting to Microsoft…" : "Sign in with Microsoft"}
           </Button>
         )}
 
