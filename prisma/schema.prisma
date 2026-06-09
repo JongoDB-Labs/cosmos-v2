@@ -333,6 +333,22 @@ model AllowedEmail {
   @@map("allowed_emails")
 }
 
+/// Instance-level OAuth sign-in provider config (Microsoft, Google, …).
+/// Replaces env-var secrets: a platform admin sets the OAuth app client
+/// id/secret/tenant via the /admin UI and they're vault-sealed at rest
+/// (secretEnc holds the JSON bundle). Read at request time by the sign-in flow.
+model AuthProviderConfig {
+  id        String   @id @default(cuid())
+  provider  String   @unique // "microsoft" | "google"
+  enabled   Boolean  @default(true)
+  secretEnc String   @map("secret_enc") // vault-sealed {clientId, clientSecret, tenant?}
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("auth_provider_configs")
+}
+
 model OrgMember {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String   @map("org_id") @db.Uuid
