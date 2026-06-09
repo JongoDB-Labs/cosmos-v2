@@ -491,6 +491,17 @@ function KanbanBoardInner({
     setDetailItem(updated);
   }
 
+  function handleItemDeleted(id: string) {
+    setItems((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  function handleItemDuplicated(dupe: WorkItem) {
+    // Append the new item so it shows immediately, then open it for editing
+    // (it lands in the same column as its source).
+    setItems((prev) => [...prev, dupe]);
+    setDetailItem(dupe);
+  }
+
   if (loading) {
     return <KanbanBoardSkeleton />;
   }
@@ -611,6 +622,8 @@ function KanbanBoardInner({
         cycles={cycles}
         columns={columns}
         onUpdate={handleItemUpdate}
+        onDelete={handleItemDeleted}
+        onDuplicate={handleItemDuplicated}
       />
     </div>
   );

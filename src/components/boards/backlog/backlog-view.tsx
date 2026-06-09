@@ -504,6 +504,16 @@ export function BacklogView({
         cycles={cycles}
         columns={columns}
         onUpdate={handleItemUpdate}
+        onDelete={(id) =>
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            (prev ?? []).filter((i) => i.id !== id),
+          )
+        }
+        onDuplicate={(dupe) => {
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), dupe]);
+          setDetailItem(dupe);
+          setDetailOpen(true);
+        }}
       />
     </div>
   );
