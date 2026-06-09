@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CosmosMark } from "@/components/brand/cosmos-mark";
 import { Starfield } from "@/components/brand/starfield";
+import { GoogleLogo, MicrosoftLogo } from "@/components/brand/provider-logos";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_allowed: "Your email is not yet approved. Ask an admin to add it.",
@@ -196,6 +197,7 @@ function LoginInner() {
               window.location.href = "/api/auth/google";
             }}
           >
+            <GoogleLogo className="h-4 w-4" />
             {submitting ? "Redirecting to Google…" : "Sign in with Google"}
           </Button>
         )}
@@ -211,6 +213,7 @@ function LoginInner() {
               window.location.href = "/api/auth/microsoft";
             }}
           >
+            <MicrosoftLogo className="h-4 w-4" />
             {submitting ? "Redirecting to Microsoft…" : "Sign in with Microsoft"}
           </Button>
         )}
