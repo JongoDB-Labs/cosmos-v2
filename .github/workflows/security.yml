@@ -53,7 +53,7 @@ jobs:
           output: evidence/${{ github.sha }}
       - name: Upload CodeQL evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codeql-sarif
           path: evidence/${{ github.sha }}/*.sarif
@@ -102,7 +102,7 @@ jobs:
           exit-code: "1" # HARD: any Critical fails the build
       - name: Upload SCA evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sca-reports
           path: evidence/${{ github.sha }}/{osv,trivy-fs}.json
@@ -142,7 +142,7 @@ jobs:
           rm -f gitleaks gitleaks.tar.gz
       - name: Upload gitleaks evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gitleaks-report
           path: evidence/${{ github.sha }}/gitleaks.json
@@ -191,7 +191,7 @@ jobs:
           exit-code: "1" # HARD
       - name: Upload image-scan evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trivy-image-report
           path: evidence/${{ github.sha }}/trivy-image.json
@@ -225,7 +225,7 @@ jobs:
           soft_fail: true
       - name: Upload IaC evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: iac-reports
           path: evidence/${{ github.sha }}/{hadolint,checkov}.sarif
@@ -302,7 +302,7 @@ jobs:
 
       - name: Upload config-assertion evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: config-asserts
           path: evidence/${{ github.sha }}/config-asserts.txt
