@@ -34,8 +34,10 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/${{ github.repository_owner }}/cosmos-v2
-  MIGRATE_IMAGE: ghcr.io/${{ github.repository_owner }}/cosmos-v2-migrate
+  # IMAGE / MIGRATE_IMAGE are derived at runtime (with a lowercased owner) in the
+  # "Normalize image refs" step below: GHCR repository names MUST be lowercase,
+  # but the org owner `JongoDB-Labs` is mixed-case, which buildx rejects as an
+  # invalid tag ("repository name must be lowercase").
 
 jobs:
   release:
@@ -58,6 +60,15 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing cosmos-v2 v$VERSION"
+
+      # GHCR repo names must be lowercase; the org owner (JongoDB-Labs) is mixed
+      # case. Lowercase it once and export fully-qualified refs for every later
+      # step (build / sbom / sign / attest), which all read ${{ env.IMAGE }}.
+      - name: Normalize image refs (lowercase owner)
+        run: |
+          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=ghcr.io/$OWNER/cosmos-v2" >> "$GITHUB_ENV"
+          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/cosmos-v2-migrate" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
