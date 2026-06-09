@@ -81,14 +81,42 @@ export function SprintBoard({
       )}
 
       <div className="min-h-0 flex-1">
-        <KanbanBoard
-          orgId={orgId}
-          projectId={projectId}
-          projectKey={projectKey}
-          boardId={boardId}
-          initialCycleId={active?.id}
-        />
+        {/* Gate the Kanban mount until cycles resolve. The board seeds its
+            sprint scope ONCE, from initialCycleId in a useState initializer
+            (kanban-board.tsx) — so mounting before the active sprint is known
+            would pass initialCycleId=undefined and the board would show every
+            item, never re-scoping when the sprint resolves a tick later. Waiting
+            for the fetch means a SCRUM board opens already focused on its active
+            sprint. (cycles===null only on the very first load; the fetch always
+            resolves to an array, so this can't hang.) */}
+        {cycles === null ? (
+          <KanbanBoardMountSkeleton />
+        ) : (
+          <KanbanBoard
+            orgId={orgId}
+            projectId={projectId}
+            projectKey={projectKey}
+            boardId={boardId}
+            initialCycleId={active?.id}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Column skeleton shown while the cycles fetch resolves (so the Kanban can
+ *  mount already seeded with the active sprint — see the gate above). */
+function KanbanBoardMountSkeleton() {
+  return (
+    <div className="flex gap-3 overflow-x-auto p-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="w-72 shrink-0 space-y-3">
+          <Skeleton className="h-8 w-full rounded-lg" />
+          <Skeleton className="h-24 w-full rounded-lg" />
+          {i < 2 && <Skeleton className="h-24 w-full rounded-lg" />}
+        </div>
+      ))}
     </div>
   );
 }
