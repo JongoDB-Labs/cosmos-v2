@@ -24,10 +24,21 @@ export default async function WebhooksPage({ params }: PageParams) {
   const qc = makeServerQueryClient();
   await qc.prefetchQuery({
     queryKey: ["org", orgSlug, "webhooks", "list"],
+    // Match the GET route's projection — keep the sealed `secret` out of the
+    // hydrated cache that ships to the browser.
     queryFn: () =>
       prisma.webhook.findMany({
         where: { orgId: ctx.orgId },
         orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          orgId: true,
+          url: true,
+          events: true,
+          active: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       }),
   });
 

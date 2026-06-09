@@ -27,9 +27,21 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.WEBHOOK_MANAGE);
 
+    // Project explicitly to keep the sealed `secret` envelope off the wire —
+    // the list UI never renders it (the plaintext is shown once at create), so
+    // there's no reason to ship even the encrypted blob to the browser.
     const webhooks = await prisma.webhook.findMany({
       where: { orgId },
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        orgId: true,
+        url: true,
+        events: true,
+        active: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     return success(webhooks);
