@@ -45,15 +45,11 @@ export async function getProviderConfig(
   };
 }
 
-/** A provider is usable by the sign-in flow iff it has creds AND is enabled. */
-export async function isProviderEnabled(provider: AuthProvider): Promise<boolean> {
-  const cfg = await getProviderConfig(provider);
-  return cfg != null && cfg.enabled;
-}
-
 /** Seal + upsert a provider's creds. Empty clientSecret PRESERVES the existing
  *  one (so an admin can toggle enabled / change clientId without re-typing the
- *  secret) — mirrors the connector-credential "blank means unchanged" rule. */
+ *  secret) — mirrors the connector-credential "blank means unchanged" rule.
+ *  Likewise, omitting `enabled` preserves the stored value (doesn't silently
+ *  re-enable a disabled provider). */
 export async function setProviderConfig(
   provider: AuthProvider,
   input: { clientId: string; clientSecret?: string; tenant?: string | null; enabled?: boolean },
@@ -67,6 +63,7 @@ export async function setProviderConfig(
   if (!clientSecret) {
     throw new Error("A client secret is required the first time you configure this provider.");
   }
+  const enabled = input.enabled ?? existing?.enabled ?? true;
   const secretEnc = sealSecret(
     JSON.stringify({
       clientId: input.clientId.trim(),
@@ -76,18 +73,18 @@ export async function setProviderConfig(
   );
   await prisma.authProviderConfig.upsert({
     where: { provider },
-    update: { secretEnc, enabled: input.enabled ?? true, updatedBy: updatedBy ?? null },
-    create: { provider, secretEnc, enabled: input.enabled ?? true, updatedBy: updatedBy ?? null },
+    update: { secretEnc, enabled, updatedBy: updatedBy ?? null },
+    create: { provider, secretEnc, enabled, updatedBy: updatedBy ?? null },
   });
 }
 
-/** Non-secret status for the admin UI / login probe. */
+/** Non-secret status for the admin UI / login probe. Derived from
+ *  getProviderConfig so a row whose secret can't be unsealed (or lacks creds)
+ *  reports configured:false — consistent with what the sign-in routes actually
+ *  accept (no status-vs-initiate divergence). */
 export async function getProviderStatus(
   provider: AuthProvider,
 ): Promise<{ configured: boolean; enabled: boolean }> {
-  const row = await prisma.authProviderConfig.findUnique({
-    where: { provider },
-    select: { enabled: true, secretEnc: true },
-  });
-  return { configured: row != null, enabled: row?.enabled ?? false };
+  const cfg = await getProviderConfig(provider);
+  return { configured: cfg != null, enabled: cfg?.enabled ?? false };
 }

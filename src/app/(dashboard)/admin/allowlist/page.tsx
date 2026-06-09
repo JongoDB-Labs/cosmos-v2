@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
-import { getCurrentUser } from "@/lib/auth/session";
 import { AllowlistManager } from "./allowlist-manager";
 import { PageShell } from "@/components/ui/page-shell";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import {
   makeServerQueryClient,
   dehydrate,
@@ -12,16 +12,10 @@ import {
 // cacheComponents enabled: `dynamic` segment config not supported (routes are dynamic by default).
 
 export default async function AllowlistAdminPage() {
-  const currentUser = await getCurrentUser();
-  if (!currentUser) redirect("/login");
-
-  // OWNER of any org gets in. We deliberately do not tie this to an org slug
-  // because the allowlist is a global gate.
-  const ownerMembership = await prisma.orgMember.findFirst({
-    where: { userId: currentUser.id, role: "OWNER" },
-    select: { id: true },
-  });
-  if (!ownerMembership) redirect("/");
+  // The allowlist is the instance-wide sign-in gate → SYSTEM admin only
+  // (INTERNAL_ADMINS), not "owner of any org".
+  const me = await requireSystemAdmin();
+  if (!me) redirect("/");
 
   // Prefetch the same query the client will issue so the first paint shows
   // real data instead of a loading state.

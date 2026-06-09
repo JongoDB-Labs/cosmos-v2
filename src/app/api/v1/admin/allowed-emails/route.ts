@@ -1,27 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { getCurrentUser } from "@/lib/auth/session";
 import { handleApiError } from "@/lib/api-helpers";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 
 const createSchema = z.object({
   email: z.string().email(),
 });
 
 /**
- * Gate: the caller must be an OWNER of at least one org. The allowlist is a
- * global resource (it controls who can sign in at all), so it intentionally
- * isn't tied to a specific org.
+ * Gate: SYSTEM admin (INTERNAL_ADMINS). The allowlist controls who can sign in
+ * to the whole instance, so it's a system-tier control — NOT "owner of any org"
+ * (which self-service org creation would let any signed-in user obtain).
  */
 async function requireGlobalAdmin() {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  const ownerMembership = await prisma.orgMember.findFirst({
-    where: { userId: user.id, role: "OWNER" },
-    select: { id: true },
-  });
-  if (!ownerMembership) return null;
-  return user;
+  return requireSystemAdmin();
 }
 
 // UUID v4 pattern (also matches the gen_random_uuid() output from Postgres)

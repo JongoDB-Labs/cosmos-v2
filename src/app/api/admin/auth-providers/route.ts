@@ -1,29 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
-import { getCurrentUser } from "@/lib/auth/session";
 import {
   getProviderStatus,
   setProviderConfig,
   type AuthProvider,
 } from "@/lib/auth/provider-config";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 
 const PROVIDERS: AuthProvider[] = ["microsoft"];
 
-/** Platform-admin gate: OWNER of any org (same global-admin proxy the allowlist
- *  uses). Returns the user, or null when not an owner. */
-async function requireOwner() {
-  const me = await getCurrentUser();
-  if (!me) return null;
-  const owner = await prisma.orgMember.findFirst({
-    where: { userId: me.id, role: "OWNER" },
-    select: { id: true },
-  });
-  return owner ? me : null;
-}
-
 export async function GET() {
-  const me = await requireOwner();
+  const me = await requireSystemAdmin();
   if (!me) return new Response("Forbidden", { status: 403 });
   const providers: Record<string, { configured: boolean; enabled: boolean }> = {};
   for (const p of PROVIDERS) providers[p] = await getProviderStatus(p);
@@ -41,7 +28,7 @@ const putSchema = z.object({
 });
 
 export async function PUT(request: NextRequest) {
-  const me = await requireOwner();
+  const me = await requireSystemAdmin();
   if (!me) return new Response("Forbidden", { status: 403 });
 
   const parsed = putSchema.safeParse(await request.json().catch(() => null));

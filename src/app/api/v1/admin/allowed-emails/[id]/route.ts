@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getCurrentUser } from "@/lib/auth/session";
 import { handleApiError } from "@/lib/api-helpers";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 
 async function requireGlobalAdmin() {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  const ownerMembership = await prisma.orgMember.findFirst({
-    where: { userId: user.id, role: "OWNER" },
-    select: { id: true },
-  });
-  if (!ownerMembership) return null;
-  return user;
+  return requireSystemAdmin();
 }
 
 export async function DELETE(
