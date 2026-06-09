@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 
 interface BoardTab {
   id: string;
@@ -77,7 +77,7 @@ export function ProjectBoardTabs({
     });
   }
 
-  if (boards.length === 0 && featureTabs.length === 0) return null;
+  const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
 
   return (
     <div className="flex items-center gap-1 px-4 border-b overflow-x-auto">
@@ -162,6 +162,24 @@ export function ProjectBoardTabs({
         <Plus className="h-3.5 w-3.5" />
         New Board
         {pathname === newBoardHref && (
+          <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
+        )}
+      </Link>
+
+      {/* Members — project-scoped access (project managers + org admins). */}
+      <Link
+        href={membersHref}
+        aria-current={pathname === membersHref ? "page" : undefined}
+        className={cn(
+          "relative ml-auto flex items-center gap-1 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
+          pathname === membersHref
+            ? "text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <Users className="h-3.5 w-3.5" />
+        Members
+        {pathname === membersHref && (
           <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
         )}
       </Link>
