@@ -51,6 +51,14 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 HOME=/home/cosmos
 # the image (below), so the HF hub must never be contacted at runtime.
 # OMP_NUM_THREADS=1 silences a harmless onnxruntime pthread_setaffinity_np warning.
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=1
+# Security: patch the base OS for the two CRITICAL libgnutls30 CVEs fixed in
+# bookworm-security — CVE-2026-33845 (DTLS DoS) + CVE-2026-42010 (auth bypass);
+# 3.7.9-2+deb12u6 -> deb12u7. --only-upgrade keeps the layer minimal (no new
+# packages). The remaining base CRITICALs (perl/zlib) have no upstream fix and
+# are accepted as POA&M items in .trivyignore.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends --only-upgrade libgnutls30 \
+ && rm -rf /var/lib/apt/lists/*
 # -m -d gives the non-root user a writable home (prisma/node tooling expect one).
 RUN groupadd -r cosmos && useradd -r -g cosmos -m -d /home/cosmos cosmos
 # Standalone server + static assets + Prisma engine/migrations for the migrate job.
