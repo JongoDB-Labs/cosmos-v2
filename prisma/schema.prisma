@@ -373,6 +373,10 @@ model Invitation {
   orgId     String   @map("org_id") @db.Uuid
   email     String
   role      OrgRole  @default(MEMBER)
+  // Work-roles to assign when the invite is accepted (extra permission grants +
+  // ABAC policies on top of the base org role). Validated against the actor's
+  // ceiling at invite time; applied on consumption.
+  workRoleIds String[] @default([]) @map("work_role_ids")
   token     String   @unique @default(dbgenerated("gen_random_uuid()"))
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
