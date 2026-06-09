@@ -434,6 +434,11 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
 
           <div className="grid gap-2">
             <Label>Allowed Email Domains</Label>
+            <p className="text-xs text-muted-foreground">
+              When set, only people with these email domains can be invited to
+              this organization (e.g. <span className="font-mono">defconai.com</span>).
+              Existing members are never affected. Leave empty to allow any domain.
+            </p>
             {form.allowedDomains.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {form.allowedDomains.map((d) => (
