@@ -7,6 +7,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { sendInvitationEmail } from "@/lib/integrations/invitation-email";
+import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
 
@@ -51,6 +52,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = inviteSchema.parse(body);
     const email = data.email.toLowerCase();
+
+    // Per-org domain restriction: if this org has an allowed-domains list, the
+    // invitee's email domain must be in it. Gates only NEW invites — existing
+    // members are unaffected — so an owner on another domain can't be locked
+    // out. Checked BEFORE the auto-allowlist below so a rejected invite leaves
+    // no trace.
+    const sec = await prisma.orgSecuritySettings.findUnique({
+      where: { orgId },
+      select: { allowedDomains: true },
+    });
+    if (!emailDomainAllowed(email, sec?.allowedDomains)) {
+      const list = (sec?.allowedDomains ?? []).join(", ");
+      return new Response(
+        JSON.stringify({
+          error: `${org.name} only allows members from: ${list}. Remove the restriction in Settings → Security to invite other domains.`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     const existingUser = await prisma.user.findFirst({ where: { email } });
     if (existingUser) {
