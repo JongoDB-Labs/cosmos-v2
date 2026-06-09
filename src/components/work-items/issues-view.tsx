@@ -6,6 +6,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -183,6 +184,11 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       jsonFetch<SearchResponse>(`/api/v1/orgs/${orgId}/work-items/search?${qs}`),
     placeholderData: keepPreviousData,
   });
+
+  // Live updates: re-run the current cross-project search whenever ANY project's
+  // work items change (FR: "issue updates without manual refresh"). keepPrevious
+  // data means the table doesn't flash while it refetches.
+  useWorkItemRealtime(orgId, null, () => void refetch());
 
   const facets = facetsQuery.data;
   const rows = results?.data ?? [];

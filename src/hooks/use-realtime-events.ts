@@ -52,6 +52,9 @@ export function useRealtimeEvents(orgId: string, handlers: Handlers) {
         "chat.channel.joined",
         "chat.channel.left",
         "notification.created",
+        "work-item.created",
+        "work-item.updated",
+        "work-item.deleted",
         "hello",
       ] as const;
 

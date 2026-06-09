@@ -25,6 +25,7 @@ import {
 } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import type {
@@ -121,14 +122,17 @@ function KanbanBoardInner({
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
-  // Fetch board, items, members, sprints
-  useEffect(() => {
-    let cancelled = false;
+  // Monotonic request id: a realtime refetch may race the initial load (or
+  // another refetch), so only the newest response is allowed to write state.
+  const reqSeq = useRef(0);
 
-    async function fetchData() {
-      setLoading(true);
+  // Fetch board, items, members, sprints. `silent` skips the loading skeleton
+  // so a live-update refetch doesn't flash the board away under the user.
+  const fetchData = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const seq = ++reqSeq.current;
+      if (!opts?.silent) setLoading(true);
       setError(null);
-
       try {
         const [boardRes, itemsRes, membersRes, sprintsRes] = await Promise.all([
           fetch(`${basePath}/boards/${boardId}`),
@@ -142,38 +146,50 @@ function KanbanBoardInner({
 
         const boardData: Board = await boardRes.json();
         const itemsData: WorkItem[] = await itemsRes.json();
+        const membersData: OrgMember[] | null = membersRes.ok
+          ? await membersRes.json()
+          : null;
+        const cyclesData: Cycle[] | null = sprintsRes.ok
+          ? await sprintsRes.json()
+          : null;
 
-        if (cancelled) return;
+        if (seq !== reqSeq.current) return; // superseded by a newer fetch
 
         setBoard(boardData);
         setColumns(
           (boardData.columns ?? []).sort((a, b) => a.sortOrder - b.sortOrder)
         );
         setItems(itemsData);
-
-        if (membersRes.ok) {
-          const membersData: OrgMember[] = await membersRes.json();
-          setMembers(membersData);
-        }
-        if (sprintsRes.ok) {
-          const cyclesData: Cycle[] = await sprintsRes.json();
-          setCycles(cyclesData);
-        }
+        if (membersData) setMembers(membersData);
+        if (cyclesData) setCycles(cyclesData);
       } catch (err) {
-        if (!cancelled) {
+        if (seq === reqSeq.current) {
           setError(err instanceof Error ? err.message : "Unknown error");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (seq === reqSeq.current && !opts?.silent) setLoading(false);
       }
-    }
+    },
+    [orgId, basePath, boardId],
+  );
 
-    fetchData();
+  // Initial load. fetchData sets `loading` up front (the skeleton); that's the
+  // intended one-shot mount fetch, not a render-loop — same allowance the
+  // detail sheet uses for its derive-from-prop effect.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchData();
+  }, [fetchData]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, projectId, boardId, basePath]);
+  // Live updates: silently refetch when another client mutates this project's
+  // work items. Debounced so a burst of events coalesces into one refetch.
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useWorkItemRealtime(orgId, projectId, () => {
+    if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(() => {
+      void fetchData({ silent: true });
+    }, 400);
+  });
 
   // Filters -> URL. Serialize the active filters into the query string so the
   // board is shareable + reload-stable. The search term is debounced (200ms)

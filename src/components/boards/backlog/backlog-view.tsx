@@ -38,6 +38,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import type {
   Board,
   BoardColumn,
@@ -111,6 +112,11 @@ export function BacklogView({
 
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
+  // Live updates: invalidate the backlog's items query when another client
+  // mutates this project's work items (FR: issue updates without refresh).
+  useWorkItemRealtime(orgId, projectId, () => {
+    void qc.invalidateQueries({ queryKey: itemsKey });
+  });
   const membersKey = useOrgQueryKey("members");
   const cyclesKey = useOrgQueryKey("cycles", projectId);
 
