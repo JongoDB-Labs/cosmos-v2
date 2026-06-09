@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.53.1",
+  "version": "2.54.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -70,6 +70,7 @@
     "framer-motion": "^12.40.0",
     "google-auth-library": "^10.6.2",
     "googleapis": "^172.0.0",
+    "ipaddr.js": "^1.9.1",
     "lexical": "^0.45.0",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.12.0",

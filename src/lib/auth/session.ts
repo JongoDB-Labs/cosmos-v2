@@ -1,9 +1,10 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isInternalAdmin } from "@/lib/internal/access";
+import { ipMatchesAny } from "@/lib/auth/cidr";
 import { SESSION_COOKIE } from "./client";
 
 /**
@@ -146,22 +147,35 @@ export const getAuthContext = cache(
     const effective = await loadEffectivePermissions(org.id, user.id);
     if (!effective) return null;
 
-    // Require-MFA enforcement (request-time): when the org mandates MFA, a
-    // session that doesn't satisfy the floor is denied org access. Enforced
-    // HERE so every org-scoped API route and SSR page inherits it. Break-glass:
-    // system admins (INTERNAL_ADMINS) are never locked out. The per-user MFA
-    // enroll endpoints use getCurrentUser (not this), so a denied user can still
-    // reach enrollment.
+    // Request-time org security floors, enforced HERE so every org-scoped API
+    // route + SSR page inherits them. System admins (INTERNAL_ADMINS) are
+    // break-glass exempt from both, so a misconfiguration can't lock the
+    // operator out. The per-user MFA enroll endpoints use getCurrentUser (not
+    // this), so a denied user can still reach enrollment.
     const sec = await prisma.orgSecuritySettings.findUnique({
       where: { orgId: org.id },
-      select: { mfaRequired: true },
+      select: { mfaRequired: true, ipAllowlistEnabled: true },
     });
-    if (
-      sec?.mfaRequired &&
-      !sessionSatisfiesMfa(user) &&
-      !isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)
-    ) {
-      return null;
+    if (sec && !isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)) {
+      // Require-MFA: deny a session that doesn't satisfy the org's MFA floor.
+      if (sec.mfaRequired && !sessionSatisfiesMfa(user)) return null;
+
+      // IP allowlist: when enabled AND at least one CIDR is configured, the
+      // client IP must fall within it. An empty list never blocks (anti-lockout).
+      if (sec.ipAllowlistEnabled) {
+        const rules = await prisma.ipAllowlist.findMany({
+          where: { orgId: org.id },
+          select: { cidr: true },
+        });
+        if (rules.length > 0) {
+          const h = await headers();
+          const ip =
+            h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+            h.get("x-real-ip") ??
+            "";
+          if (!ip || !ipMatchesAny(ip, rules.map((r) => r.cidr))) return null;
+        }
+      }
     }
 
     return {
