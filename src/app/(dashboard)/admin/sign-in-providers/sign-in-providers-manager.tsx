@@ -35,7 +35,10 @@ export function SignInProvidersManager() {
       if (r.ok) {
         const j = (await r.json()) as { providers: Record<string, ProviderStatus> };
         setStatus(j.providers ?? {});
-        setEnabled(j.providers?.microsoft?.enabled ?? true);
+        // Default to enabled for first-time setup; once configured, reflect the
+        // stored value.
+        const m = j.providers?.microsoft;
+        setEnabled(m?.configured ? (m.enabled ?? true) : true);
       }
     } finally {
       setLoading(false);
