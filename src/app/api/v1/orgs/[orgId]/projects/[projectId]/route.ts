@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { canManageProject } from "@/lib/rbac/scope";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
@@ -80,7 +81,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_UPDATE);
+    // Inheriting authority: an org-wide PROJECT_UPDATE holder OR a MANAGER of
+    // THIS project may edit it — so a project-admin can run their own project
+    // without org-wide grants.
+    if (
+      !hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) &&
+      !(await canManageProject(ctx, projectId))
+    ) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const existing = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
