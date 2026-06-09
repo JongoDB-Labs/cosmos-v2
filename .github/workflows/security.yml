@@ -120,13 +120,26 @@ jobs:
         with:
           fetch-depth: 0 # full history so gitleaks scans every commit
       - run: mkdir -p evidence/${{ github.sha }}
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+      # gitleaks via the pinned, checksum-verified CLI. The gitleaks-action
+      # wrapper now REQUIRES a paid license for org-owned repos ("[JongoDB-Labs]
+      # is an organization. License key is required."); the MIT-licensed CLI
+      # does not. Pinning the version + the SHA-256 of the release asset keeps
+      # the supply-chain integrity the action's SHA-pin used to give (spec §8 g.3).
+      - name: gitleaks (pinned CLI)
         env:
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
-        with:
-          report-format: json
-          report-path: evidence/${{ github.sha }}/gitleaks.json
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          # HARD gate: non-zero exit if any secret is detected (--exit-code 1).
+          ./gitleaks git . --no-banner --redact --exit-code 1 \
+            --report-format json \
+            --report-path "evidence/${{ github.sha }}/gitleaks.json"
+          rm -f gitleaks gitleaks.tar.gz
       - name: Upload gitleaks evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
