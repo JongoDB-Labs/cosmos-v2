@@ -169,10 +169,19 @@ export const getAuthContext = cache(
         });
         if (rules.length > 0) {
           const h = await headers();
-          const ip =
-            h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+          // Trusted client IP for an ACCESS-CONTROL decision (not just audit).
+          // Behind Cloudflare Tunnel → nginx, `cf-connecting-ip` is stamped by
+          // Cloudflare at the edge and can't be spoofed by the client (the
+          // tunnel is the only ingress), so it's preferred. `x-real-ip` is
+          // nginx's view of its immediate peer. The leftmost `x-forwarded-for`
+          // hop is client-controlled, so it's the LAST resort (portability for
+          // non-Cloudflare deployments) and never wins over the trusted sources.
+          const ip = (
+            h.get("cf-connecting-ip") ??
             h.get("x-real-ip") ??
-            "";
+            h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+            ""
+          ).trim();
           if (!ip || !ipMatchesAny(ip, rules.map((r) => r.cidr))) return null;
         }
       }

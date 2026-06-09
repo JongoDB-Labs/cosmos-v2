@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { canManageProject } from "@/lib/rbac/scope";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -50,7 +51,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.BOARD_UPDATE);
+    // Inheriting authority: org-wide BOARD_UPDATE holder OR a MANAGER of the
+    // project that owns this board (a project-admin runs their own boards).
+    if (
+      !hasPermission(ctx.permissions, Permission.BOARD_UPDATE) &&
+      !(await canManageProject(ctx, projectId))
+    ) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const existing = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
@@ -93,7 +101,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.BOARD_DELETE);
+    // Inheriting authority: org-wide BOARD_DELETE holder OR project MANAGER.
+    if (
+      !hasPermission(ctx.permissions, Permission.BOARD_DELETE) &&
+      !(await canManageProject(ctx, projectId))
+    ) {
+      return new Response("Forbidden", { status: 403 });
+    }
 
     const existing = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
