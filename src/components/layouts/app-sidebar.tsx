@@ -13,6 +13,8 @@ import {
   ChevronsUpDown,
   Mic,
   MessageSquarePlus,
+  KeyRound,
+  MailCheck,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -53,6 +55,8 @@ interface AppSidebarProps {
     displayName: string;
     avatarUrl: string | null;
   };
+  /** Platform/system admin (INTERNAL_ADMINS) — surfaces the System Admin menu. */
+  isSystemAdmin?: boolean;
   /** Optional admin nav layout from Organization.settings.nav. */
   navLayout?: { order?: string[]; hidden?: string[] };
   /**
@@ -70,6 +74,7 @@ export function AppSidebar({
   onToggle,
   orgs,
   user,
+  isSystemAdmin = false,
   navLayout,
   showMovedNav = false,
 }: AppSidebarProps) {
@@ -282,7 +287,7 @@ export function AppSidebar({
 
       {/* User card */}
       <div className="shrink-0 p-2">
-        <UserCard user={user} open={open} />
+        <UserCard user={user} open={open} isSystemAdmin={isSystemAdmin} />
       </div>
     </fm.aside>
   );
@@ -340,9 +345,11 @@ function OrgSwitcher({
 function UserCard({
   user,
   open,
+  isSystemAdmin = false,
 }: {
   user: AppSidebarProps["user"];
   open: boolean;
+  isSystemAdmin?: boolean;
 }) {
   const router = useRouter();
   const initials = user.displayName
@@ -396,6 +403,20 @@ function UserCard({
           <p className="text-sm font-medium">{user.displayName}</p>
           <p className="text-xs text-[var(--text-muted)]">{user.email}</p>
         </div>
+        {isSystemAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+              System administration
+            </div>
+            <DropdownMenuItem onClick={() => router.push("/admin/sign-in-providers")}>
+              <KeyRound className="mr-2 h-4 w-4" /> Sign-in providers
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/admin/allowlist")}>
+              <MailCheck className="mr-2 h-4 w-4" /> Email allowlist
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => setTheme("light")}>
           <Sun className="mr-2 h-4 w-4" /> Light mode
