@@ -29,6 +29,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuLabel,
@@ -266,10 +267,15 @@ export function DataTable<T>({
           render={<button ref={ctxBtnRef} type="button" aria-hidden tabIndex={-1} className="opacity-0" />}
         />
         <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="min-w-[160px]">
-          {menuGroups.map((group, gi) => {
-            if (group.items.length === 0) return null;
-            return (
-              <div key={gi}>
+          {menuGroups
+            .filter((group) => group.items.length > 0)
+            .map((group, gi) => (
+              // base-ui's Menu.GroupLabel requires a Menu.Group ancestor — a
+              // bare label throws production error #31 on menu open. Wrap each
+              // group in DropdownMenuGroup (also restores group a11y semantics).
+              // Index the FILTERED list so an empty leading group leaves no
+              // stray separator. Mirrors the action-menu.tsx fix.
+              <DropdownMenuGroup key={group.label ?? gi}>
                 {gi > 0 && <DropdownMenuSeparator />}
                 {group.label && <DropdownMenuLabel>{group.label}</DropdownMenuLabel>}
                 {group.items.map((item) => {
@@ -290,9 +296,8 @@ export function DataTable<T>({
                     </DropdownMenuItem>
                   );
                 })}
-              </div>
-            );
-          })}
+              </DropdownMenuGroup>
+            ))}
         </DropdownMenuContent>
       </DropdownMenu>
     )}
