@@ -11,6 +11,51 @@ type RouteParams = { params: Promise<{ orgId: string; channelId: string }> };
 
 const addSchema = z.object({ userIds: z.array(z.string().uuid()).min(1).max(50) });
 
+/** GET — list this channel's members (any member of the channel may read). */
+export async function GET(_req: NextRequest, { params }: RouteParams) {
+  try {
+    const { orgId, channelId } = await params;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return new Response("Not found", { status: 404 });
+    const ctx = await getAuthContext(org.slug);
+    if (!ctx) return new Response("Unauthorized", { status: 401 });
+
+    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
+    // Only members (or org owners/admins) can see the roster.
+    const isOrgAdmin = ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN";
+    if (!member && !isOrgAdmin) return new Response("Forbidden", { status: 403 });
+
+    // ChatChannelMember has no `user` relation (userId is a raw column), so
+    // batch-fetch the display names separately (same pattern as the channels
+    // list route).
+    const members = await prisma.chatChannelMember.findMany({
+      where: { channelId },
+      select: { userId: true, role: true },
+    });
+    const users = members.length
+      ? await prisma.user.findMany({
+          where: { id: { in: members.map((m) => m.userId) } },
+          select: { id: true, displayName: true, avatarUrl: true },
+        })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+
+    return success(
+      members
+        .map((m) => ({
+          userId: m.userId,
+          role: m.role,
+          displayName: byId.get(m.userId)?.displayName ?? "User",
+          avatarUrl: byId.get(m.userId)?.avatarUrl ?? null,
+        }))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    );
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
+
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, channelId } = await params;
