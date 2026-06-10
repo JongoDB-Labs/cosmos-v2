@@ -22,7 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
-import { Shield, User, UserMinus } from "lucide-react";
+import { Shield, UserMinus, Send, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
 
 // Every non-OWNER OrgRole is assignable here (ownership transfer is a separate
@@ -99,14 +100,78 @@ export function TeamTable({ rows }: { rows: Row[] }) {
     [orgId, router],
   );
 
+  const handleRevokeInvite = useCallback(
+    async (invitationId: string) => {
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/invitations/${invitationId}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) throw new Error(`Failed to revoke (HTTP ${res.status})`);
+        toast.success("Invitation revoked");
+        router.refresh();
+      } catch (err) {
+        notifyError(err, "Couldn't revoke the invitation.");
+      }
+    },
+    [orgId, router],
+  );
+
+  const handleResendInvite = useCallback(
+    async (invitationId: string) => {
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/invitations/${invitationId}`,
+          { method: "POST" },
+        );
+        if (!res.ok) throw new Error(`Failed to resend (HTTP ${res.status})`);
+        const data = (await res.json().catch(() => null)) as
+          | { emailSent?: boolean }
+          | null;
+        toast.success(
+          data?.emailSent === false
+            ? "Invitation refreshed (email not sent — copy the link)."
+            : "Invitation resent",
+        );
+      } catch (err) {
+        notifyError(err, "Couldn't resend the invitation.");
+      }
+    },
+    [orgId],
+  );
+
   // Surface each row's existing operations (change role / remove) as a
   // right-click context menu + trailing ⋯ column via DataTable's rowActions.
   // Reuses the same handlers + permission gate as the inline actions column.
   const rowActions = useCallback(
     (r: Row): ActionMenuGroup[] => {
+      const canManageMembers = can(Permission.ORG_MANAGE_MEMBERS);
+
+      // Pending invitations: resend (re-email + refresh expiry) or revoke.
+      if (r.kind === "invite") {
+        return canManageMembers
+          ? [
+              {
+                items: [
+                  {
+                    label: "Resend invite",
+                    icon: Send,
+                    onClick: () => handleResendInvite(r.id),
+                  },
+                  {
+                    label: "Revoke invite",
+                    icon: Trash2,
+                    variant: "destructive" as const,
+                    onClick: () => handleRevokeInvite(r.id),
+                  },
+                ],
+              },
+            ]
+          : [];
+      }
+
       const isOwner = r.role === "OWNER";
-      const isMember = r.kind === "member";
-      const canManage = can(Permission.ORG_MANAGE_MEMBERS) && isMember && !isOwner;
+      const canManage = canManageMembers && !isOwner;
       return [
         {
           items: canManage
@@ -134,7 +199,7 @@ export function TeamTable({ rows }: { rows: Row[] }) {
         },
       ];
     },
-    [can, handleRemoveMember],
+    [can, handleRemoveMember, handleResendInvite, handleRevokeInvite],
   );
 
   const columns: ColumnDef<Row>[] = [
@@ -190,59 +255,15 @@ export function TeamTable({ rows }: { rows: Row[] }) {
       id: "actions",
       header: () => <div className="text-right">Actions</div>,
       enableSorting: false,
-      cell: ({ row }) => {
-        const isOwner = row.original.role === "OWNER";
-        const isMember = row.original.kind === "member";
-
-        const groups: ActionMenuGroup[] = [
-          {
-            items: [
-              ...(can(Permission.ORG_MANAGE_MEMBERS) && isMember && !isOwner
-                ? [
-                    {
-                      label: "Change role",
-                      icon: Shield,
-                      onClick: () =>
-                        setRoleTarget({
-                          id: row.original.id,
-                          name: row.original.name,
-                          role: row.original.role,
-                        }),
-                    },
-                  ]
-                : []),
-              {
-                label: "View profile",
-                icon: User,
-                onClick: () =>
-                  console.log("View profile", row.original.id),
-              },
-            ],
-          },
-          {
-            items: [
-              ...(can(Permission.ORG_MANAGE_MEMBERS) && isMember && !isOwner
-                ? [
-                    {
-                      label: "Remove from org",
-                      icon: UserMinus,
-                      variant: "destructive" as const,
-                      onClick: () => handleRemoveMember(row.original.id),
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ];
-
-        return (
-          <div className="flex justify-end group/action">
-            <ActionMenu groups={groups}>
-              <span />
-            </ActionMenu>
-          </div>
-        );
-      },
+      // Reuse rowActions so the inline ⋯ and the right-click menu can never drift
+      // (also drops the old non-functional "View profile" stub).
+      cell: ({ row }) => (
+        <div className="flex justify-end group/action">
+          <ActionMenu groups={rowActions(row.original)}>
+            <span />
+          </ActionMenu>
+        </div>
+      ),
     },
   ];
 
