@@ -30,6 +30,9 @@ export type EgressMode = "passthrough" | "enforced";
 export interface EgressContext {
   /** The org the request belongs to — lets callers resolve the ceiling; the gate ignores it. */
   orgId: string;
+  /** The requesting user — lets the credential resolver prefer that user's
+   *  personal Claude subscription over the org's. The gate itself ignores it. */
+  userId?: string;
   conversationId: string;
   turn: number;
   tenantClass: TenantClass;

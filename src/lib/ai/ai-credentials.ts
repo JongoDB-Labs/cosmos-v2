@@ -5,6 +5,7 @@ import {
   getOrgClaudeToken,
   getClaudeSubscriptionStatus,
 } from "@/lib/ai/claude-subscription";
+import { getUserClaudeToken } from "@/lib/ai/user-claude-subscription";
 import type { ModelCredential } from "@/lib/ai/egress/types";
 
 /**
@@ -71,16 +72,37 @@ function unsealKey(value: unknown): string | null {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Resolve the per-call {@link ModelCredential} for an org, dispatching on the
- * stored `provider`. Returns `undefined` when the selected provider is not
- * configured (egress then falls back to the env key) and TOLERATES any unseal
- * error by returning `undefined` — it NEVER throws to the caller.
+ * Resolve the per-call {@link ModelCredential}, dispatching on the stored
+ * provider. Returns `undefined` when nothing is configured (egress then falls
+ * back to the env key) and TOLERATES any unseal error by returning `undefined`
+ * — it NEVER throws to the caller.
  *
- * This is the ONLY function the egress layer calls to learn how to authenticate.
+ * PRECEDENCE (FR: agent tied to the user's token, not org-wide): when `userId`
+ * is supplied and that user has connected their PERSONAL Claude subscription,
+ * it WINS — the agent runs on the requesting user's account. Otherwise we fall
+ * back to the org's configured provider. The user path is OAuth-only (a personal
+ * Claude subscription); per-org Anthropic/OpenAI keys remain org-scoped.
+ *
+ * This is the ONLY function the egress layer calls to learn how to authenticate;
+ * adding the user source does NOT add a second egress path — resolution still
+ * happens inside the one CUI-blind chokepoint, after withholding.
  */
 export async function resolveOrgModelCredential(
   orgId: string,
+  userId?: string,
 ): Promise<ModelCredential | undefined> {
+  // 1. Prefer the requesting user's personal Claude subscription when present.
+  if (userId) {
+    let userToken: string | null = null;
+    try {
+      userToken = await getUserClaudeToken(userId);
+    } catch {
+      userToken = null; // a broken user credential degrades to the org path
+    }
+    if (userToken) return { kind: "oauth", token: userToken };
+  }
+
+  // 2. Fall back to the org's configured provider.
   let settings: {
     provider: string;
     anthropicApiKey: Prisma.JsonValue | null;
