@@ -152,7 +152,7 @@ export function AuditLogViewer({ orgId }: { orgId: string }) {
     setPage(1);
   }
 
-  async function exportLogs(format: "json" | "csv") {
+  async function exportLogs(format: "json" | "csv" | "pdf") {
     const params = new URLSearchParams();
     params.set("format", format);
     if (appliedFilters.action) params.set("action", appliedFilters.action);
@@ -225,6 +225,15 @@ export function AuditLogViewer({ orgId }: { orgId: string }) {
           <Button variant="outline" size="sm" onClick={() => exportLogs("csv")}>
             <Download className="size-3 mr-1" />
             Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportLogs("pdf")}
+            title="Human-readable, signed PDF (SHA-256 digest + HMAC signature + WORM chain anchor)"
+          >
+            <Download className="size-3 mr-1" />
+            Signed PDF
           </Button>
         </div>
       </div>
