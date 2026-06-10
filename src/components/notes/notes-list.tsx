@@ -12,6 +12,14 @@ import { NoteEditor } from "./note-editor";
 import { stripMarkdown } from "./note-markdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import type { Note } from "@/types/models";
 
@@ -41,6 +49,8 @@ export function NotesList({ orgId }: NotesListProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<VisibilityFilter>("ALL");
   const [editingNote, setEditingNote] = useState<Note | null | "new">(null);
+  const [pendingDelete, setPendingDelete] = useState<Note | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -290,7 +300,7 @@ export function NotesList({ orgId }: NotesListProps) {
                           label: "Delete",
                           icon: Trash2,
                           variant: "destructive" as const,
-                          onClick: () => deleteNoteById(note.id),
+                          onClick: () => setPendingDelete(note),
                         },
                       ]
                     : []),
@@ -336,6 +346,46 @@ export function NotesList({ orgId }: NotesListProps) {
           })}
         </div>
       )}
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(o) => {
+          if (!o && !deleting) setPendingDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete note?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes{" "}
+              {pendingDelete?.title ? `"${pendingDelete.title}"` : "this note"}.
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingDelete(null)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                if (!pendingDelete) return;
+                setDeleting(true);
+                await deleteNoteById(pendingDelete.id);
+                setDeleting(false);
+                setPendingDelete(null);
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

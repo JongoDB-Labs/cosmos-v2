@@ -20,6 +20,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import type { CrmContact, OrgMember } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 
@@ -62,6 +71,9 @@ export function ContactDetailSheet({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const { can } = usePermissions();
 
   // Intentional "derive state from prop" sync — fires only when the `contact`
   // reference changes (same pattern as card-detail-sheet).
@@ -130,8 +142,7 @@ export function ContactDetailSheet({
 
   async function handleDelete() {
     if (!contact) return;
-    if (!confirm("Are you sure you want to delete this contact?")) return;
-
+    setDeleting(true);
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/crm/contacts/${contact.id}`, {
         method: "DELETE",
@@ -139,11 +150,14 @@ export function ContactDetailSheet({
 
       if (!res.ok) throw new Error("Failed to delete contact");
 
+      setConfirmDelete(false);
       onDelete(contact.id);
       onOpenChange(false);
     } catch (err) {
       console.error("Failed to delete contact:", err);
       notifyError(err, "Couldn't delete the contact.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -287,9 +301,17 @@ export function ContactDetailSheet({
 
         <SheetFooter>
           <div className="flex items-center justify-between w-full">
-            <Button variant="destructive" onClick={handleDelete}>
-              Delete
-            </Button>
+            {can(Permission.CRM_DELETE) ? (
+              <Button
+                variant="destructive"
+                onClick={() => setConfirmDelete(true)}
+                disabled={deleting}
+              >
+                Delete
+              </Button>
+            ) : (
+              <span />
+            )}
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
@@ -301,6 +323,36 @@ export function ContactDetailSheet({
           </div>
         </SheetFooter>
       </SheetContent>
+
+      <Dialog
+        open={confirmDelete}
+        onOpenChange={(o) => {
+          if (!deleting) setConfirmDelete(o);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete contact?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes{" "}
+              {contact?.name ? `"${contact.name}"` : "this contact"} and its CRM
+              record. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }
