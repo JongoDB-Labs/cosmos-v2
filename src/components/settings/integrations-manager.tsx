@@ -268,6 +268,13 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
   const configFieldsForProvider = (slug: string) =>
     available.find((p) => p.slug === slug)?.configFields ?? [];
 
+  // True when any required config field is still blank — blocks submit so the
+  // user can't install/configure an integration with missing credentials and
+  // get a silent failure (the `*` markers now actually gate the button).
+  const hasMissingRequired = (
+    fields: { key: string; required: boolean }[],
+  ) => fields.some((f) => f.required && !(formConfig[f.key] ?? "").trim());
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6">
@@ -571,7 +578,12 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
             <Button variant="outline" onClick={() => setInstallDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleInstall} disabled={submitting}>
+            <Button
+              onClick={handleInstall}
+              disabled={
+                submitting || hasMissingRequired(selectedProvider?.configFields ?? [])
+              }
+            >
               {submitting && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               Install
             </Button>
@@ -619,7 +631,17 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
             <Button variant="outline" onClick={() => setConfigDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleConfigure} disabled={submitting}>
+            <Button
+              onClick={handleConfigure}
+              disabled={
+                submitting ||
+                hasMissingRequired(
+                  selectedIntegration
+                    ? configFieldsForProvider(selectedIntegration.provider)
+                    : [],
+                )
+              }
+            >
               {submitting && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               Save
             </Button>
