@@ -63,6 +63,12 @@ export function TeamTable({ rows }: { rows: Row[] }) {
     role: string;
   } | null>(null);
   const [savingRole, setSavingRole] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<{
+    action: "remove" | "revoke";
+    id: string;
+    name: string;
+  } | null>(null);
+  const [confirmPending, setConfirmPending] = useState(false);
 
   const handleChangeRole = async () => {
     if (!roleTarget) return;
@@ -162,7 +168,8 @@ export function TeamTable({ rows }: { rows: Row[] }) {
                     label: "Revoke invite",
                     icon: Trash2,
                     variant: "destructive" as const,
-                    onClick: () => handleRevokeInvite(r.id),
+                    onClick: () =>
+                      setConfirmTarget({ action: "revoke", id: r.id, name: r.name }),
                   },
                 ],
               },
@@ -192,15 +199,28 @@ export function TeamTable({ rows }: { rows: Row[] }) {
                   label: "Remove from org",
                   icon: UserMinus,
                   variant: "destructive" as const,
-                  onClick: () => handleRemoveMember(r.id),
+                  onClick: () =>
+                    setConfirmTarget({ action: "remove", id: r.id, name: r.name }),
                 },
               ]
             : [],
         },
       ];
     },
-    [can, handleRemoveMember, handleResendInvite, handleRevokeInvite],
+    [can, handleResendInvite],
   );
+
+  const runConfirm = async () => {
+    if (!confirmTarget) return;
+    setConfirmPending(true);
+    if (confirmTarget.action === "remove") {
+      await handleRemoveMember(confirmTarget.id);
+    } else {
+      await handleRevokeInvite(confirmTarget.id);
+    }
+    setConfirmPending(false);
+    setConfirmTarget(null);
+  };
 
   const columns: ColumnDef<Row>[] = [
     {
@@ -309,6 +329,59 @@ export function TeamTable({ rows }: { rows: Row[] }) {
             </Button>
             <Button onClick={handleChangeRole} disabled={savingRole}>
               {savingRole ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !confirmPending) setConfirmTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmTarget?.action === "remove"
+                ? "Remove from organization?"
+                : "Revoke invitation?"}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="py-1 text-sm text-muted-foreground">
+            {confirmTarget?.action === "remove" ? (
+              <>
+                This removes <strong>{confirmTarget?.name}</strong> from the
+                organization and revokes their access. This cannot be undone.
+              </>
+            ) : (
+              <>
+                This revokes the pending invitation for{" "}
+                <strong>{confirmTarget?.name}</strong>. They&apos;ll need a new
+                invite to join.
+              </>
+            )}
+          </p>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmTarget(null)}
+              disabled={confirmPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={runConfirm}
+              disabled={confirmPending}
+            >
+              {confirmPending
+                ? confirmTarget?.action === "remove"
+                  ? "Removing…"
+                  : "Revoking…"
+                : confirmTarget?.action === "remove"
+                  ? "Remove"
+                  : "Revoke"}
             </Button>
           </DialogFooter>
         </DialogContent>

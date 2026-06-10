@@ -108,6 +108,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return new Response("Not found", { status: 404 });
     }
 
+    // You can't remove yourself (prevents self-lockout — mirrors the PUT guard).
+    // Leaving an org is a separate, deliberate flow, not the admin members table.
+    if (member.userId === ctx.userId) {
+      return new Response(
+        JSON.stringify({ error: "You can't remove yourself from the organization" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     if (member.role === "OWNER") {
       return new Response(
         JSON.stringify({ error: "Cannot remove the org owner" }),
