@@ -21,6 +21,19 @@ import {
   ArrowRight,
   Columns3,
   CornerDownLeft,
+  LayoutDashboard,
+  ListChecks,
+  MessageCircle,
+  Video,
+  Users,
+  Building2,
+  FileSignature,
+  BarChart3,
+  Wallet,
+  Clock,
+  MessageSquarePlus,
+  Settings,
+  Sparkles,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import {
@@ -220,6 +233,40 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     [orgSlug, router],
   );
 
+  // Navigate to a workspace destination (relative to the org slug) and close.
+  const goTo = useCallback(
+    (suffix: string) => {
+      setOpen(false);
+      router.push(`/${orgSlug}${suffix}`);
+    },
+    [orgSlug, router],
+  );
+
+  // Open the Assistant drawer from anywhere (the FloatingAgentBubble listens).
+  const openAssistant = useCallback(() => {
+    setOpen(false);
+    window.dispatchEvent(new CustomEvent("cosmos:agent:open"));
+  }, []);
+
+  // Quick-jump destinations — the bulk of the "operations" expansion. Each is a
+  // real workspace route; they're filtered live by whatever you type after ">".
+  const navItems: { id: string; label: string; suffix: string; icon: React.ReactNode }[] = [
+    { id: "overview", label: "Overview", suffix: "", icon: <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "projects", label: "Projects", suffix: "/projects", icon: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "issues", label: "Issues", suffix: "/issues", icon: <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "chat", label: "Chat", suffix: "/chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "notes", label: "Notes", suffix: "/notes", icon: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "meetings", label: "Meetings", suffix: "/meetings", icon: <Video className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "team", label: "Team", suffix: "/team", icon: <Users className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "crm", label: "CRM", suffix: "/crm", icon: <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "contracts", label: "Contracts", suffix: "/contracts", icon: <FileSignature className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "analytics", label: "Analytics", suffix: "/analytics", icon: <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "finance", label: "Finance", suffix: "/finance", icon: <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "time", label: "Time Tracking", suffix: "/time-tracking", icon: <Clock className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "feedback", label: "Feedback", suffix: "/feedback", icon: <MessageSquarePlus className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "settings", label: "Settings", suffix: "/settings", icon: <Settings className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+  ];
+
   const grouped = results.reduce(
     (acc, result) => {
       if (!acc[result.type]) acc[result.type] = [];
@@ -241,6 +288,23 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const actionQuery = query.trimStart().replace(/^>\s*/, "");
   const showActions =
     mode === "search" && (query.trim() === "" || query.trimStart().startsWith(">"));
+
+  // In the actions view, narrow both the quick actions and the nav list by the
+  // text typed after ">" (case-insensitive substring on the visible label).
+  const matchesAction = (label: string) =>
+    actionQuery.trim() === "" ||
+    label.toLowerCase().includes(actionQuery.trim().toLowerCase());
+  const filteredNav = showActions ? navItems.filter((n) => matchesAction(n.label)) : [];
+  const fixedActionLabels = [
+    prefilledProject ? `Create work item in ${prefilledProject.key}` : "Create work item",
+    ...(onProjectRoute ? ["Add card to this project"] : []),
+    "Go to project",
+    "New board",
+    "New project",
+    "Open Assistant",
+  ];
+  const anyActionVisible =
+    showActions && (filteredNav.length > 0 || fixedActionLabels.some(matchesAction));
 
   const inputPlaceholder =
     mode === "create"
@@ -308,19 +372,25 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
         </CommandList>
       ) : (
         <CommandList>
-          {showActions && (
+          {showActions && fixedActionLabels.some(matchesAction) && (
             <CommandGroup heading="Actions">
-              <CommandItem value="action-create-work-item" onSelect={openCreate}>
-                <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate">
-                  {prefilledProject
-                    ? `Create work item in ${prefilledProject.key}…`
-                    : "Create work item…"}
-                </span>
-                <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
-              </CommandItem>
+              {matchesAction(
+                prefilledProject
+                  ? `Create work item in ${prefilledProject.key}`
+                  : "Create work item",
+              ) && (
+                <CommandItem value="action-create-work-item" onSelect={openCreate}>
+                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">
+                    {prefilledProject
+                      ? `Create work item in ${prefilledProject.key}…`
+                      : "Create work item…"}
+                  </span>
+                  <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
+                </CommandItem>
+              )}
 
-              {onProjectRoute && (
+              {onProjectRoute && matchesAction("Add card to this project") && (
                 <CommandItem
                   value="action-add-card"
                   onSelect={openCreate}
@@ -332,18 +402,55 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
                 </CommandItem>
               )}
 
-              <CommandItem
-                value="action-go-to-project"
-                onSelect={openProjectPicker}
-              >
-                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate">Go to project…</span>
-              </CommandItem>
+              {matchesAction("Go to project") && (
+                <CommandItem
+                  value="action-go-to-project"
+                  onSelect={openProjectPicker}
+                >
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">Go to project…</span>
+                </CommandItem>
+              )}
 
-              <CommandItem value="action-new-board" onSelect={goToNewBoard}>
-                <Columns3 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate">New board</span>
-              </CommandItem>
+              {matchesAction("New board") && (
+                <CommandItem value="action-new-board" onSelect={goToNewBoard}>
+                  <Columns3 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">New board</span>
+                </CommandItem>
+              )}
+
+              {matchesAction("New project") && (
+                <CommandItem
+                  value="action-new-project"
+                  onSelect={() => goTo("/projects/new")}
+                >
+                  <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">New project…</span>
+                </CommandItem>
+              )}
+
+              {matchesAction("Open Assistant") && (
+                <CommandItem value="action-assistant" onSelect={openAssistant}>
+                  <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">Open Assistant</span>
+                </CommandItem>
+              )}
+            </CommandGroup>
+          )}
+
+          {showActions && currentOrg && filteredNav.length > 0 && (
+            <CommandGroup heading="Go to">
+              {filteredNav.map((n) => (
+                <CommandItem
+                  key={n.id}
+                  value={`nav-${n.id}`}
+                  onSelect={() => goTo(n.suffix)}
+                >
+                  {n.icon}
+                  <span className="flex-1 truncate">{n.label}</span>
+                  <ArrowRight className="ml-2 h-3.5 w-3.5 text-muted-foreground/40" />
+                </CommandItem>
+              ))}
             </CommandGroup>
           )}
 
@@ -354,8 +461,8 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
               </p>
             </div>
           ) : query.trimStart().startsWith(">") ? (
-            actionQuery.trim() === "" ? null : (
-              <CommandEmpty>Pick an action above.</CommandEmpty>
+            actionQuery.trim() === "" || anyActionVisible ? null : (
+              <CommandEmpty>No actions match “{actionQuery.trim()}”.</CommandEmpty>
             )
           ) : loading ? (
             <div className="py-6 text-center">
