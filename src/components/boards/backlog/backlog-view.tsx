@@ -329,6 +329,28 @@ export function BacklogView({
     setDetailOpen(true);
   }, []);
 
+  // Open a sub-item / linked item in the same sheet. Same-project items are
+  // already in the query cache; fall back to a fetch for anything off-list.
+  const openItemById = useCallback(
+    async (id: string) => {
+      const found = items.find((i) => i.id === id);
+      if (found) {
+        setDetailItem(found);
+        setDetailOpen(true);
+        return;
+      }
+      try {
+        const res = await fetch(`${basePath}/work-items/${id}`);
+        if (!res.ok) return;
+        setDetailItem(await res.json());
+        setDetailOpen(true);
+      } catch {
+        /* swallow */
+      }
+    },
+    [items, basePath],
+  );
+
   const handleItemUpdate = useCallback((updated: WorkItem) => {
     qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
       (prev ?? []).map((i) => (i.id === updated.id ? updated : i)),
@@ -533,6 +555,7 @@ export function BacklogView({
         onItemCreated={(child) =>
           qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), child])
         }
+        onOpenItem={openItemById}
       />
     </div>
   );

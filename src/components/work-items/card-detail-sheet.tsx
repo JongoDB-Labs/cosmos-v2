@@ -33,6 +33,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { MentionPicker, useOrgMembers } from "@/components/chat/mention-typeahead";
+import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import {
   MessageSquare,
   History,
@@ -51,6 +52,7 @@ import {
   CornerDownRight,
   Plus,
   Pencil,
+  X,
 } from "lucide-react";
 import type {
   WorkItem,
@@ -81,6 +83,8 @@ interface CardDetailSheetProps {
   projectItems?: WorkItem[];
   /** Add a newly-created sub-item to the parent's local state (no auto-open). */
   onItemCreated?: (created: WorkItem) => void;
+  /** Open another work item (sub-item or linked item) in this same sheet. */
+  onOpenItem?: (id: string) => void;
 }
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -99,6 +103,7 @@ export function CardDetailSheet({
   onDuplicate,
   projectItems,
   onItemCreated,
+  onOpenItem,
 }: CardDetailSheetProps) {
   const { can } = usePermissions();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -313,6 +318,24 @@ export function CardDetailSheet({
     }
   }
 
+  // Remove a sub-item from this parent by un-nesting it (parentId → null). The
+  // item itself is kept — it just stops being a child here. Optimistic.
+  async function handleRemoveChild(childId: string) {
+    const prev = children;
+    setChildren((cs) => cs.filter((c) => c.id !== childId));
+    try {
+      const res = await fetch(`${basePath}/${childId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId: null }),
+      });
+      if (!res.ok) throw new Error(`Failed to remove sub-item (HTTP ${res.status})`);
+    } catch (err) {
+      setChildren(prev);
+      notifyError(err, "Couldn't remove the sub-item.");
+    }
+  }
+
   // handleSave persists title/description (free-text fields that don't auto-save
   // on each keystroke).
   function handleSave() {
@@ -472,6 +495,7 @@ export function CardDetailSheet({
 
   const canDuplicate = can(Permission.ITEM_CREATE);
   const canDelete = can(Permission.ITEM_DELETE);
+  const canEditItem = can(Permission.ITEM_UPDATE);
 
   // Candidate parents: every other item in the project, minus this item's own
   // direct children (a shallow guard against the most obvious parent/child
@@ -763,11 +787,29 @@ export function CardDetailSheet({
                   Sub-items ({children.length})
                 </h3>
                 {children.map((c) => (
-                  <div key={c.id} className="flex items-center gap-2 text-sm">
-                    <span className="font-mono text-[11px] text-muted-foreground shrink-0">
-                      #{c.ticketNumber}
-                    </span>
-                    <span className="truncate">{c.title}</span>
+                  <div key={c.id} className="group/child flex items-center gap-2 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => onOpenItem?.(c.id)}
+                      disabled={!onOpenItem}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left enabled:hover:text-primary disabled:cursor-default"
+                    >
+                      <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+                        #{c.ticketNumber}
+                      </span>
+                      <span className="truncate">{c.title}</span>
+                    </button>
+                    {canEditItem && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveChild(c.id)}
+                        aria-label="Remove sub-item"
+                        title="Remove from sub-items (keeps the item)"
+                        className="shrink-0 text-muted-foreground opacity-100 hover:text-destructive sm:opacity-0 sm:group-hover/child:opacity-100"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
                 {canDuplicate && (
@@ -803,6 +845,15 @@ export function CardDetailSheet({
               </div>
             </>
           )}
+
+          {/* Linked items / dependencies (blocks, relates-to, predecessor…). */}
+          <WorkItemLinksSection
+            orgId={orgId}
+            projectId={projectId}
+            itemId={item.id}
+            canEdit={canEditItem}
+            onOpenItem={onOpenItem}
+          />
 
           {/* Make the save model explicit: metadata fields auto-save on change,
               while title/description need a Save. Show which state we're in. */}
