@@ -66,7 +66,7 @@ export function ThreadPane({
   const noopTogglePin = () => {};
 
   return (
-    <aside className="w-96 border-l flex flex-col">
+    <aside className="w-full max-w-[85vw] border-l flex flex-col sm:w-96 sm:max-w-none">
       <header className="px-3 py-2 flex items-center justify-between border-b shrink-0">
         <span className="text-sm font-semibold">Thread</span>
         <button type="button" onClick={onClose} aria-label="Close thread">

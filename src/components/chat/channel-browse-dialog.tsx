@@ -67,7 +67,7 @@ export function ChannelBrowseDialog({ orgId }: { orgId: string }) {
       >
         + Browse channels
       </DialogTrigger>
-      <DialogContent className="w-[28rem]">
+      <DialogContent className="w-[28rem] max-w-[90vw]">
         <DialogTitle>Browse channels</DialogTitle>
         <div className="mt-2 max-h-80 overflow-y-auto divide-y">
           {isLoading && (

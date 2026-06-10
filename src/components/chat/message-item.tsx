@@ -118,7 +118,7 @@ export function MessageItem({
         )}
       </div>
       {!tombstone && (
-        <div className="relative opacity-0 group-hover:opacity-100 flex gap-1 text-xs items-center">
+        <div className="relative flex gap-1 text-xs items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
           <button
             type="button"
             onClick={() => setPickerOpen((v) => !v)}

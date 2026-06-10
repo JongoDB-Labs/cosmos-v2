@@ -617,7 +617,7 @@ function KanbanBoardInner({
 
         <DragOverlay>
           {activeItem && (
-            <div className="w-72">
+            <div className="w-[84vw] max-w-[19rem] sm:w-72">
               <KanbanCard
                 item={activeItem}
                 onClick={() => {}}
@@ -657,7 +657,7 @@ function KanbanBoardSkeleton() {
       </div>
       <div className="flex gap-3 overflow-x-auto flex-1 p-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="w-72 shrink-0 space-y-3">
+          <div key={i} className="w-[84vw] max-w-[19rem] shrink-0 space-y-3 sm:w-72">
             <Skeleton className="h-8 w-full rounded-lg" />
             <Skeleton className="h-24 w-full rounded-lg" />
             <Skeleton className="h-24 w-full rounded-lg" />

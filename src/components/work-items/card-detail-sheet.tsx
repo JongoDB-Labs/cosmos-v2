@@ -494,7 +494,7 @@ export function CardDetailSheet({
           {/* Single identity line: "#1 · Task". The title is shown once, in the
               editable input below — not duplicated here. Item-level actions
               (duplicate / delete) sit on the right, each permission-gated. */}
-          <div className="flex items-center justify-between gap-2 pr-8">
+          <div className="flex items-center justify-between gap-2 pr-10">
             <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
               <span className="font-mono">#{item.ticketNumber}</span>
               {item.workItemType && (

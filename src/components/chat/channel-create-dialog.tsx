@@ -162,7 +162,7 @@ export function ChannelCreateDialog({ orgId }: { orgId: string }) {
       >
         + New channel
       </DialogTrigger>
-      <DialogContent className="w-96">
+      <DialogContent className="w-96 max-w-[90vw]">
         <DialogTitle>New channel</DialogTitle>
         <form onSubmit={submit} className="space-y-3 mt-2">
           <input

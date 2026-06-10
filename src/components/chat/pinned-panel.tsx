@@ -14,7 +14,7 @@ export function PinnedPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute right-2 top-12 z-50 w-80 max-h-96 overflow-y-auto bg-popover border rounded shadow-md">
+    <div className="absolute right-2 top-12 z-50 w-80 max-w-[calc(100vw-1rem)] max-h-96 overflow-y-auto bg-popover border rounded shadow-md">
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <span className="text-sm font-semibold flex items-center gap-1">
           <Pin className="h-3.5 w-3.5" /> Pinned ({pins.length})

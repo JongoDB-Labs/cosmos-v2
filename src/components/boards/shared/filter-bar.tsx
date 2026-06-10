@@ -208,11 +208,11 @@ export function FilterBar({
     <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b bg-background/50">
       <div
         className={cn(
-          "flex items-center gap-1.5 rounded-lg border px-2 transition-colors",
+          "flex w-full items-center gap-1.5 rounded-lg border px-2 transition-colors sm:w-auto",
           searchFocused ? "border-ring ring-3 ring-ring/50" : "border-input"
         )}
       >
-        <Search className="h-3.5 w-3.5 text-muted-foreground" />
+        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <input
           type="text"
           placeholder="Search tickets..."
@@ -222,7 +222,7 @@ export function FilterBar({
           }
           onFocus={() => setSearchFocused(true)}
           onBlur={() => setSearchFocused(false)}
-          className="h-7 w-40 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground sm:h-7 sm:w-40"
         />
       </div>
 
