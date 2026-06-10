@@ -117,7 +117,11 @@ export function InvoiceDetailDialog({
   });
 
   const inv = invoiceQ.data;
-  const balance = inv ? Number(inv.total) - Number(inv.amountPaid) : 0;
+  // Round to cents so float subtraction can't leave a sub-cent artifact (e.g.
+  // 0.00000001) that would read as a still-owed balance on a fully-paid invoice.
+  const balance = inv
+    ? Math.round((Number(inv.total) - Number(inv.amountPaid)) * 100) / 100
+    : 0;
 
   return (
     <Dialog open={invoiceId !== null} onOpenChange={onOpenChange}>

@@ -518,9 +518,16 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           setConversations((prev) => [convo, ...prev]);
           setActiveId(convo.id);
         } else {
+          // Don't silently swallow — the input is preserved, but tell the user
+          // why nothing happened so they can retry.
+          notifyError(
+            new Error(`HTTP ${res.status}`),
+            "Couldn't start a conversation. Please try again.",
+          );
           return;
         }
-      } catch {
+      } catch (err) {
+        notifyError(err, "Couldn't start a conversation. Please try again.");
         return;
       }
     }
@@ -730,7 +737,21 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       const isAbort =
         err instanceof DOMException && err.name === "AbortError";
       if (!isAbort) {
-        setMessages((prev) => prev.filter((m) => m.id !== streamingId));
+        // Keep the user's message and turn the (possibly partial) streaming
+        // bubble into an inline error, so the failure is anchored to the right
+        // exchange instead of leaving the user message hanging with no reply.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamingId
+              ? {
+                  ...m,
+                  content:
+                    (m.content ? `${m.content}\n\n` : "") +
+                    "⚠️ The assistant couldn't finish responding. Please try again.",
+                }
+              : m,
+          ),
+        );
         notifyError(err, "The assistant couldn't respond. Please try again.");
       }
     } finally {

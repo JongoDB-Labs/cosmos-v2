@@ -257,7 +257,9 @@ export function AccountingDashboard({ orgId }: { orgId: string }) {
               [
                 "Balanced",
                 tbQ.data &&
-                Number(tbQ.data.totalDebits) === Number(tbQ.data.totalCredits)
+                Math.abs(
+                  Number(tbQ.data.totalDebits) - Number(tbQ.data.totalCredits),
+                ) < 0.005
                   ? "✓"
                   : "—",
               ],
