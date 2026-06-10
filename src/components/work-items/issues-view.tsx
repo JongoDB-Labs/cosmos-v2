@@ -28,7 +28,7 @@ import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog"
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -189,11 +189,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const canCreateItem = can(Permission.ITEM_CREATE);
+  const canUpdateItem = can(Permission.ITEM_UPDATE);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   // The text input is uncontrolled-ish: we commit it into `filters.text` on
   // submit/enter so every keystroke doesn't refire the query.
   const [textDraft, setTextDraft] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<IssueRow | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -224,7 +226,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     staleTime: 60_000,
   });
 
-  const qs = toQueryString(filters, page, PAGE_SIZE);
+  const qs = toQueryString(filters, page, pageSize);
   const resultsKey = useOrgQueryKey("issues", "search", qs);
   const {
     data: results,
@@ -353,7 +355,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     }
   }
   const total = results?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const columns = useMemo<ColumnDef<IssueRow>[]>(
     () => [
@@ -499,6 +501,28 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             ]
           : []),
       ];
+      // Quick "set priority" without opening the drawer (FR: more right-click /
+      // 3-dot options + quick field changes). Universal across projects.
+      const priorityGroup =
+        canUpdateItem
+          ? (["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((p) => ({
+              label: p.charAt(0) + p.slice(1).toLowerCase(),
+              icon: Flag,
+              onClick: async () => {
+                if (r.priority === p) return;
+                try {
+                  await jsonFetch(itemBase, {
+                    method: "PUT",
+                    body: JSON.stringify({ priority: p }),
+                  });
+                  toast.success(`Priority set to ${p.toLowerCase()}`);
+                  await refetch();
+                } catch (err) {
+                  notifyError(err, "Couldn't change the priority.");
+                }
+              },
+            }))
+          : [];
       return [
         {
           items: [
@@ -518,10 +542,11 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             },
           ],
         },
+        ...(priorityGroup.length > 0 ? [{ label: "Set priority", items: priorityGroup }] : []),
         ...(crud.length > 0 ? [{ items: crud }] : []),
       ];
     },
-    [orgSlug, orgId, router, canCreateItem, canBulkDelete, refetch],
+    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch],
   );
 
   return (
@@ -605,12 +630,34 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               ? { rowSelection, onRowSelectionChange: setRowSelection }
               : {})}
           />
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
-              <span>
-                Page {page} of {totalPages}
-              </span>
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
               <div className="flex items-center gap-2">
+                <span>{total} issue{total === 1 ? "" : "s"}</span>
+                <span aria-hidden>·</span>
+                <label className="flex items-center gap-1">
+                  Per page
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                    aria-label="Issues per page"
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--primary)]"
+                  >
+                    {[25, 50, 100, 200].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>
+                  Page {page} of {totalPages}
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
