@@ -1,44 +1,62 @@
 "use client";
 
 /**
- * Register the service worker and subscribe to push notifications.
- * Returns the PushSubscription if successful, null on user denial or unsupported.
+ * Why an enable attempt failed, so the UI can show an ACCURATE message instead
+ * of always blaming browser permission. `not_configured` = the server has no
+ * VAPID keys (GET returns 503); `denied` = the user blocked notifications;
+ * `unsupported` = no Service Worker / PushManager; `error` = anything else.
  */
-export async function enablePushNotifications(): Promise<PushSubscription | null> {
-  if (typeof window === "undefined") return null;
+export type PushEnableResult =
+  | { ok: true; sub: PushSubscription }
+  | { ok: false; reason: "unsupported" | "denied" | "not_configured" | "error" };
+
+/**
+ * Register the service worker and subscribe to push notifications.
+ * Returns a discriminated result so callers can explain a failure precisely.
+ */
+export async function enablePushNotifications(): Promise<PushEnableResult> {
+  if (typeof window === "undefined") return { ok: false, reason: "unsupported" };
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    return null;
+    return { ok: false, reason: "unsupported" };
   }
 
-  const reg = await navigator.serviceWorker.register("/push-sw.js");
-  await navigator.serviceWorker.ready;
+  try {
+    const reg = await navigator.serviceWorker.register("/push-sw.js");
+    await navigator.serviceWorker.ready;
 
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") return null;
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return { ok: false, reason: "denied" };
 
-  // Fetch VAPID public key
-  const res = await fetch("/api/v1/me/push/subscribe", { method: "GET" });
-  if (!res.ok) return null;
-  const { data } = (await res.json()) as { data: { publicKey: string } };
+    // Fetch VAPID public key. A 503 here means the deployment has no VAPID
+    // keys configured — surface that distinctly so we don't tell the user to
+    // "check browser permissions" when the server is the problem.
+    const res = await fetch("/api/v1/me/push/subscribe", { method: "GET" });
+    if (res.status === 503) return { ok: false, reason: "not_configured" };
+    if (!res.ok) return { ok: false, reason: "error" };
+    const { data } = (await res.json()) as { data: { publicKey: string } };
+    if (!data?.publicKey) return { ok: false, reason: "not_configured" };
 
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(data.publicKey) as BufferSource,
-  });
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(data.publicKey) as BufferSource,
+    });
 
-  // Persist to server
-  const subRaw = sub.toJSON();
-  const persistRes = await fetch("/api/v1/me/push/subscribe", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      endpoint: subRaw.endpoint!,
-      keys: { p256dh: subRaw.keys!.p256dh, auth: subRaw.keys!.auth },
-    }),
-  });
+    // Persist to server
+    const subRaw = sub.toJSON();
+    const persistRes = await fetch("/api/v1/me/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: subRaw.endpoint!,
+        keys: { p256dh: subRaw.keys!.p256dh, auth: subRaw.keys!.auth },
+      }),
+    });
 
-  if (!persistRes.ok) return null;
-  return sub;
+    if (!persistRes.ok) return { ok: false, reason: "error" };
+    return { ok: true, sub };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
 }
 
 export async function disablePushNotifications(): Promise<void> {
