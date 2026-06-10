@@ -143,6 +143,7 @@ interface GoalFormData {
   status: GoalStatus;
   targetDate: string; // yyyy-mm-dd (from <input type="date">)
   progressMode: GoalProgressMode;
+  progress: number; // 0-100, only meaningful (and editable) in MANUAL mode
 }
 
 const emptyForm: GoalFormData = {
@@ -151,6 +152,7 @@ const emptyForm: GoalFormData = {
   status: "PLANNED",
   targetDate: "",
   progressMode: "MANUAL",
+  progress: 0,
 };
 
 function formFromGoal(g: Goal): GoalFormData {
@@ -160,6 +162,7 @@ function formFromGoal(g: Goal): GoalFormData {
     status: g.status,
     targetDate: g.targetDate ? g.targetDate.slice(0, 10) : "",
     progressMode: g.progressMode,
+    progress: g.progress,
   };
 }
 
@@ -178,6 +181,11 @@ function formToBody(form: GoalFormData) {
     status: form.status,
     targetDate: dateInputToIso(form.targetDate),
     progressMode: form.progressMode,
+    // Only send progress in MANUAL mode — in AUTO mode the server owns it
+    // (rolled up from links) and would just overwrite anything we sent.
+    ...(form.progressMode === "MANUAL"
+      ? { progress: Math.min(100, Math.max(0, Math.round(form.progress))) }
+      : {}),
   };
 }
 
@@ -590,6 +598,29 @@ function GoalForm({
           </Select>
         </div>
       </div>
+
+      {form.progressMode === "MANUAL" && (
+        <FormField label="Progress (%)">
+          {(p) => (
+            <Input
+              {...p}
+              type="number"
+              min={0}
+              max={100}
+              value={form.progress}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  progress: Math.min(
+                    100,
+                    Math.max(0, Number(e.target.value) || 0),
+                  ),
+                }))
+              }
+            />
+          )}
+        </FormField>
+      )}
 
       <FormField label="Target date">
         {(p) => (
