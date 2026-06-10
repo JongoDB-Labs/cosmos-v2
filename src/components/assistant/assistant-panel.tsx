@@ -240,6 +240,11 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   }
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Whether the view is pinned to the bottom. While streaming, we only
+  // auto-scroll when the user is already at the bottom — so scrolling up to
+  // re-read earlier text isn't yanked back down on every token.
+  const stickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -301,8 +306,26 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
     [orgId],
   );
 
+  // Track the user's scroll position so streaming doesn't fight them. "At
+  // bottom" = within 80px of the end.
+  const handleMessagesScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!stickToBottomRef.current) return;
+    const el = scrollContainerRef.current;
+    if (el) {
+      // Instant (not smooth) — a smooth animation per token stutters and the
+      // animations fight each other on a fast stream. Pinning the scrollTop is
+      // both smoother-feeling and cheaper.
+      el.scrollTop = el.scrollHeight;
+    } else {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+    }
   }, []);
 
   useEffect(() => {
@@ -571,6 +594,9 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       createdAt: new Date().toISOString(),
     };
 
+    // Sending always re-pins to the bottom — you want to see your own message
+    // and the reply, regardless of where you'd scrolled.
+    stickToBottomRef.current = true;
     setMessages((prev) => [...prev, userMessage, streamingMessage]);
     setInput("");
     setAttachments([]);
@@ -1021,7 +1047,11 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleMessagesScroll}
+          className="flex-1 overflow-y-auto px-4 py-4"
+        >
           {!activeId ? (
             <div className="flex flex-col items-center justify-center h-full gap-4">
               <div className="flex items-center justify-center size-16 rounded-2xl bg-primary/10">
