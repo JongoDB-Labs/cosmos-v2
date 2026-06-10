@@ -7,6 +7,7 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -329,14 +330,15 @@ export function BankingInbox({ orgId }: { orgId: string }) {
             >
               Match
             </Button>
-            <Button
+            <ConfirmButton
               size="sm"
               variant="ghost"
-              disabled={rowBusy}
-              onClick={() => exclude.mutate(txnId)}
+              pending={rowBusy}
+              confirmLabel="Confirm exclude"
+              onConfirm={() => exclude.mutate(txnId)}
             >
               Exclude
-            </Button>
+            </ConfirmButton>
           </div>
         );
       },

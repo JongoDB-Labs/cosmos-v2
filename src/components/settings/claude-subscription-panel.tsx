@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Loader2, Sparkles, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
@@ -175,16 +176,14 @@ export function ClaudeSubscriptionConnect({ orgId }: { orgId: string }) {
               : "Authorization active."}
           </span>
         </div>
-        <Button
+        <ConfirmButton
           variant="destructive"
-          disabled={disconnect.isPending}
-          onClick={() => disconnect.mutate(undefined)}
+          pending={disconnect.isPending}
+          confirmLabel="Confirm disconnect"
+          onConfirm={() => disconnect.mutate(undefined)}
         >
-          {disconnect.isPending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : null}
           Disconnect
-        </Button>
+        </ConfirmButton>
       </div>
     );
   }
