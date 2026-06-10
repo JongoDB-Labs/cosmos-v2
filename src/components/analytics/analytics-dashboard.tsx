@@ -641,8 +641,8 @@ function SprintVelocityTab({ orgId }: { orgId: string }) {
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
+                    backgroundColor: "var(--overlay)",
+                    border: "1px solid var(--border)",
                     borderRadius: "8px",
                     fontSize: "12px",
                   }}
@@ -816,8 +816,8 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
                     </Pie>
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
+                        backgroundColor: "var(--overlay)",
+                        border: "1px solid var(--border)",
                         borderRadius: "8px",
                         fontSize: "12px",
                       }}
@@ -857,8 +857,8 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
+                        backgroundColor: "var(--overlay)",
+                        border: "1px solid var(--border)",
                         borderRadius: "8px",
                         fontSize: "12px",
                       }}
@@ -907,8 +907,8 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
                     </Pie>
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
+                        backgroundColor: "var(--overlay)",
+                        border: "1px solid var(--border)",
                         borderRadius: "8px",
                         fontSize: "12px",
                       }}
@@ -951,8 +951,8 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
+                        backgroundColor: "var(--overlay)",
+                        border: "1px solid var(--border)",
                         borderRadius: "8px",
                         fontSize: "12px",
                       }}
