@@ -44,6 +44,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const [data, total] = await Promise.all([
       prisma.auditLog.findMany({
         where,
+        // Explicit projection: the AU-9 hash-chain columns must NOT be returned.
+        // `seq` is a BigInt (JSON.stringify throws "Do not know how to serialize
+        // a BigInt" → 500 for the whole viewer), and `rowHash`/`prevHash` are
+        // internal WORM-verification bytes that shouldn't leak to the client.
+        select: {
+          id: true,
+          orgId: true,
+          userId: true,
+          action: true,
+          entity: true,
+          entityId: true,
+          metadata: true,
+          ipAddress: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,

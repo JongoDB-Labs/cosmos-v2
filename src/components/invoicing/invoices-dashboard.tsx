@@ -59,8 +59,9 @@ export function InvoicesDashboard({ orgId }: { orgId: string }) {
 
   const agingQ = useQuery({
     queryKey: useOrgQueryKey("invoices", "aging"),
-    queryFn: () =>
-      jsonFetch<{ data: Aging }>(`/api/v1/orgs/${orgId}/invoices/aging`).then((r) => r.data),
+    // jsonFetch already unwraps the single-key { data } envelope, so a trailing
+    // `.then(r => r.data)` would read undefined and break the query.
+    queryFn: () => jsonFetch<Aging>(`/api/v1/orgs/${orgId}/invoices/aging`),
   });
 
   const columns: ColumnDef<InvoiceRow>[] = [

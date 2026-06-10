@@ -111,10 +111,11 @@ export function BankingInbox({ orgId }: { orgId: string }) {
   const reconQ = useQuery({
     queryKey: reconKey,
     enabled: !!selectedId,
+    // jsonFetch already unwraps the single-key { data } envelope.
     queryFn: () =>
-      jsonFetch<{ data: ReconSummary }>(
+      jsonFetch<ReconSummary>(
         `/api/v1/orgs/${orgId}/bank-accounts/${selectedId}/reconciliation`,
-      ).then((r) => r.data),
+      ),
   });
 
   // Match-candidate list for the txn whose dialog is open.
