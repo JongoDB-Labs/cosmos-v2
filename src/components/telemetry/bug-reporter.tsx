@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { usePermissions } from "@/components/providers/permissions-provider";
+import { initBreadcrumbs, getBreadcrumbs } from "@/lib/telemetry/breadcrumbs";
 
 /**
  * Turns an UNCAUGHT client error (window error / unhandledrejection) into a
@@ -51,6 +52,9 @@ export function BugReporter() {
                     stack: stack?.slice(0, 8000),
                     route: window.location.pathname,
                     userAgent: navigator.userAgent,
+                    appVersion: process.env.NEXT_PUBLIC_APP_VERSION,
+                    viewport: `${window.innerWidth}x${window.innerHeight}`,
+                    breadcrumbs: getBreadcrumbs(),
                   }),
                 },
               );
@@ -72,6 +76,10 @@ export function BugReporter() {
       offer(typeof r === "string" ? r : r?.message, r?.stack);
     }
 
+    // Start recording console breadcrumbs so a later report carries the
+    // messages that led up to the error (React logs render errors via
+    // console.error before they surface).
+    initBreadcrumbs();
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
     return () => {
