@@ -61,6 +61,9 @@ interface Facets {
   members: { id: string; displayName: string; avatarUrl: string | null }[];
   labels: string[];
   cycles: { id: string; name: string; number: number; projectId: string; status: string }[];
+  /** Projects the actor can administer (org PROJECT_MANAGE or project MANAGER).
+   *  Lets a project manager who lacks org-wide BOARD_CREATE still save a board. */
+  managedProjectIds: string[];
 }
 
 interface SearchResponse {
@@ -171,7 +174,9 @@ const PAGE_SIZE = 25;
 
 export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
   const { can } = usePermissions();
-  const canCreateBoard = can(Permission.BOARD_CREATE);
+  // Org-wide board-create. A project MANAGER whose org role lacks it can still
+  // save a board for their own project — folded in below once facets resolve.
+  const hasOrgBoardCreate = can(Permission.BOARD_CREATE);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   // The text input is uncontrolled-ish: we commit it into `filters.text` on
   // submit/enter so every keystroke doesn't refire the query.
@@ -224,6 +229,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   useWorkItemRealtime(orgId, null, () => void refetch());
 
   const facets = facetsQuery.data;
+  // Show "Save as board" to org board-creators AND to project managers (who can
+  // create boards for the projects they manage, per the board POST's inheritance).
+  const managedProjectIds = facets?.managedProjectIds ?? [];
+  const canCreateBoard = hasOrgBoardCreate || managedProjectIds.length > 0;
   const rows = results?.data ?? [];
   const total = results?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -480,7 +489,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           orgId={orgId}
           orgSlug={orgSlug}
           filter={toWorkItemFilter(filters)}
-          projects={facets.projects}
+          projects={
+            // A project manager without org-wide BOARD_CREATE may only target the
+            // projects they manage — don't offer one whose POST would 403.
+            hasOrgBoardCreate
+              ? facets.projects
+              : facets.projects.filter((p) => managedProjectIds.includes(p.id))
+          }
           defaultProjectId={
             filters.project !== ANY ? filters.project : undefined
           }

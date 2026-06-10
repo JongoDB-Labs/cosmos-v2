@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { canManageProject } from "@/lib/rbac/scope";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -40,6 +42,13 @@ export default async function ProjectLayout({
 
   if (!project) notFound();
 
+  // Board management (delete) inherits like everything else: an org BOARD_DELETE
+  // holder OR a manager of THIS project. Computed server-side and passed to the
+  // tabs so a project manager without org-wide grants can still manage boards.
+  const canManageBoards =
+    hasPermission(ctx.permissions, Permission.BOARD_DELETE) ||
+    (await canManageProject(ctx, project.id));
+
   return (
     <div className="flex flex-col h-full">
       {/* Project header */}
@@ -72,8 +81,11 @@ export default async function ProjectLayout({
       <ProjectBoardTabs
         orgSlug={orgSlug}
         projectKey={projectKey}
+        orgId={ctx.orgId}
+        projectId={project.id}
         boards={project.boards}
         enabledFeatures={project.enabledFeatures}
+        canManageBoards={canManageBoards}
         templateDefaultConfig={
           project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
         }
