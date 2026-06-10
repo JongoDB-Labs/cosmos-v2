@@ -71,7 +71,7 @@ export function NewDmDialog({ orgId }: { orgId: string }) {
       >
         + New DM
       </DialogTrigger>
-      <DialogContent className="w-96">
+      <DialogContent className="w-96 max-w-[90vw]">
         <DialogTitle>New direct message</DialogTitle>
         <div className="space-y-2 mt-2">
           <div className="flex flex-wrap gap-1">
