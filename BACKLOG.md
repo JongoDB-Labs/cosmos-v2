@@ -122,7 +122,7 @@ Running list of items captured while walking through the dashboard. Newest items
 
 - ⬜ **[feature] Embed the live meeting in Cosmos (iframe).** _(open — not started; verify Meet embedding policy, fall back to launch-in-tab.)_ Show the active Google Meet meeting embedded via iframe inside Cosmos.
 
-- ⬜ **[feature] More meeting options + user-defined meeting types.** _(open — not started.)_ Offer more meeting/provider options and let users add their own meeting types in Settings.
+- ✅ **[feature] More meeting options + user-defined meeting types.** _(done 2.71.0 — user-defined types.)_ Orgs can define reusable custom meeting types (new `MeetingTypeOption` table + nullable `custom_type_id` FK on sync_meetings, ON DELETE SET NULL). The New-meeting form lists the 5 built-ins + the org's custom types with an inline "Add a custom type…" creator; cards + detail show the custom label. API: `GET/POST/DELETE /meeting-types`. Verified end-to-end (create→use→display→delete-fallback); migration applied to prod. _Remaining sliver: per-meeting "provider options" beyond Google Meet is the separate connector-wiring item._
 
 - ✅ **[bug/feature] Meeting management: delete / cancel / reschedule.** _(done — Cancel pre-existed (status→CANCELLED); 2.69.0 added Reschedule (datetime dialog, SCHEDULED only, keeps attendees/notes; PUT gained a `meetingDate` field) and Delete (confirm dialog, permanent, MEETING_DELETE-gated). Verified end-to-end: reschedule moves the stored date; delete→204 then 404.)_
 
