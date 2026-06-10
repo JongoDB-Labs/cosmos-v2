@@ -23,8 +23,14 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  * edge can be created or listed.
  */
 
-/** GET — every link whose source item is in this project (with ticket numbers). */
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+/**
+ * GET — links in this project (with ticket numbers + titles).
+ *
+ * Optional `?item={workItemId}` narrows to links that touch a single item
+ * (as either source OR target) — used by the work-item detail panel so it only
+ * loads its own edges instead of the whole project's link graph.
+ */
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -36,18 +42,24 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    // Scope to links whose SOURCE item lives in this project. The unique
-    // (orgId, sourceItemId) index backs this lookup.
+    // Scope to links whose SOURCE item lives in this project (every link's both
+    // ends share a project by construction, so this also scopes the target).
+    // The unique (orgId, sourceItemId) index backs this lookup.
+    const item = request.nextUrl.searchParams.get("item");
     const links = await prisma.workItemLink.findMany({
-      where: { orgId, sourceItem: { projectId } },
+      where: {
+        orgId,
+        sourceItem: { projectId },
+        ...(item ? { OR: [{ sourceItemId: item }, { targetItemId: item }] } : {}),
+      },
       select: {
         id: true,
         type: true,
         sourceItemId: true,
         targetItemId: true,
         createdAt: true,
-        sourceItem: { select: { ticketNumber: true } },
-        targetItem: { select: { ticketNumber: true, projectId: true } },
+        sourceItem: { select: { ticketNumber: true, title: true } },
+        targetItem: { select: { ticketNumber: true, title: true, projectId: true } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -59,7 +71,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         sourceItemId: l.sourceItemId,
         targetItemId: l.targetItemId,
         sourceTicketNumber: l.sourceItem.ticketNumber,
+        sourceTitle: l.sourceItem.title,
         targetTicketNumber: l.targetItem.ticketNumber,
+        targetTitle: l.targetItem.title,
         createdAt: l.createdAt,
       })),
     );

@@ -502,6 +502,27 @@ function KanbanBoardInner({
     setDetailOpen(true);
   }
 
+  // Open another item (a sub-item or a linked item) in the same detail sheet.
+  // Same-project items are already loaded, so look up locally; fall back to a
+  // fetch for anything not on this board (e.g. a parent-scoped child).
+  async function handleOpenItemById(id: string) {
+    const found = items.find((i) => i.id === id);
+    if (found) {
+      setDetailItem(found);
+      setDetailOpen(true);
+      return;
+    }
+    try {
+      const res = await fetch(`${basePath}/work-items/${id}`);
+      if (!res.ok) return;
+      const full: WorkItem = await res.json();
+      setDetailItem(full);
+      setDetailOpen(true);
+    } catch {
+      /* swallow — the link row stays put */
+    }
+  }
+
   function handleItemUpdate(updated: WorkItem) {
     setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
     setDetailItem(updated);
@@ -642,6 +663,7 @@ function KanbanBoardInner({
         onDuplicate={handleItemDuplicated}
         projectItems={items}
         onItemCreated={handleCardCreated}
+        onOpenItem={handleOpenItemById}
       />
     </div>
   );
