@@ -22,6 +22,9 @@ import {
   Zap,
   Clock,
   Trophy,
+  MessageSquare,
+  Bug,
+  Lightbulb,
 } from "lucide-react";
 import {
   BarChart,
@@ -82,7 +85,7 @@ interface AnalyticsDashboardProps {
   orgId: string;
 }
 
-type TabValue = "portfolio" | "sprint" | "project";
+type TabValue = "portfolio" | "sprint" | "project" | "feedback";
 
 const CHART_COLORS = [
   "var(--color-primary)",
@@ -113,6 +116,7 @@ export function AnalyticsDashboard({ orgId }: AnalyticsDashboardProps) {
     { value: "portfolio", label: "Portfolio", icon: <FolderKanban className="size-4" /> },
     { value: "sprint", label: "Sprint Velocity", icon: <Zap className="size-4" /> },
     { value: "project", label: "Project Detail", icon: <BarChart3 className="size-4" /> },
+    { value: "feedback", label: "Feedback", icon: <MessageSquare className="size-4" /> },
   ];
 
   return (
@@ -141,6 +145,197 @@ export function AnalyticsDashboard({ orgId }: AnalyticsDashboardProps) {
       {activeTab === "portfolio" && <PortfolioTab orgId={orgId} />}
       {activeTab === "sprint" && <SprintVelocityTab orgId={orgId} />}
       {activeTab === "project" && <ProjectDetailTab orgId={orgId} />}
+      {activeTab === "feedback" && <FeedbackTab orgId={orgId} />}
+    </div>
+  );
+}
+
+interface FeedbackAnalytics {
+  counts: Record<string, Record<string, number>>;
+  totals: {
+    total: number;
+    bugs: number;
+    features: number;
+    open: number;
+    resolved: number;
+    openBugs: number;
+    openFeatures: number;
+  };
+  trend: { date: string; opened: number; resolved: number }[];
+  recent: {
+    id: string;
+    type: "BUG" | "FEATURE";
+    status: string;
+    title: string;
+    voteCount: number;
+    createdAt: string;
+    authorName: string | null;
+  }[];
+}
+
+const FEEDBACK_STATUSES = ["OPEN", "PLANNED", "IN_PROGRESS", "DONE", "DECLINED"] as const;
+const STATUS_LABEL: Record<string, string> = {
+  OPEN: "Open",
+  PLANNED: "Planned",
+  IN_PROGRESS: "In progress",
+  DONE: "Done",
+  DECLINED: "Declined",
+};
+const STATUS_VARIANT: Record<string, "neutral" | "progress" | "done" | "blocked"> = {
+  OPEN: "neutral",
+  PLANNED: "neutral",
+  IN_PROGRESS: "progress",
+  DONE: "done",
+  DECLINED: "blocked",
+};
+
+function FeedbackTab({ orgId }: { orgId: string }) {
+  const [data, setData] = useState<FeedbackAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/analytics/feedback`);
+      if (!res.ok) throw new Error("failed");
+      setData(await res.json());
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+
+  if (loading) return <Skeleton className="h-80 w-full" />;
+  if (loadError || !data)
+    return <LoadError title="Couldn't load feedback analytics" onRetry={load} />;
+
+  const t = data.totals;
+  const cards = [
+    { label: "Total reports", value: t.total, icon: <MessageSquare className="size-4" /> },
+    { label: "Open", value: t.open, icon: <Activity className="size-4 text-amber-500" /> },
+    { label: "Resolved", value: t.resolved, icon: <Trophy className="size-4 text-emerald-500" /> },
+    { label: "Open bugs", value: t.openBugs, icon: <Bug className="size-4 text-red-500" /> },
+    { label: "Open requests", value: t.openFeatures, icon: <Lightbulb className="size-4 text-blue-500" /> },
+  ];
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {cards.map((c) => (
+          <div key={c.label} className="rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{c.label}</span>
+              {c.icon}
+            </div>
+            <div className="mt-1 text-2xl font-semibold">{c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* By type × status breakdown */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {(["BUG", "FEATURE"] as const).map((type) => {
+          const row = data.counts[type] ?? {};
+          const totalForType = Object.values(row).reduce((a, b) => a + b, 0);
+          return (
+            <div key={type} className="rounded-lg border bg-card p-4">
+              <div className="mb-3 flex items-center gap-2">
+                {type === "BUG" ? (
+                  <Bug className="size-4 text-red-500" />
+                ) : (
+                  <Lightbulb className="size-4 text-blue-500" />
+                )}
+                <span className="text-sm font-medium">
+                  {type === "BUG" ? "Bugs" : "Feature requests"}
+                </span>
+                <span className="text-xs text-muted-foreground">({totalForType})</span>
+              </div>
+              <div className="space-y-1.5">
+                {FEEDBACK_STATUSES.map((s) => {
+                  const n = row[s] ?? 0;
+                  const pct = totalForType > 0 ? Math.round((n / totalForType) * 100) : 0;
+                  return (
+                    <div key={s} className="flex items-center gap-2 text-xs">
+                      <span className="w-20 shrink-0 text-muted-foreground">
+                        {STATUS_LABEL[s]}
+                      </span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="w-6 shrink-0 text-right font-medium">{n}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 30-day trend */}
+      {data.trend.length > 0 && (
+        <div className="rounded-lg border bg-card p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+            <TrendingUp className="size-4" /> Opened vs resolved (30 days)
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={data.trend}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="opened" name="Opened" stroke="var(--color-amber-500, #f59e0b)" />
+              <Line type="monotone" dataKey="resolved" name="Resolved" stroke="var(--color-emerald-500, #10b981)" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Recent / top-voted list */}
+      <div className="rounded-lg border bg-card">
+        <div className="border-b px-4 py-2.5 text-sm font-medium">
+          Top reports
+        </div>
+        <div className="divide-y">
+          {data.recent.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              No feedback submitted yet.
+            </div>
+          ) : (
+            data.recent.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+                {r.type === "BUG" ? (
+                  <Bug className="size-4 shrink-0 text-red-500" />
+                ) : (
+                  <Lightbulb className="size-4 shrink-0 text-blue-500" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm">{r.title}</span>
+                {r.voteCount > 0 && (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    ▲ {r.voteCount}
+                  </span>
+                )}
+                <Badge variant={STATUS_VARIANT[r.status] ?? "neutral"}>
+                  {STATUS_LABEL[r.status] ?? r.status}
+                </Badge>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
