@@ -5,6 +5,8 @@
  * and will pick up these errors via `Sentry.captureException` (added below
  * once @sentry/nextjs is installed).
  */
+import { getBreadcrumbs } from "./breadcrumbs";
+
 type ErrorContext = {
   scope?: string;
   digest?: string;
@@ -40,6 +42,9 @@ export function reportError(error: Error, context: ErrorContext = {}): void {
         scope: context.scope ?? "client",
         url: context.url ?? window.location.href,
         userAgent: navigator.userAgent,
+        appVersion: process.env.NEXT_PUBLIC_APP_VERSION,
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        breadcrumbs: getBreadcrumbs(),
         ts: Date.now(),
       }),
     }).catch(() => undefined);

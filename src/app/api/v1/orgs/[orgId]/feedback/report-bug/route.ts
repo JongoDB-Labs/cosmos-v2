@@ -16,6 +16,11 @@ const reportSchema = z.object({
   userAgent: z.string().max(500).optional(),
   componentStack: z.string().max(8000).optional(),
   digest: z.string().max(120).optional(),
+  // Richer telemetry: which build the error hit, the viewport at the time, and
+  // a short trail of the console messages leading up to it (capped for safety).
+  appVersion: z.string().max(40).optional(),
+  viewport: z.string().max(20).optional(),
+  breadcrumbs: z.array(z.string().max(320)).max(15).optional(),
 });
 
 /**
@@ -58,6 +63,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       route: data.route ?? null,
       userAgent: data.userAgent ?? null,
       digest: data.digest ?? null,
+      appVersion: data.appVersion ?? null,
+      viewport: data.viewport ?? null,
+      breadcrumbs: data.breadcrumbs ?? null,
       capturedAt: now.toISOString(),
     };
 
@@ -82,6 +90,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         lastSeen: now.toISOString(),
         route: sighting.route,
         userAgent: sighting.userAgent,
+        // Latest-occurrence quick-triage fields (full history in `sightings`).
+        appVersion: sighting.appVersion,
+        viewport: sighting.viewport,
+        breadcrumbs: sighting.breadcrumbs,
         // Keep the most recent 20 sightings.
         sightings: [...(Array.isArray(prev.sightings) ? prev.sightings : []), sighting].slice(-20),
       };
@@ -94,9 +106,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const description = [
       data.route ? `**Where:** \`${data.route}\`` : null,
+      data.appVersion ? `**Version:** \`${data.appVersion}\`${data.viewport ? ` · **Viewport:** \`${data.viewport}\`` : ""}` : null,
       `**Error:** ${data.message.slice(0, 2000)}`,
       data.digest ? `**Ref:** \`${data.digest}\`` : null,
       data.userAgent ? `**Browser:** ${data.userAgent.slice(0, 300)}` : null,
+      data.breadcrumbs?.length
+        ? `**Leading up to it:**\n\n\`\`\`\n${data.breadcrumbs.join("\n").slice(0, 2000)}\n\`\`\``
+        : null,
       data.componentStack
         ? `**Component stack:**\n\n\`\`\`\n${data.componentStack.slice(0, 3000)}\n\`\`\``
         : null,
@@ -120,6 +136,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           lastSeen: now.toISOString(),
           route: sighting.route,
           userAgent: sighting.userAgent,
+          appVersion: sighting.appVersion,
+          viewport: sighting.viewport,
+          breadcrumbs: sighting.breadcrumbs,
           stack: data.stack?.slice(0, 4000) ?? null,
           componentStack: data.componentStack?.slice(0, 3000) ?? null,
           sightings: [sighting],
