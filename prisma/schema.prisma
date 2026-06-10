@@ -1218,11 +1218,33 @@ model SyncMeeting {
   createdById        String                      @map("created_by_id") @db.Uuid
   createdAt          DateTime                    @default(now()) @map("created_at")
   updatedAt          DateTime                    @updatedAt @map("updated_at")
+  // Optional org-defined custom type. When set, `meetingType` is OTHER and this
+  // carries the user-defined label; null means a built-in MeetingType.
+  customTypeId       String?                     @map("custom_type_id") @db.Uuid
 
-  attendees MeetingAttendee[]
+  attendees  MeetingAttendee[]
+  customType MeetingTypeOption? @relation(fields: [customTypeId], references: [id], onDelete: SetNull)
 
   @@index([orgId, meetingDate])
   @@map("sync_meetings")
+}
+
+// Org-defined reusable meeting types (e.g. "Demo Day", "Bug Bash") that extend
+// the built-in MeetingType enum. Created on the fly from the meeting form and
+// reused across the org; deleting one detaches it from meetings (SetNull) which
+// fall back to their built-in MeetingType.
+model MeetingTypeOption {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  label     String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  meetings SyncMeeting[]
+
+  @@unique([orgId, label])
+  @@index([orgId])
+  @@map("meeting_type_options")
 }
 
 model MeetingAttendee {

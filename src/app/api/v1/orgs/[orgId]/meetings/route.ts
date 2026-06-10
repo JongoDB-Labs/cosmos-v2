@@ -14,6 +14,8 @@ const createMeetingSchema = z.object({
   sprintId: z.string().uuid().nullish(),
   meetingDate: z.string(),
   meetingType: z.nativeEnum(MeetingType).optional(),
+  // Org-defined custom type. When set, meetingType is forced to OTHER.
+  customTypeId: z.string().uuid().nullish(),
   notes: z.string().nullish(),
   attendeeIds: z.array(z.string().uuid()).optional(),
 });
@@ -46,6 +48,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where,
       include: {
         attendees: true,
+        customType: { select: { id: true, label: true } },
       },
       orderBy: { meetingDate: "desc" },
     });
@@ -53,6 +56,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const result = meetings.map((m) => ({
       ...m,
       attendeeCount: m.attendees.length,
+      customTypeLabel: m.customType?.label ?? null,
     }));
 
     return success(result);
@@ -74,6 +78,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = createMeetingSchema.parse(body);
 
+    // Validate a custom type belongs to this org (defense-in-depth); when set,
+    // the built-in enum is OTHER and the label comes from the custom type.
+    if (data.customTypeId) {
+      const owned = await prisma.meetingTypeOption.findFirst({
+        where: { id: data.customTypeId, orgId },
+        select: { id: true },
+      });
+      if (!owned) {
+        return new Response(
+          JSON.stringify({ error: "Unknown meeting type" }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     const meeting = await prisma.syncMeeting.create({
       data: {
         orgId,
@@ -81,7 +100,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         projectId: data.projectId ?? null,
         sprintId: data.sprintId ?? null,
         meetingDate: new Date(data.meetingDate),
-        meetingType: data.meetingType ?? "STANDUP",
+        meetingType: data.customTypeId ? "OTHER" : data.meetingType ?? "STANDUP",
+        customTypeId: data.customTypeId ?? null,
         notes: data.notes ?? "",
         createdById: ctx.userId,
         ...(data.attendeeIds && data.attendeeIds.length > 0

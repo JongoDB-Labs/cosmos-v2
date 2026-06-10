@@ -465,6 +465,8 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
   }
 
   const typeConfig = TYPE_CONFIG[meeting.meetingType];
+  const customLabel = (meeting as { customTypeLabel?: string | null })
+    .customTypeLabel;
   const statusConfig = STATUS_CONFIG[meeting.status];
   const date = new Date(meeting.meetingDate);
   const attendees = meeting.attendees || [];
@@ -484,7 +486,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${typeConfig.color}`}
             >
               {typeConfig.icon}
-              {typeConfig.label}
+              {customLabel || typeConfig.label}
             </span>
             <span
               className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusConfig.color}`}
