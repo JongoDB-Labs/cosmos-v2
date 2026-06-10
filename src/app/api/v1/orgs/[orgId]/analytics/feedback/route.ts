@@ -103,6 +103,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         createdAt: true,
         updatedAt: true,
         authorId: true,
+        telemetry: true,
       },
     });
     const authorIds = [...new Set(recent.map((r) => r.authorId))];
@@ -118,15 +119,28 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       counts,
       totals,
       trend,
-      recent: recent.map((r) => ({
-        id: r.id,
-        type: r.type,
-        status: r.status,
-        title: r.title,
-        voteCount: r.voteCount,
-        createdAt: r.createdAt.toISOString(),
-        authorName: nameById.get(r.authorId) ?? null,
-      })),
+      recent: recent.map((r) => {
+        // Surface compact triage telemetry for auto-reported bugs (hit count +
+        // which build it last hit) — populated by /feedback/report-bug.
+        const tel = (r.telemetry ?? {}) as {
+          hits?: number;
+          appVersion?: string | null;
+        };
+        const telemetry =
+          typeof tel.hits === "number"
+            ? { hits: tel.hits, appVersion: tel.appVersion ?? null }
+            : null;
+        return {
+          id: r.id,
+          type: r.type,
+          status: r.status,
+          title: r.title,
+          voteCount: r.voteCount,
+          createdAt: r.createdAt.toISOString(),
+          authorName: nameById.get(r.authorId) ?? null,
+          telemetry,
+        };
+      }),
     });
   } catch (error) {
     return handleApiError(error);

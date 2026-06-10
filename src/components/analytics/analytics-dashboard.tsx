@@ -170,6 +170,7 @@ interface FeedbackAnalytics {
     voteCount: number;
     createdAt: string;
     authorName: string | null;
+    telemetry: { hits: number; appVersion: string | null } | null;
   }[];
 }
 
@@ -323,6 +324,15 @@ function FeedbackTab({ orgId }: { orgId: string }) {
                   <Lightbulb className="size-4 shrink-0 text-blue-500" />
                 )}
                 <span className="min-w-0 flex-1 truncate text-sm">{r.title}</span>
+                {r.telemetry && r.telemetry.hits > 1 && (
+                  <span
+                    className="shrink-0 text-xs text-muted-foreground"
+                    title={`Auto-reported ${r.telemetry.hits} times${r.telemetry.appVersion ? ` · last on v${r.telemetry.appVersion}` : ""}`}
+                  >
+                    🔁 {r.telemetry.hits}
+                    {r.telemetry.appVersion ? ` · v${r.telemetry.appVersion}` : ""}
+                  </span>
+                )}
                 {r.voteCount > 0 && (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     ▲ {r.voteCount}
