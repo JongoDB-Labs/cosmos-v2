@@ -42,6 +42,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const data = createLinkSchema.parse(await request.json());
 
+    // Idempotent (mirrors the milestone-links route): a duplicate link would be
+    // double-counted by the AUTO progress rollup, so return the existing one
+    // instead of creating a second edge to the same target.
+    const existing = await prisma.goalLink.findFirst({
+      where: {
+        goalId,
+        kind: data.kind,
+        ...(data.kind === GoalLinkKind.WORK_ITEM
+          ? { workItemId: data.workItemId ?? null }
+          : { objectiveId: data.objectiveId ?? null }),
+      },
+    });
+    if (existing) return success(existing);
+
     const created = await prisma.goalLink.create({
       data: {
         goalId,

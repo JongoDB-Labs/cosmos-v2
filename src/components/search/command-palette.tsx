@@ -155,24 +155,31 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
       return;
     }
 
+    // Guard against out-of-order responses: a slow fetch for an earlier query
+    // must not overwrite results from a later one. The cleanup flips `cancelled`
+    // when the query changes, so a stale in-flight response is ignored.
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const res = await fetch(
           `/api/v1/orgs/${currentOrg.id}/search?q=${encodeURIComponent(query)}`,
         );
-        if (res.ok) {
+        if (!cancelled && res.ok) {
           const data: SearchResult[] = await res.json();
           setResults(data);
         }
       } catch {
         // Silently fail
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, currentOrg, mode]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
