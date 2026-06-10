@@ -28,7 +28,7 @@ import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog"
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2 } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -188,6 +188,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const hasOrgBoardCreate = can(Permission.BOARD_CREATE);
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
+  const canCreateItem = can(Permission.ITEM_CREATE);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   // The text input is uncontrolled-ish: we commit it into `filters.text` on
   // submit/enter so every keystroke doesn't refire the query.
@@ -460,6 +461,44 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const rowActions = useCallback(
     (r: IssueRow): ActionMenuGroup[] => {
       const boardHref = `/${orgSlug}/projects/${r.project.key}`;
+      const itemBase = `/api/v1/orgs/${orgId}/projects/${r.project.id}/work-items/${r.id}`;
+      const crud = [
+        ...(canCreateItem
+          ? [
+              {
+                label: "Duplicate",
+                icon: Copy,
+                onClick: async () => {
+                  try {
+                    await jsonFetch(`${itemBase}/duplicate`, { method: "POST" });
+                    toast.success("Issue duplicated");
+                    await refetch();
+                  } catch (err) {
+                    notifyError(err, "Couldn't duplicate the issue.");
+                  }
+                },
+              },
+            ]
+          : []),
+        ...(canBulkDelete
+          ? [
+              {
+                label: "Delete",
+                icon: Trash2,
+                variant: "destructive" as const,
+                onClick: async () => {
+                  try {
+                    await jsonFetch(itemBase, { method: "DELETE" });
+                    toast.success("Issue deleted");
+                    await refetch();
+                  } catch (err) {
+                    notifyError(err, "Couldn't delete the issue.");
+                  }
+                },
+              },
+            ]
+          : []),
+      ];
       return [
         {
           items: [
@@ -479,9 +518,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             },
           ],
         },
+        ...(crud.length > 0 ? [{ items: crud }] : []),
       ];
     },
-    [orgSlug, router],
+    [orgSlug, orgId, router, canCreateItem, canBulkDelete, refetch],
   );
 
   return (
