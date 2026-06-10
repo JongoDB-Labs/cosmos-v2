@@ -12,7 +12,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadError } from "@/components/ui/load-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ColumnDef } from "@tanstack/react-table";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Plus } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { AccountDialog } from "./account-dialog";
+import { JournalEntryDialog } from "./journal-entry-dialog";
 
 const fmt = (v: number | string | null | undefined) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -62,7 +65,11 @@ type BalanceSheet = {
 type Tab = "accounts" | "journal" | "reports";
 
 export function AccountingDashboard({ orgId }: { orgId: string }) {
+  const { can } = usePermissions();
+  const canManage = can(Permission.ACCOUNTING_MANAGE);
   const [tab, setTab] = useState<Tab>("reports");
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [journalDialogOpen, setJournalDialogOpen] = useState(false);
   const accountsKey = useOrgQueryKey("accounting", "accounts");
   const journalKey = useOrgQueryKey("accounting", "journal");
   const tbKey = useOrgQueryKey("accounting", "trial-balance");
@@ -212,7 +219,17 @@ export function AccountingDashboard({ orgId }: { orgId: string }) {
             </button>
           ))}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {canManage && tab === "journal" && (
+            <Button size="sm" onClick={() => setJournalDialogOpen(true)}>
+              <Plus className="size-4" /> New entry
+            </Button>
+          )}
+          {canManage && tab === "accounts" && (
+            <Button size="sm" onClick={() => setAccountDialogOpen(true)}>
+              <Plus className="size-4" /> New account
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -291,6 +308,22 @@ export function AccountingDashboard({ orgId }: { orgId: string }) {
             emptyState={<EmptyState title="No accounts yet." />}
           />
         ))}
+
+      {canManage && (
+        <>
+          <AccountDialog
+            orgId={orgId}
+            open={accountDialogOpen}
+            onOpenChange={setAccountDialogOpen}
+          />
+          <JournalEntryDialog
+            orgId={orgId}
+            accounts={accountsQ.data ?? []}
+            open={journalDialogOpen}
+            onOpenChange={setJournalDialogOpen}
+          />
+        </>
+      )}
     </div>
   );
 }
