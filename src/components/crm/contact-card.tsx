@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { DollarSign, Pencil, UserPlus, Trash2 } from "lucide-react";
+import { DollarSign, Pencil, Trash2 } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,11 +66,6 @@ export function ContactCard({ contact, members, onClick, onDelete }: ContactCard
               {
                 label: "Edit",
                 icon: Pencil,
-                onClick: () => onClick(contact),
-              },
-              {
-                label: "Change owner",
-                icon: UserPlus,
                 onClick: () => onClick(contact),
               },
             ]
