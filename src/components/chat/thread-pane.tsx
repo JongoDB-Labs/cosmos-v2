@@ -16,6 +16,8 @@ export function ThreadPane({
   usersById,
   onClose,
   onSendReply,
+  onEdit,
+  onDelete,
 }: {
   orgId: string;
   channelId: string;
@@ -24,6 +26,8 @@ export function ThreadPane({
   usersById: Map<string, { displayName: string; avatarUrl: string | null }>;
   onClose: () => void;
   onSendReply: (parentId: string, content: string) => Promise<void>;
+  onEdit: (id: string, content: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const qc = useQueryClient();
   const threadKey = useOrgQueryKey("chat-thread", channelId, parentMessage.id);
@@ -55,6 +59,31 @@ export function ThreadPane({
         ];
       });
     },
+    // Reflect edits/deletes of thread replies (and the parent) live in the
+    // thread pane — these fire on the org bus but only the main feed cache is
+    // patched by ChannelView, so the thread keeps its own copy in sync here.
+    "chat.message.updated": (raw: unknown) => {
+      const d = raw as Pick<ChatMessageDto, "id" | "channelId" | "content" | "editedAt"> & { __overflow?: boolean };
+      if (d.__overflow) {
+        void qc.invalidateQueries({ queryKey: threadKey });
+        return;
+      }
+      if (d.channelId !== channelId) return;
+      qc.setQueryData<ChatMessageDto[]>(threadKey, (prev) =>
+        prev?.map((m) =>
+          m.id === d.id ? { ...m, content: d.content, editedAt: d.editedAt } : m,
+        ) ?? [],
+      );
+    },
+    "chat.message.deleted": (raw: unknown) => {
+      const d = raw as Pick<ChatMessageDto, "id" | "channelId">;
+      if (d.channelId !== channelId) return;
+      qc.setQueryData<ChatMessageDto[]>(threadKey, (prev) =>
+        prev?.map((m) =>
+          m.id === d.id ? { ...m, deletedAt: new Date().toISOString(), content: "" } : m,
+        ) ?? [],
+      );
+    },
   });
 
   const mentionMap = new Map<string, string>();
@@ -81,8 +110,8 @@ export function ThreadPane({
           mentionMap={mentionMap}
           currentUserId={currentUserId}
           isPinned={false}
-          onEdit={noop}
-          onDelete={noop}
+          onEdit={(next) => onEdit(parentMessage.id, next)}
+          onDelete={() => onDelete(parentMessage.id)}
           onReact={noopReact}
           onOpenThread={noopOpenThread}
           onTogglePin={noopTogglePin}
@@ -97,8 +126,8 @@ export function ThreadPane({
             mentionMap={mentionMap}
             currentUserId={currentUserId}
             isPinned={false}
-            onEdit={noop}
-            onDelete={noop}
+            onEdit={(next) => onEdit(m.id, next)}
+            onDelete={() => onDelete(m.id)}
             onReact={noopReact}
             onOpenThread={noopOpenThread}
             onTogglePin={noopTogglePin}
