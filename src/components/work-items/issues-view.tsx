@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
@@ -90,7 +91,23 @@ interface FilterState {
   assignee: string;
   label: string;
   text: string;
+  // Date-range bounds (YYYY-MM-DD; "" = unset). Active when non-empty, unlike
+  // the ANY-sentinel select fields above.
+  createdFrom: string;
+  createdTo: string;
+  updatedFrom: string;
+  updatedTo: string;
 }
+
+/** Filter keys whose "inactive" value is an empty string (not the ANY
+ *  sentinel) — the free-text box and the four date-range bounds. */
+const STRING_FILTER_KEYS = [
+  "text",
+  "createdFrom",
+  "createdTo",
+  "updatedFrom",
+  "updatedTo",
+] as const satisfies readonly (keyof FilterState)[];
 
 const EMPTY_FILTERS: FilterState = {
   project: ANY,
@@ -100,6 +117,10 @@ const EMPTY_FILTERS: FilterState = {
   assignee: ANY,
   label: ANY,
   text: "",
+  createdFrom: "",
+  createdTo: "",
+  updatedFrom: "",
+  updatedTo: "",
 };
 
 /** Build the search query string from the active filters + page. */
@@ -113,6 +134,10 @@ function toQueryString(f: FilterState, page: number, pageSize: number): string {
   if (f.label !== ANY) p.set("label", f.label);
   const text = f.text.trim();
   if (text) p.set("text", text);
+  if (f.createdFrom) p.set("createdFrom", f.createdFrom);
+  if (f.createdTo) p.set("createdTo", f.createdTo);
+  if (f.updatedFrom) p.set("updatedFrom", f.updatedFrom);
+  if (f.updatedTo) p.set("updatedTo", f.updatedTo);
   p.set("page", String(page));
   p.set("pageSize", String(pageSize));
   return p.toString();
@@ -133,6 +158,12 @@ function toWorkItemFilter(f: FilterState): WorkItemFilter {
   if (f.label !== ANY) filter.labels = [f.label];
   const text = f.text.trim();
   if (text) filter.text = text;
+  if (f.createdFrom || f.createdTo) {
+    filter.createdAt = { from: f.createdFrom || undefined, to: f.createdTo || undefined };
+  }
+  if (f.updatedFrom || f.updatedTo) {
+    filter.updatedAt = { from: f.updatedFrom || undefined, to: f.updatedTo || undefined };
+  }
   return filter;
 }
 
@@ -158,7 +189,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const activeCount = useMemo(
     () =>
       (Object.keys(filters) as (keyof FilterState)[]).filter((k) =>
-        k === "text" ? filters.text.trim() !== "" : filters[k] !== ANY,
+        (STRING_FILTER_KEYS as readonly string[]).includes(k)
+          ? (filters[k] as string).trim() !== ""
+          : filters[k] !== ANY,
       ).length,
     [filters],
   );
@@ -575,6 +608,21 @@ function FilterBar({
           />
         )}
 
+        <DateRangeFilter
+          label="Created"
+          from={filters.createdFrom}
+          to={filters.createdTo}
+          onFrom={(v) => onChange("createdFrom", v)}
+          onTo={(v) => onChange("createdTo", v)}
+        />
+        <DateRangeFilter
+          label="Updated"
+          from={filters.updatedFrom}
+          to={filters.updatedTo}
+          onFrom={(v) => onChange("updatedFrom", v)}
+          onTo={(v) => onChange("updatedTo", v)}
+        />
+
         {activeCount > 0 && (
           <Button variant="ghost" size="sm" onClick={onClear} className="gap-1">
             <X className="h-3.5 w-3.5" /> Clear ({activeCount})
@@ -623,6 +671,52 @@ function FacetSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/** A compact "from → to" pair of native date inputs for a created/updated
+ *  range filter. Empty inputs are inert; the label turns active-colored once
+ *  either bound is set so it reads like the other filter chips. */
+function DateRangeFilter({
+  label,
+  from,
+  to,
+  onFrom,
+  onTo,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  onFrom: (v: string) => void;
+  onTo: (v: string) => void;
+}) {
+  const active = from !== "" || to !== "";
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs",
+        active && "border-[var(--primary)]",
+      )}
+    >
+      <span className="text-[var(--text-muted)]">{label}:</span>
+      <input
+        type="date"
+        value={from}
+        max={to || undefined}
+        onChange={(e) => onFrom(e.target.value)}
+        aria-label={`${label} from`}
+        className="bg-transparent text-xs outline-none [color-scheme:light] dark:[color-scheme:dark]"
+      />
+      <span className="text-[var(--text-muted)]">→</span>
+      <input
+        type="date"
+        value={to}
+        min={from || undefined}
+        onChange={(e) => onTo(e.target.value)}
+        aria-label={`${label} to`}
+        className="bg-transparent text-xs outline-none [color-scheme:light] dark:[color-scheme:dark]"
+      />
+    </div>
   );
 }
 
