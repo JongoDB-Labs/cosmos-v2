@@ -33,7 +33,6 @@ import {
   Target,
   Mic,
   ExternalLink,
-  Pencil,
   Trash2,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -505,6 +504,24 @@ function MeetingCard({
   const statusConfig = STATUS_CONFIG[meeting.status];
   const date = new Date(meeting.meetingDate);
   const attendeeCount = meeting.attendees?.length || 0;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/meetings/${meeting.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete meeting");
+      setConfirmDelete(false);
+      onDelete();
+    } catch (err) {
+      notifyError(err, "Couldn't delete the meeting.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const groups: ActionMenuGroup[] = [
     {
@@ -514,15 +531,6 @@ function MeetingCard({
           icon: ExternalLink,
           onClick,
         },
-        ...(can(Permission.MEETING_UPDATE)
-          ? [
-              {
-                label: "Edit",
-                icon: Pencil,
-                onClick,
-              },
-            ]
-          : []),
       ],
     },
     {
@@ -533,19 +541,7 @@ function MeetingCard({
                 label: "Delete",
                 icon: Trash2,
                 variant: "destructive" as const,
-                onClick: async () => {
-                  try {
-                    const res = await fetch(
-                      `/api/v1/orgs/${orgId}/meetings/${meeting.id}`,
-                      { method: "DELETE" },
-                    );
-                    if (!res.ok) throw new Error("Failed to delete meeting");
-                    onDelete();
-                  } catch (err) {
-                    console.error(err);
-                    notifyError(err, "Couldn't delete the meeting.");
-                  }
-                },
+                onClick: () => setConfirmDelete(true),
               },
             ]
           : []),
@@ -554,6 +550,7 @@ function MeetingCard({
   ];
 
   return (
+    <>
     <ActionMenu groups={groups}>
       <button
         onClick={onClick}
@@ -603,5 +600,26 @@ function MeetingCard({
         </div>
       </button>
     </ActionMenu>
+
+    <Dialog open={confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(false)}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete this meeting?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {meeting.title ? `"${meeting.title}"` : "This meeting"} and its notes
+          will be permanently deleted. This cannot be undone.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+            {deleting ? "Deleting…" : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

@@ -23,6 +23,9 @@ const fmtCurrency = (v: number) =>
 type Contact = { id: string; name: string };
 
 type LineRow = {
+  // Stable id so React keys don't scramble input state when rows are
+  // added/removed/reordered (was key={index}).
+  id: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -30,6 +33,7 @@ type LineRow = {
 };
 
 const emptyLine = (): LineRow => ({
+  id: crypto.randomUUID(),
   description: "",
   quantity: "1",
   unitPrice: "",
@@ -186,7 +190,7 @@ export function InvoiceBuilderDialog({
             </div>
             <div className="flex flex-col gap-1">
               {lines.map((line, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={line.id} className="flex items-center gap-2">
                   <Input
                     className="h-8 flex-1"
                     placeholder="Description"

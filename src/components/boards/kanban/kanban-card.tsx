@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Pencil, UserPlus, Check, Trash2 } from "lucide-react";
+import { Pencil, Check, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activateOnKey } from "@/lib/a11y/keyboard";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -114,17 +114,6 @@ export function KanbanCard({ item, onClick, members }: KanbanCardProps) {
               {
                 label: "Edit",
                 icon: Pencil,
-                onClick: () => onClick(item),
-              },
-            ]
-          : []),
-        ...(can(Permission.ITEM_ASSIGN)
-          ? [
-              {
-                label: "Assign",
-                icon: UserPlus,
-                // TODO: deferred — needs a member-picker UI. Falls back to
-                // the full Edit detail sheet, which already assigns members.
                 onClick: () => onClick(item),
               },
             ]

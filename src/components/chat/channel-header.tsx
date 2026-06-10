@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ChevronLeft, Hash, Lock, Pin, Settings2 } from "lucide-react";
+import { ChevronLeft, Hash, Lock, Pin } from "lucide-react";
 import { usePathname } from "next/navigation";
 import type { ChatChannelSummary } from "@/hooks/use-chat-channels";
 
@@ -53,13 +53,6 @@ export function ChannelHeader({
         >
           <Pin className="h-4 w-4" />
           {pinCount > 0 && <span className="text-xs">{pinCount}</span>}
-        </button>
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground"
-          aria-label="Channel settings"
-        >
-          <Settings2 className="h-4 w-4" />
         </button>
       </div>
     </header>
