@@ -32,6 +32,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { orgId, ...(type ? { type } : {}), ...(status ? { status } : {}) },
       orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
       take: 200,
+      include: {
+        attachments: {
+          select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
+        },
+      },
     });
 
     // Annotate each item with whether the current user has voted.
@@ -53,6 +58,7 @@ const createSchema = z.object({
   type: z.nativeEnum(FeedbackType).default(FeedbackType.FEATURE),
   title: z.string().min(1).max(200),
   description: z.string().max(5000).default(""),
+  attachmentIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -77,7 +83,32 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    return success({ ...created, hasVoted: false });
+    // Link the submitter's own orphan attachments to the new item.
+    let attachments: {
+      id: string;
+      kind: string;
+      url: string;
+      filename: string;
+      contentType: string;
+      size: number;
+    }[] = [];
+    if (data.attachmentIds?.length) {
+      await prisma.feedbackAttachment.updateMany({
+        where: {
+          id: { in: data.attachmentIds },
+          orgId,
+          feedbackItemId: null,
+          uploadedById: ctx.userId,
+        },
+        data: { feedbackItemId: created.id },
+      });
+      attachments = await prisma.feedbackAttachment.findMany({
+        where: { feedbackItemId: created.id },
+        select: { id: true, kind: true, url: true, filename: true, contentType: true, size: true },
+      });
+    }
+
+    return success({ ...created, hasVoted: false, attachments });
   } catch (e) {
     return handleApiError(e);
   }

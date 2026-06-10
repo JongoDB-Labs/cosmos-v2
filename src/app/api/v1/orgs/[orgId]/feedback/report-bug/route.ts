@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { FeedbackType } from "@prisma/client";
+import { FeedbackType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -51,15 +51,46 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.ORG_READ);
 
     const data = reportSchema.parse(await request.json());
-    const title = `[Bug] ${signature(data.message)}`;
+    const sig = signature(data.message);
+    const title = `[Bug] ${sig}`;
+    const now = new Date();
+    const sighting = {
+      route: data.route ?? null,
+      userAgent: data.userAgent ?? null,
+      digest: data.digest ?? null,
+      capturedAt: now.toISOString(),
+    };
 
     // Dedup: reuse an existing BUG with the same signature so repeated crashes
-    // don't spawn duplicate items — return the existing one instead.
+    // don't spawn duplicate items. On a repeat we append a sighting + bump the
+    // hit count (append-only telemetry history → repeat-frequency for triage).
     const existing = await prisma.feedbackItem.findFirst({
       where: { orgId, type: FeedbackType.BUG, title },
-      select: { id: true },
+      select: { id: true, telemetry: true },
     });
-    if (existing) return success({ id: existing.id, title, deduped: true });
+    if (existing) {
+      const prev = (existing.telemetry ?? {}) as {
+        hits?: number;
+        firstSeen?: string;
+        sightings?: unknown[];
+      };
+      const telemetry = {
+        ...prev,
+        errorSignature: sig,
+        hits: (typeof prev.hits === "number" ? prev.hits : 1) + 1,
+        firstSeen: prev.firstSeen ?? now.toISOString(),
+        lastSeen: now.toISOString(),
+        route: sighting.route,
+        userAgent: sighting.userAgent,
+        // Keep the most recent 20 sightings.
+        sightings: [...(Array.isArray(prev.sightings) ? prev.sightings : []), sighting].slice(-20),
+      };
+      await prisma.feedbackItem.update({
+        where: { id: existing.id },
+        data: { telemetry: telemetry as Prisma.InputJsonValue },
+      });
+      return success({ id: existing.id, title, deduped: true });
+    }
 
     const description = [
       data.route ? `**Where:** \`${data.route}\`` : null,
@@ -82,6 +113,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         type: FeedbackType.BUG,
         title,
         description,
+        telemetry: {
+          errorSignature: sig,
+          hits: 1,
+          firstSeen: now.toISOString(),
+          lastSeen: now.toISOString(),
+          route: sighting.route,
+          userAgent: sighting.userAgent,
+          stack: data.stack?.slice(0, 4000) ?? null,
+          componentStack: data.componentStack?.slice(0, 3000) ?? null,
+          sightings: [sighting],
+        } as Prisma.InputJsonValue,
       },
       select: { id: true, title: true },
     });
