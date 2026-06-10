@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { created, handleApiError } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { fileTypeFromBuffer } from "file-type";
@@ -34,6 +35,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_READ);
+
+    // Throttle uploads (consistency with chat attachments).
+    const limited = checkRateLimit(req, "feedback.attachment", ctx.userId, {
+      capacity: 15,
+      refillPerSecond: 0.3,
+    });
+    if (limited) return limited;
 
     const formData = await req.formData();
     const file = formData.get("file");
