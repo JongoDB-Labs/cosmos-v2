@@ -71,10 +71,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const topAssignees = Object.entries(assigneeCounts)
+    const topAssigneeEntries = Object.entries(assigneeCounts)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([assigneeId, count]) => ({ assigneeId, count }));
+      .slice(0, 10);
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
@@ -83,16 +82,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       (i) => i.completedAt && new Date(i.completedAt) >= thirtyDaysAgo
     );
 
-    const completionTrend: { date: string; count: number }[] = [];
+    const completionTrend: { date: string; completed: number }[] = [];
     for (let d = 0; d < 30; d++) {
       const dayStart = new Date(thirtyDaysAgo.getTime() + d * 86400000);
       const dayEnd = new Date(dayStart.getTime() + 86400000);
       const dateStr = dayStart.toISOString().split("T")[0];
-      const count = recentCompleted.filter((i) => {
+      const completed = recentCompleted.filter((i) => {
         const t = new Date(i.completedAt!).getTime();
         return t >= dayStart.getTime() && t < dayEnd.getTime();
       }).length;
-      completionTrend.push({ date: dateStr, count });
+      completionTrend.push({ date: dateStr, completed });
     }
 
     let avgCycleTime = 0;
@@ -123,12 +122,50 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         ) / 100;
     }
 
+    // Resolve ids → display names for the chart payload the client expects:
+    // byType/byPriority/byStatus as { name, value }[] and topAssignees as
+    // { name, count }[]. (The route previously returned id-keyed objects, which
+    // the Project Detail tab couldn't read — its charts rendered empty / threw.)
+    const typeIds = Object.keys(itemsByType);
+    const types = typeIds.length
+      ? await prisma.workItemType.findMany({
+          where: { id: { in: typeIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const typeNameById = new Map(types.map((t) => [t.id, t.name]));
+
+    const assigneeIds = topAssigneeEntries.map(([id]) => id);
+    const users = assigneeIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: assigneeIds } },
+          select: { id: true, displayName: true },
+        })
+      : [];
+    const userNameById = new Map(users.map((u) => [u.id, u.displayName]));
+
+    const byType = Object.entries(itemsByType)
+      .map(([id, value]) => ({ name: typeNameById.get(id) ?? "Unknown", value }))
+      .sort((a, b) => b.value - a.value);
+    const byPriority = Object.entries(itemsByPriority).map(([name, value]) => ({
+      name,
+      value,
+    }));
+    const byStatus = Object.entries(itemsByStatus).map(([name, value]) => ({
+      name,
+      value,
+    }));
+    const topAssignees = topAssigneeEntries.map(([id, count]) => ({
+      name: userNameById.get(id) ?? "Unassigned",
+      count,
+    }));
+
     return success({
       projectId,
       projectName: project.name,
-      itemsByType,
-      itemsByPriority,
-      itemsByStatus,
+      byType,
+      byPriority,
+      byStatus,
       completionTrend,
       topAssignees,
       avgCycleTime,
