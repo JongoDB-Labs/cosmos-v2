@@ -34,59 +34,30 @@ export const ResponsiveContainer = dynamic(
   () => import("recharts").then((m) => m.ResponsiveContainer),
   { ssr: false, loading: ChartFallback },
 );
-export const BarChart = dynamic(
-  () => import("recharts").then((m) => m.BarChart),
-  { ssr: false },
-);
-export const LineChart = dynamic(
-  () => import("recharts").then((m) => m.LineChart),
-  { ssr: false },
-);
-export const AreaChart = dynamic(
-  () => import("recharts").then((m) => m.AreaChart),
-  { ssr: false },
-);
-export const PieChart = dynamic(
-  () => import("recharts").then((m) => m.PieChart),
-  { ssr: false },
-);
-
-// Series primitives
-export const Bar = dynamic(() => import("recharts").then((m) => m.Bar), {
-  ssr: false,
-});
-export const Line = dynamic(() => import("recharts").then((m) => m.Line), {
-  ssr: false,
-});
-export const Area = dynamic(() => import("recharts").then((m) => m.Area), {
-  ssr: false,
-});
-export const Pie = dynamic(() => import("recharts").then((m) => m.Pie), {
-  ssr: false,
-});
-export const Cell = dynamic(() => import("recharts").then((m) => m.Cell), {
-  ssr: false,
-});
-
-// Axes / grid / decoration
-export const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), {
-  ssr: false,
-});
-export const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), {
-  ssr: false,
-});
-export const CartesianGrid = dynamic(
-  () => import("recharts").then((m) => m.CartesianGrid),
-  { ssr: false },
-);
-export const Tooltip = dynamic(
-  () => import("recharts").then((m) => m.Tooltip),
-  { ssr: false },
-);
-export const Legend = dynamic(() => import("recharts").then((m) => m.Legend), {
-  ssr: false,
-});
-export const ReferenceLine = dynamic(
-  () => import("recharts").then((m) => m.ReferenceLine),
-  { ssr: false },
-);
+// Charts / series / axes / decoration are RE-EXPORTED DIRECTLY (not via
+// next/dynamic). recharts identifies these by component *type* when it walks
+// the element tree (e.g. `<Cell>` per-element fills, `<XAxis dataKey>`), so a
+// dynamic wrapper changes the type and recharts silently ignores them — which
+// is why per-cell colors were dropped (black bars, single-color donuts) in both
+// light and dark mode. Only `ResponsiveContainer` above stays `dynamic`/
+// `ssr:false`; as the outermost wrapper it gates the whole chart to client
+// render, so the direct children below never server-render (no hydration
+// mismatch) — and recharts loads on chart pages (which import this barrel),
+// while non-chart pages don't import it at all.
+export {
+  BarChart,
+  LineChart,
+  AreaChart,
+  PieChart,
+  Bar,
+  Line,
+  Area,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ReferenceLine,
+} from "recharts";
