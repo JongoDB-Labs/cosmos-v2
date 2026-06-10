@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface WakeWordOptions {
   phrase: string; // case-insensitive substring to listen for, e.g. "hey cosmos"
@@ -7,11 +7,43 @@ interface WakeWordOptions {
   onWake: () => void;
 }
 
-export function useWakeWord({ phrase, enabled, onWake }: WakeWordOptions) {
+export interface WakeWordStatus {
+  /** Whether this browser ships the Web Speech API at all (Firefox doesn't). */
+  supported: boolean;
+  /** True while a recognition session is actively running (mic is live). */
+  listening: boolean;
+}
+
+function detectSupport(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as Window & {
+    SpeechRecognition?: unknown;
+    webkitSpeechRecognition?: unknown;
+  };
+  return Boolean(w.SpeechRecognition ?? w.webkitSpeechRecognition);
+}
+
+export function useWakeWord({
+  phrase,
+  enabled,
+  onWake,
+}: WakeWordOptions): WakeWordStatus {
   const recognitionRef = useRef<unknown | null>(null);
   const targetPhrase = phrase.toLowerCase();
+  const [supported, setSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+
+  // Feature-detect on mount (client-only) so consumers can label/disable the
+  // toggle and we can show a "listening" indicator only when it's real.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSupported(detectSupport());
+  }, []);
 
   useEffect(() => {
+    // When disabled we simply don't start a session; the previous run's cleanup
+    // (which sets listening=false) already handled the enabled→disabled flip, so
+    // no synchronous setState is needed here.
     if (!enabled) return;
     if (typeof window === "undefined") return;
 
@@ -36,6 +68,7 @@ export function useWakeWord({ phrase, enabled, onWake }: WakeWordOptions) {
             results: ArrayLike<ArrayLike<{ transcript: string }>>;
           }) => void)
         | null;
+      onstart: (() => void) | null;
       onerror: ((event: unknown) => void) | null;
       onend: (() => void) | null;
       start: () => void;
@@ -46,6 +79,8 @@ export function useWakeWord({ phrase, enabled, onWake }: WakeWordOptions) {
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = "en-US";
+
+    rec.onstart = () => setListening(true);
 
     rec.onresult = (event) => {
       for (let i = 0; i < event.results.length; i++) {
@@ -66,11 +101,15 @@ export function useWakeWord({ phrase, enabled, onWake }: WakeWordOptions) {
         } catch {
           /* already started */
         }
+      } else {
+        setListening(false);
       }
     };
 
     rec.onerror = () => {
-      // Most common: "no-speech" timeout or "aborted" on unmount — ignore
+      // Most common: "no-speech" timeout or "aborted" on unmount — ignore.
+      // A hard error (e.g. permission denied) means we're not actually live.
+      setListening(false);
     };
 
     recognitionRef.current = rec;
@@ -82,6 +121,7 @@ export function useWakeWord({ phrase, enabled, onWake }: WakeWordOptions) {
 
     return () => {
       stoppedByUser = true;
+      setListening(false);
       try {
         rec.stop();
       } catch {
@@ -90,4 +130,6 @@ export function useWakeWord({ phrase, enabled, onWake }: WakeWordOptions) {
       recognitionRef.current = null;
     };
   }, [enabled, targetPhrase, onWake]);
+
+  return { supported, listening };
 }
