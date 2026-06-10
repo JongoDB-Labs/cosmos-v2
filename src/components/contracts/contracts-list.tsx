@@ -170,6 +170,7 @@ export function ContractsList({ orgId }: ContractsListProps) {
   // When set, the dialog edits the existing row (PUT). When null, it creates a
   // new row (POST).
   const [editing, setEditing] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
 
   const contractsKey = useOrgQueryKey("contracts");
   const partnersKey = useOrgQueryKey("contracts", "partners");
@@ -250,6 +251,7 @@ export function ContractsList({ orgId }: ContractsListProps) {
     mutationFn: (id) =>
       jsonFetch(`/api/v1/orgs/${orgId}/contracts/${id}`, { method: "DELETE" }),
     invalidate: [["contracts"]],
+    onSuccess: () => setPendingDelete(null),
     onError: (err) => notifyError(err, "Couldn't delete the contract."),
   });
 
@@ -426,15 +428,8 @@ export function ContractsList({ orgId }: ContractsListProps) {
                       label: "Delete",
                       icon: Trash2,
                       variant: "destructive" as const,
-                      onClick: () => {
-                        if (
-                          typeof window !== "undefined" &&
-                          !window.confirm(`Delete contract "${c.title}"?`)
-                        ) {
-                          return;
-                        }
-                        deleteMutation.mutate(c.id);
-                      },
+                      onClick: () =>
+                        setPendingDelete({ id: c.id, title: c.title }),
                     },
                   ]
                 : []),
@@ -660,6 +655,40 @@ export function ContractsList({ orgId }: ContractsListProps) {
           />
         }
       />
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(o) => {
+          if (!o && !deleteMutation.isPending) setPendingDelete(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete contract?</DialogTitle>
+          </DialogHeader>
+          <p className="py-1 text-sm text-muted-foreground">
+            This permanently deletes{" "}
+            {pendingDelete?.title ? `"${pendingDelete.title}"` : "this contract"}.
+            This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingDelete(null)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
