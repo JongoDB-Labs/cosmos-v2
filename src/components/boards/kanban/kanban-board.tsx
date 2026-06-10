@@ -445,14 +445,28 @@ function KanbanBoardInner({
         toast.warning(`"${label}" is at its limit (${wipLimit})`);
       }
 
+      // Build the target column's new order (moved card inserted at newOrder)
+      // and re-sequence EVERY card in it to a unique 0..n sortOrder. The server
+      // stores sortOrder verbatim (no sibling shift), so assigning the moved
+      // card the index of the card it landed on would otherwise collide two
+      // cards at the same order — making the drop position non-deterministic
+      // after a refetch. Only the target column needs renumbering; the source
+      // column keeps its relative order (a gap is harmless). Mirrors the
+      // Backlog view's reorder model.
+      const reordered = [...colItems];
+      reordered.splice(newOrder, 0, { ...movedItem, columnKey: targetColumnKey });
+      const seqById = new Map(reordered.map((it, idx) => [it.id, idx] as const));
+
       // Optimistic update. (Pre-drag state was captured in handleDragStart,
       // before handleDragOver moved the card, so we can truly revert.)
       setItems((prev) =>
-        prev.map((i) =>
-          i.id === activeId
-            ? { ...i, columnKey: targetColumnKey, sortOrder: newOrder }
-            : i
-        )
+        prev.map((i) => {
+          const seq = seqById.get(i.id);
+          if (i.id === activeId) {
+            return { ...i, columnKey: targetColumnKey, sortOrder: seq ?? newOrder };
+          }
+          return seq !== undefined ? { ...i, sortOrder: seq } : i;
+        })
       );
 
       // Fire confetti when the item is dragged into a DONE column for the
@@ -470,19 +484,35 @@ function KanbanBoardInner({
         void import("@/lib/confetti").then(({ celebrate }) => celebrate());
       }
 
-      // API call to persist; revert the optimistic move + notify on failure
-      // (a raw fetch does NOT reject on 4xx/5xx, so check res.ok explicitly).
+      // Persist the moved card (column + new order) plus any sibling whose
+      // order actually shifted, in parallel. Revert the WHOLE drag on any
+      // failure (raw fetch does NOT reject on 4xx/5xx — check res.ok).
+      const updates: { id: string; body: Record<string, unknown> }[] = [
+        {
+          id: activeId,
+          body: { columnKey: targetColumnKey, sortOrder: seqById.get(activeId) ?? newOrder },
+        },
+      ];
+      for (const it of colItems) {
+        const seq = seqById.get(it.id);
+        if (seq !== undefined && seq !== it.sortOrder) {
+          updates.push({ id: it.id, body: { sortOrder: seq } });
+        }
+      }
       void (async () => {
         try {
-          const res = await fetch(`${basePath}/work-items/${activeId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              columnKey: targetColumnKey,
-              sortOrder: newOrder,
-            }),
-          });
-          if (!res.ok) throw new Error(`Failed to move card (HTTP ${res.status})`);
+          const results = await Promise.all(
+            updates.map((u) =>
+              fetch(`${basePath}/work-items/${u.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(u.body),
+              }),
+            ),
+          );
+          if (results.some((r) => !r.ok)) {
+            throw new Error("Failed to persist the new order");
+          }
         } catch (err) {
           console.error("Failed to update work item position:", err);
           setItems(beforeDragItemsRef.current);
