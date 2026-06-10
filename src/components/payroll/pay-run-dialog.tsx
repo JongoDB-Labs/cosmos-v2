@@ -48,10 +48,9 @@ export function PayRunDialog({
   const previewQ = useQuery({
     queryKey: previewKey,
     enabled: run !== null && run.status === "DRAFT",
+    // jsonFetch already unwraps the single-key { data } envelope.
     queryFn: () =>
-      jsonFetch<{ data: Preview }>(
-        `/api/v1/orgs/${orgId}/pay-runs/${run!.id}/preview`,
-      ).then((r) => r.data),
+      jsonFetch<Preview>(`/api/v1/orgs/${orgId}/pay-runs/${run!.id}/preview`),
   });
 
   const post = useOrgMutation<{ unpricedSkipped?: number }, Error, void>({
