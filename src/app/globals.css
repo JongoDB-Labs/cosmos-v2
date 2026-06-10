@@ -301,6 +301,28 @@
   :target {
     scroll-margin-top: 80px;
   }
+
+  /* Keyboard-accessibility fallback. The Button / base-ui primitives set
+   * `outline-none` and show their own focus ring (which wins via the utilities
+   * layer), but the many *raw* <button>/<a>/[role] elements across the app had
+   * NO focus indicator at all — invisible for keyboard users. This gives them a
+   * visible ring. `:where()` keeps it at zero specificity so any explicit focus
+   * utility (or the primitives' `outline-none`) still overrides it. Inputs are
+   * intentionally excluded — they already show a ring on focus. */
+  :where(
+    a[href],
+    button,
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="tab"],
+    [role="option"],
+    summary,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 }
 
 /* Always-visible thin horizontal scrollbar. Multi-column surfaces (kanban
