@@ -39,7 +39,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { createdAt: "desc" },
     });
 
-    return success(classifications);
+    // Resolve applier display names so the UI shows a name, not a raw UUID.
+    // A side query (not a Prisma relation) keeps this migration-free and never
+    // touches OrgMember.permissions (BigInt). Map id → displayName.
+    const applierIds = [...new Set(classifications.map((c) => c.appliedById))];
+    const appliers = applierIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: applierIds } },
+          select: { id: true, displayName: true },
+        })
+      : [];
+    const nameById = new Map(appliers.map((u) => [u.id, u.displayName]));
+
+    return success(
+      classifications.map((c) => ({
+        ...c,
+        appliedByName: nameById.get(c.appliedById) ?? null,
+      })),
+    );
   } catch (error) {
     return handleApiError(error);
   }
