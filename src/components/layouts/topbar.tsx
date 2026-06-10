@@ -63,7 +63,7 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
         <Breadcrumbs orgs={orgs} />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {/* Moved nav: Notes, Chat, Team, Meetings as icon/tab links (item 7).
             These are PRIMARY destinations that live only in the topbar — the
             sidebar has none of them. (Mobile reaches them via the drawer.) */}

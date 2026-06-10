@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export type Crumb = { label: string; href: string };
 
@@ -57,24 +58,44 @@ export function Breadcrumbs({
   if (crumbs.length === 0) return null;
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm">
-      {crumbs.map((c, i) => (
-        <span key={c.href} className="flex items-center gap-1">
-          {i > 0 && (
-            <ChevronRight className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-          )}
-          {i === crumbs.length - 1 ? (
-            <span className="font-medium">{c.label}</span>
-          ) : (
-            <Link
-              href={c.href}
-              className="text-[var(--text-muted)] hover:text-[var(--text)]"
-            >
-              {c.label}
-            </Link>
-          )}
-        </span>
-      ))}
+    <nav
+      aria-label="Breadcrumb"
+      className="flex min-w-0 items-center gap-1 text-sm"
+    >
+      {crumbs.map((c, i) => {
+        const isLast = i === crumbs.length - 1;
+        return (
+          <span
+            key={c.href}
+            // On phones the full trail wraps and collides with the topbar
+            // icons, so collapse to just the current page (the bottom nav +
+            // hamburger provide navigation there); show the full trail at sm+.
+            className={cn(
+              "flex items-center gap-1",
+              isLast ? "min-w-0" : "hidden sm:flex",
+            )}
+          >
+            {i > 0 && (
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]",
+                  isLast && "hidden sm:block",
+                )}
+              />
+            )}
+            {isLast ? (
+              <span className="truncate font-medium">{c.label}</span>
+            ) : (
+              <Link
+                href={c.href}
+                className="whitespace-nowrap text-[var(--text-muted)] hover:text-[var(--text)]"
+              >
+                {c.label}
+              </Link>
+            )}
+          </span>
+        );
+      })}
     </nav>
   );
 }
