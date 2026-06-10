@@ -34,9 +34,13 @@ interface NoteEditorProps {
   onClose: () => void;
 }
 
+// NOTE: "PROJECT" visibility is intentionally NOT offered. The Note model has
+// no projectId, so a PROJECT note isn't actually scoped to any project — the
+// list query treats it identically to ORG, which made the option misleading.
+// Legacy PROJECT notes still render (see visibilityLabels), and editing one
+// normalizes it to ORG on open (its real, equivalent behavior).
 const visibilityOptions: { value: Note["visibility"]; label: string }[] = [
   { value: "PRIVATE", label: "Private" },
-  { value: "PROJECT", label: "Project" },
   { value: "ORG", label: "Organization" },
 ];
 
@@ -52,7 +56,9 @@ export function NoteEditor({
   // exports markdown back through onChange.
   const [content, setContent] = useState(note?.content ?? "");
   const [visibility, setVisibility] = useState<Note["visibility"]>(
-    note?.visibility ?? "PRIVATE",
+    // Coerce legacy PROJECT → ORG so the (now PROJECT-less) Select has a valid
+    // selection; PROJECT always behaved as ORG anyway.
+    note?.visibility === "PROJECT" ? "ORG" : (note?.visibility ?? "PRIVATE"),
   );
   const [saving, setSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
