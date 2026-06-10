@@ -80,6 +80,11 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const [error, setError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Filter + sort (FR: organize/filter FRs & BRs by status and type).
+  const [filterType, setFilterType] = useState<"ALL" | FType>("ALL");
+  const [filterStatus, setFilterStatus] = useState<"ALL" | FStatus>("ALL");
+  const [sortBy, setSortBy] = useState<"votes" | "newest">("votes");
+
   // Submit dialog.
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<FType>("FEATURE");
@@ -228,9 +233,67 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     );
   }
 
+  const visibleItems = items
+    .filter((i) => filterType === "ALL" || i.type === filterType)
+    .filter((i) => filterStatus === "ALL" || i.status === filterStatus)
+    .slice()
+    .sort((a, b) => {
+      if (sortBy === "votes" && b.voteCount !== a.voteCount) {
+        return b.voteCount - a.voteCount;
+      }
+      // tiebreak / "newest" → most recent first
+      return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0;
+    });
+
+  const selectCls =
+    "rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--primary)]";
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex items-center gap-1">
+            Type
+            <select
+              aria-label="Filter by type"
+              className={selectCls}
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as "ALL" | FType)}
+            >
+              <option value="ALL">All</option>
+              <option value="FEATURE">Features</option>
+              <option value="BUG">Bugs</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
+            Status
+            <select
+              aria-label="Filter by status"
+              className={selectCls}
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as "ALL" | FStatus)}
+            >
+              <option value="ALL">All</option>
+              {STATUS_ORDER.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
+            Sort
+            <select
+              aria-label="Sort by"
+              className={selectCls}
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "votes" | "newest")}
+            >
+              <option value="votes">Top voted</option>
+              <option value="newest">Newest</option>
+            </select>
+          </label>
+        </div>
         <Button size="sm" onClick={() => setOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
           Submit feedback
@@ -243,9 +306,14 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
           title="No feedback yet"
           description="Be the first to request a feature or report a bug. Popular ideas rise to the top by votes."
         />
+      ) : visibleItems.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          No {filterType === "ALL" ? "feedback" : filterType === "BUG" ? "bugs" : "features"}
+          {filterStatus !== "ALL" ? ` that are ${STATUS_LABELS[filterStatus].toLowerCase()}` : ""}.
+        </div>
       ) : (
         <div className="space-y-2">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <div
               key={item.id}
               className="flex items-start gap-3 rounded-lg border bg-card p-4"
