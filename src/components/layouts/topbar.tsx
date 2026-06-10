@@ -153,6 +153,23 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
             it now opens the in-place drawer. */}
         {currentOrg && (
           <div className="flex items-center gap-0.5">
+            {/* Mobile-only search trigger: the full Search button above is md+
+                only and ⌘K needs a hardware keyboard, so without this phones
+                have no way to open the command palette / search. */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)] md:hidden"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("cosmos:command-palette:open"),
+                )
+              }
+              aria-label="Search"
+              title="Search"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
