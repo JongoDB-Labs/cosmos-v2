@@ -135,6 +135,10 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
   if (startDate) where.startDate = startDate;
   const dueDate = buildDateRange(filter.dueDate);
   if (dueDate) where.dueDate = dueDate;
+  const createdAt = buildDateRange(filter.createdAt);
+  if (createdAt) where.createdAt = createdAt;
+  const updatedAt = buildDateRange(filter.updatedAt);
+  if (updatedAt) where.updatedAt = updatedAt;
 
   // ── Free-text (title OR description, case-insensitive contains) ──────
   const text = filter.text?.trim();
@@ -156,19 +160,30 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
  *  rather than throwing — the caller validates inputs at the edge. */
 function buildDateRange(
   range: { from?: string; to?: string } | undefined,
-): Prisma.DateTimeNullableFilter | undefined {
+): { gte?: Date; lte?: Date } | undefined {
+  // A plain { gte?, lte? } is structurally assignable to BOTH Prisma's
+  // DateTimeNullableFilter (nullable startDate/dueDate) and DateTimeFilter
+  // (non-null createdAt/updatedAt), so the one builder serves all four fields.
   if (!range) return undefined;
-  const out: Prisma.DateTimeNullableFilter = {};
+  const out: { gte?: Date; lte?: Date } = {};
   const from = parseDate(range.from);
-  const to = parseDate(range.to);
+  // A date-only upper bound (YYYY-MM-DD) is snapped to end-of-day so the `lte`
+  // is inclusive of the whole day — otherwise "to 2026-06-09" silently drops
+  // everything created after midnight that day.
+  const to = parseDate(range.to, { endOfDay: true });
   if (from) out.gte = from;
   if (to) out.lte = to;
   return out.gte || out.lte ? out : undefined;
 }
 
-function parseDate(value: string | undefined): Date | undefined {
+function parseDate(
+  value: string | undefined,
+  opts?: { endOfDay?: boolean },
+): Date | undefined {
   if (!value) return undefined;
-  const d = new Date(value);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const iso = dateOnly && opts?.endOfDay ? `${value}T23:59:59.999Z` : value;
+  const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
