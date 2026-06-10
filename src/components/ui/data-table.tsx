@@ -161,12 +161,16 @@ export function DataTable<T>({
           />
         ),
         cell: ({ row }) => (
-          <Checkbox
-            checked={row.getIsSelected()}
-            disabled={!row.getCanSelect()}
-            onChange={(e) => row.toggleSelected(e.target.checked)}
-            aria-label="Select row"
-          />
+          // Stop the click bubbling to the row's onClick — otherwise ticking a
+          // checkbox to bulk-select also opens the detail drawer (FR/BR).
+          <div onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={row.getIsSelected()}
+              disabled={!row.getCanSelect()}
+              onChange={(e) => row.toggleSelected(e.target.checked)}
+              aria-label="Select row"
+            />
+          </div>
         ),
       };
       cols = [selectionCol, ...cols];
@@ -301,7 +305,7 @@ export function DataTable<T>({
         </DropdownMenuContent>
       </DropdownMenu>
     )}
-    <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
       <table className="w-full text-sm block md:table">
         <thead
           className={cn(
