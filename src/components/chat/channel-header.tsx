@@ -1,20 +1,25 @@
 "use client";
 import Link from "next/link";
-import { ChevronLeft, Hash, Lock, Pin } from "lucide-react";
+import { useState } from "react";
+import { ChevronLeft, Hash, Lock, Pin, Settings2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import type { ChatChannelSummary } from "@/hooks/use-chat-channels";
+import { ChannelSettingsDialog } from "./channel-settings-dialog";
 
 export function ChannelHeader({
   channel,
+  orgId,
   pinCount,
   onTogglePins,
 }: {
   channel: ChatChannelSummary;
+  orgId: string;
   pinCount: number;
   onTogglePins: () => void;
 }) {
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1] ?? "";
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const Icon = channel.isPrivate ? Lock : Hash;
   const title =
     channel.kind === "CHANNEL"
@@ -54,7 +59,26 @@ export function ChannelHeader({
           <Pin className="h-4 w-4" />
           {pinCount > 0 && <span className="text-xs">{pinCount}</span>}
         </button>
+        {channel.kind === "CHANNEL" && channel.canManage && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Channel settings"
+            title="Channel settings"
+          >
+            <Settings2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
+      {channel.kind === "CHANNEL" && channel.canManage && (
+        <ChannelSettingsDialog
+          orgId={orgId}
+          channel={channel}
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+        />
+      )}
     </header>
   );
 }
