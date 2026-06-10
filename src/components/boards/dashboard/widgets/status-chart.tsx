@@ -34,8 +34,8 @@ export function StatusChart({ data }: StatusChartProps) {
         </Pie>
         <Tooltip
           contentStyle={{
-            backgroundColor: "hsl(var(--popover))",
-            border: "1px solid hsl(var(--border))",
+            backgroundColor: "var(--overlay)",
+            border: "1px solid var(--border)",
             borderRadius: "8px",
             fontSize: "12px",
           }}
@@ -46,7 +46,7 @@ export function StatusChart({ data }: StatusChartProps) {
           iconType="circle"
           iconSize={8}
           formatter={(value: string) => (
-            <span style={{ color: "hsl(var(--foreground))", fontSize: "11px" }}>
+            <span style={{ color: "var(--text)", fontSize: "11px" }}>
               {value}
             </span>
           )}
