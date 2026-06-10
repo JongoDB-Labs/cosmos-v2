@@ -1,17 +1,20 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderKanban, MessageCircle, Sparkles } from "lucide-react";
+import { LayoutDashboard, FolderKanban, MessageCircle, FileText, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 
-// Projects is the central concept of the app, so it earns a slot in the
-// bottom four; the long tail (CRM, Finance, Notes, …) stays in the drawer.
+// The five core scrum destinations, Chat centered. The Agent is the floating
+// bubble (not a nav slot); the long tail (Team, CRM, Finance, Settings, …)
+// stays in the drawer. Closes the gap where Notes/Meetings were unreachable on
+// mobile without opening the drawer.
 const items = [
   { icon: LayoutDashboard, label: "Overview", href: "" },
   { icon: FolderKanban, label: "Projects", href: "/projects" },
   { icon: MessageCircle, label: "Chat", href: "/chat" },
-  { icon: Sparkles, label: "Assistant", href: "/assistant" },
+  { icon: FileText, label: "Notes", href: "/notes" },
+  { icon: Video, label: "Meetings", href: "/meetings" },
 ];
 
 export function MobileBottomNav({
@@ -28,7 +31,7 @@ export function MobileBottomNav({
 
   if (!orgSlug) return null;
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-4 border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden">
       {items.map((item) => {
         const href = `/${orgSlug}${item.href}`;
         const isActive =
@@ -40,7 +43,7 @@ export function MobileBottomNav({
             href={href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex flex-col items-center justify-center gap-1 py-2 text-[11px]",
+              "flex min-h-[52px] flex-col items-center justify-center gap-1 py-2.5 text-[11px]",
               isActive
                 ? "text-[var(--primary)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text)]",
