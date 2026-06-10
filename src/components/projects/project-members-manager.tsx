@@ -13,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
@@ -71,6 +79,7 @@ export function ProjectMembersManager({
   const [addId, setAddId] = useState("");
   const [addRole, setAddRole] = useState<ProjectRole>("MEMBER");
   const [busy, setBusy] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<ProjectMember | null>(null);
 
   const inProject = new Set(members.map((m) => m.orgMemberId));
   const addable = orgMembers.filter((m) => !inProject.has(m.id));
@@ -202,7 +211,7 @@ export function ProjectMembersManager({
                     size="icon-sm"
                     aria-label={`Remove ${m.displayName}`}
                     disabled={busy}
-                    onClick={() => remove(m.orgMemberId)}
+                    onClick={() => setPendingRemove(m)}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -216,6 +225,44 @@ export function ProjectMembersManager({
           ))
         )}
       </div>
+
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(o) => {
+          if (!o && !busy) setPendingRemove(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove from project?</DialogTitle>
+            <DialogDescription>
+              This removes <strong>{pendingRemove?.displayName}</strong> from{" "}
+              {projectName}. They keep their org membership but lose access to
+              this project.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setPendingRemove(null)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={async () => {
+                if (!pendingRemove) return;
+                await remove(pendingRemove.orgMemberId);
+                setPendingRemove(null);
+              }}
+            >
+              {busy ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
