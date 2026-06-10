@@ -100,13 +100,18 @@ export function InvoiceBuilderDialog({
   });
 
   // Live preview totals (display only — the server recomputes authoritatively).
+  // Round each line's amount and tax to cents BEFORE summing, matching the
+  // server's per-line rounding (sumMoney/roundMoney). Summing un-rounded floats
+  // and rounding once at the end can drift the preview a cent or two off the
+  // invoice that actually gets created.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   const computed = lines.map((l) => {
-    const amount = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0);
-    const tax = amount * ((Number(l.taxRatePct) || 0) / 100);
+    const amount = round2((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0));
+    const tax = round2(amount * ((Number(l.taxRatePct) || 0) / 100));
     return { amount, tax };
   });
-  const subtotal = computed.reduce((a, c) => a + c.amount, 0);
-  const taxTotal = computed.reduce((a, c) => a + c.tax, 0);
+  const subtotal = round2(computed.reduce((a, c) => a + c.amount, 0));
+  const taxTotal = round2(computed.reduce((a, c) => a + c.tax, 0));
 
   const valid =
     billToName.trim() !== "" &&
