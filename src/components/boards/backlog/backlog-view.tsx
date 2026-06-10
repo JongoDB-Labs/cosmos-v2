@@ -38,6 +38,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import type {
   Board,
@@ -390,7 +391,14 @@ export function BacklogView({
         <span className="text-xs text-[var(--text-muted)]">
           {totalVisible} item{totalVisible === 1 ? "" : "s"}
         </span>
-        <label className="ml-auto flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--text-muted)]">
+        <div className="ml-auto flex items-center gap-3">
+          <CreateIssueButton
+            orgId={orgId}
+            projectId={projectId}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+          />
+        <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-[var(--text-muted)]">
           <input
             type="checkbox"
             checked={hideDone}
@@ -399,6 +407,7 @@ export function BacklogView({
           />
           Hide done
         </label>
+        </div>
       </div>
 
       {items.length === 0 ? (

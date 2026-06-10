@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo, useRef } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
 import type { WorkItem, OrgMember } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
+import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 
 interface TimelineViewProps {
   orgId: string;
@@ -62,6 +63,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
+  const qc = useQueryClient();
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
   const linksKey = useOrgQueryKey("work-item-links", projectId);
@@ -249,6 +251,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   return (
     <div className="flex flex-col h-full">
+      <div className="flex items-center justify-end gap-2 border-b px-4 py-2">
+        <CreateIssueButton
+          orgId={orgId}
+          projectId={projectId}
+          boardId={boardId}
+          onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+        />
+      </div>
       <div className="flex-1 flex overflow-hidden">
         {/* Left panel - item labels */}
         <div

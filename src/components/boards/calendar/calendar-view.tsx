@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
+  const qc = useQueryClient();
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
 
@@ -162,16 +164,24 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
             <ChevronRight className="h-3.5 w-3.5" />
           </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => {
-            setCurrentDate(new Date());
-            setExpandedDay(null);
-          }}
-        >
-          Today
-        </Button>
+        <div className="flex items-center gap-2">
+          <CreateIssueButton
+            orgId={orgId}
+            projectId={projectId}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+          />
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              setCurrentDate(new Date());
+              setExpandedDay(null);
+            }}
+          >
+            Today
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
