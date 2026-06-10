@@ -42,7 +42,7 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
       aria-label="Open COSMOS Agent"
       title="COSMOS Agent"
       className={cn(
-        "fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-40 md:bottom-6 md:right-6",
+        "fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 md:bottom-6 md:right-6",
         "flex h-12 w-12 items-center justify-center rounded-full",
         "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg",
         "transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",

@@ -17,7 +17,7 @@ export function StatCard({ label, trend, children, className }: StatCardProps) {
       )}
     >
       <div className="mb-3 flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+        <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)] md:text-[13px]">
           {label}
         </p>
         {trend && <TrendChip value={trend} />}
