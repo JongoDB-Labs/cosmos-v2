@@ -70,6 +70,10 @@ const KIND_LABELS: Record<string, string> = {
   ITERATION: "Iteration",
 };
 
+// Sentinel for the "Backlog (no cycle)" option — base-ui Select treats an empty
+// string as "unset" and would show the placeholder instead of the label.
+const BACKLOG_OPTION = "__backlog__";
+
 const STATUS_GROUPS: { status: Cycle["status"]; label: string }[] = [
   { status: "ACTIVE", label: "Active" },
   { status: "PLANNED", label: "Planned" },
@@ -116,6 +120,11 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
 
   // Capacity planning dialog.
   const [capacityTarget, setCapacityTarget] = useState<Cycle | null>(null);
+
+  // Sprint-review / completion dialog: which cycle is being completed, and where
+  // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
+  const [completeTarget, setCompleteTarget] = useState<Cycle | null>(null);
+  const [moveToCycleId, setMoveToCycleId] = useState<string>(BACKLOG_OPTION);
 
   const fetchCycles = useCallback(async () => {
     setLoading(true);
@@ -199,15 +208,18 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
     }
   }
 
-  async function completeCycle(id: string) {
+  // moveIncompleteToCycleId: null → incomplete items return to the backlog;
+  // a cycle id → they roll over into that (planned) cycle.
+  async function completeCycle(id: string, moveIncompleteToCycleId: string | null) {
     setBusyId(id);
     try {
       const res = await fetch(`${basePath}/cycles/${id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ moveIncompleteToCycleId }),
       });
       if (!res.ok) throw new Error("Failed to complete cycle");
+      setCompleteTarget(null);
       await fetchCycles();
     } catch (err) {
       notifyError(err, "Couldn't complete the cycle.");
@@ -306,7 +318,10 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
                       canUpdate={canUpdate}
                       canComplete={canComplete}
                       onStart={() => activateCycle(cycle.id)}
-                      onComplete={() => completeCycle(cycle.id)}
+                      onComplete={() => {
+                        setMoveToCycleId(BACKLOG_OPTION);
+                        setCompleteTarget(cycle);
+                      }}
                       onDelete={() => setDeleteTarget(cycle)}
                       onCapacity={() => setCapacityTarget(cycle)}
                     />
@@ -435,6 +450,81 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
           onClose={() => setCapacityTarget(null)}
         />
       )}
+
+      {/* Sprint review / completion — choose where incomplete items go. */}
+      <Dialog
+        open={completeTarget !== null}
+        onOpenChange={(o) => !o && setCompleteTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Complete {completeTarget ? completeTarget.name : "cycle"}
+            </DialogTitle>
+            <DialogDescription>
+              Completing locks the cycle and records its velocity. Any unfinished
+              work items need a new home — choose where they go.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {completeTarget?._count?.workItems != null && (
+              <p className="text-sm text-muted-foreground">
+                This cycle has{" "}
+                <span className="font-medium text-foreground">
+                  {completeTarget._count.workItems}
+                </span>{" "}
+                item{completeTarget._count.workItems === 1 ? "" : "s"}. Completed
+                ones stay; unfinished ones move below.
+              </p>
+            )}
+            <div className="space-y-1.5">
+              <Label>Move unfinished items to</Label>
+              <Select
+                value={moveToCycleId}
+                onValueChange={(v) => setMoveToCycleId(v ?? BACKLOG_OPTION)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Backlog" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={BACKLOG_OPTION}>Backlog (no cycle)</SelectItem>
+                  {cycles
+                    .filter(
+                      (c) =>
+                        c.status === "PLANNED" && c.id !== completeTarget?.id,
+                    )
+                    .map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCompleteTarget(null)}
+              disabled={busyId === completeTarget?.id}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                completeTarget &&
+                completeCycle(
+                  completeTarget.id,
+                  moveToCycleId === BACKLOG_OPTION ? null : moveToCycleId,
+                )
+              }
+              disabled={busyId === completeTarget?.id}
+            >
+              {busyId === completeTarget?.id ? "Completing…" : "Complete cycle"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
