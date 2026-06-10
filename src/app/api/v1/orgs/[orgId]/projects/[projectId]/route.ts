@@ -25,7 +25,17 @@ const updateProjectSchema = z.object({
   description: z.string().nullish(),
   settings: z.record(z.string(), z.unknown()).optional(),
   archived: z.boolean().optional(),
-  enabledFeatures: z.array(z.enum(TOGGLEABLE_FEATURES)).optional(),
+  // Accept any string array but FILTER to the known toggleable set rather than
+  // hard-rejecting. A project seeded/imported with a legacy flag (e.g. a RAID
+  // board's "risk") would otherwise 400 the entire update the moment the client
+  // round-trips the stored array while toggling another feature on/off. Filtering
+  // both fixes that and cleans the orphaned value out on the next save.
+  enabledFeatures: z
+    .array(z.string())
+    .transform((arr) =>
+      arr.filter((f) => (TOGGLEABLE_FEATURES as readonly string[]).includes(f)),
+    )
+    .optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
