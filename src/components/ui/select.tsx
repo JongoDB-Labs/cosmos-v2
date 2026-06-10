@@ -13,6 +13,27 @@ import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
  * (not raw enum values / UUIDs) without having to hand-maintain a map. Items
  * whose label isn't a plain string are skipped (base-ui falls back gracefully).
  */
+/**
+ * Flatten a SelectItem's children to a display string. Handles a plain
+ * string/number AND interpolated children like `{p.key} - {p.name}` (which JSX
+ * compiles to an array). Without the array case, such items were skipped, the
+ * derived `items` map had no label for that value, and <Select.Value> fell back
+ * to rendering the RAW value — e.g. a project UUID instead of its name.
+ */
+function selectItemLabel(children: React.ReactNode): string | null {
+  if (typeof children === "string" || typeof children === "number") {
+    return String(children)
+  }
+  if (Array.isArray(children)) {
+    const parts = children.filter(
+      (c): c is string | number =>
+        typeof c === "string" || typeof c === "number",
+    )
+    if (parts.length > 0) return parts.map(String).join("").trim()
+  }
+  return null
+}
+
 function collectSelectItems(
   node: React.ReactNode,
   acc: Record<string, React.ReactNode>,
@@ -21,9 +42,8 @@ function collectSelectItems(
     if (!React.isValidElement(child)) return
     const props = child.props as { value?: unknown; children?: React.ReactNode }
     if (child.type === SelectItem && props.value !== undefined) {
-      if (typeof props.children === "string" || typeof props.children === "number") {
-        acc[String(props.value)] = props.children
-      }
+      const label = selectItemLabel(props.children)
+      if (label !== null) acc[String(props.value)] = label
     } else if (props.children) {
       collectSelectItems(props.children, acc)
     }
