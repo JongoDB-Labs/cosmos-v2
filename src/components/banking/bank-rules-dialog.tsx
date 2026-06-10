@@ -116,7 +116,21 @@ export function BankRulesDialog({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (form.category.trim()) create.mutate();
+            if (!form.category.trim()) return;
+            // A min greater than max can never match a transaction — catch it
+            // here instead of silently creating a dead rule.
+            if (
+              form.amountMin &&
+              form.amountMax &&
+              Number(form.amountMin) > Number(form.amountMax)
+            ) {
+              notifyError(
+                new Error("min>max"),
+                "Min amount can't be greater than max amount.",
+              );
+              return;
+            }
+            create.mutate();
           }}
           className="grid grid-cols-2 gap-3 rounded-lg border p-3 sm:grid-cols-3"
         >
