@@ -11,6 +11,8 @@ export type ChatChannelSummary = {
   topic: string | null;
   isPrivate: boolean;
   isGeneral: boolean;
+  /** Viewer may rename / set topic / archive this channel (org or channel admin). */
+  canManage: boolean;
   projectId: string | null;
   lastMessageAt: string | null;
   notificationPref: "ALL" | "MENTIONS" | "MUTED";
