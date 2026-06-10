@@ -109,7 +109,7 @@ export function MentionPicker({
   if (filtered.length === 0) return null;
   return (
     <div
-      className="fixed z-50 bg-popover border rounded shadow-md text-sm min-w-[200px]"
+      className="fixed z-50 bg-popover border rounded shadow-md text-sm min-w-[200px] max-w-[min(20rem,calc(100vw-1rem))] max-h-72 overflow-y-auto"
       style={{ top: anchor.top, left: anchor.left }}
     >
       {filtered.map((m, i) => (
