@@ -43,12 +43,16 @@ export default async function ProjectLayout({
 
   if (!project) notFound();
 
-  // Board management (delete) inherits like everything else: an org BOARD_DELETE
-  // holder OR a manager of THIS project. Computed server-side and passed to the
-  // tabs so a project manager without org-wide grants can still manage boards.
+  // Board create/delete inherit like everything else: an org grant holder OR a
+  // manager of THIS project. Computed server-side and passed to the tabs so a
+  // project manager without org-wide grants can still manage boards — and,
+  // conversely, a VIEWER/GUEST (no grant, not a manager) doesn't see the create
+  // affordance at all (the POST would 403 anyway). One manager check, reused.
+  const isProjectManager = await canManageProject(ctx, project.id);
   const canManageBoards =
-    hasPermission(ctx.permissions, Permission.BOARD_DELETE) ||
-    (await canManageProject(ctx, project.id));
+    hasPermission(ctx.permissions, Permission.BOARD_DELETE) || isProjectManager;
+  const canCreateBoards =
+    hasPermission(ctx.permissions, Permission.BOARD_CREATE) || isProjectManager;
 
   return (
     <div className="flex flex-col h-full">
@@ -90,6 +94,7 @@ export default async function ProjectLayout({
         boards={project.boards}
         enabledFeatures={project.enabledFeatures}
         canManageBoards={canManageBoards}
+        canCreateBoards={canCreateBoards}
         templateDefaultConfig={
           project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
         }

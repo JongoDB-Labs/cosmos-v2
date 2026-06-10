@@ -33,6 +33,8 @@ interface ProjectBoardTabsProps {
   enabledFeatures?: string[];
   /** Whether the actor may delete boards (org BOARD_DELETE or project MANAGER). */
   canManageBoards?: boolean;
+  /** Whether the actor may create boards (org BOARD_CREATE or project MANAGER). */
+  canCreateBoards?: boolean;
   templateDefaultConfig?: Record<string, unknown> | null;
 }
 
@@ -50,6 +52,7 @@ export function ProjectBoardTabs({
   boards,
   enabledFeatures = [],
   canManageBoards = false,
+  canCreateBoards = false,
   templateDefaultConfig,
 }: ProjectBoardTabsProps) {
   const pathname = usePathname();
@@ -225,22 +228,24 @@ export function ProjectBoardTabs({
         );
       })()}
 
-      <Link
-        href={newBoardHref}
-        aria-current={pathname === newBoardHref ? "page" : undefined}
-        className={cn(
-          "relative flex items-center gap-1 px-2 py-2 text-sm font-medium transition-colors whitespace-nowrap ml-1",
-          pathname === newBoardHref
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <Plus className="h-3.5 w-3.5" />
-        New Board
-        {pathname === newBoardHref && (
-          <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
-        )}
-      </Link>
+      {canCreateBoards && (
+        <Link
+          href={newBoardHref}
+          aria-current={pathname === newBoardHref ? "page" : undefined}
+          className={cn(
+            "relative flex items-center gap-1 px-2 py-2 text-sm font-medium transition-colors whitespace-nowrap ml-1",
+            pathname === newBoardHref
+              ? "text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          New Board
+          {pathname === newBoardHref && (
+            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
+          )}
+        </Link>
+      )}
 
       {/* Members — project-scoped access (project managers + org admins). */}
       <Link
