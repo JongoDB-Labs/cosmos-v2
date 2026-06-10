@@ -76,11 +76,21 @@ export function ProfileForm({ initial }: ProfileFormProps) {
         await disablePushNotifications();
         setPushState("unsubscribed");
       } else if (pushState === "unsubscribed") {
-        const sub = await enablePushNotifications();
-        if (sub) {
+        const result = await enablePushNotifications();
+        if (result.ok) {
           setPushState("subscribed");
         } else {
-          setError("Couldn't enable notifications. Check your browser's notification permission.");
+          // Accurate, cause-specific messaging — don't blame browser
+          // permission when the server simply has no VAPID keys.
+          setError(
+            result.reason === "not_configured"
+              ? "Push notifications aren't configured on this server yet. Ask your administrator to set the VAPID keys."
+              : result.reason === "denied"
+                ? "Notifications are blocked for this site. Enable them in your browser's site settings, then try again."
+                : result.reason === "unsupported"
+                  ? "Your browser doesn't support push notifications."
+                  : "Couldn't enable notifications. Please try again.",
+          );
         }
       }
     } catch (e) {

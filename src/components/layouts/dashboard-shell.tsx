@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "@/lib/hooks/use-media-query";
 import {
   useHashAnchorScroll,
@@ -47,6 +47,28 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
 
   useMainScrollRestorer(mainRef);
   useHashAnchorScroll(mainRef);
+
+  // Lock the document/viewport scroller while the dashboard shell is mounted so
+  // <main> is the ONLY scroll surface. Without this, a page whose content
+  // overflows <main> (e.g. Settings, long lists) also leaves the *viewport*
+  // scrollable in Chromium — a nested overflow:auto scroller propagates its
+  // overflow to the documentElement even though every app-level ancestor
+  // (h-screen root, body) is correctly clipped at 100vh. The visible symptom:
+  // wheeling over the fixed topbar scrolls the whole page "into nothingness".
+  // Scoped to the dashboard (this client shell) so login/marketing pages, which
+  // legitimately rely on document scroll, are unaffected; cleanup restores the
+  // prior value on unmount.
+  useEffect(() => {
+    const html = document.documentElement;
+    const prevHtml = html.style.overflow;
+    const prevBody = document.body.style.overflow;
+    html.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtml;
+      document.body.style.overflow = prevBody;
+    };
+  }, []);
 
   return (
     <DrawerProvider>
