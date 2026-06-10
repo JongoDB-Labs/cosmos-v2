@@ -118,6 +118,11 @@ export interface Comment {
   createdAt: string;
   updatedAt: string;
   author?: OrgMember;
+  /** Resolved server-side (comments GET) — author name + per-actor CRUD flags. */
+  authorName?: string | null;
+  authorAvatarUrl?: string | null;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 export interface Activity {

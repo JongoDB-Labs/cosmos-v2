@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
+import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
 import { parseMentions } from "@/lib/chat/mentions";
@@ -33,7 +34,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { createdAt: "asc" },
     });
 
-    return success(comments);
+    // Resolve author display names (Comment has no User relation) + per-comment
+    // CRUD flags so the UI can show edit (author-only) / delete (author or a
+    // project manager) affordances. A side query keeps this migration-free and
+    // never touches OrgMember.permissions (BigInt).
+    const authorIds = [...new Set(comments.map((c) => c.authorId))];
+    const authors = authorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: { id: true, displayName: true, avatarUrl: true },
+        })
+      : [];
+    const authorById = new Map(authors.map((u) => [u.id, u]));
+    const isManager = await canManageProject(ctx, projectId);
+
+    return success(
+      comments.map((c) => ({
+        ...c,
+        authorName: authorById.get(c.authorId)?.displayName ?? null,
+        authorAvatarUrl: authorById.get(c.authorId)?.avatarUrl ?? null,
+        canEdit: c.authorId === ctx.userId,
+        canDelete: c.authorId === ctx.userId || isManager,
+      })),
+    );
   } catch (error) {
     return handleApiError(error);
   }
