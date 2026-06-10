@@ -157,6 +157,14 @@ export function CardDetailSheet({
       setDirty(false);
       setConfirmDelete(false);
       setActionPending(null);
+      // Reset per-item interaction state too, so switching items (via duplicate,
+      // a linked-item/sub-item click, or board navigation) never carries a draft
+      // comment, an open comment-edit, or the Activity tab over to the next item
+      // — a stale `newComment` could otherwise be posted to the WRONG work item.
+      setNewComment("");
+      setTab("comments");
+      setEditingCommentId(null);
+      setEditDraft("");
     }
   }, [item]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -391,7 +399,13 @@ export function CardDetailSheet({
     const after = newComment.slice(caret);
     setNewComment(before + after);
     setMentionState(null);
-    requestAnimationFrame(() => ta.focus());
+    // Restore the caret to just after the inserted mention (not the end of the
+    // whole comment) so typing continues in place when mentioning mid-sentence.
+    const caretAfter = before.length;
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(caretAfter, caretAfter);
+    });
   }
 
   function onCommentKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
