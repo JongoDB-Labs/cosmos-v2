@@ -111,6 +111,8 @@ interface Project {
 interface MeetingFormData {
   title: string;
   meetingType: SyncMeeting["meetingType"];
+  // Org-defined custom type id ("" = a built-in meetingType).
+  customTypeId: string;
   meetingDate: string;
   projectId: string;
   notes: string;
@@ -119,10 +121,16 @@ interface MeetingFormData {
 const emptyForm: MeetingFormData = {
   title: "",
   meetingType: "STANDUP",
+  customTypeId: "",
   meetingDate: new Date().toISOString().slice(0, 16),
   projectId: "",
   notes: "",
 };
+
+interface CustomMeetingType {
+  id: string;
+  label: string;
+}
 
 function isToday(date: Date): boolean {
   const now = new Date();
@@ -162,6 +170,9 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [customTypes, setCustomTypes] = useState<CustomMeetingType[]>([]);
+  const [newTypeLabel, setNewTypeLabel] = useState("");
+  const [addingType, setAddingType] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -176,6 +187,49 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
       }
     })();
   }, [orgId]);
+
+  const loadCustomTypes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/meeting-types`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomTypes(Array.isArray(data) ? data : data.data ?? []);
+      }
+    } catch {
+      /* ignore — custom types are additive */
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCustomTypes();
+  }, [loadCustomTypes]);
+
+  // Create a new org meeting type from the form and select it immediately.
+  const addCustomType = async () => {
+    const label = newTypeLabel.trim();
+    if (!label) return;
+    setAddingType(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/meeting-types`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      if (!res.ok) throw new Error("Couldn't add the type.");
+      const json = await res.json();
+      const row = (json.data ?? json) as CustomMeetingType;
+      setCustomTypes((prev) =>
+        prev.some((t) => t.id === row.id) ? prev : [...prev, row],
+      );
+      setForm((f) => ({ ...f, customTypeId: row.id, meetingType: "OTHER" }));
+      setNewTypeLabel("");
+    } catch (err) {
+      notifyError(err, "Couldn't add the meeting type.");
+    } finally {
+      setAddingType(false);
+    }
+  };
 
   // Guards against stale responses: only the most recent load() applies state,
   // so a slow request for a previous filter can't clobber the current one.
@@ -212,6 +266,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
       const body = {
         title: form.title,
         meetingType: form.meetingType,
+        customTypeId: form.customTypeId || null,
         meetingDate: new Date(form.meetingDate).toISOString(),
         projectId: form.projectId || null,
         notes: form.notes,
@@ -291,10 +346,29 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
                 <div className="flex flex-col gap-1.5">
                   <Label>Meeting Type</Label>
                   <Select
-                    value={form.meetingType}
-                    onValueChange={(val) =>
-                      setForm({ ...form, meetingType: val as SyncMeeting["meetingType"] })
+                    // Built-in types use the enum value; custom types use a
+                    // "custom:<id>" value so one selector covers both.
+                    value={
+                      form.customTypeId
+                        ? `custom:${form.customTypeId}`
+                        : form.meetingType
                     }
+                    onValueChange={(val) => {
+                      if (!val) return;
+                      if (val.startsWith("custom:")) {
+                        setForm({
+                          ...form,
+                          customTypeId: val.slice("custom:".length),
+                          meetingType: "OTHER",
+                        });
+                      } else {
+                        setForm({
+                          ...form,
+                          meetingType: val as SyncMeeting["meetingType"],
+                          customTypeId: "",
+                        });
+                      }
+                    }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue />
@@ -305,8 +379,38 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
                       <SelectItem value="SPRINT_REVIEW">Sprint Review</SelectItem>
                       <SelectItem value="RETROSPECTIVE">Retrospective</SelectItem>
                       <SelectItem value="OTHER">Other</SelectItem>
+                      {customTypes.map((t) => (
+                        <SelectItem key={t.id} value={`custom:${t.id}`}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                  {/* Create a reusable org type on the fly. */}
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      value={newTypeLabel}
+                      onChange={(e) => setNewTypeLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void addCustomType();
+                        }
+                      }}
+                      placeholder="Add a custom type…"
+                      className="h-8 text-xs"
+                      maxLength={60}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addCustomType}
+                      disabled={addingType || !newTypeLabel.trim()}
+                    >
+                      {addingType ? "Adding…" : "Add"}
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="mt-date">Date & Time</Label>
@@ -501,6 +605,11 @@ function MeetingCard({
 }) {
   const { can } = usePermissions();
   const typeConfig = MEETING_TYPE_CONFIG[meeting.meetingType];
+  // Org-defined custom type label (set on the API response) takes precedence
+  // over the built-in label when present.
+  const customLabel = (meeting as { customTypeLabel?: string | null })
+    .customTypeLabel;
+  const typeLabel = customLabel || typeConfig.label;
   const statusConfig = STATUS_CONFIG[meeting.status];
   const date = new Date(meeting.meetingDate);
   const attendeeCount = meeting.attendees?.length || 0;
@@ -565,7 +674,7 @@ function MeetingCard({
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${typeConfig.color}`}
             >
               {typeConfig.icon}
-              {typeConfig.label}
+              {typeLabel}
             </span>
             <span
               className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusConfig.color}`}
