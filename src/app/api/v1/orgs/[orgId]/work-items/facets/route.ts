@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getReadableProjectIds } from "@/lib/work-items/query";
+import { getManagedProjectIds } from "@/lib/rbac/scope";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -33,8 +34,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const allowedProjectIds = await getReadableProjectIds(ctx);
 
     if (allowedProjectIds.length === 0) {
-      return success({ projects: [], types: [], statuses: [], members: [], labels: [], cycles: [] });
+      return success({ projects: [], types: [], statuses: [], members: [], labels: [], cycles: [], managedProjectIds: [] });
     }
+
+    // Projects the actor can administer (org PROJECT_MANAGE, or project MANAGER
+    // of that project). Lets the Issues view show "Save as board" to a project
+    // manager whose ORG role lacks BOARD_CREATE — the board POST already accepts
+    // the project-manager path, the affordance just wasn't gated to match.
+    const managedProjectIds = await getManagedProjectIds(ctx, allowedProjectIds);
 
     const [projects, types, columns, members, cycles, tagRows] = await Promise.all([
       prisma.project.findMany({
@@ -101,6 +108,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         })),
       labels: [...labelSet].sort((a, b) => a.localeCompare(b)),
       cycles,
+      managedProjectIds: [...managedProjectIds],
     });
   } catch (error) {
     return handleApiError(error);
