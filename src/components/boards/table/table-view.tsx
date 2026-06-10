@@ -6,6 +6,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
+import { toast } from "sonner";
 import {
   createColumnHelper,
   type ColumnDef,
@@ -107,6 +108,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
+  const canCreate = can(Permission.ITEM_CREATE);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -403,6 +405,28 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         },
       ];
 
+      if (canCreate) {
+        groups.push({
+          items: [
+            {
+              label: "Duplicate",
+              icon: Copy,
+              onClick: async () => {
+                try {
+                  await jsonFetch(`${basePath}/work-items/${item.id}/duplicate`, {
+                    method: "POST",
+                  });
+                  toast.success("Issue duplicated");
+                  void qc.invalidateQueries({ queryKey: itemsKey });
+                } catch (err) {
+                  notifyError(err, "Couldn't duplicate the issue.");
+                }
+              },
+            },
+          ],
+        });
+      }
+
       if (canBulkDelete) {
         groups.push({
           items: [
@@ -418,7 +442,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
       return groups;
     },
-    [canBulkDelete, bulkDeleteMutation, projectKey],
+    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey],
   );
 
   const columnHelper = createColumnHelper<WorkItem>();
