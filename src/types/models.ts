@@ -81,6 +81,18 @@ export interface WorkItem {
   createdAt: string;
   updatedAt: string;
   workItemType?: WorkItemTypeInfo;
+  /** Populated by routes that `include` the hierarchy (detail + list GET). */
+  parent?: WorkItemRef | null;
+  children?: WorkItemRef[];
+}
+
+/** Lightweight work-item reference used for parent/children links. */
+export interface WorkItemRef {
+  id: string;
+  title: string;
+  ticketNumber: number;
+  workItemTypeId: string;
+  columnKey?: string;
 }
 
 export interface Cycle {

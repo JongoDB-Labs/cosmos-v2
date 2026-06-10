@@ -47,9 +47,13 @@ import {
   Check,
   Copy,
   Trash2,
+  GitBranch,
+  CornerDownRight,
+  Plus,
 } from "lucide-react";
 import type {
   WorkItem,
+  WorkItemRef,
   OrgMember,
   Cycle,
   Comment,
@@ -71,6 +75,11 @@ interface CardDetailSheetProps {
   onDelete?: (id: string) => void;
   /** Append a freshly-duplicated item to the parent's local state. */
   onDuplicate?: (created: WorkItem) => void;
+  /** Candidate parents for the hierarchy picker (the project's items). When
+   *  omitted, the Parent picker is hidden (the Children list still shows). */
+  projectItems?: WorkItem[];
+  /** Add a newly-created sub-item to the parent's local state (no auto-open). */
+  onItemCreated?: (created: WorkItem) => void;
 }
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -87,10 +96,16 @@ export function CardDetailSheet({
   onUpdate,
   onDelete,
   onDuplicate,
+  projectItems,
+  onItemCreated,
 }: CardDetailSheetProps) {
   const { can } = usePermissions();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [children, setChildren] = useState<WorkItemRef[]>([]);
+  const [childTitle, setChildTitle] = useState("");
+  const [addingChild, setAddingChild] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
@@ -128,6 +143,9 @@ export function CardDetailSheet({
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
       setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
+      setParentId(item.parentId);
+      setChildren(item.children ?? []);
+      setChildTitle("");
       setDirty(false);
       setConfirmDelete(false);
       setActionPending(null);
@@ -214,6 +232,9 @@ export function CardDetailSheet({
           case "dueDate":
             setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
             break;
+          case "parentId":
+            setParentId(item.parentId);
+            break;
         }
         notifyError(err, "Couldn't save the change.");
       }
@@ -242,9 +263,51 @@ export function CardDetailSheet({
       case "storyPoints":
         setStoryPoints(value as number | null);
         break;
+      case "parentId":
+        setParentId(value as string | null);
+        break;
     }
     // Fire PUT request immediately
     void patchField(field, value);
+  }
+
+  // Create a sub-item under the current item (FR: story/task hierarchy). Starts
+  // in the same column as its parent; the new id is added to the local children
+  // list and surfaced to the board via onItemCreated (without stealing focus).
+  async function handleAddChild() {
+    const trimmed = childTitle.trim();
+    if (!item || !trimmed) return;
+    setAddingChild(true);
+    try {
+      const res = await fetch(basePath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: trimmed,
+          type: "TASK",
+          columnKey: item.columnKey,
+          parentId: item.id,
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed to add sub-item (HTTP ${res.status})`);
+      const child: WorkItem = await res.json();
+      setChildren((prev) => [
+        ...prev,
+        {
+          id: child.id,
+          title: child.title,
+          ticketNumber: child.ticketNumber,
+          workItemTypeId: child.workItemTypeId,
+          columnKey: child.columnKey,
+        },
+      ]);
+      setChildTitle("");
+      onItemCreated?.(child);
+    } catch (err) {
+      notifyError(err, "Couldn't add the sub-item.");
+    } finally {
+      setAddingChild(false);
+    }
   }
 
   // handleSave persists title/description (free-text fields that don't auto-save
@@ -372,6 +435,14 @@ export function CardDetailSheet({
 
   const canDuplicate = can(Permission.ITEM_CREATE);
   const canDelete = can(Permission.ITEM_DELETE);
+
+  // Candidate parents: every other item in the project, minus this item's own
+  // direct children (a shallow guard against the most obvious parent/child
+  // cycle; the server still owns deeper integrity).
+  const childIds = new Set(children.map((c) => c.id));
+  const parentCandidates = (projectItems ?? []).filter(
+    (p) => p.id !== item.id && !childIds.has(p.id),
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -607,7 +678,94 @@ export function CardDetailSheet({
                 </Select>
               </MetadataField>
             )}
+
+            {projectItems && (
+              <MetadataField icon={GitBranch} label="Parent">
+                <Select
+                  items={{
+                    __none__: "None",
+                    ...Object.fromEntries(
+                      parentCandidates.map((p) => [
+                        p.id,
+                        `#${p.ticketNumber} ${p.title}`,
+                      ]),
+                    ),
+                  }}
+                  value={parentId ?? "__none__"}
+                  onValueChange={(v) =>
+                    handleFieldChange(
+                      "parentId",
+                      (v === "__none__" ? null : v) as string | null,
+                    )
+                  }
+                >
+                  <SelectTrigger size="sm" aria-label="Parent" className="w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {parentCandidates.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        #{p.ticketNumber} {p.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </MetadataField>
+            )}
           </div>
+
+          {/* Sub-items (hierarchy). Shows existing children + an inline create;
+              creating one POSTs a TASK with parentId preset to this item. */}
+          {(children.length > 0 || canDuplicate) && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <CornerDownRight className="h-3.5 w-3.5" />
+                  Sub-items ({children.length})
+                </h3>
+                {children.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 text-sm">
+                    <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+                      #{c.ticketNumber}
+                    </span>
+                    <span className="truncate">{c.title}</span>
+                  </div>
+                ))}
+                {canDuplicate && (
+                  <div className="flex gap-2">
+                    <Input
+                      value={childTitle}
+                      onChange={(e) => setChildTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleAddChild();
+                        }
+                      }}
+                      placeholder="Add a sub-item…"
+                      className="h-7 text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5"
+                      onClick={handleAddChild}
+                      disabled={!childTitle.trim() || addingChild}
+                    >
+                      {addingChild ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5" />
+                      )}
+                      Add
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Make the save model explicit: metadata fields auto-save on change,
               while title/description need a Save. Show which state we're in. */}

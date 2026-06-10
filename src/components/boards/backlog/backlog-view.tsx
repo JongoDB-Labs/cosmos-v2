@@ -520,6 +520,10 @@ export function BacklogView({
           setDetailItem(dupe);
           setDetailOpen(true);
         }}
+        projectItems={items}
+        onItemCreated={(child) =>
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), child])
+        }
       />
     </div>
   );
