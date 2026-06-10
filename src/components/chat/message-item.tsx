@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Smile, MessageSquare, Pin } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { MarkdownContent } from "./markdown-content";
 import { ReactionBar } from "./reaction-bar";
 import { EmojiPicker } from "./emoji-picker";
@@ -75,9 +76,18 @@ export function MessageItem({
     );
   }
 
+  // Teams/messenger layout: your own messages mirror to the RIGHT with a
+  // primary-tinted bubble; everyone else (and the Assistant) stays on the LEFT
+  // with a neutral bubble. The 🤖 Assistant is never treated as "own" even when
+  // you asked it, so its replies always read on the left.
+  const alignRight = isOwn && message.kind !== "ASSISTANT";
+
   return (
     <li
-      className="group flex gap-3 px-4 py-2 hover:bg-accent/30"
+      className={cn(
+        "group flex gap-2.5 px-4 py-1.5",
+        alignRight && "flex-row-reverse",
+      )}
       id={`msg-${message.id}`}
     >
       <div className="h-8 w-8 rounded-full bg-muted overflow-hidden shrink-0">
@@ -90,8 +100,8 @@ export function MessageItem({
           />
         )}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
+      <div className={cn("flex min-w-0 flex-col", alignRight ? "items-end" : "items-start", "max-w-[85%]")}>
+        <div className={cn("flex items-baseline gap-2", alignRight && "flex-row-reverse")}>
           {message.kind === "ASSISTANT" ? (
             <>
               <span className="font-medium text-sm">🤖 Assistant</span>
@@ -115,7 +125,7 @@ export function MessageItem({
             </>
           )}
         </div>
-        <div className="text-sm">
+        <div className="mt-0.5 text-sm">
           {message.kind === "ACTION" ? (
             <div className="italic text-muted-foreground">* {author.displayName} {message.content}</div>
           ) : tombstone ? (
@@ -123,7 +133,7 @@ export function MessageItem({
               [message deleted]
             </span>
           ) : editing ? (
-            <div className="mt-0.5">
+            <div className="w-full">
               <textarea
                 ref={textareaRef}
                 value={draft}
@@ -142,7 +152,7 @@ export function MessageItem({
                   }
                 }}
                 rows={1}
-                className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
+                className="w-full min-w-[14rem] resize-none rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
               />
               <div className="mt-1 flex items-center gap-2 text-xs">
                 <button
@@ -165,33 +175,45 @@ export function MessageItem({
               </div>
             </div>
           ) : (
-            <MarkdownContent content={message.content} mentionMap={mentionMap} />
+            // Bubble: own = primary tint on the right, others = neutral on the left.
+            <div
+              className={cn(
+                "inline-block rounded-2xl px-3 py-1.5",
+                alignRight
+                  ? "rounded-tr-sm bg-[var(--primary-tint)] text-[var(--text)]"
+                  : "rounded-tl-sm bg-[var(--overlay)] text-[var(--text)]",
+              )}
+            >
+              <MarkdownContent content={message.content} mentionMap={mentionMap} />
+            </div>
           )}
         </div>
         {!tombstone && !editing && message.attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-1">
+          <div className={cn("flex flex-wrap gap-2 mt-1", alignRight && "justify-end")}>
             {message.attachments.map((a) => (
               <AttachmentTile key={a.id} attachment={a} />
             ))}
           </div>
         )}
-        <ReactionBar
-          reactions={message.reactions}
-          currentUserId={currentUserId}
-          onToggle={onReact}
-        />
-        {!tombstone && message.replyCount > 0 && (
-          <button
-            type="button"
-            onClick={onOpenThread}
-            className="mt-1 text-xs text-primary hover:underline"
-          >
-            ↳ {message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
-          </button>
-        )}
+        <div className={cn(alignRight && "flex flex-col items-end")}>
+          <ReactionBar
+            reactions={message.reactions}
+            currentUserId={currentUserId}
+            onToggle={onReact}
+          />
+          {!tombstone && message.replyCount > 0 && (
+            <button
+              type="button"
+              onClick={onOpenThread}
+              className="mt-1 text-xs text-primary hover:underline"
+            >
+              ↳ {message.replyCount} {message.replyCount === 1 ? "reply" : "replies"}
+            </button>
+          )}
+        </div>
       </div>
       {!tombstone && !editing && (
-        <div className="relative flex gap-1 text-xs items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+        <div className="relative flex gap-1 text-xs items-center self-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
           {confirmingDelete ? (
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Delete?</span>
@@ -224,7 +246,7 @@ export function MessageItem({
                 <Smile className="h-3 w-3" />
               </button>
               {pickerOpen && (
-                <div className="absolute z-10 mt-6 right-0 top-0">
+                <div className={cn("absolute z-10 mt-6 top-0", alignRight ? "left-0" : "right-0")}>
                   <EmojiPicker
                     onPick={(emoji) => {
                       onReact(emoji, false);
