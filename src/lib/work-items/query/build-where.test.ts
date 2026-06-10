@@ -133,11 +133,14 @@ describe("buildWorkItemWhere — parent / hierarchy", () => {
 });
 
 describe("buildWorkItemWhere — date ranges", () => {
-  it("start range with both edges → gte/lte", () => {
+  it("start range with both edges → gte/lte (to is clamped to end-of-day)", () => {
     const w = build({ startDate: { from: "2026-01-01", to: "2026-02-01" } });
+    // A date-only `to` is inclusive of the whole day, so buildDateRange clamps
+    // it to 23:59:59.999Z — otherwise items dated later on 2026-02-01 would be
+    // excluded from a range whose upper bound IS 2026-02-01.
     expect(w.startDate).toEqual({
       gte: new Date("2026-01-01"),
-      lte: new Date("2026-02-01"),
+      lte: new Date("2026-02-01T23:59:59.999Z"),
     });
   });
   it("due range with only from → gte", () => {
