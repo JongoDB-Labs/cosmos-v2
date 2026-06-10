@@ -131,8 +131,16 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
   ) {
     markRead(n.id);
     if (!orgSlug || !n.url) return;
-    const prefix = n.url.startsWith("/") ? n.url : `/${n.url}`;
-    router.push(`/${orgSlug}${prefix}`);
+    let path = n.url.startsWith("/") ? n.url : `/${n.url}`;
+    // Notification creators are inconsistent: some store an org-relative URL
+    // (e.g. "/notes/x") and others an already-org-slug-prefixed one (e.g.
+    // "/{slug}/meetings/x"). Strip a leading "/{orgSlug}" if present so we
+    // re-prefix exactly once — otherwise meeting/work-item/comment links became
+    // "/{slug}/{slug}/…" and 404'd.
+    if (path === `/${orgSlug}` || path.startsWith(`/${orgSlug}/`)) {
+      path = path.slice(`/${orgSlug}`.length) || "/";
+    }
+    router.push(path === "/" ? `/${orgSlug}` : `/${orgSlug}${path}`);
   }
 
   return (
