@@ -15,6 +15,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -42,6 +43,7 @@ import {
   Video,
   RotateCcw,
   MessageSquare,
+  X,
 } from "lucide-react";
 import type { SyncMeeting, MeetingAttendee, OrgMember } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
@@ -117,6 +119,8 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
   const [addAttendeeOpen, setAddAttendeeOpen] = useState(false);
   const [newAttendeeUserId, setNewAttendeeUserId] = useState("");
   const [addingAttendee, setAddingAttendee] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<MeetingAttendee | null>(null);
+  const [removingAttendee, setRemovingAttendee] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [videoUrlDraft, setVideoUrlDraft] = useState("");
   const [savingVideo, setSavingVideo] = useState(false);
@@ -265,6 +269,24 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
       notifyError(err, "Couldn't add the attendee.");
     } finally {
       setAddingAttendee(false);
+    }
+  };
+
+  const removeAttendee = async (attendeeId: string) => {
+    setRemovingAttendee(true);
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/meetings/${meetingId}/attendees/${attendeeId}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error("Failed to remove attendee");
+      setPendingRemove(null);
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      console.error(err);
+      notifyError(err, "Couldn't remove the attendee.");
+    } finally {
+      setRemovingAttendee(false);
     }
   };
 
@@ -460,30 +482,32 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
             </Button>
           </>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
               placeholder="Paste Zoom / Teams / Meet link…"
               value={videoUrlDraft}
               onChange={(e) => setVideoUrlDraft(e.target.value)}
-              className="h-8 w-64"
+              className="h-8 w-full sm:w-64"
             />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!videoUrlDraft || savingVideo}
-              onClick={() => saveVideoUrl(videoUrlDraft)}
-            >
-              Add link
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={generateMeet}
-              disabled={generatingMeet}
-            >
-              <Video className="size-4" />
-              {generatingMeet ? "Generating…" : "Generate Google Meet"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!videoUrlDraft || savingVideo}
+                onClick={() => saveVideoUrl(videoUrlDraft)}
+              >
+                Add link
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={generateMeet}
+                disabled={generatingMeet}
+              >
+                <Video className="size-4" />
+                {generatingMeet ? "Generating…" : "Generate Google Meet"}
+              </Button>
+            </div>
           </div>
         )}
         {meeting.status === "SCHEDULED" && (
@@ -604,18 +628,29 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
                   key={attendee.id}
                   className="rounded-lg border bg-background p-4"
                 >
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold">{memberName}</span>
-                    {hasChanges && (
+                    <div className="flex items-center gap-1.5">
+                      {hasChanges && (
+                        <Button
+                          size="xs"
+                          onClick={() => saveAttendeeUpdate(attendee)}
+                          disabled={savingAttendee === attendee.id}
+                        >
+                          <Save className="size-3" />
+                          {savingAttendee === attendee.id ? "Saving..." : "Save"}
+                        </Button>
+                      )}
                       <Button
-                        size="xs"
-                        onClick={() => saveAttendeeUpdate(attendee)}
-                        disabled={savingAttendee === attendee.id}
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Remove ${memberName} from this meeting`}
+                        title="Remove attendee"
+                        onClick={() => setPendingRemove(attendee)}
                       >
-                        <Save className="size-3" />
-                        {savingAttendee === attendee.id ? "Saving..." : "Save"}
+                        <X className="size-3.5" />
                       </Button>
-                    )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="flex flex-col gap-1.5">
@@ -821,6 +856,43 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
           </div>
         </>
       )}
+
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(o) => {
+          if (!o && !removingAttendee) setPendingRemove(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove attendee?</DialogTitle>
+            <DialogDescription>
+              This removes{" "}
+              {pendingRemove?.user?.user?.displayName ||
+                pendingRemove?.user?.user?.email ||
+                "this person"}{" "}
+              from the meeting, including any standup updates they entered. This
+              cannot be undone, but you can add them back.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingRemove(null)}
+              disabled={removingAttendee}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={removingAttendee}
+              onClick={() => pendingRemove && removeAttendee(pendingRemove.id)}
+            >
+              {removingAttendee ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
