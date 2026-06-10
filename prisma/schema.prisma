@@ -258,6 +258,7 @@ model User {
   pushSubscriptions   PushSubscription[]
   homeWidgets         HomeWidget[]
   federatedIdentities FederatedIdentity[]
+  aiSettings          UserAiSettings?
   // Prod-parity back-relations (chat bots + chat follows/alerts).
   chatBot             ChatBot?
   chatBotRuns         ChatBotRun[]
@@ -2463,6 +2464,27 @@ model OrgAiSettings {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_ai_settings")
+}
+
+// PER-USER Claude subscription OAuth — the agent prefers the requesting USER's
+// personal Claude token over the org's (FR: "tied to user's oauth/token not
+// org-wide"). Mirrors the OAuth columns of OrgAiSettings, keyed on userId.
+// Tokens are SEALED via the vault before they touch the DB (Json { sealed }).
+// Resolution happens INSIDE the single CUI-blind egress chokepoint, after
+// withholding — this row never widens egress.
+model UserAiSettings {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String    @unique @map("user_id") @db.Uuid
+  provider          String    @default("claude-oauth")
+  oauthAccessToken  Json?     @map("oauth_access_token")
+  oauthRefreshToken Json?     @map("oauth_refresh_token")
+  oauthExpiresAt    DateTime? @map("oauth_expires_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_ai_settings")
 }
 
 // Directed dependency/relation edge between two work items (FULLY WIRED).
