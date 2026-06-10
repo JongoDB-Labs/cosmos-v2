@@ -61,6 +61,10 @@ export interface WorkItemFilter {
   startDate?: DateRange;
   /** Inclusive range over WorkItem.dueDate. */
   dueDate?: DateRange;
+  /** Inclusive range over WorkItem.createdAt (when the item was created). */
+  createdAt?: DateRange;
+  /** Inclusive range over WorkItem.updatedAt (last modified). */
+  updatedAt?: DateRange;
   /** Free-text — case-insensitive contains over title OR description. */
   text?: string;
 }

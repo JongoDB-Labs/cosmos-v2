@@ -43,6 +43,8 @@ export const workItemFilterSchema: z.ZodType<WorkItemFilter> = z.object({
   parent: parentSchema,
   startDate: dateRangeSchema,
   dueDate: dateRangeSchema,
+  createdAt: dateRangeSchema,
+  updatedAt: dateRangeSchema,
   text: z.string().optional(),
 });
 
@@ -103,6 +105,10 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
   const startTo = params.get("startTo") ?? undefined;
   const dueFrom = params.get("dueFrom") ?? undefined;
   const dueTo = params.get("dueTo") ?? undefined;
+  const createdFrom = params.get("createdFrom") ?? undefined;
+  const createdTo = params.get("createdTo") ?? undefined;
+  const updatedFrom = params.get("updatedFrom") ?? undefined;
+  const updatedTo = params.get("updatedTo") ?? undefined;
 
   const filter: WorkItemFilter = {
     projectIds: multi(params, "project"),
@@ -115,6 +121,8 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
     parent,
     startDate: startFrom || startTo ? { from: startFrom, to: startTo } : undefined,
     dueDate: dueFrom || dueTo ? { from: dueFrom, to: dueTo } : undefined,
+    createdAt: createdFrom || createdTo ? { from: createdFrom, to: createdTo } : undefined,
+    updatedAt: updatedFrom || updatedTo ? { from: updatedFrom, to: updatedTo } : undefined,
     text: params.get("text")?.trim() || undefined,
   };
 
