@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { PageShell } from "@/components/ui/page-shell";
 import { ProfileForm } from "./profile-form";
+import { ClaudeAccountPanel } from "@/components/settings/claude-account-panel";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -21,7 +22,10 @@ export default async function ProfileSettingsPage({ params }: PageParams) {
 
   return (
     <PageShell title="Profile" description="Your account details" maxWidth="5xl">
-      <ProfileForm initial={user} />
+      <div className="space-y-6">
+        <ProfileForm initial={user} />
+        <ClaudeAccountPanel />
+      </div>
     </PageShell>
   );
 }

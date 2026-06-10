@@ -110,7 +110,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   let finalText = "";
 
   for (let turn = 0; turn < max; turn++) {
-    const ctx = { orgId: opts.orgId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
+    const ctx = { orgId: opts.orgId, userId: opts.userId, conversationId: opts.conversationId, turn, tenantClass: opts.tenantClass, mode: "enforced" as const };
     let streamed = "";
     const reply = await runModelTurn({
       ctx,

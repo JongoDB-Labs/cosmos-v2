@@ -126,7 +126,10 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
       // widen egress: degrade to the env key.
       let credential: ModelCredential | undefined;
       try {
-        credential = await resolveOrgModelCredential(input.ctx.orgId);
+        // userId lets the resolver prefer the requesting user's PERSONAL Claude
+        // subscription over the org credential (FR: agent tied to the user's
+        // token). Still resolved here, inside the chokepoint, passed by value.
+        credential = await resolveOrgModelCredential(input.ctx.orgId, input.ctx.userId);
       } catch {
         credential = undefined;
       }
