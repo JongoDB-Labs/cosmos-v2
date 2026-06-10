@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
-import { Archive, Loader2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Archive, Loader2, UserPlus, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,11 +16,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
+import { useOrgMembers } from "./mention-picker";
 import { toast } from "sonner";
 import type { ChatChannelSummary } from "@/hooks/use-chat-channels";
+
+interface ChannelMemberRow {
+  userId: string;
+  role: "ADMIN" | "MEMBER";
+  displayName: string;
+  avatarUrl: string | null;
+}
 
 /**
  * Channel settings — rename, set description/topic, and archive. The backing
@@ -57,6 +73,49 @@ export function ChannelSettingsDialog({
     name.trim() !== (channel.name ?? "") ||
     description !== (channel.description ?? "") ||
     topic !== (channel.topic ?? "");
+
+  // ── Members ──
+  const membersKey = useOrgQueryKey("chat-channel-members", channel.id);
+  const { data: members } = useQuery({
+    queryKey: membersKey,
+    queryFn: () => jsonFetch<ChannelMemberRow[]>(`${base}/members`),
+    enabled: open,
+  });
+  const { data: orgMembers } = useOrgMembers(orgId);
+  const [addUserId, setAddUserId] = useState("");
+  const [memberBusy, setMemberBusy] = useState(false);
+
+  const memberIds = new Set((members ?? []).map((m) => m.userId));
+  const addable = (orgMembers ?? []).filter((u) => !memberIds.has(u.id));
+
+  async function addMember() {
+    if (!addUserId) return;
+    setMemberBusy(true);
+    try {
+      await jsonFetch(`${base}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userIds: [addUserId] }),
+      });
+      setAddUserId("");
+      await qc.invalidateQueries({ queryKey: membersKey });
+    } catch (err) {
+      notifyError(err, "Couldn't add the member.");
+    } finally {
+      setMemberBusy(false);
+    }
+  }
+
+  async function removeMember(userId: string) {
+    setMemberBusy(true);
+    try {
+      await jsonFetch(`${base}/members/${userId}`, { method: "DELETE" });
+      await qc.invalidateQueries({ queryKey: membersKey });
+    } catch (err) {
+      notifyError(err, "Couldn't remove the member.");
+    } finally {
+      setMemberBusy(false);
+    }
+  }
 
   async function save() {
     if (!name.trim()) return;
@@ -145,6 +204,70 @@ export function ChannelSettingsDialog({
               placeholder="Longer description (optional)"
             />
           </div>
+        </div>
+
+        {/* Members — list + add/remove. Private channels especially need this. */}
+        <div className="space-y-2">
+          <Label>Members ({members?.length ?? 0})</Label>
+          <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-1.5">
+            {(members ?? []).map((m) => (
+              <div
+                key={m.userId}
+                className="group/m flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent/40"
+              >
+                <Avatar className="h-6 w-6">
+                  <AvatarImage src={m.avatarUrl ?? undefined} />
+                  <AvatarFallback className="text-[10px]">
+                    {m.displayName.charAt(0)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="min-w-0 flex-1 truncate">{m.displayName}</span>
+                {m.role === "ADMIN" && (
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    Admin
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeMember(m.userId)}
+                  disabled={memberBusy}
+                  aria-label={`Remove ${m.displayName}`}
+                  className="shrink-0 text-muted-foreground opacity-100 hover:text-destructive disabled:opacity-40 sm:opacity-0 sm:group-hover/m:opacity-100"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            {members && members.length === 0 && (
+              <p className="px-1.5 py-1 text-xs text-muted-foreground">No members yet.</p>
+            )}
+          </div>
+          {addable.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Select value={addUserId} onValueChange={(v) => setAddUserId(v ?? "")}>
+                <SelectTrigger size="sm" aria-label="Add member" className="h-8 flex-1">
+                  <SelectValue placeholder="Add a member…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {addable.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={addMember}
+                disabled={!addUserId || memberBusy}
+                className="gap-1.5"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Add
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Archive — destructive-ish, behind an inline confirm. Hidden for #general. */}
