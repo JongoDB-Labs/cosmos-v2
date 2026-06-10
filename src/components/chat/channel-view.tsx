@@ -434,6 +434,7 @@ export function ChannelView({
       <section className="flex-1 flex flex-col min-w-0 relative">
         <ChannelHeader
           channel={channel}
+          orgId={orgId}
           pinCount={pins.length}
           onTogglePins={() => setPinsOpen((v) => !v)}
         />

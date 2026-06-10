@@ -62,6 +62,11 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       : [];
     const usersById = new Map(dmUsers.map((u) => [u.id, u]));
 
+    // A channel is manageable (rename / topic / archive) by org OWNER/ADMIN or a
+    // channel ADMIN — and only real CHANNELs, never DMs. Surfaced so the client
+    // can gate the channel-settings gear without a second round-trip.
+    const orgIsAdmin = ctx.orgRole === "OWNER" || ctx.orgRole === "ADMIN";
+
     const channels = memberships.map((m) => ({
       id: m.channel.id,
       kind: m.channel.kind,
@@ -71,6 +76,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       topic: m.channel.topic,
       isPrivate: m.channel.isPrivate,
       isGeneral: m.channel.isGeneral,
+      canManage:
+        m.channel.kind === "CHANNEL" && (orgIsAdmin || m.role === "ADMIN"),
       projectId: m.channel.projectId,
       lastMessageAt: m.channel.lastMessageAt,
       notificationPref: m.notificationPref,
