@@ -43,8 +43,8 @@ export function TaxDashboard({ orgId }: { orgId: string }) {
   });
   const liabilityQ = useQuery({
     queryKey: useOrgQueryKey("tax", "liability"),
-    queryFn: () =>
-      jsonFetch<{ data: Liability }>(`/api/v1/orgs/${orgId}/tax/liability`).then((r) => r.data),
+    // jsonFetch already unwraps the single-key { data } envelope.
+    queryFn: () => jsonFetch<Liability>(`/api/v1/orgs/${orgId}/tax/liability`),
   });
 
   const remove = useOrgMutation<unknown, Error, string>({

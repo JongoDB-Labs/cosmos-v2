@@ -67,10 +67,9 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
   });
   const laborQ = useQuery({
     queryKey: useOrgQueryKey("payroll", "labor-by-project"),
+    // jsonFetch already unwraps the single-key { data } envelope.
     queryFn: () =>
-      jsonFetch<{ data: LaborGroup[] }>(
-        `/api/v1/orgs/${orgId}/payroll/labor-by-project`,
-      ).then((r) => r.data),
+      jsonFetch<LaborGroup[]>(`/api/v1/orgs/${orgId}/payroll/labor-by-project`),
   });
 
   const nameFor = (userId: string) =>
