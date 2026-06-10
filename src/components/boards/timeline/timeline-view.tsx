@@ -38,7 +38,6 @@ const typeColorMap: Record<string, { fill: string; stroke: string; text: string 
 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 50;
-const LEFT_PANEL_WIDTH = 260;
 const DAY_WIDTH = 28;
 
 function addDays(date: Date, days: number): Date {
@@ -260,11 +259,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         />
       </div>
       <div className="flex-1 flex overflow-hidden">
-        {/* Left panel - item labels */}
-        <div
-          className="shrink-0 border-r bg-background overflow-y-auto"
-          style={{ width: LEFT_PANEL_WIDTH }}
-        >
+        {/* Left panel - item labels. Narrower on phones so the chart isn't
+            crowded off-screen; the SVG rows align by height, not this width. */}
+        <div className="shrink-0 border-r bg-background overflow-y-auto w-[140px] sm:w-[260px]">
           <div
             className="border-b bg-muted/50 flex items-center px-3 text-xs font-medium text-muted-foreground"
             style={{ height: HEADER_HEIGHT }}
