@@ -5,6 +5,7 @@ import { ChevronLeft, Hash, Lock, Pin, Settings2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import type { ChatChannelSummary } from "@/hooks/use-chat-channels";
 import { ChannelSettingsDialog } from "./channel-settings-dialog";
+import { NotificationPrefMenu } from "./notification-pref-menu";
 
 export function ChannelHeader({
   channel,
@@ -59,6 +60,11 @@ export function ChannelHeader({
           <Pin className="h-4 w-4" />
           {pinCount > 0 && <span className="text-xs">{pinCount}</span>}
         </button>
+        <NotificationPrefMenu
+          orgId={orgId}
+          channelId={channel.id}
+          current={channel.notificationPref}
+        />
         {channel.kind === "CHANNEL" && channel.canManage && (
           <button
             type="button"
