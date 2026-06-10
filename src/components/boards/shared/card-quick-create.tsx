@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import type { WorkItem } from "@/types/models";
 
 interface CardQuickCreateProps {
@@ -29,6 +30,7 @@ export function CardQuickCreate({
   const [type, setType] = useState<(typeof TYPES)[number]>("TASK");
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+  const { can } = usePermissions();
 
   useEffect(() => {
     if (open && inputRef.current) {
@@ -78,6 +80,11 @@ export function CardQuickCreate({
       setOpen(false);
     }
   }
+
+  // Hide the affordance entirely from users who can't create items — the API
+  // gates POST on ITEM_CREATE, so showing the form to them would only lead to a
+  // 403 after they've typed a title (the table view already hides it this way).
+  if (!can(Permission.ITEM_CREATE)) return null;
 
   if (!open) {
     return (
