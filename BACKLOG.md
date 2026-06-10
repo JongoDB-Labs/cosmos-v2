@@ -124,7 +124,7 @@ Running list of items captured while walking through the dashboard. Newest items
 
 - ⬜ **[feature] More meeting options + user-defined meeting types.** _(open — not started.)_ Offer more meeting/provider options and let users add their own meeting types in Settings.
 
-- ⬜ **[bug/feature] Meeting management: delete / cancel / reschedule.** _(open — not started.)_ Users must be able to delete, cancel, and reschedule meetings.
+- ✅ **[bug/feature] Meeting management: delete / cancel / reschedule.** _(done — Cancel pre-existed (status→CANCELLED); 2.69.0 added Reschedule (datetime dialog, SCHEDULED only, keeps attendees/notes; PUT gained a `meetingDate` field) and Delete (confirm dialog, permanent, MEETING_DELETE-gated). Verified end-to-end: reschedule moves the stored date; delete→204 then 404.)_
 
 - ⬜ **[feature] Full CRUD everywhere, gated by RBAC/ABAC.** _(open — cross-cutting sweep; partially advanced by per-entity work but not audited end-to-end. The board-delete / meeting-CRUD / roles-dropdown items above are symptoms.)_ Ensure complete CRUD on every entity throughout Cosmos, admin = full, user = RBAC/ABAC-gated. Audit all modules for missing delete/edit/create.
 
