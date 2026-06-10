@@ -640,6 +640,8 @@ function KanbanBoardInner({
         onUpdate={handleItemUpdate}
         onDelete={handleItemDeleted}
         onDuplicate={handleItemDuplicated}
+        projectItems={items}
+        onItemCreated={handleCardCreated}
       />
     </div>
   );

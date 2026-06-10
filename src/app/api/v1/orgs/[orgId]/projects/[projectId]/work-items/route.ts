@@ -67,7 +67,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const items = await prisma.workItem.findMany({
       where,
       include: {
-        children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
+        parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
         _count: { select: { comments: true, activities: true } },
       },
