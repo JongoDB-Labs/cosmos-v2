@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Check, Loader2, KeyRound, Plug, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
@@ -279,16 +280,14 @@ function AnthropicKeyCard({
             Save
           </Button>
           {configured ? (
-            <Button
+            <ConfirmButton
               variant="destructive"
-              disabled={clear.isPending}
-              onClick={() => clear.mutate(undefined)}
+              pending={clear.isPending}
+              confirmLabel="Confirm clear"
+              onConfirm={() => clear.mutate(undefined)}
             >
-              {clear.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : null}
               Clear
-            </Button>
+            </ConfirmButton>
           ) : null}
         </div>
       </div>
@@ -443,16 +442,14 @@ function OpenAiCard({
             Save
           </Button>
           {configured ? (
-            <Button
+            <ConfirmButton
               variant="destructive"
-              disabled={clear.isPending}
-              onClick={() => clear.mutate(undefined)}
+              pending={clear.isPending}
+              confirmLabel="Confirm clear"
+              onConfirm={() => clear.mutate(undefined)}
             >
-              {clear.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : null}
               Clear
-            </Button>
+            </ConfirmButton>
           ) : null}
         </div>
       </div>
