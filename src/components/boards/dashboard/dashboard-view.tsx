@@ -198,6 +198,9 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
 
     const cycleItems = items.filter((i) => i.cycleId === activeCycle.id);
     const totalPoints = cycleItems.reduce((sum, i) => sum + (i.storyPoints ?? 1), 0);
+    // An active cycle with no items has no burndown to draw — return empty so the
+    // chart shows its "no data" state instead of a misleading flat zero line.
+    if (totalPoints === 0) return [];
 
     const start = new Date(activeCycle.startDate);
     const end = new Date(activeCycle.endDate);

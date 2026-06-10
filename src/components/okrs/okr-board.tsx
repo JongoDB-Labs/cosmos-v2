@@ -37,6 +37,8 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [editDescription, setEditDescription] = useState("");
   const [editPeriod, setEditPeriod] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -188,9 +190,10 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     }
   }
 
-  async function handleDelete(objectiveId: string) {
-    if (!confirm("Are you sure you want to delete this objective?")) return;
-
+  async function confirmDelete() {
+    const objectiveId = deleteTarget?.id;
+    if (!objectiveId) return;
+    setDeleting(true);
     try {
       const res = await fetch(`${basePath}/objectives/${objectiveId}`, {
         method: "DELETE",
@@ -199,9 +202,12 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
       if (!res.ok) throw new Error("Failed to delete objective");
 
       setObjectives((prev) => prev.filter((o) => o.id !== objectiveId));
+      setDeleteTarget(null);
     } catch (err) {
       console.error("Failed to delete objective:", err);
       notifyError(err, "Couldn't delete the objective.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -245,7 +251,9 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           onUpdateKeyResult={handleUpdateKeyResult}
           onAddKeyResult={handleAddKeyResult}
           onEdit={handleEdit}
-          onDelete={handleDelete}
+          onDelete={(id: string) =>
+            setDeleteTarget(objectives.find((o) => o.id === id) ?? null)
+          }
         />
       ))}
 
@@ -343,6 +351,36 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
               disabled={saving || !editTitle.trim()}
             >
               {saving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => {
+          if (!o && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete objective?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes{" "}
+              {deleteTarget?.title ? `"${deleteTarget.title}"` : "this objective"}{" "}
+              and its key results. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
