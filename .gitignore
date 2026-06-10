@@ -76,3 +76,4 @@ compose/minio/certs/
 
 # local pre-deploy DB snapshots (never commit)
 .deploy/backups/
+ui-sweep.mjs
