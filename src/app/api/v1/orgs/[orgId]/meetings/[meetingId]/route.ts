@@ -37,12 +37,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const meeting = await prisma.syncMeeting.findFirst({
       where: { id: meetingId, orgId },
-      include: { attendees: true },
+      include: {
+        attendees: true,
+        customType: { select: { id: true, label: true } },
+      },
     });
 
     if (!meeting) return new Response("Not found", { status: 404 });
 
-    return success(meeting);
+    return success({ ...meeting, customTypeLabel: meeting.customType?.label ?? null });
   } catch (error) {
     return handleApiError(error);
   }
