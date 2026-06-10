@@ -13,6 +13,7 @@ import {
   type GroupingState,
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
+import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -805,8 +806,14 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           </span>
         )}
 
-        {/* Density toggle — pushed to the right edge of the toolbar */}
-        <div className="ml-auto flex items-center gap-1">
+        {/* New issue + density toggle — pushed to the right edge of the toolbar */}
+        <div className="ml-auto flex items-center gap-2">
+          <CreateIssueButton
+            orgId={orgId}
+            projectId={projectId}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+          />
           <DensityButton
             label="Comfortable rows"
             active={density === "comfortable"}

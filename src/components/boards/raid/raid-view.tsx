@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldAlert,
   Check,
@@ -11,6 +11,7 @@ import {
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -137,13 +138,13 @@ export function RaidView({
   orgId,
   projectId,
   projectKey,
+  boardId,
 }: RaidViewProps) {
-  // `boardId` is part of the board-view contract (every view receives it) but
-  // RAID groups by tag, not by board columns, so it isn't read here.
   const [hideDone, setHideDone] = useState(false);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
+  const qc = useQueryClient();
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
 
@@ -249,15 +250,23 @@ export function RaidView({
           {totalShown} item{totalShown === 1 ? "" : "s"}
         </span>
 
-        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          <input
-            type="checkbox"
-            checked={hideDone}
-            onChange={(e) => setHideDone(e.target.checked)}
-            className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--primary)]"
+        <div className="ml-auto flex items-center gap-3">
+          <CreateIssueButton
+            orgId={orgId}
+            projectId={projectId}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />
-          Hide done
-        </label>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            <input
+              type="checkbox"
+              checked={hideDone}
+              onChange={(e) => setHideDone(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--primary)]"
+            />
+            Hide done
+          </label>
+        </div>
       </div>
 
       {/* Columns */}
