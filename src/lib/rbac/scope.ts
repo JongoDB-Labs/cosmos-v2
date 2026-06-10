@@ -31,3 +31,34 @@ export async function canManageProject(
   });
   return pm != null;
 }
+
+/**
+ * The subset of `projectIds` the actor can administer — the set form of
+ * {@link canManageProject}, for the org-wide Issues view (which can't ask
+ * per-project). Org-wide PROJECT_MANAGE holders manage all of them; otherwise
+ * it's the projects where they're a ProjectMember MANAGER. Returns a Set for
+ * O(1) membership tests at the call site.
+ */
+export async function getManagedProjectIds(
+  ctx: AuthContext,
+  projectIds: string[],
+): Promise<Set<string>> {
+  if (projectIds.length === 0) return new Set();
+  if (hasPermission(ctx.permissions, Permission.PROJECT_MANAGE)) {
+    return new Set(projectIds);
+  }
+  const member = await prisma.orgMember.findUnique({
+    where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
+    select: { id: true },
+  });
+  if (!member) return new Set();
+  const managed = await prisma.projectMember.findMany({
+    where: {
+      orgMemberId: member.id,
+      role: ProjectRole.MANAGER,
+      projectId: { in: projectIds },
+    },
+    select: { projectId: true },
+  });
+  return new Set(managed.map((m) => m.projectId));
+}
