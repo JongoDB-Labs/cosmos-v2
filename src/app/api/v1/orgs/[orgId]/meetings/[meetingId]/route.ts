@@ -14,6 +14,8 @@ import { detectVideoProvider } from "@/lib/meetings/video";
 const updateMeetingSchema = z.object({
   title: z.string().min(1).optional(),
   status: z.nativeEnum(MeetingStatus).optional(),
+  // Reschedule: an ISO datetime moving the meeting to a new slot.
+  meetingDate: z.string().datetime().optional(),
   notes: z.string().nullish(),
   transcript: z.string().nullable().optional(),
   aiSummary: z.string().nullable().optional(),
@@ -76,6 +78,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.status !== undefined && { status: data.status }),
+        ...(data.meetingDate !== undefined && {
+          meetingDate: new Date(data.meetingDate),
+        }),
         ...(data.notes !== undefined && { notes: data.notes ?? "" }),
         ...(data.transcript !== undefined && { transcript: data.transcript }),
         ...(data.aiSummary !== undefined && { aiSummary: data.aiSummary }),

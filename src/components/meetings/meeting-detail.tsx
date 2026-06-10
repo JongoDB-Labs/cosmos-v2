@@ -44,6 +44,7 @@ import {
   RotateCcw,
   MessageSquare,
   X,
+  Trash2,
 } from "lucide-react";
 import type { SyncMeeting, MeetingAttendee, OrgMember } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
@@ -127,6 +128,11 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
   const [generatingMeet, setGeneratingMeet] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleValue, setRescheduleValue] = useState("");
+  const [rescheduling, setRescheduling] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,6 +183,58 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
     } catch (err) {
       console.error(err);
       notifyError(err, "Couldn't update the meeting status.");
+    }
+  };
+
+  // Open the reschedule dialog seeded with the current date/time as a value the
+  // <input type="datetime-local"> understands (local time, no timezone suffix).
+  const openReschedule = () => {
+    if (meeting) {
+      const d = new Date(meeting.meetingDate);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      setRescheduleValue(
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      );
+    }
+    setRescheduleOpen(true);
+  };
+
+  const reschedule = async () => {
+    if (!rescheduleValue) return;
+    setRescheduling(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/meetings/${meetingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // datetime-local has no zone; new Date() reads it as local, toISOString
+        // normalizes to UTC for storage.
+        body: JSON.stringify({ meetingDate: new Date(rescheduleValue).toISOString() }),
+      });
+      if (!res.ok) throw new Error("Failed to reschedule meeting");
+      setRescheduleOpen(false);
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      console.error(err);
+      notifyError(err, "Couldn't reschedule the meeting.");
+    } finally {
+      setRescheduling(false);
+    }
+  };
+
+  const deleteMeeting = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/meetings/${meetingId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete meeting");
+      setDeleteOpen(false);
+      // Return to wherever we came from (the meetings list / drawer).
+      router.back();
+    } catch (err) {
+      console.error(err);
+      notifyError(err, "Couldn't delete the meeting.");
+      setDeleting(false);
     }
   };
 
@@ -522,6 +580,12 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
             Complete Meeting
           </Button>
         )}
+        {meeting.status === "SCHEDULED" && (
+          <Button variant="outline" size="sm" onClick={openReschedule}>
+            <Calendar className="size-4" />
+            Reschedule
+          </Button>
+        )}
         {(meeting.status === "SCHEDULED" || meeting.status === "IN_PROGRESS") && (
           <Button
             variant="destructive"
@@ -532,6 +596,15 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
             Cancel
           </Button>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2 className="size-4" />
+          Delete
+        </Button>
         {meeting.meetSpaceName && meeting.status === "MEETING_COMPLETED" && (
           <Button
             size="sm"
@@ -889,6 +962,65 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
               onClick={() => pendingRemove && removeAttendee(pendingRemove.id)}
             >
               {removingAttendee ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reschedule — move the meeting to a new date/time. */}
+      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reschedule meeting</DialogTitle>
+            <DialogDescription>
+              Pick a new date and time. Attendees and notes are kept.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="reschedule-when">New date &amp; time</Label>
+            <Input
+              id="reschedule-when"
+              type="datetime-local"
+              value={rescheduleValue}
+              onChange={(e) => setRescheduleValue(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRescheduleOpen(false)}
+              disabled={rescheduling}
+            >
+              Cancel
+            </Button>
+            <Button onClick={reschedule} disabled={rescheduling || !rescheduleValue}>
+              {rescheduling ? "Saving…" : "Reschedule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete — permanent; removes the meeting and its attendee records. */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete meeting?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes “{meeting.title || "Untitled meeting"}” and
+              its attendee records. This can’t be undone. To keep the record but
+              mark it off, use Cancel instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Keep
+            </Button>
+            <Button variant="destructive" onClick={deleteMeeting} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete meeting"}
             </Button>
           </DialogFooter>
         </DialogContent>
