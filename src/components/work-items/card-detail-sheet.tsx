@@ -50,6 +50,7 @@ import {
   GitBranch,
   CornerDownRight,
   Plus,
+  Pencil,
 } from "lucide-react";
 import type {
   WorkItem,
@@ -117,6 +118,8 @@ export function CardDetailSheet({
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const [activities, setActivities] = useState<Activity[]>([]);
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -394,6 +397,40 @@ export function CardDetailSheet({
         notifyError(err, "Couldn't post your comment.");
       }
     });
+  }
+
+  async function handleSaveCommentEdit(id: string) {
+    const content = editDraft.trim();
+    if (!content || !item) return;
+    try {
+      const res = await fetch(`${basePath}/${item.id}/comments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) throw new Error(`Failed to edit comment (HTTP ${res.status})`);
+      const updated: Comment = await res.json();
+      setComments((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, content: updated.content } : c)),
+      );
+      setEditingCommentId(null);
+      setEditDraft("");
+    } catch (err) {
+      notifyError(err, "Couldn't save the edit.");
+    }
+  }
+
+  async function handleDeleteComment(id: string) {
+    if (!item) return;
+    try {
+      const res = await fetch(`${basePath}/${item.id}/comments/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`Failed to delete comment (HTTP ${res.status})`);
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      notifyError(err, "Couldn't delete the comment.");
+    }
   }
 
   async function handleDuplicate() {
@@ -825,30 +862,90 @@ export function CardDetailSheet({
                   No comments yet
                 </p>
               )}
-              {comments.map((c) => (
-                <div key={c.id} className="flex gap-2">
-                  <Avatar size="sm">
-                    <AvatarFallback>
-                      {(c.author?.user?.displayName ?? "?")
-                        .charAt(0)
-                        .toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium">
-                        {c.author?.user?.displayName ?? "Unknown"}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {new Date(c.createdAt).toLocaleDateString()}
-                      </span>
+              {comments.map((c) => {
+                const name =
+                  c.authorName ?? c.author?.user?.displayName ?? "Unknown";
+                const isEditing = editingCommentId === c.id;
+                const edited =
+                  !!c.updatedAt && c.updatedAt !== c.createdAt;
+                return (
+                  <div key={c.id} className="group/comment flex gap-2">
+                    <Avatar size="sm">
+                      <AvatarFallback>
+                        {name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium">{name}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(c.createdAt).toLocaleDateString()}
+                          {edited ? " · edited" : ""}
+                        </span>
+                        {!isEditing && (c.canEdit || c.canDelete) && (
+                          <span className="ml-auto flex items-center gap-1.5 opacity-0 transition-opacity group-hover/comment:opacity-100">
+                            {c.canEdit && (
+                              <button
+                                type="button"
+                                aria-label="Edit comment"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  setEditingCommentId(c.id);
+                                  setEditDraft(c.content);
+                                }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                            {c.canDelete && (
+                              <button
+                                type="button"
+                                aria-label="Delete comment"
+                                className="text-muted-foreground hover:text-destructive"
+                                onClick={() => void handleDeleteComment(c.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      {isEditing ? (
+                        <div className="mt-1 space-y-1.5">
+                          <Textarea
+                            value={editDraft}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            className="min-h-16 resize-none text-sm"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="xs"
+                              onClick={() => void handleSaveCommentEdit(c.id)}
+                              disabled={!editDraft.trim()}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              onClick={() => {
+                                setEditingCommentId(null);
+                                setEditDraft("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground mt-0.5 whitespace-pre-wrap">
+                          {c.content}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      {c.content}
-                    </p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               <div className="relative flex gap-2">
                 <textarea
