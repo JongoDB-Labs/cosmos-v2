@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { Settings, Upload } from "lucide-react";
 import { ProjectBoardTabs } from "./board-tabs";
+import { ClassificationBanner } from "@/components/security/classification-banner";
 
 type LayoutParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -51,6 +52,9 @@ export default async function ProjectLayout({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Data-classification marking strip (FOUO+); renders nothing otherwise. */}
+      <ClassificationBanner orgId={ctx.orgId} projectId={project.id} />
+
       {/* Project header */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <div className="flex items-center gap-3">

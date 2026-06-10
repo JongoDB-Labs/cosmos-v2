@@ -46,6 +46,8 @@ interface DataClassification {
   markings: string[];
   handlingInstructions: string;
   appliedById: string;
+  /** Display name of the applier, resolved server-side (GET route). */
+  appliedByName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -470,8 +472,12 @@ export function ClassificationManager({ orgId }: { orgId: string }) {
                     <td className="px-3 py-2 max-w-[200px] truncate text-xs text-muted-foreground">
                       {cls.handlingInstructions || "-"}
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {cls.appliedById.substring(0, 8)}...
+                    <td className="px-3 py-2 text-xs">
+                      {cls.appliedByName ?? (
+                        <span className="font-mono text-muted-foreground">
+                          {cls.appliedById.substring(0, 8)}…
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {new Date(cls.createdAt).toLocaleDateString()}
