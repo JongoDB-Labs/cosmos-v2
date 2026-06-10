@@ -298,11 +298,8 @@ export function ChannelView({
   }
 
   async function edit(id: string, content: string) {
-    const next =
-      typeof window !== "undefined"
-        ? window.prompt("Edit message", content)
-        : null;
-    if (next === null || next === content) return;
+    const next = content.trim();
+    if (!next) return;
     try {
       const r = await fetch(`/api/v1/orgs/${orgId}/chat/messages/${id}`, {
         method: "PATCH",
@@ -316,11 +313,6 @@ export function ChannelView({
   }
 
   async function del(id: string) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete this message?")
-    )
-      return;
     try {
       const r = await fetch(`/api/v1/orgs/${orgId}/chat/messages/${id}`, {
         method: "DELETE",
@@ -512,6 +504,8 @@ export function ChannelView({
           usersById={usersById}
           onClose={() => setThreadParent(null)}
           onSendReply={sendReply}
+          onEdit={edit}
+          onDelete={del}
         />
       )}
     </div>

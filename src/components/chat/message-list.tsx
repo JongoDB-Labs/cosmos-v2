@@ -56,7 +56,7 @@ export function MessageList({
               currentUserId={currentUserId}
               mentionMap={mentionMap}
               isPinned={pinnedIds.has(m.id)}
-              onEdit={() => onEdit(m.id, m.content)}
+              onEdit={(next) => onEdit(m.id, next)}
               onDelete={() => onDelete(m.id)}
               onReact={(emoji, isOwn) => onReact(m.id, emoji, isOwn)}
               onOpenThread={() => onOpenThread(m)}
