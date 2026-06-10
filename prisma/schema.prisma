@@ -2209,14 +2209,42 @@ model FeedbackItem {
   description String         @default("")
   status      FeedbackStatus @default(OPEN)
   voteCount   Int            @default(0) @map("vote_count") // denormalized for sort
+  // Auto-captured client context on BUG reports (route, userAgent, stack,
+  // componentStack, digest, errorSignature). Append-only sightings; {} for FRs.
+  telemetry   Json           @default("{}")
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  org   Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  votes FeedbackVote[]
+  org         Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  votes       FeedbackVote[]
+  attachments FeedbackAttachment[]
 
   @@index([orgId, status])
   @@map("feedback_items")
+}
+
+// Screenshot/file attachments on a feedback item. Mirrors ChatMessageAttachment:
+// orphaned (feedbackItemId null) until the feedback POST associates it; served
+// through an auth-checked route, not the raw storage URL. (FR: attach screenshots
+// to bug/FR tickets, viewable by admins.)
+model FeedbackAttachment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  feedbackItemId String?  @map("feedback_item_id") @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  kind           String
+  url            String
+  storageKey     String   @map("storage_key")
+  filename       String
+  contentType    String   @map("content_type")
+  size           Int
+  uploadedById   String   @map("uploaded_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  feedbackItem FeedbackItem? @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+
+  @@index([feedbackItemId])
+  @@index([uploadedById, createdAt])
+  @@map("feedback_attachments")
 }
 
 model FeedbackVote {

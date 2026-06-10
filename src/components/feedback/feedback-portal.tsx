@@ -33,6 +33,15 @@ import { ChevronUp, Plus, Bug, Lightbulb, Megaphone } from "lucide-react";
 type FType = "BUG" | "FEATURE";
 type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "DONE" | "DECLINED";
 
+interface FeedbackAttachment {
+  id: string;
+  kind: string;
+  url: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
 interface FeedbackItem {
   id: string;
   type: FType;
@@ -42,6 +51,7 @@ interface FeedbackItem {
   voteCount: number;
   hasVoted: boolean;
   createdAt: string;
+  attachments?: FeedbackAttachment[];
 }
 
 const STATUS_LABELS: Record<FStatus, string> = {
@@ -76,6 +86,40 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [pending, setPending] = useState<
+    { id: string; url: string; filename: string; kind: string }[]
+  >([]);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const file of files.slice(0, 10)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(`${basePath}/attachments`, { method: "POST", body: fd });
+        if (!res.ok) {
+          notifyError(new Error("upload"), `Couldn't upload ${file.name}.`);
+          continue;
+        }
+        const row = await res.json();
+        setPending((prev) => [
+          ...prev,
+          { id: row.id, url: row.url, filename: row.filename, kind: row.kind },
+        ]);
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removePending(id: string) {
+    setPending((prev) => prev.filter((a) => a.id !== id));
+    void fetch(`${basePath}/attachments/${id}`, { method: "DELETE" }).catch(() => {});
+  }
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -109,6 +153,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
           type,
           title: title.trim(),
           description: description.trim(),
+          attachmentIds: pending.map((a) => a.id),
         }),
       });
       if (!res.ok) throw new Error("Failed to submit");
@@ -116,6 +161,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       setType("FEATURE");
       setTitle("");
       setDescription("");
+      setPending([]);
       await fetchItems();
     } catch (err) {
       notifyError(err, "Couldn't submit your feedback.");
@@ -246,6 +292,38 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     {item.description}
                   </p>
                 )}
+                {item.attachments && item.attachments.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {item.attachments.map((a) =>
+                      a.kind === "image" ? (
+                        <a
+                          key={a.id}
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={a.filename}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={a.url}
+                            alt={a.filename}
+                            className="h-16 w-16 rounded border object-cover transition-opacity hover:opacity-80"
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          key={a.id}
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs underline underline-offset-2"
+                        >
+                          {a.filename}
+                        </a>
+                      ),
+                    )}
+                  </div>
+                )}
                 {canManage && (
                   <div className="mt-2">
                     <Select
@@ -313,6 +391,51 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                 onChange={(e) => setDescription(e.target.value)}
                 className="min-h-[100px]"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fb-files">Screenshots (optional)</Label>
+              <input
+                id="fb-files"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+                multiple
+                onChange={handleFiles}
+                disabled={uploading || pending.length >= 10}
+                className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:bg-muted/70"
+              />
+              {(uploading || pending.length > 0) && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {pending.map((a) => (
+                    <div key={a.id} className="relative">
+                      {a.kind === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={a.url}
+                          alt={a.filename}
+                          className="h-14 w-14 rounded border object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-14 w-14 items-center justify-center rounded border p-1 text-center text-[9px] leading-tight">
+                          {a.filename}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${a.filename}`}
+                        onClick={() => removePending(a.id)}
+                        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] leading-none text-white"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {uploading && (
+                    <span className="self-center text-xs text-muted-foreground">
+                      Uploading…
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
