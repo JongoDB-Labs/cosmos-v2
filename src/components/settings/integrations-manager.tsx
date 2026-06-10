@@ -27,6 +27,7 @@ import {
   XCircle,
   AlertTriangle,
   Clock,
+  ExternalLink,
 } from "lucide-react";
 import type { Integration } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
@@ -476,6 +477,18 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
                         <p className="text-xs leading-relaxed text-muted-foreground">
                           {provider.description}
                         </p>
+
+                        {provider.docsUrl && (
+                          <a
+                            href={provider.docsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1.5 inline-flex w-fit items-center gap-1 text-xs text-[var(--primary)] hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            Setup guide
+                          </a>
+                        )}
 
                         <div className="mt-auto pt-2">
                           {provider.status === "coming_soon" ? (
