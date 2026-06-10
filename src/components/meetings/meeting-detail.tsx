@@ -220,12 +220,14 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         blockers: update.blockers ?? attendee.blockers,
         notes: update.notes ?? attendee.notes,
       };
+      // Per-attendee endpoint: the collection PUT expects { attendees: [...] }
+      // (bulk), while this route's updateAttendeeSchema matches `body` exactly.
       const res = await fetch(
-        `/api/v1/orgs/${orgId}/meetings/${meetingId}/attendees`,
+        `/api/v1/orgs/${orgId}/meetings/${meetingId}/attendees/${attendee.id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ attendeeId: attendee.id, ...body }),
+          body: JSON.stringify(body),
         }
       );
       if (!res.ok) throw new Error("Failed to save attendee update");

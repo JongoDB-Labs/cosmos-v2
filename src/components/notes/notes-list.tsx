@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
-import { Plus, Search, Lock, Building2, FolderKanban, Pencil, Eye, Trash2 } from "lucide-react";
+import { Plus, Search, Lock, Building2, FolderKanban, Pencil, Trash2 } from "lucide-react";
 import { NoteEditor } from "./note-editor";
 import { stripMarkdown } from "./note-markdown";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -125,6 +125,29 @@ export function NotesList({ orgId }: NotesListProps) {
     }
   }
 
+  // Direct visibility change (PRIVATE / ORG) without opening the editor.
+  // PROJECT visibility needs a project selection, so it stays in the editor.
+  async function setNoteVisibility(note: Note, visibility: Note["visibility"]) {
+    if (note.visibility === visibility) return;
+    const prev = note.visibility;
+    setNotes((p) =>
+      p.map((n) => (n.id === note.id ? { ...n, visibility } : n)),
+    );
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/notes/${note.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility }),
+      });
+      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+    } catch (err) {
+      setNotes((p) =>
+        p.map((n) => (n.id === note.id ? { ...n, visibility: prev } : n)),
+      );
+      notifyError(err, "Couldn't change the note's visibility.");
+    }
+  }
+
   // Show editor if editing
   if (editingNote !== null) {
     return (
@@ -229,15 +252,36 @@ export function NotesList({ orgId }: NotesListProps) {
                           icon: Pencil,
                           onClick: () => setEditingNote(note),
                         },
-                        {
-                          label: "Change visibility",
-                          icon: Eye,
-                          onClick: () => setEditingNote(note),
-                        },
                       ]
                     : []),
                 ],
               },
+              ...(can(Permission.NOTE_UPDATE) && note.visibility !== "PRIVATE"
+                ? [
+                    {
+                      items: [
+                        {
+                          label: "Make private",
+                          icon: Lock,
+                          onClick: () => setNoteVisibility(note, "PRIVATE"),
+                        },
+                      ],
+                    },
+                  ]
+                : []),
+              ...(can(Permission.NOTE_UPDATE) && note.visibility !== "ORG"
+                ? [
+                    {
+                      items: [
+                        {
+                          label: "Share with organization",
+                          icon: Building2,
+                          onClick: () => setNoteVisibility(note, "ORG"),
+                        },
+                      ],
+                    },
+                  ]
+                : []),
               {
                 items: [
                   ...(can(Permission.NOTE_DELETE)
