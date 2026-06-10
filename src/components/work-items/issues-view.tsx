@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -28,7 +28,16 @@ import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog"
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2 } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 
 /** Row shape returned by GET /api/v1/orgs/[orgId]/work-items/search. Mirrors
@@ -177,6 +186,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // Org-wide board-create. A project MANAGER whose org role lacks it can still
   // save a board for their own project — folded in below once facets resolve.
   const hasOrgBoardCreate = can(Permission.BOARD_CREATE);
+  const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
+  const canBulkDelete = can(Permission.ITEM_DELETE);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   // The text input is uncontrolled-ish: we commit it into `filters.text` on
   // submit/enter so every keystroke doesn't refire the query.
@@ -184,6 +195,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [page, setPage] = useState(1);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<IssueRow | null>(null);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
+  const [bulkPending, setBulkPending] = useState(false);
   const router = useRouter();
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
@@ -234,6 +249,108 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const managedProjectIds = facets?.managedProjectIds ?? [];
   const canCreateBoard = hasOrgBoardCreate || managedProjectIds.length > 0;
   const rows = results?.data ?? [];
+
+  // ── Bulk edit (cross-project) ───────────────────────────────────────────
+  // Issues rows span projects, but the bulk API is per-project — so we bucket
+  // the selected ids by their project and fan out one request per project. We
+  // only expose project-AGNOSTIC ops here (assignee/priority/tags/delete);
+  // status + cycle are project-scoped and stay in the per-project table view.
+  const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
+  const selectedCount = selectedIds.length;
+
+  function bucketByProject(ids: string[]): Map<string, string[]> {
+    const projectOf = new Map(rows.map((r) => [r.id, r.project.id]));
+    const buckets = new Map<string, string[]>();
+    for (const id of ids) {
+      const pid = projectOf.get(id);
+      if (!pid) continue;
+      const arr = buckets.get(pid);
+      if (arr) arr.push(id);
+      else buckets.set(pid, [id]);
+    }
+    return buckets;
+  }
+
+  async function bulkApply(update: Record<string, unknown>) {
+    if (selectedCount === 0) return;
+    setBulkPending(true);
+    try {
+      await Promise.all(
+        [...bucketByProject(selectedIds).entries()].map(([projectId, ids]) =>
+          jsonFetch(
+            `/api/v1/orgs/${orgId}/projects/${projectId}/work-items/bulk`,
+            { method: "PUT", body: JSON.stringify({ ids, update }) },
+          ),
+        ),
+      );
+      setRowSelection({});
+      await refetch();
+    } catch (err) {
+      notifyError(err, "Couldn't apply the bulk change.");
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
+  // Tag add appends to each item's EXISTING tags, so bucket by project + the
+  // current tag-set so every group's update carries the right resulting array.
+  async function bulkAddTag(raw: string) {
+    const tag = raw.trim();
+    if (!tag || selectedCount === 0) return;
+    setBulkPending(true);
+    try {
+      const sel = new Set(selectedIds);
+      const groups = new Map<string, { projectId: string; ids: string[]; tags: string[] }>();
+      for (const r of rows) {
+        if (!sel.has(r.id) || r.tags.includes(tag)) continue;
+        const key = `${r.project.id}::${[...r.tags].sort().join(",")}`;
+        const g = groups.get(key);
+        if (g) g.ids.push(r.id);
+        else groups.set(key, { projectId: r.project.id, ids: [r.id], tags: [...r.tags, tag] });
+      }
+      if (groups.size === 0) {
+        setBulkPending(false);
+        return;
+      }
+      await Promise.all(
+        [...groups.values()].map((g) =>
+          jsonFetch(
+            `/api/v1/orgs/${orgId}/projects/${g.projectId}/work-items/bulk`,
+            { method: "PUT", body: JSON.stringify({ ids: g.ids, update: { tags: g.tags } }) },
+          ),
+        ),
+      );
+      setRowSelection({});
+      setTagDraft("");
+      await refetch();
+    } catch (err) {
+      notifyError(err, "Couldn't add the tag.");
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
+  async function bulkDelete() {
+    if (selectedCount === 0) return;
+    setBulkPending(true);
+    try {
+      await Promise.all(
+        [...bucketByProject(selectedIds).entries()].map(([projectId, ids]) =>
+          jsonFetch(
+            `/api/v1/orgs/${orgId}/projects/${projectId}/work-items/bulk`,
+            { method: "DELETE", body: JSON.stringify({ ids }) },
+          ),
+        ),
+      );
+      setRowSelection({});
+      setConfirmBulkDelete(false);
+      await refetch();
+    } catch (err) {
+      notifyError(err, "Couldn't delete the selected items.");
+    } finally {
+      setBulkPending(false);
+    }
+  }
   const total = results?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -444,6 +561,9 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             getRowId={(r) => r.id}
             onRowClick={(r) => setDetailRow(r)}
             rowActions={rowActions}
+            {...(canBulkEdit || canBulkDelete
+              ? { rowSelection, onRowSelectionChange: setRowSelection }
+              : {})}
           />
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-[var(--border)] pt-3 text-xs text-[var(--text-muted)]">
@@ -481,6 +601,121 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         orgSlug={orgSlug}
         statuses={facets?.statuses ?? []}
       />
+
+      {selectedCount > 0 && (canBulkEdit || canBulkDelete) && (
+        <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center px-4">
+          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)]/95 px-3 py-2 shadow-lg ring-1 ring-foreground/10 supports-backdrop-filter:backdrop-blur">
+            <span className="text-xs font-medium text-[var(--text)]">
+              {selectedCount} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setRowSelection({})}
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+            >
+              Clear
+            </button>
+
+            {canBulkEdit && (
+              <>
+                <span className="mx-1 h-5 w-px bg-[var(--border)]" aria-hidden />
+                <BulkSelect
+                  placeholder="Assign to"
+                  ariaLabel="Assign selected items"
+                  onValueChange={(v) =>
+                    void bulkApply({ assigneeId: v === "__none" ? null : v })
+                  }
+                  options={[
+                    { value: "__none", label: "Unassigned" },
+                    ...(facets?.members ?? []).map((m) => ({
+                      value: m.id,
+                      label: m.displayName,
+                    })),
+                  ]}
+                />
+                <BulkSelect
+                  placeholder="Priority"
+                  ariaLabel="Set priority for selected items"
+                  onValueChange={(v) => void bulkApply({ priority: v })}
+                  options={[
+                    { value: "CRITICAL", label: "Critical" },
+                    { value: "HIGH", label: "High" },
+                    { value: "MEDIUM", label: "Medium" },
+                    { value: "LOW", label: "Low" },
+                  ]}
+                />
+                <form
+                  className="flex items-center"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void bulkAddTag(tagDraft);
+                  }}
+                >
+                  <input
+                    value={tagDraft}
+                    onChange={(e) => setTagDraft(e.target.value)}
+                    placeholder="Add tag"
+                    aria-label="Add tag to selected items"
+                    disabled={bulkPending}
+                    className="h-7 w-24 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                  />
+                </form>
+              </>
+            )}
+
+            {canBulkDelete && (
+              <>
+                <span className="mx-1 h-5 w-px bg-[var(--border)]" aria-hidden />
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={bulkPending}
+                  onClick={() => setConfirmBulkDelete(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <Dialog
+        open={confirmBulkDelete}
+        onOpenChange={(o) => {
+          if (!o && !bulkPending) setConfirmBulkDelete(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Delete {selectedCount} work item{selectedCount === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              This permanently deletes the selected work item
+              {selectedCount === 1 ? "" : "s"} across their projects. This action
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmBulkDelete(false)}
+              disabled={bulkPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void bulkDelete()}
+              disabled={bulkPending}
+            >
+              {bulkPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {canCreateBoard && facets && (
         <SaveAsBoardDialog
@@ -682,6 +917,41 @@ function FacetSelect({
         {options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
             {`${label}: ${o.label}`}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** Action-style Select for the bulk toolbar: an always-empty controlled value
+ *  so the trigger stays a placeholder label and the same bulk action can be
+ *  re-applied (mirrors the table view's BulkSelect). */
+function BulkSelect({
+  placeholder,
+  ariaLabel,
+  options,
+  onValueChange,
+}: {
+  placeholder: string;
+  ariaLabel: string;
+  options: { value: string; label: string }[];
+  onValueChange: (value: string) => void;
+}) {
+  return (
+    <Select
+      value=""
+      onValueChange={(v) => {
+        if (v) onValueChange(v as string);
+      }}
+    >
+      <SelectTrigger size="sm" aria-label={ariaLabel} className="h-7 text-xs">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
           </SelectItem>
         ))}
       </SelectContent>
