@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Mic } from "lucide-react";
 import { useWakeWord } from "@/lib/hooks/use-wake-word";
 
 const STORAGE_KEY = "cosmos:wake-word-enabled";
@@ -16,7 +17,7 @@ export function WakeWordProvider() {
     setEnabled(stored === "true");
   }, []);
 
-  useWakeWord({
+  const { listening } = useWakeWord({
     phrase: "hey cosmos",
     enabled,
     onWake: () => {
@@ -24,8 +25,8 @@ export function WakeWordProvider() {
     },
   });
 
-  // The provider has no UI; it just listens. Toggle is handled by a sidebar button.
-  // Expose the toggle via a custom event listener so the user-card dropdown can flip it.
+  // Toggle is fired from the sidebar/user-card via a custom event so the
+  // control can live elsewhere; this provider owns the actual recognition.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handler = (e: Event) => {
@@ -39,5 +40,31 @@ export function WakeWordProvider() {
       window.removeEventListener("cosmos:wake-word:toggle", handler);
   }, [enabled]);
 
-  return null;
+  function disable() {
+    setEnabled(false);
+    window.localStorage.setItem(STORAGE_KEY, "false");
+  }
+
+  // LIVE indicator: while the mic is actually listening, show a small pulsing
+  // pill so the user always knows voice capture is on (and can switch it off
+  // in one click). Placed bottom-left, clear of the agent bubble (bottom-right)
+  // and the mobile bottom nav (raised on small screens).
+  if (!listening) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={disable}
+      aria-label="Listening for “Hey COSMOS” — click to turn off"
+      title="Listening for “Hey COSMOS” — click to turn off"
+      className="fixed bottom-20 left-4 z-50 flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--overlay)] py-1.5 pl-2.5 pr-3 text-xs font-medium text-[var(--text)] shadow-lg backdrop-blur transition-colors hover:border-destructive/50 md:bottom-4"
+    >
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+      </span>
+      <Mic className="h-3.5 w-3.5" />
+      <span>Listening…</span>
+    </button>
+  );
 }
