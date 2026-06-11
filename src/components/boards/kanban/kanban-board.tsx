@@ -156,6 +156,13 @@ function KanbanBoardInner({
     setSelectedIds(new Set());
   }, []);
 
+  // Ctrl/Cmd-click a card (outside select mode) → enter select mode with it
+  // selected (FR: "hold ctrl/cmd to select multiple cards").
+  const ctrlSelect = useCallback((id: string) => {
+    setSelectMode(true);
+    setSelectedIds((prev) => new Set(prev).add(id));
+  }, []);
+
   // Monotonic request id: a realtime refetch may race the initial load (or
   // another refetch), so only the newest response is allowed to write state.
   const reqSeq = useRef(0);
@@ -880,6 +887,7 @@ function KanbanBoardInner({
                       selectMode={selectMode}
                       selectedIds={selectedIds}
                       onToggleSelect={toggleSelect}
+                      onCtrlSelect={ctrlSelect}
                     />
                   ))}
                 </div>
@@ -907,6 +915,7 @@ function KanbanBoardInner({
                 selectMode={selectMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
+                      onCtrlSelect={ctrlSelect}
               />
             ))}
           </div>
