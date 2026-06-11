@@ -12,6 +12,10 @@ import { crmStageSchema } from "@/lib/crm/stages";
 
 const updateContactSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  email: z.string().max(320).nullable().optional(),
+  phone: z.string().max(50).nullable().optional(),
+  company: z.string().max(200).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
   stage: crmStageSchema,
   value: z.string().nullish(),
   dealValue: z.number().nullable().optional(),
@@ -73,6 +77,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       where: { id: contactId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
+        ...(data.email !== undefined && { email: data.email }),
+        ...(data.phone !== undefined && { phone: data.phone }),
+        ...(data.company !== undefined && { company: data.company }),
+        ...(data.title !== undefined && { title: data.title }),
         // `!= null` so an explicit `null` (allowed by the schema) leaves the
         // stage untouched rather than overwriting it.
         ...(data.stage != null && { stage: data.stage }),
