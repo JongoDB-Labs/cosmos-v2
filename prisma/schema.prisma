@@ -748,6 +748,13 @@ model CrmContact {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String   @map("org_id") @db.Uuid
   name         String
+  // First-class contact attributes. The edit form + contact card have always
+  // read/written these (and the client type declared them), but they had no
+  // columns, so edits were silently dropped on save. Nullable + additive.
+  email        String?
+  phone        String?
+  company      String?
+  title        String?
   // NOTE: canonical stage keys are UPPERCASE (LEAD/QUALIFIED/…), matching the
   // pipeline board's column keys. This DB-level default is legacy lowercase but
   // is unreachable in practice: every write goes through crmStageSchema

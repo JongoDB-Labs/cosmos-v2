@@ -15,6 +15,10 @@ import {
 
 const createContactSchema = z.object({
   name: z.string().min(1).max(200),
+  email: z.string().max(320).nullish(),
+  phone: z.string().max(50).nullish(),
+  company: z.string().max(200).nullish(),
+  title: z.string().max(200).nullish(),
   stage: crmStageSchema,
   value: z.string().nullish(),
   dealValue: z.number().optional(),
@@ -71,6 +75,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: {
         orgId,
         name: data.name,
+        email: data.email ?? null,
+        phone: data.phone ?? null,
+        company: data.company ?? null,
+        title: data.title ?? null,
         stage: data.stage ?? DEFAULT_CRM_STAGE,
         value: data.value ?? null,
         dealValue: data.dealValue ?? null,
