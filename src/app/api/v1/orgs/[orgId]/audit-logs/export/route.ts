@@ -206,10 +206,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    return new Response(JSON.stringify(logs), {
+    // JSON export: AuditLog rows carry BigInt `seq` and Bytes `rowHash`/`prevHash`
+    // (every row since the seq IDENTITY + hash-chain trigger migrations). Raw
+    // JSON.stringify(logs) throws "Do not know how to serialize a BigInt", so
+    // serialize the same way the PDF/CSV paths do: BigInt→string, Bytes→hex.
+    const jsonRows = logs.map((l) => ({
+      id: l.id,
+      seq: l.seq != null ? l.seq.toString() : null,
+      createdAt: l.createdAt.toISOString(),
+      userId: l.userId,
+      action: l.action,
+      entity: l.entity,
+      entityId: l.entityId,
+      ipAddress: l.ipAddress,
+      metadata: l.metadata,
+      rowHash: l.rowHash ? Buffer.from(l.rowHash).toString("hex") : null,
+      prevHash: l.prevHash ? Buffer.from(l.prevHash).toString("hex") : null,
+    }));
+
+    return new Response(JSON.stringify(jsonRows), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
+        "Content-Disposition": `attachment; filename="audit-logs-${orgId}.json"`,
       },
     });
   } catch (error) {

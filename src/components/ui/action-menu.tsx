@@ -52,8 +52,19 @@ interface ActionMenuProps {
  * release the guard. A capturing window listener catches inner-container
  * scrolls too (scroll doesn't bubble, but it does traverse the capture phase).
  */
-export function guardScroll(from: Element | null, frames = 20): void {
-  if (typeof window === "undefined") return;
+// Only one guard chain may run at a time. A rapid close→scroll→re-open can
+// otherwise leave the close-guard's rAF chain (which captured the OLD offsets)
+// running while a new open-guard chain (capturing the NEW offsets) starts —
+// the two then fight every frame, forcing the scroll back and forth: the exact
+// jitter the guard exists to suppress. The newest open/close is authoritative,
+// so each new guard supersedes (cancels) the previous one.
+let activeGuardCancel: (() => void) | null = null;
+
+export function guardScroll(from: Element | null, frames = 20): () => void {
+  if (typeof window === "undefined") return () => {};
+  // Supersede any in-flight guard so concurrent chains can never fight.
+  activeGuardCancel?.();
+
   const targets: { el: Element; top: number; left: number }[] = [];
   let node: Element | null = from;
   while (node) {
@@ -65,11 +76,20 @@ export function guardScroll(from: Element | null, frames = 20): void {
   }
   const winTop = window.scrollY;
   const winLeft = window.scrollX;
+
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+    if (activeGuardCancel === cancel) activeGuardCancel = null;
+  };
+  activeGuardCancel = cancel;
+
   // Re-assert the captured offsets every frame for a short window so base-ui's
   // focus-into-view scroll is neutralized WHENEVER it lands (timing varies as
   // the popup mounts). Cheap, and only runs right after a right-click/close.
   let n = 0;
   const tick = () => {
+    if (cancelled) return;
     for (const t of targets) {
       if (t.el.scrollTop !== t.top) t.el.scrollTop = t.top;
       if (t.el.scrollLeft !== t.left) t.el.scrollLeft = t.left;
@@ -78,8 +98,10 @@ export function guardScroll(from: Element | null, frames = 20): void {
       window.scrollTo(winLeft, winTop);
     }
     if (++n < frames) requestAnimationFrame(tick);
+    else cancel();
   };
   requestAnimationFrame(tick);
+  return cancel;
 }
 
 export function ActionMenu({ groups, children, triggerClassName, triggerLabel }: ActionMenuProps) {

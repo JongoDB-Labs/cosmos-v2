@@ -409,6 +409,10 @@ export interface SyncMeeting {
   createdAt: string;
   updatedAt: string;
   attendees?: MeetingAttendee[];
+  /** Org-defined custom meeting-type label, synthesized onto the API response
+   *  from the MeetingTypeOption relation (the Prisma model carries only the FK).
+   *  Present on both the list and single-meeting GET responses. */
+  customTypeLabel?: string | null;
 }
 
 export interface MeetingAttendee {

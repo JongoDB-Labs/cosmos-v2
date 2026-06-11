@@ -19,7 +19,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.MEETING_CREATE);
+    // Deleting org-wide meeting vocabulary is destructive (every meeting that
+    // referenced this type silently loses its custom label via the SetNull FK),
+    // so it must be admin-gated — MEETING_DELETE, not the MEMBER-level
+    // MEETING_CREATE used by the POST that creates a type.
+    requirePermission(ctx, Permission.MEETING_DELETE);
 
     const existing = await prisma.meetingTypeOption.findFirst({
       where: { id: typeId, orgId },

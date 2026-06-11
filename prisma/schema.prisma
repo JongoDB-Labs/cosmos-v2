@@ -212,6 +212,7 @@ model Organization {
   documents              Document[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
+  meetingTypeOptions     MeetingTypeOption[]
 
   @@map("organizations")
 }
@@ -1240,7 +1241,8 @@ model MeetingTypeOption {
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
-  meetings SyncMeeting[]
+  organization Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  meetings     SyncMeeting[]
 
   @@unique([orgId, label])
   @@index([orgId])
