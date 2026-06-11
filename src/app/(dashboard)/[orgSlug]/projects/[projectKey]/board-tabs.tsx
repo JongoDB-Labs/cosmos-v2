@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Plus, Users, Trash2 } from "lucide-react";
+import { Plus, Users, Trash2, Star } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import {
   Dialog,
@@ -35,6 +35,9 @@ interface ProjectBoardTabsProps {
   canManageBoards?: boolean;
   /** Whether the actor may create boards (org BOARD_CREATE or project MANAGER). */
   canCreateBoards?: boolean;
+  /** The project's current default board (everyone lands here) — from
+   *  Project.settings.defaultBoardId. Managers can change it from a board's menu. */
+  defaultBoardId?: string | null;
   templateDefaultConfig?: Record<string, unknown> | null;
 }
 
@@ -53,6 +56,7 @@ export function ProjectBoardTabs({
   enabledFeatures = [],
   canManageBoards = false,
   canCreateBoards = false,
+  defaultBoardId = null,
   templateDefaultConfig,
 }: ProjectBoardTabsProps) {
   const pathname = usePathname();
@@ -60,6 +64,28 @@ export function ProjectBoardTabs({
 
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [settingDefault, setSettingDefault] = useState(false);
+
+  // FR "Default view": a manager picks the board everyone lands on. Persisted in
+  // Project.settings.defaultBoardId (merged server-side) and honored by the
+  // project page's redirect.
+  async function handleSetDefault(board: BoardTab) {
+    setSettingDefault(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { defaultBoardId: board.id } }),
+      });
+      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      toast.success(`"${board.name}" is now the default board.`);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't set the default board.");
+    } finally {
+      setSettingDefault(false);
+    }
+  }
 
   const newBoardHref = `/${orgSlug}/projects/${projectKey}/boards/new`;
 
@@ -143,16 +169,23 @@ export function ProjectBoardTabs({
         const href = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
         const isActive = pathname === href;
 
+        const isDefault = board.id === defaultBoardId;
         const tab = (
           <Link
             href={href}
             className={cn(
-              "relative px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
+              "relative flex items-center gap-1 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
               isActive
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
+            {isDefault && (
+              <Star
+                className="h-3 w-3 shrink-0 fill-primary text-primary"
+                aria-label="Default board"
+              />
+            )}
             {board.name}
             {isActive && (
               <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
@@ -160,15 +193,30 @@ export function ProjectBoardTabs({
           </Link>
         );
 
-        // A board manager gets a ⋯ / right-click menu on each tab to delete it.
+        // A board manager gets a ⋯ / right-click menu on each tab: set-as-default
+        // + delete.
         if (!canManageBoards) return <span key={board.id}>{tab}</span>;
         const groups: ActionMenuGroup[] = [
+          {
+            items: [
+              ...(isDefault
+                ? []
+                : [
+                    {
+                      label: "Set as default board",
+                      icon: Star,
+                      disabled: settingDefault,
+                      onClick: () => handleSetDefault(board),
+                    },
+                  ]),
+            ],
+          },
           {
             items: [
               {
                 label: "Delete board",
                 icon: Trash2,
-                variant: "destructive",
+                variant: "destructive" as const,
                 onClick: () => setBoardToDelete(board),
               },
             ],

@@ -95,6 +95,12 @@ export default async function ProjectLayout({
         enabledFeatures={project.enabledFeatures}
         canManageBoards={canManageBoards}
         canCreateBoards={canCreateBoards}
+        defaultBoardId={
+          typeof (project.settings as Record<string, unknown> | null)?.defaultBoardId ===
+          "string"
+            ? ((project.settings as Record<string, unknown>).defaultBoardId as string)
+            : null
+        }
         templateDefaultConfig={
           project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
         }
