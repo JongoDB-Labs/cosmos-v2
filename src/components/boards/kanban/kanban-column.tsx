@@ -32,6 +32,10 @@ interface KanbanColumnProps {
    * (a single create row per status would be ambiguous). Defaults to false.
    */
   hideQuickCreate?: boolean;
+  /** Bulk-select mode (threaded to each card). */
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 export function KanbanColumn({
@@ -45,6 +49,9 @@ export function KanbanColumn({
   onCardCreated,
   droppableId,
   hideQuickCreate = false,
+  selectMode = false,
+  selectedIds,
+  onToggleSelect,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? column.key });
 
@@ -111,6 +118,9 @@ export function KanbanColumn({
               item={item}
               onClick={onCardClick}
               members={members}
+              selectMode={selectMode}
+              selected={selectedIds?.has(item.id) ?? false}
+              onToggleSelect={onToggleSelect}
             />
           ))}
         </SortableContext>
