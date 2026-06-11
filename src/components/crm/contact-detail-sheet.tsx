@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog,
   DialogContent,
@@ -270,19 +271,24 @@ export function ContactDetailSheet({
 
           <FormField label="Owner">
             {(p) => (
-              <Select value={ownerId} onValueChange={(v) => setOwnerId(v ?? "")}>
-                <SelectTrigger {...p} className="w-full">
-                  <SelectValue placeholder="Unassigned" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
-                  {members.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.user?.displayName ?? m.userId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                {...p}
+                className="w-full"
+                placeholder="Unassigned"
+                searchPlaceholder="Search people…"
+                emptyText="No matching people"
+                value={ownerId || "__unassigned__"}
+                onValueChange={(v) =>
+                  setOwnerId(v && v !== "__unassigned__" ? v : "")
+                }
+                options={[
+                  { value: "__unassigned__", label: "Unassigned" },
+                  ...members.map((m) => ({
+                    value: m.id,
+                    label: m.user?.displayName ?? m.userId,
+                  })),
+                ]}
+              />
             )}
           </FormField>
 

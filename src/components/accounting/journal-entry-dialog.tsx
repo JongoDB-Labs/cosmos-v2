@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
@@ -154,21 +155,20 @@ export function JournalEntryDialog({
           <div className="space-y-2">
             {lines.map((l) => (
               <div key={l.key} className="flex items-center gap-2">
-                <Select
+                <SearchableSelect
+                  size="sm"
+                  aria-label="Account"
+                  className="h-8 flex-1"
+                  placeholder="Account…"
+                  searchPlaceholder="Search accounts…"
+                  emptyText="No matching accounts"
                   value={l.accountId}
                   onValueChange={(v) => patchLine(l.key, { accountId: v ?? "" })}
-                >
-                  <SelectTrigger size="sm" aria-label="Account" className="h-8 flex-1">
-                    <SelectValue placeholder="Account…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.code} · {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={accounts.map((a) => ({
+                    value: a.id,
+                    label: `${a.code} · ${a.name}`,
+                  }))}
+                />
                 <Select
                   value={l.direction}
                   onValueChange={(v) =>

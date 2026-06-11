@@ -72,82 +72,95 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Dedup: reuse an existing BUG with the same signature so repeated crashes
     // don't spawn duplicate items. On a repeat we append a sighting + bump the
     // hit count (append-only telemetry history → repeat-frequency for triage).
-    const existing = await prisma.feedbackItem.findFirst({
-      where: { orgId, type: FeedbackType.BUG, title },
-      select: { id: true, telemetry: true },
-    });
-    if (existing) {
-      const prev = (existing.telemetry ?? {}) as {
-        hits?: number;
-        firstSeen?: string;
-        sightings?: unknown[];
-      };
-      const telemetry = {
-        ...prev,
-        errorSignature: sig,
-        hits: (typeof prev.hits === "number" ? prev.hits : 1) + 1,
-        firstSeen: prev.firstSeen ?? now.toISOString(),
-        lastSeen: now.toISOString(),
-        route: sighting.route,
-        userAgent: sighting.userAgent,
-        // Latest-occurrence quick-triage fields (full history in `sightings`).
-        appVersion: sighting.appVersion,
-        viewport: sighting.viewport,
-        breadcrumbs: sighting.breadcrumbs,
-        // Keep the most recent 20 sightings.
-        sightings: [...(Array.isArray(prev.sightings) ? prev.sightings : []), sighting].slice(-20),
-      };
-      await prisma.feedbackItem.update({
-        where: { id: existing.id },
-        data: { telemetry: telemetry as Prisma.InputJsonValue },
+    //
+    // The findFirst→create pair is a check-then-act with no DB-level uniqueness
+    // backstop, so two concurrent identical-signature POSTs (e.g. the same crash
+    // firing in two browser tabs) could each see "no existing row" and BOTH
+    // insert — diverging hit counts across duplicate items. Serialize them with
+    // a transaction-scoped advisory lock keyed on (orgId, title): identical
+    // signatures contend and run one-at-a-time, distinct ones never block.
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orgId}), hashtext(${title}))`;
+
+      const existing = await tx.feedbackItem.findFirst({
+        where: { orgId, type: FeedbackType.BUG, title },
+        select: { id: true, telemetry: true },
       });
-      return success({ id: existing.id, title, deduped: true });
-    }
-
-    const description = [
-      data.route ? `**Where:** \`${data.route}\`` : null,
-      data.appVersion ? `**Version:** \`${data.appVersion}\`${data.viewport ? ` · **Viewport:** \`${data.viewport}\`` : ""}` : null,
-      `**Error:** ${data.message.slice(0, 2000)}`,
-      data.digest ? `**Ref:** \`${data.digest}\`` : null,
-      data.userAgent ? `**Browser:** ${data.userAgent.slice(0, 300)}` : null,
-      data.breadcrumbs?.length
-        ? `**Leading up to it:**\n\n\`\`\`\n${data.breadcrumbs.join("\n").slice(0, 2000)}\n\`\`\``
-        : null,
-      data.componentStack
-        ? `**Component stack:**\n\n\`\`\`\n${data.componentStack.slice(0, 3000)}\n\`\`\``
-        : null,
-      data.stack ? `**Stack:**\n\n\`\`\`\n${data.stack.slice(0, 4000)}\n\`\`\`` : null,
-      `_Auto-captured from a client error and reported by a member._`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    const created = await prisma.feedbackItem.create({
-      data: {
-        orgId,
-        authorId: ctx.userId,
-        type: FeedbackType.BUG,
-        title,
-        description,
-        telemetry: {
+      if (existing) {
+        const prev = (existing.telemetry ?? {}) as {
+          hits?: number;
+          firstSeen?: string;
+          sightings?: unknown[];
+        };
+        const telemetry = {
+          ...prev,
           errorSignature: sig,
-          hits: 1,
-          firstSeen: now.toISOString(),
+          hits: (typeof prev.hits === "number" ? prev.hits : 1) + 1,
+          firstSeen: prev.firstSeen ?? now.toISOString(),
           lastSeen: now.toISOString(),
           route: sighting.route,
           userAgent: sighting.userAgent,
+          // Latest-occurrence quick-triage fields (full history in `sightings`).
           appVersion: sighting.appVersion,
           viewport: sighting.viewport,
           breadcrumbs: sighting.breadcrumbs,
-          stack: data.stack?.slice(0, 4000) ?? null,
-          componentStack: data.componentStack?.slice(0, 3000) ?? null,
-          sightings: [sighting],
-        } as Prisma.InputJsonValue,
-      },
-      select: { id: true, title: true },
+          // Keep the most recent 20 sightings.
+          sightings: [...(Array.isArray(prev.sightings) ? prev.sightings : []), sighting].slice(-20),
+        };
+        await tx.feedbackItem.update({
+          where: { id: existing.id },
+          data: { telemetry: telemetry as Prisma.InputJsonValue },
+        });
+        return { id: existing.id, title, deduped: true };
+      }
+
+      const description = [
+        data.route ? `**Where:** \`${data.route}\`` : null,
+        data.appVersion ? `**Version:** \`${data.appVersion}\`${data.viewport ? ` · **Viewport:** \`${data.viewport}\`` : ""}` : null,
+        `**Error:** ${data.message.slice(0, 2000)}`,
+        data.digest ? `**Ref:** \`${data.digest}\`` : null,
+        data.userAgent ? `**Browser:** ${data.userAgent.slice(0, 300)}` : null,
+        data.breadcrumbs?.length
+          ? `**Leading up to it:**\n\n\`\`\`\n${data.breadcrumbs.join("\n").slice(0, 2000)}\n\`\`\``
+          : null,
+        data.componentStack
+          ? `**Component stack:**\n\n\`\`\`\n${data.componentStack.slice(0, 3000)}\n\`\`\``
+          : null,
+        data.stack ? `**Stack:**\n\n\`\`\`\n${data.stack.slice(0, 4000)}\n\`\`\`` : null,
+        `_Auto-captured from a client error and reported by a member._`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const created = await tx.feedbackItem.create({
+        data: {
+          orgId,
+          authorId: ctx.userId,
+          type: FeedbackType.BUG,
+          title,
+          description,
+          telemetry: {
+            errorSignature: sig,
+            hits: 1,
+            firstSeen: now.toISOString(),
+            lastSeen: now.toISOString(),
+            route: sighting.route,
+            userAgent: sighting.userAgent,
+            appVersion: sighting.appVersion,
+            viewport: sighting.viewport,
+            breadcrumbs: sighting.breadcrumbs,
+            stack: data.stack?.slice(0, 4000) ?? null,
+            componentStack: data.componentStack?.slice(0, 3000) ?? null,
+            sightings: [sighting],
+          } as Prisma.InputJsonValue,
+        },
+        select: { id: true, title: true },
+      });
+
+      return { ...created, deduped: false };
     });
 
-    return success({ ...created, deduped: false });
+    return success(result);
   } catch (e) {
     return handleApiError(e);
   }
