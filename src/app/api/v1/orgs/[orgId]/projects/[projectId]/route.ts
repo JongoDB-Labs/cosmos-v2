@@ -112,7 +112,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.description !== undefined && { description: data.description ?? "" }),
-        ...(data.settings !== undefined && { settings: data.settings as Prisma.InputJsonValue }),
+        // MERGE settings (don't clobber): a partial patch like
+        // `{ settings: { defaultBoardId } }` keeps every other setting intact.
+        ...(data.settings !== undefined && {
+          settings: {
+            ...((existing.settings as Record<string, unknown> | null) ?? {}),
+            ...data.settings,
+          } as Prisma.InputJsonValue,
+        }),
         ...(data.archived !== undefined && { archived: data.archived }),
         ...(data.enabledFeatures !== undefined && { enabledFeatures: data.enabledFeatures }),
       },

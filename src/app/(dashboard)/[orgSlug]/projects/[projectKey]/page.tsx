@@ -22,7 +22,6 @@ export default async function ProjectPage({ params }: PageParams) {
     include: {
       boards: {
         orderBy: { sortOrder: "asc" },
-        take: 1,
         select: { id: true },
       },
     },
@@ -31,9 +30,17 @@ export default async function ProjectPage({ params }: PageParams) {
   if (!project) notFound();
 
   if (project.boards.length > 0) {
-    redirect(
-      `/${orgSlug}/projects/${projectKey}/boards/${project.boards[0].id}`
-    );
+    // Honor a manager-set default board (FR: "Default view" — everyone lands on
+    // the board the project lead chose). Falls back to the first board if the
+    // default is unset or points at a board that no longer exists.
+    const settings = (project.settings as Record<string, unknown> | null) ?? {};
+    const defaultBoardId =
+      typeof settings.defaultBoardId === "string" ? settings.defaultBoardId : null;
+    const target =
+      defaultBoardId && project.boards.some((b) => b.id === defaultBoardId)
+        ? defaultBoardId
+        : project.boards[0].id;
+    redirect(`/${orgSlug}/projects/${projectKey}/boards/${target}`);
   }
 
   // No boards yet - show empty state
