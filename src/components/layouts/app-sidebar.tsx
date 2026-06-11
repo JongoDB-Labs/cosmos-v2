@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion as fm, AnimatePresence } from "framer-motion";
@@ -359,6 +360,29 @@ function UserCard({
     .toUpperCase()
     .slice(0, 2);
 
+  // Reflect the "Hey COSMOS" wake-word state in the toggle (filled when on +
+  // a listening warning) so it's not a blind switch. Mirrors WakeWordProvider's
+  // localStorage + custom-event contract.
+  const [wakeWordOn, setWakeWordOn] = useState(false);
+  useEffect(() => {
+    const read = () =>
+      setWakeWordOn(
+        typeof window !== "undefined" &&
+          window.localStorage.getItem("cosmos:wake-word-enabled") === "true",
+      );
+    read();
+    const onToggle = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setWakeWordOn((prev) => (typeof detail === "boolean" ? detail : !prev));
+    };
+    window.addEventListener("cosmos:wake-word:toggle", onToggle);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener("cosmos:wake-word:toggle", onToggle);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
@@ -385,19 +409,37 @@ function UserCard({
         <DropdownMenuItem
           onClick={(e) => {
             e.preventDefault();
-            const current =
-              typeof window !== "undefined" &&
-              window.localStorage.getItem("cosmos:wake-word-enabled") ===
-                "true";
             window.dispatchEvent(
               new CustomEvent("cosmos:wake-word:toggle", {
-                detail: !current,
+                detail: !wakeWordOn,
               }),
             );
           }}
         >
-          <Mic className="mr-2 h-4 w-4" /> Toggle &quot;Hey COSMOS&quot; voice
+          <Mic
+            className={cn(
+              "mr-2 h-4 w-4",
+              wakeWordOn && "fill-[var(--primary)] text-[var(--primary)]",
+            )}
+          />
+          <span className="flex-1">&quot;Hey COSMOS&quot; voice</span>
+          {wakeWordOn ? (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[var(--primary-tint)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)]">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--primary)] opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
+              </span>
+              On
+            </span>
+          ) : (
+            <span className="ml-2 text-[10px] text-[var(--text-muted)]">Off</span>
+          )}
         </DropdownMenuItem>
+        {wakeWordOn && (
+          <p className="px-2 pb-1 text-[10px] leading-tight text-[var(--text-muted)]">
+            Your mic is on, listening for “Hey COSMOS”.
+          </p>
+        )}
         <DropdownMenuSeparator />
         <div className="px-2 py-1.5">
           <p className="text-sm font-medium">{user.displayName}</p>
