@@ -31,6 +31,9 @@ interface KanbanCardProps {
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
+  /** Ctrl/Cmd-click a card (when NOT already in select mode) → enter select
+   *  mode with this card selected (FR: "hold ctrl/cmd to select cards"). */
+  onCtrlSelect?: (id: string) => void;
 }
 
 type Priority = WorkItem["priority"];
@@ -59,6 +62,7 @@ export function KanbanCard({
   selectMode = false,
   selected = false,
   onToggleSelect,
+  onCtrlSelect,
 }: KanbanCardProps) {
   const {
     attributes,
@@ -184,9 +188,12 @@ export function KanbanCard({
         // non-functional and contradicts the Enter/Space-to-open behavior.
         aria-describedby={undefined}
         aria-pressed={selectMode ? selected : undefined}
-        onClick={() =>
-          selectMode ? onToggleSelect?.(item.id) : onClick(item)
-        }
+        onClick={(e) => {
+          if (selectMode) return onToggleSelect?.(item.id);
+          if ((e.metaKey || e.ctrlKey) && onCtrlSelect)
+            return onCtrlSelect(item.id);
+          onClick(item);
+        }}
         // dnd-kit's attributes make the card focusable (role=button, tabIndex=0)
         // but no KeyboardSensor is configured, so Enter/Space are free to open
         // the detail. Placed after {...listeners} so it isn't overridden.

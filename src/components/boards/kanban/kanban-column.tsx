@@ -36,6 +36,7 @@ interface KanbanColumnProps {
   selectMode?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  onCtrlSelect?: (id: string) => void;
 }
 
 export function KanbanColumn({
@@ -52,6 +53,7 @@ export function KanbanColumn({
   selectMode = false,
   selectedIds,
   onToggleSelect,
+  onCtrlSelect,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? column.key });
 
@@ -121,6 +123,7 @@ export function KanbanColumn({
               selectMode={selectMode}
               selected={selectedIds?.has(item.id) ?? false}
               onToggleSelect={onToggleSelect}
+              onCtrlSelect={onCtrlSelect}
             />
           ))}
         </SortableContext>
