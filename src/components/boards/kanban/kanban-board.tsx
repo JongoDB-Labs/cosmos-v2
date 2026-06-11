@@ -25,6 +25,17 @@ import {
 } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { CheckSquare, X } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -120,7 +131,30 @@ function KanbanBoardInner({
   const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
+  // Bulk-select mode: toggling it disables drag (the DndContext gets no sensors)
+  // and turns cards into checkbox toggles, so selection never fights dnd-kit.
+  const { can } = usePermissions();
+  const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
+  const canBulkDelete = can(Permission.ITEM_DELETE);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkPending, setBulkPending] = useState(false);
+
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
 
   // Monotonic request id: a realtime refetch may race the initial load (or
   // another refetch), so only the newest response is allowed to write state.
@@ -569,6 +603,53 @@ function KanbanBoardInner({
     setDetailItem(dupe);
   }
 
+  // Bulk-apply a field change to all selected cards via the shared bulk API,
+  // then silently refetch and clear the selection (staying in select mode).
+  const bulkUpdate = useCallback(
+    async (update: Record<string, unknown>, label: string) => {
+      const ids = [...selectedIds];
+      if (ids.length === 0) return;
+      setBulkPending(true);
+      try {
+        const res = await fetch(`${basePath}/work-items/bulk`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, update }),
+        });
+        if (!res.ok) throw new Error("bulk update failed");
+        toast.success(`Updated ${ids.length} item${ids.length === 1 ? "" : "s"} — ${label}`);
+        setSelectedIds(new Set());
+        await fetchData({ silent: true });
+      } catch (err) {
+        notifyError(err, "Couldn't apply the bulk change.");
+      } finally {
+        setBulkPending(false);
+      }
+    },
+    [selectedIds, basePath, fetchData],
+  );
+
+  const bulkDelete = useCallback(async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    setBulkPending(true);
+    try {
+      const res = await fetch(`${basePath}/work-items/bulk`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("bulk delete failed");
+      toast.success(`Deleted ${ids.length} item${ids.length === 1 ? "" : "s"}`);
+      setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
+      setSelectedIds(new Set());
+    } catch (err) {
+      notifyError(err, "Couldn't delete the selected items.");
+    } finally {
+      setBulkPending(false);
+    }
+  }, [selectedIds, basePath]);
+
   if (loading) {
     return <KanbanBoardSkeleton />;
   }
@@ -595,8 +676,122 @@ function KanbanBoardInner({
         cycles={cycles}
         showSwimlane
       />
+
+      {/* Bulk-select toolbar. "Select" enters a mode where drag is OFF and cards
+          toggle; the action bar appears once something's selected. */}
+      {(canBulkEdit || canBulkDelete) && (
+        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
+          {!selectMode ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectMode(true)}
+              className="text-muted-foreground"
+            >
+              <CheckSquare className="h-4 w-4" />
+              Select
+            </Button>
+          ) : (
+            <>
+              <span className="text-sm font-medium">
+                {selectedIds.size} selected
+              </span>
+              {selectedIds.size > 0 && (
+                <>
+                  {canBulkEdit && (
+                    <Select
+                      value=""
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        const col = columns.find((c) => c.key === v);
+                        void bulkUpdate({ columnKey: v }, `moved to ${col?.name ?? v}`);
+                      }}
+                    >
+                      <SelectTrigger size="sm" className="h-7">
+                        <SelectValue placeholder="Move to…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {columns.map((c) => (
+                          <SelectItem key={c.key} value={c.key}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {canBulkEdit && (
+                    <Select
+                      value=""
+                      onValueChange={(v) =>
+                        v && bulkUpdate({ priority: v }, `priority ${titleCase(v)}`)
+                      }
+                    >
+                      <SelectTrigger size="sm" className="h-7">
+                        <SelectValue placeholder="Priority…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {titleCase(p)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {canBulkEdit && members.length > 0 && (
+                    <Select
+                      value=""
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        const m = members.find((mm) => mm.userId === v);
+                        void bulkUpdate(
+                          { assigneeId: v },
+                          `assigned to ${m?.user?.displayName ?? "member"}`,
+                        );
+                      }}
+                    >
+                      <SelectTrigger size="sm" className="h-7">
+                        <SelectValue placeholder="Assign…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {members.map((m) => (
+                          <SelectItem key={m.userId} value={m.userId}>
+                            {m.user?.displayName ?? "Member"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {canBulkDelete && (
+                    <ConfirmButton
+                      size="sm"
+                      pending={bulkPending}
+                      confirmLabel={`Delete ${selectedIds.size}`}
+                      onConfirm={() => void bulkDelete()}
+                    >
+                      Delete
+                    </ConfirmButton>
+                  )}
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={exitSelectMode}
+                className="ml-auto text-muted-foreground"
+              >
+                <X className="h-4 w-4" />
+                Done
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
       <DndContext
-        sensors={sensors}
+        // No sensors while selecting → drag is fully disabled, so toggling a
+        // card can never start a drag.
+        sensors={selectMode ? [] : sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
@@ -637,6 +832,9 @@ function KanbanBoardInner({
                       onCardClick={handleCardClick}
                       onCardCreated={handleCardCreated}
                       hideQuickCreate
+                      selectMode={selectMode}
+                      selectedIds={selectedIds}
+                      onToggleSelect={toggleSelect}
                     />
                   ))}
                 </div>
@@ -661,6 +859,9 @@ function KanbanBoardInner({
                 members={members}
                 onCardClick={handleCardClick}
                 onCardCreated={handleCardCreated}
+                selectMode={selectMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
               />
             ))}
           </div>
