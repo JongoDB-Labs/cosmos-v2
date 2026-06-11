@@ -80,6 +80,14 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const [error, setError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Click an item to open its full detail (FR: "click on the FR and a modal
+  // pops up to show all the details"). Track by id + derive from `items` so the
+  // dialog's vote count / status stay live as the user votes or triages.
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detailItem = detailId
+    ? items.find((i) => i.id === detailId) ?? null
+    : null;
+
   // Filter + sort (FR: organize/filter FRs & BRs by status and type).
   const [filterType, setFilterType] = useState<"ALL" | FType>("ALL");
   const [filterStatus, setFilterStatus] = useState<"ALL" | FStatus>("ALL");
@@ -338,28 +346,37 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
               </button>
 
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="neutral" className="gap-1 text-[10px]">
-                    {item.type === "BUG" ? (
-                      <Bug className="h-3 w-3" />
-                    ) : (
-                      <Lightbulb className="h-3 w-3" />
-                    )}
-                    {item.type === "BUG" ? "Bug" : "Feature"}
-                  </Badge>
-                  <Badge
-                    variant={item.status === "DONE" ? "progress" : "neutral"}
-                    className="text-[10px]"
-                  >
-                    {STATUS_LABELS[item.status]}
-                  </Badge>
-                  <h3 className="font-medium text-sm truncate">{item.title}</h3>
-                </div>
-                {item.description && (
-                  <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
-                    {item.description}
-                  </p>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setDetailId(item.id)}
+                  className="block w-full text-left group/fb"
+                  aria-label={`View details for "${item.title}"`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="neutral" className="gap-1 text-[10px]">
+                      {item.type === "BUG" ? (
+                        <Bug className="h-3 w-3" />
+                      ) : (
+                        <Lightbulb className="h-3 w-3" />
+                      )}
+                      {item.type === "BUG" ? "Bug" : "Feature"}
+                    </Badge>
+                    <Badge
+                      variant={item.status === "DONE" ? "progress" : "neutral"}
+                      className="text-[10px]"
+                    >
+                      {STATUS_LABELS[item.status]}
+                    </Badge>
+                    <h3 className="font-medium text-sm truncate group-hover/fb:underline">
+                      {item.title}
+                    </h3>
+                  </div>
+                  {item.description && (
+                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                      {item.description}
+                    </p>
+                  )}
+                </button>
                 {item.attachments && item.attachments.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {item.attachments.map((a) =>
@@ -514,6 +531,136 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
               {submitting ? "Submitting…" : "Submit"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail dialog — full view of a single item (FR: "click on the FR → modal with all the details"). */}
+      <Dialog
+        open={detailItem !== null}
+        onOpenChange={(o) => !o && setDetailId(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          {detailItem && (
+            <>
+              <DialogHeader>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="neutral" className="gap-1 text-[10px]">
+                    {detailItem.type === "BUG" ? (
+                      <Bug className="h-3 w-3" />
+                    ) : (
+                      <Lightbulb className="h-3 w-3" />
+                    )}
+                    {detailItem.type === "BUG" ? "Bug" : "Feature"}
+                  </Badge>
+                  <Badge
+                    variant={detailItem.status === "DONE" ? "progress" : "neutral"}
+                    className="text-[10px]"
+                  >
+                    {STATUS_LABELS[detailItem.status]}
+                  </Badge>
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <ChevronUp className="h-3 w-3" />
+                    {detailItem.voteCount}
+                  </span>
+                </div>
+                <DialogTitle className="pt-1 text-base">
+                  {detailItem.title}
+                </DialogTitle>
+                <DialogDescription>
+                  Submitted{" "}
+                  {new Date(detailItem.createdAt).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="max-h-[55vh] space-y-4 overflow-y-auto">
+                {detailItem.description ? (
+                  <p className="text-sm whitespace-pre-wrap text-foreground/90">
+                    {detailItem.description}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">
+                    No additional details were provided.
+                  </p>
+                )}
+
+                {detailItem.attachments && detailItem.attachments.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Attachments
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {detailItem.attachments.map((a) =>
+                        a.kind === "image" ? (
+                          <a
+                            key={a.id}
+                            href={a.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={a.filename}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={a.url}
+                              alt={a.filename}
+                              className="h-24 w-24 rounded border object-cover transition-opacity hover:opacity-80"
+                            />
+                          </a>
+                        ) : (
+                          <a
+                            key={a.id}
+                            href={a.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs underline underline-offset-2"
+                          >
+                            {a.filename}
+                          </a>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="sm:justify-between">
+                <button
+                  type="button"
+                  disabled={busyId === detailItem.id}
+                  onClick={() => toggleVote(detailItem)}
+                  aria-pressed={detailItem.hasVoted}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                    detailItem.hasVoted
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "hover:bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                  {detailItem.hasVoted ? "Voted" : "Upvote"} · {detailItem.voteCount}
+                </button>
+                {canManage && (
+                  <Select
+                    value={detailItem.status}
+                    onValueChange={(v) => v && changeStatus(detailItem, v as FStatus)}
+                  >
+                    <SelectTrigger size="sm" className="h-8 w-36 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_ORDER.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {STATUS_LABELS[s]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
