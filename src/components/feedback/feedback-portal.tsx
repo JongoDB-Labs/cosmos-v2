@@ -28,7 +28,7 @@ import {
   Permission,
 } from "@/components/providers/permissions-provider";
 import { notifyError } from "@/lib/errors/notify";
-import { ChevronUp, Plus, Bug, Lightbulb, Megaphone } from "lucide-react";
+import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, Pencil, Trash2 } from "lucide-react";
 
 type FType = "BUG" | "FEATURE";
 type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "DONE" | "DECLINED";
@@ -87,6 +87,11 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const detailItem = detailId
     ? items.find((i) => i.id === detailId) ?? null
     : null;
+  // Manager edit/delete of an item from the detail modal.
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Filter + sort (FR: organize/filter FRs & BRs by status and type).
   const [filterType, setFilterType] = useState<"ALL" | FType>("ALL");
@@ -215,6 +220,44 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       );
     } catch (err) {
       notifyError(err, "Couldn't update the status.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // FR "edit/delete FRs/BRs in the feedback section" (managers, ORG_UPDATE).
+  async function saveEdit(item: FeedbackItem, title: string, description: string) {
+    setBusyId(item.id);
+    try {
+      const res = await fetch(`${basePath}/${item.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), description }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === item.id ? { ...i, title: title.trim(), description } : i,
+        ),
+      );
+      setEditing(false);
+    } catch (err) {
+      notifyError(err, "Couldn't save the changes.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function deleteItem(item: FeedbackItem) {
+    setBusyId(item.id);
+    try {
+      const res = await fetch(`${basePath}/${item.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete");
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+      setDetailId(null);
+      setConfirmDeleteId(null);
+    } catch (err) {
+      notifyError(err, "Couldn't delete the item.");
     } finally {
       setBusyId(null);
     }
@@ -537,7 +580,12 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       {/* Detail dialog — full view of a single item (FR: "click on the FR → modal with all the details"). */}
       <Dialog
         open={detailItem !== null}
-        onOpenChange={(o) => !o && setDetailId(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDetailId(null);
+            setEditing(false);
+          }
+        }}
       >
         <DialogContent className="sm:max-w-lg">
           {detailItem && (
@@ -577,7 +625,27 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
               </DialogHeader>
 
               <div className="max-h-[55vh] space-y-4 overflow-y-auto">
-                {detailItem.description ? (
+                {editing ? (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fb-edit-title">Title</Label>
+                      <Input
+                        id="fb-edit-title"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fb-edit-desc">Details</Label>
+                      <Textarea
+                        id="fb-edit-desc"
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        className="min-h-[120px]"
+                      />
+                    </div>
+                  </div>
+                ) : detailItem.description ? (
                   <p className="text-sm whitespace-pre-wrap text-foreground/90">
                     {detailItem.description}
                   </p>
@@ -641,26 +709,100 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                   <ChevronUp className="h-4 w-4" />
                   {detailItem.hasVoted ? "Voted" : "Upvote"} · {detailItem.voteCount}
                 </button>
-                {canManage && (
-                  <Select
-                    value={detailItem.status}
-                    onValueChange={(v) => v && changeStatus(detailItem, v as FStatus)}
-                  >
-                    <SelectTrigger size="sm" className="h-8 w-36 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_ORDER.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+                {canManage &&
+                  (editing ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditing(false)}
+                        disabled={busyId === detailItem.id}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => saveEdit(detailItem, editTitle, editDesc)}
+                        disabled={busyId === detailItem.id || !editTitle.trim()}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Edit"
+                        title="Edit"
+                        onClick={() => {
+                          setEditTitle(detailItem.title);
+                          setEditDesc(detailItem.description ?? "");
+                          setEditing(true);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Delete"
+                        title="Delete"
+                        onClick={() => setConfirmDeleteId(detailItem.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                      <Select
+                        value={detailItem.status}
+                        onValueChange={(v) => v && changeStatus(detailItem, v as FStatus)}
+                      >
+                        <SelectTrigger size="sm" className="h-8 w-32 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUS_ORDER.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {STATUS_LABELS[s]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(o) => !o && setConfirmDeleteId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this feedback?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the item and its votes. This cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busyId === confirmDeleteId}
+              onClick={() => {
+                const target = items.find((i) => i.id === confirmDeleteId);
+                if (target) void deleteItem(target);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -780,6 +780,33 @@ function KanbanBoardInner({
                       </SelectContent>
                     </Select>
                   )}
+                  {canBulkEdit && cycles.length > 0 && (
+                    <Select
+                      value=""
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        const target = v === "__none__" ? null : v;
+                        const c = cycles.find((cy) => cy.id === v);
+                        void bulkUpdate(
+                          visibleSelectedIds,
+                          { cycleId: target },
+                          target ? `moved to ${c?.name ?? "cycle"}` : "removed from cycle",
+                        );
+                      }}
+                    >
+                      <SelectTrigger size="sm" className="h-7">
+                        <SelectValue placeholder="Cycle…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No cycle</SelectItem>
+                        {cycles.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   {canBulkDelete && (
                     <ConfirmButton
                       size="sm"
