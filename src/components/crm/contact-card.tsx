@@ -48,7 +48,9 @@ export function ContactCard({ contact, members, onClick, onDelete }: ContactCard
     },
   });
 
-  const owner = members.find((m) => m.id === contact.ownerId);
+  // contact.ownerId is the owner's User.id (see contact-detail-sheet + the ABAC
+  // owns_resource contract), so match on userId, not the membership id.
+  const owner = members.find((m) => m.userId === contact.ownerId);
   const ownerName = owner?.user?.displayName ?? "Unassigned";
   const ownerAvatar = owner?.user?.avatarUrl ?? null;
   const ownerInitials = ownerName
