@@ -11,6 +11,12 @@ import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,7 +35,7 @@ import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-d
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -248,6 +254,24 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // data means the table doesn't flash while it refetches.
   useWorkItemRealtime(orgId, null, () => void refetch());
 
+  // Inline field edit: PUT the single field on the item's project endpoint, then
+  // refetch (keepPreviousData avoids a flash). Used by the click-to-edit cells.
+  const quickUpdate = useCallback(
+    async (row: IssueRow, patch: Record<string, unknown>, label: string) => {
+      try {
+        await jsonFetch(
+          `/api/v1/orgs/${orgId}/projects/${row.project.id}/work-items/${row.id}`,
+          { method: "PUT", body: JSON.stringify(patch) },
+        );
+        toast.success(`${row.ticketKey} · ${label}`);
+        void refetch();
+      } catch (err) {
+        notifyError(err, "Couldn't update the issue.");
+      }
+    },
+    [orgId, refetch],
+  );
+
   const facets = facetsQuery.data;
   // Show "Save as board" to org board-creators AND to project managers (who can
   // create boards for the projects they manage, per the board POST's inheritance).
@@ -417,28 +441,68 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         accessorKey: "priority",
         header: "Priority",
         cell: ({ row }) => (
-          <Badge variant={PRIORITY_VARIANT[row.original.priority]}>
-            {row.original.priority}
-          </Badge>
+          <InlineEditCell
+            editable={canUpdateItem}
+            label="priority"
+            value={row.original.priority}
+            display={
+              <Badge variant={PRIORITY_VARIANT[row.original.priority]}>
+                {row.original.priority}
+              </Badge>
+            }
+            options={(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((p) => ({
+              value: p,
+              label: p.charAt(0) + p.slice(1).toLowerCase(),
+            }))}
+            onSelect={(v) =>
+              void quickUpdate(row.original, { priority: v }, `priority ${v.charAt(0) + v.slice(1).toLowerCase()}`)
+            }
+          />
         ),
       },
       {
         accessorKey: "assignee",
         header: "Assignee",
-        cell: ({ row }) =>
-          row.original.assignee ? (
+        cell: ({ row }) => {
+          const a = row.original.assignee;
+          const display = a ? (
             <div className="flex items-center gap-2">
               <Avatar className="h-6 w-6">
-                <AvatarImage src={row.original.assignee.avatarUrl ?? undefined} />
+                <AvatarImage src={a.avatarUrl ?? undefined} />
                 <AvatarFallback className="text-[10px]">
-                  {row.original.assignee.displayName.charAt(0)}
+                  {a.displayName.charAt(0)}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm">{row.original.assignee.displayName}</span>
+              <span className="text-sm">{a.displayName}</span>
             </div>
           ) : (
             <span className="text-sm text-[var(--text-muted)]">Unassigned</span>
-          ),
+          );
+          return (
+            <InlineEditCell
+              editable={canUpdateItem && (facets?.members.length ?? 0) > 0}
+              label="assignee"
+              value={a?.id ?? ""}
+              display={display}
+              options={[
+                { value: "", label: "Unassigned" },
+                ...(facets?.members ?? []).map((m) => ({
+                  value: m.id,
+                  label: m.displayName,
+                })),
+              ]}
+              onSelect={(v) =>
+                void quickUpdate(
+                  row.original,
+                  { assigneeId: v || null },
+                  v
+                    ? `assigned ${facets?.members.find((m) => m.id === v)?.displayName ?? ""}`
+                    : "unassigned",
+                )
+              }
+            />
+          );
+        },
       },
       {
         accessorKey: "dueDate",
@@ -458,7 +522,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           ),
       },
     ],
-    [facets],
+    [facets, canUpdateItem, quickUpdate],
   );
 
   // Per-row actions — surfaced by DataTable as a ⋯ column AND on right-click.
@@ -1132,5 +1196,63 @@ function TableSkeleton() {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * A read-only display that becomes a click-to-edit dropdown when the actor can
+ * update items. Clicking the cell opens a small menu of options; picking one
+ * fires onSelect. stopPropagation keeps the row's detail drawer from opening.
+ */
+function InlineEditCell({
+  value,
+  display,
+  options,
+  onSelect,
+  editable,
+  label,
+}: {
+  value: string;
+  display: React.ReactNode;
+  options: { value: string; label: React.ReactNode }[];
+  onSelect: (v: string) => void;
+  editable: boolean;
+  label: string;
+}) {
+  if (!editable) return <>{display}</>;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`Change ${label}`}
+            onClick={(e) => e.stopPropagation()}
+            className="-mx-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--primary-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {display}
+          </button>
+        }
+      />
+      <DropdownMenuContent align="start" className="min-w-[160px]">
+        {options.map((o) => (
+          <DropdownMenuItem
+            key={o.value}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (o.value !== value) onSelect(o.value);
+            }}
+          >
+            <Check
+              className={cn(
+                "h-3.5 w-3.5",
+                o.value === value ? "opacity-100" : "opacity-0",
+              )}
+            />
+            {o.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
