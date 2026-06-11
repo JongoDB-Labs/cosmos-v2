@@ -283,8 +283,11 @@ export function ContactDetailSheet({
                 }
                 options={[
                   { value: "__unassigned__", label: "Unassigned" },
+                  // Store the USER id (not the OrgMember membership id): the
+                  // ABAC engine's owns_resource compares ownerId to the actor's
+                  // userId, so an owner field MUST be a User.id to ever match.
                   ...members.map((m) => ({
-                    value: m.id,
+                    value: m.userId,
                     label: m.user?.displayName ?? m.userId,
                   })),
                 ]}
