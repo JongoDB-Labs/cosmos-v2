@@ -207,7 +207,10 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   const [loadingConvos, setLoadingConvos] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // The conversation-history list starts COLLAPSED so opening the assistant
+  // leads straight into the chat (more room; history is one click away via the
+  // toggle). Was open-by-default, which buried the conversation on open.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);

@@ -42,9 +42,55 @@ interface ActionMenuProps {
   triggerLabel?: string;
 }
 
+/**
+ * Lock scroll offsets for a short window after a menu open/close. The ⋯ trigger
+ * is hidden (opacity-0) inside a possibly-scrolled row; base-ui focuses it on
+ * open and restores focus to it on close, and the browser's focus-into-view
+ * scrolls the container to reach it — which reads as the table "jerking" on
+ * right-click. We snapshot the current offsets and revert any scroll that fires
+ * during the transition (capture phase, so it's reverted before paint), then
+ * release the guard. A capturing window listener catches inner-container
+ * scrolls too (scroll doesn't bubble, but it does traverse the capture phase).
+ */
+export function guardScroll(from: Element | null, frames = 20): void {
+  if (typeof window === "undefined") return;
+  const targets: { el: Element; top: number; left: number }[] = [];
+  let node: Element | null = from;
+  while (node) {
+    const cs = getComputedStyle(node);
+    if (/(auto|scroll)/.test(cs.overflowY) || /(auto|scroll)/.test(cs.overflowX)) {
+      targets.push({ el: node, top: node.scrollTop, left: node.scrollLeft });
+    }
+    node = node.parentElement;
+  }
+  const winTop = window.scrollY;
+  const winLeft = window.scrollX;
+  // Re-assert the captured offsets every frame for a short window so base-ui's
+  // focus-into-view scroll is neutralized WHENEVER it lands (timing varies as
+  // the popup mounts). Cheap, and only runs right after a right-click/close.
+  let n = 0;
+  const tick = () => {
+    for (const t of targets) {
+      if (t.el.scrollTop !== t.top) t.el.scrollTop = t.top;
+      if (t.el.scrollLeft !== t.left) t.el.scrollLeft = t.left;
+    }
+    if (window.scrollY !== winTop || window.scrollX !== winLeft) {
+      window.scrollTo(winLeft, winTop);
+    }
+    if (++n < frames) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 export function ActionMenu({ groups, children, triggerClassName, triggerLabel }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+
+  const onOpenChange = useCallback((next: boolean) => {
+    setOpen(next);
+    // Focus returns to the (hidden) trigger on close — neutralize the scroll.
+    if (!next) guardScroll(btnRef.current?.parentElement ?? null);
+  }, []);
 
   const handleContextMenu = useCallback(
     (e: ReactMouseEvent) => {
@@ -53,6 +99,9 @@ export function ActionMenu({ groups, children, triggerClassName, triggerLabel }:
 
       const btn = btnRef.current;
       if (!btn) return;
+
+      // Guard against the open-focus scroll for the whole open transition.
+      guardScroll(btn.parentElement);
 
       Object.assign(btn.style, {
         position: "fixed",
@@ -87,7 +136,7 @@ export function ActionMenu({ groups, children, triggerClassName, triggerLabel }:
   if (allEmpty) return <>{children}</>;
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <div onContextMenu={handleContextMenu} className="contents">
         {children}
         <DropdownMenuTrigger
