@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog,
   DialogContent,
@@ -149,18 +150,19 @@ export function ProjectMembersManager({
       {canManage && addable.length > 0 && (
         <div className="mb-5 flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
           <div className="min-w-[200px] flex-1">
-            <Select value={addId} onValueChange={(v) => setAddId(v ?? "")}>
-              <SelectTrigger aria-label="Add member">
-                <SelectValue placeholder="Add a team member…" />
-              </SelectTrigger>
-              <SelectContent>
-                {addable.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.user.displayName} ({m.user.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              aria-label="Add member"
+              className="w-full"
+              placeholder="Add a team member…"
+              searchPlaceholder="Search people…"
+              emptyText="No matching people"
+              value={addId}
+              onValueChange={(v) => setAddId(v ?? "")}
+              options={addable.map((m) => ({
+                value: m.id,
+                label: `${m.user.displayName} (${m.user.email})`,
+              }))}
+            />
           </div>
           <Select value={addRole} onValueChange={(v) => setAddRole((v as ProjectRole) ?? "MEMBER")}>
             <SelectTrigger className="w-40" aria-label="Role">

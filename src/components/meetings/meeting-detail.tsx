@@ -465,8 +465,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
   }
 
   const typeConfig = TYPE_CONFIG[meeting.meetingType];
-  const customLabel = (meeting as { customTypeLabel?: string | null })
-    .customTypeLabel;
+  const customLabel = meeting.customTypeLabel;
   const statusConfig = STATUS_CONFIG[meeting.status];
   const date = new Date(meeting.meetingDate);
   const attendees = meeting.attendees || [];

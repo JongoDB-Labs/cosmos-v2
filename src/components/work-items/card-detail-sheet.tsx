@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog,
   DialogContent,
@@ -660,36 +661,27 @@ export function CardDetailSheet({
             </MetadataField>
 
             <MetadataField icon={User} label="Assignee">
-              <Select
-                items={{
-                  __unassigned__: "Unassigned",
-                  ...Object.fromEntries(
-                    members.map((m) => [
-                      m.userId,
-                      m.user?.displayName ?? m.userId,
-                    ]),
-                  ),
-                }}
+              <SearchableSelect
+                size="sm"
+                aria-label="Assignee"
+                className="w-full text-xs"
+                searchPlaceholder="Search people…"
+                emptyText="No matching people"
                 value={assigneeId ?? "__unassigned__"}
                 onValueChange={(v) =>
                   handleFieldChange(
                     "assigneeId",
-                    (v === "__unassigned__" ? null : v) as string | null
+                    (v === "__unassigned__" || v == null ? null : v) as string | null
                   )
                 }
-              >
-                <SelectTrigger size="sm" aria-label="Assignee" className="w-full text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  {members.map((m) => (
-                    <SelectItem key={m.userId} value={m.userId}>
-                      {m.user?.displayName ?? m.userId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "__unassigned__", label: "Unassigned" },
+                  ...members.map((m) => ({
+                    value: m.userId,
+                    label: m.user?.displayName ?? m.userId,
+                  })),
+                ]}
+              />
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">

@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { Search, X } from "lucide-react";
 import type { OrgMember, Cycle } from "@/types/models";
@@ -244,13 +245,12 @@ export function FilterBar({
 
       <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground mr-1">Assignee:</span>
-        <Select
-          items={{
-            __all__: "All",
-            ...Object.fromEntries(
-              members.map((m) => [m.userId, m.user?.displayName ?? m.userId]),
-            ),
-          }}
+        <SearchableSelect
+          size="sm"
+          aria-label="Filter by assignee"
+          className="h-7 text-xs"
+          searchPlaceholder="Search people…"
+          emptyText="No matching people"
           value={filters.assigneeId ?? "__all__"}
           onValueChange={(v) =>
             onFilterChange({
@@ -258,19 +258,14 @@ export function FilterBar({
               assigneeId: v && v !== "__all__" ? v : null,
             })
           }
-        >
-          <SelectTrigger size="sm" aria-label="Filter by assignee" className="h-7 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All</SelectItem>
-            {members.map((m) => (
-              <SelectItem key={m.userId} value={m.userId}>
-                {m.user?.displayName ?? m.userId}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={[
+            { value: "__all__", label: "All" },
+            ...members.map((m) => ({
+              value: m.userId,
+              label: m.user?.displayName ?? m.userId,
+            })),
+          ]}
+        />
       </div>
 
       {cycles.length > 0 && (

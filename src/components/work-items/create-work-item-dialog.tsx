@@ -117,6 +117,14 @@ export function CreateWorkItemDialog({
         .map((t) => t.trim())
         .filter(Boolean);
       const points = storyPoints.trim() === "" ? undefined : Number(storyPoints);
+      // The server requires whole-number story points (z.number().int()); a
+      // fractional entry would otherwise round-trip to a generic 400 with no
+      // hint as to the cause. Catch it here with a specific, actionable message.
+      if (points != null && (!Number.isInteger(points) || points < 0)) {
+        toast.error("Story points must be a whole number.");
+        setSubmitting(false);
+        return;
+      }
 
       await jsonFetch(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`, {
         method: "POST",
@@ -241,6 +249,7 @@ export function CreateWorkItemDialog({
               <Input
                 type="number"
                 min={0}
+                step={1}
                 placeholder="—"
                 value={storyPoints}
                 onChange={(e) => setStoryPoints(e.target.value)}

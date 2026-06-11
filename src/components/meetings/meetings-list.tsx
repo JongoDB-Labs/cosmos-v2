@@ -607,9 +607,7 @@ function MeetingCard({
   const typeConfig = MEETING_TYPE_CONFIG[meeting.meetingType];
   // Org-defined custom type label (set on the API response) takes precedence
   // over the built-in label when present.
-  const customLabel = (meeting as { customTypeLabel?: string | null })
-    .customTypeLabel;
-  const typeLabel = customLabel || typeConfig.label;
+  const typeLabel = meeting.customTypeLabel || typeConfig.label;
   const statusConfig = STATUS_CONFIG[meeting.status];
   const date = new Date(meeting.meetingDate);
   const attendeeCount = meeting.attendees?.length || 0;

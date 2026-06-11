@@ -273,6 +273,17 @@ function KanbanBoardInner({
     return true;
   });
 
+  // Selection narrowed to what's actually on screen under the current filters.
+  // Drives the "N selected" counter, the Delete confirm label, and the bulk
+  // payloads (passed in as the `ids` argument) — so the count never lies and a
+  // narrowed filter can never apply a bulk move/assign/delete to items the user
+  // can no longer see. The full selection set persists across filtering; only
+  // the visible subset is ever acted on.
+  const filteredIdSet = new Set(filteredItems.map((i) => i.id));
+  const visibleSelectedIds = [...selectedIds].filter((id) =>
+    filteredIdSet.has(id),
+  );
+
   function itemsForColumn(columnKey: string) {
     return filteredItems
       .filter((i) => i.columnKey === columnKey)
@@ -606,8 +617,8 @@ function KanbanBoardInner({
   // Bulk-apply a field change to all selected cards via the shared bulk API,
   // then silently refetch and clear the selection (staying in select mode).
   const bulkUpdate = useCallback(
-    async (update: Record<string, unknown>, label: string) => {
-      const ids = [...selectedIds];
+    async (ids: string[], update: Record<string, unknown>, label: string) => {
+      // `ids` is the caller's visible-selected subset — never the raw selection.
       if (ids.length === 0) return;
       setBulkPending(true);
       try {
@@ -626,11 +637,11 @@ function KanbanBoardInner({
         setBulkPending(false);
       }
     },
-    [selectedIds, basePath, fetchData],
+    [basePath, fetchData],
   );
 
-  const bulkDelete = useCallback(async () => {
-    const ids = [...selectedIds];
+  const bulkDelete = useCallback(async (ids: string[]) => {
+    // `ids` is the caller's visible-selected subset — never the raw selection.
     if (ids.length === 0) return;
     setBulkPending(true);
     try {
@@ -648,7 +659,7 @@ function KanbanBoardInner({
     } finally {
       setBulkPending(false);
     }
-  }, [selectedIds, basePath]);
+  }, [basePath]);
 
   if (loading) {
     return <KanbanBoardSkeleton />;
@@ -694,9 +705,15 @@ function KanbanBoardInner({
           ) : (
             <>
               <span className="text-sm font-medium">
-                {selectedIds.size} selected
+                {visibleSelectedIds.length} selected
+                {selectedIds.size > visibleSelectedIds.length && (
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    ({selectedIds.size - visibleSelectedIds.length} hidden by
+                    filters)
+                  </span>
+                )}
               </span>
-              {selectedIds.size > 0 && (
+              {visibleSelectedIds.length > 0 && (
                 <>
                   {canBulkEdit && (
                     <Select
@@ -704,7 +721,7 @@ function KanbanBoardInner({
                       onValueChange={(v) => {
                         if (!v) return;
                         const col = columns.find((c) => c.key === v);
-                        void bulkUpdate({ columnKey: v }, `moved to ${col?.name ?? v}`);
+                        void bulkUpdate(visibleSelectedIds, { columnKey: v }, `moved to ${col?.name ?? v}`);
                       }}
                     >
                       <SelectTrigger size="sm" className="h-7">
@@ -723,7 +740,7 @@ function KanbanBoardInner({
                     <Select
                       value=""
                       onValueChange={(v) =>
-                        v && bulkUpdate({ priority: v }, `priority ${titleCase(v)}`)
+                        v && bulkUpdate(visibleSelectedIds, { priority: v }, `priority ${titleCase(v)}`)
                       }
                     >
                       <SelectTrigger size="sm" className="h-7">
@@ -745,6 +762,7 @@ function KanbanBoardInner({
                         if (!v) return;
                         const m = members.find((mm) => mm.userId === v);
                         void bulkUpdate(
+                          visibleSelectedIds,
                           { assigneeId: v },
                           `assigned to ${m?.user?.displayName ?? "member"}`,
                         );
@@ -766,8 +784,8 @@ function KanbanBoardInner({
                     <ConfirmButton
                       size="sm"
                       pending={bulkPending}
-                      confirmLabel={`Delete ${selectedIds.size}`}
-                      onConfirm={() => void bulkDelete()}
+                      confirmLabel={`Delete ${visibleSelectedIds.length}`}
+                      onConfirm={() => void bulkDelete(visibleSelectedIds)}
                     >
                       Delete
                     </ConfirmButton>
