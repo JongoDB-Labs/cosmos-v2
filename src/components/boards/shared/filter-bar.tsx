@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
-import { Search, X } from "lucide-react";
+import { Search, X, UserCheck } from "lucide-react";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import type { OrgMember, Cycle } from "@/types/models";
 
 /**
@@ -196,6 +197,10 @@ export function FilterBar({
   showSwimlane = false,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
+  const currentUserId = useCurrentUserId();
+  // FR "Assigned to me": one-click filter to the current user on any board view.
+  const assignedToMe =
+    currentUserId !== null && filters.assigneeId === currentUserId;
 
   const hasFilters =
     filters.search !== "" ||
@@ -226,6 +231,24 @@ export function FilterBar({
           className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground sm:h-7 sm:w-40"
         />
       </div>
+
+      {currentUserId && (
+        <Button
+          size="sm"
+          variant={assignedToMe ? "default" : "outline"}
+          aria-pressed={assignedToMe}
+          className="h-7 gap-1.5"
+          onClick={() =>
+            onFilterChange({
+              ...filters,
+              assigneeId: assignedToMe ? null : currentUserId,
+            })
+          }
+        >
+          <UserCheck className="h-3.5 w-3.5" />
+          Assigned to me
+        </Button>
+      )}
 
       <MultiToggle
         label="Type"
