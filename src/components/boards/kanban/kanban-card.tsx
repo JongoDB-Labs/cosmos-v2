@@ -27,6 +27,10 @@ interface KanbanCardProps {
   item: WorkItem;
   onClick: (item: WorkItem) => void;
   members: OrgMember[];
+  /** Bulk-select mode: the card becomes a checkbox toggle (drag disabled). */
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 type Priority = WorkItem["priority"];
@@ -48,7 +52,14 @@ const priorityLabel: Record<Priority, string> = {
   LOW: "Low",
 };
 
-export function KanbanCard({ item, onClick, members }: KanbanCardProps) {
+export function KanbanCard({
+  item,
+  onClick,
+  members,
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
+}: KanbanCardProps) {
   const {
     attributes,
     listeners,
@@ -159,24 +170,53 @@ export function KanbanCard({ item, onClick, members }: KanbanCardProps) {
         ref={setNodeRef}
         style={style}
         {...attributes}
-        {...listeners}
-        aria-label={`Open ${ticketLabel}: ${item.title}`}
+        // In select mode the card is a checkbox toggle, NOT a draggable — omit
+        // the drag listeners so a tap selects instead of starting a drag (the
+        // board also disables the DndContext sensors in select mode).
+        {...(selectMode ? {} : listeners)}
+        aria-label={
+          selectMode
+            ? `${selected ? "Deselect" : "Select"} ${ticketLabel}: ${item.title}`
+            : `Open ${ticketLabel}: ${item.title}`
+        }
         // No KeyboardSensor is configured, so suppress dnd-kit's injected
         // "press space to pick up the draggable item" instruction — it is
         // non-functional and contradicts the Enter/Space-to-open behavior.
         aria-describedby={undefined}
-        onClick={() => onClick(item)}
+        aria-pressed={selectMode ? selected : undefined}
+        onClick={() =>
+          selectMode ? onToggleSelect?.(item.id) : onClick(item)
+        }
         // dnd-kit's attributes make the card focusable (role=button, tabIndex=0)
         // but no KeyboardSensor is configured, so Enter/Space are free to open
         // the detail. Placed after {...listeners} so it isn't overridden.
-        onKeyDown={activateOnKey(() => onClick(item))}
+        onKeyDown={activateOnKey(() =>
+          selectMode ? onToggleSelect?.(item.id) : onClick(item),
+        )}
         className={cn(
-          "group/action relative rounded-lg border bg-card p-3 cursor-grab active:cursor-grabbing transition-colors",
+          "group/action relative rounded-lg border bg-card p-3 transition-colors",
+          selectMode
+            ? "cursor-pointer pl-8"
+            : "cursor-grab active:cursor-grabbing",
           "hover:border-primary/50",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          selected && "border-primary ring-2 ring-primary/40 bg-primary/5",
           isDragging && "opacity-50 shadow-lg ring-2 ring-primary/20"
         )}
       >
+        {selectMode && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute left-2.5 top-3 flex h-4 w-4 items-center justify-center rounded border",
+              selected
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background",
+            )}
+          >
+            {selected && <Check className="h-3 w-3" />}
+          </span>
+        )}
         <div className="flex items-start gap-2 mb-2">
           <span className="text-[11px] font-mono text-muted-foreground shrink-0">
             {ticketLabel}
