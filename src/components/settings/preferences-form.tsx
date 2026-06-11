@@ -30,11 +30,18 @@ import {
   Trash2,
   Image as ImageIcon,
   Undo2,
+  MessageCircle,
 } from "lucide-react";
 import { UnsavedChangesGuard } from "@/components/ui/unsaved-changes-guard";
 import { DndSettings } from "@/components/settings/dnd-settings";
 import { notifyError } from "@/lib/errors/notify";
 import type { UserPreferences } from "@/types/models";
+import {
+  MOBILE_NAV_DESTINATIONS,
+  DEFAULT_MOBILE_NAV,
+  loadMobileNav,
+  saveMobileNav,
+} from "@/lib/nav/mobile-nav";
 
 type ThemeModeOption = "LIGHT" | "DARK" | "SYSTEM";
 type Density = "COMPACT" | "COMFORTABLE" | "SPACIOUS";
@@ -600,6 +607,8 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
             })}
           </div>
         </div>
+
+        <MobileNavPicker />
       </section>
 
       <Separator />
@@ -680,6 +689,75 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
           <span className="text-sm font-medium">Preferences saved</span>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Customizable mobile bottom-nav picker. Chat is fixed in the center; the four
+ * surrounding slots are choosable here. Stored in localStorage (per device) and
+ * read live by the MobileBottomNav via a change event — no server round-trip,
+ * so it's outside the main (server-backed) preferences save flow.
+ */
+function MobileNavPicker() {
+  const [slots, setSlots] = useState<string[]>(DEFAULT_MOBILE_NAV);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSlots(loadMobileNav());
+  }, []);
+
+  function setSlot(index: number, key: string) {
+    setSlots((prev) => {
+      const next = [...prev];
+      // If the chosen destination already occupies another slot, swap them so
+      // all four stay distinct.
+      const existing = next.indexOf(key);
+      if (existing !== -1 && existing !== index) next[existing] = next[index];
+      next[index] = key;
+      saveMobileNav(next);
+      return next;
+    });
+  }
+
+  // A render helper (NOT a nested component) so React doesn't remount the
+  // selects on each parent render.
+  const renderSlot = (index: number) => (
+    <Select
+      key={`slot-${index}`}
+      value={slots[index]}
+      onValueChange={(v) => v && setSlot(index, v)}
+    >
+      <SelectTrigger className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {MOBILE_NAV_DESTINATIONS.map((d) => (
+          <SelectItem key={d.key} value={d.key}>
+            {d.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>Mobile Navigation</Label>
+      <p className="text-xs text-muted-foreground">
+        Choose the four bottom-nav destinations on phones. Chat stays fixed in
+        the center. Saved on this device.
+      </p>
+      <div className="grid grid-cols-5 items-end gap-2">
+        {renderSlot(0)}
+        {renderSlot(1)}
+        <div className="flex flex-col items-center gap-1 pb-2 text-[var(--text-muted)]">
+          <MessageCircle className="h-4 w-4" />
+          <span className="text-[10px]">Chat</span>
+        </div>
+        {renderSlot(2)}
+        {renderSlot(3)}
+      </div>
     </div>
   );
 }
