@@ -33,6 +33,7 @@ import {
   Play,
   CheckCircle2,
   Trash2,
+  Pencil,
   Target,
   Users,
 } from "lucide-react";
@@ -106,8 +107,9 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
   const [error, setError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Create dialog state.
+  // Create/edit dialog state. editId != null → the dialog edits that cycle.
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [kind, setKind] = useState("SPRINT");
@@ -149,7 +151,28 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
   }, [fetchCycles]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  async function createCycle() {
+  function resetForm() {
+    setEditId(null);
+    setName("");
+    setGoal("");
+    setKind("SPRINT");
+    setStartDate("");
+    setEndDate("");
+  }
+
+  // Open the dialog pre-filled to EDIT an existing cycle (FR: "edit/delete a
+  // sprint after the fact"). Dates come back as ISO; the date input wants
+  // YYYY-MM-DD.
+  function openEdit(cycle: Cycle) {
+    setEditId(cycle.id);
+    setName(cycle.name);
+    setGoal(cycle.goal ?? "");
+    setStartDate(cycle.startDate ? cycle.startDate.slice(0, 10) : "");
+    setEndDate(cycle.endDate ? cycle.endDate.slice(0, 10) : "");
+    setOpen(true);
+  }
+
+  async function submitCycle() {
     if (!name.trim() || !startDate || !endDate) return;
     if (new Date(endDate) < new Date(startDate)) {
       notifyError(
@@ -160,27 +183,36 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${basePath}/cycles`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          goal: goal.trim() || null,
-          startDate: new Date(startDate).toISOString(),
-          endDate: new Date(endDate).toISOString(),
-          cycleKind: kind,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to create cycle");
+      // Editing PUTs name/goal/dates (kind is fixed after creation); creating
+      // POSTs the full new cycle.
+      const res = editId
+        ? await fetch(`${basePath}/cycles/${editId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: name.trim(),
+              goal: goal.trim() || null,
+              startDate: new Date(startDate).toISOString(),
+              endDate: new Date(endDate).toISOString(),
+            }),
+          })
+        : await fetch(`${basePath}/cycles`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: name.trim(),
+              goal: goal.trim() || null,
+              startDate: new Date(startDate).toISOString(),
+              endDate: new Date(endDate).toISOString(),
+              cycleKind: kind,
+            }),
+          });
+      if (!res.ok) throw new Error("Failed to save cycle");
       setOpen(false);
-      setName("");
-      setGoal("");
-      setKind("SPRINT");
-      setStartDate("");
-      setEndDate("");
+      resetForm();
       await fetchCycles();
     } catch (err) {
-      notifyError(err, "Couldn't create the cycle.");
+      notifyError(err, editId ? "Couldn't update the cycle." : "Couldn't create the cycle.");
     } finally {
       setSubmitting(false);
     }
@@ -322,6 +354,7 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
                         setMoveToCycleId(BACKLOG_OPTION);
                         setCompleteTarget(cycle);
                       }}
+                      onEdit={() => openEdit(cycle)}
                       onDelete={() => setDeleteTarget(cycle)}
                       onCapacity={() => setCapacityTarget(cycle)}
                     />
@@ -333,11 +366,17 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
         </div>
       )}
 
-      {/* Create dialog */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* Create / edit dialog */}
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) resetForm();
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Plan a cycle</DialogTitle>
+            <DialogTitle>{editId ? "Edit cycle" : "Plan a cycle"}</DialogTitle>
             <DialogDescription>
               A time-boxed iteration (sprint, phase, release…) to group and track
               work.
@@ -353,21 +392,23 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="cycle-kind">Kind</Label>
-              <Select value={kind} onValueChange={(v) => setKind(v ?? "SPRINT")}>
-                <SelectTrigger id="cycle-kind">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(KIND_LABELS).map(([value, lbl]) => (
-                    <SelectItem key={value} value={value}>
-                      {lbl}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!editId && (
+              <div className="space-y-1.5">
+                <Label htmlFor="cycle-kind">Kind</Label>
+                <Select value={kind} onValueChange={(v) => setKind(v ?? "SPRINT")}>
+                  <SelectTrigger id="cycle-kind">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(KIND_LABELS).map(([value, lbl]) => (
+                      <SelectItem key={value} value={value}>
+                        {lbl}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="cycle-start">Start date</Label>
@@ -399,14 +440,26 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                resetForm();
+              }}
+            >
               Cancel
             </Button>
             <Button
-              onClick={createCycle}
+              onClick={submitCycle}
               disabled={submitting || !name.trim() || !startDate || !endDate}
             >
-              {submitting ? "Creating…" : "Create cycle"}
+              {submitting
+                ? editId
+                  ? "Saving…"
+                  : "Creating…"
+                : editId
+                  ? "Save changes"
+                  : "Create cycle"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -536,6 +589,7 @@ interface CycleCardProps {
   canComplete: boolean;
   onStart: () => void;
   onComplete: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   onCapacity: () => void;
 }
@@ -547,6 +601,7 @@ function CycleCard({
   canComplete,
   onStart,
   onComplete,
+  onEdit,
   onDelete,
   onCapacity,
 }: CycleCardProps) {
@@ -630,6 +685,18 @@ function CycleCard({
               onClick={onCapacity}
             >
               <Users className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {cycle.status !== "COMPLETED" && canUpdate && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              disabled={busy}
+              aria-label="Edit cycle"
+              title="Edit"
+              onClick={onEdit}
+            >
+              <Pencil className="h-3.5 w-3.5" />
             </Button>
           )}
           {cycle.status !== "ACTIVE" && canUpdate && (
