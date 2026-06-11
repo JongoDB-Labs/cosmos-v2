@@ -34,7 +34,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "./dropdown-menu";
-import type { ActionMenuGroup } from "./action-menu";
+import { guardScroll, type ActionMenuGroup } from "./action-menu";
 
 export interface DataTableProps<T> {
   columns: ColumnDef<T>[];
@@ -98,18 +98,23 @@ export function DataTable<T>({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuGroups, setMenuGroups] = useState<ActionMenuGroup[]>([]);
   const ctxBtnRef = useRef<HTMLButtonElement>(null);
+  // Park the (1px, invisible) anchor at a FIXED in-viewport spot when idle
+  // instead of returning it to document flow. base-ui restores focus to this
+  // anchor when the menu closes; if it sat in a scrolled row, the browser would
+  // scroll it into view (the table "jerks down" on close). Pinned fixed at 0,0
+  // it's always in view, so the focus-restore can't scroll anything.
   const resetCtxBtn = () => {
     const btn = ctxBtnRef.current;
     if (btn) {
       Object.assign(btn.style, {
-        position: "",
-        left: "",
-        top: "",
-        width: "",
-        height: "",
-        padding: "",
-        overflow: "",
-        pointerEvents: "",
+        position: "fixed",
+        left: "0px",
+        top: "0px",
+        width: "1px",
+        height: "1px",
+        padding: "0",
+        overflow: "hidden",
+        pointerEvents: "none",
       });
     }
   };
@@ -118,6 +123,9 @@ export function DataTable<T>({
     setMenuGroups(groups);
     const btn = ctxBtnRef.current;
     if (!btn) return;
+    // Neutralize the focus-into-view scroll the menu triggers (the hidden anchor
+    // sits in a scrolled row) — without this the table "jerks" on right-click.
+    guardScroll(btn.parentElement);
     // Pin the (1px, invisible) anchor at the cursor and KEEP it there while the
     // menu is open — base-ui auto-positions the popup to the live anchor rect,
     // so resetting too early made the menu jump to the trigger's natural
@@ -264,11 +272,28 @@ export function DataTable<T>({
         open={menuOpen}
         onOpenChange={(o) => {
           setMenuOpen(o);
-          if (!o) resetCtxBtn();
+          if (!o) {
+            resetCtxBtn();
+            // Focus returns to the hidden anchor on close — guard the scroll for
+            // a longer window since the focus-restore fires after the close
+            // animation (~quarter-second) rather than immediately.
+            guardScroll(ctxBtnRef.current?.parentElement ?? null, 45);
+          }
         }}
       >
         <DropdownMenuTrigger
-          render={<button ref={ctxBtnRef} type="button" aria-hidden tabIndex={-1} className="opacity-0" />}
+          render={
+            <button
+              ref={ctxBtnRef}
+              type="button"
+              aria-hidden
+              tabIndex={-1}
+              // Start parked fixed in-viewport (see resetCtxBtn) so focus-restore
+              // on close never scrolls the table.
+              style={{ position: "fixed", left: 0, top: 0, width: 1, height: 1, pointerEvents: "none" }}
+              className="opacity-0"
+            />
+          }
         />
         <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="min-w-[160px]">
           {menuGroups
