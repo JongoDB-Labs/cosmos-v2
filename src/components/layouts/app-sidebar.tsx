@@ -38,6 +38,17 @@ import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 import { NavGroup } from "./nav-group";
 import { visibleTopbarNav } from "./topbar-nav";
 import { useNavGroups } from "@/lib/hooks/use-nav-groups";
+import { useDrawers, type DrawerTool } from "@/components/drawers/drawer-provider";
+
+// Topbar destinations whose home is a DOCKED DRAWER, not a page — kept in sync
+// with the topbar's own DRAWER_TABS. On the mobile sidebar's Workspace section
+// these must open the drawer in place, NOT link to the standalone page (Chat's
+// /chat page is orphaned on a phone — no channel sidebar, no way back).
+const DRAWER_TABS: Record<string, DrawerTool> = {
+  chat: "chat",
+  meetings: "meetings",
+  notes: "notes",
+};
 
 interface AppSidebarProps {
   open: boolean;
@@ -88,6 +99,7 @@ export function AppSidebar({
   const currentOrg = orgs.find((o) => o.slug === pathname.split("/")[1]);
   const orgSlug = currentOrg?.slug;
   const { can } = usePermissions();
+  const { openDrawer } = useDrawers();
 
   // RBAC/ABAC-gated: drop items + groups the user can't access (item 4),
   // then apply any admin-defined order/visibility (item 12).
@@ -219,12 +231,38 @@ export function AppSidebar({
               </p>
             )}
             {visibleTopbarNav(can).map((item) => {
+              const Icon = item.icon;
+              const drawerTool = DRAWER_TABS[item.id];
+
+              // Drawer-backed destinations (Chat / Meetings / Notes) open the
+              // docked drawer in place and close the mobile sidebar — never the
+              // orphaned standalone page.
+              if (drawerTool) {
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      openDrawer(drawerTool);
+                      onToggle();
+                    }}
+                    title={!open ? item.label : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                      "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {open && <span className="truncate">{item.label}</span>}
+                  </button>
+                );
+              }
+
               const active = isHrefActive(
                 pathname,
                 resolveHref(orgSlug, item.href),
                 false,
               );
-              const Icon = item.icon;
               return (
                 <Link
                   key={item.id}
