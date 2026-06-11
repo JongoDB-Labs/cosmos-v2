@@ -9,9 +9,10 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
-import type { WorkItem, OrgMember } from "@/types/models";
+import type { WorkItem, OrgMember, Cycle, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 
 interface TimelineViewProps {
   orgId: string;
@@ -82,8 +83,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
   const linksKey = useOrgQueryKey("work-item-links", projectId);
+  const boardKey = useOrgQueryKey("board", boardId);
+  const cyclesKey = useOrgQueryKey("cycles", projectId);
 
-  const [itemsQ, membersQ, linksQ] = useQueries({
+  const [itemsQ, membersQ, linksQ, boardQ, cyclesQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -98,12 +101,35 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         queryKey: linksKey,
         queryFn: () => jsonFetch<WorkItemLink[]>(`${basePath}/work-item-links`),
       },
+      {
+        // Board (for its columns) + cycles — needed so a bar click can open the
+        // SAME CardDetailSheet the Kanban/Table views use (FR: card detail
+        // reachable + editable from the Timeline too).
+        queryKey: boardKey,
+        queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
+      },
+      {
+        queryKey: cyclesKey,
+        queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+      },
     ],
   });
 
   const items: WorkItem[] = itemsQ.data ?? [];
   const members: OrgMember[] = membersQ.data ?? [];
   const links: WorkItemLink[] = linksQ.data ?? [];
+  const columns: BoardColumn[] = boardQ.data?.columns ?? [];
+  const cycles: Cycle[] = cyclesQ.data ?? [];
+
+  // Click a bar → open the shared work-item detail (same as other board views).
+  // Tracked by id + derived from the live items so edits/deletes stay in sync.
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detailItem = detailId
+    ? items.find((i) => i.id === detailId) ?? null
+    : null;
+  // A real drag (movement) also fires a trailing click — suppress it so a
+  // reschedule/resize doesn't pop the detail sheet.
+  const justDraggedRef = useRef(false);
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
@@ -293,6 +319,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setDragPreview(null);
   }, []);
 
+  // Open the shared detail sheet on a click/right-click — unless the gesture was
+  // a drag (which fires a trailing click we must ignore).
+  const openDetail = useCallback((item: WorkItem) => {
+    if (justDraggedRef.current) {
+      justDraggedRef.current = false;
+      return;
+    }
+    setDetailId(item.id);
+  }, []);
+
   const onDragEnd = useCallback(
     (e: React.PointerEvent) => {
       const d = dragRef.current;
@@ -300,7 +336,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       if (!d) return;
       const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
       setDragPreview(null);
-      if (deltaDays === 0) return;
+      if (deltaDays === 0) return; // a tap, not a drag — let onClick open detail
+      justDraggedRef.current = true; // suppress the trailing click after a drag
 
       let newStart = d.origStart;
       let newEnd = d.origEnd;
@@ -406,9 +443,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           {sortedItems.map((item) => {
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             return (
-              <div
+              <button
                 key={item.id}
-                className="flex items-center gap-2 px-3 border-b border-border/30 hover:bg-muted/30 transition-colors"
+                type="button"
+                onClick={() => setDetailId(item.id)}
+                title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
+                className="flex w-full items-center gap-2 px-3 text-left border-b border-border/30 hover:bg-muted/30 transition-colors"
                 style={{ height: ROW_HEIGHT }}
               >
                 <div
@@ -423,7 +463,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     {item.title}
                   </p>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -624,6 +664,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
                     onPointerCancel={onDragCancel}
+                    onClick={() => openDetail(item)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setHoveredItem(null);
+                      setDetailId(item.id);
+                    }}
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   >
@@ -662,6 +708,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
                     onPointerCancel={onDragCancel}
+                    onClick={() => openDetail(item)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setHoveredItem(null);
+                      setDetailId(item.id);
+                    }}
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   />
@@ -767,6 +819,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           )}
         </div>
       </div>
+
+      {/* Shared work-item detail — same sheet the Kanban/Table views use, so a
+          ticket opened from the Timeline shows + edits identical data (FR). */}
+      <CardDetailSheet
+        item={detailItem}
+        open={detailItem !== null}
+        onOpenChange={(o) => !o && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        members={members}
+        cycles={cycles}
+        columns={columns}
+        projectItems={items}
+        onUpdate={(updated) =>
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            prev?.map((it) => (it.id === updated.id ? updated : it)),
+          )
+        }
+        onDelete={(id) => {
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            prev?.filter((it) => it.id !== id),
+          );
+          setDetailId(null);
+        }}
+        onItemCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+        onOpenItem={(id) => setDetailId(id)}
+      />
     </div>
   );
 }
