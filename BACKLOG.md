@@ -115,8 +115,8 @@ Running list of items captured while walking through the dashboard. Newest items
 - 🟡 **[feature] Mobile layout overhaul.** _(partial — core done; verified 2026-06-10: a 390px sweep of 8 key pages found NO horizontal overflow or console errors, and many mobile batches shipped across the session.)_ Rework the mobile experience:
   - ✅ **Agent:** removed from the mobile bottom navbar — it's the floating **bubble** now.
   - ✅ **Bottom navbar:** Overview, Projects, **Chat (center)**, Notes, Meetings (matches everest-ai's layout).
-  - ⬜ **Top bar:** a search bar at the top on mobile (today search is `md:`-only / via ⌘K + the nav); notifications icon is already top-right.
-  - ⬜ **Customizable:** users choose mobile-navbar items via Preferences (Chat fixed center, other four user-customizable) — needs a Preferences UI + a per-user nav-config store.
+  - 🟡 **Top bar:** a search *icon* now opens the command palette on mobile (2.71.1) — covers reachability; a persistent inline search *bar* in the mobile topbar is the only remaining sliver.
+  - ✅ **Customizable:** _(done 2.72.0)_ Settings → Preferences → **Mobile Navigation** lets users pick the four slots (Chat fixed center, 10 destinations, distinct-slot swap); localStorage-backed (per-device), live-updates the nav.
 
 - ⬜ **[feature] In-meeting Notes drawer.** _(open — not started.)_ During a meeting, expose **Notes as a side drawer** for live note-taking, tied to the meeting record.
 
