@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { notifyError } from "@/lib/errors/notify";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
 import type { WorkItem, OrgMember } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
@@ -54,6 +57,19 @@ function diffDays(a: Date, b: Date): number {
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
+
+/** The effective [start, end] a bar is drawn from — the SAME fallback the bar
+ *  renderer uses (no startDate → createdAt; no dueDate → start + 7), so a drag
+ *  computes against exactly what's on screen. */
+function itemSpan(item: WorkItem): { start: Date; end: Date } {
+  const start = item.startDate
+    ? startOfDay(new Date(item.startDate))
+    : startOfDay(new Date(item.createdAt));
+  const end = item.dueDate ? startOfDay(new Date(item.dueDate)) : addDays(start, 7);
+  return { start, end };
+}
+
+type DragMode = "move" | "start" | "end";
 
 export function TimelineView({ orgId, projectId, projectKey, boardId }: TimelineViewProps) {
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
@@ -219,6 +235,106 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return map;
   }, [sortedItems, timelineStart]);
 
+  // ── Drag-to-reschedule ───────────────────────────────────────────────────
+  // Drag a bar's body to shift both dates; drag its left/right edge to move just
+  // the start/due. Day-snapped. Gated on ITEM_UPDATE (bars stay read-only
+  // otherwise). Optimistic cache write, then PUT; on error we re-fetch to revert.
+  const { can } = usePermissions();
+  const canEdit = can(Permission.ITEM_UPDATE);
+  const dragRef = useRef<{
+    id: string;
+    mode: DragMode;
+    startClientX: number;
+    origStart: Date;
+    origEnd: Date;
+  } | null>(null);
+  const [dragPreview, setDragPreview] = useState<{
+    id: string;
+    mode: DragMode;
+    deltaDays: number;
+  } | null>(null);
+
+  const beginDrag = useCallback(
+    (item: WorkItem, mode: DragMode, e: React.PointerEvent) => {
+      if (!canEdit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const { start, end } = itemSpan(item);
+      dragRef.current = {
+        id: item.id,
+        mode,
+        startClientX: e.clientX,
+        origStart: start,
+        origEnd: end,
+      };
+      setDragPreview({ id: item.id, mode, deltaDays: 0 });
+      setHoveredItem(null);
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    },
+    [canEdit],
+  );
+
+  const onDragMove = useCallback((e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
+    setDragPreview((p) =>
+      p && p.deltaDays === deltaDays ? p : { id: d.id, mode: d.mode, deltaDays },
+    );
+  }, []);
+
+  const onDragEnd = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      if (!d) return;
+      const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
+      setDragPreview(null);
+      if (deltaDays === 0) return;
+
+      let newStart = d.origStart;
+      let newEnd = d.origEnd;
+      if (d.mode === "move") {
+        newStart = addDays(d.origStart, deltaDays);
+        newEnd = addDays(d.origEnd, deltaDays);
+      } else if (d.mode === "start") {
+        newStart = addDays(d.origStart, deltaDays);
+        if (newStart > newEnd) newStart = newEnd; // can't cross the due date
+      } else {
+        newEnd = addDays(d.origEnd, deltaDays);
+        if (newEnd < newStart) newEnd = newStart; // can't precede the start
+      }
+
+      const body: { startDate?: string; dueDate?: string } =
+        d.mode === "start"
+          ? { startDate: newStart.toISOString() }
+          : d.mode === "end"
+            ? { dueDate: newEnd.toISOString() }
+            : { startDate: newStart.toISOString(), dueDate: newEnd.toISOString() };
+
+      // Optimistic: patch the cached item so the bar settles at its new spot
+      // immediately, then persist.
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        prev?.map((it) => (it.id === d.id ? { ...it, ...body } : it)),
+      );
+
+      void (async () => {
+        try {
+          await jsonFetch(`${basePath}/work-items/${d.id}`, {
+            method: "PUT",
+            body: JSON.stringify(body),
+          });
+          toast.success("Schedule updated");
+          qc.invalidateQueries({ queryKey: itemsKey });
+        } catch (err) {
+          notifyError(err, "Couldn't reschedule the item.");
+          qc.invalidateQueries({ queryKey: itemsKey }); // revert to server truth
+        }
+      })();
+    },
+    [qc, itemsKey, basePath],
+  );
+
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
@@ -250,7 +366,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-end gap-2 border-b px-4 py-2">
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
+        {canEdit ? (
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            Drag a bar to reschedule · drag its edges to resize
+          </p>
+        ) : (
+          <span />
+        )}
         <CreateIssueButton
           orgId={orgId}
           projectId={projectId}
@@ -440,10 +563,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const startOffset = diffDays(timelineStart, start);
               const duration = Math.max(diffDays(start, end), 1);
 
-              const x = startOffset * DAY_WIDTH;
+              const baseX = startOffset * DAY_WIDTH;
               const y = HEADER_HEIGHT + i * ROW_HEIGHT + 8;
-              const w = Math.max(duration * DAY_WIDTH, DAY_WIDTH);
+              const baseW = Math.max(duration * DAY_WIDTH, DAY_WIDTH);
               const h = ROW_HEIGHT - 16;
+
+              // Apply the live drag preview to this bar's geometry (day-snapped),
+              // clamped so a resize can't invert the bar.
+              let x = baseX;
+              let w = baseW;
+              const preview = dragPreview?.id === item.id ? dragPreview : null;
+              if (preview) {
+                const px = preview.deltaDays * DAY_WIDTH;
+                if (preview.mode === "move") {
+                  x = baseX + px;
+                } else if (preview.mode === "start") {
+                  x = Math.min(baseX + px, baseX + baseW - DAY_WIDTH);
+                  w = baseX + baseW - x;
+                } else {
+                  w = Math.max(baseW + px, DAY_WIDTH);
+                }
+              }
 
               const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
 
@@ -453,6 +593,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 item.dueDate &&
                 item.startDate === item.dueDate;
 
+              const enter = (e: React.MouseEvent) => {
+                if (dragRef.current) return;
+                setHoveredItem(item);
+                setTooltipPos({ x: e.clientX, y: e.clientY });
+              };
+
               if (isMilestone) {
                 const cx = x + DAY_WIDTH / 2;
                 const cy = y + h / 2;
@@ -460,12 +606,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 return (
                   <g
                     key={item.id}
-                    onMouseEnter={(e) => {
-                      setHoveredItem(item);
-                      setTooltipPos({ x: e.clientX, y: e.clientY });
-                    }}
+                    onMouseEnter={enter}
                     onMouseLeave={() => setHoveredItem(null)}
-                    className="cursor-pointer"
+                    onPointerDown={(e) => beginDrag(item, "move", e)}
+                    onPointerMove={onDragMove}
+                    onPointerUp={onDragEnd}
+                    style={{ touchAction: canEdit ? "none" : undefined }}
+                    className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   >
                     <polygon
                       points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
@@ -477,18 +624,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 );
               }
 
+              const EDGE = 7;
               return (
                 <g
                   key={item.id}
-                  onMouseEnter={(e) => {
-                    setHoveredItem(item);
-                    setTooltipPos({ x: e.clientX, y: e.clientY });
-                  }}
+                  onMouseEnter={enter}
                   onMouseMove={(e) => {
+                    if (dragRef.current) return;
                     setTooltipPos({ x: e.clientX, y: e.clientY });
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
-                  className="cursor-pointer"
                 >
                   <rect
                     x={x}
@@ -499,14 +644,49 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     fill={colors.fill}
                     stroke={colors.stroke}
                     strokeWidth={1}
-                    opacity={0.85}
+                    opacity={preview ? 1 : 0.85}
+                    onPointerDown={(e) => beginDrag(item, "move", e)}
+                    onPointerMove={onDragMove}
+                    onPointerUp={onDragEnd}
+                    style={{ touchAction: canEdit ? "none" : undefined }}
+                    className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   />
+                  {canEdit && (
+                    <>
+                      {/* Left edge → move start date */}
+                      <rect
+                        x={x}
+                        y={y}
+                        width={EDGE}
+                        height={h}
+                        rx={4}
+                        fill="transparent"
+                        onPointerDown={(e) => beginDrag(item, "start", e)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={onDragEnd}
+                        style={{ cursor: "ew-resize", touchAction: "none" }}
+                      />
+                      {/* Right edge → move due date */}
+                      <rect
+                        x={x + w - EDGE}
+                        y={y}
+                        width={EDGE}
+                        height={h}
+                        rx={4}
+                        fill="transparent"
+                        onPointerDown={(e) => beginDrag(item, "end", e)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={onDragEnd}
+                        style={{ cursor: "ew-resize", touchAction: "none" }}
+                      />
+                    </>
+                  )}
                   {w > 60 && (
                     <text
                       x={x + 6}
                       y={y + h / 2 + 3.5}
                       className={cn("text-[10px]", colors.text)}
-                      style={{ fontSize: 10, fill: "white" }}
+                      style={{ fontSize: 10, fill: "white", pointerEvents: "none" }}
                     >
                       {item.title.length > Math.floor(w / 6)
                         ? item.title.slice(0, Math.floor(w / 6)) + "..."
