@@ -25,10 +25,11 @@ import {
 } from "@/components/ui/select";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog";
+import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -197,6 +198,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<IssueRow | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -608,17 +610,29 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               {total.toLocaleString()} issue{total === 1 ? "" : "s"}
               {isFetching && <span className="ml-2 opacity-70">updating…</span>}
             </span>
-            {canCreateBoard && (facets?.projects.length ?? 0) > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setSaveBoardOpen(true)}
-              >
-                <Save className="h-3.5 w-3.5" aria-hidden />
-                Save as board
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {canCreateBoard && (facets?.projects.length ?? 0) > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setSaveBoardOpen(true)}
+                >
+                  <Save className="h-3.5 w-3.5" aria-hidden />
+                  Save as board
+                </Button>
+              )}
+              {canCreateItem && (facets?.projects.length ?? 0) > 0 && (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setCreateOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden />
+                  New issue
+                </Button>
+              )}
+            </div>
           </div>
           <DataTable
             columns={columns}
@@ -821,6 +835,17 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           defaultProjectId={
             filters.project !== ANY ? filters.project : undefined
           }
+        />
+      )}
+
+      {canCreateItem && facets && (
+        <CreateWorkItemDialog
+          orgId={orgId}
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          projects={facets.projects.filter((p) => !p.archived)}
+          prefilledProjectId={filters.project !== ANY ? filters.project : undefined}
+          onCreated={() => void refetch()}
         />
       )}
     </div>
