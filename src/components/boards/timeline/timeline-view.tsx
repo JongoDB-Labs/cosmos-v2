@@ -283,6 +283,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     );
   }, []);
 
+  // The browser/OS can fire pointercancel mid-drag (touch scroll-takeover,
+  // incoming call, palm rejection) — and then NO pointerup follows. Without
+  // this the bar would stay stuck at its preview offset and tooltips would stay
+  // suppressed (both guard on dragRef) until the next pointerdown. Cancel = drop
+  // the gesture with no commit.
+  const onDragCancel = useCallback(() => {
+    dragRef.current = null;
+    setDragPreview(null);
+  }, []);
+
   const onDragEnd = useCallback(
     (e: React.PointerEvent) => {
       const d = dragRef.current;
@@ -299,7 +309,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         newEnd = addDays(d.origEnd, deltaDays);
       } else if (d.mode === "start") {
         newStart = addDays(d.origStart, deltaDays);
-        if (newStart > newEnd) newStart = newEnd; // can't cross the due date
+        // Can't reach/cross the due date — clamp to a 1-day bar ending at it,
+        // matching what the live preview shows (right edge pinned, min width).
+        if (newStart >= newEnd) newStart = addDays(newEnd, -1);
       } else {
         newEnd = addDays(d.origEnd, deltaDays);
         if (newEnd < newStart) newEnd = newStart; // can't precede the start
@@ -611,6 +623,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onPointerDown={(e) => beginDrag(item, "move", e)}
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
+                    onPointerCancel={onDragCancel}
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   >
@@ -648,6 +661,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onPointerDown={(e) => beginDrag(item, "move", e)}
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
+                    onPointerCancel={onDragCancel}
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   />
@@ -664,6 +678,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         onPointerDown={(e) => beginDrag(item, "start", e)}
                         onPointerMove={onDragMove}
                         onPointerUp={onDragEnd}
+                        onPointerCancel={onDragCancel}
                         style={{ cursor: "ew-resize", touchAction: "none" }}
                       />
                       {/* Right edge → move due date */}
@@ -677,6 +692,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         onPointerDown={(e) => beginDrag(item, "end", e)}
                         onPointerMove={onDragMove}
                         onPointerUp={onDragEnd}
+                        onPointerCancel={onDragCancel}
                         style={{ cursor: "ew-resize", touchAction: "none" }}
                       />
                     </>
