@@ -30,6 +30,8 @@ interface DashboardShellProps {
     plan: string;
     logoUrl: string | null;
     role: string;
+    /** Walkthrough/demo tenant — surfaces a "demo data" banner. */
+    isDemo?: boolean;
   }[];
   /** Platform/system admin (INTERNAL_ADMINS) — surfaces the System Admin menu. */
   isSystemAdmin?: boolean;
@@ -42,7 +44,8 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
-  const currentOrgId = orgs.find((o) => o.slug === orgSlug)?.id;
+  const currentOrg = orgs.find((o) => o.slug === orgSlug);
+  const currentOrgId = currentOrg?.id;
   const mainRef = useRef<HTMLElement>(null);
 
   useMainScrollRestorer(mainRef);
@@ -125,6 +128,12 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
             isMobile ? setMobileOpen(!mobileOpen) : setSidebarOpen(!sidebarOpen)
           }
         />
+        {currentOrg?.isDemo && (
+          <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1 text-center text-xs text-amber-700 dark:text-amber-300">
+            <span className="font-medium">Demo / walkthrough data</span>
+            <span className="opacity-70">— sample content for the product tour; safe to remove on install.</span>
+          </div>
+        )}
         <main
           ref={mainRef}
           id="main"
