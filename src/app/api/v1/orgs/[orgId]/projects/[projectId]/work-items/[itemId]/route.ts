@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: itemId, orgId, projectId },
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
         comments: { orderBy: { createdAt: "asc" }, take: 50 },
         activities: { orderBy: { createdAt: "desc" }, take: 50 },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
@@ -141,7 +141,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         where: { id: itemId },
         data: updateData,
         include: {
-          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
+          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true, celebrateOnComplete: true } },
           _count: { select: { comments: true, activities: true } },
         },
