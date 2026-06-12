@@ -8,6 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Target, CalendarDays, Plus } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { Cycle } from "@/types/models";
 
@@ -35,6 +42,7 @@ export function SprintBoard({
   boardId,
 }: SprintBoardProps) {
   const [cycles, setCycles] = useState<CycleWithCount[] | null>(null);
+  const [detailSprint, setDetailSprint] = useState<CycleWithCount | null>(null);
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
   const cyclesHref = `/${orgSlug}/projects/${projectKey}/cycles`;
@@ -80,6 +88,38 @@ export function SprintBoard({
         </div>
       )}
 
+      {/* All sprints — click any to see its details (FR). The board itself stays
+          scoped to the active sprint; this is a quick read/jump-off. */}
+      {cycles && cycles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--border)] px-6 py-2">
+          <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+            Sprints
+          </span>
+          {(cycles.some((c) => c.cycleKind === "SPRINT")
+            ? cycles.filter((c) => c.cycleKind === "SPRINT")
+            : cycles
+          )
+            .slice()
+            .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+            .map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setDetailSprint(c)}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
+                  c.id === active?.id
+                    ? "border-[var(--primary)] text-[var(--primary)]"
+                    : "border-[var(--border)] text-[var(--text-muted)]",
+                )}
+                title={`${c.name || `Sprint ${c.number}`} — view details`}
+              >
+                {c.name || `Sprint ${c.number}`}
+              </button>
+            ))}
+        </div>
+      )}
+
       <div className="min-h-0 flex-1">
         {/* Gate the Kanban mount until cycles resolve. The board seeds its
             sprint scope ONCE, from initialCycleId in a useState initializer
@@ -101,6 +141,84 @@ export function SprintBoard({
           />
         )}
       </div>
+
+      {/* Sprint detail modal (FR: "click any sprint → a modal shows its details"). */}
+      <Dialog
+        open={detailSprint !== null}
+        onOpenChange={(o) => !o && setDetailSprint(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          {detailSprint && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-2">
+                  <DialogTitle>
+                    {detailSprint.name || `Sprint ${detailSprint.number}`}
+                  </DialogTitle>
+                  <Badge variant={statusBadge(detailSprint.status).variant} showDot={false}>
+                    {statusBadge(detailSprint.status).label}
+                  </Badge>
+                </div>
+                <DialogDescription>
+                  {new Date(detailSprint.startDate).toLocaleDateString()} –{" "}
+                  {new Date(detailSprint.endDate).toLocaleDateString()}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 text-sm">
+                {detailSprint.goal && (
+                  <p className="flex items-start gap-1.5 text-[var(--text-muted)]">
+                    <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{detailSprint.goal}</span>
+                  </p>
+                )}
+                {typeof detailSprint._count?.workItems === "number" && (
+                  <p className="text-[var(--text-muted)]">
+                    {detailSprint._count.workItems} item
+                    {detailSprint._count.workItems === 1 ? "" : "s"} in this sprint.
+                  </p>
+                )}
+                {detailSprint.report &&
+                  (() => {
+                    const r = detailSprint.report as {
+                      velocity?: number;
+                      completedStoryPoints?: number;
+                      completedItems?: number;
+                      incompleteItems?: number;
+                    };
+                    return (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-[var(--surface)] p-2 text-xs text-[var(--text-muted)]">
+                        <span>
+                          Velocity:{" "}
+                          <span className="font-medium text-[var(--text)]">
+                            {r.velocity ?? r.completedStoryPoints ?? 0} pts
+                          </span>
+                        </span>
+                        <span>
+                          Completed:{" "}
+                          <span className="font-medium text-[var(--text)]">
+                            {r.completedItems ?? 0}
+                          </span>
+                        </span>
+                        <span>
+                          Carried over:{" "}
+                          <span className="font-medium text-[var(--text)]">
+                            {r.incompleteItems ?? 0}
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  })()}
+                <Link
+                  href={cyclesHref}
+                  className={cn(buttonVariants({ size: "sm", variant: "outline" }), "mt-1 gap-1.5")}
+                >
+                  Manage sprints
+                </Link>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
