@@ -61,6 +61,12 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
     plan: m.org.plan,
     logoUrl: m.org.logoUrl,
     role: m.role,
+    // Walkthrough/demo tenants (seeded by demo-defense) carry settings.isDemo so
+    // the shell can show a "demo data" banner and the data reads as deletable.
+    isDemo:
+      typeof m.org.settings === "object" &&
+      m.org.settings !== null &&
+      (m.org.settings as Record<string, unknown>).isDemo === true,
   }));
 
   return (

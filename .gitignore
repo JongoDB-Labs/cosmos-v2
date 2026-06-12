@@ -77,3 +77,10 @@ compose/minio/certs/
 # local pre-deploy DB snapshots (never commit)
 .deploy/backups/
 ui-sweep.mjs
+
+# CUI-adjacent real program content — never commit. Real roadmap data lives in
+# ~/vitl-roadmap-data (outside the repo). Only MOCK demo data is committed (as .ts).
+*.vitl.json
+roadmap_nodes.json
+poam_tasks.json
+prisma/seed/real/

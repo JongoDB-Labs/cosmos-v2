@@ -203,6 +203,7 @@ model Organization {
   goals                  Goal[]
   milestones             Milestone[]
   kpis                   Kpi[]
+  roadmapNodes           RoadmapNode[]
   feedbackItems          FeedbackItem[]
   homeWidgets            HomeWidget[]
   workRoles              WorkRole[]
@@ -270,19 +271,19 @@ model User {
 }
 
 model Session {
-  id           String   @id
-  userId       String   @map("user_id") @db.Uuid
-  expiresAt    DateTime @map("expires_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id             String   @id
+  userId         String   @map("user_id") @db.Uuid
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
   // Sliding-window idle-timeout anchor: stamped (throttled) on each org-scoped
   // request and read by getAuthContext to enforce OrgSecuritySettings
   // .sessionTimeoutMins. Defaults to now() so pre-existing sessions start fresh.
   lastActivityAt DateTime @default(now()) @map("last_activity_at")
   // SSO assurance columns (additive; null/false for legacy + Google sessions).
-  authMethod   String?  @map("auth_method") // e.g. "oidc"; null = local/Google
-  idpConnId    String?  @map("idp_conn_id") @db.Uuid // the IdpConnection used, if SSO
-  amr          String[] @default([]) // Authentication Methods References from the token
-  mfaSatisfied Boolean  @default(false) @map("mfa_satisfied") // acr/amr met the org's floor
+  authMethod     String?  @map("auth_method") // e.g. "oidc"; null = local/Google
+  idpConnId      String?  @map("idp_conn_id") @db.Uuid // the IdpConnection used, if SSO
+  amr            String[] @default([]) // Authentication Methods References from the token
+  mfaSatisfied   Boolean  @default(false) @map("mfa_satisfied") // acr/amr met the org's floor
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -375,17 +376,17 @@ model OrgMember {
 }
 
 model Invitation {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  email     String
-  role      OrgRole  @default(MEMBER)
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  email       String
+  role        OrgRole  @default(MEMBER)
   // Work-roles to assign when the invite is accepted (extra permission grants +
   // ABAC policies on top of the base org role). Validated against the actor's
   // ceiling at invite time; applied on consumption.
   workRoleIds String[] @default([]) @map("work_role_ids")
-  token     String   @unique @default(dbgenerated("gen_random_uuid()"))
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  token       String   @unique @default(dbgenerated("gen_random_uuid()"))
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -563,6 +564,7 @@ model Project {
   goals               Goal[]
   milestones          Milestone[]
   kpis                Kpi[]
+  roadmapNodes        RoadmapNode[]
   projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
   journalLines        JournalLine[]
   dataClassifications DataClassification[]
@@ -2212,6 +2214,63 @@ model KpiDataPoint {
 
   @@index([kpiId, recordedAt])
   @@map("kpi_data_points")
+}
+
+// ─────────────────────────────────────────────
+// Roadmap — project-scoped reference surface that renders a program roadmap
+// (sections, sub-phases SP-x, lines-of-effort LOE-x, risks R-xx, decisions DP-xx,
+// stakeholders, milestones) as navigable, deep-linkable nodes. Issue descriptions
+// link to a node as source-of-truth instead of restating it. Seeded/imported from
+// the authoritative roadmap document; CUI-adjacent content lives only in the tenant.
+// ─────────────────────────────────────────────
+
+enum RoadmapNodeKind {
+  SECTION
+  SUBPHASE
+  LOE
+  RISK
+  DECISION
+  STAKEHOLDER
+  MILESTONE
+}
+
+model RoadmapNode {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String          @map("org_id") @db.Uuid
+  projectId   String          @map("project_id") @db.Uuid
+  kind        RoadmapNodeKind
+  // Human external ref + deep-link key, e.g. "R-19" / "DP-04" / "SP-3" / "LOE-2"
+  // / "S-19". Null for nodes without a formal id (some stakeholders/milestones).
+  externalRef String?         @map("external_ref")
+  // Source section number/label, e.g. "19" — a reading aid for grouping.
+  section     String?
+  // Category band within a register, e.g. "ATO & AUTHORIZATION" (risks/decisions).
+  category    String?
+  title       String
+  body        String          @default("")
+  // Stable URL slug for deep-linking, e.g. "r-19" / "dp-04". Unique per project.
+  anchor      String
+  // Kind-specific structured extras (likelihood/impact/owner, decision date, etc.).
+  meta        Json            @default("{}")
+  sortOrder   Int             @default(0) @map("sort_order")
+  // Self-relation: SUBPHASE/LOE/RISK/DECISION under a SECTION. Parent delete nulls.
+  parentId    String?         @map("parent_id") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  org      Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project  Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   RoadmapNode?  @relation("RoadmapNodeHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children RoadmapNode[] @relation("RoadmapNodeHierarchy")
+
+  // One human ref per project (NULLs are distinct in Postgres, so id-less nodes coexist).
+  @@unique([orgId, projectId, externalRef])
+  // Stable anchor slug per project for deep-links.
+  @@unique([orgId, projectId, anchor])
+  @@index([orgId, projectId])
+  @@index([orgId, projectId, kind])
+  @@index([parentId])
+  @@map("roadmap_nodes")
 }
 
 // ─────────────────────────────────────────────
