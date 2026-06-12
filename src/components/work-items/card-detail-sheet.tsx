@@ -51,6 +51,7 @@ import {
   Trash2,
   GitBranch,
   CornerDownRight,
+  GripVertical,
   Plus,
   Pencil,
   X,
@@ -109,6 +110,7 @@ export function CardDetailSheet({
   const { can } = usePermissions();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dupPrompt, setDupPrompt] = useState(false);
+  const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
   const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
   const [parentId, setParentId] = useState<string | null>(null);
   const [children, setChildren] = useState<WorkItemRef[]>([]);
@@ -343,6 +345,33 @@ export function CardDetailSheet({
     } catch (err) {
       setChildren(prev);
       notifyError(err, "Couldn't remove the sub-item.");
+    }
+  }
+
+  // Drag-reorder sub-items (FR). Reorders the list optimistically, then persists
+  // each item's new sortOrder (parallel PUTs); the server orders children by
+  // sortOrder so the new order survives a reload.
+  async function reorderChildren(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return;
+    const prev = children;
+    const next = [...children];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setChildren(next);
+    try {
+      const results = await Promise.all(
+        next.map((c, i) =>
+          fetch(`${basePath}/${c.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sortOrder: i }),
+          }),
+        ),
+      );
+      if (results.some((r) => !r.ok)) throw new Error("Failed to reorder");
+    } catch (err) {
+      setChildren(prev);
+      notifyError(err, "Couldn't reorder the sub-items.");
     }
   }
 
@@ -798,8 +827,34 @@ export function CardDetailSheet({
                   <CornerDownRight className="h-3.5 w-3.5" />
                   Sub-items ({children.length})
                 </h3>
-                {children.map((c) => (
-                  <div key={c.id} className="group/child flex items-center gap-2 text-sm">
+                {children.map((c, idx) => (
+                  <div
+                    key={c.id}
+                    className={cn(
+                      "group/child flex items-center gap-1.5 text-sm rounded transition-colors",
+                      dragChildIdx !== null && dragChildIdx !== idx && "border-t border-transparent",
+                    )}
+                    onDragOver={(e) => {
+                      if (dragChildIdx !== null) e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragChildIdx !== null) void reorderChildren(dragChildIdx, idx);
+                      setDragChildIdx(null);
+                    }}
+                  >
+                    {canEditItem && children.length > 1 && (
+                      <span
+                        draggable
+                        onDragStart={() => setDragChildIdx(idx)}
+                        onDragEnd={() => setDragChildIdx(null)}
+                        aria-label="Drag to reorder"
+                        title="Drag to reorder"
+                        className="shrink-0 cursor-grab text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing"
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => onOpenItem?.(c.id)}
