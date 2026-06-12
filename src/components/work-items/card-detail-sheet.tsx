@@ -108,6 +108,7 @@ export function CardDetailSheet({
 }: CardDetailSheetProps) {
   const { can } = usePermissions();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dupPrompt, setDupPrompt] = useState(false);
   const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
   const [parentId, setParentId] = useState<string | null>(null);
   const [children, setChildren] = useState<WorkItemRef[]>([]);
@@ -471,12 +472,15 @@ export function CardDetailSheet({
     }
   }
 
-  async function handleDuplicate() {
+  async function handleDuplicate(withChildren: boolean) {
     if (!item) return;
+    setDupPrompt(false);
     setActionPending("duplicate");
     try {
       const res = await fetch(`${basePath}/${item.id}/duplicate`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ withChildren }),
       });
       if (!res.ok) throw new Error(`Failed to duplicate (HTTP ${res.status})`);
       const dupe: WorkItem = await res.json();
@@ -549,7 +553,9 @@ export function CardDetailSheet({
                     variant="ghost"
                     size="sm"
                     className="gap-1.5 text-muted-foreground"
-                    onClick={handleDuplicate}
+                    onClick={() =>
+                      children.length > 0 ? setDupPrompt(true) : handleDuplicate(false)
+                    }
                     disabled={actionPending !== null}
                   >
                     {actionPending === "duplicate" ? (
@@ -1084,6 +1090,37 @@ export function CardDetailSheet({
           )}
         </div>
       </SheetContent>
+
+      {/* Duplicate-with-children prompt (only when the item has sub-items). */}
+      <Dialog open={dupPrompt} onOpenChange={(o) => !o && setDupPrompt(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Duplicate sub-items too?</DialogTitle>
+            <DialogDescription>
+              #{item.ticketNumber} has {children.length} sub-item
+              {children.length === 1 ? "" : "s"}. Copy {children.length === 1 ? "it" : "them"}{" "}
+              under the new duplicate, or duplicate just this item?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => handleDuplicate(false)}
+              disabled={actionPending === "duplicate"}
+            >
+              Just this item
+            </Button>
+            <Button
+              onClick={() => handleDuplicate(true)}
+              disabled={actionPending === "duplicate"}
+            >
+              {actionPending === "duplicate"
+                ? "Duplicating…"
+                : `Include ${children.length} sub-item${children.length === 1 ? "" : "s"}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={confirmDelete}

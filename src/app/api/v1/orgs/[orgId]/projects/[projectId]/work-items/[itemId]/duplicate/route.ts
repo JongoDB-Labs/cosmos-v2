@@ -42,12 +42,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       projectId,
     });
 
+    // FR: optionally also clone the source's direct sub-items under the new copy
+    // (the user is prompted when the item has children). Tolerate an empty body
+    // (the plain "duplicate" action sends none).
+    const body = (await request.json().catch(() => ({}))) as {
+      withChildren?: boolean;
+    };
+    const withChildren = body?.withChildren === true;
+
     const item = await prisma.$transaction(async (tx) => {
       const maxTicket = await tx.workItem.aggregate({
         where: { orgId, projectId },
         _max: { ticketNumber: true },
       });
-      const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
+      // Running counter so the parent copy + each cloned child get distinct
+      // sequential ticket numbers within this transaction.
+      let nextTicket = (maxTicket._max.ticketNumber ?? 0) + 1;
+      const ticketNumber = nextTicket++;
 
       const maxSort = await tx.workItem.aggregate({
         where: { orgId, projectId, columnKey: source.columnKey },
@@ -92,6 +103,49 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           action: "created",
         },
       });
+
+      // Clone direct sub-items under the new copy (one level — the common
+      // Story→Sub-task case). Each gets a fresh ticket number; titles are kept
+      // as-is (they're already nested under the obviously-named "Copy of …").
+      if (withChildren) {
+        const kids = await tx.workItem.findMany({
+          where: { orgId, projectId, parentId: source.id },
+          orderBy: { sortOrder: "asc" },
+        });
+        for (const kid of kids) {
+          const child = await tx.workItem.create({
+            data: {
+              orgId,
+              projectId,
+              workItemTypeId: kid.workItemTypeId,
+              title: kid.title,
+              description: kid.description,
+              columnKey: kid.columnKey,
+              assigneeId: kid.assigneeId,
+              priority: kid.priority,
+              cycleId: kid.cycleId,
+              parentId: dupe.id,
+              ticketNumber: nextTicket++,
+              storyPoints: kid.storyPoints,
+              sortOrder: kid.sortOrder,
+              dueDate: kid.dueDate,
+              startDate: kid.startDate,
+              columnEnteredAt: new Date(),
+              tags: kid.tags,
+              customFields: kid.customFields ?? undefined,
+              createdById: ctx.userId,
+            },
+          });
+          await tx.activity.create({
+            data: {
+              orgId,
+              workItemId: child.id,
+              userId: ctx.userId,
+              action: "created",
+            },
+          });
+        }
+      }
 
       return dupe;
     });
