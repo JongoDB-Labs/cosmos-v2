@@ -39,6 +39,7 @@ const FEATURE_OPTIONS: { key: string; label: string; description: string }[] = [
   { key: "kpi", label: "KPIs", description: "Track metrics with targets and trend charts." },
   { key: "milestone", label: "Milestones", description: "Key dates on a delivery timeline." },
   { key: "cycle", label: "Cycles / Sprints", description: "Time-boxed iterations of work." },
+  { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that issues link to as source-of-truth." },
 ];
 
 export function ProjectSettingsClient({

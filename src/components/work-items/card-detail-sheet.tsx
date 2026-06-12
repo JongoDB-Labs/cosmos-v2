@@ -35,6 +35,7 @@ import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { MentionPicker, useOrgMembers } from "@/components/chat/mention-typeahead";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
+import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import {
   MessageSquare,
   History,
@@ -629,15 +630,16 @@ export function CardDetailSheet({
             placeholder="Title"
           />
 
-          {/* Description */}
-          <Textarea
+          {/* Description — Write/Preview (Markdown) + `#` roadmap-node linking */}
+          <RoadmapDescriptionField
             value={description}
-            onChange={(e) => {
-              setDescription(e.target.value);
+            onChange={(v) => {
+              setDescription(v);
               setDirty(true);
             }}
-            placeholder="Add a description..."
-            className="min-h-20 resize-none"
+            orgId={orgId}
+            projectId={projectId}
+            resetKey={item.id}
           />
 
           <Separator />

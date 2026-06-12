@@ -45,6 +45,8 @@ interface FeatureTab {
   feature: string;
   label: string;
   href: string;
+  /** Match the tab as active on any sub-path (e.g. roadmap node deep-links). */
+  prefix?: boolean;
 }
 
 export function ProjectBoardTabs({
@@ -161,6 +163,15 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("roadmap")) {
+    featureTabs.push({
+      feature: "roadmap",
+      label: "Roadmap",
+      href: `/${orgSlug}/projects/${projectKey}/roadmap`,
+      prefix: true, // stay active on /roadmap/<node> deep-links
+    });
+  }
+
   const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
 
   return (
@@ -232,7 +243,9 @@ export function ProjectBoardTabs({
       })}
 
       {featureTabs.map((tab) => {
-        const isActive = pathname === tab.href;
+        const isActive = tab.prefix
+          ? pathname === tab.href || pathname.startsWith(`${tab.href}/`)
+          : pathname === tab.href;
 
         return (
           <Link

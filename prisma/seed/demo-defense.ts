@@ -13,6 +13,8 @@
  */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { readFileSync } from "node:fs";
+import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
+import { DEMO_APEX_ROADMAP } from "./demo-defense-roadmap";
 
 function loadEnv(): string | undefined {
   let dbUrl: string | undefined;
@@ -118,10 +120,16 @@ async function joinChannel(channelId: string, userId: string, isAdmin: boolean) 
 
 async function main() {
   // ── 1. Org (GOV plan) ────────────────────────────────────────────────────
+  // settings.isDemo flags this as walkthrough/sample data so the UI can show a
+  // "Demo data" banner and offer one-step removal (see the demo teardown script).
+  const demoSettings = {
+    isDemo: true,
+    demoLabel: "Walkthrough / sample data — safe to delete",
+  } satisfies Prisma.InputJsonValue;
   const org = await prisma.organization.upsert({
     where: { slug: SLUG },
-    update: { plan: "GOV", name: "Apex Defense Systems", themePrimary: "#1f3a5f" },
-    create: { name: "Apex Defense Systems", slug: SLUG, plan: "GOV", themePrimary: "#1f3a5f" },
+    update: { plan: "GOV", name: "Apex Defense Systems", themePrimary: "#1f3a5f", settings: demoSettings },
+    create: { name: "Apex Defense Systems", slug: SLUG, plan: "GOV", themePrimary: "#1f3a5f", settings: demoSettings },
   });
 
   // ── 2. People ─────────────────────────────────────────────────────────────
@@ -394,6 +402,19 @@ async function main() {
         { orgId: org.id, userId: jon.id, action: "expense.approved", entity: "expense", metadata: { vendor: "Vector Systems LLC", amount: 128400 }, createdAt: d(-7) },
         { orgId: org.id, userId: dana.id, action: "security_settings.updated", entity: "org_security_settings", metadata: { mfaRequired: true }, createdAt: d(-7) },
       ],
+    });
+  }
+
+  // ── Roadmap (demo / walkthrough sample) ───────────────────────────────────
+  await upsertRoadmapNodes(prisma, org.id, projectId, DEMO_APEX_ROADMAP, "replace");
+  const projForFeatures = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { enabledFeatures: true },
+  });
+  if (projForFeatures && !projForFeatures.enabledFeatures.includes("roadmap")) {
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { enabledFeatures: { set: [...projForFeatures.enabledFeatures, "roadmap"] } },
     });
   }
 
