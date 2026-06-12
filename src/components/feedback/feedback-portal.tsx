@@ -97,6 +97,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const [filterType, setFilterType] = useState<"ALL" | FType>("ALL");
   const [filterStatus, setFilterStatus] = useState<"ALL" | FStatus>("ALL");
   const [sortBy, setSortBy] = useState<"votes" | "newest">("votes");
+  const [search, setSearch] = useState("");
 
   // Submit dialog.
   const [open, setOpen] = useState(false);
@@ -284,9 +285,16 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     );
   }
 
+  const q = search.trim().toLowerCase();
   const visibleItems = items
     .filter((i) => filterType === "ALL" || i.type === filterType)
     .filter((i) => filterStatus === "ALL" || i.status === filterStatus)
+    .filter(
+      (i) =>
+        q === "" ||
+        i.title.toLowerCase().includes(q) ||
+        i.description.toLowerCase().includes(q),
+    )
     .slice()
     .sort((a, b) => {
       if (sortBy === "votes" && b.voteCount !== a.voteCount) {
@@ -303,6 +311,14 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search feedback…"
+            aria-label="Search feedback"
+            className={`${selectCls} w-44 py-1`}
+          />
           <label className="flex items-center gap-1">
             Type
             <select
