@@ -127,7 +127,7 @@
     "simple-icons-legacy": "npm:simple-icons@^13.21.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
-    "typescript": "^5",
+    "typescript": "^6",
     "vitest": "^4.1.7"
   }
 }
