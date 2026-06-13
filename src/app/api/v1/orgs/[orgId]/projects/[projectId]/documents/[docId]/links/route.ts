@@ -9,8 +9,9 @@ type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; docId: string }>;
 };
 
-/** GET — the document's block→item links, with the linked work-item resolved
- *  (title + ticket) so the Files view can show "linked" badges. */
+/** GET — the document's block→item links, with the linked item resolved (title,
+ *  plus ticket for work items) so the Files view can show "linked" badges across
+ *  every convert kind: work item, milestone, objective, goal, sprint, roadmap node. */
 export async function GET(_req: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, docId } = await params;
@@ -25,26 +26,40 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       select: { id: true, blockId: true, itemType: true, itemId: true },
     });
 
-    const workItemIds = links.filter((l) => l.itemType === "WORK_ITEM").map((l) => l.itemId);
-    const milestoneIds = links.filter((l) => l.itemType === "MILESTONE").map((l) => l.itemId);
+    const idsFor = (type: string) =>
+      links.filter((l) => l.itemType === type).map((l) => l.itemId);
+    const where = (ids: string[]) => ({ id: { in: ids }, orgId, projectId });
 
-    const [items, milestones] = await Promise.all([
-      workItemIds.length
-        ? prisma.workItem.findMany({
-            where: { id: { in: workItemIds }, orgId, projectId },
-            select: { id: true, title: true, ticketNumber: true },
-          })
+    const [workItems, milestones, objectives, goals, cycles, roadmapNodes] = await Promise.all([
+      idsFor("WORK_ITEM").length
+        ? prisma.workItem.findMany({ where: where(idsFor("WORK_ITEM")), select: { id: true, title: true, ticketNumber: true } })
         : Promise.resolve([]),
-      milestoneIds.length
-        ? prisma.milestone.findMany({
-            where: { id: { in: milestoneIds }, orgId, projectId },
-            select: { id: true, title: true },
-          })
+      idsFor("MILESTONE").length
+        ? prisma.milestone.findMany({ where: where(idsFor("MILESTONE")), select: { id: true, title: true } })
+        : Promise.resolve([]),
+      idsFor("OBJECTIVE").length
+        ? prisma.objective.findMany({ where: where(idsFor("OBJECTIVE")), select: { id: true, title: true } })
+        : Promise.resolve([]),
+      idsFor("GOAL").length
+        ? prisma.goal.findMany({ where: where(idsFor("GOAL")), select: { id: true, title: true } })
+        : Promise.resolve([]),
+      idsFor("CYCLE").length
+        ? prisma.cycle.findMany({ where: where(idsFor("CYCLE")), select: { id: true, name: true } })
+        : Promise.resolve([]),
+      idsFor("ROADMAP_NODE").length
+        ? prisma.roadmapNode.findMany({ where: where(idsFor("ROADMAP_NODE")), select: { id: true, title: true } })
         : Promise.resolve([]),
     ]);
-    const byId = new Map<string, { id: string; title: string; ticketNumber?: number }>(
-      [...items, ...milestones].map((i) => [i.id, i]),
-    );
+
+    const byId = new Map<string, { id: string; title: string; ticketNumber?: number }>([
+      ...workItems.map((i) => [i.id, i] as const),
+      ...milestones.map((i) => [i.id, i] as const),
+      ...objectives.map((i) => [i.id, i] as const),
+      ...goals.map((i) => [i.id, i] as const),
+      // Cycles expose `name`, not `title` — normalize so the UI reads one shape.
+      ...cycles.map((c) => [c.id, { id: c.id, title: c.name }] as const),
+      ...roadmapNodes.map((i) => [i.id, i] as const),
+    ]);
 
     return success(
       links.map((l) => ({ ...l, item: byId.get(l.itemId) ?? null })),

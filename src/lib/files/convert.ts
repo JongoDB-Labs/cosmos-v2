@@ -1,5 +1,25 @@
 import { prisma } from "@/lib/db/client";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { roadmapSlug } from "@/lib/roadmap/import";
+
+/** The item kinds a single document block can be converted into. */
+export type ConvertItemType =
+  | "ISSUE"
+  | "MILESTONE"
+  | "OBJECTIVE"
+  | "GOAL"
+  | "CYCLE"
+  | "ROADMAP_NODE";
+
+/** A block's text, scoped to org + project (shared by the single-block creators). */
+async function loadBlockText(orgId: string, projectId: string, blockId: string) {
+  const block = await prisma.documentBlock.findFirst({
+    where: { id: blockId, orgId, document: { projectId } },
+    select: { id: true, text: true },
+  });
+  if (!block) throw new Error("Block not found");
+  return block;
+}
 
 /** Resolve the default work-item type (built-in *.task) + a column for new items. */
 async function resolveTypeAndColumn(projectId: string, columnKey?: string) {
@@ -227,4 +247,241 @@ export async function convertTableToWorkItems(input: {
   });
 
   return { count: records.length };
+}
+
+/**
+ * Convert a DocumentBlock into an OKR Objective (+ link). The first text line
+ * becomes the title; the full block text becomes the description.
+ */
+export async function convertBlockToObjective(input: {
+  orgId: string;
+  projectId: string;
+  blockId: string;
+  userId: string;
+  title?: string;
+}) {
+  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled objective").slice(0, 500);
+
+  return prisma.$transaction(async (tx) => {
+    const objective = await tx.objective.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        title,
+        description: block.text.slice(0, 20_000) || null,
+      },
+      select: { id: true, title: true },
+    });
+    const link = await tx.documentItemLink.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        blockId: block.id,
+        itemType: "OBJECTIVE",
+        itemId: objective.id,
+      },
+      select: { id: true, blockId: true, itemType: true, itemId: true },
+    });
+    return { objective, link };
+  });
+}
+
+/**
+ * Convert a DocumentBlock into a delivery Goal (+ link). Status defaults to
+ * PLANNED with MANUAL progress; the block text becomes the description.
+ */
+export async function convertBlockToGoal(input: {
+  orgId: string;
+  projectId: string;
+  blockId: string;
+  userId: string;
+  title?: string;
+}) {
+  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled goal").slice(0, 500);
+
+  return prisma.$transaction(async (tx) => {
+    const maxSort = await tx.goal.aggregate({
+      where: { orgId: input.orgId, projectId: input.projectId },
+      _max: { sortOrder: true },
+    });
+    const goal = await tx.goal.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        title,
+        description: block.text.slice(0, 20_000) || null,
+        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+      },
+      select: { id: true, title: true },
+    });
+    const link = await tx.documentItemLink.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        blockId: block.id,
+        itemType: "GOAL",
+        itemId: goal.id,
+      },
+      select: { id: true, blockId: true, itemType: true, itemId: true },
+    });
+    return { goal, link };
+  });
+}
+
+/**
+ * Convert a DocumentBlock into a Sprint/Cycle (+ link). `number` is the next per
+ * project, dates default to a two-week window from now, and the block text seeds
+ * the sprint goal. The Scrum view lets the user adjust dates afterward.
+ */
+export async function convertBlockToCycle(input: {
+  orgId: string;
+  projectId: string;
+  blockId: string;
+  userId: string;
+  title?: string;
+}) {
+  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const name = (input.title?.trim() || block.text.split("\n")[0] || "Untitled sprint").slice(0, 200);
+  const startDate = new Date();
+  const endDate = new Date(Date.now() + 14 * 86_400_000);
+
+  return prisma.$transaction(async (tx) => {
+    const maxNum = await tx.cycle.aggregate({
+      where: { projectId: input.projectId },
+      _max: { number: true },
+    });
+    const cycle = await tx.cycle.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        number: (maxNum._max.number ?? 0) + 1,
+        name,
+        goal: block.text.slice(0, 2_000),
+        startDate,
+        endDate,
+      },
+      select: { id: true, name: true, number: true },
+    });
+    const link = await tx.documentItemLink.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        blockId: block.id,
+        itemType: "CYCLE",
+        itemId: cycle.id,
+      },
+      select: { id: true, blockId: true, itemType: true, itemId: true },
+    });
+    return { cycle, link };
+  });
+}
+
+/**
+ * Convert a DocumentBlock into a Roadmap SECTION node (+ link). The anchor is a
+ * slug of the title, de-duplicated per project (`-2`, `-3`, …) to satisfy the
+ * unique-anchor constraint; the block text becomes the node body.
+ */
+export async function convertBlockToRoadmapNode(input: {
+  orgId: string;
+  projectId: string;
+  blockId: string;
+  userId: string;
+  title?: string;
+}) {
+  const block = await loadBlockText(input.orgId, input.projectId, input.blockId);
+  const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled section").slice(0, 500);
+  const base = roadmapSlug(title) || "section";
+
+  return prisma.$transaction(async (tx) => {
+    // Pick a per-project-unique anchor: base, then base-2, base-3, …
+    const existing = await tx.roadmapNode.findMany({
+      where: { orgId: input.orgId, projectId: input.projectId, anchor: { startsWith: base } },
+      select: { anchor: true },
+    });
+    const taken = new Set(existing.map((n) => n.anchor));
+    let anchor = base;
+    for (let n = 2; taken.has(anchor); n++) anchor = `${base}-${n}`;
+
+    const maxSort = await tx.roadmapNode.aggregate({
+      where: { orgId: input.orgId, projectId: input.projectId },
+      _max: { sortOrder: true },
+    });
+    const node = await tx.roadmapNode.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        kind: "SECTION",
+        title,
+        body: block.text.slice(0, 20_000),
+        anchor,
+        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+      },
+      select: { id: true, title: true, anchor: true },
+    });
+    const link = await tx.documentItemLink.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        blockId: block.id,
+        itemType: "ROADMAP_NODE",
+        itemId: node.id,
+      },
+      select: { id: true, blockId: true, itemType: true, itemId: true },
+    });
+    return { node, link };
+  });
+}
+
+/** A normalized result so callers can handle every convert kind uniformly. */
+export interface ConvertResult {
+  itemType: ConvertItemType;
+  id: string;
+  title: string;
+  /** Present only for ISSUE (the work-item ticket number). */
+  ticketNumber: number | null;
+}
+
+/**
+ * Convert a single document block into the requested item kind and return a
+ * normalized `{ itemType, id, title, ticketNumber }`. Dispatches to the
+ * per-kind creators above (each persists the item + a source link in one tx).
+ */
+export async function convertBlockToItem(input: {
+  orgId: string;
+  projectId: string;
+  blockId: string;
+  userId: string;
+  itemType: ConvertItemType;
+  title?: string;
+  columnKey?: string;
+}): Promise<ConvertResult> {
+  switch (input.itemType) {
+    case "MILESTONE": {
+      const { milestone } = await convertBlockToMilestone(input);
+      return { itemType: "MILESTONE", id: milestone.id, title: milestone.title, ticketNumber: null };
+    }
+    case "OBJECTIVE": {
+      const { objective } = await convertBlockToObjective(input);
+      return { itemType: "OBJECTIVE", id: objective.id, title: objective.title, ticketNumber: null };
+    }
+    case "GOAL": {
+      const { goal } = await convertBlockToGoal(input);
+      return { itemType: "GOAL", id: goal.id, title: goal.title, ticketNumber: null };
+    }
+    case "CYCLE": {
+      const { cycle } = await convertBlockToCycle(input);
+      return { itemType: "CYCLE", id: cycle.id, title: cycle.name, ticketNumber: null };
+    }
+    case "ROADMAP_NODE": {
+      const { node } = await convertBlockToRoadmapNode(input);
+      return { itemType: "ROADMAP_NODE", id: node.id, title: node.title, ticketNumber: null };
+    }
+    case "ISSUE":
+    default: {
+      const { item } = await convertBlockToWorkItem(input);
+      return { itemType: "ISSUE", id: item.id, title: item.title, ticketNumber: item.ticketNumber };
+    }
+  }
 }
