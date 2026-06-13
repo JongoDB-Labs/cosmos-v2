@@ -36,6 +36,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { MentionPicker, useOrgMembers } from "@/components/chat/mention-typeahead";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
+import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
 import {
   MessageSquare,
   History,
@@ -641,6 +642,9 @@ export function CardDetailSheet({
             projectId={projectId}
             resetKey={item.id}
           />
+
+          {/* Source chip — if this item was created from a document (Files convert). */}
+          <WorkItemDocumentSource itemId={item.id} orgId={orgId} projectId={projectId} />
 
           <Separator />
 
