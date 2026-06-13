@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2 } from "lucide-react";
+import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -35,6 +35,12 @@ interface LinkRow {
   itemType: string;
   itemId: string;
   item: { id: string; title: string; ticketNumber: number } | null;
+}
+
+interface Proposal {
+  type: string;
+  title: string;
+  sourceAnchor: string | null;
 }
 
 const ACCEPT = ".docx,.pdf,.pptx,.xlsx,.xls";
@@ -89,17 +95,43 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
   const convertMutation = useOrgMutation<
     { item: { id: string; ticketNumber: number } },
     Error,
-    string
+    { blockId: string; title?: string }
   >({
-    mutationFn: (blockId) =>
+    mutationFn: ({ blockId, title }) =>
       jsonFetch(`${apiBase}/documents/${selectedId}/convert`, {
         method: "POST",
-        body: JSON.stringify({ blockId }),
+        body: JSON.stringify({ blockId, title }),
       }),
     invalidate: [["document-links", projectId, selectedId ?? "none"], ["work-items", projectId]],
     onSuccess: (res) => toast.success(`Created issue #${res.item.ticketNumber}`),
     onError: (e) => notifyError(e, "Couldn't create the issue."),
   });
+
+  const anchorToBlockId = useMemo(
+    () => new Map((doc?.blocks ?? []).map((b) => [b.anchor, b.id])),
+    [doc],
+  );
+  const [proposals, setProposals] = useState<Proposal[] | null>(null);
+  const proposeMutation = useOrgMutation<{ proposals: Proposal[] }, Error, void>({
+    mutationFn: () =>
+      jsonFetch(`${apiBase}/documents/${selectedId}/propose`, { method: "POST" }),
+    invalidate: [],
+    onSuccess: (res) => {
+      setProposals(res.proposals);
+      if (!res.proposals.length) toast.message("No items proposed for this document.");
+    },
+    onError: (e) => notifyError(e, "AI-propose failed (the org may have no model configured)."),
+  });
+
+  function acceptProposal(p: Proposal) {
+    const blockId = p.sourceAnchor ? anchorToBlockId.get(p.sourceAnchor) : undefined;
+    if (!blockId) {
+      notifyError(new Error("No source block"), "This proposal has no source block to link.");
+      return;
+    }
+    convertMutation.mutate({ blockId, title: p.title });
+    setProposals((prev) => (prev ? prev.filter((x) => x !== p) : prev));
+  }
 
   const uploadMutation = useOrgMutation<DocListItem, Error, File>({
     mutationFn: async (file) => {
@@ -242,6 +274,21 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                {doc.status === "READY" && !viewOriginal && (
+                  <button
+                    onClick={() => proposeMutation.mutate()}
+                    disabled={proposeMutation.isPending}
+                    className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-60"
+                    title="Suggest project items from this document (AI)"
+                  >
+                    {proposeMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    AI-propose
+                  </button>
+                )}
                 <button
                   onClick={() => setViewOriginal((v) => !v)}
                   className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
@@ -275,6 +322,60 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
               )
             ) : (
               <>
+                {proposals && proposals.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--surface)]/40 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--text)]">
+                        <Sparkles className="h-4 w-4 text-[var(--primary)]" />
+                        {proposals.length} proposed item{proposals.length === 1 ? "" : "s"}
+                      </span>
+                      <button
+                        onClick={() => setProposals(null)}
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                      >
+                        Dismiss all
+                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {proposals.map((p, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm"
+                        >
+                          <span className="shrink-0 rounded bg-[var(--primary)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-[var(--primary)]">
+                            {p.type}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[var(--text)]">{p.title}</span>
+                          {p.sourceAnchor && (
+                            <a
+                              href={`#${p.sourceAnchor}`}
+                              className="shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                            >
+                              source
+                            </a>
+                          )}
+                          <button
+                            onClick={() => acceptProposal(p)}
+                            disabled={!p.sourceAnchor || convertMutation.isPending}
+                            className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--text)] hover:bg-[var(--surface)] disabled:opacity-50"
+                            title={p.sourceAnchor ? "Create a linked issue" : "No source block to link"}
+                          >
+                            <Check className="h-3 w-3" /> Accept
+                          </button>
+                          <button
+                            onClick={() =>
+                              setProposals((prev) => (prev ? prev.filter((x) => x !== p) : prev))
+                            }
+                            className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text)]"
+                            title="Skip"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="relative mb-4">
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-[var(--text-muted)]" />
                   <input
@@ -309,7 +410,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => convertMutation.mutate(b.id)}
+                                  onClick={() => convertMutation.mutate({ blockId: b.id })}
                                   disabled={convertMutation.isPending}
                                   className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text)] group-hover:opacity-100"
                                   title="Create an issue from this section"
