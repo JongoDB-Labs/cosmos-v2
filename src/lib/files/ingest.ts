@@ -28,7 +28,11 @@ export async function ingestDocument(input: IngestInput) {
   if (!format) throw new Error(`Unsupported file type: ${input.filename}`);
   if (input.buffer.byteLength > MAX_BYTES) throw new Error("File exceeds 25 MB limit");
 
-  const storageKey = `documents/${input.projectId}/${crypto.randomUUID()}/${input.filename}`;
+  // Sanitize the filename for the storage KEY (strip path separators / traversal)
+  // — matches the guard in chat/feedback attachment routes. The human-readable
+  // name is preserved separately in the DB `filename` column + storage meta.
+  const safeName = input.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
+  const storageKey = `documents/${input.projectId}/${crypto.randomUUID()}/${safeName}`;
   await getStorage().put(storageKey, input.buffer, {
     contentType: input.contentType,
     filename: input.filename,

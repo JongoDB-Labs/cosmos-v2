@@ -11,12 +11,19 @@ export const pptxParser: DocumentParser = {
     const blocks: ParsedBlock[] = [];
     slideNames.forEach((name, i) => {
       const xml = strFromU8(files[name]);
-      // Each <a:p> is a paragraph; its <a:t> runs are the text.
+      // Each <a:p> is a paragraph; its <a:t> runs are the text. Runs may carry
+      // attributes (e.g. <a:t xml:space="preserve">) — match the open tag loosely.
       const paras = (xml.match(/<a:p\b[\s\S]*?<\/a:p>/g) || [])
-        .map((p) =>
-          (p.match(/<a:t>([\s\S]*?)<\/a:t>/g) || []).map((t) => t.replace(/<\/?a:t>/g, "")).join(""),
+        .map((p) => [...p.matchAll(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join(""))
+        .map((s) =>
+          s
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#0*39;|&apos;/g, "'")
+            .trim(),
         )
-        .map((s) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim())
         .filter(Boolean);
       if (paras.length) {
         blocks.push({ kind: "HEADING", level: 2, text: paras[0] || `Slide ${i + 1}`, page: i + 1 });
