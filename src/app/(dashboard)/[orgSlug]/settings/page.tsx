@@ -12,6 +12,7 @@ import {
   Plug,
   Webhook,
   ScrollText,
+  KeyRound,
   User as UserIcon,
 } from "lucide-react";
 import { PageShell } from "@/components/ui/page-shell";
@@ -57,6 +58,7 @@ const GROUPS = [
     items: [
       { icon: Plug, label: "Integrations", path: "integrations", desc: "Connect tools" },
       { icon: Webhook, label: "Webhooks", path: "webhooks", desc: "Outbound events" },
+      { icon: KeyRound, label: "API keys", path: "api-keys", desc: "Bearer tokens for the API" },
       { icon: ScrollText, label: "Audit Logs", path: "audit-logs", desc: "Activity history" },
     ],
   },

@@ -96,10 +96,18 @@ export async function proxy(request: NextRequest) {
   // CSRF: refuse cross-origin mutating verbs. The session cookie is
   // SameSite=Lax so the common case is already covered; this catches
   // edge cases (e.g. attacker-controlled subdomain) explicitly.
+  //
+  // Bearer API-key requests are exempt: a `Bearer` token is an explicit,
+  // non-ambient credential (the caller sets the Authorization header
+  // deliberately — it isn't attached by the browser like a cookie), so it
+  // can't be CSRF-forged by a cross-origin page. We only skip the Origin
+  // check when a bearer is present; cookie (no-Authorization) requests are
+  // still fully guarded.
   if (
     MUTATING_METHODS.has(request.method) &&
     pathname.startsWith("/api/") &&
     !isCsrfExempt(pathname) &&
+    !request.headers.get("authorization")?.startsWith("Bearer ") &&
     !isSameOrigin(request)
   ) {
     return withSecurityHeaders(
