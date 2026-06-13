@@ -21,13 +21,38 @@ async function loadBlockText(orgId: string, projectId: string, blockId: string) 
   return block;
 }
 
-/** Resolve the default work-item type (built-in *.task) + a column for new items. */
+/**
+ * Resolve the default work-item type (the project sector's built-in `*.task`)
+ * + a column for new items. The sector comes from the project's template
+ * (`projectTemplate.sector`, default "software"); we look up the matching
+ * `${sector}.task` built-in and fall back to ANY built-in `*.task` if the
+ * sector-specific one is missing — mirroring the canonical work-items POST
+ * route so a non-software-sector project gets its own task type.
+ */
 export async function resolveTypeAndColumn(projectId: string, columnKey?: string) {
-  const typeRow = await prisma.workItemType.findFirst({
-    where: { isBuiltIn: true, key: { endsWith: ".task" } },
-    orderBy: { key: "asc" },
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { projectTemplateId: true },
+  });
+  let sector = "software";
+  if (project?.projectTemplateId) {
+    const tpl = await prisma.projectTemplate.findUnique({
+      where: { id: project.projectTemplateId },
+      select: { sector: true },
+    });
+    if (tpl?.sector) sector = tpl.sector;
+  }
+  let typeRow = await prisma.workItemType.findFirst({
+    where: { isBuiltIn: true, key: `${sector}.task` },
     select: { id: true },
   });
+  if (!typeRow) {
+    typeRow = await prisma.workItemType.findFirst({
+      where: { isBuiltIn: true, key: { endsWith: ".task" } },
+      orderBy: { key: "asc" },
+      select: { id: true },
+    });
+  }
   if (!typeRow) throw new Error("No built-in task type available");
   let resolvedColumn = columnKey;
   if (!resolvedColumn) {
@@ -349,7 +374,7 @@ export async function convertBlockToCycle(input: {
 
   return prisma.$transaction(async (tx) => {
     const maxNum = await tx.cycle.aggregate({
-      where: { projectId: input.projectId },
+      where: { orgId: input.orgId, projectId: input.projectId },
       _max: { number: true },
     });
     const cycle = await tx.cycle.create({

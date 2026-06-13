@@ -375,7 +375,15 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
       </Dialog>
 
       {/* One-time token dialog */}
-      <Dialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen}>
+      <Dialog
+        open={tokenDialogOpen}
+        onOpenChange={(open) => {
+          setTokenDialogOpen(open);
+          // Don't let the plaintext token linger in React state after the
+          // one-time dialog closes.
+          if (!open) setMintedToken("");
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>API key created</DialogTitle>

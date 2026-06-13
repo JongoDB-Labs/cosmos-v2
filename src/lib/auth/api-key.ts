@@ -70,8 +70,8 @@ export function hasBearer(req: Request): boolean {
 export async function verifyApiKey(req: Request, orgId: string): Promise<AuthContext | null> {
   const parsed = parseToken(req.headers.get("authorization"));
   if (!parsed) return null;
-  const key = await prisma.apiKey.findFirst({
-    where: { orgId, prefix: parsed.prefix },
+  const key = await prisma.apiKey.findUnique({
+    where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
     select: { id: true, keyHash: true, scopes: true, expiresAt: true, createdById: true },
   });
   if (!key || !key.createdById) return null;

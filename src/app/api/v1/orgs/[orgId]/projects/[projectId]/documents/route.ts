@@ -65,6 +65,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       const body = jsonUploadSchema.parse(await req.json());
       filename = body.filename;
       contentType = body.contentType;
+      // Reject before decoding so we never allocate a huge buffer: ~33.5 MB of
+      // base64 (34,000,000 chars) decodes to ~25 MB, matching the 25 MB cap
+      // ingestDocument enforces on the decoded bytes.
+      if (body.dataBase64.length > 34_000_000)
+        return new Response("File exceeds 25 MB limit", { status: 413 });
       buffer = Buffer.from(body.dataBase64, "base64");
       title = body.title;
     } else {

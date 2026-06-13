@@ -18,7 +18,7 @@ const { prisma, loadEffectivePermissions } = vi.hoisted(() => ({
   prisma: {
     apiKey: {
       create: vi.fn(),
-      findFirst: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
     },
   },
@@ -127,7 +127,7 @@ describe("verifyApiKey", () => {
     const prefix = opts.prefix ?? "abcdef";
     const secret = opts.secret ?? "s3cr3t-token-value";
     const token = `cosmos_${prefix}_${secret}`;
-    prisma.apiKey.findFirst.mockResolvedValue({
+    prisma.apiKey.findUnique.mockResolvedValue({
       id: KEY_ID,
       keyHash: sha256(secret),
       scopes: opts.scopes ?? ["read"],
@@ -188,8 +188,8 @@ describe("verifyApiKey", () => {
     expect(loadEffectivePermissions).not.toHaveBeenCalled();
   });
 
-  it("unknown prefix (findFirst → null) → null", async () => {
-    prisma.apiKey.findFirst.mockResolvedValue(null);
+  it("unknown prefix (findUnique → null) → null", async () => {
+    prisma.apiKey.findUnique.mockResolvedValue(null);
 
     const ctx = await verifyApiKey(bearer("cosmos_nope_whatever"), ORG_ID);
 
@@ -224,6 +224,6 @@ describe("verifyApiKey", () => {
     const ctx = await verifyApiKey(req, ORG_ID);
 
     expect(ctx).toBeNull();
-    expect(prisma.apiKey.findFirst).not.toHaveBeenCalled();
+    expect(prisma.apiKey.findUnique).not.toHaveBeenCalled();
   });
 });

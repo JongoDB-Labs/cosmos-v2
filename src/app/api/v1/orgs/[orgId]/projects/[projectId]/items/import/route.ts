@@ -33,6 +33,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.PROJECT_READ);
 
+    // The template is the same for any project, but verify the project belongs
+    // to this org so a cross-org projectId returns 404 instead of a 200 (which
+    // would leak existence). The POST path guards inside ingestItems.
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, orgId },
+      select: { id: true },
+    });
+    if (!project) return new Response("Not found", { status: 404 });
+
     return success({
       endpoint: `/api/v1/orgs/${orgId}/projects/${projectId}/items/import`,
       method: "POST",
