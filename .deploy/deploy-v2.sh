@@ -64,8 +64,14 @@ pg_dump "$PGBRIDGE" -Fc -f "$DUMP" 2>/dev/null && echo "dumped: $DUMP ($(du -h "
   || { fail "pg_dump failed — refusing to deploy without a rollback point"; exit 1; }
 
 say "2) BUILD images (app + migrate) — old container still serving"
-$DC build cosmos 2>&1 | tail -3 || { fail "app image build failed — old container untouched"; exit 1; }
-sudo docker build --target migrate -t cosmos-v2-migrate:dev . 2>&1 | tail -3 || { fail "migrate image build failed"; exit 1; }
+# The `cosmos` compose service is image-only (no build: stanza), so `compose build
+# cosmos` is a no-op. Build the app image directly from the Dockerfile's default
+# (runtime) target, stamping APP_VERSION so /api/health + the sidebar report $MAINV
+# (the Dockerfile bakes npm_package_version from this arg — without it the build is
+# 0.1.0 and the health gate below would fail). The migrate image shares the build
+# stage, so pass the SAME arg to reuse its cache instead of recompiling.
+sudo docker build --build-arg APP_VERSION="$MAINV" -t cosmos-v2:dev . 2>&1 | tail -5 || { fail "app image build failed — old container untouched"; exit 1; }
+sudo docker build --build-arg APP_VERSION="$MAINV" --target migrate -t cosmos-v2-migrate:dev . 2>&1 | tail -5 || { fail "migrate image build failed"; exit 1; }
 
 say "3) MIGRATE (owner role)"
 if [ -n "$PENDING" ]; then
