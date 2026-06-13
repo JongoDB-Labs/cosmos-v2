@@ -172,6 +172,15 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("files")) {
+    featureTabs.push({
+      feature: "files",
+      label: "Files",
+      href: `/${orgSlug}/projects/${projectKey}/files`,
+      prefix: true, // stay active on /files/<doc> deep-links
+    });
+  }
+
   const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
 
   return (
