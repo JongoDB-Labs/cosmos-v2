@@ -43,7 +43,7 @@ interface LinkRow {
   blockId: string;
   itemType: string;
   itemId: string;
-  item: { id: string; title: string; ticketNumber: number } | null;
+  item: { id: string; title: string; ticketNumber?: number } | null;
 }
 
 interface Proposal {
@@ -102,18 +102,27 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
   );
 
   const convertMutation = useOrgMutation<
-    { item: { id: string; ticketNumber: number } },
+    { kind: string; item?: { ticketNumber: number }; milestone?: { title: string } },
     Error,
-    { blockId: string; title?: string }
+    { blockId: string; title?: string; itemType?: "ISSUE" | "MILESTONE" }
   >({
-    mutationFn: ({ blockId, title }) =>
+    mutationFn: ({ blockId, title, itemType }) =>
       jsonFetch(`${apiBase}/documents/${selectedId}/convert`, {
         method: "POST",
-        body: JSON.stringify({ blockId, title }),
+        body: JSON.stringify({ blockId, title, itemType }),
       }),
-    invalidate: [["document-links", projectId, selectedId ?? "none"], ["work-items", projectId]],
-    onSuccess: (res) => toast.success(`Created issue #${res.item.ticketNumber}`),
-    onError: (e) => notifyError(e, "Couldn't create the issue."),
+    invalidate: [
+      ["document-links", projectId, selectedId ?? "none"],
+      ["work-items", projectId],
+      ["milestones", projectId],
+    ],
+    onSuccess: (res) =>
+      toast.success(
+        res.kind === "milestone"
+          ? `Created milestone "${res.milestone?.title}"`
+          : `Created issue #${res.item?.ticketNumber}`,
+      ),
+    onError: (e) => notifyError(e, "Couldn't create the item."),
   });
 
   const anchorToBlockId = useMemo(
@@ -138,7 +147,11 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
       notifyError(new Error("No source block"), "This proposal has no source block to link.");
       return;
     }
-    convertMutation.mutate({ blockId, title: p.title });
+    convertMutation.mutate({
+      blockId,
+      title: p.title,
+      itemType: p.type === "MILESTONE" ? "MILESTONE" : "ISSUE",
+    });
     setProposals((prev) => (prev ? prev.filter((x) => x !== p) : prev));
   }
 
@@ -457,7 +470,8 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                                   className="inline-flex items-center gap-1 rounded bg-[var(--primary)]/10 px-1.5 py-0.5 text-xs font-medium text-[var(--primary)]"
                                   title={linked.item?.title ?? "Linked item"}
                                 >
-                                  <Link2 className="h-3 w-3" />#{linked.item?.ticketNumber ?? "?"}
+                                  <Link2 className="h-3 w-3" />
+                                  {linked.item?.ticketNumber ? `#${linked.item.ticketNumber}` : "linked"}
                                 </span>
                               ) : (
                                 <button
