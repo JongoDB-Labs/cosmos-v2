@@ -266,6 +266,7 @@ model User {
   chatBotRuns         ChatBotRun[]
   chatThreadFollows   ChatThreadFollower[]
   chatAlertKeywords   ChatAlertKeyword[]
+  apiKeys             ApiKey[]             @relation("ApiKeyCreatedBy")
 
   @@map("users")
 }
@@ -524,18 +525,21 @@ model EgressHandle {
 }
 
 model ApiKey {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String    @map("org_id") @db.Uuid
-  name      String
-  keyHash   String    @map("key_hash")
-  prefix    String
-  scopes    String[]
-  expiresAt DateTime? @map("expires_at")
-  lastUsed  DateTime? @map("last_used")
-  createdAt DateTime  @default(now()) @map("created_at")
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  name        String
+  keyHash     String    @map("key_hash")
+  prefix      String
+  scopes      String[]
+  createdById String?   @map("created_by_id") @db.Uuid
+  expiresAt   DateTime? @map("expires_at")
+  lastUsed    DateTime? @map("last_used")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("ApiKeyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
+  @@index([createdById])
   @@map("api_keys")
 }
 
