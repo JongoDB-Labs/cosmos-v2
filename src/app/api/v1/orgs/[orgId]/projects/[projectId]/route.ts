@@ -19,6 +19,7 @@ export const TOGGLEABLE_FEATURES = [
   "milestone",
   "cycle",
   "roadmap",
+  "files",
 ] as const;
 
 const updateProjectSchema = z.object({
