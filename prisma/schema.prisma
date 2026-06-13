@@ -539,6 +539,7 @@ model ApiKey {
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User?        @relation("ApiKeyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
+  @@unique([orgId, prefix])
   @@index([createdById])
   @@map("api_keys")
 }

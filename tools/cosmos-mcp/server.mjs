@@ -147,7 +147,7 @@ async function callTool(name, args) {
   if (name === "items_ingest") {
     return apiFetch(`${BASE()}/items/import`, {
       method: "POST",
-      body: JSON.stringify({ mode: args.mode ?? "create", items: args.items ?? [] }),
+      body: JSON.stringify({ mode: args.mode ?? "create", items: args.items }),
     });
   }
   if (name === "document_ingest") {
