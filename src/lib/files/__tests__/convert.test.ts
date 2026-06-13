@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "@/lib/db/client";
 import { ingestDocument } from "../ingest";
-import { convertBlockToWorkItem, convertTableToWorkItems } from "../convert";
+import { convertBlockToWorkItem, convertBlockToMilestone, convertTableToWorkItems } from "../convert";
 
 describe("convertBlockToWorkItem", () => {
   it("creates a tagged work item from a block + a source link", async () => {
@@ -51,6 +51,30 @@ describe("convertBlockToWorkItem", () => {
 
     await prisma.workItem.delete({ where: { id: item.id } });
     await prisma.document.delete({ where: { id: doc.id } }); // cascades blocks + links
+  });
+
+  it("converts a block to a linked Milestone (default due date)", async () => {
+    const org = await prisma.organization.findFirst({ where: { slug: "test-org" }, select: { id: true } });
+    const project = await prisma.project.findFirst({ where: { orgId: org!.id, key: "TEST" }, select: { id: true } });
+    const user = await prisma.user.findFirst({ select: { id: true } });
+    const buf = readFileSync(join(process.cwd(), "src/lib/files/parsers/__tests__/fixtures/sample.docx"));
+    const doc = await ingestDocument({
+      orgId: org!.id, projectId: project!.id, uploadedById: user!.id,
+      filename: "sample.docx", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      buffer: buf,
+    });
+    const block = await prisma.documentBlock.findFirst({ where: { documentId: doc.id }, select: { id: true } });
+
+    const { milestone, link } = await convertBlockToMilestone({
+      orgId: org!.id, projectId: project!.id, blockId: block!.id, userId: user!.id, title: "Ship v3",
+    });
+    expect(milestone.title).toBe("Ship v3");
+    expect(link.itemType).toBe("MILESTONE");
+    const m = await prisma.milestone.findUnique({ where: { id: milestone.id }, select: { dueDate: true } });
+    expect(m!.dueDate.getTime()).toBeGreaterThan(Date.now());
+
+    await prisma.milestone.delete({ where: { id: milestone.id } });
+    await prisma.document.delete({ where: { id: doc.id } });
   });
 
   it("maps a table block's rows to one linked Issue per data row", async () => {

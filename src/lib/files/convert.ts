@@ -90,6 +90,59 @@ export async function convertBlockToWorkItem(input: {
 }
 
 /**
+ * Convert a DocumentBlock into a Milestone (+ link). `dueDate` defaults to 30 days
+ * out (the Milestone view lets the user adjust it); the block text becomes the
+ * milestone description.
+ */
+export async function convertBlockToMilestone(input: {
+  orgId: string;
+  projectId: string;
+  blockId: string;
+  userId: string;
+  title?: string;
+  dueDate?: string;
+}) {
+  const block = await prisma.documentBlock.findFirst({
+    where: { id: input.blockId, orgId: input.orgId, document: { projectId: input.projectId } },
+    select: { id: true, text: true },
+  });
+  if (!block) throw new Error("Block not found");
+
+  const title = (input.title?.trim() || block.text.split("\n")[0] || "Untitled milestone").slice(0, 200);
+  const parsed = input.dueDate ? new Date(input.dueDate) : null;
+  const dueDate = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date(Date.now() + 30 * 86_400_000);
+
+  return prisma.$transaction(async (tx) => {
+    const maxSort = await tx.milestone.aggregate({
+      where: { orgId: input.orgId, projectId: input.projectId },
+      _max: { sortOrder: true },
+    });
+    const milestone = await tx.milestone.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        title,
+        description: block.text.slice(0, 20_000) || null,
+        dueDate,
+        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+      },
+      select: { id: true, title: true, dueDate: true },
+    });
+    const link = await tx.documentItemLink.create({
+      data: {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        blockId: block.id,
+        itemType: "MILESTONE",
+        itemId: milestone.id,
+      },
+      select: { id: true, blockId: true, itemType: true, itemId: true },
+    });
+    return { milestone, link };
+  });
+}
+
+/**
  * Convert a TABLE block into many Work Items — one per data row — using a chosen
  * title column (CSV-style mapping). Each item links back to the source block.
  * `headerRow` drops row 0; `titleColumn` is the 0-based column index for the title.
