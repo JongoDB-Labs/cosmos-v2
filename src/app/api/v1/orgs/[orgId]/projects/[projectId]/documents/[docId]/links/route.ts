@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
@@ -12,12 +12,12 @@ type RouteParams = {
 /** GET — the document's block→item links, with the linked item resolved (title,
  *  plus ticket for work items) so the Files view can show "linked" badges across
  *  every convert kind: work item, milestone, objective, goal, sprint, roadmap node. */
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, docId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
-    const ctx = await getAuthContext(org.slug);
+    const ctx = await resolveAuth(req, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.PROJECT_READ);
 
