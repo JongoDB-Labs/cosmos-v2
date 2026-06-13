@@ -22,7 +22,7 @@ async function loadBlockText(orgId: string, projectId: string, blockId: string) 
 }
 
 /** Resolve the default work-item type (built-in *.task) + a column for new items. */
-async function resolveTypeAndColumn(projectId: string, columnKey?: string) {
+export async function resolveTypeAndColumn(projectId: string, columnKey?: string) {
   const typeRow = await prisma.workItemType.findFirst({
     where: { isBuiltIn: true, key: { endsWith: ".task" } },
     orderBy: { key: "asc" },
