@@ -3,11 +3,20 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check } from "lucide-react";
+import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check, Rows3 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -131,6 +140,39 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
     }
     convertMutation.mutate({ blockId, title: p.title });
     setProposals((prev) => (prev ? prev.filter((x) => x !== p) : prev));
+  }
+
+  // Table → rows mapping (CSV-style): one Issue per data row, by a chosen column.
+  const [tableModal, setTableModal] = useState<DocBlock | null>(null);
+  const [tableHeader, setTableHeader] = useState(true);
+  const [tableTitleCol, setTableTitleCol] = useState(0);
+  const tableRows = ((tableModal?.data as { rows?: string[][] } | undefined)?.rows ?? []) as string[][];
+  const tableCols = tableRows[0] ?? [];
+  const tablePreviewCount = (tableHeader ? tableRows.slice(1) : tableRows).filter(
+    (r) => (r[tableTitleCol] ?? "").trim(),
+  ).length;
+  const tableConvertMutation = useOrgMutation<
+    { count: number },
+    Error,
+    { blockId: string; titleColumn: number; headerRow: boolean }
+  >({
+    mutationFn: ({ blockId, titleColumn, headerRow }) =>
+      jsonFetch(`${apiBase}/documents/${selectedId}/convert`, {
+        method: "POST",
+        body: JSON.stringify({ blockId, table: { titleColumn, headerRow } }),
+      }),
+    invalidate: [["document-links", projectId, selectedId ?? "none"], ["work-items", projectId]],
+    onSuccess: (res) => {
+      toast.success(`Created ${res.count} issue${res.count === 1 ? "" : "s"}`);
+      setTableModal(null);
+    },
+    onError: (e) => notifyError(e, "Couldn't map the table."),
+  });
+
+  function openTableModal(b: DocBlock) {
+    setTableModal(b);
+    setTableHeader(true);
+    setTableTitleCol(0);
   }
 
   const uploadMutation = useOrgMutation<DocListItem, Error, File>({
@@ -400,6 +442,16 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                           <FilesBlock block={b} />
                           {b.kind !== "PAGE_BREAK" && (
                             <div className="absolute right-1 top-1 flex items-center gap-1">
+                              {b.kind === "TABLE" && (
+                                <button
+                                  type="button"
+                                  onClick={() => openTableModal(b)}
+                                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text)] group-hover:opacity-100"
+                                  title="Create one issue per row (map a column to the title)"
+                                >
+                                  <Rows3 className="h-3 w-3" /> Map rows
+                                </button>
+                              )}
                               {linked ? (
                                 <span
                                   className="inline-flex items-center gap-1 rounded bg-[var(--primary)]/10 px-1.5 py-0.5 text-xs font-medium text-[var(--primary)]"
@@ -430,6 +482,66 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
           </div>
         )}
       </main>
+
+      <Dialog open={tableModal !== null} onOpenChange={(o) => { if (!o) setTableModal(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Map table rows to issues</DialogTitle>
+            <DialogDescription>
+              Create one issue per row. Pick the column to use as the issue title; the
+              remaining columns become each issue&apos;s description.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <label className="flex items-center gap-2 text-[var(--text)]">
+              <input
+                type="checkbox"
+                checked={tableHeader}
+                onChange={(e) => setTableHeader(e.target.checked)}
+              />
+              First row is a header
+            </label>
+            <div className="space-y-1">
+              <span className="text-[var(--text-muted)]">Title column</span>
+              <select
+                value={tableTitleCol}
+                onChange={(e) => setTableTitleCol(Number(e.target.value))}
+                className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--text)]"
+              >
+                {tableCols.map((c, i) => (
+                  <option key={i} value={i}>
+                    {tableHeader ? c || `Column ${i + 1}` : `Column ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-[var(--text-muted)]">
+              Will create {tablePreviewCount} issue{tablePreviewCount === 1 ? "" : "s"}.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTableModal(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                tableModal &&
+                tableConvertMutation.mutate({
+                  blockId: tableModal.id,
+                  titleColumn: tableTitleCol,
+                  headerRow: tableHeader,
+                })
+              }
+              disabled={tableConvertMutation.isPending || tablePreviewCount === 0}
+            >
+              {tableConvertMutation.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Create {tablePreviewCount} issue{tablePreviewCount === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
