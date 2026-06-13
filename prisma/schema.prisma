@@ -2806,27 +2806,56 @@ model Document {
 }
 
 model DocumentBlock {
-  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  documentId String            @map("document_id") @db.Uuid
-  orgId      String            @map("org_id") @db.Uuid
+  id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId String             @map("document_id") @db.Uuid
+  orgId      String             @map("org_id") @db.Uuid
   kind       DocumentBlockKind
   level      Int?
-  text       String            @default("")
+  text       String             @default("")
   html       String?
   data       Json?
   anchor     String
   ordinal    Int
-  parentId   String?           @map("parent_id") @db.Uuid
+  parentId   String?            @map("parent_id") @db.Uuid
   page       Int?
-  createdAt  DateTime          @default(now()) @map("created_at")
-  document   Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  parent     DocumentBlock?    @relation("BlockTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children   DocumentBlock[]   @relation("BlockTree")
+  createdAt  DateTime           @default(now()) @map("created_at")
+  document   Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent     DocumentBlock?     @relation("BlockTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children   DocumentBlock[]    @relation("BlockTree")
+  links      DocumentItemLink[]
 
   @@unique([documentId, anchor])
   @@index([documentId, ordinal])
   @@index([parentId])
   @@map("document_blocks")
+}
+
+// A project item created from / linked to a source DocumentBlock. The item is a
+// SOFT reference (no hard FK to the polymorphic target — resolver tolerates a
+// deleted item); the block is a hard FK (cascades). See GoalLink precedent.
+enum LinkedItemType {
+  WORK_ITEM
+  MILESTONE
+  OBJECTIVE
+  GOAL
+  CYCLE
+  ROADMAP_NODE
+}
+
+model DocumentItemLink {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String         @map("org_id") @db.Uuid
+  projectId String         @map("project_id") @db.Uuid
+  blockId   String         @map("block_id") @db.Uuid
+  itemType  LinkedItemType @map("item_type")
+  itemId    String         @map("item_id") @db.Uuid
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  block DocumentBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, projectId, itemType, itemId])
+  @@index([blockId])
+  @@map("document_item_links")
 }
 
 // ─── Chat aux + bots ──────────────────────────────────────────────────────────

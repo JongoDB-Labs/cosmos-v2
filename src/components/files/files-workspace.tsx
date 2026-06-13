@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink } from "lucide-react";
+import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -27,6 +27,14 @@ interface DocListItem {
 
 interface DocDetail extends DocListItem {
   blocks: DocBlock[];
+}
+
+interface LinkRow {
+  id: string;
+  blockId: string;
+  itemType: string;
+  itemId: string;
+  item: { id: string; title: string; ticketNumber: number } | null;
 }
 
 const ACCEPT = ".docx,.pdf,.pptx,.xlsx,.xls";
@@ -64,6 +72,33 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
     queryKey: docKey,
     queryFn: () => jsonFetch<DocDetail>(`${apiBase}/documents/${selectedId}`),
     enabled: !!selectedId,
+  });
+
+  const linksKey = useOrgQueryKey("document-links", projectId, selectedId ?? "none");
+  const { data: links } = useQuery({
+    queryKey: linksKey,
+    queryFn: () =>
+      jsonFetch<LinkRow[]>(`${apiBase}/documents/${selectedId}/links`),
+    enabled: !!selectedId,
+  });
+  const linkByBlock = useMemo(
+    () => new Map((links ?? []).map((l) => [l.blockId, l])),
+    [links],
+  );
+
+  const convertMutation = useOrgMutation<
+    { item: { id: string; ticketNumber: number } },
+    Error,
+    string
+  >({
+    mutationFn: (blockId) =>
+      jsonFetch(`${apiBase}/documents/${selectedId}/convert`, {
+        method: "POST",
+        body: JSON.stringify({ blockId }),
+      }),
+    invalidate: [["document-links", projectId, selectedId ?? "none"], ["work-items", projectId]],
+    onSuccess: (res) => toast.success(`Created issue #${res.item.ticketNumber}`),
+    onError: (e) => notifyError(e, "Couldn't create the issue."),
   });
 
   const uploadMutation = useOrgMutation<DocListItem, Error, File>({
@@ -257,9 +292,36 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                   <p className="text-sm text-[var(--text-muted)]">No matching content.</p>
                 ) : (
                   <div className="space-y-3">
-                    {visibleBlocks.map((b) => (
-                      <FilesBlock key={b.id} block={b} />
-                    ))}
+                    {visibleBlocks.map((b) => {
+                      const linked = linkByBlock.get(b.id);
+                      return (
+                        <div key={b.id} className="group relative -mr-2 rounded pr-2 hover:bg-[var(--surface)]/40">
+                          <FilesBlock block={b} />
+                          {b.kind !== "PAGE_BREAK" && (
+                            <div className="absolute right-1 top-1 flex items-center gap-1">
+                              {linked ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded bg-[var(--primary)]/10 px-1.5 py-0.5 text-xs font-medium text-[var(--primary)]"
+                                  title={linked.item?.title ?? "Linked item"}
+                                >
+                                  <Link2 className="h-3 w-3" />#{linked.item?.ticketNumber ?? "?"}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => convertMutation.mutate(b.id)}
+                                  disabled={convertMutation.isPending}
+                                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text)] group-hover:opacity-100"
+                                  title="Create an issue from this section"
+                                >
+                                  <Plus className="h-3 w-3" /> Issue
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </>
