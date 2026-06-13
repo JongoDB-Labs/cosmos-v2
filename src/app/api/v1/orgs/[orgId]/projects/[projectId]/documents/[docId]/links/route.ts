@@ -26,13 +26,25 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     });
 
     const workItemIds = links.filter((l) => l.itemType === "WORK_ITEM").map((l) => l.itemId);
-    const items = workItemIds.length
-      ? await prisma.workItem.findMany({
-          where: { id: { in: workItemIds }, orgId, projectId },
-          select: { id: true, title: true, ticketNumber: true },
-        })
-      : [];
-    const byId = new Map(items.map((i) => [i.id, i]));
+    const milestoneIds = links.filter((l) => l.itemType === "MILESTONE").map((l) => l.itemId);
+
+    const [items, milestones] = await Promise.all([
+      workItemIds.length
+        ? prisma.workItem.findMany({
+            where: { id: { in: workItemIds }, orgId, projectId },
+            select: { id: true, title: true, ticketNumber: true },
+          })
+        : Promise.resolve([]),
+      milestoneIds.length
+        ? prisma.milestone.findMany({
+            where: { id: { in: milestoneIds }, orgId, projectId },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const byId = new Map<string, { id: string; title: string; ticketNumber?: number }>(
+      [...items, ...milestones].map((i) => [i.id, i]),
+    );
 
     return success(
       links.map((l) => ({ ...l, item: byId.get(l.itemId) ?? null })),
