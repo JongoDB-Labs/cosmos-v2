@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check, Rows3 } from "lucide-react";
+import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check, Rows3, ChevronDown, Flag, Target, Goal, Repeat, Map as MapIcon, type LucideIcon } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -17,6 +17,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -51,6 +57,25 @@ interface Proposal {
   title: string;
   sourceAnchor: string | null;
 }
+
+type ConvertItemType = "ISSUE" | "MILESTONE" | "OBJECTIVE" | "GOAL" | "CYCLE" | "ROADMAP_NODE";
+
+interface ConvertResult {
+  itemType: ConvertItemType;
+  id: string;
+  title: string;
+  ticketNumber: number | null;
+}
+
+// The convert kinds a block can become — drives the per-block type picker and toasts.
+const CONVERT_TYPES: { value: ConvertItemType; label: string; noun: string; icon: LucideIcon }[] = [
+  { value: "ISSUE", label: "Issue", noun: "issue", icon: Plus },
+  { value: "MILESTONE", label: "Milestone", noun: "milestone", icon: Flag },
+  { value: "OBJECTIVE", label: "Objective (OKR)", noun: "objective", icon: Target },
+  { value: "GOAL", label: "Goal", noun: "goal", icon: Goal },
+  { value: "CYCLE", label: "Sprint", noun: "sprint", icon: Repeat },
+  { value: "ROADMAP_NODE", label: "Roadmap node", noun: "roadmap node", icon: MapIcon },
+];
 
 const ACCEPT = ".docx,.pdf,.pptx,.xlsx,.xls";
 
@@ -102,9 +127,9 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
   );
 
   const convertMutation = useOrgMutation<
-    { kind: string; item?: { ticketNumber: number }; milestone?: { title: string } },
+    ConvertResult,
     Error,
-    { blockId: string; title?: string; itemType?: "ISSUE" | "MILESTONE" }
+    { blockId: string; title?: string; itemType?: ConvertItemType }
   >({
     mutationFn: ({ blockId, title, itemType }) =>
       jsonFetch(`${apiBase}/documents/${selectedId}/convert`, {
@@ -115,12 +140,16 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
       ["document-links", projectId, selectedId ?? "none"],
       ["work-items", projectId],
       ["milestones", projectId],
+      ["objectives", projectId],
+      ["goals", projectId],
+      ["cycles", projectId],
+      ["roadmap-nodes", projectId],
     ],
     onSuccess: (res) =>
       toast.success(
-        res.kind === "milestone"
-          ? `Created milestone "${res.milestone?.title}"`
-          : `Created issue #${res.item?.ticketNumber}`,
+        res.itemType === "ISSUE"
+          ? `Created issue #${res.ticketNumber}`
+          : `Created ${CONVERT_TYPES.find((t) => t.value === res.itemType)?.noun ?? "item"} "${res.title}"`,
       ),
     onError: (e) => notifyError(e, "Couldn't create the item."),
   });
@@ -474,15 +503,31 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
                                   {linked.item?.ticketNumber ? `#${linked.item.ticketNumber}` : "linked"}
                                 </span>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => convertMutation.mutate({ blockId: b.id })}
-                                  disabled={convertMutation.isPending}
-                                  className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text)] group-hover:opacity-100"
-                                  title="Create an issue from this section"
-                                >
-                                  <Plus className="h-3 w-3" /> Issue
-                                </button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger
+                                    disabled={convertMutation.isPending}
+                                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text)] group-hover:opacity-100 data-[popup-open]:opacity-100 disabled:opacity-50"
+                                    title="Create a project item from this section"
+                                  >
+                                    <Plus className="h-3 w-3" /> Add
+                                    <ChevronDown className="h-3 w-3" />
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-auto min-w-[200px]">
+                                    {CONVERT_TYPES.map((t) => {
+                                      const Icon = t.icon;
+                                      return (
+                                        <DropdownMenuItem
+                                          key={t.value}
+                                          onClick={() =>
+                                            convertMutation.mutate({ blockId: b.id, itemType: t.value })
+                                          }
+                                        >
+                                          <Icon className="h-4 w-4" /> {t.label}
+                                        </DropdownMenuItem>
+                                      );
+                                    })}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               )}
                             </div>
                           )}
