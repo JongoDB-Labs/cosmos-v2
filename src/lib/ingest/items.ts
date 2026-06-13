@@ -52,7 +52,7 @@ const milestoneItemSchema = z.object({
 
 const objectiveItemSchema = z.object({
   type: z.literal("OBJECTIVE"),
-  title: z.string().min(1).max(500),
+  title: z.string().min(1).max(200),
   description: z.string().max(20_000).nullish(),
   period: z.string().max(120).nullish(),
   status: z.nativeEnum(ObjectiveStatus).nullish(),
@@ -60,7 +60,7 @@ const objectiveItemSchema = z.object({
 
 const goalItemSchema = z.object({
   type: z.literal("GOAL"),
-  title: z.string().min(1).max(500),
+  title: z.string().min(1).max(200),
   description: z.string().max(20_000).nullish(),
   status: z.nativeEnum(GoalStatus).nullish(),
   targetDate: z.string().nullish(),
@@ -69,7 +69,7 @@ const goalItemSchema = z.object({
 
 const cycleItemSchema = z.object({
   type: z.literal("CYCLE"),
-  name: z.string().min(1).max(200),
+  name: z.string().min(1).max(100),
   goal: z.string().max(2_000).nullish(),
   startDate: z.string().nullish(),
   endDate: z.string().nullish(),
@@ -269,7 +269,7 @@ async function createCycle(
   const endDate = parseDate(item.endDate) ?? new Date(Date.now() + 14 * 86_400_000);
   return prisma.$transaction(async (tx) => {
     const maxNum = await tx.cycle.aggregate({
-      where: { projectId },
+      where: { orgId, projectId },
       _max: { number: true },
     });
     return tx.cycle.create({
