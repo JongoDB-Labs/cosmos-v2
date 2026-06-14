@@ -38,7 +38,11 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 export async function mintApiKey(input: {
   orgId: string; name: string; scopes: string[]; createdById: string; expiresAt?: Date | null;
 }) {
-  const prefix = randomBytes(6).toString("base64url");
+  // Prefix is HEX (no `_`/`-`) so the token splits unambiguously at the prefix's
+  // `_` delimiter — the secret (base64url) may contain `_`/`-`, and as the final
+  // segment that's fine. (A base64url prefix made parsing ambiguous: a greedy
+  // split mis-read any token whose secret held an underscore — ~3 in 4 of them.)
+  const prefix = randomBytes(6).toString("hex");
   const secret = randomBytes(32).toString("base64url");
   const token = `cosmos_${prefix}_${secret}`;
   const record = await prisma.apiKey.create({
@@ -53,7 +57,9 @@ export async function mintApiKey(input: {
 
 function parseToken(h: string | null): { prefix: string; secret: string } | null {
   if (!h) return null;
-  const m = /^Bearer\s+cosmos_([A-Za-z0-9_-]+)_([A-Za-z0-9_-]+)$/.exec(h.trim());
+  // Hex prefix, then the secret as the entire remainder (base64url — may contain
+  // `_`/`-`). `[0-9a-f]+` stops at the `_` delimiter, so the split is exact.
+  const m = /^Bearer\s+cosmos_([0-9a-f]+)_(.+)$/.exec(h.trim());
   return m ? { prefix: m[1], secret: m[2] } : null;
 }
 
