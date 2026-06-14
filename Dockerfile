@@ -10,14 +10,22 @@ FROM node:20-bookworm-slim AS build
 WORKDIR /app
 ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY --from=deps /app/node_modules ./node_modules
-# Bake the MiniLM embeddings model (~87MB ONNX) into node_modules BEFORE copying app
-# source or setting the version, so this network-bound HuggingFace fetch caches
-# independent of code AND version changes — it depends ONLY on node_modules, so it
-# re-runs only when deps change. (Previously this sat after `COPY . .`, so every
-# deploy re-fetched it and the flaky download aborted builds.) The cache lands in
-# node_modules/@huggingface/transformers/.cache/ and is COPY'd into the runtime stage
-# below; node_modules is .dockerignore'd so the later `COPY . .` never clobbers it.
-RUN node -e "import('@huggingface/transformers').then(({pipeline})=>pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')).then(()=>console.log('model cached')).catch(e=>{console.error(e);process.exit(1)})"
+# Bake the MiniLM embeddings model (~87MB ONNX) into node_modules so the runtime
+# loads it OFFLINE (gov can't fetch at runtime). It sits before `COPY . .` so a pure
+# code change reuses the cached layer — BUT a version bump changes package.json, which
+# busts npm ci → the deps copy → this layer, so on a real deploy it re-downloads.
+# The HuggingFace fetch is intermittently flaky (~50% of the time it times out), so
+# RETRY with backoff and surface the real error instead of aborting the whole deploy.
+# The cache lands in node_modules/@huggingface/transformers/.cache/ and is COPY'd to
+# the runtime stage; node_modules is .dockerignore'd so the later `COPY . .` can't clobber it.
+RUN set -e; \
+    for i in 1 2 3 4 5; do \
+      if node -e "import('@huggingface/transformers').then(({pipeline})=>pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')).then(()=>console.log('model cached')).catch(e=>{console.error('[model] '+String(e&&e.message||e).slice(0,300));process.exit(1)})"; then \
+        exit 0; \
+      fi; \
+      echo "[model] download attempt $i failed; retrying in $((i*8))s"; sleep $((i*8)); \
+    done; \
+    echo "[model] FAILED after 5 attempts"; exit 1
 # NEXT_PUBLIC_APP_VERSION reads npm_package_version, which is empty under a raw
 # `next build`; pass it explicitly so the sidebar version isn't "0.0.0".
 ARG APP_VERSION=0.1.0
