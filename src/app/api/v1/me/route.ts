@@ -7,11 +7,12 @@ import { success, handleApiError } from "@/lib/api-helpers";
 const schema = z.object({
   displayName: z.string().min(1).max(100).optional(),
   avatarUrl: z.string()
-    // Accept either a data URL (base64) up to 200KB or a regular https URL
+    // Accept either a data URL (base64, ~1MB image) or a regular https URL. The
+    // client downscales large photos to fit, so this is just a safety ceiling.
     .refine((v) => {
       if (v.startsWith("data:image/")) {
-        // Cap data URL at ~200KB raw (base64 expands ~33%, so ~270KB string)
-        return v.length <= 280_000;
+        // ~1MB image as base64 (expands ~34%) plus the data-URL prefix.
+        return v.length <= 1_400_000;
       }
       try {
         const u = new URL(v);
@@ -19,7 +20,7 @@ const schema = z.object({
       } catch {
         return false;
       }
-    }, "Must be a data URL ≤200KB or an https URL")
+    }, "Must be a data-URL image (~1MB max) or an https URL")
     .nullable()
     .optional(),
 });

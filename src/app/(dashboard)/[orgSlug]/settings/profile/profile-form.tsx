@@ -19,7 +19,43 @@ interface ProfileFormProps {
   };
 }
 
-const MAX_BYTES = 200_000;
+// Cap on the stored avatar data-URL *string length* (~1MB image as base64). Large
+// photos are downscaled client-side (below) to fit, so a user can pick any
+// reasonable image and it just works instead of being rejected for size.
+const MAX_AVATAR_DATAURL = 1_400_000;
+// Don't even try to decode absurd files (avoids hanging on a multi-hundred-MB pick).
+const MAX_SOURCE_BYTES = 25_000_000;
+
+/** Downscale + JPEG-compress a data URL until its string length fits `cap`.
+ *  Caps the longest edge at 512px (ample for an avatar) and steps quality down. */
+async function downscaleAvatar(srcDataUrl: string, cap: number): Promise<string> {
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("decode failed"));
+    i.src = srcDataUrl;
+  });
+  const maxDim = 512;
+  let w = img.naturalWidth || img.width;
+  let h = img.naturalHeight || img.height;
+  if (Math.max(w, h) > maxDim) {
+    const s = maxDim / Math.max(w, h);
+    w = Math.max(1, Math.round(w * s));
+    h = Math.max(1, Math.round(h * s));
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const cx = canvas.getContext("2d");
+  if (!cx) return srcDataUrl;
+  cx.drawImage(img, 0, 0, w, h);
+  let out = srcDataUrl;
+  for (const q of [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]) {
+    out = canvas.toDataURL("image/jpeg", q);
+    if (out.length <= cap) break;
+  }
+  return out;
+}
 
 export function ProfileForm({ initial }: ProfileFormProps) {
   const router = useRouter();
@@ -100,22 +136,35 @@ export function ProfileForm({ initial }: ProfileFormProps) {
   }
 
   async function handleFile(file: File) {
-    if (file.size > MAX_BYTES) {
-      setError(`Avatar must be ≤200KB (was ${Math.round(file.size / 1024)}KB)`);
-      return;
-    }
     if (!file.type.startsWith("image/")) {
       setError("Only images are accepted");
       return;
     }
+    if (file.size > MAX_SOURCE_BYTES) {
+      setError(`That image is too large (${Math.round(file.size / 1024 / 1024)}MB). Pick one under 25MB.`);
+      return;
+    }
     setError(null);
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    setAvatarUrl(dataUrl);
+    try {
+      let dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      // Big photos are downscaled to fit instead of rejected — the whole point of
+      // the FR. (Small images pass through untouched, preserving their format.)
+      if (dataUrl.length > MAX_AVATAR_DATAURL) {
+        dataUrl = await downscaleAvatar(dataUrl, MAX_AVATAR_DATAURL);
+      }
+      if (dataUrl.length > MAX_AVATAR_DATAURL) {
+        setError("Couldn't compress that image small enough — try a simpler one.");
+        return;
+      }
+      setAvatarUrl(dataUrl);
+    } catch {
+      setError("Couldn't read that image. Try a different file.");
+    }
   }
 
   function save() {
