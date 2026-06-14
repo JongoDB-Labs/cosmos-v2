@@ -150,6 +150,18 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // API-key (bearer) requests carry no session cookie — they authenticate at the
+  // route via resolveAuth()/verifyApiKey(). Let a `cosmos_` bearer through the
+  // session gate so the route can enforce the key; a bad/expired key is rejected
+  // there (401). Only /api routes, and only the cosmos token shape — a non-cosmos
+  // `Bearer …` is NOT a session and stays blocked here.
+  if (
+    pathname.startsWith("/api/") &&
+    /^Bearer\s+cosmos_/.test(request.headers.get("authorization") ?? "")
+  ) {
+    return withSecurityHeaders(NextResponse.next());
+  }
+
   // Unauthenticated. JSON 401 for API, redirect to /login otherwise.
   if (pathname.startsWith("/api/")) {
     return withSecurityHeaders(
