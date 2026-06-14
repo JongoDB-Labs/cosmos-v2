@@ -31,7 +31,7 @@ import {
   AlertTriangle,
   KeyRound,
 } from "lucide-react";
-import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key";
+import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
 
 interface ApiKeyRow {
   id: string;
