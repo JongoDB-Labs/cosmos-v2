@@ -96,6 +96,9 @@ describe("mintApiKey", () => {
     expect(captured!.keyHash).toBe(sha256(secret));
     expect(captured!.createdById).toBe(USER_ID);
     expect(captured!.expiresAt).toBeNull();
+    // The prefix MUST be hex (no `_`/`-`) so the token splits unambiguously — a
+    // base64url prefix/secret made the parse ambiguous (see the regression test).
+    expect(captured!.prefix).toMatch(/^[0-9a-f]+$/);
   });
 });
 
@@ -155,6 +158,24 @@ describe("verifyApiKey", () => {
       where: { id: KEY_ID },
       data: { lastUsed: expect.any(Date) },
     });
+  });
+
+  it("secret containing _ and - verifies (split at the hex prefix, not the last _)", async () => {
+    // Regression: a greedy `(...)_(...)` split mis-read tokens whose base64url
+    // secret held an underscore (~3 of 4 real keys), extracting a wrong prefix +
+    // wrong secret → hash mismatch → 401. A hex prefix makes the split exact.
+    const secret = "aa_bb-cc_dd-EE_99"; // base64url-style: contains _ and -
+    const { token } = setupKey({ prefix: "0a1b2c3d", secret, scopes: ["read"] });
+    loadEffectivePermissions.mockResolvedValue(effFor(ALL_BITS));
+
+    const ctx = await verifyApiKey(bearer(token), ORG_ID);
+
+    expect(ctx).not.toBeNull();
+    expect(ctx!.userId).toBe(USER_ID);
+    // The prefix passed to the DB lookup must be exactly the hex prefix.
+    expect(prisma.apiKey.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId_prefix: { orgId: ORG_ID, prefix: "0a1b2c3d" } } }),
+    );
   });
 
   it("masking proof: OWNER all-bits + read scope → no ITEM_CREATE bit", async () => {
