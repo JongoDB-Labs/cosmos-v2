@@ -3,9 +3,13 @@ import { prisma } from "@/lib/db/client";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
+import { API_KEY_SCOPES, type ApiKeyScope } from "./api-key-scopes";
 
-export const API_KEY_SCOPES = ["read", "items:write", "documents:write"] as const;
-export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
+// Re-exported so existing server importers of `@/lib/auth/api-key` keep working.
+// Client components MUST import these from `./api-key-scopes` directly — this
+// module pulls in prisma/session and cannot be in the browser bundle.
+export { API_KEY_SCOPES };
+export type { ApiKeyScope };
 
 const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
   read: Permission.PROJECT_READ | Permission.ITEM_READ | Permission.OKR_READ | Permission.SPRINT_READ,
