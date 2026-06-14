@@ -9,11 +9,19 @@ RUN npm ci --no-audit --no-fund
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
 ENV NODE_OPTIONS=--max-old-space-size=4096
+COPY --from=deps /app/node_modules ./node_modules
+# Bake the MiniLM embeddings model (~87MB ONNX) into node_modules BEFORE copying app
+# source or setting the version, so this network-bound HuggingFace fetch caches
+# independent of code AND version changes — it depends ONLY on node_modules, so it
+# re-runs only when deps change. (Previously this sat after `COPY . .`, so every
+# deploy re-fetched it and the flaky download aborted builds.) The cache lands in
+# node_modules/@huggingface/transformers/.cache/ and is COPY'd into the runtime stage
+# below; node_modules is .dockerignore'd so the later `COPY . .` never clobbers it.
+RUN node -e "import('@huggingface/transformers').then(({pipeline})=>pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')).then(()=>console.log('model cached')).catch(e=>{console.error(e);process.exit(1)})"
 # NEXT_PUBLIC_APP_VERSION reads npm_package_version, which is empty under a raw
 # `next build`; pass it explicitly so the sidebar version isn't "0.0.0".
 ARG APP_VERSION=0.1.0
 ENV npm_package_version=$APP_VERSION
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate && npm run build
 # SI-4 observability: Next's standalone output (Turbopack) does NOT copy the
@@ -30,12 +38,6 @@ RUN npx prisma generate && npm run build
 # this replay no longer matches. Per-traced-file misses stay lenient (the NFT can reference
 # files outside .next/server that legitimately aren't present).
 RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel,strict)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy]'+(strict?' FATAL':'')+' missing source',s); if(strict)process.exit(1); return;} fs.mkdirSync(p.dirname(d),{recursive:true}); fs.copyFileSync(s,d); console.log('[instr-copy]',rel);}; cp('instrumentation.js',true); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''),false);}} else {console.error('[instr-copy] FATAL no nft manifest — instrumentation hook would not run'); process.exit(1);}"
-# Bake the MiniLM embeddings model (~87MB ONNX) into the build layer so the
-# runtime image loads it OFFLINE (gov can't download at runtime). The cache lands
-# in node_modules/@huggingface/transformers/.cache/ (resolved relative to the
-# package dir) and is COPY'd into the runtime stage below.
-RUN node -e "import('@huggingface/transformers').then(({pipeline})=>pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')).then(()=>console.log('model cached')).catch(e=>{console.error(e);process.exit(1)})"
-
 # --- migrate: one-shot job image with the FULL prisma toolchain ---
 # The slim standalone runtime omits the `prisma` CLI and its hoisted deps (effect, etc.),
 # so migrations run from the build stage (complete node_modules, root → no cache/home EACCES).

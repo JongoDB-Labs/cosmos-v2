@@ -5,3 +5,6 @@ uploads
 **/*.log
 docs
 e2e
+# pg_dump rollback points written by .deploy/deploy-v2.sh before each build — keep
+# them out of the build context so a new dump doesn't bust the COPY . . cache.
+.deploy
