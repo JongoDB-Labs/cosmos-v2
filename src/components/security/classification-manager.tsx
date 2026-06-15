@@ -30,13 +30,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tag, Plus, Pencil, Trash2 } from "lucide-react";
-
-type ClassificationLevel =
-  | "PUBLIC"
-  | "UNCLASSIFIED"
-  | "FOUO"
-  | "CUI"
-  | "CONFIDENTIAL";
+import {
+  SELECTABLE_CLASSIFICATION_LEVELS,
+  CLASSIFICATION_BADGE_COLORS,
+  classificationLabel,
+  type ClassificationLevel,
+} from "@/lib/classification/levels";
 
 interface DataClassification {
   id: string;
@@ -58,25 +57,10 @@ interface ProjectOption {
   key: string;
 }
 
-const LEVELS: { value: ClassificationLevel; label: string }[] = [
-  { value: "PUBLIC", label: "Public" },
-  { value: "UNCLASSIFIED", label: "Unclassified" },
-  { value: "FOUO", label: "FOUO" },
-  { value: "CUI", label: "CUI" },
-  { value: "CONFIDENTIAL", label: "Confidential" },
-];
-
 function levelBadge(level: ClassificationLevel) {
-  const colors: Record<ClassificationLevel, string> = {
-    PUBLIC: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-    UNCLASSIFIED: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
-    FOUO: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-    CUI: "bg-orange-500/15 text-orange-700 dark:text-orange-400",
-    CONFIDENTIAL: "bg-red-500/15 text-red-700 dark:text-red-400",
-  };
   return (
-    <Badge className={cn("gap-1", colors[level])}>
-      {LEVELS.find((l) => l.value === level)?.label ?? level}
+    <Badge className={cn("gap-1", CLASSIFICATION_BADGE_COLORS[level])}>
+      {classificationLabel(level)}
     </Badge>
   );
 }
@@ -171,7 +155,7 @@ function ClassificationFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {LEVELS.map((l) => (
+                {SELECTABLE_CLASSIFICATION_LEVELS.map((l) => (
                   <SelectItem key={l.value} value={l.value}>
                     {l.label}
                   </SelectItem>
