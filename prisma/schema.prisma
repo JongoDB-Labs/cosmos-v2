@@ -191,6 +191,7 @@ model Organization {
   scimTokens             ScimToken[]
   securitySettings       OrgSecuritySettings?
   runtimeConfig          OrgRuntimeConfig?
+  entitlements           OrgEntitlements?
   agentPolicy            AgentPolicy?
   assistantConversations AssistantConversation[]
   chatChannels           ChatChannel[]
@@ -1670,6 +1671,33 @@ model OrgRuntimeConfig {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_runtime_config")
+}
+
+model OrgEntitlements {
+  id    String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId String @unique @map("org_id") @db.Uuid
+
+  /// Tri-state MODULE enablement, mirroring OrgRuntimeConfig's connector allowlist
+  /// (Prisma has no nullable scalar list, so a flag + array stand in):
+  ///   moduleAllowlistEnabled = false ⇒ ALL modules enabled. This is the DEFAULT and
+  ///     preserves CURRENT behavior; enabledModules is ignored. The absence of a whole
+  ///     row collapses to this too (see getEntitlements()).
+  ///   moduleAllowlistEnabled = true  ⇒ only the keys in enabledModules are enabled (a
+  ///     SUBSET; [] then = none). The FIXED modules (overview, settings) are always on.
+  moduleAllowlistEnabled Boolean  @default(false) @map("module_allowlist_enabled")
+  enabledModules         String[] @default([]) @map("enabled_modules")
+
+  /// Same tri-state for industry SECTORS (e.g. "aec"). false ⇒ all sectors; true ⇒ the
+  /// subset in enabledSectors. Pontis tenants default to the AEC sector only.
+  sectorAllowlistEnabled Boolean  @default(false) @map("sector_allowlist_enabled")
+  enabledSectors         String[] @default([]) @map("enabled_sectors")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_entitlements")
 }
 
 /// AGENT POLICY (design D9/§8) — the MIDDLE gate of `RBAC ∩ AgentPolicy ∩ Classification`
