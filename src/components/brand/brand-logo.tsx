@@ -1,8 +1,8 @@
-import { CosmosMark } from "./cosmos-mark";
+import { BrandMark } from "./brand-mark";
 
 /**
  * White-label brand slot. Renders the current org's logo when one is set
- * (Organization.logoUrl), otherwise falls back to the COSMOS mark.
+ * (Organization.logoUrl), otherwise falls back to the product brand mark.
  *
  * The rendered box is a FIXED 24x24 square regardless of sidebar state — the
  * mark must NOT shrink when the rail collapses (the old `size={open?"md":"sm"}`
@@ -30,7 +30,7 @@ export function BrandLogo({
   }
   return (
     <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-      <CosmosMark size="md" />
+      <BrandMark size="md" />
     </span>
   );
 }
