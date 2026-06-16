@@ -4,9 +4,10 @@ import { useEffect } from "react";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
+import { getBrand } from "@/lib/brand";
 
 /**
- * Persistent floating COSMOS Agent affordance (item 9).
+ * Persistent floating agent affordance (item 9).
  *
  * A bottom-right bubble that opens the ONE docked Assistant drawer — the SAME
  * surface as the topbar ✨ trigger and the `cosmos:agent:open` event (mobile
@@ -19,6 +20,7 @@ import { useDrawers } from "@/components/drawers/drawer-provider";
  */
 export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
   const { open, isOpen } = useDrawers();
+  const brand = getBrand();
 
   // Let other surfaces (mobile bottom nav, command palette) open the agent.
   useEffect(() => {
@@ -39,8 +41,8 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
     <button
       type="button"
       onClick={() => open("assistant")}
-      aria-label="Open COSMOS Agent"
-      title="COSMOS Agent"
+      aria-label={`Open ${brand.agentName}`}
+      title={brand.agentName}
       className={cn(
         "fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 md:bottom-6 md:right-6",
         "flex h-12 w-12 items-center justify-center rounded-full",

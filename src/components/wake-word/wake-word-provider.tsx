@@ -2,11 +2,13 @@
 import { useEffect, useState } from "react";
 import { Mic } from "lucide-react";
 import { useWakeWord } from "@/lib/hooks/use-wake-word";
+import { getBrand } from "@/lib/brand";
 
 const STORAGE_KEY = "cosmos:wake-word-enabled";
 
 export function WakeWordProvider() {
   const [enabled, setEnabled] = useState(false);
+  const brand = getBrand();
 
   // Load persisted state on mount (client-only)
   useEffect(() => {
@@ -18,7 +20,7 @@ export function WakeWordProvider() {
   }, []);
 
   const { listening } = useWakeWord({
-    phrase: "hey cosmos",
+    phrase: brand.wakePhrase,
     enabled,
     onWake: () => {
       window.dispatchEvent(new CustomEvent("cosmos:command-palette:open"));
@@ -55,8 +57,8 @@ export function WakeWordProvider() {
     <button
       type="button"
       onClick={disable}
-      aria-label="Listening for “Hey COSMOS” — click to turn off"
-      title="Listening for “Hey COSMOS” — click to turn off"
+      aria-label={`Listening for “${brand.wakeWord}” — click to turn off`}
+      title={`Listening for “${brand.wakeWord}” — click to turn off`}
       className="fixed bottom-20 left-4 z-50 flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--overlay)] py-1.5 pl-2.5 pr-3 text-xs font-medium text-[var(--text)] shadow-lg backdrop-blur transition-colors hover:border-destructive/50 md:bottom-4"
     >
       <span className="relative flex h-2.5 w-2.5">
