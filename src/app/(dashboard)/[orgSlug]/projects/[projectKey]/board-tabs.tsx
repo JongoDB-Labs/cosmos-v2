@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Plus, Users, Trash2, Star } from "lucide-react";
+import { Plus, Users, Trash2, Star, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import {
   Dialog,
@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 
@@ -67,6 +68,69 @@ export function ProjectBoardTabs({
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
+  const [boardToRename, setBoardToRename] = useState<BoardTab | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [moving, setMoving] = useState(false);
+
+  // Rename a board (PUT name). Opens via the tab ⋯ menu → dialog.
+  async function handleRename() {
+    const board = boardToRename;
+    if (!board) return;
+    const name = renameValue.trim();
+    if (!name || name === board.name) {
+      setBoardToRename(null);
+      return;
+    }
+    setRenaming(true);
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${board.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+      );
+      if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
+      toast.success(`Renamed to "${name}".`);
+      setBoardToRename(null);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't rename the board.");
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  // Move a board left/right in the tab strip. Renormalizes EVERY board's
+  // sortOrder to its new array index (robust even if existing rows share the
+  // default 0), via parallel PUTs, then refreshes.
+  async function handleMove(idx: number, dir: "left" | "right") {
+    const j = dir === "left" ? idx - 1 : idx + 1;
+    if (j < 0 || j >= boards.length) return;
+    const next = [...boards];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setMoving(true);
+    try {
+      await Promise.all(
+        next.map((b, i) =>
+          fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/boards/${b.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sortOrder: i }),
+          }).then((r) => {
+            if (!r.ok) throw new Error(`Failed to reorder (HTTP ${r.status})`);
+          }),
+        ),
+      );
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't reorder the boards.");
+    } finally {
+      setMoving(false);
+    }
+  }
 
   // FR "Default view": a manager picks the board everyone lands on. Persisted in
   // Project.settings.defaultBoardId (merged server-side) and honored by the
@@ -185,7 +249,7 @@ export function ProjectBoardTabs({
 
   return (
     <div className="flex items-center gap-1 px-4 border-b overflow-x-auto">
-      {boards.map((board) => {
+      {boards.map((board, idx) => {
         const href = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
         const isActive = pathname === href;
 
@@ -213,12 +277,20 @@ export function ProjectBoardTabs({
           </Link>
         );
 
-        // A board manager gets a ⋯ / right-click menu on each tab: set-as-default
-        // + delete.
+        // A board manager gets a ⋯ / right-click menu on each tab: rename,
+        // set-as-default, move left/right, and delete.
         if (!canManageBoards) return <span key={board.id}>{tab}</span>;
         const groups: ActionMenuGroup[] = [
           {
             items: [
+              {
+                label: "Rename board",
+                icon: Pencil,
+                onClick: () => {
+                  setRenameValue(board.name);
+                  setBoardToRename(board);
+                },
+              },
               ...(isDefault
                 ? []
                 : [
@@ -229,6 +301,22 @@ export function ProjectBoardTabs({
                       onClick: () => handleSetDefault(board),
                     },
                   ]),
+            ],
+          },
+          {
+            items: [
+              {
+                label: "Move left",
+                icon: ChevronLeft,
+                disabled: moving || idx === 0,
+                onClick: () => handleMove(idx, "left"),
+              },
+              {
+                label: "Move right",
+                icon: ChevronRight,
+                disabled: moving || idx === boards.length - 1,
+                onClick: () => handleMove(idx, "right"),
+              },
             ],
           },
           {
@@ -365,6 +453,45 @@ export function ProjectBoardTabs({
               disabled={deleting}
             >
               {deleting ? "Deleting…" : "Delete board"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={boardToRename !== null}
+        onOpenChange={(o) => {
+          if (!o) setBoardToRename(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename board</DialogTitle>
+            <DialogDescription>Give this board a new name.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleRename();
+            }}
+            placeholder="Board name"
+            maxLength={100}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBoardToRename(null)}
+              disabled={renaming}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={renaming || !renameValue.trim()}
+            >
+              {renaming ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
