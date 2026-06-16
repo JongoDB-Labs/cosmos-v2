@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
+import { getBrand } from "@/lib/brand";
 import "./globals.css";
 
 const inter = Inter({
@@ -17,26 +18,26 @@ const jetBrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+const brand = getBrand();
+
 export const metadata: Metadata = {
-  title: "COSMOS — Enterprise Project Management",
-  description:
-    "Multi-tenant project management platform with boards, OKRs, CRM, and more.",
-  manifest: "/manifest.webmanifest",
+  title: brand.title,
+  description: brand.description,
   appleWebApp: {
     capable: true,
-    title: "COSMOS",
+    title: brand.name,
     statusBarStyle: "black-translucent",
   },
 };
 
 // `viewportFit: "cover"` activates safe-area-inset-* CSS env vars (iOS notch
 // and home-indicator) so the mobile bottom nav and dialog bottom-sheets can
-// respect them.
+// respect them. `app/manifest.ts` supplies the manifest link automatically.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0B0E1A",
+  themeColor: brand.themeColor,
 };
 
 /**
