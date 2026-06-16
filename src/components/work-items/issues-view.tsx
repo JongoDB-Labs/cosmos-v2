@@ -18,7 +18,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -35,7 +35,7 @@ import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-d
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -617,6 +617,18 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        {/* Plain <a> (not Link): the route returns a Content-Disposition
+            attachment, so this downloads the CSV without navigating away.
+            `qs` carries the active filters → "export what you see". */}
+        <a
+          href={`/api/v1/orgs/${orgId}/work-items/export?${qs}`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+          title="Download these issues (your current filters applied) as a CSV"
+        >
+          <Download className="h-4 w-4" /> Export CSV
+        </a>
+      </div>
       <FilterBar
         filters={filters}
         textDraft={textDraft}
