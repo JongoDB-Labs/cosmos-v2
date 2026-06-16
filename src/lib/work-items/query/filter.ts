@@ -67,6 +67,28 @@ export interface WorkItemFilter {
   updatedAt?: DateRange;
   /** Free-text — case-insensitive contains over title OR description. */
   text?: string;
+  /**
+   * Per-custom-field equality constraints over the WorkItem.customFields JSON.
+   * AND-across (every entry must match). Scoped to the filterable field kinds:
+   *   - SELECT / TEXT / CHECKBOX → exact match on the value at `key`.
+   *   - MULTI_SELECT → the stored array at `key` contains `value`.
+   * Other kinds (NUMBER ranges, DATE, URL, EMAIL, USER) are intentionally not
+   * filterable here yet.
+   */
+  customFields?: CustomFieldFilter[];
+}
+
+/** The custom-field kinds we support filtering on. */
+export type CustomFieldFilterKind = "SELECT" | "MULTI_SELECT" | "CHECKBOX" | "TEXT";
+
+/** A single custom-field equality constraint (keyed by CustomField.key). */
+export interface CustomFieldFilter {
+  /** The CustomField.key the value lives under in WorkItem.customFields. */
+  key: string;
+  /** How to interpret `value` against the JSON at `key`. */
+  kind: CustomFieldFilterKind;
+  /** Match value — a string for SELECT/MULTI_SELECT/TEXT, boolean for CHECKBOX. */
+  value: string | boolean;
 }
 
 /** Matches a NULL assignee when present in `assigneeIds`. */

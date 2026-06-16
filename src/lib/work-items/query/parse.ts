@@ -13,6 +13,8 @@ import {
   type WorkItemFilter,
   type WorkItemSort,
   type WorkItemSortField,
+  type CustomFieldFilter,
+  type CustomFieldFilterKind,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
   SORT_FIELDS,
@@ -31,6 +33,12 @@ const parentSchema = z
   ])
   .optional();
 
+const customFieldFilterSchema = z.object({
+  key: z.string().min(1),
+  kind: z.enum(["SELECT", "MULTI_SELECT", "CHECKBOX", "TEXT"]),
+  value: z.union([z.string(), z.boolean()]),
+});
+
 /** zod schema for the filter object (shared by GET-normalised + POST bodies). */
 export const workItemFilterSchema: z.ZodType<WorkItemFilter> = z.object({
   projectIds: z.array(z.string()).optional(),
@@ -46,6 +54,7 @@ export const workItemFilterSchema: z.ZodType<WorkItemFilter> = z.object({
   createdAt: dateRangeSchema,
   updatedAt: dateRangeSchema,
   text: z.string().optional(),
+  customFields: z.array(customFieldFilterSchema).optional(),
 });
 
 const sortSchema = z
@@ -80,6 +89,38 @@ function multi(params: URLSearchParams, key: string): string[] | undefined {
   return values.length > 0 ? values : undefined;
 }
 
+const CUSTOM_FIELD_KINDS = new Set<CustomFieldFilterKind>([
+  "SELECT",
+  "MULTI_SELECT",
+  "CHECKBOX",
+  "TEXT",
+]);
+
+/**
+ * Parse repeated `cf` params into custom-field constraints. Each value is
+ * `key~kind~value` (tilde-delimited — custom-field keys are [a-z0-9_], so a
+ * tilde never collides). A CHECKBOX value of "true"/"false" is coerced to a
+ * boolean; everything else stays a string. Malformed entries are dropped.
+ */
+function parseCustomFieldParams(params: URLSearchParams): CustomFieldFilter[] {
+  const out: CustomFieldFilter[] = [];
+  for (const raw of params.getAll("cf")) {
+    const idx1 = raw.indexOf("~");
+    const idx2 = raw.indexOf("~", idx1 + 1);
+    if (idx1 < 1 || idx2 < 0) continue;
+    const key = raw.slice(0, idx1).trim();
+    const kindRaw = raw.slice(idx1 + 1, idx2).trim().toUpperCase();
+    const valueRaw = raw.slice(idx2 + 1);
+    if (!key || !CUSTOM_FIELD_KINDS.has(kindRaw as CustomFieldFilterKind)) continue;
+    const kind = kindRaw as CustomFieldFilterKind;
+    const value =
+      kind === "CHECKBOX" ? valueRaw.toLowerCase() === "true" : valueRaw;
+    if (kind !== "CHECKBOX" && value === "") continue;
+    out.push({ key, kind, value });
+  }
+  return out;
+}
+
 /**
  * Parse URL search params into a validated query. Multi-selects accept either
  * repeated keys (`project=a&project=b`) or a CSV (`project=a,b`). Clamps
@@ -110,6 +151,8 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
   const updatedFrom = params.get("updatedFrom") ?? undefined;
   const updatedTo = params.get("updatedTo") ?? undefined;
 
+  const customFields = parseCustomFieldParams(params);
+
   const filter: WorkItemFilter = {
     projectIds: multi(params, "project"),
     typeIds: multi(params, "type"),
@@ -124,6 +167,7 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
     createdAt: createdFrom || createdTo ? { from: createdFrom, to: createdTo } : undefined,
     updatedAt: updatedFrom || updatedTo ? { from: updatedFrom, to: updatedTo } : undefined,
     text: params.get("text")?.trim() || undefined,
+    customFields: customFields.length > 0 ? customFields : undefined,
   };
 
   const sortField = params.get("sortField");

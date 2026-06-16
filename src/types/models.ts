@@ -319,16 +319,32 @@ export type CustomFieldType =
   | "EMAIL"
   | "USER";
 
+/** A custom field's binding to a specific work-item type. When a field has one
+ *  or more bindings it only renders for items of those types; no bindings ⇒ the
+ *  field shows on every item. */
+export interface WorkItemTypeFieldBinding {
+  id: string;
+  workItemTypeId: string;
+  customFieldId: string;
+  required: boolean;
+  sortOrder: number;
+}
+
 export interface CustomField {
   id: string;
   orgId: string;
+  /** null ⇒ org-wide; otherwise scoped to a single project. */
+  projectId: string | null;
   name: string;
   key: string;
   fieldType: CustomFieldType;
   options: string[];
   required: boolean;
+  sortOrder: number;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
+  /** Populated when the defs API `include`s type bindings. */
+  typeBindings?: WorkItemTypeFieldBinding[];
 }
 
 // Phase 4: Time Tracking, Finance, Sync Meetings

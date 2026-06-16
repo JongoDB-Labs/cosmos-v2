@@ -40,6 +40,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const fields = await prisma.customField.findMany({
       where,
+      // Include type bindings so the work-item UI can scope a field to the
+      // work-item types it's bound to (no bindings ⇒ shows for every type).
+      include: { typeBindings: true },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
