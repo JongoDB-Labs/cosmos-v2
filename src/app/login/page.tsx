@@ -4,9 +4,10 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CosmosMark } from "@/components/brand/cosmos-mark";
+import { BrandMark } from "@/components/brand/brand-mark";
 import { Starfield } from "@/components/brand/starfield";
 import { GoogleLogo, MicrosoftLogo } from "@/components/brand/provider-logos";
+import { getBrand } from "@/lib/brand";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_allowed: "Your email is not yet approved. Ask an admin to add it.",
@@ -156,10 +157,12 @@ function LoginInner() {
       <Starfield className="absolute inset-0 h-full w-full" />
       <div className="relative z-10 w-full max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col items-center text-center">
-          <CosmosMark size="lg" />
-          <h1 className="mt-4 text-2xl font-bold tracking-tight">COSMOS</h1>
+          <BrandMark size="lg" />
+          <h1 className="mt-4 text-2xl font-bold tracking-tight">
+            {getBrand().name}
+          </h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Enterprise Project Management
+            {getBrand().tagline}
           </p>
         </div>
 
