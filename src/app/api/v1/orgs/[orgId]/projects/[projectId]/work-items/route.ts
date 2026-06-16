@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
-import { Priority } from "@prisma/client";
+import { Priority, Prisma } from "@prisma/client";
 
 const createItemSchema = z.object({
   workItemTypeId: z.string().uuid().nullish(),
@@ -25,6 +25,7 @@ const createItemSchema = z.object({
   dueDate: z.string().datetime().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
   tags: z.array(z.string()).optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 });
 
 const TYPE_NAME_MAP: Record<string, string> = {
@@ -177,6 +178,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           startDate: data.startDate ? new Date(data.startDate) : null,
           columnEnteredAt: new Date(),
           tags: data.tags ?? [],
+          customFields: (data.customFields ?? {}) as Prisma.InputJsonValue,
           createdById: ctx.userId,
         },
         include: {

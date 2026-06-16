@@ -179,6 +179,56 @@ describe("buildWorkItemWhere — free text (title OR description)", () => {
   });
 });
 
+describe("buildWorkItemWhere — custom fields (JSON-path)", () => {
+  it("SELECT / TEXT → equals at the key path", () => {
+    const w = build({
+      customFields: [
+        { key: "goal", kind: "TEXT", value: "ship it" },
+        { key: "team", kind: "SELECT", value: "Platform" },
+      ],
+    });
+    expect(w.AND).toEqual([
+      { customFields: { path: ["goal"], equals: "ship it" } },
+      { customFields: { path: ["team"], equals: "Platform" } },
+    ]);
+  });
+
+  it("CHECKBOX → equals boolean (true)", () => {
+    const w = build({ customFields: [{ key: "blocked", kind: "CHECKBOX", value: true }] });
+    expect(w.AND).toEqual([{ customFields: { path: ["blocked"], equals: true } }]);
+  });
+
+  it("CHECKBOX false coerces to a strict boolean equals", () => {
+    const w = build({ customFields: [{ key: "blocked", kind: "CHECKBOX", value: false }] });
+    expect(w.AND).toEqual([{ customFields: { path: ["blocked"], equals: false } }]);
+  });
+
+  it("MULTI_SELECT → array_contains the chosen value", () => {
+    const w = build({ customFields: [{ key: "tags", kind: "MULTI_SELECT", value: "infra" }] });
+    expect(w.AND).toEqual([{ customFields: { path: ["tags"], array_contains: ["infra"] } }]);
+  });
+
+  it("empty / blank-key constraints are inert", () => {
+    const w = build({
+      customFields: [
+        { key: "  ", kind: "TEXT", value: "x" },
+        { key: "goal", kind: "TEXT", value: "" },
+        { key: "team", kind: "SELECT", value: "" },
+      ],
+    });
+    expect(w.AND).toBeUndefined();
+  });
+
+  it("custom-field constraints AND with the other filters", () => {
+    const w = build({
+      text: "bug",
+      customFields: [{ key: "team", kind: "SELECT", value: "Platform" }],
+    });
+    expect(Array.isArray(w.AND)).toBe(true);
+    expect((w.AND as unknown[]).length).toBe(2);
+  });
+});
+
 describe("buildOrderBy", () => {
   it("defaults to createdAt desc", () => {
     expect(buildOrderBy(undefined)).toEqual([{ createdAt: "desc" }]);
