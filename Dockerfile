@@ -30,6 +30,11 @@ RUN set -e; \
 # `next build`; pass it explicitly so the sidebar version isn't "0.0.0".
 ARG APP_VERSION=0.1.0
 ENV npm_package_version=$APP_VERSION
+# Brand the image at build time (cosmos | pontis). next.config.ts reads this and
+# inlines it as NEXT_PUBLIC_PRODUCT. Defaults to cosmos so an un-parameterized
+# build is unchanged; the Pontis image is built with --build-arg PRODUCT=pontis.
+ARG PRODUCT=cosmos
+ENV PRODUCT=$PRODUCT
 COPY . .
 RUN npx prisma generate && npm run build
 # SI-4 observability: Next's standalone output (Turbopack) does NOT copy the
