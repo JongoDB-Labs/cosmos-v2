@@ -13,7 +13,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { Search, X, UserCheck } from "lucide-react";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
-import type { OrgMember, Cycle } from "@/types/models";
+import type { OrgMember, Cycle, CustomField } from "@/types/models";
 
 /**
  * Axis a Kanban board can be grouped into horizontal swimlanes by. `"none"`
@@ -46,6 +46,13 @@ export interface BoardFilters {
   assigneeId: string | null;
   cycleId: string | null;
   swimlaneBy: SwimlaneKey;
+  /**
+   * Active custom-field constraints, keyed by CustomField.key. The value is the
+   * selected option (SELECT/MULTI_SELECT), the search text (TEXT), or "true"
+   * (CHECKBOX). An absent/empty key is inert. Only the filterable kinds
+   * (SELECT / MULTI_SELECT / CHECKBOX / TEXT) are surfaced.
+   */
+  customFields: Record<string, string>;
 }
 
 export const emptyFilters: BoardFilters = {
@@ -55,7 +62,11 @@ export const emptyFilters: BoardFilters = {
   assigneeId: null,
   cycleId: null,
   swimlaneBy: "none",
+  customFields: {},
 };
+
+/** Custom-field kinds the board filter bar surfaces a control for. */
+const FILTERABLE_CUSTOM_KINDS = new Set(["SELECT", "MULTI_SELECT", "CHECKBOX", "TEXT"]);
 
 interface FilterBarProps {
   filters: BoardFilters;
@@ -68,6 +79,12 @@ interface FilterBarProps {
    * this component backward-compatible.
    */
   showSwimlane?: boolean;
+  /**
+   * Custom-field definitions for the current project. When supplied, a filter
+   * control is rendered for each filterable field (SELECT / MULTI_SELECT /
+   * CHECKBOX / TEXT). Omitted ⇒ no custom-field controls (backward compatible).
+   */
+  customFields?: CustomField[];
 }
 
 const WORK_ITEM_TYPES = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
@@ -101,6 +118,11 @@ export function serializeFilters(filters: BoardFilters): string {
   if (filters.cycleId) params.set("cycle", filters.cycleId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
     params.set("lane", filters.swimlaneBy);
+  // Custom-field constraints round-trip as repeated `cf=key~value` params (the
+  // kind is re-derived from the field defs at apply time, so it isn't encoded).
+  for (const [key, value] of Object.entries(filters.customFields ?? {})) {
+    if (value) params.append("cf", `${key}~${value}`);
+  }
   return params.toString();
 }
 
@@ -115,6 +137,17 @@ export function parseFilters(
   const lane = params.get("lane") ?? "";
   const types = params.get("type");
   const priorities = params.get("priority");
+  // Custom-field constraints: repeated `cf=key~value` (see serializeFilters).
+  const customFields: Record<string, string> = {};
+  const cfValues =
+    typeof params.getAll === "function" ? params.getAll("cf") : [];
+  for (const raw of cfValues) {
+    const idx = raw.indexOf("~");
+    if (idx < 1) continue;
+    const key = raw.slice(0, idx).trim();
+    const value = raw.slice(idx + 1);
+    if (key && value) customFields[key] = value;
+  }
   return {
     search: params.get("q") ?? "",
     types: types ? types.split(",").filter(Boolean) : [],
@@ -122,13 +155,17 @@ export function parseFilters(
     assigneeId: params.get("assignee") || null,
     cycleId: params.get("cycle") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
+    customFields,
   };
 }
 
 // Minimal structural type so `parseFilters` accepts both the native
 // URLSearchParams and Next's read-only `useSearchParams()` return value
 // without importing from next/navigation here.
-type ReadonlyURLSearchParams = { get(name: string): string | null };
+type ReadonlyURLSearchParams = {
+  get(name: string): string | null;
+  getAll?(name: string): string[];
+};
 
 function MultiToggle({
   label,
@@ -195,6 +232,7 @@ export function FilterBar({
   members,
   cycles,
   showSwimlane = false,
+  customFields = [],
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const currentUserId = useCurrentUserId();
@@ -202,13 +240,27 @@ export function FilterBar({
   const assignedToMe =
     currentUserId !== null && filters.assigneeId === currentUserId;
 
+  const filterableCustomFields = customFields.filter((f) =>
+    FILTERABLE_CUSTOM_KINDS.has(f.fieldType),
+  );
+
+  const hasActiveCustom = Object.values(filters.customFields ?? {}).some(Boolean);
+
+  const setCustom = (key: string, value: string | null) => {
+    const next = { ...(filters.customFields ?? {}) };
+    if (value) next[key] = value;
+    else delete next[key];
+    onFilterChange({ ...filters, customFields: next });
+  };
+
   const hasFilters =
     filters.search !== "" ||
     filters.types.length > 0 ||
     filters.priorities.length > 0 ||
     filters.assigneeId !== null ||
     filters.cycleId !== null ||
-    filters.swimlaneBy !== "none";
+    filters.swimlaneBy !== "none" ||
+    hasActiveCustom;
 
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b bg-background/50">
@@ -322,6 +374,70 @@ export function FilterBar({
         </div>
       )}
 
+      {filterableCustomFields.map((f) => {
+        const current = filters.customFields?.[f.key] ?? "";
+        if (f.fieldType === "CHECKBOX") {
+          const active = current === "true";
+          return (
+            <Button
+              key={f.id}
+              size="sm"
+              variant={active ? "default" : "outline"}
+              aria-pressed={active}
+              className="h-7 gap-1.5"
+              onClick={() => setCustom(f.key, active ? null : "true")}
+            >
+              {f.name}
+            </Button>
+          );
+        }
+        if (f.fieldType === "TEXT") {
+          return (
+            <div key={f.id} className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">{f.name}:</span>
+              <input
+                type="text"
+                aria-label={`Filter by ${f.name}`}
+                placeholder="Contains…"
+                value={current}
+                onChange={(e) => setCustom(f.key, e.target.value || null)}
+                className="h-7 w-32 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          );
+        }
+        // SELECT / MULTI_SELECT — pick one option to match.
+        return (
+          <div key={f.id} className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground mr-1">{f.name}:</span>
+            <Select
+              items={{
+                __all__: "All",
+                ...Object.fromEntries(f.options.map((o) => [o, o])),
+              }}
+              value={current || "__all__"}
+              onValueChange={(v) => setCustom(f.key, v && v !== "__all__" ? v : null)}
+            >
+              <SelectTrigger
+                size="sm"
+                aria-label={`Filter by ${f.name}`}
+                className="h-7 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All</SelectItem>
+                {f.options.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      })}
+
       {showSwimlane && (
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Swimlanes:</span>
@@ -370,4 +486,50 @@ export function FilterBar({
       )}
     </div>
   );
+}
+
+/**
+ * Client-side predicate: does an item's stored custom-field values satisfy the
+ * active `customFields` filter map? Used by board views that filter loaded
+ * items in JS (mirrors the server-side JSON-path build in build-where.ts).
+ *
+ *   - SELECT / TEXT → the stored scalar equals (TEXT: contains, case-insensitive).
+ *   - MULTI_SELECT → the stored array contains the chosen option.
+ *   - CHECKBOX → the stored value is exactly `true` (filter value "true").
+ * An unknown key or a field kind we don't filter on is treated as a pass-through.
+ */
+export function matchesCustomFieldFilters(
+  itemCustomFields: Record<string, unknown> | null | undefined,
+  active: Record<string, string>,
+  defs: CustomField[],
+): boolean {
+  const entries = Object.entries(active).filter(([, v]) => v);
+  if (entries.length === 0) return true;
+  const values = itemCustomFields ?? {};
+  const byKey = new Map(defs.map((d) => [d.key, d]));
+
+  for (const [key, wanted] of entries) {
+    const def = byKey.get(key);
+    if (!def || !FILTERABLE_CUSTOM_KINDS.has(def.fieldType)) continue;
+    const stored = values[key];
+    switch (def.fieldType) {
+      case "CHECKBOX":
+        if (stored !== true) return false;
+        break;
+      case "MULTI_SELECT": {
+        const arr = Array.isArray(stored) ? stored : [];
+        if (!arr.includes(wanted)) return false;
+        break;
+      }
+      case "TEXT": {
+        const s = typeof stored === "string" ? stored : "";
+        if (!s.toLowerCase().includes(wanted.toLowerCase())) return false;
+        break;
+      }
+      default: // SELECT
+        if (stored !== wanted) return false;
+        break;
+    }
+  }
+  return true;
 }

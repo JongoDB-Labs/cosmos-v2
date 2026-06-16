@@ -126,7 +126,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
       if (data.startDate !== undefined) updateData.startDate = data.startDate ? new Date(data.startDate) : null;
       if (data.tags !== undefined) updateData.tags = data.tags;
-      if (data.customFields !== undefined) updateData.customFields = data.customFields as Prisma.InputJsonValue;
+      if (data.customFields !== undefined) {
+        // MERGE partial custom-field updates into the existing JSON so a PUT
+        // that touches one field (the detail sheet's per-field save) never
+        // clobbers the item's other custom-field values. Keys explicitly set to
+        // null/undefined still overwrite — that's how the UI clears a value.
+        const existingCustom =
+          existing.customFields && typeof existing.customFields === "object" && !Array.isArray(existing.customFields)
+            ? (existing.customFields as Record<string, unknown>)
+            : {};
+        updateData.customFields = {
+          ...existingCustom,
+          ...data.customFields,
+        } as Prisma.InputJsonValue;
+      }
 
       const doneColumn = data.columnKey && ["done", "completed", "closed"].some(
         (k) => data.columnKey!.toLowerCase().includes(k)

@@ -17,6 +17,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import { useCustomFields } from "@/hooks/use-custom-fields";
+import {
+  CustomFieldInput,
+  isCustomFieldEmpty,
+  isRenderableCustomField,
+} from "@/components/work-items/custom-field-input";
 import type { Board, OrgMember } from "@/types/models";
 
 const TYPES = ["TASK", "STORY", "BUG", "EPIC", "SUBTASK"] as const;
@@ -68,6 +74,12 @@ export function CreateWorkItemDialog({
   const [labels, setLabels] = useState("");
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  // Per-item custom-field values, keyed by CustomField.key. Defs are loaded for
+  // the currently-selected project (org-wide defs always included).
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+  const [showCustomErrors, setShowCustomErrors] = useState(false);
+  const { fields: customFields } = useCustomFields(orgId, projectId || undefined);
+  const renderableFields = customFields.filter(isRenderableCustomField);
 
   // Reset the form each time the dialog opens; default the project.
   useEffect(() => {
@@ -81,6 +93,8 @@ export function CreateWorkItemDialog({
       setDueDate("");
       setDescription("");
       setLabels("");
+      setCustomValues({});
+      setShowCustomErrors(false);
       setProjectId(prefilledProjectId ?? projects[0]?.id ?? "");
     }
   }, [open, prefilledProjectId, projects]);
@@ -104,6 +118,21 @@ export function CreateWorkItemDialog({
   async function handleSubmit() {
     const trimmed = title.trim();
     if (!trimmed || !projectId || submitting) return;
+
+    // Enforce required custom fields before hitting the API.
+    const missing = renderableFields.filter(
+      (f) => f.required && isCustomFieldEmpty(f, customValues[f.key]),
+    );
+    if (missing.length > 0) {
+      setShowCustomErrors(true);
+      toast.error(
+        `Fill in required field${missing.length > 1 ? "s" : ""}: ${missing
+          .map((f) => f.name)
+          .join(", ")}`,
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       // The create API requires a columnKey — resolve the project's first board
@@ -116,6 +145,12 @@ export function CreateWorkItemDialog({
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
+      // Collect non-empty custom-field values into the POST body's customFields.
+      const customFieldsBody: Record<string, unknown> = {};
+      for (const f of renderableFields) {
+        const v = customValues[f.key];
+        if (!isCustomFieldEmpty(f, v)) customFieldsBody[f.key] = v;
+      }
       const points = storyPoints.trim() === "" ? undefined : Number(storyPoints);
       // The server requires whole-number story points (z.number().int()); a
       // fractional entry would otherwise round-trip to a generic 400 with no
@@ -138,6 +173,9 @@ export function CreateWorkItemDialog({
           dueDate: dueDate ? new Date(dueDate).toISOString() : null,
           tags: tags.length ? tags : undefined,
           ...(points != null && Number.isFinite(points) ? { storyPoints: points } : {}),
+          ...(Object.keys(customFieldsBody).length > 0
+            ? { customFields: customFieldsBody }
+            : {}),
         }),
       });
       toast.success(`Created "${trimmed}"`);
@@ -296,6 +334,32 @@ export function CreateWorkItemDialog({
               className="h-9"
             />
           </div>
+
+          {/* Custom fields defined for this project (org-wide + project-scoped).
+              Bindings to specific work-item types are honored on the detail
+              sheet, where the resolved type is known; at create time the type
+              is resolved server-side, so all renderable fields are shown. */}
+          {renderableFields.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 border-t pt-3">
+              {renderableFields.map((f) => (
+                <CustomFieldInput
+                  key={f.id}
+                  field={f}
+                  value={customValues[f.key]}
+                  onChange={(v) =>
+                    setCustomValues((prev) => ({ ...prev, [f.key]: v }))
+                  }
+                  disabled={submitting}
+                  showRequiredMark
+                  invalid={
+                    showCustomErrors &&
+                    f.required &&
+                    isCustomFieldEmpty(f, customValues[f.key])
+                  }
+                />
+              ))}
+            </div>
+          )}
         </div>
         <DialogFooter className="sm:justify-between">
           <span className="hidden text-[11px] text-muted-foreground sm:inline">

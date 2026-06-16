@@ -89,6 +89,39 @@ describe("parseSearchParams — pagination + sort", () => {
   });
 });
 
+describe("parseSearchParams — custom fields (cf=key~kind~value)", () => {
+  it("parses a SELECT + TEXT constraint", () => {
+    const { filter } = parseSearchParams(
+      sp("cf=team~SELECT~Platform&cf=goal~TEXT~ship%20it"),
+    );
+    expect(filter.customFields).toEqual([
+      { key: "team", kind: "SELECT", value: "Platform" },
+      { key: "goal", kind: "TEXT", value: "ship it" },
+    ]);
+  });
+  it("coerces CHECKBOX value to a boolean", () => {
+    const { filter } = parseSearchParams(sp("cf=blocked~CHECKBOX~true"));
+    expect(filter.customFields).toEqual([
+      { key: "blocked", kind: "CHECKBOX", value: true },
+    ]);
+  });
+  it("MULTI_SELECT keeps the string value", () => {
+    const { filter } = parseSearchParams(sp("cf=tags~MULTI_SELECT~infra"));
+    expect(filter.customFields).toEqual([
+      { key: "tags", kind: "MULTI_SELECT", value: "infra" },
+    ]);
+  });
+  it("drops malformed / empty-value entries (non-checkbox)", () => {
+    const { filter } = parseSearchParams(
+      sp("cf=nope&cf=k~BOGUS~v&cf=team~SELECT~"),
+    );
+    expect(filter.customFields).toBeUndefined();
+  });
+  it("absent → undefined", () => {
+    expect(parseSearchParams(sp("")).filter.customFields).toBeUndefined();
+  });
+});
+
 describe("workItemQuerySchema — POST body", () => {
   it("applies defaults for an empty body", () => {
     const parsed = workItemQuerySchema.parse({});
@@ -114,5 +147,26 @@ describe("workItemQuerySchema — POST body", () => {
     expect(parsed.filter.priorities).toEqual([Priority.HIGH]);
     expect(parsed.filter.parent).toEqual({ mode: "is", parentIds: ["x"] });
     expect(parsed.sort).toEqual({ field: "priority", direction: "asc" });
+  });
+  it("accepts custom-field constraints in the body", () => {
+    const parsed = workItemQuerySchema.parse({
+      filter: {
+        customFields: [
+          { key: "team", kind: "SELECT", value: "Platform" },
+          { key: "blocked", kind: "CHECKBOX", value: true },
+        ],
+      },
+    });
+    expect(parsed.filter.customFields).toEqual([
+      { key: "team", kind: "SELECT", value: "Platform" },
+      { key: "blocked", kind: "CHECKBOX", value: true },
+    ]);
+  });
+  it("rejects an unknown custom-field kind", () => {
+    expect(() =>
+      workItemQuerySchema.parse({
+        filter: { customFields: [{ key: "x", kind: "NUMBER", value: "1" }] },
+      }),
+    ).toThrow();
   });
 });

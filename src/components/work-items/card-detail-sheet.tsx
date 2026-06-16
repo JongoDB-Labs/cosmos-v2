@@ -37,6 +37,11 @@ import { MentionPicker, useOrgMembers } from "@/components/chat/mention-typeahea
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
+import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
+import {
+  CustomFieldInput,
+  isRenderableCustomField,
+} from "@/components/work-items/custom-field-input";
 import {
   MessageSquare,
   History,
@@ -141,6 +146,14 @@ export function CardDetailSheet({
     anchor: { top: number; left: number };
   } | null>(null);
   const { data: mentionMembers } = useOrgMembers(orgId);
+  // Custom-field defs for this project (org-wide + project-scoped), narrowed to
+  // the fields that apply to THIS item's work-item type (type bindings honored).
+  const { fields: customFields } = useCustomFields(orgId, projectId);
+  const itemCustomFields = customFields.filter(
+    (f) =>
+      isRenderableCustomField(f) &&
+      fieldAppliesToType(f, item?.workItemTypeId),
+  );
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/work-items`;
 
@@ -258,6 +271,29 @@ export function CardDetailSheet({
             setParentId(item.parentId);
             break;
         }
+        notifyError(err, "Couldn't save the change.");
+      }
+    },
+    [item, basePath, onUpdate]
+  );
+
+  // Persist a single custom-field value. The PUT route MERGES the customFields
+  // patch into the item's existing JSON, so sending just the one key is safe —
+  // other custom-field values are preserved server-side.
+  const patchCustomField = useCallback(
+    async (key: string, value: unknown) => {
+      if (!item) return;
+      try {
+        const res = await fetch(`${basePath}/${item.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customFields: { [key]: value } }),
+        });
+        if (!res.ok) throw new Error("Failed to update");
+        const updated: WorkItem = await res.json();
+        onUpdate(updated);
+      } catch (err) {
+        console.error(`Failed to patch custom field ${key}:`, err);
         notifyError(err, "Couldn't save the change.");
       }
     },
@@ -822,6 +858,27 @@ export function CardDetailSheet({
               </MetadataField>
             )}
           </div>
+
+          {/* Custom fields. Each def renders its typed editor; a change persists
+              immediately via a merged customFields PUT. Type bindings already
+              narrowed the list to fields that apply to this item's type. */}
+          {itemCustomFields.length > 0 && (
+            <>
+              <Separator />
+              <div className="grid grid-cols-2 gap-3">
+                {itemCustomFields.map((f) => (
+                  <CustomFieldInput
+                    key={f.id}
+                    field={f}
+                    value={item.customFields?.[f.key]}
+                    onChange={(v) => void patchCustomField(f.key, v)}
+                    disabled={!canEditItem}
+                    showRequiredMark
+                  />
+                ))}
+              </div>
+            </>
+          )}
 
           {/* Sub-items (hierarchy). Shows existing children + an inline create;
               creating one POSTs a TASK with parentId preset to this item. */}

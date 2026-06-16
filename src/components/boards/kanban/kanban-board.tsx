@@ -21,8 +21,10 @@ import {
   parseFilters,
   serializeFilters,
   bareTypeKey,
+  matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
+import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -141,6 +143,9 @@ function KanbanBoardInner({
   const [bulkPending, setBulkPending] = useState(false);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+  // Custom-field defs for this project — drives the FilterBar's per-field
+  // controls and the client-side custom-field predicate below.
+  const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -275,6 +280,15 @@ function KanbanBoardInner({
       return false;
     }
     if (filters.cycleId && item.cycleId !== filters.cycleId) {
+      return false;
+    }
+    if (
+      !matchesCustomFieldFilters(
+        item.customFields,
+        filters.customFields,
+        projectCustomFields,
+      )
+    ) {
       return false;
     }
     return true;
@@ -692,6 +706,7 @@ function KanbanBoardInner({
         onFilterChange={setFilters}
         members={members}
         cycles={cycles}
+        customFields={projectCustomFields}
         showSwimlane
       />
 

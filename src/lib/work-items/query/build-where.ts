@@ -151,6 +151,25 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
     });
   }
 
+  // ── Custom fields (JSON-path equality on WorkItem.customFields) ──────
+  // AND-across (each constraint must match). Postgres JSON filtering: SELECT /
+  // TEXT / CHECKBOX use `{ path:[key], equals }`; MULTI_SELECT (stored as an
+  // array under the key) uses `{ path:[key], array_contains: [value] }`.
+  for (const cf of filter.customFields ?? []) {
+    const key = cf.key?.trim();
+    if (!key) continue;
+    if (cf.kind === "MULTI_SELECT") {
+      if (typeof cf.value !== "string" || cf.value === "") continue;
+      and.push({ customFields: { path: [key], array_contains: [cf.value] } });
+    } else if (cf.kind === "CHECKBOX") {
+      and.push({ customFields: { path: [key], equals: cf.value === true } });
+    } else {
+      // SELECT / TEXT — exact match on the scalar at `key`.
+      if (typeof cf.value !== "string" || cf.value === "") continue;
+      and.push({ customFields: { path: [key], equals: cf.value } });
+    }
+  }
+
   if (and.length > 0) where.AND = and;
   return where;
 }
