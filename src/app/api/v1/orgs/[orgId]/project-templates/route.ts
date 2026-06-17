@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { uniqueSlug } from "@/lib/templates/slugify";
+import { getEntitlements, filterBySector } from "@/lib/entitlements";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 
@@ -48,7 +49,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: [{ isBuiltIn: "desc" }, { createdAt: "desc" }],
     });
 
-    return success(templates);
+    const ent = await getEntitlements(orgId);
+    return success(filterBySector(templates, ent));
   } catch (error) {
     return handleApiError(error);
   }
