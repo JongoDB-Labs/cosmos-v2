@@ -30,4 +30,18 @@ describe("getBrand", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "nope";
     expect(getBrand().key).toBe("cosmos");
   });
+
+  it("COSMOS enables all modules + sectors by default (null = all)", () => {
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    const b = getBrand();
+    expect(b.defaultEnabledModules).toBeNull();
+    expect(b.defaultEnabledSectors).toBeNull();
+  });
+
+  it("Pontis defaults to the AEC sector only, all modules on", () => {
+    process.env.NEXT_PUBLIC_PRODUCT = "pontis";
+    const b = getBrand();
+    expect(b.defaultEnabledModules).toBeNull();
+    expect(b.defaultEnabledSectors).toEqual(["aec"]);
+  });
 });
