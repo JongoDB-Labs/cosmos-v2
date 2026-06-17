@@ -4,6 +4,7 @@ import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
 import { getBrand } from "@/lib/brand";
+import { SKIN_CSS } from "@/lib/theme/skins";
 import "./globals.css";
 
 const inter = Inter({
@@ -72,11 +73,18 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetBrainsMono.variable} dark h-full`}
+      className={`${inter.variable} ${jetBrainsMono.variable} ${brand.htmlThemeClass} h-full`}
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        {brand.skin ? (
+          // Product skin (e.g. Pontis atelier): SSR-inject the full token override
+          // in the initial HTML (no FOUC), scoped to :root.<product>. The skin is
+          // light-only + product-static, so the dark/light cookie toggle is skipped.
+          <style dangerouslySetInnerHTML={{ __html: SKIN_CSS[brand.skin] }} />
+        ) : (
+          <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        )}
       </head>
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
         <WebVitalsReporter />
