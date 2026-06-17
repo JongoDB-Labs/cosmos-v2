@@ -1,3 +1,5 @@
+import type { ModuleKey, SectorKey } from "@/lib/entitlements/modules";
+
 export type ProductKey = "cosmos" | "pontis";
 
 export type ProductProfile = {
@@ -26,6 +28,10 @@ export type ProductProfile = {
   defaultTenantClass: "GOV" | "COMMERCIAL";
   /** Container signing mode used by the release pipeline. */
   signingMode: "kms" | "keyless";
+  /** Default module allowlist for a new org on this product. `null` = all modules. */
+  defaultEnabledModules: ModuleKey[] | null;
+  /** Default sector allowlist for a new org. `null` = all sectors. */
+  defaultEnabledSectors: SectorKey[] | null;
 };
 
 export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
@@ -44,6 +50,8 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     wakeWord: "Hey COSMOS",
     defaultTenantClass: "GOV",
     signingMode: "kms",
+    defaultEnabledModules: null,
+    defaultEnabledSectors: null,
   },
   pontis: {
     key: "pontis",
@@ -60,5 +68,7 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     wakeWord: "Hey Pontis",
     defaultTenantClass: "COMMERCIAL",
     signingMode: "keyless",
+    defaultEnabledModules: null,
+    defaultEnabledSectors: ["aec"],
   },
 };
