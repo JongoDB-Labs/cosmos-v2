@@ -71,12 +71,14 @@ ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=1
 # 3.7.9-2+deb12u6 -> deb12u7. --only-upgrade keeps the layer minimal (no new
 # packages). The remaining base CRITICALs (perl/zlib) have no upstream fix and
 # are accepted as POA&M items in .trivyignore.
-# Also install openssl: the slim base omits libssl, so Prisma can't detect the
-# OpenSSL version at runtime and warns ("Defaulting to openssl-1.1.x") — benign
-# but noisy, and now relevant on the multi-arch (arm64) image. Pulls in libssl3.
+# NOTE: do NOT install `openssl` here. The slim base omits it, so Prisma falls back
+# to its bundled openssl-1.1.x engine (the "Defaulting to openssl-1.1.x" warning is
+# benign). Installing openssl (3.0.x) flips Prisma to REQUIRE the openssl-3.0.x
+# engine, which the client isn't generated for (no binaryTargets) → runtime engine
+# mismatch + DB down (the v2.95.0 regression). To move to 3.0.x, add binaryTargets
+# to prisma/schema.prisma AND install openssl together — never one without the other.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends --only-upgrade libgnutls30 \
- && apt-get install -y --no-install-recommends openssl \
  && rm -rf /var/lib/apt/lists/*
 # -m -d gives the non-root user a writable home (prisma/node tooling expect one).
 RUN groupadd -r cosmos && useradd -r -g cosmos -m -d /home/cosmos cosmos
