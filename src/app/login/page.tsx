@@ -154,7 +154,7 @@ function LoginInner() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4">
-      <Starfield className="absolute inset-0 h-full w-full" />
+      {!getBrand().skin && <Starfield className="absolute inset-0 h-full w-full" />}
       <div className="relative z-10 w-full max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col items-center text-center">
           <BrandMark size="lg" />

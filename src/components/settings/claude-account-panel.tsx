@@ -13,11 +13,12 @@ import { LoadError } from "@/components/ui/load-error";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { getBrand } from "@/lib/brand";
 
 /**
  * PERSONAL Claude subscription connect (account settings) — the per-user sibling
  * of {@link file://./claude-subscription-panel.tsx}. Hits the /api/v1/me routes
- * and is NOT org-scoped: connecting here makes the COSMOS Agent run on YOUR
+ * and is NOT org-scoped: connecting here makes the in-app Agent run on YOUR
  * personal Claude account wherever you are, taking precedence over the org's
  * credential (which remains the fallback). Same manual paste-code flow.
  */
@@ -54,7 +55,7 @@ export function ClaudeAccountPanel() {
     <SectionCard
       icon={Sparkles}
       title="Personal Claude subscription"
-      description="Connect your own Claude (Pro/Max) account so the COSMOS Agent runs on it. Takes priority over the org's AI credential; your org's setting is the fallback."
+      description={`Connect your own Claude (Pro/Max) account so the ${getBrand().agentName} runs on it. Takes priority over the org's AI credential; your org's setting is the fallback.`}
     >
       <ClaudeAccountConnect />
     </SectionCard>

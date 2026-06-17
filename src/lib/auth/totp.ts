@@ -5,6 +5,7 @@ import {
   randomInt,
   timingSafeEqual,
 } from "node:crypto";
+import { getBrand } from "@/lib/brand";
 
 /**
  * RFC-6238 TOTP (SHA-1, 6 digits, 30s) + recovery codes, using only Node's
@@ -69,7 +70,7 @@ export function verifyTotp(secret: string, token: string, window = 1): boolean {
 }
 
 /** otpauth:// URI for the QR / manual entry. */
-export function totpUri(secret: string, account: string, issuer = "COSMOS"): string {
+export function totpUri(secret: string, account: string, issuer = getBrand().name): string {
   const label = encodeURIComponent(`${issuer}:${account}`);
   const params = new URLSearchParams({
     secret,

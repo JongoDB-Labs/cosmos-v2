@@ -52,10 +52,10 @@ describe("getBrand", () => {
     expect(b.htmlThemeClass).toBe("dark");
   });
 
-  it("Acme uses the atelier skin (fixed light)", () => {
+  it("Acme uses the atelier skin (light-first; toggle layers .dark/.light)", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "acme";
     const b = getBrand();
     expect(b.skin).toBe("atelier");
-    expect(b.htmlThemeClass).toBe("acme light");
+    expect(b.htmlThemeClass).toBe("acme");
   });
 });

@@ -82,6 +82,10 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
         mobile / when closed) opens a gap the fixed drawer fills, so the page
         stays fully visible and interactive beside it — no overlay, no blur. */}
     <div
+      // data-app-canvas: a stable hook a product skin can target. The atelier
+      // skin makes this transparent so its fixed drafting-grid backdrop shows
+      // through the work area. Inert for cosmos (no skin rule matches).
+      data-app-canvas
       className="flex h-screen overflow-hidden bg-[var(--bg)] transition-[padding] duration-200 ease-out dark:bg-transparent"
       style={{ paddingRight: "var(--cosmos-drawer-w, 0px)" }}
     >

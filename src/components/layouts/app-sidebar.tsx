@@ -18,6 +18,7 @@ import {
   MailCheck,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { getBrand } from "@/lib/brand";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -155,7 +156,7 @@ export function AppSidebar({
                 exit={{ opacity: 0 }}
                 className="truncate text-sm font-semibold"
               >
-                {currentOrg?.name ?? "COSMOS"}
+                {currentOrg?.name ?? getBrand().name}
               </fm.span>
             )}
           </AnimatePresence>
@@ -403,7 +404,7 @@ function UserCard({
     .toUpperCase()
     .slice(0, 2);
 
-  // Reflect the "Hey COSMOS" wake-word state in the toggle (filled when on +
+  // Reflect the wake-word listening state in the toggle (filled when on +
   // a listening warning) so it's not a blind switch. Mirrors WakeWordProvider's
   // localStorage + custom-event contract.
   const [wakeWordOn, setWakeWordOn] = useState(false);
@@ -465,7 +466,7 @@ function UserCard({
               wakeWordOn && "fill-[var(--primary)] text-[var(--primary)]",
             )}
           />
-          <span className="flex-1">&quot;Hey COSMOS&quot; voice</span>
+          <span className="flex-1">&quot;{getBrand().wakeWord}&quot; voice</span>
           {wakeWordOn ? (
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[var(--primary-tint)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)]">
               <span className="relative flex h-1.5 w-1.5">
@@ -480,7 +481,7 @@ function UserCard({
         </DropdownMenuItem>
         {wakeWordOn && (
           <p className="px-2 pb-1 text-[10px] leading-tight text-[var(--text-muted)]">
-            Your mic is on, listening for “Hey COSMOS”.
+            Your mic is on, listening for “{getBrand().wakeWord}”.
           </p>
         )}
         <DropdownMenuSeparator />
