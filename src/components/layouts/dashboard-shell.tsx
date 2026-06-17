@@ -30,6 +30,8 @@ interface DashboardShellProps {
     plan: string;
     logoUrl: string | null;
     role: string;
+    /** Per-org enabled module allowlist (null = all modules enabled). */
+    enabledModules?: string[] | null;
     /** Walkthrough/demo tenant — surfaces a "demo data" banner. */
     isDemo?: boolean;
   }[];

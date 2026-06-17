@@ -32,6 +32,7 @@ import {
   SIDEBAR_NAV,
   visibleNav,
   applyAdminLayout,
+  applyEntitlements,
   type NavEntry,
 } from "./nav-config";
 import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
@@ -60,6 +61,7 @@ interface AppSidebarProps {
     plan: string;
     logoUrl: string | null;
     role: string;
+    enabledModules?: string[] | null;
   }[];
   user: {
     id: string;
@@ -103,7 +105,10 @@ export function AppSidebar({
 
   // RBAC/ABAC-gated: drop items + groups the user can't access (item 4),
   // then apply any admin-defined order/visibility (item 12).
-  const entries = applyAdminLayout(visibleNav(SIDEBAR_NAV, can), navLayout);
+  const entries = applyAdminLayout(
+    applyEntitlements(visibleNav(SIDEBAR_NAV, can), currentOrg?.enabledModules ?? null),
+    navLayout,
+  );
 
   // Every visible leaf href across the WHOLE nav (top-level leaves + all group
   // children), for cross-group sibling-suppression — e.g. /finance (Accounting)

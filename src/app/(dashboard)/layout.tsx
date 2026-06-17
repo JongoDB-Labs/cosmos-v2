@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
 import { DashboardShell } from "@/components/layouts/dashboard-shell";
 import { isInternalAdmin } from "@/lib/internal/access";
+import { getEnabledModulesByOrg } from "@/lib/entitlements";
 import { CommandPalette } from "@/components/search/command-palette";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
@@ -54,6 +55,10 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
     select: { bgDarkUrl: true, bgLightUrl: true },
   });
 
+  const moduleMap = await getEnabledModulesByOrg(
+    user.memberships.map((m) => m.org.id),
+  );
+
   const orgs = user.memberships.map((m) => ({
     id: m.org.id,
     name: m.org.name,
@@ -61,6 +66,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
     plan: m.org.plan,
     logoUrl: m.org.logoUrl,
     role: m.role,
+    enabledModules: moduleMap.get(m.org.id) ?? null,
     // Walkthrough/demo tenants (seeded by demo-defense) carry settings.isDemo so
     // the shell can show a "demo data" banner and the data reads as deletable.
     isDemo:
