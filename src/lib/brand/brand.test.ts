@@ -52,10 +52,10 @@ describe("getBrand", () => {
     expect(b.htmlThemeClass).toBe("dark");
   });
 
-  it("Pontis uses the atelier skin (fixed light)", () => {
+  it("Pontis uses the atelier skin (light-first; toggle layers .dark/.light)", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "pontis";
     const b = getBrand();
     expect(b.skin).toBe("atelier");
-    expect(b.htmlThemeClass).toBe("pontis light");
+    expect(b.htmlThemeClass).toBe("pontis");
   });
 });

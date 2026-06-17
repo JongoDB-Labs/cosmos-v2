@@ -1,4 +1,5 @@
 import { getGmailClient } from "./google";
+import { getBrand } from "@/lib/brand";
 
 /**
  * Send an invitation email via the inviter's Gmail mailbox using
@@ -16,9 +17,10 @@ export async function sendInvitationEmail(params: {
 }): Promise<void> {
   const gmail = await getGmailClient(params.fromUserId, params.orgId);
 
-  const subject = `You've been invited to ${params.orgName} on COSMOS`;
+  const brand = getBrand().name;
+  const subject = `You've been invited to ${params.orgName} on ${brand}`;
   const textBody = [
-    `${params.inviterName} has invited you to join ${params.orgName} on COSMOS.`,
+    `${params.inviterName} has invited you to join ${params.orgName} on ${brand}.`,
     "",
     `Sign in with your Google account to accept:`,
     params.acceptUrl,
@@ -28,7 +30,7 @@ export async function sendInvitationEmail(params: {
 
   const htmlBody = `
     <p>${escapeHtml(params.inviterName)} has invited you to join
-       <strong>${escapeHtml(params.orgName)}</strong> on COSMOS.</p>
+       <strong>${escapeHtml(params.orgName)}</strong> on ${brand}.</p>
     <p><a href="${params.acceptUrl}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;">Accept invitation</a></p>
     <p>Or open this link:<br><code>${escapeHtml(params.acceptUrl)}</code></p>
     <p style="color:#666;font-size:12px;">If you didn't expect this invitation, you can ignore this email.</p>

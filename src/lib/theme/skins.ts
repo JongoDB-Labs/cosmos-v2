@@ -1,18 +1,24 @@
 /**
  * Code-defined product skins. A skin overrides the runtime CSS-variable tokens
- * defined in globals.css (`:root`), scoped to `:root.<product>` so it wins by
- * specificity over the base `:root` light/dark blocks. SSR-injected by app/layout.tsx
- * for the active product (getBrand().skin) — no DB, no FOUC.
+ * from globals.css, scoped to `:root.<product>.<product>` — the class is doubled
+ * to raise specificity to 0-3-0 so it beats the base `:root.dark`/`:root.light`
+ * blocks (0-2-0) regardless of source order. It ships a matching DARK palette at
+ * `:root.<p>.<p>.dark` (0-4-0) so the Light/Dark theme toggle keeps working inside
+ * the skin. The skin also carries the things that actually make the look — type
+ * (Inter OpenType features), the drafting-grid backdrop, the accent + selection —
+ * not just colors. SSR-injected by app/layout.tsx for the active product
+ * (getBrand().skin); cosmos (skin=null) emits nothing and is unaffected.
  *
- * Atelier = ĒSO/Pontis brand: pearl bg, deep-teal midnight text/primary, bone
- * surfaces, sharp 2px corners. Light-only (the dark/light toggle is skipped for it).
- * Status colors keep the globals.css light defaults; Mabry font, drafting textures,
- * and the laser accent are deferred refinements.
+ * Atelier = ĒSO / Pontis brand (ĒSO Brand Guide, Winter 2026): pearl canvas, deep
+ * midnight ink, bone surfaces, a faint drafting grid, laser-yellow accent, sharp
+ * 2px corners. Light-first; the dark palette inverts to a deep teal-black canvas
+ * with pearl ink, keeping the laser accent.
  */
 
 export type SkinKey = "atelier";
 
-export const ATELIER_TOKENS: Record<string, string> = {
+/** Atelier light palette — the default. */
+export const ATELIER_LIGHT_TOKENS: Record<string, string> = {
   "color-scheme": "light",
   "--bg": "#f9f7f4", // pearl
   "--surface": "#edeae2", // bone
@@ -24,22 +30,78 @@ export const ATELIER_TOKENS: Record<string, string> = {
   "--primary-hover": "#1a3134", // ink
   "--primary-tint": "rgb(33 65 68 / 0.08)",
   "--primary-foreground": "#f9f7f4", // pearl on midnight
+  "--laser": "#e9ff14", // ĒSO acid-yellow accent
   "--radius-sm": "2px",
   "--radius": "2px",
   "--radius-md": "2px",
   "--radius-lg": "4px",
   "--sidebar-gradient": "linear-gradient(180deg, #f9f7f4 0%, #edeae2 100%)",
+  // Drafting-paper grid line. pontis-atelier used 0.045; bumped a touch so the
+  // graph texture actually reads on the larger app canvas (still restrained).
+  "--atelier-grid": "rgb(33 65 68 / 0.07)",
 };
 
-/** Emit a token map as a CSS rule scoped to `:root.<rootClass>`. Pure. */
-export function skinCss(rootClass: string, tokens: Record<string, string>): string {
+/** Atelier dark palette — inverted: deep teal-black canvas, pearl ink, laser accent. */
+export const ATELIER_DARK_TOKENS: Record<string, string> = {
+  "color-scheme": "dark",
+  "--bg": "#16282a", // deep teal-black
+  "--surface": "#1f3a3d", // raised midnight
+  "--overlay": "#244a4d",
+  "--border": "rgb(249 247 244 / 0.16)", // pearl hairline
+  "--text": "#f4f1ea", // pearl
+  "--text-muted": "#9fb0ab", // muted sage
+  "--primary": "#f9f7f4", // pearl actions on dark
+  "--primary-hover": "#edeae2",
+  "--primary-tint": "rgb(249 247 244 / 0.10)",
+  "--primary-foreground": "#16282a",
+  "--sidebar-gradient": "linear-gradient(180deg, #1a3134 0%, #16282a 100%)",
+  "--atelier-grid": "rgb(249 247 244 / 0.06)",
+};
+
+/** Emit `selector { k: v; … }`. Pure. */
+function rule(selector: string, tokens: Record<string, string>): string {
   const body = Object.entries(tokens)
     .map(([k, v]) => `${k}: ${v};`)
     .join(" ");
-  return `:root.${rootClass} { ${body} }`;
+  return `${selector} { ${body} }`;
 }
+
+/**
+ * Emit a token map scoped to `:root.<rootClass>.<rootClass>` (doubled class →
+ * specificity 0-3-0, so it beats the base `:root.dark`/`:root.light`). Pure.
+ */
+export function skinCss(rootClass: string, tokens: Record<string, string>): string {
+  return rule(`:root.${rootClass}.${rootClass}`, tokens);
+}
+
+// The ĒSO drafting-paper grid: a 48px midnight grid at low opacity (--atelier-grid).
+const GRID_IMAGE =
+  "linear-gradient(to right, var(--atelier-grid) 1px, transparent 1px), " +
+  "linear-gradient(to bottom, var(--atelier-grid) 1px, transparent 1px)";
+
+/**
+ * Full atelier CSS: light + dark token sets, Inter OpenType features, the
+ * drafting grid as the fixed viewport backdrop (replacing cosmos's photo
+ * `body::before`), a transparent app canvas so that grid shows through the
+ * otherwise-opaque shell, and laser-yellow selection.
+ */
+const ATELIER_CSS = [
+  skinCss("pontis", ATELIER_LIGHT_TOKENS),
+  rule(":root.pontis.pontis.dark", ATELIER_DARK_TOKENS),
+  // Inter's stylistic sets give atelier its refined type (Mabry Pro when licensed).
+  `:root.pontis { font-feature-settings: "ss01", "cv11", "cv05", "ss03"; font-variant-ligatures: contextual common-ligatures; }`,
+  // Drafting-grid backdrop. cosmos uses body::before for a photo bg; repurpose it
+  // for the grid and suppress body::after so the atelier canvas stays clean.
+  `:root.pontis.pontis body::before { content: ""; position: fixed; inset: 0; z-index: -2; background-color: var(--bg); background-image: ${GRID_IMAGE}; background-size: 48px 48px; pointer-events: none; }`,
+  `:root.pontis.pontis body::after { content: none; }`,
+  // The app shell is opaque (bg-[var(--bg)]) in light mode; make it transparent
+  // under the skin so the single backdrop grid shows through the work area.
+  `:root.pontis [data-app-canvas] { background-color: transparent; }`,
+  // Selection reads as a quiet ĒSO accent.
+  `:root.pontis ::selection { background: var(--laser); color: #214144; }`,
+].join("\n");
 
 /** Precomputed CSS per skin, keyed by SkinKey. */
 export const SKIN_CSS: Record<SkinKey, string> = {
-  atelier: skinCss("pontis", ATELIER_TOKENS),
+  atelier: ATELIER_CSS,
 };

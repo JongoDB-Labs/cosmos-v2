@@ -35,7 +35,8 @@ export type ProductProfile = {
   defaultEnabledSectors: SectorKey[] | null;
   /** Code-defined visual skin, or null for the default globals.css theme. */
   skin: SkinKey | null;
-  /** `<html>` class for this product's default theme (e.g. "dark" or "pontis light"). */
+  /** `<html>` base-theme class (e.g. "dark", or "pontis" = atelier light). The
+   * theme bootstrap layers `.dark`/`.light` on top per the user's toggle. */
   htmlThemeClass: string;
 };
 
@@ -78,6 +79,6 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     defaultEnabledModules: null,
     defaultEnabledSectors: ["aec"],
     skin: "atelier",
-    htmlThemeClass: "pontis light",
+    htmlThemeClass: "pontis",
   },
 };
