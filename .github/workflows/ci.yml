@@ -14,10 +14,32 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # The `Test (DB integration)` step runs a handful of Prisma specs against a
+      # real database. pgvector image (the schema has a vector column) — mirrors
+      # the e2e job's service.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        # Hold the job until Postgres is accepting connections.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       # tsc --noEmit OOMs at the runner's ~2GB Node default on this codebase;
       # give it (and next build) a 4GB heap. Well within the 7GB runner.
       NODE_OPTIONS: --max-old-space-size=4096
+      # Consumed by the DB-integration specs (and harmless to the unit run, which
+      # mocks Prisma). Same value the Build step already used as a stub.
+      DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      DIRECT_URL: postgres://ci:ci@localhost:5432/ci
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -38,8 +60,36 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Test (unit)
+        # Parallel, no DB. Excludes the DB-integration specs run separately below
+        # (they need Postgres + the seeded fixtures and must run serially).
+        run: >-
+          npm test --
+          --exclude src/lib/files/__tests__/convert.test.ts
+          --exclude src/lib/files/__tests__/ingest.test.ts
+          --exclude src/lib/files/__tests__/propose.test.ts
+          --exclude src/lib/ingest/__tests__/items.test.ts
+
+      - name: Prepare integration test DB
+        # compose/init/01-app-role.sh creates the cosmos/cosmos_app roles for the
+        # compose stack; a services: Postgres doesn't run init scripts, so create
+        # them here — the 20260606050000_audit_immutability migration GRANTs
+        # against them. Then apply the schema + seed test-org/alice/bob fixtures.
+        run: |
+          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
+          npx prisma migrate deploy
+          npx tsx prisma/seed/test-fixtures.ts
+
+      - name: Test (DB integration)
+        # A few Prisma specs hit the real Postgres against the seeded fixtures. Run
+        # SERIALLY (--no-file-parallelism): they share the test-org/TEST project,
+        # and parallel workers race the per-project ticketNumber allocation.
+        run: >-
+          npx vitest run --no-file-parallelism
+          src/lib/files/__tests__/convert.test.ts
+          src/lib/files/__tests__/ingest.test.ts
+          src/lib/files/__tests__/propose.test.ts
+          src/lib/ingest/__tests__/items.test.ts
 
       - name: Examples gate
         run: npm run check:examples
@@ -96,9 +146,12 @@ jobs:
       - run: npm run e2e:install
       - run: npx prisma generate
       # Real schema + the deterministic test-org/alice/bob fixtures the specs
-      # (smoke, a11y, chat) all sign in against.
+      # (smoke, a11y, chat) all sign in against. Create the cosmos/cosmos_app
+      # roles first (the services: Postgres skips compose/init) so the
+      # audit-immutability migration's GRANTs apply — see prisma/sql/ci-roles.sql.
       - name: Migrate + seed test fixtures
         run: |
+          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
       - name: Build, start, run e2e
@@ -168,8 +221,10 @@ jobs:
       - run: npm run e2e:install
       - run: npx prisma generate
       # Same deterministic test-org/alice/bob fixtures the gated e2e run uses.
+      # Roles first (services: Postgres skips compose/init) — see ci-roles.sql.
       - name: Migrate + seed test fixtures
         run: |
+          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
       - name: Build, start, run drag interaction spec
