@@ -271,3 +271,20 @@ export function applyAdminLayout(
     return ai - bi;
   });
 }
+
+/**
+ * Entitlement filter (Pontis foundation §3.2 enforcement): drop top-level entries
+ * whose module is not enabled for the tenant. Module keys === top-level nav ids;
+ * the FIXED anchors (overview, settings) are always kept. `enabledModules === null`
+ * means "all modules enabled" (the default), so this is a no-op for existing tenants.
+ */
+export function applyEntitlements(
+  entries: NavEntry[],
+  enabledModules: string[] | null,
+): NavEntry[] {
+  if (enabledModules === null) return entries;
+  const allowed = new Set(enabledModules);
+  return entries.filter(
+    (e) => (FIXED_NAV_IDS as readonly string[]).includes(e.id) || allowed.has(e.id),
+  );
+}
