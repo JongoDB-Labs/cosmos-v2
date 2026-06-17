@@ -16,9 +16,13 @@
 # comment) — the security.yml config-assertion gate fails the build otherwise.
 name: release
 
+# Multi-arch (amd64+arm64) builds are slow under QEMU, so they run ONLY on a
+# deliberate version tag — not on every push to main. Main/PR validation is
+# handled by ci.yml + security.yml (fast, no image build). Cut a release by
+# bumping package.json's version and pushing a `vX.Y.Z` tag (both the cosmos-v2
+# and pontis images build from that one tag via the product matrix below).
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

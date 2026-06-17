@@ -13,6 +13,11 @@ const MIGRATED = [
   "src/components/layouts/floating-agent-bubble.tsx",
   "src/components/wake-word/wake-word-provider.tsx",
   "src/app/login/page.tsx",
+  // Widened after the Pontis work surfaced these brand leaks (now getBrand()-driven).
+  "src/components/layouts/app-sidebar.tsx",
+  "src/components/settings/claude-account-panel.tsx",
+  "src/lib/auth/totp.ts",
+  "src/lib/integrations/invitation-email.ts",
 ];
 
 describe("brand literals", () => {
