@@ -8,6 +8,7 @@ import { ensureGeneralChannel, autoJoinGeneral } from "@/lib/chat/seed-general";
 import { z } from "zod";
 import { Plan } from "@prisma/client";
 import { provisionComplianceBaseline } from "@/lib/compliance/provision";
+import { provisionEntitlements } from "@/lib/entitlements";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { isInternalAdmin } from "@/lib/internal/access";
 
@@ -123,6 +124,15 @@ export async function POST(request: NextRequest) {
       entityId: org.id,
       ipAddress: getIpAddress(request),
     });
+
+    // Apply the active product's default entitlements. A row is written only when
+    // the product restricts something (e.g. Pontis → AEC sector only); COSMOS orgs
+    // stay row-free, which the loader reads as "all enabled" — no behavior change.
+    try {
+      await provisionEntitlements(org.id);
+    } catch (err) {
+      console.warn("[entitlements] failed to provision defaults for new org", org.id, err);
+    }
 
     // Regulated (GOV) orgs get the NIST 800-171 / CMMC L2 control baseline
     // provisioned out-of-the-box, so a CMMC assessment is ready on day one.
