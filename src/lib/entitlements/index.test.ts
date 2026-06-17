@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ENTITLEMENTS,
   defaultEntitlementsInput,
+  filterBySector,
   isModuleEnabled,
   isSectorEnabled,
   normalizeEntitlements,
@@ -87,5 +88,27 @@ describe("defaultEntitlementsInput", () => {
       sectorAllowlistEnabled: true,
       enabledSectors: ["aec"],
     });
+  });
+});
+
+describe("filterBySector", () => {
+  const items = [
+    { id: "a", sector: "aec" },
+    { id: "s", sector: "software" },
+    { id: "n", sector: null as string | null },
+  ];
+
+  it("returns all items when no sector allowlist (enabledSectors null)", () => {
+    expect(filterBySector(items, DEFAULT_ENTITLEMENTS)).toBe(items);
+  });
+
+  it("keeps only enabled sectors; null-sector items are always visible", () => {
+    const ent = normalizeEntitlements({
+      moduleAllowlistEnabled: false,
+      enabledModules: [],
+      sectorAllowlistEnabled: true,
+      enabledSectors: ["aec"],
+    });
+    expect(filterBySector(items, ent).map((i) => i.id)).toEqual(["a", "n"]);
   });
 });
