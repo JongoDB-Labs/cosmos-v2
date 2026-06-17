@@ -48,8 +48,10 @@ export const viewport: Viewport = {
  * call), which is required by Next.js 16 Cache Components — cookie reads
  * outside <Suspense> are not permitted.
  *
- * The default class is `dark` (set below on <html>); the script flips it to
- * `light` only if the cookie says so, so there's no FOUC.
+ * The default class comes from the product profile's htmlThemeClass (cosmos:
+ * `dark`; a skinned product like Pontis: its own base, e.g. `pontis` = atelier
+ * light). The script removes dark/light and re-applies per the cookie, so the
+ * light/dark toggle works for every product with no FOUC.
  */
 const themeInitScript = `
 (function() {
@@ -77,14 +79,14 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {brand.skin ? (
-          // Product skin (e.g. Pontis atelier): SSR-inject the full token override
-          // in the initial HTML (no FOUC), scoped to :root.<product>. The skin is
-          // light-only + product-static, so the dark/light cookie toggle is skipped.
+        {/* Product skin (e.g. Pontis atelier): SSR-inject the token override +
+            drafting backdrop + type in the initial HTML (no FOUC), scoped to
+            :root.<product>. The skin ships BOTH light and dark palettes, so the
+            theme bootstrap below still runs and the light/dark toggle works. */}
+        {brand.skin && (
           <style dangerouslySetInnerHTML={{ __html: SKIN_CSS[brand.skin] }} />
-        ) : (
-          <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         )}
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
         <WebVitalsReporter />
