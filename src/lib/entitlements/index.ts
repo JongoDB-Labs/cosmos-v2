@@ -86,3 +86,36 @@ export async function provisionEntitlements(orgId: string): Promise<void> {
   if (!input) return;
   await prisma.orgEntitlements.create({ data: { orgId, ...input } });
 }
+
+/**
+ * Filter a list of sector-tagged rows to the tenant's enabled sectors. Pure.
+ * `enabledSectors === null` ⇒ all sectors (no-op). A `null` row sector is
+ * sector-agnostic and always kept (board templates may have a null sector).
+ */
+export function filterBySector<T extends { sector: string | null }>(
+  items: T[],
+  ent: Entitlements,
+): T[] {
+  if (ent.enabledSectors === null) return items;
+  const enabled = ent.enabledSectors;
+  return items.filter((t) => t.sector === null || enabled.has(t.sector));
+}
+
+/**
+ * Batch-load the per-org enabled-module allowlist for the nav. Returns a map of
+ * orgId → `string[] | null` (null = all modules enabled). A missing row ⇒ null.
+ * Serializable (plain arrays), so it crosses the RSC→client boundary in `orgs[]`.
+ */
+export async function getEnabledModulesByOrg(
+  orgIds: string[],
+): Promise<Map<string, string[] | null>> {
+  const map = new Map<string, string[] | null>(orgIds.map((id) => [id, null]));
+  if (orgIds.length === 0) return map;
+  const rows = await prisma.orgEntitlements.findMany({
+    where: { orgId: { in: orgIds } },
+  });
+  for (const row of rows) {
+    map.set(row.orgId, row.moduleAllowlistEnabled ? row.enabledModules : null);
+  }
+  return map;
+}
