@@ -43,6 +43,14 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false # one product failing must not kill the other
+      matrix:
+        include:
+          - product: cosmos
+            image_base: cosmos-v2
+          - product: pontis
+            image_base: pontis
     permissions:
       contents: read
       packages: write # push to GHCR
@@ -59,7 +67,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing cosmos-v2 v$VERSION"
+          echo "Releasing ${{ matrix.image_base }} v$VERSION"
 
       # GHCR repo names must be lowercase; the org owner (JongoDB-Labs) is mixed
       # case. Lowercase it once and export fully-qualified refs for every later
@@ -67,8 +75,8 @@ jobs:
       - name: Normalize image refs (lowercase owner)
         run: |
           OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE=ghcr.io/$OWNER/cosmos-v2" >> "$GITHUB_ENV"
-          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/cosmos-v2-migrate" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}" >> "$GITHUB_ENV"
+          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -89,6 +97,7 @@ jobs:
           push: true
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}
+            PRODUCT=${{ matrix.product }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.IMAGE }}:latest
@@ -105,6 +114,7 @@ jobs:
           push: true
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}
+            PRODUCT=${{ matrix.product }}
           tags: |
             ${{ env.MIGRATE_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.MIGRATE_IMAGE }}:latest
@@ -118,7 +128,9 @@ jobs:
         with:
           image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: spdx-json
-          output-file: sbom.spdx.json
+          # Per-product filename so the two matrix legs don't collide on the
+          # uploaded artifact name.
+          output-file: sbom-${{ matrix.image_base }}.spdx.json
           upload-artifact: true
 
       # Sign + provenance (gate 7) ------------------------------------------
@@ -128,7 +140,7 @@ jobs:
       # COMMERCIAL: keyless — OIDC identity → public Fulcio cert, Rekor log.
       # The Rekor inclusion proof doubles as the external WORM anchor (spec §8.2).
       - name: cosign sign (commercial — keyless)
-        if: ${{ github.event.inputs.signing_mode != 'gov' }}
+        if: ${{ github.event.inputs.signing_mode != 'gov' || matrix.product == 'pontis' }}
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
@@ -142,7 +154,7 @@ jobs:
       # vaulted key; COSIGN_PASSWORD unlocks a file key. Self-hosted Sigstore is
       # the alternative; documented as a deployment decision (spec §8 gate 7).
       - name: cosign sign (gov — KMS key)
-        if: ${{ github.event.inputs.signing_mode == 'gov' }}
+        if: ${{ github.event.inputs.signing_mode == 'gov' && matrix.product == 'cosmos' }}
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
