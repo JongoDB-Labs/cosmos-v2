@@ -1,8 +1,11 @@
 /**
  * Code-defined product skins. A skin overrides the runtime CSS-variable tokens
- * defined in globals.css (`:root`), scoped to `:root.<product>` so it wins by
- * specificity over the base `:root` light/dark blocks. SSR-injected by app/layout.tsx
- * for the active product (getBrand().skin) — no DB, no FOUC.
+ * defined in globals.css (`:root`), scoped to `:root.<product>.<product>` — the
+ * class is doubled so the skin's specificity (0-3-0) beats the base `:root.dark` /
+ * `:root.light` blocks (0-2-0). Without it, a skinned product whose user toggles
+ * dark mode would get a broken hybrid theme (equal specificity → source-order
+ * lottery). SSR-injected by app/layout.tsx for the active product (getBrand().skin)
+ * — no DB, no FOUC.
  *
  * Atelier = ĒSO/Pontis brand: pearl bg, deep-teal midnight text/primary, bone
  * surfaces, sharp 2px corners. Light-only (the dark/light toggle is skipped for it).
@@ -31,12 +34,13 @@ export const ATELIER_TOKENS: Record<string, string> = {
   "--sidebar-gradient": "linear-gradient(180deg, #f9f7f4 0%, #edeae2 100%)",
 };
 
-/** Emit a token map as a CSS rule scoped to `:root.<rootClass>`. Pure. */
+/** Emit a token map as a CSS rule scoped to `:root.<rootClass>.<rootClass>` (doubled
+ * class → specificity 0-3-0, so it beats the base `:root.dark`/`:root.light`). Pure. */
 export function skinCss(rootClass: string, tokens: Record<string, string>): string {
   const body = Object.entries(tokens)
     .map(([k, v]) => `${k}: ${v};`)
     .join(" ");
-  return `:root.${rootClass} { ${body} }`;
+  return `:root.${rootClass}.${rootClass} { ${body} }`;
 }
 
 /** Precomputed CSS per skin, keyed by SkinKey. */

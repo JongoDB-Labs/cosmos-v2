@@ -11,11 +11,11 @@ describe("atelier skin", () => {
 
   it("skinCss scopes tokens to the product root class", () => {
     const css = skinCss("pontis", { "--bg": "#fff", "color-scheme": "light" });
-    expect(css).toBe(":root.pontis { --bg: #fff; color-scheme: light; }");
+    expect(css).toBe(":root.pontis.pontis { --bg: #fff; color-scheme: light; }");
   });
 
-  it("SKIN_CSS.atelier targets :root.pontis with the pearl bg", () => {
-    expect(SKIN_CSS.atelier).toContain(":root.pontis {");
+  it("SKIN_CSS.atelier targets :root.pontis.pontis with the pearl bg", () => {
+    expect(SKIN_CSS.atelier).toContain(":root.pontis.pontis {");
     expect(SKIN_CSS.atelier).toContain("--bg: #f9f7f4;");
   });
 });
