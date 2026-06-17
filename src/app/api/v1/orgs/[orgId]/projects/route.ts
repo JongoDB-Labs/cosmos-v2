@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
+import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { z } from "zod";
 
 const createProjectSchema = z.object({
@@ -98,6 +99,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       // Allow built-in templates or org-owned templates
       if (!tpl.isBuiltIn && tpl.orgId !== orgId) {
+        return new Response(
+          JSON.stringify({ error: "Template not found" }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // Sector entitlement boundary: a tenant restricted to certain sectors
+      // (e.g. Pontis → AEC only) cannot instantiate a template from a disabled
+      // sector even by POSTing its id directly — the listing filter is cosmetic
+      // without this. 404 (not 403) to avoid revealing the template exists.
+      const ent = await getEntitlements(orgId);
+      if (!isSectorEnabled(ent, tpl.sector)) {
         return new Response(
           JSON.stringify({ error: "Template not found" }),
           { status: 404, headers: { "Content-Type": "application/json" } }
