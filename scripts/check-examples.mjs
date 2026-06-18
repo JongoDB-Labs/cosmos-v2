@@ -22,10 +22,6 @@ const SKIP = new Set([
   "dialog.tsx",
   "input-group.tsx",
   "theme-picker.tsx", // dedicated settings UI, has its own surface
-  // Project primitives without a design-system example yet. Tracked as a
-  // follow-up; listed here so the gate (file-existence only) doesn't block CI.
-  "confirm-button.tsx",
-  "searchable-select.tsx",
   // Skip self
   "__examples__",
 ]);
