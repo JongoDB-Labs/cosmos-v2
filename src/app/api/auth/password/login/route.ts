@@ -105,13 +105,18 @@ export async function POST(request: NextRequest) {
   // Remember the org so /login can pre-render its brand next time — only when
   // it's unambiguous (the user belongs to exactly one org). Multi-org users get
   // no remembered org and the login page falls back to the deployment default.
-  const memberships = await prisma.orgMember.findMany({
-    where: { userId: user.id },
-    select: { org: { select: { slug: true } } },
-    take: 2,
-  });
-  if (memberships.length === 1) {
-    setRememberedOrgCookie(res, memberships[0].org.slug);
+  // Best-effort: a DB blip here must not fail a login whose session is already set.
+  try {
+    const memberships = await prisma.orgMember.findMany({
+      where: { userId: user.id },
+      select: { org: { select: { slug: true } } },
+      take: 2,
+    });
+    if (memberships.length === 1) {
+      setRememberedOrgCookie(res, memberships[0].org.slug);
+    }
+  } catch {
+    /* remembered-org cookie is best-effort */
   }
   return res;
 }

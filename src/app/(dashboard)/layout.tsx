@@ -89,24 +89,24 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
 
   return (
     <BrandProvider value={brand}>
-    <PermissionsProvider orgs={orgs}>
-      <BackgroundProvider darkUrl={prefs?.bgDarkUrl} lightUrl={prefs?.bgLightUrl} />
-      <ApplySavedSkin skinId={prefs?.skinId ?? null} orgDefaultSkinId={orgDefaultSkinId} />
-      <BugReporter />
-      <DashboardShell
-        user={{
-          id: user.id,
-          email: user.email,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-        }}
-        orgs={orgs}
-        isSystemAdmin={isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)}
-      >
-        <PageTransition>{children}</PageTransition>
-        <CommandPalette orgs={orgs} />
-      </DashboardShell>
-    </PermissionsProvider>
+      <PermissionsProvider orgs={orgs}>
+        <BackgroundProvider darkUrl={prefs?.bgDarkUrl} lightUrl={prefs?.bgLightUrl} />
+        <ApplySavedSkin skinId={prefs?.skinId ?? null} orgDefaultSkinId={orgDefaultSkinId} />
+        <BugReporter />
+        <DashboardShell
+          user={{
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+          }}
+          orgs={orgs}
+          isSystemAdmin={isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)}
+        >
+          <PageTransition>{children}</PageTransition>
+          <CommandPalette orgs={orgs} />
+        </DashboardShell>
+      </PermissionsProvider>
     </BrandProvider>
   );
 }

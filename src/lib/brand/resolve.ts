@@ -34,9 +34,11 @@ export function resolveBrand(org?: OrgBrandOverrides | null): ProductProfile {
     agentName: org.agentName ?? base.agentName,
     wakeWord: resolvedWakeWord,
     // wakePhrase is the lowercase recognizer-matched form of wakeWord.
-    // Derive it from the org override so the voice recognizer listens for the
-    // correct phrase, not just the display label.
-    wakePhrase: resolvedWakeWord.toLowerCase(),
+    // Only re-derive it when the org actually supplies its own wakeWord;
+    // otherwise preserve the deployment profile's pre-computed wakePhrase
+    // so the voice recognizer is never handed a stale lowercased copy of
+    // the base wakeWord that happens to differ from base.wakePhrase.
+    wakePhrase: org.wakeWord != null ? org.wakeWord.toLowerCase() : base.wakePhrase,
     defaultSkinId: org.defaultSkinId ?? base.defaultSkinId,
   };
 }
