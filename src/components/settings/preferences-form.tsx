@@ -728,7 +728,10 @@ function MobileNavPicker() {
       value={slots[index]}
       onValueChange={(v) => v && setSlot(index, v)}
     >
-      <SelectTrigger className="w-full">
+      <SelectTrigger
+        className="w-full"
+        aria-label={`Mobile navigation slot ${index + 1}`}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
