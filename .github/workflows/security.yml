@@ -150,8 +150,10 @@ jobs:
 
   # Gate 4 — Image vuln scan. 800-171 3.11.2  (HARD on Critical)
   # Builds the runtime image locally (no GHCR push needed for the scan) and
-  # scans by image. In a remote-connected repo this would scan the pushed
-  # digest from release.yml; here it is self-contained.
+  # scans by image. Post Phase-3 collapse there is a SINGLE cosmos-v2 image that
+  # serves every product (product = runtime env), so scanning it covers all
+  # deployments — no separate pontis image to scan. In a remote-connected repo
+  # this would scan the pushed digest from release.yml; here it is self-contained.
   image-scan:
     name: Image scan (Trivy image)
     runs-on: ubuntu-latest
