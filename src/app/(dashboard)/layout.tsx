@@ -9,6 +9,7 @@ import { CommandPalette } from "@/components/search/command-palette";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
 import { BackgroundProvider } from "@/components/providers/background-provider";
+import { ApplySavedSkin } from "@/components/settings/apply-saved-skin";
 import { BugReporter } from "@/components/telemetry/bug-reporter";
 import { PageTransition } from "@/components/ui/page-transition";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,7 +53,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
 
   const prefs = await prisma.userPreferences.findUnique({
     where: { userId: user.id },
-    select: { bgDarkUrl: true, bgLightUrl: true },
+    select: { bgDarkUrl: true, bgLightUrl: true, skinId: true },
   });
 
   const moduleMap = await getEnabledModulesByOrg(
@@ -78,6 +79,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
   return (
     <PermissionsProvider orgs={orgs}>
       <BackgroundProvider darkUrl={prefs?.bgDarkUrl} lightUrl={prefs?.bgLightUrl} />
+      {prefs?.skinId ? <ApplySavedSkin skinId={prefs.skinId} /> : null}
       <BugReporter />
       <DashboardShell
         user={{

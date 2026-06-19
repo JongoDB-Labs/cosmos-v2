@@ -1,5 +1,4 @@
 import type { ModuleKey, SectorKey } from "@/lib/entitlements/modules";
-import type { SkinKey } from "@/lib/theme/skins";
 
 export type ProductKey = "cosmos" | "pontis";
 
@@ -33,11 +32,8 @@ export type ProductProfile = {
   defaultEnabledModules: ModuleKey[] | null;
   /** Default sector allowlist for a new org. `null` = all sectors. */
   defaultEnabledSectors: SectorKey[] | null;
-  /** Code-defined visual skin, or null for the default globals.css theme. */
-  skin: SkinKey | null;
-  /** `<html>` base-theme class (e.g. "dark", or "pontis" = atelier light). The
-   * theme bootstrap layers `.dark`/`.light` on top per the user's toggle. */
-  htmlThemeClass: string;
+  /** Registry ID of the skin applied by default for this product. */
+  defaultSkinId: string;
 };
 
 export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
@@ -58,8 +54,7 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     signingMode: "kms",
     defaultEnabledModules: null,
     defaultEnabledSectors: null,
-    skin: null,
-    htmlThemeClass: "dark",
+    defaultSkinId: "universe",
   },
   pontis: {
     key: "pontis",
@@ -78,7 +73,6 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     signingMode: "keyless",
     defaultEnabledModules: null,
     defaultEnabledSectors: ["aec"],
-    skin: "atelier",
-    htmlThemeClass: "pontis",
+    defaultSkinId: "atelier",
   },
 };

@@ -45,17 +45,15 @@ describe("getBrand", () => {
     expect(b.defaultEnabledSectors).toEqual(["aec"]);
   });
 
-  it("COSMOS uses the default dark theme (no skin)", () => {
+  it("COSMOS uses the universe skin by default", () => {
     delete process.env.NEXT_PUBLIC_PRODUCT;
     const b = getBrand();
-    expect(b.skin).toBeNull();
-    expect(b.htmlThemeClass).toBe("dark");
+    expect(b.defaultSkinId).toBe("universe");
   });
 
-  it("Pontis uses the atelier skin (light-first; toggle layers .dark/.light)", () => {
+  it("Pontis uses the atelier skin by default", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "pontis";
     const b = getBrand();
-    expect(b.skin).toBe("atelier");
-    expect(b.htmlThemeClass).toBe("pontis");
+    expect(b.defaultSkinId).toBe("atelier");
   });
 });

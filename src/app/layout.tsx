@@ -4,7 +4,7 @@ import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
 import { getBrand } from "@/lib/brand";
-import { SKIN_CSS } from "@/lib/theme/skins";
+import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import "./globals.css";
 
 const inter = Inter({
@@ -20,6 +20,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 const brand = getBrand();
+const defaultSkin = getSkinPreset(brand.defaultSkinId).id;
+const skinCss = allSkinsCss();
 
 export const metadata: Metadata = {
   title: brand.title,
@@ -42,31 +44,23 @@ export const viewport: Viewport = {
 };
 
 /**
- * Inline script that runs synchronously before any paint, reads the `theme`
- * cookie, and applies the matching `dark`/`light` class to <html>. This
- * keeps RootLayout a pure synchronous server component (no `cookies()`
- * call), which is required by Next.js 16 Cache Components — cookie reads
- * outside <Suspense> are not permitted.
- *
- * The default class comes from the product profile's htmlThemeClass (cosmos:
- * `dark`; a skinned product like Pontis: its own base, e.g. `pontis` = atelier
- * light). The script removes dark/light and re-applies per the cookie, so the
- * light/dark toggle works for every product with no FOUC.
+ * Inline script that runs synchronously before any paint to prevent FOUC.
+ * It reads the `theme` and `skin` cookies and applies `light`/`dark` and
+ * `skin-<id>` classes to <html>. The SSR-rendered class on <html> uses the
+ * active product's `defaultSkinId` (e.g. `skin-universe` for cosmos,
+ * `skin-atelier` for Pontis); the script corrects it at runtime if the
+ * user's cookie differs. RootLayout stays a pure synchronous server component
+ * (no `cookies()` call) — required by Next.js 16 Cache Components.
  */
 const themeInitScript = `
-(function() {
-  try {
-    var m = document.cookie.match(/(^| )theme=([^;]+)/);
-    var theme = m ? decodeURIComponent(m[2]) : null;
-    document.documentElement.classList.remove('dark', 'light');
-    if (theme === 'light') {
-      document.documentElement.classList.add('light');
-    } else if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    }
-    // No class for 'system' or unset — CSS @media (prefers-color-scheme) handles it.
-  } catch (e) {}
-})();
+(function(){try{
+  var d=document.documentElement, c=document.cookie;
+  var t=(c.match(/(^| )theme=([^;]+)/)||[])[2];
+  var s=(c.match(/(^| )skin=([^;]+)/)||[])[2];
+  d.classList.remove('dark','light');
+  if(t==='light')d.classList.add('light');else if(t==='dark')d.classList.add('dark');
+  if(s){d.className=d.className.replace(/\\bskin-[\\w-]+\\b/g,'').trim();d.classList.add('skin-'+decodeURIComponent(s));}
+}catch(e){}})();
 `;
 
 export default function RootLayout({
@@ -75,17 +69,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetBrainsMono.variable} ${brand.htmlThemeClass} h-full`}
+      className={`${inter.variable} ${jetBrainsMono.variable} skin-${defaultSkin} h-full`}
       suppressHydrationWarning
     >
       <head>
-        {/* Product skin (e.g. Pontis atelier): SSR-inject the token override +
-            drafting backdrop + type in the initial HTML (no FOUC), scoped to
-            :root.<product>. The skin ships BOTH light and dark palettes, so the
-            theme bootstrap below still runs and the light/dark toggle works. */}
-        {brand.skin && (
-          <style dangerouslySetInnerHTML={{ __html: SKIN_CSS[brand.skin] }} />
-        )}
+        <style dangerouslySetInnerHTML={{ __html: skinCss }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
