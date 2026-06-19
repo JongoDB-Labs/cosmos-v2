@@ -1,10 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveBrand, pickOrgBrand, type OrgBrandOverrides } from "./resolve";
 
-const original = process.env.NEXT_PUBLIC_PRODUCT;
+const originalPublic = process.env.NEXT_PUBLIC_PRODUCT;
+const originalServer = process.env.PRODUCT;
+beforeEach(() => {
+  // The runtime PRODUCT env takes precedence in getBrand(); clear it so each
+  // case controls the product purely via NEXT_PUBLIC_PRODUCT as it intends.
+  delete process.env.PRODUCT;
+});
 afterEach(() => {
-  if (original === undefined) delete process.env.NEXT_PUBLIC_PRODUCT;
-  else process.env.NEXT_PUBLIC_PRODUCT = original;
+  if (originalPublic === undefined) delete process.env.NEXT_PUBLIC_PRODUCT;
+  else process.env.NEXT_PUBLIC_PRODUCT = originalPublic;
+  if (originalServer === undefined) delete process.env.PRODUCT;
+  else process.env.PRODUCT = originalServer;
 });
 
 describe("resolveBrand", () => {

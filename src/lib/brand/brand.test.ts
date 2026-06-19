@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getBrand } from "@/lib/brand";
 
-const original = process.env.NEXT_PUBLIC_PRODUCT;
+const originalPublic = process.env.NEXT_PUBLIC_PRODUCT;
+const originalServer = process.env.PRODUCT;
 afterEach(() => {
-  if (original === undefined) delete process.env.NEXT_PUBLIC_PRODUCT;
-  else process.env.NEXT_PUBLIC_PRODUCT = original;
+  if (originalPublic === undefined) delete process.env.NEXT_PUBLIC_PRODUCT;
+  else process.env.NEXT_PUBLIC_PRODUCT = originalPublic;
+  if (originalServer === undefined) delete process.env.PRODUCT;
+  else process.env.PRODUCT = originalServer;
 });
 
 describe("getBrand", () => {
@@ -55,5 +58,37 @@ describe("getBrand", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "pontis";
     const b = getBrand();
     expect(b.defaultSkinId).toBe("atelier");
+  });
+});
+
+describe("getBrand — runtime PRODUCT (Phase 3 one-image)", () => {
+  it("prefers the server-runtime PRODUCT over the baked NEXT_PUBLIC_PRODUCT", () => {
+    process.env.PRODUCT = "pontis";
+    process.env.NEXT_PUBLIC_PRODUCT = "cosmos"; // the baked client default
+    expect(getBrand().key).toBe("pontis");
+  });
+
+  it("honors PRODUCT even when NEXT_PUBLIC_PRODUCT is unset (one-image server render)", () => {
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    process.env.PRODUCT = "pontis";
+    expect(getBrand().key).toBe("pontis");
+  });
+
+  it("falls back to NEXT_PUBLIC_PRODUCT when PRODUCT is unset (client bundle)", () => {
+    delete process.env.PRODUCT;
+    process.env.NEXT_PUBLIC_PRODUCT = "pontis";
+    expect(getBrand().key).toBe("pontis");
+  });
+
+  it("an unknown PRODUCT validates against the registry → cosmos", () => {
+    process.env.PRODUCT = "not_a_product";
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    expect(getBrand().key).toBe("cosmos");
+  });
+
+  it("defaults to cosmos when neither env is set", () => {
+    delete process.env.PRODUCT;
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    expect(getBrand().key).toBe("cosmos");
   });
 });
