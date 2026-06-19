@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { SKIN_PRESETS, DEFAULT_SKIN_ID, getSkinPreset, allSkinsCss } from "./skins";
 
 describe("skin registry", () => {
-  it("ships universe + atelier with unique ids and both modes", () => {
+  it("ships all presets with unique ids and both modes", () => {
     const ids = SKIN_PRESETS.map((p) => p.id);
-    expect(ids).toEqual(["universe", "atelier"]);
+    expect(ids).toEqual(["universe", "atelier", "field", "ledger", "clinical", "studio"]);
     expect(new Set(ids).size).toBe(ids.length);
     for (const p of SKIN_PRESETS) {
       expect(p.light["--bg"]).toBeTruthy();
@@ -25,6 +25,23 @@ describe("skin registry", () => {
     expect(a.dark["--bg"]).toBe("#16282a");
     expect(a.extras).toContain("[data-app-canvas]");
     expect(a.extras).toContain("background-image: none");
+  });
+  it("ships the Phase 4 sector presets, tagged + emitting both modes", () => {
+    const css = allSkinsCss();
+    for (const id of ["field", "ledger", "clinical", "studio"]) {
+      const p = getSkinPreset(id);
+      expect(p.id).toBe(id);
+      expect(p.sectors.length).toBeGreaterThan(0);
+      expect(p.light["--primary"]).toBeTruthy();
+      expect(p.dark["--primary"]).toBeTruthy();
+      expect(css).toContain(`:root.skin-${id}.skin-${id} {`);
+      expect(css).toContain(`:root.skin-${id}.skin-${id}.dark {`);
+      // systemFollowsOs:true → each emits the OS-follow @media dark variant
+      expect(css).toContain(
+        `@media (prefers-color-scheme: dark) { :root.skin-${id}.skin-${id}:not(.light):not(.dark) {`,
+      );
+    }
+    expect(getSkinPreset("ledger").extras).toContain('"tnum"');
   });
   it("universe follows the OS in system mode; atelier does not", () => {
     const css = allSkinsCss();
