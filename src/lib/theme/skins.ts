@@ -13,6 +13,7 @@ export type SkinPreset = {
   description: string;
   sectors: string[];
   motif?: "starfield";
+  systemFollowsOs?: boolean;
   light: Record<string, string>;
   dark: Record<string, string>;
   extras?: string;
@@ -24,6 +25,7 @@ const UNIVERSE: SkinPreset = {
   description: "The original cosmos look — deep space, high contrast.",
   sectors: [],
   motif: "starfield",
+  systemFollowsOs: true,
   light: {
     "color-scheme": "light",
     "--bg": "#FFFFFF", "--surface": "#F8F9FC", "--overlay": "#FFFFFF",
@@ -101,6 +103,11 @@ export function allSkinsCss(): string {
     const root = `:root.skin-${p.id}.skin-${p.id}`;
     out.push(block(root, p.light));
     out.push(block(`${root}.dark`, p.dark));
+    if (p.systemFollowsOs) {
+      out.push(
+        `@media (prefers-color-scheme: dark) { ${block(`${root}:not(.light):not(.dark)`, p.dark)} }`,
+      );
+    }
     if (p.extras) out.push(p.extras);
   }
   return out.join("\n");

@@ -26,6 +26,13 @@ describe("skin registry", () => {
     expect(a.extras).toContain("[data-app-canvas]");
     expect(a.extras).toContain("background-image: none");
   });
+  it("universe follows the OS in system mode; atelier does not", () => {
+    const css = allSkinsCss();
+    expect(css).toContain(
+      "@media (prefers-color-scheme: dark) { :root.skin-universe.skin-universe:not(.light):not(.dark) {",
+    );
+    expect(css).not.toContain(":root.skin-atelier.skin-atelier:not(.light):not(.dark)");
+  });
   it("allSkinsCss emits doubled-class rules + dark + atelier extras", () => {
     const css = allSkinsCss();
     expect(css).toContain(":root.skin-universe.skin-universe {");

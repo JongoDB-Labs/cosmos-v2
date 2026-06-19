@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { isValidSkinId } from "@/lib/theme/cookie";
 
 const updatePreferencesSchema = z.object({
   themeId: z.string().uuid().nullable().optional(),
@@ -20,7 +21,7 @@ const updatePreferencesSchema = z.object({
   dndStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   dndEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   dndTimezone: z.string().max(50).nullable().optional(),
-  skinId: z.string().max(40).nullable().optional(),
+  skinId: z.string().refine(isValidSkinId, "invalid skin").nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };

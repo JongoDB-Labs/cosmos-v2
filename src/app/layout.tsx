@@ -44,16 +44,13 @@ export const viewport: Viewport = {
 };
 
 /**
- * Inline script that runs synchronously before any paint, reads the `theme`
- * cookie, and applies the matching `dark`/`light` class to <html>. This
- * keeps RootLayout a pure synchronous server component (no `cookies()`
- * call), which is required by Next.js 16 Cache Components — cookie reads
- * outside <Suspense> are not permitted.
- *
- * The default class comes from the product profile's htmlThemeClass (cosmos:
- * `dark`; a skinned product like Pontis: its own base, e.g. `pontis` = atelier
- * light). The script removes dark/light and re-applies per the cookie, so the
- * light/dark toggle works for every product with no FOUC.
+ * Inline script that runs synchronously before any paint to prevent FOUC.
+ * It reads the `theme` and `skin` cookies and applies `light`/`dark` and
+ * `skin-<id>` classes to <html>. The SSR-rendered class on <html> uses the
+ * active product's `defaultSkinId` (e.g. `skin-universe` for cosmos,
+ * `skin-atelier` for Pontis); the script corrects it at runtime if the
+ * user's cookie differs. RootLayout stays a pure synchronous server component
+ * (no `cookies()` call) — required by Next.js 16 Cache Components.
  */
 const themeInitScript = `
 (function(){try{
