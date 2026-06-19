@@ -1,12 +1,14 @@
 # Signed SemVer container delivery → GHCR — native multi-arch via build-by-digest.
 #
-# Each (product × arch) builds on its NATIVE runner (no QEMU) and pushes the
-# runtime + migrate images BY DIGEST. A per-product `merge` job then assembles the
+# Each arch builds the SINGLE cosmos-v2 image on its NATIVE runner (no QEMU) and
+# pushes the runtime + migrate images BY DIGEST. One `merge` job then assembles the
 # multi-arch manifest (docker buildx imagetools), applies the tags (SemVer +
 # :latest + :sha-<sha>), generates a Syft SPDX SBOM, signs BY DIGEST with cosign,
-# and attaches a SLSA build-provenance attestation. Commercial signs keyless via
-# GitHub OIDC → public Fulcio/Rekor; the `gov` path signs with a KMS/HSM key
-# (public Rekor is unreachable/unacceptable in-boundary — spec §8 gate 7).
+# and attaches a SLSA build-provenance attestation. Every image is signed UNIFORMLY:
+# keyless via GitHub OIDC → public Fulcio/Rekor ALWAYS, plus a KMS/HSM key WHEN
+# secrets.COSIGN_KEY is configured (in-boundary gov verification where public Rekor
+# is unreachable — spec §8 gate 7). The per-deployment product is a RUNTIME env
+# (PRODUCT=<key>), not a build-arg.
 #
 # Native runners + a registry layer cache (mode=max) make this ~15-25 min cold and
 # near-instant for no-op re-releases (the big MiniLM model + node_modules layers
@@ -27,18 +29,13 @@ name: release
 
 # Multi-arch builds run ONLY on a deliberate version tag — not every push to main.
 # Main/PR validation is ci.yml + security.yml (fast, no image build). Cut a release
-# by bumping package.json's version and pushing a `vX.Y.Z` tag (both the cosmos-v2
-# and pontis images build from that one tag via the product matrix below).
+# by bumping package.json's version and pushing a `vX.Y.Z` tag (the single cosmos-v2
+# image builds from that one tag; the per-deployment product is a runtime env, not a
+# build-time matrix).
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      signing_mode:
-        description: "Signing mode: commercial (keyless Fulcio/Rekor) or gov (KMS key)"
-        type: choice
-        options: [commercial, gov]
-        default: commercial
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -57,10 +54,11 @@ jobs:
       fail-fast: false # one product/arch failing must not kill the others
       matrix:
         include:
+          # One image, two native arches. `product` stays `cosmos` so the baked
+          # NEXT_PUBLIC_PRODUCT default is the neutral "cosmos" (the per-deployment
+          # product is a RUNTIME env, not a build-arg — Phase 3 one-image collapse).
           - { product: cosmos, image_base: cosmos-v2, arch: amd64, runner: ubuntu-24.04 }
           - { product: cosmos, image_base: cosmos-v2, arch: arm64, runner: ubuntu-24.04-arm }
-          - { product: pontis, image_base: pontis, arch: amd64, runner: ubuntu-24.04 }
-          - { product: pontis, image_base: pontis, arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60 # native build of the MiniLM-bearing image; cache warms it down
     permissions:
@@ -143,21 +141,19 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # ── Per product: assemble the multi-arch manifest, tag, SBOM, sign, attest ───
+  # ── Assemble the single multi-arch manifest, tag, SBOM, sign, attest ────────
   merge:
     needs: build
-    # Run even if a sibling build leg failed (!cancelled), so one product's failure
-    # doesn't block the other's release; the per-product arch-count guard below
-    # fails THIS product if either of its arches is missing.
+    # Run even if a build leg failed (!cancelled); the arch-count guard below
+    # fails the job if either arch is missing.
     if: ${{ !cancelled() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { product: cosmos, image_base: cosmos-v2 }
-          - { product: pontis, image_base: pontis }
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Expose whether COSIGN_KEY is configured as a job-level env so the KMS
+    # signing step can gate on it without referencing secrets in an `if`
+    # (actionlint disallows secrets context in step-level `if` conditions).
+    env:
+      HAS_KMS: ${{ secrets.COSIGN_KEY != '' }}
     permissions:
       contents: read
       packages: write # push the merged manifests + tags
@@ -175,8 +171,8 @@ jobs:
       - name: Normalize image refs (lowercase owner)
         run: |
           OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}" >> "$GITHUB_ENV"
-          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/$OWNER/cosmos-v2" >> "$GITHUB_ENV"
+          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/cosmos-v2-migrate" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -187,12 +183,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Collect THIS product's per-arch digests (runtime/ + migrate/ subdirs, one
-      # digest-named file per arch) into a single tree.
+      # Collect per-arch digests (runtime/ + migrate/ subdirs, one digest-named
+      # file per arch) into a single tree.
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: digests-${{ matrix.image_base }}-*
+          pattern: digests-cosmos-v2-*
           path: /tmp/d
           merge-multiple: true
 
@@ -234,28 +230,28 @@ jobs:
         with:
           image: ${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}
           format: spdx-json
-          # Per-product filename so the two merge legs don't collide on the artifact.
-          output-file: sbom-${{ matrix.image_base }}.spdx.json
+          output-file: sbom.spdx.json
           upload-artifact: true
 
       # Sign + provenance (gate 7) ------------------------------------------
       - name: Install cosign
         uses: sigstore/cosign-installer@fb28c2b6339dcd94da6e4cbcbc5e888961f6f8c3 # v3.9.0
 
-      # COMMERCIAL: keyless — OIDC identity → public Fulcio cert, Rekor log.
-      # The Rekor inclusion proof doubles as the external WORM anchor (spec §8.2).
-      - name: cosign sign (commercial — keyless)
-        if: ${{ github.event.inputs.signing_mode != 'gov' || matrix.product == 'pontis' }}
+      # Uniform gov-grade signing for the SINGLE image (Phase 3). Keyless runs
+      # ALWAYS (OIDC → public Fulcio cert + Rekor log; the Rekor inclusion proof
+      # is the external WORM anchor — spec §8.2). KMS runs ADDITIONALLY whenever
+      # COSIGN_KEY is configured (an in-boundary KMS/HSM ref: awskms://…,
+      # gcpkms://…) so gov verifiers can trust the KMS cert without public Rekor.
+      # Both attestations attach to the SAME digest. No product/signing_mode gate.
+      - name: cosign sign (keyless — always)
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           cosign sign --yes "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
           cosign sign --yes "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
 
-      # GOV: KMS/HSM key — public Fulcio/Rekor is unreachable/unacceptable
-      # in-boundary. COSIGN_KEY is a KMS ref (awskms://…, gcpkms://…) or vaulted key.
-      - name: cosign sign (gov — KMS key)
-        if: ${{ github.event.inputs.signing_mode == 'gov' && matrix.product == 'cosmos' }}
+      - name: cosign sign (KMS — when COSIGN_KEY configured)
+        if: ${{ env.HAS_KMS == 'true' }}
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
