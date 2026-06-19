@@ -12,6 +12,7 @@ import {
   SSO_TX_COOKIE,
   type SsoTransaction,
 } from "@/lib/auth/sso";
+import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
 
 /**
  * SSO callback. openid-client validates the authorization response — code
@@ -128,5 +129,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     secure: process.env.NODE_ENV === "production",
   });
   response.cookies.delete(SSO_TX_COOKIE);
+  // Remember this org so /login can pre-render its brand next time.
+  setRememberedOrgCookie(response, orgSlug);
   return response;
 }

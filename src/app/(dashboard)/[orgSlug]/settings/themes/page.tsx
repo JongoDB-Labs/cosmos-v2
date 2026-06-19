@@ -13,7 +13,17 @@ export default async function ThemesSettingsPage({ params }: PageParams) {
 
   const org = await prisma.organization.findUnique({
     where: { id: ctx.orgId },
-    select: { id: true, themePrimary: true, themeMode: true, logoUrl: true },
+    select: {
+      id: true,
+      themePrimary: true,
+      themeMode: true,
+      logoUrl: true,
+      defaultSkinId: true,
+      brandName: true,
+      agentName: true,
+      tagline: true,
+      wakeWord: true,
+    },
   });
 
   return (
@@ -24,6 +34,11 @@ export default async function ThemesSettingsPage({ params }: PageParams) {
           themePrimary: org!.themePrimary,
           themeMode: org!.themeMode,
           logoUrl: org!.logoUrl,
+          defaultSkinId: org!.defaultSkinId,
+          brandName: org!.brandName,
+          agentName: org!.agentName,
+          tagline: org!.tagline,
+          wakeWord: org!.wakeWord,
         }}
       />
     </PageShell>

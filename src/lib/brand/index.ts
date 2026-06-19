@@ -16,3 +16,5 @@ function resolveProductKey(): ProductKey {
 export function getBrand(): ProductProfile {
   return PRODUCT_PROFILES[resolveProductKey()];
 }
+
+export { resolveBrand, pickOrgBrand, type OrgBrandOverrides } from "./resolve";

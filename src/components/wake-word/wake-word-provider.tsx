@@ -2,13 +2,13 @@
 import { useEffect, useState } from "react";
 import { Mic } from "lucide-react";
 import { useWakeWord } from "@/lib/hooks/use-wake-word";
-import { getBrand } from "@/lib/brand";
+import { useBrand } from "@/components/providers/brand-provider";
 
 const STORAGE_KEY = "cosmos:wake-word-enabled";
 
 export function WakeWordProvider() {
   const [enabled, setEnabled] = useState(false);
-  const brand = getBrand();
+  const brand = useBrand();
 
   // Load persisted state on mount (client-only)
   useEffect(() => {

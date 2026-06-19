@@ -173,6 +173,14 @@ model Organization {
   logoUrl        String?     @map("logo_url")
   themePrimary   String?     @map("theme_primary")
   themeMode      String?     @map("theme_mode") // "auto" | "dark" | "light"
+  // ── Phase 2: per-org white-label brand (all nullable; null = inherit the
+  //    deployment/product default from getBrand()). Validated at the API
+  //    boundary (defaultSkinId via isValidSkinId), not by a DB constraint.
+  defaultSkinId  String?     @map("default_skin_id")
+  brandName      String?     @map("brand_name")
+  agentName      String?     @map("agent_name")
+  tagline        String?
+  wakeWord       String?     @map("wake_word")
   settings       Json        @default("{}")
   dbConnectionId String?     @map("db_connection_id")
   createdAt      DateTime    @default(now()) @map("created_at")

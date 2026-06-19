@@ -18,7 +18,7 @@ import {
   MailCheck,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
-import { getBrand } from "@/lib/brand";
+import { useBrand } from "@/components/providers/brand-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -94,6 +94,7 @@ export function AppSidebar({
   showMovedNav = false,
 }: AppSidebarProps) {
   const pathname = usePathname();
+  const brand = useBrand();
   // Derive the effective org slug from a MATCHED membership — NOT the raw path
   // segment. On non-org routes (/onboarding, /admin) the first segment is a
   // truthy string ("onboarding") that no org matches, so currentOrg is
@@ -156,7 +157,7 @@ export function AppSidebar({
                 exit={{ opacity: 0 }}
                 className="truncate text-sm font-semibold"
               >
-                {currentOrg?.name ?? getBrand().name}
+                {currentOrg?.name ?? brand.name}
               </fm.span>
             )}
           </AnimatePresence>
@@ -397,6 +398,7 @@ function UserCard({
   isSystemAdmin?: boolean;
 }) {
   const router = useRouter();
+  const brand = useBrand();
   const initials = user.displayName
     .split(" ")
     .map((n) => n[0])
@@ -466,7 +468,7 @@ function UserCard({
               wakeWordOn && "fill-[var(--primary)] text-[var(--primary)]",
             )}
           />
-          <span className="flex-1">&quot;{getBrand().wakeWord}&quot; voice</span>
+          <span className="flex-1">&quot;{brand.wakeWord}&quot; voice</span>
           {wakeWordOn ? (
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[var(--primary-tint)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)]">
               <span className="relative flex h-1.5 w-1.5">
@@ -481,7 +483,7 @@ function UserCard({
         </DropdownMenuItem>
         {wakeWordOn && (
           <p className="px-2 pb-1 text-[10px] leading-tight text-[var(--text-muted)]">
-            Your mic is on, listening for “{getBrand().wakeWord}”.
+            Your mic is on, listening for “{brand.wakeWord}”.
           </p>
         )}
         <DropdownMenuSeparator />
