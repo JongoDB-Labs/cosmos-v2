@@ -32,9 +32,16 @@ function LoginInner() {
   const params = useSearchParams();
   const error = params.get("error");
   const message = error ? (ERROR_MESSAGES[error] ?? "Sign-in failed.") : null;
-  // Org slug entrypoint: /login?org=<slug>. Without it we can't resolve which
-  // tenant's SSO connection to offer, so we fall back to Google only.
-  const orgSlug = params.get("org");
+  // Org slug entrypoint: /login?org=<slug>, falling back to the remembered-org
+  // cookie set on the user's last successful login.
+  const orgFromQuery = params.get("org");
+  const orgSlug =
+    orgFromQuery ??
+    (typeof document !== "undefined"
+      ? (document.cookie.match(/(^| )org=([^;]+)/)?.[2]
+          ? decodeURIComponent(document.cookie.match(/(^| )org=([^;]+)/)![2])
+          : null)
+      : null);
   const [submitting, setSubmitting] = useState(false);
 
   // SSO discovery: when an org slug is present, ask whether that org offers SSO
@@ -73,15 +80,52 @@ function LoginInner() {
     };
   }, []);
 
+  // Pre-login brand: when an org is known, fetch its public branding and apply
+  // the org's default skin (unless the user already has a skin cookie). null =
+  // unknown/loading → deployment default.
+  type OrgBrand = {
+    brandName: string | null;
+    logoUrl: string | null;
+    tagline: string | null;
+    agentName: string | null;
+    defaultSkinId: string | null;
+  };
+  const [orgBrand, setOrgBrand] = useState<OrgBrand | null>(null);
+  useEffect(() => {
+    if (!orgSlug) return;
+    let cancelled = false;
+    fetch(`/api/orgs/${encodeURIComponent(orgSlug)}/brand`)
+      .then((r) => (r.ok ? (r.json() as Promise<OrgBrand>) : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setOrgBrand(data);
+        // Apply the org default skin only if the visitor has no skin cookie.
+        if (data.defaultSkinId && !document.cookie.match(/(^| )skin=/)) {
+          const d = document.documentElement;
+          d.className = d.className.replace(/\bskin-[\w-]+\b/g, "").trim();
+          d.classList.add(`skin-${data.defaultSkinId}`);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [orgSlug]);
+
   const ssoEnabled = sso?.enabled ?? false;
   // Hide Google only once we KNOW the org enforces SSO. While discovery is in
   // flight we keep Google visible (fail-open for usability; the callback guard
   // is the real enforcement boundary).
   const hideGoogle = sso?.enforced === true;
 
+  const brandName = orgBrand?.brandName ?? getBrand().name;
+  const brandTagline = orgBrand?.tagline ?? getBrand().tagline;
+  const brandLogo = orgBrand?.logoUrl ?? null;
+
   const activeSkin =
     (typeof document !== "undefined" &&
       document.cookie.match(/(^| )skin=([^;]+)/)?.[2]) ||
+    orgBrand?.defaultSkinId ||
     getBrand().defaultSkinId ||
     DEFAULT_SKIN_ID;
   const motif = getSkinPreset(activeSkin).motif;
@@ -165,12 +209,21 @@ function LoginInner() {
       {motif === "starfield" && <Starfield className="absolute inset-0 h-full w-full" />}
       <div className="relative z-10 w-full max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col items-center text-center">
-          <BrandMark size="lg" />
+          {brandLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={brandLogo}
+              alt={brandName}
+              className="h-12 w-12 rounded object-contain"
+            />
+          ) : (
+            <BrandMark size="lg" />
+          )}
           <h1 className="mt-4 text-2xl font-bold tracking-tight">
-            {getBrand().name}
+            {brandName}
           </h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            {getBrand().tagline}
+            {brandTagline}
           </p>
         </div>
 
