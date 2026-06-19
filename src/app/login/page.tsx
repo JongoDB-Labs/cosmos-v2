@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { BrandMark } from "@/components/brand/brand-mark";
 import { Starfield } from "@/components/brand/starfield";
 import { GoogleLogo, MicrosoftLogo } from "@/components/brand/provider-logos";
-import { getBrand } from "@/lib/brand";
+import { useBrand } from "@/components/providers/brand-provider";
 import { getSkinPreset, DEFAULT_SKIN_ID } from "@/lib/theme/skins";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -29,6 +29,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 type SsoStatus = { enabled: boolean; enforced: boolean };
 
 function LoginInner() {
+  const brand = useBrand();
   const params = useSearchParams();
   const error = params.get("error");
   const message = error ? (ERROR_MESSAGES[error] ?? "Sign-in failed.") : null;
@@ -118,15 +119,15 @@ function LoginInner() {
   // is the real enforcement boundary).
   const hideGoogle = sso?.enforced === true;
 
-  const brandName = orgBrand?.brandName ?? getBrand().name;
-  const brandTagline = orgBrand?.tagline ?? getBrand().tagline;
+  const brandName = orgBrand?.brandName ?? brand.name;
+  const brandTagline = orgBrand?.tagline ?? brand.tagline;
   const brandLogo = orgBrand?.logoUrl ?? null;
 
   const activeSkin =
     (typeof document !== "undefined" &&
       document.cookie.match(/(^| )skin=([^;]+)/)?.[2]) ||
     orgBrand?.defaultSkinId ||
-    getBrand().defaultSkinId ||
+    brand.defaultSkinId ||
     DEFAULT_SKIN_ID;
   const motif = getSkinPreset(activeSkin).motif;
 
