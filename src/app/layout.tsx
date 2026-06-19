@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
 import { getBrand } from "@/lib/brand";
 import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
+import { RootBrandProvider } from "@/components/providers/root-brand-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -79,7 +81,11 @@ export default function RootLayout({
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
         <WebVitalsReporter />
         <ChunkReloadGuard />
-        <CosmosMotionConfig>{children}</CosmosMotionConfig>
+        <CosmosMotionConfig>
+          <Suspense fallback={children}>
+            <RootBrandProvider>{children}</RootBrandProvider>
+          </Suspense>
+        </CosmosMotionConfig>
       </body>
     </html>
   );
