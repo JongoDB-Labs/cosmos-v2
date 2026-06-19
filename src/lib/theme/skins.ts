@@ -90,9 +90,11 @@ const ATELIER_CSS = [
   rule(":root.pontis.pontis.dark", ATELIER_DARK_TOKENS),
   // Inter's stylistic sets give atelier its refined type (Mabry Pro when licensed).
   `:root.pontis { font-feature-settings: "ss01", "cv11", "cv05", "ss03"; font-variant-ligatures: contextual common-ligatures; }`,
-  // Clean fixed backdrop: a solid --bg layer that overrides cosmos's photo
-  // body::before/::after so the atelier canvas stays plain.
-  `:root.pontis.pontis body::before { content: ""; position: fixed; inset: 0; z-index: -2; background-color: var(--bg); pointer-events: none; }`,
+  // Clean fixed backdrop. cosmos sets `body::before { background-image: url(/bg-{dark,
+  // light}.jpeg) }` (a photo backdrop) — `background-image: none` here overrides it
+  // (background-color alone is NOT enough; the photo paints over the color). Together
+  // with body::after: none, the atelier canvas stays a plain --bg surface.
+  `:root.pontis.pontis body::before { content: ""; position: fixed; inset: 0; z-index: -2; background-color: var(--bg); background-image: none; pointer-events: none; }`,
   `:root.pontis.pontis body::after { content: none; }`,
   // Drafting-paper grid on the app work-area canvas. The shell root [data-app-canvas]
   // is made transparent and carries the 48px grid (var(--atelier-grid) adapts:
