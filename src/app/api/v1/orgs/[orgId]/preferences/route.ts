@@ -20,6 +20,7 @@ const updatePreferencesSchema = z.object({
   dndStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   dndEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   dndTimezone: z.string().max(50).nullable().optional(),
+  skinId: z.string().max(40).nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -79,6 +80,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.dndStart !== undefined ? { dndStart: data.dndStart } : {}),
         ...(data.dndEnd !== undefined ? { dndEnd: data.dndEnd } : {}),
         ...(data.dndTimezone !== undefined ? { dndTimezone: data.dndTimezone } : {}),
+        ...(data.skinId !== undefined ? { skinId: data.skinId } : {}),
       },
       update: {
         ...(data.themeId !== undefined ? { themeId: data.themeId } : {}),
@@ -94,6 +96,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.dndStart !== undefined ? { dndStart: data.dndStart } : {}),
         ...(data.dndEnd !== undefined ? { dndEnd: data.dndEnd } : {}),
         ...(data.dndTimezone !== undefined ? { dndTimezone: data.dndTimezone } : {}),
+        ...(data.skinId !== undefined ? { skinId: data.skinId } : {}),
       },
     });
 
