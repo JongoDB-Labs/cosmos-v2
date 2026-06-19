@@ -14,6 +14,8 @@ import { BugReporter } from "@/components/telemetry/bug-reporter";
 import { PageTransition } from "@/components/ui/page-transition";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
+import { resolveBrand, pickOrgBrand } from "@/lib/brand";
+import { BrandProvider } from "@/components/providers/brand-provider";
 
 /**
  * Cache Components requires that any cookie/header read happen inside a
@@ -76,10 +78,20 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
       (m.org.settings as Record<string, unknown>).isDemo === true,
   }));
 
+  // Seed the brand from the user's sole org when unambiguous. (No synchronous
+  // URL read is possible here under Cache Components, and no x-pathname header
+  // is published — verified against origin/main.) Multi-org accounts fall back
+  // to the deployment brand for the pre-paint seed; the sidebar still shows the
+  // correct per-org name via currentOrg props. resolveBrand(null) === getBrand().
+  const soleOrg = user.memberships.length === 1 ? user.memberships[0]?.org : undefined;
+  const brand = resolveBrand(pickOrgBrand(soleOrg));
+  const orgDefaultSkinId = soleOrg?.defaultSkinId ?? null;
+
   return (
+    <BrandProvider value={brand}>
     <PermissionsProvider orgs={orgs}>
       <BackgroundProvider darkUrl={prefs?.bgDarkUrl} lightUrl={prefs?.bgLightUrl} />
-      {prefs?.skinId ? <ApplySavedSkin skinId={prefs.skinId} /> : null}
+      <ApplySavedSkin skinId={prefs?.skinId ?? null} orgDefaultSkinId={orgDefaultSkinId} />
       <BugReporter />
       <DashboardShell
         user={{
@@ -95,6 +107,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
         <CommandPalette orgs={orgs} />
       </DashboardShell>
     </PermissionsProvider>
+    </BrandProvider>
   );
 }
 
