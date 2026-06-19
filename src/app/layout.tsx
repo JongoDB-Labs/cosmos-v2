@@ -4,7 +4,7 @@ import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
 import { getBrand } from "@/lib/brand";
-import { SKIN_CSS } from "@/lib/theme/skins";
+import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import "./globals.css";
 
 const inter = Inter({
@@ -20,6 +20,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 const brand = getBrand();
+const defaultSkin = getSkinPreset(brand.defaultSkinId).id;
+const skinCss = allSkinsCss();
 
 export const metadata: Metadata = {
   title: brand.title,
@@ -54,19 +56,14 @@ export const viewport: Viewport = {
  * light/dark toggle works for every product with no FOUC.
  */
 const themeInitScript = `
-(function() {
-  try {
-    var m = document.cookie.match(/(^| )theme=([^;]+)/);
-    var theme = m ? decodeURIComponent(m[2]) : null;
-    document.documentElement.classList.remove('dark', 'light');
-    if (theme === 'light') {
-      document.documentElement.classList.add('light');
-    } else if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    }
-    // No class for 'system' or unset — CSS @media (prefers-color-scheme) handles it.
-  } catch (e) {}
-})();
+(function(){try{
+  var d=document.documentElement, c=document.cookie;
+  var t=(c.match(/(^| )theme=([^;]+)/)||[])[2];
+  var s=(c.match(/(^| )skin=([^;]+)/)||[])[2];
+  d.classList.remove('dark','light');
+  if(t==='light')d.classList.add('light');else if(t==='dark')d.classList.add('dark');
+  if(s){d.className=d.className.replace(/\\bskin-[\\w-]+\\b/g,'').trim();d.classList.add('skin-'+decodeURIComponent(s));}
+}catch(e){}})();
 `;
 
 export default function RootLayout({
@@ -75,17 +72,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetBrainsMono.variable} ${brand.htmlThemeClass} h-full`}
+      className={`${inter.variable} ${jetBrainsMono.variable} skin-${defaultSkin} h-full`}
       suppressHydrationWarning
     >
       <head>
-        {/* Product skin (e.g. Pontis atelier): SSR-inject the token override +
-            drafting backdrop + type in the initial HTML (no FOUC), scoped to
-            :root.<product>. The skin ships BOTH light and dark palettes, so the
-            theme bootstrap below still runs and the light/dark toggle works. */}
-        {brand.skin && (
-          <style dangerouslySetInnerHTML={{ __html: SKIN_CSS[brand.skin] }} />
-        )}
+        <style dangerouslySetInnerHTML={{ __html: skinCss }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
