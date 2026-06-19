@@ -36,9 +36,9 @@ export const ATELIER_LIGHT_TOKENS: Record<string, string> = {
   "--radius-md": "2px",
   "--radius-lg": "4px",
   "--sidebar-gradient": "linear-gradient(180deg, #f9f7f4 0%, #edeae2 100%)",
-  // Drafting-paper grid line. pontis-atelier used 0.045; bumped a touch so the
-  // graph texture actually reads on the larger app canvas (still restrained).
-  "--atelier-grid": "rgb(33 65 68 / 0.07)",
+  // Drafting-paper grid line (midnight on pearl). Rendered on the work-area canvas
+  // at 48px — restrained but legibly "graph paper" (pontis-atelier used 0.045).
+  "--atelier-grid": "rgb(33 65 68 / 0.10)",
 };
 
 /** Atelier dark palette — inverted: deep teal-black canvas, pearl ink, laser accent. */
@@ -55,7 +55,7 @@ export const ATELIER_DARK_TOKENS: Record<string, string> = {
   "--primary-tint": "rgb(249 247 244 / 0.10)",
   "--primary-foreground": "#16282a",
   "--sidebar-gradient": "linear-gradient(180deg, #1a3134 0%, #16282a 100%)",
-  "--atelier-grid": "rgb(249 247 244 / 0.06)",
+  "--atelier-grid": "rgb(249 247 244 / 0.08)",
 };
 
 /** Emit `selector { k: v; … }`. Pure. */
@@ -81,22 +81,24 @@ const GRID_IMAGE =
 
 /**
  * Full atelier CSS: light + dark token sets, Inter OpenType features, the
- * drafting grid as the fixed viewport backdrop (replacing cosmos's photo
- * `body::before`), a transparent app canvas so that grid shows through the
- * otherwise-opaque shell, and laser-yellow selection.
+ * drafting grid on the transparent app work-area canvas (a `body::before` at
+ * z-index:-2 is painted behind the body's own opaque bg and never shows — so the
+ * grid lives on the canvas node instead), and laser-yellow selection.
  */
 const ATELIER_CSS = [
   skinCss("pontis", ATELIER_LIGHT_TOKENS),
   rule(":root.pontis.pontis.dark", ATELIER_DARK_TOKENS),
   // Inter's stylistic sets give atelier its refined type (Mabry Pro when licensed).
   `:root.pontis { font-feature-settings: "ss01", "cv11", "cv05", "ss03"; font-variant-ligatures: contextual common-ligatures; }`,
-  // Drafting-grid backdrop. cosmos uses body::before for a photo bg; repurpose it
-  // for the grid and suppress body::after so the atelier canvas stays clean.
-  `:root.pontis.pontis body::before { content: ""; position: fixed; inset: 0; z-index: -2; background-color: var(--bg); background-image: ${GRID_IMAGE}; background-size: 48px 48px; pointer-events: none; }`,
+  // Clean fixed backdrop: a solid --bg layer that overrides cosmos's photo
+  // body::before/::after so the atelier canvas stays plain.
+  `:root.pontis.pontis body::before { content: ""; position: fixed; inset: 0; z-index: -2; background-color: var(--bg); pointer-events: none; }`,
   `:root.pontis.pontis body::after { content: none; }`,
-  // The app shell is opaque (bg-[var(--bg)]) in light mode; make it transparent
-  // under the skin so the single backdrop grid shows through the work area.
-  `:root.pontis [data-app-canvas] { background-color: transparent; }`,
+  // Drafting-paper grid on the app work-area canvas. The shell root [data-app-canvas]
+  // is made transparent and carries the 48px grid (var(--atelier-grid) adapts:
+  // midnight on pearl in light, pearl on teal-black in dark). Cards + sidebar sit
+  // opaque on top, so the grid reads as the drafting texture behind the work area.
+  `:root.pontis [data-app-canvas] { background-color: transparent; background-image: ${GRID_IMAGE}; background-size: 48px 48px; }`,
   // Selection reads as a quiet ĒSO accent.
   `:root.pontis ::selection { background: var(--laser); color: #214144; }`,
 ].join("\n");
