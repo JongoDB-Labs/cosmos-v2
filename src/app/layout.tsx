@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
@@ -34,6 +35,7 @@ const skinCss = allSkinsCss();
 // (The <html> skin-class below still uses the build default; the no-FOUC script /
 // login skin effect correct it at runtime — a first-paint-only nuance.)
 export async function generateMetadata(): Promise<Metadata> {
+  await connection(); // halt prerender → getBrand() reads the runtime PRODUCT env
   const b = getBrand();
   return {
     title: b.title,
@@ -50,6 +52,7 @@ export async function generateMetadata(): Promise<Metadata> {
 // and home-indicator) so the mobile bottom nav and dialog bottom-sheets can
 // respect them. `app/manifest.ts` supplies the manifest link automatically.
 export async function generateViewport(): Promise<Viewport> {
+  await connection(); // runtime themeColor (same one-image rationale as metadata)
   const b = getBrand();
   return {
     width: "device-width",
