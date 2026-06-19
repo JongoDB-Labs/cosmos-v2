@@ -82,7 +82,12 @@ export default function RootLayout({
         <WebVitalsReporter />
         <ChunkReloadGuard />
         <CosmosMotionConfig>
-          <Suspense fallback={children}>
+          {/* fallback=null (NOT {children}): connection() defers with no I/O so
+              the branded subtree resolves same-tick; rendering {children} in both
+              the fallback and the resolved subtree double-mounts + remounts the
+              page (recoverable hydration #419) — the lesson the dashboard layout
+              already documents. */}
+          <Suspense fallback={null}>
             <RootBrandProvider>{children}</RootBrandProvider>
           </Suspense>
         </CosmosMotionConfig>
