@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
-import { getBrand } from "@/lib/brand";
+import { useBrand } from "@/components/providers/brand-provider";
 
 /**
  * Persistent floating agent affordance (item 9).
@@ -20,7 +20,7 @@ import { getBrand } from "@/lib/brand";
  */
 export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
   const { open, isOpen } = useDrawers();
-  const brand = getBrand();
+  const brand = useBrand();
 
   // Let other surfaces (mobile bottom nav, command palette) open the agent.
   useEffect(() => {
