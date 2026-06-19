@@ -42,6 +42,7 @@ import {
   loadMobileNav,
   saveMobileNav,
 } from "@/lib/nav/mobile-nav";
+import { AppearanceSkinPicker } from "./appearance-skin-picker";
 
 type ThemeModeOption = "LIGHT" | "DARK" | "SYSTEM";
 type Density = "COMPACT" | "COMFORTABLE" | "SPACIOUS";
@@ -55,6 +56,7 @@ interface PrefState {
   navigationStyle: NavigationStyle;
   methodology: string;
   defaultBoardId: string;
+  skinId: string | null;
   bgDarkUrl: string | null;
   bgLightUrl: string | null;
   // Pending uploads (blob URLs) — only persisted on Save
@@ -71,6 +73,7 @@ const DEFAULT_STATE: PrefState = {
   navigationStyle: "BOTH",
   methodology: "",
   defaultBoardId: "",
+  skinId: null,
   bgDarkUrl: null,
   bgLightUrl: null,
   bgDarkFile: null,
@@ -157,6 +160,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
       "navigationStyle",
       "methodology",
       "defaultBoardId",
+      "skinId",
     ];
     for (const k of keys) {
       if (committed[k] !== draft[k]) return true;
@@ -189,6 +193,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
             navigationStyle: prefs.navigationStyle ?? "BOTH",
             methodology: prefs.methodology ?? "",
             defaultBoardId: prefs.defaultBoardId ?? "",
+            skinId: prefs.skinId ?? null,
             bgDarkUrl: prefs.bgDarkUrl ?? null,
             bgLightUrl: prefs.bgLightUrl ?? null,
             bgDarkFile: null,
@@ -217,6 +222,17 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
       if (key === "themeMode") applyTheme(value as ThemeModeOption);
       return next;
     });
+  }
+
+  function applySkin(id: string) {
+    update("skinId", id);
+    const d = document.documentElement;
+    d.className = d.className.replace(/\bskin-[\w-]+\b/g, "").trim();
+    d.classList.add(`skin-${id}`);
+    void fetch("/api/skin", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skin: id }),
+    }).catch(() => {});
   }
 
   function handleBgSelect(mode: "dark" | "light", file: File) {
@@ -301,6 +317,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
           navigationStyle: draft.navigationStyle,
           methodology: draft.methodology || null,
           defaultBoardId: draft.defaultBoardId || null,
+          skinId: draft.skinId,
         }),
       });
 
@@ -409,6 +426,11 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
               </button>
             );
           })}
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold">Skin</h3>
+          <AppearanceSkinPicker value={draft.skinId} onChange={applySkin} />
         </div>
 
         <Separator />

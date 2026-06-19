@@ -1442,6 +1442,7 @@ model UserPreferences {
   density         Density         @default(COMFORTABLE)
   defaultBoardId  String?         @map("default_board_id") @db.Uuid
   methodology     String?
+  skinId          String?          @map("skin_id")
   bgDarkUrl       String?         @map("bg_dark_url")
   bgLightUrl      String?         @map("bg_light_url")
   dndEnabled      Boolean         @default(false) @map("dnd_enabled")
