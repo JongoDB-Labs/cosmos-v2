@@ -8,6 +8,7 @@ import { BrandMark } from "@/components/brand/brand-mark";
 import { Starfield } from "@/components/brand/starfield";
 import { GoogleLogo, MicrosoftLogo } from "@/components/brand/provider-logos";
 import { getBrand } from "@/lib/brand";
+import { getSkinPreset, DEFAULT_SKIN_ID } from "@/lib/theme/skins";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_allowed: "Your email is not yet approved. Ask an admin to add it.",
@@ -77,6 +78,13 @@ function LoginInner() {
   // flight we keep Google visible (fail-open for usability; the callback guard
   // is the real enforcement boundary).
   const hideGoogle = sso?.enforced === true;
+
+  const activeSkin =
+    (typeof document !== "undefined" &&
+      document.cookie.match(/(^| )skin=([^;]+)/)?.[2]) ||
+    getBrand().defaultSkinId ||
+    DEFAULT_SKIN_ID;
+  const motif = getSkinPreset(activeSkin).motif;
 
   // ── Email + password (+ TOTP) sign-in ──
   const [showPw, setShowPw] = useState(false);
@@ -154,7 +162,7 @@ function LoginInner() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4">
-      {!getBrand().skin && <Starfield className="absolute inset-0 h-full w-full" />}
+      {motif === "starfield" && <Starfield className="absolute inset-0 h-full w-full" />}
       <div className="relative z-10 w-full max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col items-center text-center">
           <BrandMark size="lg" />

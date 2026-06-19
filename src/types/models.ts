@@ -507,6 +507,7 @@ export interface UserPreferences {
   density: "COMPACT" | "COMFORTABLE" | "SPACIOUS";
   defaultBoardId: string | null;
   methodology: string | null;
+  skinId: string | null;
   bgDarkUrl: string | null;
   bgLightUrl: string | null;
   createdAt: string;
