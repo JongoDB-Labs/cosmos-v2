@@ -20,3 +20,15 @@ describe("theme cookie", () => {
     expect(isValidThemeMode(undefined)).toBe(false);
   });
 });
+
+import { SKIN_COOKIE, isValidSkinId } from "./cookie";
+
+describe("skin cookie", () => {
+  it("names the cookie and validates known ids", () => {
+    expect(SKIN_COOKIE).toBe("skin");
+    expect(isValidSkinId("atelier")).toBe(true);
+    expect(isValidSkinId("universe")).toBe(true);
+    expect(isValidSkinId("nope")).toBe(false);
+    expect(isValidSkinId(null)).toBe(false);
+  });
+});
