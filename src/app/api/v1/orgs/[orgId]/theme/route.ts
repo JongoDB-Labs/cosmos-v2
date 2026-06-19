@@ -86,8 +86,9 @@ export async function PATCH(
       },
     });
 
-    // The cached `getOrgById`/`getOrgBySlug` rows include brand fields, so the
-    // layout would otherwise serve a stale brand until the cache TTL.
+    // Bust the cached org rows (getOrgById/getOrgBySlug cache name + themePrimary)
+    // so theme changes show immediately. Brand-field changes propagate separately
+    // via the dashboard layout's fresh `include: { org: true }` load.
     revalidateOrg({ id: orgId, slug: org.slug });
 
     return success(updated);
