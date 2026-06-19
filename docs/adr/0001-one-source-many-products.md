@@ -24,13 +24,19 @@ on one trunk** — never as forked or long-lived divergent code.
 
 ## The model
 
-1. **One repo, one trunk (`main`), one version.** A `vX.Y.Z` tag builds *every*
-   product image (`cosmos-v2`, `pontis`, …) from the same commit via the `PRODUCT`
-   build matrix (`.github/workflows/release.yml`). Products are *definitionally* the
-   same version — they cannot drift, because there is no second codebase.
+1. **One repo, one trunk (`main`), one version, ONE image.** A `vX.Y.Z` tag builds a
+   SINGLE multi-arch image (`ghcr.io/jongodb-labs/cosmos-v2`) from one commit
+   (`.github/workflows/release.yml`). The per-deployment product is a **runtime env**
+   (`PRODUCT=<key>`), not a build-time matrix — so every deployment runs byte-identical
+   bits and cannot drift. (Phase 3 of the runtime-skins/brand pivot collapsed the former
+   `cosmos-v2` + `pontis` two-image matrix.)
 2. **A product = a profile** (`src/lib/product/profiles.ts`): brand, skin, default
-   module/sector entitlements, tenant class, signing mode. **Adding a customer/face
-   = a new profile + one matrix row**, not a fork.
+   module/sector entitlements, tenant class. The active profile is **selected at
+   runtime** by `PRODUCT` (`getBrand()`), and brand/skin are further **overridable
+   per-org** (Phase 2 `resolveBrand(org)` + org `defaultSkinId`). Default entitlements
+   are overridable per-deployment via `DEFAULT_ENABLED_MODULES`/`DEFAULT_ENABLED_SECTORS`
+   env. **Adding a customer/face = a new profile (+ optionally a runtime env), not a
+   matrix row and never a fork.** Signing is uniform gov-grade for every image.
 3. **Per-deployment + per-org scoping** via **entitlements** (modules + sectors,
    fail-open — `src/lib/entitlements/`) and **sector built-ins** (templates /
    work-item types seeded as global `orgId: null` rows). A customer sees only what
@@ -43,19 +49,21 @@ on one trunk** — never as forked or long-lived divergent code.
 Three layers ensure a change made through one customer's lens cannot silently harm
 another's deployment:
 
-- **Build-time.** `PRODUCT` selects exactly one profile. Product-specific values
-  cannot bleed into another product's image — the skin is scoped to
-  `:root.<product>`, brand strings resolve via `getBrand()`, and defaults come from
-  the selected profile only.
+- **Runtime-selection (was build-time).** `PRODUCT` (a runtime env) selects exactly one
+  profile per render; brand strings resolve via `getBrand()`/`resolveBrand(org)` and skins
+  are runtime-selectable classes (Phase 1-2). Product-specific values cannot bleed across
+  deployments because deployments are separate (data isolation) and the resolution is
+  per-request from that deployment's env + per-org data — there is no second image to drift.
 - **Runtime.** Deployments are separate (data isolation). Entitlements **fail open**:
   a newly added module or sector is **OFF for existing orgs until explicitly
   enabled**, so *adding* capability never changes a running deployment's behavior.
 - **Change-time (the decisive layer).** Every PR/release builds **both** products in
-  CI (matrix, `fail-fast: false`). **Product-neutrality arch tests** (e.g. the
-  brand-literal guard, `src/lib/product/__tests__/brand-literals.arch.test.ts`)
-  assert the default (`cosmos`) face is preserved. Shared-schema changes are
-  **additive and backward-compatible** (new tables/columns; no destructive change to
-  shared ones). A change that breaks either product fails before it can ship.
+  CI (`check` + `build-pontis` legs, `fail-fast: false`). **Product-neutrality arch
+  tests** (e.g. the brand-literal guard,
+  `src/lib/product/__tests__/brand-literals.arch.test.ts`) assert the default
+  (`cosmos`) face is preserved. Shared-schema changes are **additive and
+  backward-compatible** (new tables/columns; no destructive change to shared ones). A
+  change that breaks either product fails before it can ship.
 
 ## Feature-placement maturity ladder
 
@@ -79,16 +87,21 @@ Place each customer/sector-specific feature at the **lowest rung that fits**:
 - ✅ New customers/sectors are **additive** (profile + entitlements) and low-risk to
   existing deployments.
 - ✅ A bad release can be caught on one deployment's staging before another upgrades.
-- ⚠️ The shared image carries every product's code, even gated-off (see open decision).
+- ✅ ONE image carries every product's code; the runtime `PRODUCT` env + fail-open
+  entitlements select per-deployment behavior — no per-product build artifacts to drift,
+  uniform supply-chain evidence for all.
 - ⚠️ Discipline required: changes to shared code must stay **neutral + additive**; the
   CI matrix + arch tests + fail-open entitlements are what enforce it.
 
 ## Open / revisitable decisions
 
-- **Gated code in the gov build (supply chain).** The gov (DoD) image carries A&E
-  code it never runs. **Decision: accept (gated-but-present) for now**; design for
-  **build-time sector exclusion** (tree-shake per `PRODUCT`) if/when an in-boundary
-  supply-chain review requires it.
+- **Gated code in the shared image (supply chain). RESOLVED (Phase 3).** There is now ONE
+  image that carries every product's code; the runtime `PRODUCT` env + fail-open
+  entitlements gate what each deployment runs. Build-time sector exclusion (tree-shake per
+  `PRODUCT`) is explicitly **not pursued** — it would re-introduce per-product artifacts and
+  defeat the one-image collapse. Uniform gov-grade signing (keyless + KMS) + the full
+  SBOM/SLSA/security gates apply to the single image, so the supply-chain posture is
+  identical for all deployments.
 - **Upgrade cadence.** Each deployment pins a version and upgrades on its own
   schedule (gov change-control is slower than commercial). "Adjacent" means the same
   version is *available* to both, not that upgrades are simultaneous.
@@ -98,4 +111,5 @@ Place each customer/sector-specific feature at the **lowest rung that fits**:
 - Profiles — `src/lib/product/profiles.ts`
 - Entitlements (modules + sectors, fail-open) — `src/lib/entitlements/`
 - Skins (scoped per product) — `src/lib/theme/skins.ts`
-- Release (tags-only, `PRODUCT` matrix, per-product signing) — `.github/workflows/release.yml`
+- Release (tags-only, single `cosmos-v2` image, uniform keyless+KMS signing) — `.github/workflows/release.yml`
+- Runtime product resolution (`PRODUCT` env) — `src/lib/brand/index.ts`; entitlement env defaults — `src/lib/entitlements/default-env.ts`
