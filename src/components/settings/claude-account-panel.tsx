@@ -13,7 +13,7 @@ import { LoadError } from "@/components/ui/load-error";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
-import { getBrand } from "@/lib/brand";
+import { useBrand } from "@/components/providers/brand-provider";
 
 /**
  * PERSONAL Claude subscription connect (account settings) — the per-user sibling
@@ -51,11 +51,12 @@ function formatExpiry(iso?: string): string | null {
 }
 
 export function ClaudeAccountPanel() {
+  const brand = useBrand();
   return (
     <SectionCard
       icon={Sparkles}
       title="Personal Claude subscription"
-      description={`Connect your own Claude (Pro/Max) account so the ${getBrand().agentName} runs on it. Takes priority over the org's AI credential; your org's setting is the fallback.`}
+      description={`Connect your own Claude (Pro/Max) account so the ${brand.agentName} runs on it. Takes priority over the org's AI credential; your org's setting is the fallback.`}
     >
       <ClaudeAccountConnect />
     </SectionCard>
