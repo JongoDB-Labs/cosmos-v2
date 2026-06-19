@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getBrand } from "@/lib/brand";
 import type { ProductProfile } from "@/lib/product/profiles";
 import { FIXED_MODULES } from "./modules";
+import { resolveDefaultEntitlements } from "./default-env";
 
 /**
  * Resolved entitlements. `null` = "all enabled" (the load-bearing default that
@@ -78,11 +79,19 @@ export function defaultEntitlementsInput(
 }
 
 /**
- * Provision a new org's entitlements from the active product profile. Writes a
- * row only when the product restricts something — COSMOS orgs stay row-free.
+ * Provision a new org's entitlements from the active product profile, with the
+ * runtime `DEFAULT_ENABLED_MODULES`/`DEFAULT_ENABLED_SECTORS` env CSVs overriding
+ * the profile defaults (Phase 3 one-image). Writes a row only when something is
+ * restricted — an all-on resolution stays row-free (= all enabled), unchanged.
  */
 export async function provisionEntitlements(orgId: string): Promise<void> {
-  const input = defaultEntitlementsInput(getBrand());
+  const input = resolveDefaultEntitlements(
+    {
+      modulesEnv: process.env.DEFAULT_ENABLED_MODULES,
+      sectorsEnv: process.env.DEFAULT_ENABLED_SECTORS,
+    },
+    getBrand(),
+  );
   if (!input) return;
   await prisma.orgEntitlements.create({ data: { orgId, ...input } });
 }
