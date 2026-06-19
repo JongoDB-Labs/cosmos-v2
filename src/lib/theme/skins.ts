@@ -85,7 +85,116 @@ const ATELIER: SkinPreset = {
   ].join("\n"),
 };
 
-export const SKIN_PRESETS: SkinPreset[] = [UNIVERSE, ATELIER];
+// ── Sector presets (Phase 4): additive look options, sector-tagged for the
+//    picker filter. Each owns LOOK tokens only (status colors stay in globals.css).
+//    systemFollowsOs:true so "system" theme mode follows the OS, like universe.
+
+const FIELD: SkinPreset = {
+  id: "field",
+  label: "Field",
+  description: "Rugged industrial — concrete, steel ink, safety amber. Built for the field.",
+  sectors: ["field", "construction", "ops"],
+  systemFollowsOs: true,
+  light: {
+    "color-scheme": "light",
+    "--bg": "#f3f3f1", "--surface": "#e6e6e2", "--overlay": "#fbfbf9",
+    "--border": "#cfcfc8", "--text": "#1b1e22", "--text-muted": "#5c6066",
+    "--primary": "#ea580c", "--primary-hover": "#c2410c",
+    "--primary-tint": "rgb(234 88 12 / 0.10)", "--primary-foreground": "#ffffff",
+    "--radius-sm": "3px", "--radius": "4px", "--radius-md": "4px", "--radius-lg": "6px",
+    "--sidebar-gradient": "linear-gradient(180deg, #f3f3f1 0%, #e6e6e2 100%)",
+  },
+  dark: {
+    "color-scheme": "dark",
+    "--bg": "#17191d", "--surface": "#21242a", "--overlay": "#2a2e35",
+    "--border": "#343941", "--text": "#e8e9ea", "--text-muted": "#9aa0a8",
+    "--primary": "#f97316", "--primary-hover": "#ea580c",
+    "--primary-tint": "rgb(249 115 22 / 0.12)", "--primary-foreground": "#17191d",
+    "--radius-sm": "3px", "--radius": "4px", "--radius-md": "4px", "--radius-lg": "6px",
+    "--sidebar-gradient": "linear-gradient(180deg, #1b1e22 0%, #17191d 100%)",
+  },
+};
+
+const LEDGER: SkinPreset = {
+  id: "ledger",
+  label: "Ledger",
+  description: "Precise finance — deep navy, ink green, tabular figures. Conservative and dense.",
+  sectors: ["finance", "accounting"],
+  systemFollowsOs: true,
+  light: {
+    "color-scheme": "light",
+    "--bg": "#fbfcfd", "--surface": "#eef2f6", "--overlay": "#ffffff",
+    "--border": "#d6dee7", "--text": "#11233f", "--text-muted": "#586a80",
+    "--primary": "#15604d", "--primary-hover": "#0f4a3b",
+    "--primary-tint": "rgb(21 96 77 / 0.09)", "--primary-foreground": "#ffffff",
+    "--radius-sm": "2px", "--radius": "3px", "--radius-md": "3px", "--radius-lg": "5px",
+    "--sidebar-gradient": "linear-gradient(180deg, #fbfcfd 0%, #eef2f6 100%)",
+  },
+  dark: {
+    "color-scheme": "dark",
+    "--bg": "#0d1626", "--surface": "#15233a", "--overlay": "#1d2f4a",
+    "--border": "#263a59", "--text": "#e6ebf2", "--text-muted": "#93a3ba",
+    "--primary": "#34d399", "--primary-hover": "#10b981",
+    "--primary-tint": "rgb(52 211 153 / 0.12)", "--primary-foreground": "#0d1626",
+    "--radius-sm": "2px", "--radius": "3px", "--radius-md": "3px", "--radius-lg": "5px",
+    "--sidebar-gradient": "linear-gradient(180deg, #11233f 0%, #0d1626 100%)",
+  },
+  extras: `:root.skin-ledger { font-feature-settings: "tnum", "lnum"; }`,
+};
+
+const CLINICAL: SkinPreset = {
+  id: "clinical",
+  label: "Clinical",
+  description: "Calm healthcare — soft teal on white, generous spacing, high legibility.",
+  sectors: ["healthcare", "clinical"],
+  systemFollowsOs: true,
+  light: {
+    "color-scheme": "light",
+    "--bg": "#ffffff", "--surface": "#eff6f7", "--overlay": "#ffffff",
+    "--border": "#d6e6e8", "--text": "#16323a", "--text-muted": "#5d7379",
+    "--primary": "#0d9488", "--primary-hover": "#0f766e",
+    "--primary-tint": "rgb(13 148 136 / 0.09)", "--primary-foreground": "#ffffff",
+    "--radius-sm": "8px", "--radius": "10px", "--radius-md": "10px", "--radius-lg": "14px",
+    "--sidebar-gradient": "linear-gradient(180deg, #ffffff 0%, #eff6f7 100%)",
+  },
+  dark: {
+    "color-scheme": "dark",
+    "--bg": "#0f1f24", "--surface": "#162e34", "--overlay": "#1d3a42",
+    "--border": "#244850", "--text": "#eaf3f4", "--text-muted": "#9bb4b8",
+    "--primary": "#2dd4bf", "--primary-hover": "#14b8a6",
+    "--primary-tint": "rgb(45 212 191 / 0.12)", "--primary-foreground": "#0f1f24",
+    "--radius-sm": "8px", "--radius": "10px", "--radius-md": "10px", "--radius-lg": "14px",
+    "--sidebar-gradient": "linear-gradient(180deg, #16323a 0%, #0f1f24 100%)",
+  },
+};
+
+const STUDIO: SkinPreset = {
+  id: "studio",
+  label: "Studio",
+  description: "Expressive creative — electric violet, airy spacing, modern and bold.",
+  sectors: ["design", "creative", "agency"],
+  systemFollowsOs: true,
+  light: {
+    "color-scheme": "light",
+    "--bg": "#faf9fb", "--surface": "#f2f1f5", "--overlay": "#ffffff",
+    "--border": "#e6e3ec", "--text": "#1a1625", "--text-muted": "#6e6880",
+    "--primary": "#7c3aed", "--primary-hover": "#6d28d9",
+    "--primary-tint": "rgb(124 58 237 / 0.09)", "--primary-foreground": "#ffffff",
+    "--radius-sm": "8px", "--radius": "12px", "--radius-md": "12px", "--radius-lg": "18px",
+    "--sidebar-gradient": "linear-gradient(180deg, #faf9fb 0%, #f2f1f5 100%)",
+  },
+  dark: {
+    "color-scheme": "dark",
+    "--bg": "#131218", "--surface": "#1c1a24", "--overlay": "#251f33",
+    "--border": "#2e2940", "--text": "#f0eef5", "--text-muted": "#a39db5",
+    "--primary": "#a78bfa", "--primary-hover": "#8b5cf6",
+    "--primary-tint": "rgb(167 139 250 / 0.14)", "--primary-foreground": "#131218",
+    "--radius-sm": "8px", "--radius": "12px", "--radius-md": "12px", "--radius-lg": "18px",
+    "--sidebar-gradient": "linear-gradient(180deg, #1a1625 0%, #131218 100%)",
+  },
+};
+
+export const SKIN_PRESETS: SkinPreset[] = [UNIVERSE, ATELIER, FIELD, LEDGER, CLINICAL, STUDIO];
 export const DEFAULT_SKIN_ID: SkinId = "universe";
 
 export function getSkinPreset(id: string | null | undefined): SkinPreset {
