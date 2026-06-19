@@ -51,16 +51,17 @@ export async function generateMetadata(): Promise<Metadata> {
 // `viewportFit: "cover"` activates safe-area-inset-* CSS env vars (iOS notch
 // and home-indicator) so the mobile bottom nav and dialog bottom-sheets can
 // respect them. `app/manifest.ts` supplies the manifest link automatically.
-export async function generateViewport(): Promise<Viewport> {
-  await connection(); // runtime themeColor (same one-image rationale as metadata)
-  const b = getBrand();
-  return {
-    width: "device-width",
-    initialScale: 1,
-    viewportFit: "cover",
-    themeColor: b.themeColor,
-  };
-}
+// Viewport stays STATIC (build-baked themeColor): `connection()` here forces a
+// fully-dynamic viewport, which Next disallows for prerendered routes (build
+// error). themeColor is a deferred one-image minor (cosmos accent on a pontis
+// deploy); the title — the visible white-label surface — is fixed via the
+// runtime generateMetadata above.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: brand.themeColor,
+};
 
 /**
  * Inline script that runs synchronously before any paint to prevent FOUC.
