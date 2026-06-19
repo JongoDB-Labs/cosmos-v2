@@ -25,25 +25,39 @@ const brand = getBrand();
 const defaultSkin = getSkinPreset(brand.defaultSkinId).id;
 const skinCss = allSkinsCss();
 
-export const metadata: Metadata = {
-  title: brand.title,
-  description: brand.description,
-  appleWebApp: {
-    capable: true,
-    title: brand.name,
-    statusBarStyle: "black-translucent",
-  },
-};
+// Metadata + viewport read getBrand() at REQUEST time so a one-image deployment
+// gets the runtime product's <title>/theme-color (e.g. PRODUCT=pontis → "Pontis",
+// not the build-baked cosmos default). Under Cache Components, generateMetadata
+// reading runtime data needs a dynamic marker in the tree — the RootBrandProvider
+// (`await connection()` inside <Suspense>, in the body below) is that marker, so
+// the static shell still prerenders while these stream per-request.
+// (The <html> skin-class below still uses the build default; the no-FOUC script /
+// login skin effect correct it at runtime — a first-paint-only nuance.)
+export async function generateMetadata(): Promise<Metadata> {
+  const b = getBrand();
+  return {
+    title: b.title,
+    description: b.description,
+    appleWebApp: {
+      capable: true,
+      title: b.name,
+      statusBarStyle: "black-translucent",
+    },
+  };
+}
 
 // `viewportFit: "cover"` activates safe-area-inset-* CSS env vars (iOS notch
 // and home-indicator) so the mobile bottom nav and dialog bottom-sheets can
 // respect them. `app/manifest.ts` supplies the manifest link automatically.
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  viewportFit: "cover",
-  themeColor: brand.themeColor,
-};
+export async function generateViewport(): Promise<Viewport> {
+  const b = getBrand();
+  return {
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
+    themeColor: b.themeColor,
+  };
+}
 
 /**
  * Inline script that runs synchronously before any paint to prevent FOUC.
