@@ -32,7 +32,20 @@ describe("resolveBrand", () => {
     expect(b.markSrc).toBe("https://cdn.example/acme.png");
     expect(b.agentName).toBe("Acme Helper");
     expect(b.wakeWord).toBe("Hey Acme");
+    expect(b.wakePhrase).toBe("hey acme"); // derived from wakeWord
     expect(b.defaultSkinId).toBe("atelier");
+  });
+
+  it("derives wakePhrase from org.wakeWord when provided", () => {
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    const b = resolveBrand({ wakeWord: "Hey Acme" });
+    expect(b.wakePhrase).toBe("hey acme");
+  });
+
+  it("keeps base wakePhrase when org provides no wakeWord", () => {
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    const b = resolveBrand({ brandName: "Acme Studio" });
+    expect(b.wakePhrase).toBe("hey cosmos"); // base
   });
 
   it("falls through to the base profile for null fields", () => {

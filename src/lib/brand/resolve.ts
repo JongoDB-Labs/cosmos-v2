@@ -24,6 +24,7 @@ export type OrgBrandOverrides = {
 export function resolveBrand(org?: OrgBrandOverrides | null): ProductProfile {
   const base = getBrand();
   if (!org) return base;
+  const resolvedWakeWord = org.wakeWord ?? base.wakeWord;
   return {
     ...base,
     name: org.brandName ?? base.name,
@@ -31,7 +32,11 @@ export function resolveBrand(org?: OrgBrandOverrides | null): ProductProfile {
     tagline: org.tagline ?? base.tagline,
     markSrc: org.logoUrl ?? base.markSrc,
     agentName: org.agentName ?? base.agentName,
-    wakeWord: org.wakeWord ?? base.wakeWord,
+    wakeWord: resolvedWakeWord,
+    // wakePhrase is the lowercase recognizer-matched form of wakeWord.
+    // Derive it from the org override so the voice recognizer listens for the
+    // correct phrase, not just the display label.
+    wakePhrase: resolvedWakeWord.toLowerCase(),
     defaultSkinId: org.defaultSkinId ?? base.defaultSkinId,
   };
 }
