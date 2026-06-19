@@ -13,6 +13,7 @@ import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { getIpAddress } from "@/lib/api-helpers";
 import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
+import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
 
 const MFA_PENDING_TTL = 300; // 5 minutes to complete the second factor
 
@@ -100,5 +101,17 @@ export async function POST(request: NextRequest) {
   const { sessionId } = await createLocalSession(user.id, { mfaSatisfied: false });
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
+
+  // Remember the org so /login can pre-render its brand next time — only when
+  // it's unambiguous (the user belongs to exactly one org). Multi-org users get
+  // no remembered org and the login page falls back to the deployment default.
+  const memberships = await prisma.orgMember.findMany({
+    where: { userId: user.id },
+    select: { org: { select: { slug: true } } },
+    take: 2,
+  });
+  if (memberships.length === 1) {
+    setRememberedOrgCookie(res, memberships[0].org.slug);
+  }
   return res;
 }
