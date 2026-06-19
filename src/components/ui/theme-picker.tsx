@@ -9,6 +9,7 @@ import { readableForeground } from "@/lib/theme/derive";
 import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { AppearanceSkinPicker } from "@/components/settings/appearance-skin-picker";
 
 const PRESETS = [
   "#7C5CFF", "#3B82F6", "#06B6D4", "#10B981",
@@ -31,7 +32,16 @@ export function ThemePicker({
   initial,
 }: {
   orgId: string;
-  initial: { themePrimary: string | null; themeMode: string | null; logoUrl: string | null };
+  initial: {
+    themePrimary: string | null;
+    themeMode: string | null;
+    logoUrl: string | null;
+    defaultSkinId: string | null;
+    brandName: string | null;
+    agentName: string | null;
+    tagline: string | null;
+    wakeWord: string | null;
+  };
 }) {
   const [selected, setSelected] = useState<string>(initial.themePrimary ?? PRESETS[0]);
   const [custom, setCustom] = useState<string>(initial.themePrimary ?? "");
@@ -39,6 +49,11 @@ export function ThemePicker({
     (initial.themeMode as "auto" | "dark" | "light" | null) ?? "auto",
   );
   const [logo, setLogo] = useState<string>(initial.logoUrl ?? "");
+  const [skin, setSkin] = useState<string | null>(initial.defaultSkinId ?? null);
+  const [brandName, setBrandName] = useState<string>(initial.brandName ?? "");
+  const [agentName, setAgentName] = useState<string>(initial.agentName ?? "");
+  const [tagline, setTagline] = useState<string>(initial.tagline ?? "");
+  const [wakeWord, setWakeWord] = useState<string>(initial.wakeWord ?? "");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -47,6 +62,11 @@ export function ThemePicker({
     themePrimary: string | null;
     themeMode: "auto" | "dark" | "light" | null;
     logoUrl: string | null;
+    defaultSkinId: string | null;
+    brandName: string | null;
+    agentName: string | null;
+    tagline: string | null;
+    wakeWord: string | null;
   };
 
   const saveTheme = useOrgMutation<unknown, Error, ThemePayload>({
@@ -105,19 +125,38 @@ export function ThemePicker({
       themePrimary: selected,
       themeMode: mode,
       logoUrl: logo.trim() || null,
+      defaultSkinId: skin,
+      brandName: brandName.trim() || null,
+      agentName: agentName.trim() || null,
+      tagline: tagline.trim() || null,
+      wakeWord: wakeWord.trim() || null,
     });
   }
 
   function reset() {
     setError(null);
     saveTheme.mutate(
-      { themePrimary: null, themeMode: null, logoUrl: null },
+      {
+        themePrimary: null,
+        themeMode: null,
+        logoUrl: null,
+        defaultSkinId: null,
+        brandName: null,
+        agentName: null,
+        tagline: null,
+        wakeWord: null,
+      },
       {
         onSuccess: () => {
           setSelected(PRESETS[0]);
           setCustom("");
           setMode("auto");
           setLogo("");
+          setSkin(null);
+          setBrandName("");
+          setAgentName("");
+          setTagline("");
+          setWakeWord("");
         },
       },
     );
@@ -279,6 +318,66 @@ export function ThemePicker({
         <p className="mt-1 text-xs text-[var(--text-muted)]">
           Shown in the sidebar org switcher. PNG/JPG/WEBP up to 200KB.
         </p>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs uppercase tracking-wide text-[var(--text-muted)]">
+          Default skin for this organization
+        </p>
+        <AppearanceSkinPicker value={skin} onChange={setSkin} />
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Applied to members who haven&apos;t picked their own skin (Settings →
+          Preferences). A member&apos;s own choice always wins.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
+          White-label identity
+        </p>
+        <p className="-mt-2 text-xs text-[var(--text-muted)]">
+          Leave a field blank to inherit the platform default.
+        </p>
+        <label className="block">
+          <span className="mb-1 block text-sm text-[var(--text)]">Brand name</span>
+          <input
+            value={brandName}
+            onChange={(e) => setBrandName(e.target.value)}
+            maxLength={60}
+            placeholder="e.g. Acme Studio"
+            className="h-10 w-full max-w-md rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-3 text-sm"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-[var(--text)]">Agent name</span>
+          <input
+            value={agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            maxLength={60}
+            placeholder="e.g. Acme Helper"
+            className="h-10 w-full max-w-md rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-3 text-sm"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-[var(--text)]">Tagline</span>
+          <input
+            value={tagline}
+            onChange={(e) => setTagline(e.target.value)}
+            maxLength={120}
+            placeholder="e.g. Build beautifully"
+            className="h-10 w-full max-w-md rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-3 text-sm"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-[var(--text)]">Wake word</span>
+          <input
+            value={wakeWord}
+            onChange={(e) => setWakeWord(e.target.value)}
+            maxLength={40}
+            placeholder="e.g. Hey Acme"
+            className="h-10 w-full max-w-md rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-3 text-sm"
+          />
+        </label>
       </div>
 
       {error && (
