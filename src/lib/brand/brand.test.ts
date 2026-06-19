@@ -86,6 +86,13 @@ describe("getBrand — runtime PRODUCT (Phase 3 one-image)", () => {
     expect(getBrand().key).toBe("cosmos");
   });
 
+  it("rejects inherited Object.prototype keys as PRODUCT → cosmos", () => {
+    // bare `in` would match `constructor`/`toString`/`__proto__` etc.
+    process.env.PRODUCT = "constructor";
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    expect(getBrand().key).toBe("cosmos");
+  });
+
   it("defaults to cosmos when neither env is set", () => {
     delete process.env.PRODUCT;
     delete process.env.NEXT_PUBLIC_PRODUCT;

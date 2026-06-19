@@ -19,7 +19,10 @@ import {
  */
 function resolveProductKey(): ProductKey {
   const raw = process.env.PRODUCT ?? process.env.NEXT_PUBLIC_PRODUCT ?? "cosmos";
-  return raw in PRODUCT_PROFILES ? (raw as ProductKey) : "cosmos";
+  // Object.hasOwn (not bare `raw in PRODUCT_PROFILES`) so an inherited
+  // Object.prototype key (e.g. PRODUCT="constructor"/"toString") can't pass
+  // validation and return a non-profile object.
+  return Object.hasOwn(PRODUCT_PROFILES, raw) ? (raw as ProductKey) : "cosmos";
 }
 
 /**
