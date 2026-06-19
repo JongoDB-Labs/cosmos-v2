@@ -1,11 +1,18 @@
-# Signed SemVer container delivery → GHCR.
+# Signed SemVer container delivery → GHCR — native multi-arch via build-by-digest.
 #
-# Builds the multi-stage runtime + migrate images, tags them from
-# package.json's `version` (SemVer + :latest + :sha-<sha>), generates a Syft
-# SPDX SBOM attached to the image, signs BY DIGEST with cosign, and attaches a
-# SLSA build-provenance attestation. Commercial signs keyless via GitHub OIDC →
-# public Fulcio/Rekor; the `gov` path signs with a KMS/HSM key (public Rekor is
-# unreachable/unacceptable in-boundary — spec §8 gate 7).
+# Each (product × arch) builds on its NATIVE runner (no QEMU) and pushes the
+# runtime + migrate images BY DIGEST. A per-product `merge` job then assembles the
+# multi-arch manifest (docker buildx imagetools), applies the tags (SemVer +
+# :latest + :sha-<sha>), generates a Syft SPDX SBOM, signs BY DIGEST with cosign,
+# and attaches a SLSA build-provenance attestation. Commercial signs keyless via
+# GitHub OIDC → public Fulcio/Rekor; the `gov` path signs with a KMS/HSM key
+# (public Rekor is unreachable/unacceptable in-boundary — spec §8 gate 7).
+#
+# Native runners + a registry layer cache (mode=max) make this ~15-25 min cold and
+# near-instant for no-op re-releases (the big MiniLM model + node_modules layers
+# stay warm). arm64 uses GitHub's `ubuntu-24.04-arm` hosted runner — a paid
+# larger-runner tier on PRIVATE repos that the org must enable, but it burns far
+# fewer minutes than the old QEMU cross-build.
 #
 # Spec §8 control mapping:
 #   SBOM (gate 6)            → 800-171 3.4.x   (component inventory)
@@ -14,12 +21,13 @@
 #
 # All `uses:` are pinned to a commit SHA (human-readable version in trailing
 # comment) — the security.yml config-assertion gate fails the build otherwise.
+# (`imagetools` is the docker CLI and `ubuntu-24.04-arm` is a runner label —
+# neither is an action, so there is nothing new to pin for the native-arch change.)
 name: release
 
-# Multi-arch (amd64+arm64) builds are slow under QEMU, so they run ONLY on a
-# deliberate version tag — not on every push to main. Main/PR validation is
-# handled by ci.yml + security.yml (fast, no image build). Cut a release by
-# bumping package.json's version and pushing a `vX.Y.Z` tag (both the cosmos-v2
+# Multi-arch builds run ONLY on a deliberate version tag — not every push to main.
+# Main/PR validation is ci.yml + security.yml (fast, no image build). Cut a release
+# by bumping package.json's version and pushing a `vX.Y.Z` tag (both the cosmos-v2
 # and pontis images build from that one tag via the product matrix below).
 on:
   push:
@@ -38,31 +46,26 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  # IMAGE / MIGRATE_IMAGE are derived at runtime (with a lowercased owner) in the
-  # "Normalize image refs" step below: GHCR repository names MUST be lowercase,
-  # but the org owner `JongoDB-Labs` is mixed-case, which buildx rejects as an
-  # invalid tag ("repository name must be lowercase").
+  # IMAGE / MIGRATE_IMAGE are derived per-job (lowercased owner) in the "Normalize
+  # image refs" step: GHCR repository names MUST be lowercase, but the org owner
+  # `JongoDB-Labs` is mixed-case, which buildx rejects as an invalid tag.
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120 # arm64 cross-build under QEMU is slow
+  # ── Build one (product × arch) on its native runner, push BY DIGEST ──────────
+  build:
     strategy:
-      fail-fast: false # one product failing must not kill the other
+      fail-fast: false # one product/arch failing must not kill the others
       matrix:
         include:
-          - product: cosmos
-            image_base: cosmos-v2
-          - product: pontis
-            image_base: pontis
+          - { product: cosmos, image_base: cosmos-v2, arch: amd64, runner: ubuntu-24.04 }
+          - { product: cosmos, image_base: cosmos-v2, arch: arm64, runner: ubuntu-24.04-arm }
+          - { product: pontis, image_base: pontis, arch: amd64, runner: ubuntu-24.04 }
+          - { product: pontis, image_base: pontis, arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60 # native build of the MiniLM-bearing image; cache warms it down
     permissions:
       contents: read
-      packages: write # push to GHCR
-      id-token: write # keyless cosign (OIDC → Fulcio) + provenance attestation
-      attestations: write # actions/attest-build-provenance
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      digest: ${{ steps.build.outputs.digest }}
+      packages: write # push image layers + by-digest manifests to GHCR
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -71,19 +74,13 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing ${{ matrix.image_base }} v$VERSION"
+          echo "Building ${{ matrix.image_base }} v$VERSION (linux/${{ matrix.arch }})"
 
-      # GHCR repo names must be lowercase; the org owner (JongoDB-Labs) is mixed
-      # case. Lowercase it once and export fully-qualified refs for every later
-      # step (build / sbom / sign / attest), which all read ${{ env.IMAGE }}.
       - name: Normalize image refs (lowercase owner)
         run: |
           OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}" >> "$GITHUB_ENV"
           echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate" >> "$GITHUB_ENV"
-
-# QEMU enables cross-building linux/arm64 on the amd64 runner (multi-arch images).
-      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -94,51 +91,150 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Runtime image — the default Dockerfile target. Push and capture the
-      # immutable digest so cosign/attest/scan all operate by digest (not tag).
-      - name: Build + push runtime image
+      # Runtime image (default target) — push BY DIGEST (no tags); the merge job
+      # assembles the multi-arch manifest + applies the tags. Registry cache
+      # (mode=max) keeps the large MiniLM + node_modules layers warm across runs.
+      - name: Build + push runtime (by digest)
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: linux/${{ matrix.arch }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}
             PRODUCT=${{ matrix.product }}
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
-          provenance: false # SLSA provenance is attached explicitly below by digest
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          provenance: false # SLSA provenance is attached explicitly in `merge` by digest
 
-      # Migrate image — one-shot job image from the Dockerfile `migrate` target.
-      - name: Build + push migrate image
+      # Migrate image (the `migrate` Dockerfile target) — likewise by digest.
+      - name: Build + push migrate (by digest)
         id: build-migrate
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           target: migrate
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: linux/${{ matrix.arch }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}
             PRODUCT=${{ matrix.product }}
-          tags: |
-            ${{ env.MIGRATE_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.MIGRATE_IMAGE }}:latest
-            ${{ env.MIGRATE_IMAGE }}:sha-${{ github.sha }}
+          outputs: type=image,name=${{ env.MIGRATE_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.MIGRATE_IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.MIGRATE_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
           provenance: false
 
-      # SBOM (gate 6) — Syft SPDX-JSON of the pushed image, attached to the
-      # registry as an SBOM attestation AND uploaded as a workflow artifact.
+      # Export the two digests as files named by their digest; the merge job
+      # collects every arch's digest to assemble the manifest list.
+      - name: Export digests
+        run: |
+          mkdir -p /tmp/d/runtime /tmp/d/migrate
+          touch "/tmp/d/runtime/${RUNTIME_DIGEST#sha256:}"
+          touch "/tmp/d/migrate/${MIGRATE_DIGEST#sha256:}"
+        env:
+          RUNTIME_DIGEST: ${{ steps.build.outputs.digest }}
+          MIGRATE_DIGEST: ${{ steps.build-migrate.outputs.digest }}
+
+      - name: Upload digests
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digests-${{ matrix.image_base }}-${{ matrix.arch }}
+          path: /tmp/d/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Per product: assemble the multi-arch manifest, tag, SBOM, sign, attest ───
+  merge:
+    needs: build
+    # Run even if a sibling build leg failed (!cancelled), so one product's failure
+    # doesn't block the other's release; the per-product arch-count guard below
+    # fails THIS product if either of its arches is missing.
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { product: cosmos, image_base: cosmos-v2 }
+          - { product: pontis, image_base: pontis }
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # push the merged manifests + tags
+      id-token: write # keyless cosign (OIDC → Fulcio) + provenance attestation
+      attestations: write # actions/attest-build-provenance
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Derive VERSION from package.json
+        id: version
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize image refs (lowercase owner)
+        run: |
+          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}" >> "$GITHUB_ENV"
+          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Collect THIS product's per-arch digests (runtime/ + migrate/ subdirs, one
+      # digest-named file per arch) into a single tree.
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: digests-${{ matrix.image_base }}-*
+          path: /tmp/d
+          merge-multiple: true
+
+      # Assemble the multi-arch manifest for runtime + migrate from the per-arch
+      # digests and apply the tags. Guard that BOTH arches are present so a missing
+      # arch fails the release rather than silently shipping a single-arch image.
+      # Capture each merged (manifest-list) digest for sign/attest/SBOM by digest.
+      - name: Create + push manifests
+        id: manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          SHA="sha-$GIT_SHA"
+          # Guard: both arches must be present, else fail (no silent single-arch image).
+          for kind in runtime migrate; do
+            n=0
+            for f in "/tmp/d/$kind"/*; do [ -e "$f" ] && n=$((n + 1)); done
+            [ "$n" -eq 2 ] || { echo "::error::expected 2 arch digests for $kind, found $n"; exit 1; }
+          done
+          runtime_refs=()
+          for f in /tmp/d/runtime/*; do runtime_refs+=("$IMAGE@sha256:$(basename "$f")"); done
+          migrate_refs=()
+          for f in /tmp/d/migrate/*; do migrate_refs+=("$MIGRATE_IMAGE@sha256:$(basename "$f")"); done
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:latest" -t "$IMAGE:$SHA" "${runtime_refs[@]}"
+          docker buildx imagetools create \
+            -t "$MIGRATE_IMAGE:$VERSION" -t "$MIGRATE_IMAGE:latest" -t "$MIGRATE_IMAGE:$SHA" "${migrate_refs[@]}"
+          RUNTIME_DIGEST="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
+          MIGRATE_DIGEST="$(docker buildx imagetools inspect "$MIGRATE_IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
+          echo "runtime_digest=$RUNTIME_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "migrate_digest=$MIGRATE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Merged $IMAGE:$VERSION → $RUNTIME_DIGEST"
+
+      # SBOM (gate 6) — Syft SPDX-JSON of the merged runtime image, by digest.
       - name: Generate + attach SBOM (Syft SPDX)
         uses: anchore/sbom-action@9246b90769f852b3a8921f330c59e0b3f439d6e9 # v0.20.1
         with:
-          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}
           format: spdx-json
-          # Per-product filename so the two matrix legs don't collide on the
-          # uploaded artifact name.
+          # Per-product filename so the two merge legs don't collide on the artifact.
           output-file: sbom-${{ matrix.image_base }}.spdx.json
           upload-artifact: true
 
@@ -153,30 +249,24 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
-          cosign sign --yes \
-            "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
-          cosign sign --yes \
-            "${{ env.MIGRATE_IMAGE }}@${{ steps.build-migrate.outputs.digest }}"
+          cosign sign --yes "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
+          cosign sign --yes "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
 
       # GOV: KMS/HSM key — public Fulcio/Rekor is unreachable/unacceptable
-      # in-boundary. COSIGN_KEY is a KMS ref (e.g. awskms://…, gcpkms://…) or a
-      # vaulted key; COSIGN_PASSWORD unlocks a file key. Self-hosted Sigstore is
-      # the alternative; documented as a deployment decision (spec §8 gate 7).
+      # in-boundary. COSIGN_KEY is a KMS ref (awskms://…, gcpkms://…) or vaulted key.
       - name: cosign sign (gov — KMS key)
         if: ${{ github.event.inputs.signing_mode == 'gov' && matrix.product == 'cosmos' }}
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
-          cosign sign --yes --key "env://COSIGN_KEY" \
-            "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
-          cosign sign --yes --key "env://COSIGN_KEY" \
-            "${{ env.MIGRATE_IMAGE }}@${{ steps.build-migrate.outputs.digest }}"
+          cosign sign --yes --key "env://COSIGN_KEY" "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
+          cosign sign --yes --key "env://COSIGN_KEY" "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
 
-      # SLSA build provenance attestation, bound to the runtime image digest.
+      # SLSA build provenance attestation, bound to the merged runtime manifest digest.
       - name: Attest build provenance (SLSA)
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.manifest.outputs.runtime_digest }}
           push-to-registry: true
