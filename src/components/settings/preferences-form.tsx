@@ -43,6 +43,8 @@ import {
   saveMobileNav,
 } from "@/lib/nav/mobile-nav";
 import { AppearanceSkinPicker } from "./appearance-skin-picker";
+import { OrgBrandingSection } from "./org-branding-section";
+import type { OrgBrandingInitial } from "./org-branding-section";
 
 type ThemeModeOption = "LIGHT" | "DARK" | "SYSTEM";
 type Density = "COMPACT" | "COMFORTABLE" | "SPACIOUS";
@@ -116,6 +118,8 @@ const methodologyOptions = [
 
 interface PreferencesFormProps {
   orgId: string;
+  canManageBranding?: boolean;
+  orgBranding?: OrgBrandingInitial | null;
 }
 
 function applyTheme(mode: ThemeModeOption) {
@@ -137,7 +141,7 @@ function applyBgVar(mode: "dark" | "light", url: string | null) {
   }
 }
 
-export function PreferencesForm({ orgId }: PreferencesFormProps) {
+export function PreferencesForm({ orgId, canManageBranding = false, orgBranding = null }: PreferencesFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -686,6 +690,21 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
         </div>
         <DndSettings orgId={orgId} />
       </section>
+
+      {canManageBranding && orgBranding && (
+        <>
+          <Separator />
+          <section className="flex flex-col gap-4">
+            <div>
+              <h3 className="text-sm font-semibold">Organization branding</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Customize the primary color, logo, skin default, and white-label identity for this organization.
+              </p>
+            </div>
+            <OrgBrandingSection orgId={orgId} initial={orgBranding} />
+          </section>
+        </>
+      )}
 
       {/* Sticky save bar — appears when dirty. Bottom offset clears the
        * mobile bottom-nav (h-16 + safe-area, z-30); desktop has no bottom
