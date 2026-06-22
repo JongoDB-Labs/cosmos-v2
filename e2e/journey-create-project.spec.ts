@@ -1,4 +1,28 @@
 import { test, expect } from "./fixtures/auth";
+import type { Page } from "@playwright/test";
+
+/**
+ * `page.goto` that tolerates the transient `net::ERR_ABORTED` that `next dev`
+ * throws when a streaming navigation races a cacheComponents tag revalidation —
+ * e.g. loading the /projects list right after a create hard-expires its cache
+ * tag. Harmless under a production build; it only bites the dev server the CI
+ * e2e job runs. Retries the navigation a few times before giving up.
+ */
+async function gotoStable(
+  page: Page,
+  url: string,
+  opts?: Parameters<Page["goto"]>[1],
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.goto(url, opts);
+      return;
+    } catch (e) {
+      if (attempt >= 4 || !String(e).includes("ERR_ABORTED")) throw e;
+      await page.waitForTimeout(500);
+    }
+  }
+}
 
 /**
  * E2E user journey — the core "create a project" lifecycle: from the projects
@@ -29,7 +53,7 @@ test.describe("journey — project lifecycle", () => {
     const name = `E2E Journey ${suffix}`;
     const key = `E2E${suffix}`; // e.g. E2E123456 — matches ^[A-Z][A-Z0-9]*$, ≤10 chars
 
-    await page.goto(`/${ORG}/projects`, { waitUntil: "domcontentloaded" });
+    await gotoStable(page, `/${ORG}/projects`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("main", { timeout: 20_000 });
 
     // Entry: the header "New project" link, or the empty-state "Create project"
@@ -68,7 +92,7 @@ test.describe("journey — project lifecycle", () => {
 
     // The project is reachable directly by its key (the canonical post-create
     // landing), confirming it was persisted.
-    await page.goto(`/${ORG}/projects/${key.toLowerCase()}`, {
+    await gotoStable(page, `/${ORG}/projects/${key.toLowerCase()}`, {
       waitUntil: "domcontentloaded",
     });
     await page.waitForSelector("main", { timeout: 20_000 });
@@ -79,7 +103,7 @@ test.describe("journey — project lifecycle", () => {
     // expires the `org:<id>:projects` cache tag (revalidateTag(tag,{expire:0})),
     // so this fresh navigation is a cache miss and re-queries the DB. (ProjectCard
     // renders a <Link> whose accessible name contains the project name.)
-    await page.goto(`/${ORG}/projects`, { waitUntil: "domcontentloaded" });
+    await gotoStable(page, `/${ORG}/projects`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("main", { timeout: 20_000 });
     await expect(
       page.getByRole("link", { name: new RegExp(name) }).first(),

@@ -64,7 +64,9 @@
   --overlay: #FFFFFF;
   --border: #E5E7EB;
   --text: #0F172A;
-  --text-muted: #64748B;
+  /* a11y: darkened from #64748B (~4.4:1 on --surface, fails WCAG AA) so small
+     muted text clears 4.5:1. Dark mode already passes, so only light changes. */
+  --text-muted: #5A6678;
 
   --primary: #0F172A;
   --primary-hover: #1E293B;

@@ -884,7 +884,9 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        {/* tabIndex makes the scroll region keyboard-reachable even when the
+            list is empty (no focusable children) — axe scrollable-region-focusable. */}
+        <div tabIndex={0} className="flex-1 overflow-y-auto">
           {loadingConvos ? (
             <div className="flex flex-col gap-2 p-3">
               {Array.from({ length: 5 }).map((_, i) => (

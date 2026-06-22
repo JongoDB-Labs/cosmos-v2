@@ -21,6 +21,8 @@ import { sectionCardExamples } from "@/components/ui/__examples__/section-card";
 import { staggeredGridExamples } from "@/components/ui/__examples__/staggered-grid";
 import { toggleSwitchExamples } from "@/components/ui/__examples__/toggle-switch";
 import { unsavedChangesGuardExamples } from "@/components/ui/__examples__/unsaved-changes-guard";
+import { confirmButtonExamples } from "@/components/ui/__examples__/confirm-button";
+import { searchableSelectExamples } from "@/components/ui/__examples__/searchable-select";
 
 type Example = { label: string; node: ReactNode; code?: string };
 type Section = { title: string; examples: Example[] };
@@ -35,9 +37,11 @@ const SECTIONS: Section[] = [
   { title: "SectionCard", examples: sectionCardExamples },
   { title: "DataTable", examples: dataTableExamples },
   { title: "ActionMenu", examples: actionMenuExamples },
+  { title: "ConfirmButton", examples: confirmButtonExamples },
   { title: "Checkbox", examples: checkboxExamples },
   { title: "ToggleSwitch", examples: toggleSwitchExamples },
   { title: "DatePicker", examples: datePickerExamples },
+  { title: "SearchableSelect", examples: searchableSelectExamples },
   { title: "FormField", examples: formFieldExamples },
   { title: "CodeSnippet", examples: codeSnippetExamples },
   { title: "PageSkeleton", examples: pageSkeletonExamples },

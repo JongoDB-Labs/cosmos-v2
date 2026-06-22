@@ -27,7 +27,8 @@ const SKIP = new Set([
 ]);
 
 const files = readdirSync(UI_DIR).filter(
-  (f) => f.endsWith(".tsx") && !SKIP.has(f),
+  // Real primitives only — not co-located test files (e.g. theme-picker.test.tsx).
+  (f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx") && !SKIP.has(f),
 );
 
 const missing = files.filter(
