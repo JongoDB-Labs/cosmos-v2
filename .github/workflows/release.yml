@@ -65,7 +65,7 @@ jobs:
       contents: read
       packages: write # push image layers + by-digest manifests to GHCR
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Derive VERSION from package.json
         id: version
@@ -160,7 +160,7 @@ jobs:
       id-token: write # keyless cosign (OIDC → Fulcio) + provenance attestation
       attestations: write # actions/attest-build-provenance
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Derive VERSION from package.json
         id: version
