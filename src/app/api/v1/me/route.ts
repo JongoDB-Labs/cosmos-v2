@@ -3,26 +3,13 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { imageUrlSchema } from "@/lib/security/image-url";
 
 const schema = z.object({
   displayName: z.string().min(1).max(100).optional(),
-  avatarUrl: z.string()
-    // Accept either a data URL (base64, ~1MB image) or a regular https URL. The
-    // client downscales large photos to fit, so this is just a safety ceiling.
-    .refine((v) => {
-      if (v.startsWith("data:image/")) {
-        // ~1MB image as base64 (expands ~34%) plus the data-URL prefix.
-        return v.length <= 1_400_000;
-      }
-      try {
-        const u = new URL(v);
-        return u.protocol === "https:" || u.protocol === "http:";
-      } catch {
-        return false;
-      }
-    }, "Must be a data-URL image (~1MB max) or an https URL")
-    .nullable()
-    .optional(),
+  // ~1MB image as base64 (expands ~34%) plus the data-URL prefix. The client
+  // downscales large photos to fit, so this is just a safety ceiling.
+  avatarUrl: imageUrlSchema(1_400_000, "Must be a data-URL image (~1MB max) or an https URL"),
 });
 
 export async function GET() {

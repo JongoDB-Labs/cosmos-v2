@@ -7,9 +7,10 @@ import { success, handleApiError, getIpAddress, noContent } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { revalidateOrg } from "@/lib/cache/queries";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
+import { logoUrlSchema } from "@/lib/security/image-url";
 import { z } from "zod";
 
-const updateOrgSchema = z.object({
+export const updateOrgSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   // Renaming the slug changes the workspace URL — same format rules as
   // creation. Uniqueness + reserved-word checks happen below.
@@ -19,7 +20,7 @@ const updateOrgSchema = z.object({
     .max(50)
     .regex(/^[a-z0-9-]+$/)
     .optional(),
-  logoUrl: z.string().url().nullable().optional(),
+  logoUrl: logoUrlSchema,
   themePrimary: z.string().nullable().optional(),
   themeMode: z.string().nullable().optional(),
   settings: z.record(z.string(), z.any()).optional(),

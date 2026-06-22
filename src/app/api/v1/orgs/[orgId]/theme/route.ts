@@ -7,22 +7,12 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { isValidSkinId } from "@/lib/theme/cookie";
 import { revalidateOrg } from "@/lib/cache/queries";
+import { logoUrlSchema } from "@/lib/security/image-url";
 
 const schema = z.object({
   themePrimary: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
   themeMode: z.enum(["auto", "dark", "light"]).nullable().optional(),
-  logoUrl: z.string()
-    .refine((v) => {
-      if (v.startsWith("data:image/")) return v.length <= 280_000;
-      try {
-        const u = new URL(v);
-        return u.protocol === "https:" || u.protocol === "http:";
-      } catch {
-        return false;
-      }
-    }, "Must be a data URL ≤200KB or an https URL")
-    .nullable()
-    .optional(),
+  logoUrl: logoUrlSchema,
   // ── Phase 2: per-org white-label brand. All nullable (null = inherit the
   //    deployment/product default). defaultSkinId is checked against the skin
   //    registry; the free-text identity fields are length-bounded so a stray
