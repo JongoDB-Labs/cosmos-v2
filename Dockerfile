@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 # --- deps ---
-FROM node:20-bookworm-slim AS deps
+FROM node:26-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # --- build ---
-FROM node:20-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY --from=deps /app/node_modules ./node_modules
@@ -59,7 +59,7 @@ FROM build AS migrate
 CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
 # --- runtime (standalone) — the default build target ---
-FROM node:20-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 HOME=/home/cosmos
 # In-boundary embeddings run fully offline (gov): the MiniLM model is baked into
