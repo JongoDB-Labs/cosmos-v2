@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
-// Component tests for the Group C additions to <ThemePicker>:
-// - new fields (defaultSkinId, brandName, agentName, tagline, wakeWord) render
-// - those fields are included in the PATCH submit payload
+// Migrated from src/components/ui/theme-picker.test.tsx (deleted in Task 5).
+// Tests the extracted OrgBrandingSection component which holds the exact same
+// org-branding UI + save logic that was previously inside ThemePicker.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
-import { ThemePicker } from "./theme-picker";
+import { OrgBrandingSection } from "./org-branding-section";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
-  usePathname: () => "/acme/settings/themes",
+  usePathname: () => "/acme/settings/preferences",
 }));
 
 vi.mock("@/lib/theme/skins", () => ({
@@ -58,7 +58,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-type PickerInitial = {
+type BrandingInitial = {
   themePrimary: string | null;
   themeMode: "auto" | "dark" | "light" | null;
   logoUrl: string | null;
@@ -69,7 +69,7 @@ type PickerInitial = {
   wakeWord: string | null;
 };
 
-const BASE_INITIAL: PickerInitial = {
+const BASE_INITIAL: BrandingInitial = {
   themePrimary: "#7C5CFF",
   themeMode: "auto",
   logoUrl: null,
@@ -80,9 +80,9 @@ const BASE_INITIAL: PickerInitial = {
   wakeWord: null,
 };
 
-function renderPicker(overrides: Partial<PickerInitial> = {}) {
+function renderSection(overrides: Partial<BrandingInitial> = {}) {
   return render(
-    <ThemePicker orgId="org-123" initial={{ ...BASE_INITIAL, ...overrides }} />,
+    <OrgBrandingSection orgId="org-123" initial={{ ...BASE_INITIAL, ...overrides }} />,
   );
 }
 
@@ -90,9 +90,9 @@ afterEach(cleanup);
 beforeEach(() => vi.clearAllMocks());
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
-describe("ThemePicker — new Group C fields", () => {
+describe("OrgBrandingSection — org-branding fields", () => {
   it("renders the 4 identity text inputs", () => {
-    renderPicker();
+    renderSection();
     expect(screen.getByPlaceholderText("e.g. Acme Studio")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("e.g. Acme Helper")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("e.g. Build beautifully")).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("ThemePicker — new Group C fields", () => {
   });
 
   it("renders the org-default skin picker section", () => {
-    renderPicker();
+    renderSection();
     expect(
       screen.getByText(/Default skin for this organization/i),
     ).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe("ThemePicker — new Group C fields", () => {
   });
 
   it("pre-populates inputs with values from initial props", () => {
-    renderPicker({
+    renderSection({
       brandName: "Acme Studio",
       agentName: "Acme Helper",
       tagline: "Build beautifully",
@@ -126,7 +126,7 @@ describe("ThemePicker — new Group C fields", () => {
     const { jsonFetch } = await import("@/lib/query/json-fetcher");
     const fetchMock = vi.mocked(jsonFetch);
 
-    renderPicker();
+    renderSection();
 
     // Fill in the identity inputs
     fireEvent.change(screen.getByPlaceholderText("e.g. Acme Studio"), {
@@ -170,7 +170,7 @@ describe("ThemePicker — new Group C fields", () => {
     const { jsonFetch } = await import("@/lib/query/json-fetcher");
     const fetchMock = vi.mocked(jsonFetch);
 
-    renderPicker({ brandName: "Existing" });
+    renderSection({ brandName: "Existing" });
 
     // Clear the brandName
     fireEvent.change(screen.getByDisplayValue("Existing"), {
@@ -190,7 +190,7 @@ describe("ThemePicker — new Group C fields", () => {
     const { jsonFetch } = await import("@/lib/query/json-fetcher");
     const fetchMock = vi.mocked(jsonFetch);
 
-    renderPicker();
+    renderSection();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Reset to default/i }));

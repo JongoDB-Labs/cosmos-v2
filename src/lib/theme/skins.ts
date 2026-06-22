@@ -113,6 +113,11 @@ const FIELD: SkinPreset = {
     "--radius-sm": "3px", "--radius": "4px", "--radius-md": "4px", "--radius-lg": "6px",
     "--sidebar-gradient": "linear-gradient(180deg, #1b1e22 0%, #17191d 100%)",
   },
+  extras: `:root.skin-field { --font-sans: var(--font-field); }
+:root.skin-field.skin-field body::before { background-image: none; background-color: var(--bg); }
+:root.skin-field.skin-field body::after { content: none; }
+:root.skin-field [data-app-canvas] { background-color: transparent; background-image: repeating-linear-gradient(135deg, rgb(234 88 12 / 0.05) 0 7px, transparent 7px 22px); }
+:root.skin-field ::selection { background: rgb(234 88 12 / 0.20); }`,
 };
 
 const LEDGER: SkinPreset = {
@@ -139,7 +144,11 @@ const LEDGER: SkinPreset = {
     "--radius-sm": "2px", "--radius": "3px", "--radius-md": "3px", "--radius-lg": "5px",
     "--sidebar-gradient": "linear-gradient(180deg, #11233f 0%, #0d1626 100%)",
   },
-  extras: `:root.skin-ledger { font-feature-settings: "tnum", "lnum"; }`,
+  extras: `:root.skin-ledger { --font-sans: var(--font-ledger); font-feature-settings: "tnum", "lnum"; }
+:root.skin-ledger.skin-ledger body::before { background-image: none; background-color: var(--bg); }
+:root.skin-ledger.skin-ledger body::after { content: none; }
+:root.skin-ledger [data-app-canvas] { background-color: transparent; background-image: repeating-linear-gradient(to bottom, transparent 0 21px, rgb(21 96 77 / 0.08) 21px 22px); }
+:root.skin-ledger ::selection { background: rgb(21 96 77 / 0.18); }`,
 };
 
 const CLINICAL: SkinPreset = {
@@ -166,6 +175,11 @@ const CLINICAL: SkinPreset = {
     "--radius-sm": "8px", "--radius": "10px", "--radius-md": "10px", "--radius-lg": "14px",
     "--sidebar-gradient": "linear-gradient(180deg, #16323a 0%, #0f1f24 100%)",
   },
+  extras: `:root.skin-clinical { --font-sans: var(--font-clinical); }
+:root.skin-clinical.skin-clinical body::before { background-image: none; background-color: var(--bg); }
+:root.skin-clinical.skin-clinical body::after { content: none; }
+:root.skin-clinical [data-app-canvas] { background-color: transparent; background-image: radial-gradient(rgb(13 148 136 / 0.10) 1px, transparent 1px); background-size: 16px 16px; }
+:root.skin-clinical ::selection { background: rgb(13 148 136 / 0.18); }`,
 };
 
 const STUDIO: SkinPreset = {
@@ -192,6 +206,11 @@ const STUDIO: SkinPreset = {
     "--radius-sm": "8px", "--radius": "12px", "--radius-md": "12px", "--radius-lg": "18px",
     "--sidebar-gradient": "linear-gradient(180deg, #1a1625 0%, #131218 100%)",
   },
+  extras: `:root.skin-studio { --font-sans: var(--font-studio); }
+:root.skin-studio.skin-studio body::before { background-image: none; background-color: var(--bg); }
+:root.skin-studio.skin-studio body::after { content: none; }
+:root.skin-studio [data-app-canvas] { background-color: transparent; background-image: radial-gradient(rgb(124 58 237 / 0.08) 2px, transparent 2px); background-size: 28px 28px; }
+:root.skin-studio ::selection { background: rgb(124 58 237 / 0.22); }`,
 };
 
 export const SKIN_PRESETS: SkinPreset[] = [UNIVERSE, ATELIER, FIELD, LEDGER, CLINICAL, STUDIO];

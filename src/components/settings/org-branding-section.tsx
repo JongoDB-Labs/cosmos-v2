@@ -1,9 +1,9 @@
 "use client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "./button";
-import { Badge } from "./badge";
-import { StatCard } from "./stat-card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { StatCard } from "@/components/ui/stat-card";
 import { passesAA } from "@/lib/theme/contrast";
 import { readableForeground } from "@/lib/theme/derive";
 import { cn } from "@/lib/utils";
@@ -27,21 +27,23 @@ const BASE_PRESETS = [
   { id: "black", name: "Black", primary: "#F8FAFC", mode: "dark" as const, swatch: "#0B0E1A" },
 ];
 
-export function ThemePicker({
+export type OrgBrandingInitial = {
+  themePrimary: string | null;
+  themeMode: string | null;
+  logoUrl: string | null;
+  defaultSkinId: string | null;
+  brandName: string | null;
+  agentName: string | null;
+  tagline: string | null;
+  wakeWord: string | null;
+};
+
+export function OrgBrandingSection({
   orgId,
   initial,
 }: {
   orgId: string;
-  initial: {
-    themePrimary: string | null;
-    themeMode: string | null;
-    logoUrl: string | null;
-    defaultSkinId: string | null;
-    brandName: string | null;
-    agentName: string | null;
-    tagline: string | null;
-    wakeWord: string | null;
-  };
+  initial: OrgBrandingInitial;
 }) {
   const [selected, setSelected] = useState<string>(initial.themePrimary ?? PRESETS[0]);
   const [custom, setCustom] = useState<string>(initial.themePrimary ?? "");

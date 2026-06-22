@@ -59,4 +59,16 @@ describe("skin registry", () => {
     expect(css).toContain("background-size: 48px 48px;");
     expect(css).toContain('font-feature-settings: "ss01"');
   });
+  it("each sector skin suppresses the cosmos bg, paints a texture, and swaps its font", () => {
+    const css = allSkinsCss();
+    const fontVar: Record<string, string> = { field: "--font-field", ledger: "--font-ledger", clinical: "--font-clinical", studio: "--font-studio" };
+    for (const id of ["field", "ledger", "clinical", "studio"]) {
+      expect(css).toContain(`:root.skin-${id}.skin-${id} body::before { background-image: none;`);
+      expect(css).toContain(`:root.skin-${id}.skin-${id} body::after { content: none; }`);
+      expect(css).toContain(`:root.skin-${id} [data-app-canvas] {`);
+      expect(css).toContain(`:root.skin-${id} { --font-sans: var(${fontVar[id]});`);
+    }
+    // universe keeps the cosmos backdrop (never suppresses it)
+    expect(css).not.toContain(":root.skin-universe.skin-universe body::before { background-image: none;");
+  });
 });
