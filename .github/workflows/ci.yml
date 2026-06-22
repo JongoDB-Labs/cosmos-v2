@@ -14,10 +14,32 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # The `Test (DB integration)` step runs a handful of Prisma specs against a
+      # real database. pgvector image (the schema has a vector column) — mirrors
+      # the e2e job's service.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        # Hold the job until Postgres is accepting connections.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       # tsc --noEmit OOMs at the runner's ~2GB Node default on this codebase;
       # give it (and next build) a 4GB heap. Well within the 7GB runner.
       NODE_OPTIONS: --max-old-space-size=4096
+      # Consumed by the DB-integration specs (and harmless to the unit run, which
+      # mocks Prisma). Same value the Build step already used as a stub.
+      DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      DIRECT_URL: postgres://ci:ci@localhost:5432/ci
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -38,8 +60,36 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Test (unit)
+        # Parallel, no DB. Excludes the DB-integration specs run separately below
+        # (they need Postgres + the seeded fixtures and must run serially).
+        run: >-
+          npm test --
+          --exclude src/lib/files/__tests__/convert.test.ts
+          --exclude src/lib/files/__tests__/ingest.test.ts
+          --exclude src/lib/files/__tests__/propose.test.ts
+          --exclude src/lib/ingest/__tests__/items.test.ts
+
+      - name: Prepare integration test DB
+        # compose/init/01-app-role.sh creates the cosmos/cosmos_app roles for the
+        # compose stack; a services: Postgres doesn't run init scripts, so create
+        # them here — the 20260606050000_audit_immutability migration GRANTs
+        # against them. Then apply the schema + seed test-org/alice/bob fixtures.
+        run: |
+          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
+          npx prisma migrate deploy
+          npx tsx prisma/seed/test-fixtures.ts
+
+      - name: Test (DB integration)
+        # A few Prisma specs hit the real Postgres against the seeded fixtures. Run
+        # SERIALLY (--no-file-parallelism): they share the test-org/TEST project,
+        # and parallel workers race the per-project ticketNumber allocation.
+        run: >-
+          npx vitest run --no-file-parallelism
+          src/lib/files/__tests__/convert.test.ts
+          src/lib/files/__tests__/ingest.test.ts
+          src/lib/files/__tests__/propose.test.ts
+          src/lib/ingest/__tests__/items.test.ts
 
       - name: Examples gate
         run: npm run check:examples
@@ -116,7 +166,7 @@ jobs:
       ALLOWED_EMAILS: ci@example.com
       # Enables the /api/testenv/sign-in route the Playwright fixtures use.
       E2E_TEST_AUTH: "1"
-      # next build OOMs at the runner's ~2GB Node default on this codebase.
+      # The dev server can exceed the runner's ~2GB Node default on this codebase.
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -128,25 +178,32 @@ jobs:
       - run: npm run e2e:install
       - run: npx prisma generate
       # Real schema + the deterministic test-org/alice/bob fixtures the specs
-      # (smoke, a11y, chat) all sign in against.
+      # (smoke, a11y, chat) all sign in against. Create the cosmos/cosmos_app
+      # roles first (the services: Postgres skips compose/init) so the
+      # audit-immutability migration's GRANTs apply — see prisma/sql/ci-roles.sql.
       - name: Migrate + seed test fixtures
         run: |
+          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
-      - name: Build, start, run e2e
+      - name: Start (dev) + run e2e
+        # Serve with `next dev` (NODE_ENV=development), NOT `next build`/`next start`
+        # (production). The /api/testenv/sign-in route is hard-disabled when
+        # NODE_ENV==='production' (deliberate auth-bypass guard, above the
+        # E2E_TEST_AUTH gate), so the Playwright sign-in fixture only works against
+        # a non-production server. The production build is exercised by `check`.
         run: |
-          npm run build
-          npm start &
+          npm run dev &
           # Wait for the server to accept requests before driving it. If it
           # never comes up, fail with a clear message instead of letting
           # Playwright run against a dead server (cryptic ECONNREFUSED ×retries).
           ready=0
-          for i in $(seq 1 45); do
+          for i in $(seq 1 60); do
             if curl -sf http://localhost:3000/api/health >/dev/null; then ready=1; break; fi
             sleep 2
           done
           if [ "$ready" -ne 1 ]; then
-            echo "::error::server did not become ready on :3000 within ~90s"
+            echo "::error::server did not become ready on :3000 within ~120s"
             exit 1
           fi
           npm run e2e
@@ -188,7 +245,7 @@ jobs:
       # Opts the e2e/interaction/** specs back IN (testIgnore drops them by
       # default — see playwright.config.ts).
       E2E_INCLUDE_INTERACTION: "1"
-      # next build OOMs at the runner's ~2GB Node default on this codebase.
+      # The dev server can exceed the runner's ~2GB Node default on this codebase.
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -200,21 +257,24 @@ jobs:
       - run: npm run e2e:install
       - run: npx prisma generate
       # Same deterministic test-org/alice/bob fixtures the gated e2e run uses.
+      # Roles first (services: Postgres skips compose/init) — see ci-roles.sql.
       - name: Migrate + seed test fixtures
         run: |
+          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
-      - name: Build, start, run drag interaction spec
+      - name: Start (dev) + run drag interaction spec
+        # `next dev` (development), not build/start (production) — the test-auth
+        # sign-in route is hard-disabled under NODE_ENV=production. See the e2e job.
         run: |
-          npm run build
-          npm start &
+          npm run dev &
           ready=0
-          for i in $(seq 1 45); do
+          for i in $(seq 1 60); do
             if curl -sf http://localhost:3000/api/health >/dev/null; then ready=1; break; fi
             sleep 2
           done
           if [ "$ready" -ne 1 ]; then
-            echo "::error::server did not become ready on :3000 within ~90s"
+            echo "::error::server did not become ready on :3000 within ~120s"
             exit 1
           fi
           npx playwright test e2e/interaction/journey-work-item-drag.spec.ts
