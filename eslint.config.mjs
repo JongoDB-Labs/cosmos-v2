@@ -1,10 +1,21 @@
 import { defineConfig, globalIgnores } from "eslint/config";
+import { createRequire } from "node:module";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+
+// eslint 10 removed context.getFilename(), which eslint-plugin-react (bundled by
+// eslint-config-next, ≤7.37.5) still calls when AUTO-DETECTING the React version
+// — crashing every React rule with "contextOrFilename.getFilename is not a
+// function". Pin the version explicitly so the plugin skips detection; read it
+// from the installed React so it never goes stale. Harmless on eslint 9.
+const reactVersion = createRequire(import.meta.url)("react/package.json").version;
 
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Pin React's version (see the note above) so eslint-plugin-react doesn't run
+  // its eslint-10-incompatible version detection.
+  { settings: { react: { version: reactVersion } } },
   // Resilience guard (locks in the Round 20 work): a catch block whose ONLY
   // action is console.error swallows a failure with no user feedback. Surface
   // it via notifyError(err, ...) from @/lib/errors/notify, an inline error, or

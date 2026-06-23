@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { TemplateGallery } from "./template-gallery";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -19,6 +21,17 @@ async function TemplatesContent({ params }: PageParams) {
   const { orgSlug } = await params;
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
+
+  if (!canViewSettings(ctx, "/settings/templates")) {
+    return (
+      <PageShell
+        title="Templates"
+        description="Browse built-in project templates or manage your org's custom templates"
+      >
+        <NoAccess what="templates" />
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell
