@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/session";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { AiProviderPanel } from "@/components/settings/ai-provider-panel";
-import { EmptyState } from "@/components/ui/empty-state";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -36,13 +36,10 @@ async function Gate({ params }: PageParams) {
   // — they all use it, so gating the page on INTEGRATION_MANAGE let the page
   // render for users whose every fetch/mutation then 403'd, and blocked users
   // the routes would have allowed.
-  if (!hasPermission(ctx.permissions, Permission.ORG_MANAGE_SETTINGS)) {
+  if (!canViewSettings(ctx, "/settings/ai")) {
     return (
       <PageShell title="AI / Model" description="Connect a Claude subscription">
-        <EmptyState
-          title="You don't have access"
-          description="Configuring the org's AI provider requires the Manage Settings permission."
-        />
+        <NoAccess what="the org AI / model settings" />
       </PageShell>
     );
   }

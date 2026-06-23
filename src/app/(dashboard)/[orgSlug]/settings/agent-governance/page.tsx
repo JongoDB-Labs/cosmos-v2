@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/session";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { AgentGovernanceDashboard } from "@/components/settings/agent-governance-dashboard";
-import { EmptyState } from "@/components/ui/empty-state";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -36,13 +36,10 @@ async function Gate({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   // Security-admin gate (the dashboard mirrors the route's SECURITY_MANAGE check).
-  if (!hasPermission(ctx.permissions, Permission.SECURITY_MANAGE)) {
+  if (!canViewSettings(ctx, "/settings/agent-governance")) {
     return (
       <PageShell title="Agent governance" description="Egress-audit & control posture">
-        <EmptyState
-          title="You don't have access"
-          description="Viewing the agent-governance dashboard requires the Security Manage permission."
-        />
+        <NoAccess what="agent governance" />
       </PageShell>
     );
   }
