@@ -13,7 +13,7 @@
  * Real program content is NEVER committed — only mock demo data lives in the repo.
  * Idempotent: re-running replaces (default) or merges the project's roadmap.
  */
-import { PrismaClient } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
 import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
 import type { RoadmapImportNode } from "../../src/lib/roadmap/types";
@@ -71,7 +71,7 @@ async function main() {
   const explicitDb = arg("db");
   const envLocalDb = loadEnvLocal();
   const dbUrl = explicitDb || process.env.DATABASE_URL || envLocalDb;
-  const prisma = new PrismaClient(dbUrl ? { datasourceUrl: dbUrl } : undefined);
+  const prisma = makePrismaClient(dbUrl);
 
   try {
     const demo = has("demo");

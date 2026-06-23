@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { seedCrossCuttingTypes } from "./shared/cross-cutting";
 import { seedSoftwareSector } from "./sectors/software";
 import { seedAec } from "./sectors/aec";
@@ -9,7 +9,7 @@ import { seedEducation } from "./sectors/education";
 import { seedEvent } from "./sectors/event";
 import { migrateLegacyData } from "./migrate-legacy";
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 
 async function main() {
   console.log("Seeding database...");
