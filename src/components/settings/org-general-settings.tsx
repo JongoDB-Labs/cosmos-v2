@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Building2, Copy, Check } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,16 +101,11 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
 
   return (
     <section className={CARD}>
-      <div className="mb-4 flex items-center gap-2">
-        <Building2 className="h-4 w-4 text-[var(--primary)]" />
-        <h3 className="text-sm font-semibold">Organization</h3>
-        {!canUpdate && (
-          <span className="ml-auto text-xs text-[var(--text-muted)]">
-            Read-only — owners and admins can edit
-          </span>
-        )}
-      </div>
-
+      {!canUpdate && (
+        <p className="mb-4 text-xs text-[var(--text-muted)]">
+          Read-only — owners and admins can edit
+        </p>
+      )}
       <div className="grid max-w-lg gap-4">
         <div className="space-y-1">
           <Label htmlFor="org-name">Name</Label>
