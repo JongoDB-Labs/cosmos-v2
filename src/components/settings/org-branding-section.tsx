@@ -51,6 +51,8 @@ export function OrgBrandingSection({
   type ThemePayload = {
     themePrimary: string | null;
     themeMode: "auto" | "dark" | "light" | null;
+    /** Pass-through: logoUrl is Identity-owned (OrgGeneralSettings). Brand save/reset
+     *  re-sends the current value unchanged so it is never wiped by a theme update. */
     logoUrl: string | null;
     defaultSkinId: string | null;
     brandName: string | null;
@@ -95,7 +97,7 @@ export function OrgBrandingSection({
     saveTheme.mutate({
       themePrimary: selected,
       themeMode: mode,
-      logoUrl: initial.logoUrl ?? null,
+      logoUrl: initial.logoUrl ?? null, // pass-through: Identity-owned, not edited here
       defaultSkinId: skin,
       brandName: brandName.trim() || null,
       agentName: agentName.trim() || null,

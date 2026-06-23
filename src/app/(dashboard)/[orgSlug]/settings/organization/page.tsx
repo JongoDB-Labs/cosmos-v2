@@ -66,6 +66,9 @@ export default async function OrganizationPage({ params }: PageParams) {
       description="Your organization's identity and branding"
     >
       <div className="flex flex-col gap-8">
+        {/* Identity always renders for anyone who can view this page. A THEME_MANAGE-only
+            admin (no ORG_UPDATE) sees it read-only (canUpdate=false → disabled inputs +
+            org metadata) for context while they edit branding below. */}
         <section>
           <h3 className="mb-3 text-sm font-semibold">Identity</h3>
           <OrgGeneralSettings
