@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,14 +40,12 @@ export function OrgBrandingSection({
   const [mode, setMode] = useState<"auto" | "dark" | "light">(
     (initial.themeMode as "auto" | "dark" | "light" | null) ?? "auto",
   );
-  const [logo, setLogo] = useState<string>(initial.logoUrl ?? "");
   const [skin, setSkin] = useState<string | null>(initial.defaultSkinId ?? null);
   const [brandName, setBrandName] = useState<string>(initial.brandName ?? "");
   const [agentName, setAgentName] = useState<string>(initial.agentName ?? "");
   const [tagline, setTagline] = useState<string>(initial.tagline ?? "");
   const [wakeWord, setWakeWord] = useState<string>(initial.wakeWord ?? "");
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   type ThemePayload = {
@@ -79,25 +77,6 @@ export function OrgBrandingSection({
 
   const pending = saveTheme.isPending;
 
-  async function handleLogoFile(file: File) {
-    if (file.size > 200_000) {
-      setError(`Logo must be ≤200KB (was ${Math.round(file.size / 1024)}KB)`);
-      return;
-    }
-    if (!file.type.startsWith("image/")) {
-      setError("Only images are accepted");
-      return;
-    }
-    setError(null);
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    setLogo(dataUrl);
-  }
-
   function tryHex(hex: string) {
     if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) {
       setError("Use a 6-digit hex like #7C5CFF");
@@ -116,7 +95,7 @@ export function OrgBrandingSection({
     saveTheme.mutate({
       themePrimary: selected,
       themeMode: mode,
-      logoUrl: logo.trim() || null,
+      logoUrl: initial.logoUrl ?? null,
       defaultSkinId: skin,
       brandName: brandName.trim() || null,
       agentName: agentName.trim() || null,
@@ -131,7 +110,9 @@ export function OrgBrandingSection({
       {
         themePrimary: null,
         themeMode: null,
-        logoUrl: null,
+        // Logo is now Identity-owned (OrgGeneralSettings). Resetting branding
+        // must not wipe the org logo — pass the current value through unchanged.
+        logoUrl: initial.logoUrl ?? null,
         defaultSkinId: null,
         brandName: null,
         agentName: null,
@@ -143,7 +124,6 @@ export function OrgBrandingSection({
           setSelected(PRESETS[0]);
           setCustom("");
           setMode("auto");
-          setLogo("");
           setSkin(null);
           setBrandName("");
           setAgentName("");
@@ -217,60 +197,6 @@ export function OrgBrandingSection({
         <p className="mt-1 text-xs text-[var(--text-muted)]">
           Sets the default for people who join later — it doesn&apos;t change
           your own mode. Set your own mode in the Appearance section above.
-        </p>
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs uppercase tracking-wide text-[var(--text-muted)]">
-          Organization logo
-        </p>
-
-        {logo ? (
-          <div className="mb-3 flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={logo}
-              alt="Org logo preview"
-              className="h-12 w-12 rounded border border-[var(--border)] object-contain bg-[var(--surface)]"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setLogo("")}
-            >
-              Remove
-            </Button>
-          </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleLogoFile(f);
-            }}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Upload image
-          </Button>
-          <input
-            type="url"
-            value={logo}
-            onChange={(e) => setLogo(e.target.value)}
-            placeholder="Or paste an https URL"
-            className="h-10 w-full max-w-md rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-3 text-sm"
-          />
-        </div>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Shown in the sidebar org switcher. PNG/JPG/WEBP up to 200KB.
         </p>
       </div>
 
