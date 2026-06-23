@@ -38,16 +38,13 @@
 //     naturally absent from our column list; re-embedded separately, left NULL.
 //   - `search_vector` (legacy v1 fake-RAG JSON) — a real DMMF scalar, stripped by name.
 //
-// Pure + dependency-light: imports only `@prisma/client` (for the DMMF) and `pg`
-// (for the live column probe). Importable from both `.ts` and `.mjs` (tsx) callers.
+// Importable from both `.ts` and `.mjs` (tsx) callers. The full Prisma DMMF that the
+// plan below is derived from is loaded lazily in `dmmfModels()` — see the note there.
 
-import pkg from "@prisma/client";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import type pg from "pg";
-
-// The generated client is CJS; the DMMF hangs off the `Prisma` namespace. We read it
-// through a default import so this compiles under the repo's ESM/bundler setup and
-// also runs under tsx from a plain `.mjs`.
-const { Prisma } = pkg as unknown as { Prisma: { dmmf: DMMF } };
 
 // ── Minimal DMMF shape (we only touch what we use; avoids a hard type dep) ──
 interface DMMFField {
@@ -186,8 +183,25 @@ export interface ColumnPlan {
 
 // ── DMMF helpers ──
 
+// Prisma 7 slimmed the runtime `Prisma.dmmf` exposed by the generated client — it dropped
+// `isId`, `@map` column names (`dbName`), relation fields, and `primaryKey`, all of which
+// the schema-driven plan below depends on. @prisma/internals' getDMMF reparses the schema
+// into the COMPLETE DMMF, but it is async + wasm-backed, so we run it once in a child
+// process (dump-dmmf.mjs) and memoize — keeping this accessor synchronous so every caller
+// and test that depends on it stays unchanged.
+let cachedModels: DMMFModel[] | null = null;
 function dmmfModels(): DMMFModel[] {
-  return Prisma.dmmf.datamodel.models as unknown as DMMFModel[];
+  if (cachedModels) return cachedModels;
+  const dumper = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "dump-dmmf.mjs",
+  );
+  const json = execFileSync(process.execPath, [dumper], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  cachedModels = (JSON.parse(json) as DMMF).datamodel.models;
+  return cachedModels;
 }
 
 function tableOf(m: DMMFModel): string {

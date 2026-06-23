@@ -76,7 +76,7 @@ jobs:
         # them here — the 20260606050000_audit_immutability migration GRANTs
         # against them. Then apply the schema + seed test-org/alice/bob fixtures.
         run: |
-          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
+          npx prisma db execute --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
 
@@ -183,7 +183,7 @@ jobs:
       # audit-immutability migration's GRANTs apply — see prisma/sql/ci-roles.sql.
       - name: Migrate + seed test fixtures
         run: |
-          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
+          npx prisma db execute --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
       - name: Start (dev) + run e2e
@@ -260,7 +260,7 @@ jobs:
       # Roles first (services: Postgres skips compose/init) — see ci-roles.sql.
       - name: Migrate + seed test fixtures
         run: |
-          npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/ci-roles.sql
+          npx prisma db execute --file prisma/sql/ci-roles.sql
           npx prisma migrate deploy
           npx tsx prisma/seed/test-fixtures.ts
       - name: Start (dev) + run drag interaction spec

@@ -9,9 +9,12 @@
  * mints a fresh session row.
  */
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { randomUUID } from "node:crypto";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+});
 
 const DEV_EMAIL = "dev-playwright@cosmos.local";
 

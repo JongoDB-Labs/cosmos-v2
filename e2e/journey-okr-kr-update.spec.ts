@@ -1,4 +1,5 @@
 import { PrismaClient, KeyResultStatus, ObjectiveStatus } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { test, expect } from "./fixtures/auth";
 
 /**
@@ -25,7 +26,9 @@ const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
 const EMAIL = process.env.E2E_EMAIL ?? "alice@test.local";
 const KEY = process.env.E2E_PROJECT_KEY ?? "test";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+});
 
 const stamp = Date.now().toString().slice(-6);
 const OBJECTIVE_TITLE = `E2E KR Objective ${stamp}`;

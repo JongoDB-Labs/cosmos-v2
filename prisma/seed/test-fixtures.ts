@@ -9,9 +9,10 @@
  * Run with:
  *   npx tsx prisma/seed/test-fixtures.ts
  */
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 
 /** Ensure an org has a #general channel. Returns its id. Idempotent. */
 async function ensureGeneralChannel(

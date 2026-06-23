@@ -38,6 +38,19 @@ const nextConfig: NextConfig = {
   // .next/standalone/node_modules. The Dockerfile additionally bakes in the
   // onnxruntime native deps + model cache for offline (gov) inference.
   serverExternalPackages: ["pdfkit", "googleapis", "@huggingface/transformers"],
+  // Prisma 7's driver adapter (@prisma/adapter-pg, used by src/lib/db/client.ts) is
+  // referenced as an external module in the server bundle, but Turbopack's standalone
+  // tracer does NOT reliably copy it — or its @prisma/* runtime deps — into
+  // .next/standalone/node_modules (unlike @prisma/client, which Next externalizes by
+  // default and traces). Force the adapter closure into the trace so the standalone
+  // runtime image can require it. pg + its deps are already traced via normal usage.
+  outputFileTracingIncludes: {
+    "**/*": [
+      "./node_modules/@prisma/adapter-pg/**",
+      "./node_modules/@prisma/driver-adapter-utils/**",
+      "./node_modules/@prisma/debug/**",
+    ],
+  },
 };
 
 export default withBundleAnalyzer(nextConfig);
