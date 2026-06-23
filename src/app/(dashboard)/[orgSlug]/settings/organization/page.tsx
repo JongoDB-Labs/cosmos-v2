@@ -10,6 +10,7 @@ import {
   OrgBrandingSection,
   type OrgBrandingInitial,
 } from "@/components/settings/org-branding-section";
+import { OrgDangerZone } from "@/components/settings/org-danger-zone";
 import { Separator } from "@/components/ui/separator";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
@@ -29,6 +30,7 @@ export default async function OrganizationPage({ params }: PageParams) {
 
   const canUpdate = hasPermission(ctx.permissions, Permission.ORG_UPDATE);
   const canBrand = hasPermission(ctx.permissions, Permission.THEME_MANAGE);
+  const canDelete = hasPermission(ctx.permissions, Permission.ORG_DELETE);
 
   const org = await prisma.organization.findUnique({
     where: { id: ctx.orgId },
@@ -95,6 +97,14 @@ export default async function OrganizationPage({ params }: PageParams) {
                 new members get before they choose their own.
               </p>
               <OrgBrandingSection orgId={ctx.orgId} initial={branding} />
+            </section>
+          </>
+        )}
+        {canDelete && (
+          <>
+            <Separator />
+            <section>
+              <OrgDangerZone orgId={ctx.orgId} orgName={org.name} />
             </section>
           </>
         )}

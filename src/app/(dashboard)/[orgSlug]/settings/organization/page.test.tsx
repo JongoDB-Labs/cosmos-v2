@@ -54,6 +54,14 @@ vi.mock("@/components/settings/org-branding-section", () => ({
   ),
 }));
 
+vi.mock("@/components/settings/org-danger-zone", () => ({
+  OrgDangerZone: ({ orgId, orgName }: { orgId: string; orgName: string }) => (
+    <div data-testid="org-danger-zone" data-org-id={orgId} data-org-name={orgName}>
+      Danger zone
+    </div>
+  ),
+}));
+
 // Light stubs for layout primitives — keeps the test focused on RBAC logic.
 vi.mock("@/components/ui/page-shell", () => ({
   PageShell: ({ title, children }: { title: string; children: React.ReactNode }) => (
@@ -162,5 +170,26 @@ describe("OrganizationPage RBAC gate", () => {
 
     expect(screen.getByTestId("org-general-settings")).toBeInTheDocument();
     expect(screen.getByTestId("org-branding-section")).toBeInTheDocument();
+  });
+
+  it("Test D: danger zone NOT rendered without ORG_DELETE", async () => {
+    mockGetAuthContext.mockResolvedValue(makeCtx(Permission.ORG_UPDATE));
+    mockFindUnique.mockResolvedValue(FAKE_ORG);
+
+    await renderPage();
+
+    expect(screen.queryByTestId("org-danger-zone")).not.toBeInTheDocument();
+  });
+
+  it("Test E: danger zone IS rendered with ORG_DELETE", async () => {
+    mockGetAuthContext.mockResolvedValue(
+      makeCtx(Permission.ORG_UPDATE | Permission.ORG_DELETE),
+    );
+    mockFindUnique.mockResolvedValue(FAKE_ORG);
+
+    await renderPage();
+
+    expect(screen.getByTestId("org-danger-zone")).toBeInTheDocument();
+    expect(screen.getByTestId("org-danger-zone")).toHaveAttribute("data-org-name", "Acme Inc");
   });
 });
