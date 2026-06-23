@@ -26,7 +26,8 @@
  * global `orgId: null` templates; the entitlement `enabledSectors: ['aec']` is what
  * scopes ĒSO to them).
  */
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
 // password.ts imports only node:crypto — no app-dependency chain, safe under tsx.
 import { hashPassword, passwordPolicyError } from "../../src/lib/auth/password";
@@ -62,7 +63,7 @@ function resolveDbUrl(): string | undefined {
   return process.env.DATABASE_URL;
 }
 const DB_URL = resolveDbUrl();
-const prisma = new PrismaClient(DB_URL ? { datasourceUrl: DB_URL } : undefined);
+const prisma = makePrismaClient(DB_URL);
 
 // ── Lead Tracker data ──────────────────────────────────────────────────────
 // Maggie's 7 prototype statuses → the 6 canonical CRM stages. "On Hold" has no

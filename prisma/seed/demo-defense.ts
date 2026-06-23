@@ -11,7 +11,8 @@
  *
  * Run:  cd /home/defcon/cosmos-saas && npx tsx prisma/seed/demo-defense.ts
  */
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
 import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
 import { DEMO_APEX_ROADMAP } from "./demo-defense-roadmap";
@@ -36,7 +37,7 @@ function loadEnv(): string | undefined {
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname (importing @prisma/client auto-loads .env).
 const DB_URL = loadEnv();
-const prisma = new PrismaClient(DB_URL ? { datasourceUrl: DB_URL } : undefined);
+const prisma = makePrismaClient(DB_URL);
 
 const SLUG = "apex-defense";
 const PKEY = "SENTINEL";

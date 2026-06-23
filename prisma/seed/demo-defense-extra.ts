@@ -12,7 +12,7 @@
  * Run AFTER demo-defense.ts:
  *   cd /home/defcon/cosmos-saas && npx tsx prisma/seed/demo-defense-extra.ts
  */
-import { PrismaClient } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
 
 function loadEnv(): string | undefined {
@@ -33,7 +33,7 @@ function loadEnv(): string | undefined {
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname (importing @prisma/client auto-loads .env).
 const DB_URL = loadEnv();
-const prisma = new PrismaClient(DB_URL ? { datasourceUrl: DB_URL } : undefined);
+const prisma = makePrismaClient(DB_URL);
 const SLUG = "apex-defense", PKEY = "SENTINEL";
 const NOW = Date.now(), DAY = 86400000;
 const d = (days: number) => new Date(NOW + days * DAY);
