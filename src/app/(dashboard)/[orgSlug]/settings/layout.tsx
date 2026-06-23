@@ -17,14 +17,14 @@ export default async function SettingsLayout({
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
 
-  const groups = SETTINGS_NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((i) => canViewSettings(ctx, i.href)),
-  })).filter((g) => g.items.length > 0);
+  const visibleHrefs = SETTINGS_NAV_GROUPS
+    .flatMap((g) => g.items)
+    .filter((i) => canViewSettings(ctx, i.href))
+    .map((i) => i.href);
 
   return (
     <div className="flex min-h-full flex-col md:flex-row">
-      <SettingsNav groups={groups} orgSlug={orgSlug} />
+      <SettingsNav visibleHrefs={visibleHrefs} orgSlug={orgSlug} />
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   );

@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { SettingsNavGroup } from "@/lib/rbac/settings-access";
+import { SETTINGS_NAV_GROUPS } from "@/lib/rbac/settings-access";
 
 function isNavActive(itemHref: string, pathname: string, orgSlug: string) {
   const href = `/${orgSlug}${itemHref}`;
@@ -22,14 +22,19 @@ function isNavActive(itemHref: string, pathname: string, orgSlug: string) {
 }
 
 export function SettingsNav({
-  groups,
+  visibleHrefs,
   orgSlug,
 }: {
-  groups: SettingsNavGroup[];
+  visibleHrefs: string[];
   orgSlug: string;
 }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  const allowed = new Set(visibleHrefs);
+  const groups = SETTINGS_NAV_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((i) => allowed.has(i.href)) }))
+    .filter((g) => g.items.length > 0);
 
   const flat = groups.flatMap((g) => g.items);
   const active = flat.find((i) => isNavActive(i.href, pathname, orgSlug));
