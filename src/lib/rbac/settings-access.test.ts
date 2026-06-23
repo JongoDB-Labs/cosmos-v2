@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { OrgRole } from "@prisma/client";
 import { Permission } from "./permissions";
 import { SETTINGS_ACCESS, SETTINGS_NAV_GROUPS, canViewSettings } from "./settings-access";
 
-const ctx = (perms: bigint) => ({ userId: "u", orgId: "o", orgRole: "MEMBER", permissions: perms, basePermissions: perms, abacRules: [] }) as const;
+const ctx = (perms: bigint) => ({ userId: "u", orgId: "o", orgRole: OrgRole.MEMBER, permissions: perms, basePermissions: perms, abacRules: [] }) as const;
 
 describe("settings-access", () => {
   it("has an access entry for every nav href", () => {
@@ -26,6 +27,10 @@ describe("settings-access", () => {
     expect(canViewSettings(ctx(Permission.THEME_MANAGE), "/settings/organization")).toBe(true);
     expect(canViewSettings(ctx(Permission.ORG_UPDATE), "/settings/organization")).toBe(true);
     expect(canViewSettings(ctx(0n), "/settings/organization")).toBe(false);
+  });
+
+  it("fails closed for unregistered hrefs", () => {
+    expect(canViewSettings(ctx(Permission.ORG_UPDATE), "/settings/does-not-exist")).toBe(false);
   });
 
   it("a permission-less member sees only the Account group", () => {

@@ -40,7 +40,11 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
 
 export function canViewSettings(ctx: Pick<AuthContext, "permissions">, href: string): boolean {
   const access = SETTINGS_ACCESS[href];
-  if (!access || access.view === null) return true;
+  // Unknown route = not registered in the matrix = fail closed (deny), so a
+  // typo'd or unregistered settings href surfaces as NoAccess rather than a
+  // silent access gap.
+  if (!access) return false;
+  if (access.view === null) return true; // personal / always-visible route
   const req = Array.isArray(access.view) ? access.view : [access.view];
   return req.some((p) => hasPermission(ctx.permissions, p));
 }
@@ -48,6 +52,9 @@ export function canViewSettings(ctx: Pick<AuthContext, "permissions">, href: str
 export type SettingsNavItem = { icon: LucideIcon; label: string; href: string };
 export type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
 
+// Nav data + icons are co-located with the access matrix intentionally: keeping
+// them in the same file enforces the invariant that every nav href has an access
+// entry, so the two can't drift apart.
 /** The grouped, audience-first nav. Phase 2 renders this filtered by canViewSettings. */
 export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
   { label: "Account", items: [
