@@ -433,7 +433,12 @@ export function PreferencesForm({ orgId, canManageBranding = false, orgBranding 
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Skin</h3>
+          <div>
+            <h3 className="text-sm font-semibold">Skin</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Your personal skin — applies to your account on every device.
+            </p>
+          </div>
           <AppearanceSkinPicker value={draft.skinId} onChange={applySkin} />
         </div>
 
@@ -698,7 +703,7 @@ export function PreferencesForm({ orgId, canManageBranding = false, orgBranding 
             <div>
               <h3 className="text-sm font-semibold">Organization branding</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Customize the primary color, logo, skin default, and white-label identity for this organization.
+                Organization-wide defaults (admin only) — separate from your personal settings above. Sets the primary color, logo, white-label identity, and the skin &amp; mode new members get before they pick their own.
               </p>
             </div>
             <OrgBrandingSection orgId={orgId} initial={orgBranding} />

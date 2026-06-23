@@ -69,7 +69,9 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "settings/compliance", path: "/settings/compliance" },
   { name: "settings/audit-logs", path: "/settings/audit-logs" },
   { name: "settings/templates", path: "/settings/templates" },
-  { name: "settings/themes", path: "/settings/themes" },
+  // Themes merged into Preferences (v2.100.1); this URL now redirects there.
+  // Kept as a surface to guard that the redirect lands on an accessible page.
+  { name: "settings/themes (redirects to preferences)", path: "/settings/themes" },
 ];
 
 test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {

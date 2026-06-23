@@ -17,16 +17,6 @@ const PRESETS = [
   "#22D3EE", "#84CC16", "#F97316", "#64748B",
 ];
 
-// Base looks: a full theme = (primary hex + mode). These reproduce the two
-// built-in defaults — White = the light-mode default (near-black slate primary
-// on a white surface), Black = the dark-mode default (near-white primary on a
-// near-black surface). Selecting one sets both `selected` and `mode`, so the
-// existing Save persists the right pair with no backend change.
-const BASE_PRESETS = [
-  { id: "white", name: "White", primary: "#1E293B", mode: "light" as const, swatch: "#FFFFFF" },
-  { id: "black", name: "Black", primary: "#F8FAFC", mode: "dark" as const, swatch: "#0B0E1A" },
-];
-
 export type OrgBrandingInitial = {
   themePrimary: string | null;
   themeMode: string | null;
@@ -168,44 +158,6 @@ export function OrgBrandingSection({
     <div className="space-y-6">
       <div>
         <p className="mb-2 text-xs uppercase tracking-wide text-[var(--text-muted)]">
-          Base
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {BASE_PRESETS.map((b) => {
-            const active =
-              selected.toUpperCase() === b.primary.toUpperCase() &&
-              mode === b.mode;
-            return (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => {
-                  setSelected(b.primary);
-                  setMode(b.mode);
-                  setCustom("");
-                  setError(null);
-                }}
-                aria-label={`Set base to ${b.name} (${b.mode} mode)`}
-                aria-pressed={active}
-                className="flex items-center gap-2 rounded-[var(--radius-sm)] border-2 px-3 py-1.5 text-sm capitalize transition-transform hover:scale-[1.02]"
-                style={{ borderColor: active ? "var(--primary)" : "var(--border)" }}
-              >
-                <span
-                  className="h-5 w-5 rounded-full border border-[var(--border)]"
-                  style={{ backgroundColor: b.swatch }}
-                />
-                {b.name}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
-          White = the light-mode default. Black = the dark-mode default.
-        </p>
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs uppercase tracking-wide text-[var(--text-muted)]">
           Accent
         </p>
         <div className="flex flex-wrap gap-2">
@@ -264,7 +216,7 @@ export function OrgBrandingSection({
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
           Sets the default for people who join later — it doesn&apos;t change
-          your own mode. Set yours in Settings → Preferences.
+          your own mode. Set your own mode in the Appearance section above.
         </p>
       </div>
 
@@ -328,8 +280,8 @@ export function OrgBrandingSection({
         </p>
         <AppearanceSkinPicker value={skin} onChange={setSkin} />
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Applied to members who haven&apos;t picked their own skin (Settings →
-          Preferences). A member&apos;s own choice always wins.
+          Applied to members who haven&apos;t picked their own skin in the Skin
+          section above. A member&apos;s own choice always wins.
         </p>
       </div>
 
