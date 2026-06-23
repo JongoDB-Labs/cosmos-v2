@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth/session";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { AgentPolicyPanel } from "@/components/settings/agent-policy-panel";
-import { EmptyState } from "@/components/ui/empty-state";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -33,13 +33,10 @@ async function Gate({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   // Tenant-admin gate (the panel mirrors the route's AGENT_POLICY_MANAGE check).
-  if (!hasPermission(ctx.permissions, Permission.AGENT_POLICY_MANAGE)) {
+  if (!canViewSettings(ctx, "/settings/agent-policy")) {
     return (
       <PageShell title="Agent policy" description="What the AI agent may do">
-        <EmptyState
-          title="You don't have access"
-          description="Managing the agent policy requires the Agent Policy Manage permission."
-        />
+        <NoAccess what="agent policy" />
       </PageShell>
     );
   }

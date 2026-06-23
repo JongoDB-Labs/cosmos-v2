@@ -1,7 +1,6 @@
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { McpServersManager } from "@/components/settings/mcp-servers-manager";
 import { PageShell } from "@/components/ui/page-shell";
 import {
@@ -9,6 +8,8 @@ import {
   dehydrate,
   HydrationBoundary,
 } from "@/lib/query/server";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -19,8 +20,15 @@ export default async function McpServersSettingsPage({ params }: PageParams) {
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
   // Gate the settings page itself; the API enforces the same check on write.
-  if (!hasPermission(ctx.permissions, Permission.MCP_MANAGE)) {
-    redirect(`/${orgSlug}/settings`);
+  if (!canViewSettings(ctx, "/settings/mcp-servers")) {
+    return (
+      <PageShell
+        title="MCP Servers"
+        description="Register Model Context Protocol servers (Slack, Notion, etc.) so the AI chat can call their tools."
+      >
+        <NoAccess what="MCP servers" />
+      </PageShell>
+    );
   }
 
   // Prefetch with the org-scoped key the client uses

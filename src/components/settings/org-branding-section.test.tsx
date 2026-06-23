@@ -193,11 +193,12 @@ describe("OrgBrandingSection — org-branding fields", () => {
     expect(payload.brandName).toBeNull();
   });
 
-  it("includes all 8 fields in the reset payload", async () => {
+  it("includes all 8 fields in the reset payload (logoUrl from initial, not null)", async () => {
     const { jsonFetch } = await import("@/lib/query/json-fetcher");
     const fetchMock = vi.mocked(jsonFetch);
 
-    renderSection();
+    // Use a section with an existing logo so we can prove it is preserved.
+    renderSection({ logoUrl: "https://example.com/logo.png" });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Reset to default/i }));
@@ -209,12 +210,29 @@ describe("OrgBrandingSection — org-branding fields", () => {
     expect(payload).toMatchObject({
       themePrimary: null,
       themeMode: null,
-      logoUrl: null,
+      // Logo is Identity-owned: reset must NOT null it — it passes initial.logoUrl through.
+      logoUrl: "https://example.com/logo.png",
       defaultSkinId: null,
       brandName: null,
       agentName: null,
       tagline: null,
       wakeWord: null,
     });
+  });
+
+  it("logo upload controls are absent (Identity section owns the logo)", () => {
+    renderSection();
+    // No file input
+    expect(document.querySelector("input[type=file]")).toBeNull();
+    // No "Upload image" button
+    expect(screen.queryByText(/upload image/i)).not.toBeInTheDocument();
+    // No "Or paste an https URL" placeholder
+    expect(
+      screen.queryByPlaceholderText(/paste an https url/i),
+    ).not.toBeInTheDocument();
+    // No "Remove" logo button
+    expect(
+      screen.queryByRole("button", { name: /remove/i }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,6 @@
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { ApiKeysManager } from "@/components/settings/api-keys-manager";
 import { PageShell } from "@/components/ui/page-shell";
 import {
@@ -9,6 +8,8 @@ import {
   dehydrate,
   HydrationBoundary,
 } from "@/lib/query/server";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -19,8 +20,15 @@ export default async function ApiKeysPage({ params }: PageParams) {
 
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
-  if (!hasPermission(ctx.permissions, Permission.API_KEY_MANAGE)) {
-    redirect(`/${orgSlug}/settings`);
+  if (!canViewSettings(ctx, "/settings/api-keys")) {
+    return (
+      <PageShell
+        title="API keys"
+        description="Bearer tokens for the Cosmos API"
+      >
+        <NoAccess what="API keys" />
+      </PageShell>
+    );
   }
 
   // Prefetch the key list with the same org-scoped key the client uses

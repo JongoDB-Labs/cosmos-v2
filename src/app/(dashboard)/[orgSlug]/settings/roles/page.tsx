@@ -2,6 +2,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { RolesManager } from "@/components/settings/roles-manager";
 import { PageShell } from "@/components/ui/page-shell";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -13,6 +15,17 @@ export default async function RolesPage({ params }: PageParams) {
 
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
+
+  if (!canViewSettings(ctx, "/settings/roles")) {
+    return (
+      <PageShell
+        title="Roles & Access"
+        description="Work roles grant extra permissions on top of a member's org role"
+      >
+        <NoAccess what="roles & access" />
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell

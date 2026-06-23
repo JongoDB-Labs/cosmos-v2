@@ -8,6 +8,8 @@ import {
   dehydrate,
   HydrationBoundary,
 } from "@/lib/query/server";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -18,6 +20,17 @@ export default async function CompliancePage({ params }: PageParams) {
 
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
+
+  if (!canViewSettings(ctx, "/settings/compliance")) {
+    return (
+      <PageShell
+        title="Compliance"
+        description="Frameworks, controls, and posture"
+      >
+        <NoAccess what="compliance" />
+      </PageShell>
+    );
+  }
 
   const qc = makeServerQueryClient();
   await qc.prefetchQuery({

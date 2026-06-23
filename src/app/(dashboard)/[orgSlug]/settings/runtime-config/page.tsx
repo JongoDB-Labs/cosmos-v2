@@ -2,11 +2,11 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { isInternalAdmin } from "@/lib/internal/access";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { PageShell } from "@/components/ui/page-shell";
 import { PageSkeleton } from "@/components/ui/page-skeleton";
 import { RuntimeConfigPanel } from "@/components/settings/runtime-config-panel";
-import { EmptyState } from "@/components/ui/empty-state";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -35,13 +35,10 @@ async function Gate({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   // Tenant-admin gate (the panel mirrors the route's INTEGRATION_MANAGE check).
-  if (!hasPermission(ctx.permissions, Permission.INTEGRATION_MANAGE)) {
+  if (!canViewSettings(ctx, "/settings/runtime-config")) {
     return (
       <PageShell title="Runtime config" description="Connectors, breadth & tenant class">
-        <EmptyState
-          title="You don't have access"
-          description="Managing runtime config requires the Integration Manage permission."
-        />
+        <NoAccess what="runtime config" />
       </PageShell>
     );
   }
