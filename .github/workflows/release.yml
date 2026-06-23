@@ -266,3 +266,36 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.manifest.outputs.runtime_digest }}
           push-to-registry: true
+
+      # Verify-after-sign GATE (self-healing) — re-resolve each PUBLISHED :VERSION
+      # tag's digest and confirm the keyless signature is actually present +
+      # verifiable. If it didn't persist (the intermittent miss that shipped
+      # 2.102.0 unverifiable: `cosign sign` reported success but no .sig landed in
+      # GHCR), re-sign and re-check; FAIL the release if an image cannot be made
+      # verifiable. This makes a "green-but-unsigned" release impossible.
+      - name: Verify signatures landed (gate)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          id_regexp="^https://github.com/${REPO}/"
+          issuer="https://token.actions.githubusercontent.com"
+          verify_one() {
+            img="$1"
+            digest="$(docker buildx imagetools inspect "$img:$VERSION" --format '{{.Manifest.Digest}}')"
+            for attempt in 1 2 3; do
+              if cosign verify --certificate-identity-regexp "$id_regexp" \
+                   --certificate-oidc-issuer "$issuer" "$img@$digest" >/dev/null 2>&1; then
+                echo "verified: $img@$digest"
+                return 0
+              fi
+              echo "::warning::no verifiable signature for $img@$digest (attempt $attempt) — re-signing"
+              cosign sign --yes "$img@$digest" || true
+              sleep "$((attempt * 5))"
+            done
+            echo "::error::$img:$VERSION ($digest) has no verifiable signature after retries"
+            return 1
+          }
+          verify_one "$IMAGE"
+          verify_one "$MIGRATE_IMAGE"
