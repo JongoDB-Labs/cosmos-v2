@@ -13,6 +13,7 @@
  * already in the (gitignored) dex config — this file is safe to commit.
  */
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { sealSecret } from "../../src/lib/crypto/vault";
 
 const ISSUER = process.env.DEX_ISSUER ?? "http://dex:5556/dex";
@@ -21,7 +22,9 @@ const CLIENT_SECRET = process.env.DEX_CLIENT_SECRET ?? "dex-cosmos-throwaway-sec
 const SLUG = process.env.TEST_ORG_SLUG ?? "dextest";
 
 async function main() {
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+  });
   try {
     const org = await prisma.organization.upsert({
       where: { slug: SLUG },

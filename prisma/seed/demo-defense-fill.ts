@@ -15,7 +15,7 @@
  *
  * Run:  cd /home/defcon/cosmos-v2 && npx tsx prisma/seed/demo-defense-fill.ts
  */
-import { PrismaClient } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
@@ -39,7 +39,7 @@ function loadEnv(): string | undefined {
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname.
 const DB_URL = loadEnv();
-const prisma = new PrismaClient(DB_URL ? { datasourceUrl: DB_URL } : undefined);
+const prisma = makePrismaClient(DB_URL);
 
 const SLUG = "apex-defense";
 const PKEY = "SENTINEL";
