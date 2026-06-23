@@ -109,6 +109,13 @@ describe("OrgBrandingSection — org-branding fields", () => {
     expect(screen.getByText("Pontis")).toBeInTheDocument();
   });
 
+  it("does not render the removed Base preset buttons (redundant with Accent + mode)", () => {
+    renderSection();
+    expect(
+      screen.queryByRole("button", { name: /Set base to/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("pre-populates inputs with values from initial props", () => {
     renderSection({
       brandName: "Acme Studio",

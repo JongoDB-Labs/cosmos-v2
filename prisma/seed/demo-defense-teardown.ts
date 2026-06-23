@@ -9,7 +9,7 @@
  * only the demo *.local personas with no other membership are pruned. Idempotent:
  * a no-op if the demo org is already gone. Run "npm run seed:demo" to recreate it.
  */
-import { PrismaClient } from "@prisma/client";
+import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
 
 const SLUG = "apex-defense";
@@ -35,7 +35,7 @@ function loadEnvLocal(): string | undefined {
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
   const dbUrl = process.env.DATABASE_URL || loadEnvLocal();
-  const prisma = new PrismaClient(dbUrl ? { datasourceUrl: dbUrl } : undefined);
+  const prisma = makePrismaClient(dbUrl);
 
   try {
     const org = await prisma.organization.findUnique({
