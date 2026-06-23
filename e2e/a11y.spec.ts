@@ -56,10 +56,16 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "team", path: "/team" },
   { name: "assistant", path: "/assistant" },
   // Settings.
-  { name: "settings", path: "/settings" },
+  // /settings is now a redirect to the viewer's first accessible page (profile
+  // for the e2e admin). Kept as a surface to guard that the redirect lands on
+  // an accessible page.
+  { name: "settings (redirects to first accessible)", path: "/settings" },
   { name: "settings/profile", path: "/settings/profile" },
   { name: "settings/preferences", path: "/settings/preferences" },
   { name: "settings/security", path: "/settings/security" },
+  // Org-wide pages (ADMIN); rendered fully when signed in as the e2e admin.
+  { name: "settings/organization", path: "/settings/organization" },
+  { name: "settings/account-security", path: "/settings/account-security" },
   { name: "settings/roles", path: "/settings/roles" },
   { name: "settings/webhooks", path: "/settings/webhooks" },
   { name: "settings/integrations", path: "/settings/integrations" },
@@ -69,9 +75,9 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "settings/compliance", path: "/settings/compliance" },
   { name: "settings/audit-logs", path: "/settings/audit-logs" },
   { name: "settings/templates", path: "/settings/templates" },
-  // Themes merged into Preferences (v2.100.1); this URL now redirects there.
-  // Kept as a surface to guard that the redirect lands on an accessible page.
-  { name: "settings/themes (redirects to preferences)", path: "/settings/themes" },
+  // Themes now redirects to /settings/organization (v2.101.0). Kept as a
+  // surface to guard that the redirect lands on an accessible page.
+  { name: "settings/themes (redirects to organization)", path: "/settings/themes" },
 ];
 
 test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {

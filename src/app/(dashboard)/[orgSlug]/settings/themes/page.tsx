@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 /**
- * The Themes settings page was merged into Preferences (its org-branding
- * controls now live in the "Organization branding" section there) as of
+ * The Themes settings page was merged into Organization (its org-branding
+ * controls now live in the "Brand & member defaults" section there) as of
  * v2.100.1. This stub redirects the old route so existing links and bookmarks
- * land in the right place instead of 404ing. The preferences page enforces its
+ * land in the right place instead of 404ing. The organization page enforces its
  * own auth, so no permission check is needed here.
  */
 export default async function ThemesRedirect({
@@ -13,5 +13,5 @@ export default async function ThemesRedirect({
   params: Promise<{ orgSlug: string }>;
 }) {
   const { orgSlug } = await params;
-  redirect(`/${orgSlug}/settings/preferences`);
+  redirect(`/${orgSlug}/settings/organization`);
 }

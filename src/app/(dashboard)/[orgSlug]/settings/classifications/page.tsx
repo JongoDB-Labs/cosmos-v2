@@ -8,6 +8,8 @@ import {
   dehydrate,
   HydrationBoundary,
 } from "@/lib/query/server";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -18,6 +20,17 @@ export default async function ClassificationsPage({ params }: PageParams) {
 
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
+
+  if (!canViewSettings(ctx, "/settings/classifications")) {
+    return (
+      <PageShell
+        title="Classifications"
+        description="Data classification labels"
+      >
+        <NoAccess what="classifications" />
+      </PageShell>
+    );
+  }
 
   // Prefetch the classifications list with the same org-scoped key the
   // client uses (see useOrgQueryKey("classifications")).
