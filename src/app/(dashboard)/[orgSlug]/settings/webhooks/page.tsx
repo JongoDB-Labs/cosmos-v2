@@ -8,6 +8,8 @@ import {
   dehydrate,
   HydrationBoundary,
 } from "@/lib/query/server";
+import { canViewSettings } from "@/lib/rbac/settings-access";
+import { NoAccess } from "@/components/settings/no-access";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
@@ -18,6 +20,14 @@ export default async function WebhooksPage({ params }: PageParams) {
 
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
+
+  if (!canViewSettings(ctx, "/settings/webhooks")) {
+    return (
+      <PageShell title="Webhooks" description="Outbound event subscriptions">
+        <NoAccess what="webhooks" />
+      </PageShell>
+    );
+  }
 
   // Prefetch the webhooks list with the same org-scoped key the client uses
   // (see useOrgQueryKey("webhooks", "list") in WebhooksManager).
