@@ -235,7 +235,7 @@ jobs:
 
       # Sign + provenance (gate 7) ------------------------------------------
       - name: Install cosign
-        uses: sigstore/cosign-installer@fb28c2b6339dcd94da6e4cbcbc5e888961f6f8c3 # v3.9.0
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # Uniform gov-grade signing for the SINGLE image (Phase 3). Keyless runs
       # ALWAYS (OIDC → public Fulcio cert + Rekor log; the Rekor inclusion proof
