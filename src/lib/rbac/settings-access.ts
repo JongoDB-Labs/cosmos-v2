@@ -20,7 +20,7 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
   "/settings/profile": { view: null },
   "/settings/preferences": { view: null },
   "/settings/account-security": { view: null },
-  "/settings/organization": { view: [Permission.ORG_UPDATE, Permission.THEME_MANAGE] },
+  "/settings/organization": { view: [Permission.ORG_UPDATE, Permission.THEME_MANAGE, Permission.ORG_DELETE] },
   "/settings/roles": { view: Permission.ORG_MANAGE_MEMBERS },
   "/settings/ai": { view: Permission.ORG_MANAGE_SETTINGS },
   "/settings/agent-policy": { view: Permission.AGENT_POLICY_MANAGE },

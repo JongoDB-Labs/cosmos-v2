@@ -39,8 +39,8 @@ vi.mock("@/lib/db/client", () => ({
 // Stub child client components so the async server component renders
 // without needing the full client-side stack (React Query, Radix, etc.).
 vi.mock("@/components/settings/org-general-settings", () => ({
-  OrgGeneralSettings: ({ orgId }: { orgId: string }) => (
-    <div data-testid="org-general-settings" data-org-id={orgId}>
+  OrgGeneralSettings: ({ orgId, canUpdate }: { orgId: string; canUpdate: boolean }) => (
+    <div data-testid="org-general-settings" data-org-id={orgId} data-can-update={String(canUpdate)}>
       Identity section
     </div>
   ),
@@ -191,5 +191,26 @@ describe("OrganizationPage RBAC gate", () => {
 
     expect(screen.getByTestId("org-danger-zone")).toBeInTheDocument();
     expect(screen.getByTestId("org-danger-zone")).toHaveAttribute("data-org-name", "Acme Inc");
+  });
+
+  it("Test F: ORG_DELETE-only holder can view the page, sees danger zone and read-only Identity, but no Brand section", async () => {
+    mockGetAuthContext.mockResolvedValue(makeCtx(Permission.ORG_DELETE));
+    mockFindUnique.mockResolvedValue(FAKE_ORG);
+
+    await renderPage();
+
+    // Page is accessible — no NoAccess rendered
+    expect(screen.queryByText(/don't have access/i)).not.toBeInTheDocument();
+
+    // Identity section IS present but read-only (canUpdate=false)
+    const identitySection = screen.getByTestId("org-general-settings");
+    expect(identitySection).toBeInTheDocument();
+    expect(identitySection).toHaveAttribute("data-can-update", "false");
+
+    // Brand section is ABSENT — no THEME_MANAGE
+    expect(screen.queryByTestId("org-branding-section")).not.toBeInTheDocument();
+
+    // Danger zone IS present
+    expect(screen.getByTestId("org-danger-zone")).toBeInTheDocument();
   });
 });

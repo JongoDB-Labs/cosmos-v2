@@ -26,6 +26,7 @@ describe("settings-access", () => {
   it("supports any-of (array) view for the Organization page", () => {
     expect(canViewSettings(ctx(Permission.THEME_MANAGE), "/settings/organization")).toBe(true);
     expect(canViewSettings(ctx(Permission.ORG_UPDATE), "/settings/organization")).toBe(true);
+    expect(canViewSettings(ctx(Permission.ORG_DELETE), "/settings/organization")).toBe(true);
     expect(canViewSettings(ctx(0n), "/settings/organization")).toBe(false);
   });
 
