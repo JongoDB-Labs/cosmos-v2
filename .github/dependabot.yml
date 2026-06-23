@@ -15,6 +15,13 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
     labels: ["dependencies", "security"]
+    ignore:
+      # Keep @types/node on the major that matches the Node Active-LTS runtime
+      # (currently 24 — see Dockerfile / setup-node). Dependabot otherwise bumps
+      # to the newest major (26 = "Current" line, Active LTS ~Oct 2026). Node
+      # major upgrades are done deliberately as their own PR, not auto-proposed.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -29,3 +36,10 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     labels: ["dependencies", "docker", "security"]
+    ignore:
+      # Hold the Node base image at the Active-LTS major (currently 24).
+      # Dependabot bumps to the newest tag, which tracks the non-LTS "Current"
+      # line (26 until ~Oct 2026). Major base-image moves are done deliberately
+      # (their own PR); patch/minor of the pinned major still auto-update.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
