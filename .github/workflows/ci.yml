@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     timeout-minutes: 15
     services:
       # The `Test (DB integration)` step runs a handful of Prisma specs against a
@@ -112,7 +112,7 @@ jobs:
   # compiles the pontis client bundle (NEXT_PUBLIC_PRODUCT is read by next.config.ts
   # at build). Reuses `check`'s install/generate; only the build env differs.
   build-pontis:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     needs: check
     timeout-minutes: 15
     env:
@@ -139,7 +139,7 @@ jobs:
         run: npm run build
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     needs: check
     timeout-minutes: 20
     services:
@@ -214,7 +214,7 @@ jobs:
   # testIgnore in playwright.config.ts; this job opts back in with
   # E2E_INCLUDE_INTERACTION=1 and runs ONLY the drag spec.
   e2e-interaction:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     needs: check
     continue-on-error: true
     timeout-minutes: 20
