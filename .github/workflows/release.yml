@@ -167,7 +167,7 @@ jobs:
     # Run even if a build leg failed (!cancelled); the arch-count guard below
     # fails the job if either arch is missing.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     timeout-minutes: 30
     # Expose whether COSIGN_KEY is configured as a job-level env so the KMS
     # signing step can gate on it without referencing secrets in an `if`
