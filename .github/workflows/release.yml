@@ -77,8 +77,11 @@ jobs:
       - name: Normalize image refs (lowercase owner)
         run: |
           OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}" >> "$GITHUB_ENV"
-          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate" >> "$GITHUB_ENV"
+          {
+            echo "IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}"
+            echo "MIGRATE_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-migrate"
+            echo "POSTGRES_IMAGE=ghcr.io/$OWNER/${{ matrix.image_base }}-postgres"
+          } >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -122,16 +125,33 @@ jobs:
           cache-to: type=registry,ref=${{ env.MIGRATE_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
           provenance: false
 
-      # Export the two digests as files named by their digest; the merge job
+      # Postgres image (pgvector + pgBackRest, compose/postgres/Dockerfile) — by
+      # digest. Published so prod hosts PULL it instead of building locally
+      # (enables a fully pull-only deployment; app + migrate are already pulled).
+      - name: Build + push postgres (by digest)
+        id: build-postgres
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: compose/postgres/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.POSTGRES_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.POSTGRES_IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.POSTGRES_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          provenance: false
+
+      # Export the digests as files named by their digest; the merge job
       # collects every arch's digest to assemble the manifest list.
       - name: Export digests
         run: |
-          mkdir -p /tmp/d/runtime /tmp/d/migrate
+          mkdir -p /tmp/d/runtime /tmp/d/migrate /tmp/d/postgres
           touch "/tmp/d/runtime/${RUNTIME_DIGEST#sha256:}"
           touch "/tmp/d/migrate/${MIGRATE_DIGEST#sha256:}"
+          touch "/tmp/d/postgres/${POSTGRES_DIGEST#sha256:}"
         env:
           RUNTIME_DIGEST: ${{ steps.build.outputs.digest }}
           MIGRATE_DIGEST: ${{ steps.build-migrate.outputs.digest }}
+          POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
 
       - name: Upload digests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -171,8 +191,11 @@ jobs:
       - name: Normalize image refs (lowercase owner)
         run: |
           OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE=ghcr.io/$OWNER/cosmos-v2" >> "$GITHUB_ENV"
-          echo "MIGRATE_IMAGE=ghcr.io/$OWNER/cosmos-v2-migrate" >> "$GITHUB_ENV"
+          {
+            echo "IMAGE=ghcr.io/$OWNER/cosmos-v2"
+            echo "MIGRATE_IMAGE=ghcr.io/$OWNER/cosmos-v2-migrate"
+            echo "POSTGRES_IMAGE=ghcr.io/$OWNER/cosmos-v2-postgres"
+          } >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -205,7 +228,7 @@ jobs:
           set -euo pipefail
           SHA="sha-$GIT_SHA"
           # Guard: both arches must be present, else fail (no silent single-arch image).
-          for kind in runtime migrate; do
+          for kind in runtime migrate postgres; do
             n=0
             for f in "/tmp/d/$kind"/*; do [ -e "$f" ] && n=$((n + 1)); done
             [ "$n" -eq 2 ] || { echo "::error::expected 2 arch digests for $kind, found $n"; exit 1; }
@@ -214,14 +237,22 @@ jobs:
           for f in /tmp/d/runtime/*; do runtime_refs+=("$IMAGE@sha256:$(basename "$f")"); done
           migrate_refs=()
           for f in /tmp/d/migrate/*; do migrate_refs+=("$MIGRATE_IMAGE@sha256:$(basename "$f")"); done
+          postgres_refs=()
+          for f in /tmp/d/postgres/*; do postgres_refs+=("$POSTGRES_IMAGE@sha256:$(basename "$f")"); done
           docker buildx imagetools create \
             -t "$IMAGE:$VERSION" -t "$IMAGE:latest" -t "$IMAGE:$SHA" "${runtime_refs[@]}"
           docker buildx imagetools create \
             -t "$MIGRATE_IMAGE:$VERSION" -t "$MIGRATE_IMAGE:latest" -t "$MIGRATE_IMAGE:$SHA" "${migrate_refs[@]}"
+          docker buildx imagetools create \
+            -t "$POSTGRES_IMAGE:$VERSION" -t "$POSTGRES_IMAGE:latest" -t "$POSTGRES_IMAGE:$SHA" "${postgres_refs[@]}"
           RUNTIME_DIGEST="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
           MIGRATE_DIGEST="$(docker buildx imagetools inspect "$MIGRATE_IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
-          echo "runtime_digest=$RUNTIME_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "migrate_digest=$MIGRATE_DIGEST" >> "$GITHUB_OUTPUT"
+          POSTGRES_DIGEST="$(docker buildx imagetools inspect "$POSTGRES_IMAGE:$VERSION" --format '{{.Manifest.Digest}}')"
+          {
+            echo "runtime_digest=$RUNTIME_DIGEST"
+            echo "migrate_digest=$MIGRATE_DIGEST"
+            echo "postgres_digest=$POSTGRES_DIGEST"
+          } >> "$GITHUB_OUTPUT"
           echo "Merged $IMAGE:$VERSION → $RUNTIME_DIGEST"
 
       # SBOM (gate 6) — Syft SPDX-JSON of the merged runtime image, by digest.
@@ -249,6 +280,7 @@ jobs:
         run: |
           cosign sign --yes "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
           cosign sign --yes "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
+          cosign sign --yes "${{ env.POSTGRES_IMAGE }}@${{ steps.manifest.outputs.postgres_digest }}"
 
       - name: cosign sign (KMS — when COSIGN_KEY configured)
         if: ${{ env.HAS_KMS == 'true' }}
@@ -258,6 +290,7 @@ jobs:
         run: |
           cosign sign --yes --key "env://COSIGN_KEY" "${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}"
           cosign sign --yes --key "env://COSIGN_KEY" "${{ env.MIGRATE_IMAGE }}@${{ steps.manifest.outputs.migrate_digest }}"
+          cosign sign --yes --key "env://COSIGN_KEY" "${{ env.POSTGRES_IMAGE }}@${{ steps.manifest.outputs.postgres_digest }}"
 
       # SLSA build provenance attestation, bound to the merged runtime manifest digest.
       - name: Attest build provenance (SLSA)
@@ -299,3 +332,4 @@ jobs:
           }
           verify_one "$IMAGE"
           verify_one "$MIGRATE_IMAGE"
+          verify_one "$POSTGRES_IMAGE"
