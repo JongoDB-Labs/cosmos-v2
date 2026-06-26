@@ -23,3 +23,7 @@ spec:
     allow:
       - { direction: Egress, remoteGenerated: IntraNamespace }
       - { direction: Ingress, remoteGenerated: IntraNamespace }
+      # PGO/Patroni uses the kube API as its DCS (leader election + cluster state).
+      # Without this the namespace default-deny blocks it and Postgres crash-loops
+      # on every fresh pod start (survives only on an already-established connection).
+      - { direction: Egress, remoteGenerated: KubeAPI }
