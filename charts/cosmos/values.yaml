@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# cosmos chart — default (medium) values. Override with values-small/large.yaml
+# (sizing) and values-posture-dod.yaml (hardening). Component sections (postgres,
+# minio, …) are filled in task-by-task as we add each template.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Images are DIGEST-pinned to the cosign-verified 2.102.2 release (multi-arch index
+# digest — containerd resolves amd64 on RKE2, arm64 elsewhere). Tag→digest is the
+# supply-chain guarantee from the signing pipeline; the chart inherits it.
+image:
+  app:
+    repo: ghcr.io/jongodb-labs/cosmos-v2
+    digest: "sha256:a2c7fa0bece331bb12ec547ac73439e871daff3b5544c677c4bbc567c71ec467"
+  migrate:
+    repo: ghcr.io/jongodb-labs/cosmos-v2-migrate
+    digest: "sha256:23e122e7474597e6bcba6e1b8361fe94d4140b65ddaa934d21c5a7cf8e932186"
+  pullPolicy: IfNotPresent
+
+# App workload sizing (small/large profiles override these).
+app:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+# Security posture: baseline | dod. The dod overlay flips FIPS, strict netpol,
+# 1095-day audit retention, external S3, registry1 (Iron Bank) images, enforced SSO.
+posture: baseline
+
+# Istio exposure via the UDS Package CR (host under the tenant gateway).
+expose:
+  host: cosmos
+
+# ── filled in later tasks ──
+# minio:    {...}   # T2 — object storage (Tenant + buckets)
+# postgres: {...}   # T3 — PGO PostgresCluster (pgvector + pgBackRest)
+# sso:      {...}   # T6/SP3 — Keycloak vs external OIDC vs local

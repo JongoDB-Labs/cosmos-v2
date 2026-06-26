@@ -1,0 +1,10 @@
+# DoD-compliant / hardened posture overlay. Apply with:
+#   helm install ... -f values-posture-dod.yaml
+# Orthogonal to sizing — combine, e.g.: -f values-large.yaml -f values-posture-dod.yaml
+posture: dod
+# Wired per component as we build the templates:
+#  - image.*.repo  → registry1 (Iron Bank) flavors instead of upstream
+#  - postgres      → FIPS mode, 1095-day audit retention floor
+#  - networkPolicy → default-deny; only the UDS Package allow-list opens paths
+#  - sso           → Keycloak enforced (no local accounts)
+#  - storage       → external GovCloud/Assured-Workloads S3 instead of in-cluster MinIO
