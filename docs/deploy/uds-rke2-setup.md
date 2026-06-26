@@ -400,6 +400,17 @@ kubectl -n cosmos create job vac --from=cronjob/verify-audit-chain   # run on de
 # → audit_logs INTACT · egress_decisions INTACT · allIntact:true
 ```
 
+**`purge-audit`** (AU-11 retention) and **`rotate-vault-key`** are **on-demand admin ops**, not scheduled — same migrate-image + least-priv pattern, triggered manually:
+```bash
+# purge-audit: the ONE legitimate path that DELETES audit rows older than the
+# retention floor (gov floor ≥1095d, guarded), after the WORM exporter has archived
+# them — destructive; needs the owner role + --worm-toseq coordination.
+node scripts/dsop/purge-audit.mjs --table audit_logs --retention-days 1095
+# rotate-vault-key: re-wrap SSO secrets to the active keyring kid (needs SSO_VAULT_KEYS).
+node scripts/dsop/rotate-vault-key.mjs
+```
+Wire these as **suspended CronJobs** for a real deployment (provide WORM S3 creds + the keyring) so an admin triggers them with `kubectl create job --from=cronjob/<name>`. Left out of the lab chart on purpose — `purge-audit` would delete the very hash-chain we just verified.
+
 > **Note:** `pg`/`pg-connection-string` now treats `sslmode=require` as `verify-full` — which is exactly what we want here (the CA is mounted, so full verification passes). The deprecation warning is harmless; pin `sslmode=verify-full` explicitly when the chart moves to pg v9.
 
 ---
