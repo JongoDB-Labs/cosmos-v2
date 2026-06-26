@@ -247,5 +247,26 @@ Gotchas:
 - **The migrate image runs as root** (the Dockerfile `migrate` stage sets no `USER`) → forced `runAsUser: 1000` for UDS + a writable `/tmp` emptyDir. Clean fix: add `USER` to the migrate stage (CI follow-up).
 - **PGO requires TLS** → append `?sslmode=require` to the connection URI.
 
-## T6–T7 — (appended as completed)
-_Next: T6 app Deployment + Istio VirtualService + UDS Package CR → T7 bring-up + smoke._
+## T6 — The app (Deployment + Service)
+
+`templates/app.yaml` — the Next.js standalone app, running as the image's **non-root `cosmos` user** (UDS-compliant, no exemption). Wired to Postgres (`cosmos_app`), MinIO (S3 over HTTP, path-style), and the SOPS secrets. A distinct **`component: web`** selector avoids colliding with MinIO's labels.
+
+```bash
+helm upgrade --install cosmos charts/cosmos -n cosmos
+kubectl -n cosmos port-forward svc/cosmos 8080:3000 &
+curl -s localhost:8080/api/health      # {"ok":true,"db":"up",...}
+```
+
+The one real gotcha (gotcha #9): **PGO enforces TLS with a self-signed CA**, and Prisma's query engine **verifies the chain** (compose Postgres was plaintext, so this never came up). Fix = mount PGO's CA and point Prisma at it — *verified* TLS, not cert-ignoring:
+```yaml
+env:
+  - name: DATABASE_URL
+    value: "postgresql://cosmos_app:$(COSMOS_APP_PASSWORD)@cosmos-pg-primary:5432/cosmos?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt"
+volumes:
+  - name: pg-ca
+    secret: { secretName: cosmos-pg-cluster-cert, items: [ { key: ca.crt, path: ca.crt } ] }
+```
+Result: `/api/health` → `{"ok":true,"db":"up"}`, both replicas healthy.
+
+## T7 — Gateway exposure (UDS Package) + smoke — (in progress)
+_Next: a UDS `Package` CR → Istio `VirtualService` on the tenant gateway → browse the live app at `https://<tenant-gateway-ip>` with the app's host._
