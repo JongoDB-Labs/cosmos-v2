@@ -306,7 +306,7 @@ curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   #
 | 7 | helper-pod image rewrite | PVC `create process timeout` | zarf-ignore `local-path-storage` |
 | 8 | private GHCR images → 401 | app/migrate `ImagePullBackOff` | `imagePullSecret` on the namespace default SA |
 | 9 | PGO self-signed TLS, Prisma verifies | `self-signed certificate in certificate chain` | mount PGO CA + `?sslmode=require&sslrootcert=…` |
-| 10 | Short-lived Job pods stall under the ambient mesh | migrate hook / ops Jobs hang `waiting for postgres…` | unresolved on the 4-vCPU lab — see *Known limitations* below |
+| 10 | Batch Jobs hang on `cosmos-pg-primary` | migrate hook / ops Jobs hang `waiting for postgres…` | **symptom of #11** — degraded Patroni left the *primary* Service with no endpoint; the `KubeAPI` allow fixes it (it was never an ambient-mesh issue, as first assumed) |
 | 11 | PGO/Patroni needs **`KubeAPI`** egress | PG `database` CrashLoopBackOff after a restart — Patroni *"No more API server nodes"*; also a chronic `3/4` pod | add `- { direction: Egress, remoteGenerated: KubeAPI }` to the Package `allow` — Patroni uses the kube API as its DCS |
 
 The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d.
@@ -331,31 +331,18 @@ Read UDS Core's own prerequisites first for any target — they *define* this pl
 | **metrics-server** | UDS ships it | UDS ships it | often already present (GKE/AKS) — disable UDS's copy to avoid conflict |
 | **Kernel ≥5.8** (ambient + Falco eBPF) | you own the node (Ubuntu 24.04 = 6.8 ✓) | same | managed node images already satisfy it |
 
-**The throughline:** the further up the managed-service ladder you climb, the more of the T0 + gotcha work the platform does for you. A bare RKE2 VM is the *most* hands-on target — which is exactly why this lab surfaced every gotcha. On EKS/AKS, storage + LB + DNS + metrics-server are handed to you, so a UDS Core deploy there **skips gotchas #1, #2, #6, #7**; the UDS-layer behaviors (secure-by-default policy + ambient mesh — gotchas #3–#5, #10) and the app-layer ones (#8, #9) are **identical everywhere**. Choose the target by how much platform you want to own — not by any difference in the app.
+**The throughline:** the further up the managed-service ladder you climb, the more of the T0 + gotcha work the platform does for you. A bare RKE2 VM is the *most* hands-on target — which is exactly why this lab surfaced every gotcha. On EKS/AKS, storage + LB + DNS + metrics-server are handed to you, so a UDS Core deploy there **skips gotchas #1, #2, #6, #7**; the UDS-layer behaviors (secure-by-default policy, default-deny netpols, the ambient mesh — gotchas #3–#5, #10/#11) and the app-layer ones (#8, #9) are **identical everywhere**. Choose the target by how much platform you want to own — not by any difference in the app.
 
 > **Airgap:** the cloud columns assume connectivity. Disconnected/airgap (the DoD case) keeps the *same* chart + Package — Zarf just seeds the images into an in-cluster registry first. That's SP6.
 
 ---
 
-## Known limitations & next steps (post-SP1)
+## Postscript — gotcha #10, root-caused (and the lesson)
 
-SP1 stands up the full stack and it runs green. Two related issues surfaced when extending past it — both rooted in the **same** UDS behavior — documented here rather than papered over.
+The first pass at this lab **misdiagnosed gotcha #10.** Batch Jobs (the migrate pre-upgrade hook, the SP3 ops Jobs) hung on `cosmos-pg-primary` with `waiting for postgres…`, and — because the namespace is in the ambient mesh — I assumed the mesh was blocking short-lived pods, parked SP3, and blamed the 4-vCPU lab. Opting Jobs out of the mesh didn't help, which in hindsight was the tell.
 
-### Gotcha #10 — short-lived Job pods can't reach Postgres under the ambient mesh
-Once the UDS `Package` is active, its default-deny NetworkPolicies + **Istio AuthorizationPolicies** govern the namespace. The long-running app reaches Postgres fine (it's settled in the ambient mesh), but a **freshly-created batch `Job`/`CronJob` pod hangs** reaching `cosmos-pg-primary` (`psql … → "waiting for postgres…"` forever) — even though the netpols allow all intra-namespace TCP. This bites two things:
-- the **migrate pre-upgrade hook** → every `helm upgrade` now stalls at the hook and the release fails. (It only worked during T5–T7 because the Package was momentarily absent while helm re-applied it; in steady state the Package is always present.)
-- **SP3 ops Jobs** (`verify-audit-chain`, etc.) → identical hang.
+The actual cause was **gotcha #11**: the `Package` never allowed **`KubeAPI`** egress, so PGO/Patroni couldn't reach the API server to run leader election. A degraded Patroni leaves the `cosmos-pg-primary` Service **with no primary endpoint** — so *anything* opening a fresh connection to it (Jobs *and* the app) hangs. It looked like a mesh problem; it was a missing netpol allow. Adding `remoteGenerated: KubeAPI` fixed **both #10 and #11 in one line**: Postgres went `4/4`, the migrate hook now completes in seconds, `helm upgrade` is healthy, and **SP3 is unblocked**.
 
-Opting the Job out of the mesh (`istio.io/dataplane-mode: none`) did **not** resolve it here, and the UDS docs themselves flag batch-Job mesh participation as under-specified.
+**The lesson** (and why "reference the docs" mattered): the symptom pointed at the most recently-touched layer — the ambient mesh — but the [UDS Packages CR docs](https://uds.defenseunicorns.com/reference/configuration/custom-resources/packages-v1alpha1-cr/) name `KubeAPI` as a first-class egress target and explicitly call out Patroni-style DCS workloads. Reading that beat another round of reverse-engineering. **Under a default-deny mesh, enumerate every egress a workload needs from its docs** — for PGO that's intra-namespace *and* the kube API (`KubeAPI`), and for cloud object storage it'd add `CloudMetadata`/`Anywhere`.
 
-### This lab is under-spec — that's part of the cause
-Per the [UDS production guide](https://docs.defenseunicorns.com/core/getting-started/production/overview/), **full UDS Core wants 12+ vCPU / 32+ GiB**; this VM is **4 vCPU**. The cluster is chronically CPU-pressured — the wrong place to chase an ambient-mesh timing edge case.
-
-### Recommended path
-1. **Resize the VM to ≥12 vCPU / 32 GiB** (trivial on Proxmox), then deploy **full UDS Core** (SP2: Keycloak / Neuvector / monitoring) on a cluster that can actually hold it.
-2. Re-attempt batch Jobs there, grounded in the docs — not trial-and-error:
-   - [Istio ambient vs sidecar](https://uds.defenseunicorns.com/reference/configuration/service-mesh/istio-sidecar-vs-ambient/) — try `spec.network.serviceMesh.mode: sidecar` on the package (a sidecar is ready before the app container — more reliable for short-lived pods), or
-   - [AuthorizationPolicies](https://uds.defenseunicorns.com/reference/configuration/service-mesh/authorization-policies/) + [Package CR](https://uds.defenseunicorns.com/reference/configuration/uds-operator/package/) — confirm the intra-namespace `allow` actually grants a Job pod the mTLS identity Postgres expects.
-3. Independently, **decouple migrations from the pre-upgrade hook** (run them as an explicit one-off Job) so a stalled migration can't wedge `helm upgrade`.
-
-Until then SP3 is parked; the SP1 stack keeps running green.
+The VM resize to 12 vCPU / 32+ GiB was still the right call — it's the documented floor for **full UDS Core (SP2)**, and the reboot it required is exactly what surfaced the latent `KubeAPI` bug. SP1 runs green; on to SP2.
