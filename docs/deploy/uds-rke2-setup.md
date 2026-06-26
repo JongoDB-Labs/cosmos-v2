@@ -4,6 +4,8 @@
 >
 > Sections track the SP1 migration tasks: **T0** stands up the platform, **T1+** build and deploy the `cosmos` chart. The design rationale lives in `/pontis/docs/specs/2026-06-24-k8s-migration-north-star-design.md`.
 >
+> **One target of many:** this runbook is RKE2 on a single VM — the *most* hands-on target by design, which is why it surfaces every platform gotcha. The [**Deployment targets**](#deployment-targets) section near the end generalizes it to cloud VMs and managed Kubernetes (EKS/AKS/GKE), grounded in the [UDS prerequisites](https://uds.defenseunicorns.com/reference/uds-core/prerequisites/).
+>
 > **Why RKE2 (not k3s/k3d):** RKE2 is Rancher's government-grade distro (CIS-hardenable, STIG'd, FIPS-capable) — the same distro DoD Big Bang / Platform One run. k3s/k3d are lighter and "just work" because they bundle a StorageClass and a LoadBalancer; RKE2 ships neither on purpose. We add them by hand below. Running the lab on RKE2 means we hit RKE2's real behavior here, not in production.
 
 ---
@@ -11,8 +13,8 @@
 ## T0 — Platform bring-up
 
 ### 0. Host prerequisites
-- A **VM** (not an LXC container — k8s needs kernel features unprivileged LXC restricts). ≥4 vCPU (8 recommended for full UDS Core), 16–32 GiB RAM, ~100 GiB disk.
-- Ubuntu 24.04, a sudo-capable user, **swap off**, `/dev/kmsg` present.
+- A **VM** (not an LXC container — k8s needs kernel features unprivileged LXC restricts). **≥4 vCPU / 16 GiB** runs the app + *slim* Core (init+core-base); **full UDS Core wants 12+ vCPU / 32+ GiB** per the [UDS prereqs](https://uds.defenseunicorns.com/reference/uds-core/prerequisites/) — size for the flavor you'll run. ~100 GiB disk.
+- Ubuntu 24.04 (kernel **6.8** — UDS ambient mesh + Falco need **kernel ≥5.8** for the Modern-eBPF probes), a sudo-capable user, **swap off**, `/dev/kmsg` present.
 
 ### 1. Kernel prep
 Kubernetes routes pod traffic through the host bridge + iptables, so enable forwarding and load the bridge/overlay modules (persistently):
@@ -307,6 +309,30 @@ curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   #
 | 10 | Short-lived Job pods stall under the ambient mesh | migrate hook / ops Jobs hang `waiting for postgres…` | unresolved on the 4-vCPU lab — see *Known limitations* below |
 
 The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d.
+
+---
+
+## Deployment targets
+
+**What's portable, what's platform-specific.** Everything from **T1 onward is portable** — the `cosmos` Helm chart, the UDS `Package` CR, PGO, MinIO, the migrate hook all run unchanged on any [CNCF-conformant Kubernetes that isn't EOL](https://uds.defenseunicorns.com/reference/uds-core/prerequisites/): RKE2, K3s, **EKS, AKS, GKE**. What changes per target is the **platform layer beneath UDS Core** — storage, load-balancing, DNS/TLS, CNI, kernel. That's all the T0 bring-up and the gotcha catalog really are: on a bare RKE2 VM you supply that layer by hand; managed clouds supply most of it for you.
+
+Read UDS Core's own prerequisites first for any target — they *define* this platform layer:
+[Prerequisites](https://uds.defenseunicorns.com/reference/uds-core/prerequisites/) · [Distribution support](https://uds.defenseunicorns.com/reference/uds-core/distribution-support/) · [Deployment flavors](https://uds.defenseunicorns.com/reference/deployment/flavors/) · [Production overview](https://docs.defenseunicorns.com/core/getting-started/production/overview/)
+
+| Platform capability (UDS prereq) | Baremetal / on-prem VM *(our lab)* | Self-managed cloud VM (EC2, Azure VM) | Managed Kubernetes (EKS / AKS / GKE) |
+|---|---|---|---|
+| **Default StorageClass** (dynamic PVs) | you provide — `local-path`, Longhorn, Ceph/Rook *(gotcha #1)* | same, or run the cloud CSI driver yourself | **built-in** (gp3 / Azure Disk / PD); set `allowVolumeExpansion` |
+| **LoadBalancer** for the Istio gateway | **MetalLB / kube-vip** *(gotcha #2)* | MetalLB, or wire the cloud LB controller | **built-in** cloud LB (AWS LB Controller / Azure / GCP) |
+| **Wildcard DNS + TLS** | run DNS + bring certs (lab faked SNI with `--resolve`) | Route 53 / Azure DNS + ACME | cloud DNS + ACM / Key Vault / Google-managed certs |
+| **CNI with NetworkPolicy** | RKE2 Canal (built-in) | same | EKS: VPC-CNI policy add-on or Cilium; AKS: Azure-CNI / Cilium |
+| **Object storage** (Loki, Velero, app S3) | **MinIO** in-cluster *(we deploy it)* | MinIO, or the cloud bucket | **S3 / Blob / GCS** + workload identity ([IRSA on EKS](https://uds.defenseunicorns.com/reference/configuration/external-dependencies/irsa-configuration/)) |
+| **Keycloak DB** (production) | external Postgres / PGO | managed PG (RDS / Flexible Server) | RDS / Azure DB / Cloud SQL |
+| **metrics-server** | UDS ships it | UDS ships it | often already present (GKE/AKS) — disable UDS's copy to avoid conflict |
+| **Kernel ≥5.8** (ambient + Falco eBPF) | you own the node (Ubuntu 24.04 = 6.8 ✓) | same | managed node images already satisfy it |
+
+**The throughline:** the further up the managed-service ladder you climb, the more of the T0 + gotcha work the platform does for you. A bare RKE2 VM is the *most* hands-on target — which is exactly why this lab surfaced every gotcha. On EKS/AKS, storage + LB + DNS + metrics-server are handed to you, so a UDS Core deploy there **skips gotchas #1, #2, #6, #7**; the UDS-layer behaviors (secure-by-default policy + ambient mesh — gotchas #3–#5, #10) and the app-layer ones (#8, #9) are **identical everywhere**. Choose the target by how much platform you want to own — not by any difference in the app.
+
+> **Airgap:** the cloud columns assume connectivity. Disconnected/airgap (the DoD case) keeps the *same* chart + Package — Zarf just seeds the images into an in-cluster registry first. That's SP6.
 
 ---
 
