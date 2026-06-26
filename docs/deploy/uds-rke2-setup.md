@@ -304,5 +304,31 @@ curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   #
 | 7 | helper-pod image rewrite | PVC `create process timeout` | zarf-ignore `local-path-storage` |
 | 8 | private GHCR images → 401 | app/migrate `ImagePullBackOff` | `imagePullSecret` on the namespace default SA |
 | 9 | PGO self-signed TLS, Prisma verifies | `self-signed certificate in certificate chain` | mount PGO CA + `?sslmode=require&sslrootcert=…` |
+| 10 | Short-lived Job pods stall under the ambient mesh | migrate hook / ops Jobs hang `waiting for postgres…` | unresolved on the 4-vCPU lab — see *Known limitations* below |
 
 The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d.
+
+---
+
+## Known limitations & next steps (post-SP1)
+
+SP1 stands up the full stack and it runs green. Two related issues surfaced when extending past it — both rooted in the **same** UDS behavior — documented here rather than papered over.
+
+### Gotcha #10 — short-lived Job pods can't reach Postgres under the ambient mesh
+Once the UDS `Package` is active, its default-deny NetworkPolicies + **Istio AuthorizationPolicies** govern the namespace. The long-running app reaches Postgres fine (it's settled in the ambient mesh), but a **freshly-created batch `Job`/`CronJob` pod hangs** reaching `cosmos-pg-primary` (`psql … → "waiting for postgres…"` forever) — even though the netpols allow all intra-namespace TCP. This bites two things:
+- the **migrate pre-upgrade hook** → every `helm upgrade` now stalls at the hook and the release fails. (It only worked during T5–T7 because the Package was momentarily absent while helm re-applied it; in steady state the Package is always present.)
+- **SP3 ops Jobs** (`verify-audit-chain`, etc.) → identical hang.
+
+Opting the Job out of the mesh (`istio.io/dataplane-mode: none`) did **not** resolve it here, and the UDS docs themselves flag batch-Job mesh participation as under-specified.
+
+### This lab is under-spec — that's part of the cause
+Per the [UDS production guide](https://docs.defenseunicorns.com/core/getting-started/production/overview/), **full UDS Core wants 12+ vCPU / 32+ GiB**; this VM is **4 vCPU**. The cluster is chronically CPU-pressured — the wrong place to chase an ambient-mesh timing edge case.
+
+### Recommended path
+1. **Resize the VM to ≥12 vCPU / 32 GiB** (trivial on Proxmox), then deploy **full UDS Core** (SP2: Keycloak / Neuvector / monitoring) on a cluster that can actually hold it.
+2. Re-attempt batch Jobs there, grounded in the docs — not trial-and-error:
+   - [Istio ambient vs sidecar](https://uds.defenseunicorns.com/reference/configuration/service-mesh/istio-sidecar-vs-ambient/) — try `spec.network.serviceMesh.mode: sidecar` on the package (a sidecar is ready before the app container — more reliable for short-lived pods), or
+   - [AuthorizationPolicies](https://uds.defenseunicorns.com/reference/configuration/service-mesh/authorization-policies/) + [Package CR](https://uds.defenseunicorns.com/reference/configuration/uds-operator/package/) — confirm the intra-namespace `allow` actually grants a Job pod the mTLS identity Postgres expects.
+3. Independently, **decouple migrations from the pre-upgrade hook** (run them as an explicit one-off Job) so a stalled migration can't wedge `helm upgrade`.
+
+Until then SP3 is parked; the SP1 stack keeps running green.
