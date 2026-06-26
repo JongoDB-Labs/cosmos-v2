@@ -1,0 +1,13 @@
+# Large profile — HA / production scale. Apply with:
+#   helm install ... -f values-large.yaml
+app:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+# Component knobs added in later tasks:
+# postgres: { instances: 3, storage: 100Gi }   # T3 — PGO HA (Patroni)
+# minio:    { servers: 4, storage: 100Gi }      # T2 — distributed
