@@ -54,6 +54,7 @@ postgres:
   instances: 1
   storage: 5Gi
   backupStorage: 5Gi
+  psqlImage: postgres:16-alpine   # migrate hook's create-app-role init container (needs psql)
 
 # ── filled in later tasks ──
 # sso:      {...}   # T6/SP3 — Keycloak vs external OIDC vs local
