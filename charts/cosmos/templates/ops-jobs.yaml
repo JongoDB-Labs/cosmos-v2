@@ -1,0 +1,55 @@
+{{/*
+Gov audit/compliance ops (SP3). Runs scripts/dsop/* from the migrate image as the
+least-priv cosmos_app role over verified PGO TLS. `component: ops` labels (no
+instance) keep these pods out of MinIO's Service selector. Connectivity rides the
+Package's IntraNamespace + KubeAPI egress allows (see gotchas #10/#11).
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verify-audit-chain
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.ops.verifyAuditChain.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ .Chart.Name }}
+            app.kubernetes.io/component: ops
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - { name: tmp, emptyDir: {} }
+            - name: pg-ca
+              secret:
+                secretName: cosmos-pg-cluster-cert
+                items:
+                  - { key: ca.crt, path: ca.crt }
+          containers:
+            - name: verify-audit-chain
+              image: "{{ .Values.image.migrate.repo }}@{{ .Values.image.migrate.digest }}"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: ["ALL"] }
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: COSMOS_APP_PASSWORD, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: COSMOS_APP_PASSWORD } } }
+                # least-priv reader (SELECT + EXECUTE verify_audit_chain), verified TLS
+                - { name: DATABASE_URL, value: "postgresql://cosmos_app:$(COSMOS_APP_PASSWORD)@cosmos-pg-primary.cosmos.svc:5432/cosmos?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt" }
+                - { name: WORM_MANIFEST_HMAC_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: WORM_MANIFEST_HMAC_KEY } } }
+              command: ["node", "scripts/dsop/verify-audit-chain.mjs"]
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+                - { name: pg-ca, mountPath: /etc/pg-ca, readOnly: true }

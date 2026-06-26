@@ -390,6 +390,20 @@ Browse from a laptop by adding both gateway IPs to `/etc/hosts`:
 
 ---
 
+## SP3 — gov audit/compliance ops (CronJobs)
+
+The compliance controls run as **CronJobs on the migrate image** (it already carries `scripts/dsop/*`), as the least-priv `cosmos_app` role over the same verified PGO TLS as the app. `component: ops` labels (no `instance`) keep these pods out of MinIO's Service selector; DB connectivity rides the Package's `IntraNamespace` + `KubeAPI` allows — **no mesh opt-out needed** (that was the gotcha-#10 red herring; once Patroni can elect a primary, batch→PG just works).
+
+**`verify-audit-chain`** (AU-9 tamper-evidence) — every 6h, runs the in-DB `verify_audit_chain()` over `audit_logs` + `egress_decisions` and exits non-zero on any broken hash-chain link:
+```bash
+kubectl -n cosmos create job vac --from=cronjob/verify-audit-chain   # run on demand
+# → audit_logs INTACT · egress_decisions INTACT · allIntact:true
+```
+
+> **Note:** `pg`/`pg-connection-string` now treats `sslmode=require` as `verify-full` — which is exactly what we want here (the CA is mounted, so full verification passes). The deprecation warning is harmless; pin `sslmode=verify-full` explicitly when the chart moves to pg v9.
+
+---
+
 ## Troubleshooting playbook
 
 Every failure this lab hit, as **Symptom → Diagnose → Fix** with commands. Numbers map to the gotcha catalog. Triage by layer: is it the *platform*, UDS's *secure-by-default* posture, the *app/DB*, or *post-reboot recovery*?
