@@ -181,5 +181,20 @@ Provisioning a PVC surfaces issues **on the helper pod** local-path launches to 
 
 > **Our own workloads are UDS-compliant by construction** (non-root, drop-all-caps, seccomp `RuntimeDefault`) so they pass the Pepr baseline with **no exemption** — only privileged *infra* (MetalLB, local-path) needs them. In real prod, a CSI driver (cloud disks / Longhorn) sidesteps the local-path helper-pod issues entirely.
 
-## T3–T7 — (appended as completed)
-_Next: T3 PGO Postgres (pgvector + pgBackRest) → T4 SOPS secrets → T5 migrate hook → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
+## T3 — Database (CrunchyData PGO + Postgres 16 + pgvector)
+
+Install the PGO operator cluster-wide, then the chart's `PostgresCluster` (`templates/postgrescluster.yaml`) brings up Postgres + pgBackRest:
+```bash
+kubectl create ns postgres-operator && kubectl label ns postgres-operator zarf.dev/agent=ignore
+helm install pgo oci://registry.developers.crunchydata.com/crunchydata/pgo -n postgres-operator
+helm upgrade --install cosmos charts/cosmos -n cosmos      # adds the PostgresCluster
+```
+Result: `cosmos-pg-instance1-*` (4/4), `cosmos-pg-repo-host-*` (pgBackRest) + an initial backup. **pgvector is bundled** in `crunchy-postgres:ubi9-16.14` (matches compose/defcon 16.14); the `cosmos` superuser/owner role is created by PGO.
+
+Notes / gotchas:
+- **PGO operator + all Postgres pods pass the UDS Pepr baseline with NO exemption** — Crunchy images are non-root/least-priv by design (contrast with MetalLB/local-path).
+- **PGO usernames can't contain `_`** (DNS-label regex) → the least-priv **`cosmos_app`** role is created by the **migrate step (T5)** as the `cosmos` superuser, where its audit/WORM grants belong anyway.
+- **pgBackRest uses a local *volume* repo** for now; the MinIO-S3 repo (the `cosmos-pgbackrest` bucket) is a refinement once MinIO serves **TLS** (pgBackRest requires HTTPS for S3).
+
+## T4–T7 — (appended as completed)
+_Next: T4 SOPS secrets → T5 migrate hook (creates `cosmos_app` + DB-contract grants) → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
