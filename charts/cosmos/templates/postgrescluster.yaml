@@ -1,0 +1,39 @@
+{{/*
+CrunchyData PGO PostgresCluster — Postgres {{ .Values.postgres.version }} with pgvector
+(bundled in the crunchy-postgres image). DB-contract roles:
+  cosmos      — owner/superuser role migrations run as (matches the compose POSTGRES_USER)
+  cosmos_app  — least-privilege app role; its audit/WORM grants are applied by migrate (T5)
+pgBackRest uses a local volume repo for now; the MinIO-S3 repo (cosmos-pgbackrest bucket)
+is a refinement once MinIO serves TLS (pgBackRest requires HTTPS for S3).
+*/}}
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: cosmos-pg
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  postgresVersion: {{ .Values.postgres.version }}
+  instances:
+    - name: instance1
+      replicas: {{ .Values.postgres.instances }}
+      dataVolumeClaimSpec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+  users:
+    - name: cosmos
+      databases: ["cosmos"]
+      options: "SUPERUSER"
+  # cosmos_app (least-priv app role) is created by the migrate step (T5): PGO user names
+  # can't contain '_', and the role + its audit/WORM grants are migration-time DB-contract logic.
+  backups:
+    pgbackrest:
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: {{ .Values.postgres.backupStorage }}

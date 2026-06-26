@@ -48,6 +48,12 @@ minio:
     backups: cosmos-pgbackrest
     auditWorm: cosmos-audit-worm
 
+# PostgresCluster (CrunchyData PGO). pgvector ships in the crunchy-postgres image.
+postgres:
+  version: 16
+  instances: 1
+  storage: 5Gi
+  backupStorage: 5Gi
+
 # ── filled in later tasks ──
-# postgres: {...}   # T3 — PGO PostgresCluster (pgvector + pgBackRest)
 # sso:      {...}   # T6/SP3 — Keycloak vs external OIDC vs local
