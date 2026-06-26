@@ -123,6 +123,8 @@ kubectl get pods -A | grep -v Completed
 | 3 | zarf agent image-rewrite | `ImagePullBackOff` from `127.0.0.1:31999/...` | label ns `zarf.dev/agent=ignore` (for manually-applied infra) |
 | 4 | UDS Pepr policy **deny** | admission webhook denies host-ns / host-ports / `NET_RAW` | `Exemption` CR (DisallowHostNamespaces, RestrictHostPorts, RestrictCapabilities) |
 | 5 | UDS Pepr policy **mutate** | pod runs non-root → `permission denied` reading its ConfigMap | add `RequireNonRootUser` to the Exemption |
+| 6 | UDS denies `hostPath` | local-path's `helper-pod` (hostPath) denied → PVC `Pending` | `Exemption` for `helper-pod-*` (RestrictVolumeTypes, RestrictHostPathWrite, RequireNonRootUser) |
+| 7 | helper-pod image rewrite | PVC `create process timeout after 120s` | also label `local-path-storage` `zarf.dev/agent=ignore` (gotcha #3, on storage) |
 
 The lesson: UDS is **secure-by-default** — it both *denies* unsafe pod specs and *mutates* pods to harden them. Privileged platform infra needs narrow, admin-owned exemptions; this is a feature, not a bug.
 
@@ -155,6 +157,29 @@ helm install cosmos charts/cosmos -f values-large.yaml -f values-posture-dod.yam
 
 ---
 
-## T2–T7 — App stack (appended as completed)
+## T2 — Object storage (MinIO)
 
-_Next: T2 MinIO (Tenant + buckets) → T3 PGO Postgres (pgvector + pgBackRest) → T4 SOPS secrets → T5 migrate hook → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
+A single-instance MinIO lives in the chart (`templates/minio.yaml` = Service + StatefulSet; `templates/minio-init.yaml` = bucket Job). Deploy into a `cosmos` namespace **labeled `zarf.dev/agent=ignore`** so our images pull from upstream on the connected lab (SP5/6 package them into zarf for airgap):
+
+```bash
+kubectl create ns cosmos && kubectl label ns cosmos zarf.dev/agent=ignore
+# ephemeral lab creds (SOPS-managed from T4)
+kubectl -n cosmos create secret generic cosmos-minio-creds \
+  --from-literal=MINIO_ROOT_USER=cosmos-minio-root \
+  --from-literal=MINIO_ROOT_PASSWORD="$(openssl rand -hex 16)" \
+  --from-literal=S3_ACCESS_KEY=cosmos-app \
+  --from-literal=S3_SECRET_KEY="$(openssl rand -hex 16)"
+helm upgrade --install cosmos charts/cosmos -n cosmos --wait
+```
+Result: MinIO `1/1 Running` + 3 buckets (`cosmos-uploads`, `cosmos-pgbackrest`, object-locked `cosmos-audit-worm` COMPLIANCE/3650d) + the least-priv `cosmos-app` account.
+
+### The local-path ↔ UDS storage fight (gotchas #6–#7)
+Provisioning a PVC surfaces issues **on the helper pod** local-path launches to create the volume dir:
+1. UDS policy **denies hostPath** + the helper runs as **root** → `Exemption` for `helper-pod-*` (RestrictVolumeTypes, RestrictHostPathWrite, RequireNonRootUser). The provisioner backs off after ~15 failures, so **delete the stuck PVC+pod** to force a fresh attempt.
+2. zarf then **rewrites the helper's busybox image** → `create process timeout`; fix by labeling `local-path-storage` `zarf.dev/agent=ignore`.
+3. A standard non-root snag: `mc` can't write `$HOME/.mc` as uid 1000 → give it a writable `HOME` via an `emptyDir`.
+
+> **Our own workloads are UDS-compliant by construction** (non-root, drop-all-caps, seccomp `RuntimeDefault`) so they pass the Pepr baseline with **no exemption** — only privileged *infra* (MetalLB, local-path) needs them. In real prod, a CSI driver (cloud disks / Longhorn) sidesteps the local-path helper-pod issues entirely.
+
+## T3–T7 — (appended as completed)
+_Next: T3 PGO Postgres (pgvector + pgBackRest) → T4 SOPS secrets → T5 migrate hook → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
