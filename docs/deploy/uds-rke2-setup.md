@@ -225,5 +225,27 @@ In the committed file each value reads `SSO_VAULT_KEY: ENC[AES256_GCM,...]` — 
 
 > Lab note: MinIO's `cosmos-minio-creds` was created ad-hoc in T2 and left as-is (re-keying live MinIO is out of scope); a clean install SOPS-manages it the same way.
 
-## T5–T7 — (appended as completed)
-_Next: T5 migrate hook (creates `cosmos_app` + DB-contract grants + pgvector) → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
+## T5 — Migrate hook (`cosmos_app` + 65 migrations)
+
+A Helm **pre-upgrade hook** (`templates/migrate-job.yaml`) reproduces the compose DB bring-up:
+- **initContainer** (psql, as the `cosmos` superuser): creates the least-priv `cosmos_app` LOGIN role — ports `compose/init/01-app-role.sh`.
+- **main container**: `prisma migrate deploy` as `cosmos` → applies all **65 migrations**, which themselves install **pgvector** and `cosmos_app`'s audit/WORM `GRANT`/`REVOKE`s (the `audit_immutability` migration).
+
+```bash
+# our app/migrate images are PRIVATE on GHCR → the cluster needs a pull secret
+# (in airgap, zarf seeds these into the in-cluster registry — no secret needed)
+kubectl -n cosmos create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username=<gh-user> --docker-password="$(gh auth token)"
+kubectl -n cosmos patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+
+helm upgrade --install cosmos charts/cosmos -n cosmos   # the pre-upgrade hook runs the migrate
+```
+Result: `migrations_applied=65`, the `cosmos_app` role, `pgvector` installed, **112 public tables**.
+
+Gotchas:
+- **Private GHCR images → 401** without a pull secret (gotcha #8). MinIO/Postgres are public; ours aren't.
+- **The migrate image runs as root** (the Dockerfile `migrate` stage sets no `USER`) → forced `runAsUser: 1000` for UDS + a writable `/tmp` emptyDir. Clean fix: add `USER` to the migrate stage (CI follow-up).
+- **PGO requires TLS** → append `?sslmode=require` to the connection URI.
+
+## T6–T7 — (appended as completed)
+_Next: T6 app Deployment + Istio VirtualService + UDS Package CR → T7 bring-up + smoke._
