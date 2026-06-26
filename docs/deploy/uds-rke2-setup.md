@@ -196,5 +196,34 @@ Notes / gotchas:
 - **PGO usernames can't contain `_`** (DNS-label regex) → the least-priv **`cosmos_app`** role is created by the **migrate step (T5)** as the `cosmos` superuser, where its audit/WORM grants belong anyway.
 - **pgBackRest uses a local *volume* repo** for now; the MinIO-S3 repo (the `cosmos-pgbackrest` bucket) is a refinement once MinIO serves **TLS** (pgBackRest requires HTTPS for S3).
 
-## T4–T7 — (appended as completed)
-_Next: T4 SOPS secrets → T5 migrate hook (creates `cosmos_app` + DB-contract grants) → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
+## T4 — Secrets with SOPS (encrypted in git)
+
+`kubectl create secret` puts plaintext in your shell history and never lets the secret live in git. **SOPS** encrypts each value so the *ciphertext* is safe to commit, and only the cluster's **age** private key can decrypt it.
+
+```bash
+# 1. one-time: the cluster's age keypair — the private key stays OUT of git
+#    (in prod, Flux holds it as a Secret and decrypts on reconcile)
+age-keygen -o ~/.config/sops/age/keys.txt
+PUB=$(age-keygen -y ~/.config/sops/age/keys.txt)
+
+# 2. .sops.yaml binds *.enc.yaml files to that recipient (safe to commit)
+cat > deploy/secrets/.sops.yaml <<EOF
+creation_rules:
+  - path_regex: .*\.enc\.yaml$
+    age: ${PUB}
+EOF
+
+# 3. author a Secret manifest INTO the .enc.yaml name, then encrypt in-place
+#    (sops matches the creation rule by the file's path — hence the naming)
+sops --encrypt --in-place deploy/secrets/cosmos-app-secrets.enc.yaml
+
+# 4. decrypt + apply (Flux/CI does this automatically; by hand for the lab)
+export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt
+sops -d deploy/secrets/cosmos-app-secrets.enc.yaml | kubectl apply -f -
+```
+In the committed file each value reads `SSO_VAULT_KEY: ENC[AES256_GCM,...]` — the plaintext (`SSO_VAULT_KEY`, `WORM_MANIFEST_HMAC_KEY`, `INTERNAL_ADMINS`) only ever exists in-cluster. **The age private key is the one thing you never commit.**
+
+> Lab note: MinIO's `cosmos-minio-creds` was created ad-hoc in T2 and left as-is (re-keying live MinIO is out of scope); a clean install SOPS-manages it the same way.
+
+## T5–T7 — (appended as completed)
+_Next: T5 migrate hook (creates `cosmos_app` + DB-contract grants + pgvector) → T6 app + Istio VirtualService + Package CR → T7 bring-up + smoke._
