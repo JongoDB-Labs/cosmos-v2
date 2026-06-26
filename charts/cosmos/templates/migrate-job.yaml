@@ -1,0 +1,75 @@
+{{/*
+Migrate hook (Helm pre-install/pre-upgrade). Ports compose/init/01-app-role.sh +
+the cosmos-migrate service:
+  - initContainer (psql, as the cosmos superuser): create the least-priv cosmos_app
+    LOGIN role. Its table GRANT/REVOKEs live INSIDE the migrations (audit_immutability).
+  - main container: `prisma migrate deploy` as cosmos — applies all migrations
+    (incl. pgvector CREATE EXTENSION, run as the cosmos superuser).
+The published migrate image runs as root, so we force a non-root UID for UDS; the
+proper fix is a `USER` line in the Dockerfile `migrate` stage (CI follow-up).
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cosmos-migrate
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels: {{- include "cosmos.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        - name: create-app-role
+          image: {{ .Values.postgres.psqlImage | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          env:
+            - { name: PGURI, valueFrom: { secretKeyRef: { name: cosmos-pg-pguser-cosmos, key: uri } } }
+            - { name: COSMOS_APP_PASSWORD, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: COSMOS_APP_PASSWORD } } }
+            - { name: HOME, value: /tmp }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              until psql "${PGURI}?sslmode=require" -tAc 'SELECT 1' >/dev/null 2>&1; do echo "waiting for postgres..."; sleep 3; done
+              if ! psql "${PGURI}?sslmode=require" -tAc "SELECT 1 FROM pg_roles WHERE rolname='cosmos_app'" | grep -q 1; then
+                psql "${PGURI}?sslmode=require" -v ON_ERROR_STOP=1 -c "CREATE ROLE cosmos_app LOGIN PASSWORD '${COSMOS_APP_PASSWORD}'"
+                echo "created cosmos_app"
+              else
+                echo "cosmos_app already exists"
+              fi
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.migrate.repo }}@{{ .Values.image.migrate.digest }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          env:
+            - { name: PGURI, valueFrom: { secretKeyRef: { name: cosmos-pg-pguser-cosmos, key: uri } } }
+            - { name: HOME, value: /tmp }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              export DATABASE_URL="${PGURI}?sslmode=require"
+              export DIRECT_URL="$DATABASE_URL"
+              exec node_modules/.bin/prisma migrate deploy
