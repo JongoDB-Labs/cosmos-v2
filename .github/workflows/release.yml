@@ -169,6 +169,11 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Expose the merged manifest digests so the `chart` job (SP4) can pin the
+    # Helm chart to the exact images this release just built + signed.
+    outputs:
+      runtime_digest: ${{ steps.manifest.outputs.runtime_digest }}
+      migrate_digest: ${{ steps.manifest.outputs.migrate_digest }}
     # Expose whether COSIGN_KEY is configured as a job-level env so the KMS
     # signing step can gate on it without referencing secrets in an `if`
     # (actionlint disallows secrets context in step-level `if` conditions).
@@ -333,3 +338,118 @@ jobs:
           verify_one "$IMAGE"
           verify_one "$MIGRATE_IMAGE"
           verify_one "$POSTGRES_IMAGE"
+
+  # ── Package, push, and sign the OCI Helm chart (SP4) ────────────────────────
+  # The k8s delivery artifact gets the SAME gov-grade treatment as the images:
+  # the chart is pinned to the EXACT image digests this release produced, pushed
+  # to GHCR as an OCI artifact, then signed keyless (OIDC → Fulcio/Rekor) ALWAYS,
+  # KMS ADDITIONALLY when COSIGN_KEY is set, with a SLSA provenance attestation
+  # and a verify-after-sign gate. Tag→digest→signature is unbroken from image to
+  # chart, so an airgap UDS/Zarf bundle (SP6) can verify the whole set offline.
+  chart:
+    needs: merge
+    if: ${{ !cancelled() && needs.merge.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HAS_KMS: ${{ secrets.COSIGN_KEY != '' }}
+    permissions:
+      contents: read
+      packages: write # push the OCI chart to GHCR
+      id-token: write # keyless cosign (OIDC → Fulcio) + provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Derive VERSION from package.json
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize chart repo (lowercase owner)
+        run: |
+          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "CHART_REPO=ghcr.io/$OWNER/charts" >> "$GITHUB_ENV"
+          echo "CHART_REF=ghcr.io/$OWNER/charts/cosmos" >> "$GITHUB_ENV"
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.16.4
+
+      # cosign reads ~/.docker/config.json; helm OCI push uses it too — one login
+      # serves both. (helm registry login added as belt-and-suspenders.)
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: helm registry login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Pin the chart to the digests THIS release produced — the chart ships the
+      # exact images that were just built, scanned, and signed (ephemeral edit on
+      # the runner; the repo's values.yaml is untouched).
+      - name: Pin chart to released image digests
+        env:
+          RUNTIME_DIGEST: ${{ needs.merge.outputs.runtime_digest }}
+          MIGRATE_DIGEST: ${{ needs.merge.outputs.migrate_digest }}
+        run: |
+          set -euo pipefail
+          command -v yq >/dev/null || { echo "::error::yq not on runner (GitHub ubuntu images ship mikefarah yq v4)"; exit 1; }
+          yq -i '.image.app.digest = strenv(RUNTIME_DIGEST)' charts/cosmos/values.yaml
+          yq -i '.image.migrate.digest = strenv(MIGRATE_DIGEST)' charts/cosmos/values.yaml
+          echo "chart pins app=$RUNTIME_DIGEST migrate=$MIGRATE_DIGEST"
+
+      - name: Lint + package chart
+        id: pkg
+        run: |
+          set -euo pipefail
+          V="${{ steps.version.outputs.version }}"
+          helm lint charts/cosmos
+          helm package charts/cosmos --version "$V" --app-version "$V" -d /tmp
+          echo "tgz=/tmp/cosmos-$V.tgz" >> "$GITHUB_OUTPUT"
+
+      - name: Push chart (OCI) + capture digest
+        id: push
+        run: |
+          set -euo pipefail
+          OUT="$(helm push "${{ steps.pkg.outputs.tgz }}" "oci://$CHART_REPO" 2>&1)"; echo "$OUT"
+          DIGEST="$(printf '%s\n' "$OUT" | awk '/[Dd]igest:/{print $NF}')"
+          [ -n "$DIGEST" ] || { echo "::error::could not parse pushed chart digest"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Pushed $CHART_REF@$DIGEST"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: cosign sign chart (keyless — always)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: cosign sign --yes "$CHART_REF@${{ steps.push.outputs.digest }}"
+
+      - name: cosign sign chart (KMS — when COSIGN_KEY configured)
+        if: ${{ env.HAS_KMS == 'true' }}
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: cosign sign --yes --key "env://COSIGN_KEY" "$CHART_REF@${{ steps.push.outputs.digest }}"
+
+      - name: Attest chart provenance (SLSA)
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ${{ env.CHART_REF }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      # Verify-after-sign GATE — the keyless signature must be present + verifiable,
+      # same self-healing contract as the images. A green-but-unsigned chart is impossible.
+      - name: Verify chart signature landed (gate)
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${REPO}/" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$CHART_REF@${{ steps.push.outputs.digest }}" >/dev/null
+          echo "chart signature verified: $CHART_REF@${{ steps.push.outputs.digest }}"
