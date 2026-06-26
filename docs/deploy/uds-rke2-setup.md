@@ -436,6 +436,34 @@ helm install cosmos oci://ghcr.io/jongodb-labs/charts/cosmos --version <X.Y.Z> -
 
 ---
 
+## SP5 — Zarf airgap package
+
+`deploy/airgap/zarf.yaml` packages the cosmos chart + its 7 images into a single tarball for disconnected delivery:
+```bash
+zarf package create deploy/airgap                                  # pull images + chart → tarball (needs GHCR auth)
+zarf package deploy zarf-package-cosmos-2.102.2-amd64.tar.zst      # seed images + install chart
+```
+On deploy the zarf agent rewrites every image ref to the **in-cluster registry**, so **gotcha #8 (the GHCR pull-secret) disappears in airgap** — zarf seeds the images, nothing to authenticate.
+
+Images carried: app + migrate (digest-pinned to the signed release), MinIO + `mc`, `postgres:16-alpine` (the migrate init), and the two Crunchy images the PostgresCluster pulls (`crunchy-postgres` + `crunchy-pgbackrest`). `zarf dev lint` passes; the three upstream images are tag-pinned (a hardened `registry1`/Iron-Bank flavor would digest-pin all of them).
+
+**Target-cluster prereqs** (bundled together in SP6): UDS Core, CrunchyData PGO, and the cosmos secrets (provided out-of-band — SOPS/Flux; not baked into the package). Production points the chart at the **signed OCI chart** (SP4) so the airgap deploy verifies its signature before install.
+
+---
+
+## SP6 — UDS bundle (the airgap deliverable)
+
+`deploy/airgap/uds-bundle.yaml` composes the **entire stack** into one tarball — the DoD disconnected-delivery milestone:
+```bash
+uds create deploy/airgap                                          # every package's images → one bundle
+uds deploy uds-bundle-cosmos-stack-2.102.2-*.tar.zst --confirm    # deploy the whole stack offline
+```
+Package order = deploy order: zarf `init` → `core-base` → `core-identity-authorization` (Keycloak) → `core-runtime-security` (Falco) + `core-monitoring` → `cosmos`. This is exactly the SP2 layer sequence, now bundled with the app. Every UDS Core layer is pinned to `1.7.0` (mismatched layers drift — SP2's lesson); `upstream` flavor for the lab, `registry1` (Iron Bank) for a hardened ATO build.
+
+**One piece still to package:** CrunchyData PGO. The cosmos chart creates a `PostgresCluster` the PGO operator reconciles, so a PGO Zarf package belongs between `core-base` and `cosmos` (PGO ships as a Helm chart — wrap its operator image + CRDs in a `zarf.yaml`). Until then PGO is a documented prereq. With it added, `uds deploy` brings up the full COSMOS platform on a disconnected cluster from a single signed tarball — SP1→SP2→SP5→SP6, the airgap critical path, complete.
+
+---
+
 ## Troubleshooting playbook
 
 Every failure this lab hit, as **Symptom → Diagnose → Fix** with commands. Numbers map to the gotcha catalog. Triage by layer: is it the *platform*, UDS's *secure-by-default* posture, the *app/DB*, or *post-reboot recovery*?
