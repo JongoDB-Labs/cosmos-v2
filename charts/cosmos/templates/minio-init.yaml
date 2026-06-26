@@ -1,0 +1,67 @@
+{{/*
+Post-install/upgrade Job: create the 3 buckets (uploads, pgBackRest repo, and the
+object-locked audit-WORM bucket) + the least-privilege app service account.
+Mirrors compose/minio/init.sh. Idempotent (mb --ignore-existing, user add || true).
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 8
+  template:
+    metadata:
+      labels: {{- include "cosmos.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: mc-home
+          emptyDir: {}
+      containers:
+        - name: mc
+          image: {{ .Values.minio.mcImage | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # mc writes its config under HOME; uid 1000 can't write to '/', so point at a writable emptyDir
+            - { name: HOME, value: /home/mc }
+            - { name: MC_CONFIG_DIR, value: /home/mc/.mc }
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: MINIO_ROOT_USER } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: MINIO_ROOT_PASSWORD } }
+            - name: S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: S3_ACCESS_KEY } }
+            - name: S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: S3_SECRET_KEY } }
+          volumeMounts:
+            - { name: mc-home, mountPath: /home/mc }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until mc alias set m http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "waiting for minio..."; sleep 3
+              done
+              mc mb --ignore-existing m/{{ .Values.minio.buckets.uploads }}
+              mc mb --ignore-existing m/{{ .Values.minio.buckets.backups }}
+              mc mb --ignore-existing --with-lock m/{{ .Values.minio.buckets.auditWorm }}
+              mc retention set --default COMPLIANCE {{ .Values.minio.wormRetentionDays }}d m/{{ .Values.minio.buckets.auditWorm }} || true
+              mc admin user add m "$S3_ACCESS_KEY" "$S3_SECRET_KEY" || true
+              mc admin policy attach m readwrite --user "$S3_ACCESS_KEY" || true
+              echo "== buckets =="; mc ls m
+              echo "minio-init done"

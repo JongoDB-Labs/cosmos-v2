@@ -34,7 +34,20 @@ posture: baseline
 expose:
   host: cosmos
 
+# Object storage — single-instance MinIO for the lab (MinIO Operator / external
+# GovCloud S3 is the prod path per north-star §2). Creds live in a Secret,
+# SOPS-managed from T4 (created out-of-band for now).
+minio:
+  image: minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+  mcImage: minio/mc@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+  credsSecret: cosmos-minio-creds
+  storage: 10Gi
+  wormRetentionDays: 3650
+  buckets:
+    uploads: cosmos-uploads
+    backups: cosmos-pgbackrest
+    auditWorm: cosmos-audit-worm
+
 # ── filled in later tasks ──
-# minio:    {...}   # T2 — object storage (Tenant + buckets)
 # postgres: {...}   # T3 — PGO PostgresCluster (pgvector + pgBackRest)
 # sso:      {...}   # T6/SP3 — Keycloak vs external OIDC vs local

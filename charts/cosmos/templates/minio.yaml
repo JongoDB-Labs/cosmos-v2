@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "cosmos.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: s3, port: 9000, targetPort: 9000 }
+    - { name: console, port: 9001, targetPort: 9001 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels: {{- include "cosmos.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cosmos.selectorLabels" . | nindent 8 }}
+    spec:
+      # UDS-compliant pod security (passes the Pepr baseline — no exemption needed)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image | quote }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: MINIO_ROOT_USER } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: MINIO_ROOT_PASSWORD } }
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: 9000 }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.minio.storage }}
