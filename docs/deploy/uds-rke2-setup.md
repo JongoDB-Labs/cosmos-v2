@@ -268,5 +268,41 @@ volumes:
 ```
 Result: `/api/health` → `{"ok":true,"db":"up"}`, both replicas healthy.
 
-## T7 — Gateway exposure (UDS Package) + smoke — (in progress)
-_Next: a UDS `Package` CR → Istio `VirtualService` on the tenant gateway → browse the live app at `https://<tenant-gateway-ip>` with the app's host._
+## T7 — Gateway exposure (UDS Package) + smoke ✅
+
+`templates/uds-package.yaml` — a single UDS `Package` CR. The uds-operator reconciles it into an **Istio VirtualService** on the **tenant gateway** (`cosmos.uds.dev`) plus **default-deny NetworkPolicies** + **AuthorizationPolicies** (UDS secure-by-default). The intra-namespace `allow` rules are essential — without them the namespace default-deny would sever the app↔Postgres / app↔MinIO connections:
+```yaml
+spec:
+  network:
+    expose:
+      - { service: cosmos, selector: { app.kubernetes.io/name: cosmos, app.kubernetes.io/component: web }, host: cosmos, gateway: tenant, port: 3000 }
+    allow:
+      - { direction: Egress,  remoteGenerated: IntraNamespace }
+      - { direction: Ingress, remoteGenerated: IntraNamespace }
+```
+Smoke (use `--resolve` so the gateway gets the right SNI for its TLS cert):
+```bash
+GWIP=$(kubectl -n istio-tenant-gateway get svc tenant-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   # 200 {"ok":true,"db":"up"}
+```
+
+---
+
+## Done — the full cosmos stack runs UDS-native on RKE2
+
+**T0 platform → T7 live app.** `https://cosmos.uds.dev` returns `200 {"ok":true,"db":"up"}`; `GET /` → `307` to login. To browse from your laptop, add `cosmos.uds.dev → <tenant-gateway-IP>` to `/etc/hosts` (or DNS).
+
+### The complete k3d → RKE2/UDS gotcha catalog
+| # | Surprise | Symptom | Fix |
+|---|---|---|---|
+| 1 | No default StorageClass | PVCs `Pending` | install `local-path-provisioner`, mark default |
+| 2 | No LoadBalancer controller | gateway IP `<pending>` | MetalLB + L2 `IPAddressPool` |
+| 3 | zarf agent rewrites images | `ImagePullBackOff` from `127.0.0.1:31999` | `zarf.dev/agent=ignore` on infra namespaces |
+| 4 | UDS Pepr policy **deny** | host-ns / NET_RAW denied | `Exemption` CR in `uds-policy-exemptions` |
+| 5 | UDS Pepr policy **mutate** | forced non-root → file `permission denied` | add `RequireNonRootUser` to the Exemption |
+| 6 | UDS denies `hostPath` | local-path helper pod blocked → PVC `Pending` | `Exemption` for `helper-pod-*` |
+| 7 | helper-pod image rewrite | PVC `create process timeout` | zarf-ignore `local-path-storage` |
+| 8 | private GHCR images → 401 | app/migrate `ImagePullBackOff` | `imagePullSecret` on the namespace default SA |
+| 9 | PGO self-signed TLS, Prisma verifies | `self-signed certificate in certificate chain` | mount PGO CA + `?sslmode=require&sslrootcert=…` |
+
+The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d.
