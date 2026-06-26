@@ -415,6 +415,27 @@ Wire these as **suspended CronJobs** for a real deployment (provide WORM S3 cred
 
 ---
 
+## SP4 — signed OCI Helm chart (supply chain)
+
+The chart is the k8s delivery artifact, so it gets the **same gov-grade signing as the images**. `release.yml`'s `chart` job runs after the image `merge` on a `vX.Y.Z` tag and:
+1. **pins** the chart to the exact image digests this release just built (`yq` rewrites `image.app/migrate.digest` — the chart ships the images that were scanned + signed),
+2. `helm package` → `helm push` to `oci://ghcr.io/<owner>/charts/cosmos:<version>`,
+3. **signs** it — cosign keyless (OIDC → Fulcio/Rekor) always, KMS additionally when `COSIGN_KEY` is set,
+4. attaches a **SLSA provenance** attestation, and
+5. a **verify-after-sign gate** fails the release if the signature isn't verifiable (no green-but-unsigned chart).
+
+Tag → digest → signature is now unbroken from image to chart, so an airgap UDS/Zarf bundle (SP6) can verify the whole set offline. **Verify a chart before deploying:**
+```bash
+cosign verify \
+  --certificate-identity-regexp "^https://github.com/JongoDB-Labs/cosmos-v2/" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  ghcr.io/jongodb-labs/charts/cosmos@<digest>
+helm install cosmos oci://ghcr.io/jongodb-labs/charts/cosmos --version <X.Y.Z> -n cosmos
+```
+> Exercised only on a real `vX.Y.Z` release tag (the user cuts releases), so it's not yet run live. Validated as far as possible offline: the chart lints + packages clean, the workflow is valid YAML, and every new `uses:` is SHA-pinned so the `security.yml` config gate passes.
+
+---
+
 ## Troubleshooting playbook
 
 Every failure this lab hit, as **Symptom → Diagnose → Fix** with commands. Numbers map to the gotcha catalog. Triage by layer: is it the *platform*, UDS's *secure-by-default* posture, the *app/DB*, or *post-reboot recovery*?
