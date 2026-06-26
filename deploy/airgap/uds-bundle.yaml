@@ -1,0 +1,49 @@
+# UDS Bundle (SP6) — the single airgap deliverable: UDS Core + the cosmos app,
+# one tarball, one deploy. This is the DoD disconnected-delivery milestone.
+#
+#   uds create deploy/airgap                 # pull every package's images → one bundle tarball
+#   uds deploy uds-bundle-cosmos-stack-*.tar.zst --confirm   # deploy the whole stack offline
+#
+# Package order is deploy order: zarf init (in-cluster registry + agent) → UDS Core
+# base (Istio + operator + policy) → identity (Keycloak, required by the console
+# layers) → runtime-security (Falco) + monitoring (Prometheus/Grafana) → the cosmos
+# app. Mirrors exactly what SP2 deployed layer-by-layer, now bundled.
+#
+# Pin every UDS Core layer to the SAME version as core-base (1.7.0) — mismatched
+# layers risk CRD/operator drift (learned in SP2). `upstream` flavor for the lab;
+# swap to `registry1` (Iron Bank) for a hardened/ATO build.
+#
+# TODO before this bundle is deploy-complete: add a CrunchyData PGO package (the
+# cosmos chart creates a PostgresCluster the PGO operator reconciles). PGO ships as
+# a Helm chart; wrap it in its own zarf.yaml (operator image + CRDs) and insert it
+# after core-base, before cosmos. Until then PGO is a documented cluster prereq.
+kind: UDSBundle
+metadata:
+  name: cosmos-stack
+  version: "2.102.2"
+  description: "COSMOS airgap stack — UDS Core (Istio/Keycloak/Falco/monitoring) + cosmos"
+
+packages:
+  # Zarf init — in-cluster registry + mutating agent (seeds + rewrites all images).
+  - name: init
+    repository: ghcr.io/defenseunicorns/packages/init
+    ref: v0.79.0
+
+  # UDS Core functional layers (upstream flavor, all 1.7.0).
+  - name: core-base
+    repository: ghcr.io/defenseunicorns/packages/uds/core-base
+    ref: 1.7.0-upstream
+  - name: core-identity-authorization
+    repository: ghcr.io/defenseunicorns/packages/uds/core-identity-authorization
+    ref: 1.7.0-upstream
+  - name: core-runtime-security
+    repository: ghcr.io/defenseunicorns/packages/uds/core-runtime-security
+    ref: 1.7.0-upstream
+  - name: core-monitoring
+    repository: ghcr.io/defenseunicorns/packages/uds/core-monitoring
+    ref: 1.7.0-upstream
+
+  # COSMOS app — the SP5 Zarf package (built from ./zarf.yaml in this same dir).
+  - name: cosmos
+    path: "."
+    ref: "2.102.2"

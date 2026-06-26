@@ -1,0 +1,47 @@
+# Zarf package (SP5) — airgap delivery of the COSMOS app onto a cluster that
+# already runs UDS Core + CrunchyData PGO.
+#
+#   zarf package create deploy/airgap            # pulls these images + the chart → one tarball
+#   zarf package deploy zarf-package-cosmos-*.tar.zst   # seeds images into the in-cluster
+#                                                        # registry + installs the chart
+#
+# In airgap the zarf agent rewrites every image ref to the in-cluster registry, so
+# there is NO GHCR pull-secret to manage — gotcha #8 is an internet-only problem.
+#
+# Target-cluster prereqs (bundled together in SP6's UDS bundle):
+#   • UDS Core (Istio + uds-operator + policy engine)
+#   • CrunchyData PGO  — the chart creates a PostgresCluster CR the operator reconciles
+#   • the cosmos secrets (cosmos-app-secrets, cosmos-minio-creds) — provided out-of-band
+#     (SOPS/Flux) at deploy time; deliberately NOT baked into the package.
+#
+# Production note: point the chart at the SIGNED OCI chart from SP4
+# (oci://ghcr.io/jongodb-labs/charts/cosmos:<ver>) instead of localPath, so the airgap
+# deploy verifies the chart signature. localPath is used here for build-validation
+# before the first release tag exists.
+kind: ZarfPackageConfig
+metadata:
+  name: cosmos
+  version: "2.102.2"
+  description: "COSMOS app + MinIO + PostgresCluster — airgap, onto UDS Core + PGO"
+
+components:
+  - name: cosmos
+    required: true
+    description: "cosmos Helm chart — app Deployment, MinIO, PGO PostgresCluster, UDS Package"
+    charts:
+      - name: cosmos
+        namespace: cosmos
+        localPath: ../../charts/cosmos
+        version: 0.1.0
+    images:
+      # app + migrate (digest-pinned to the cosign-verified release)
+      - ghcr.io/jongodb-labs/cosmos-v2@sha256:a2c7fa0bece331bb12ec547ac73439e871daff3b5544c677c4bbc567c71ec467
+      - ghcr.io/jongodb-labs/cosmos-v2-migrate@sha256:23e122e7474597e6bcba6e1b8361fe94d4140b65ddaa934d21c5a7cf8e932186
+      # object store + its init client
+      - minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+      - minio/mc@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+      # migrate hook's create-app-role init container (psql)
+      - postgres:16-alpine
+      # images the PGO PostgresCluster CR pulls (pgvector + pgBackRest)
+      - registry.developers.crunchydata.com/crunchydata/crunchy-postgres:ubi9-16.14-2621
+      - registry.developers.crunchydata.com/crunchydata/crunchy-pgbackrest:ubi9-2.58.0-2621
