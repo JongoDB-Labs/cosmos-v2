@@ -1,0 +1,83 @@
+{{/*
+The cosmos app — Next.js standalone. Runs as the non-root `cosmos` user from the
+image (UDS-compliant). Connects to Postgres as the least-priv cosmos_app role, to
+MinIO for S3, and reads SSO/WORM secrets from the SOPS-managed secret.
+Distinct `component: web` labels avoid colliding with MinIO's selector.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cosmos
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/component: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cosmos
+          image: "{{ .Values.image.app.repo }}@{{ .Values.image.app.digest }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - { name: NODE_ENV, value: production }
+            - { name: COSMOS_APP_PASSWORD, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: COSMOS_APP_PASSWORD } } }
+            # k8s substitutes $(COSMOS_APP_PASSWORD) from the env above
+            - { name: DATABASE_URL, value: "postgresql://cosmos_app:$(COSMOS_APP_PASSWORD)@cosmos-pg-primary.cosmos.svc:5432/cosmos?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt" }
+            - { name: DIRECT_URL,  value: "postgresql://cosmos_app:$(COSMOS_APP_PASSWORD)@cosmos-pg-primary.cosmos.svc:5432/cosmos?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt" }
+            - { name: STORAGE_ADAPTER, value: s3 }
+            - { name: S3_ENDPOINT, value: "http://minio.cosmos.svc:9000" }
+            - { name: S3_BUCKET, value: {{ .Values.minio.buckets.uploads | quote }} }
+            - { name: S3_FORCE_PATH_STYLE, value: "true" }
+            - { name: S3_ACCESS_KEY, valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: S3_ACCESS_KEY } } }
+            - { name: S3_SECRET_KEY, valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: S3_SECRET_KEY } } }
+            - { name: SSO_VAULT_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: SSO_VAULT_KEY } } }
+            - { name: WORM_MANIFEST_HMAC_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: WORM_MANIFEST_HMAC_KEY } } }
+            - { name: INTERNAL_ADMINS, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: INTERNAL_ADMINS } } }
+          resources: {{- toYaml .Values.app.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: pg-ca, mountPath: /etc/pg-ca, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: pg-ca
+          secret:
+            secretName: cosmos-pg-cluster-cert
+            items:
+              - { key: ca.crt, path: ca.crt }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cosmos
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/component: web
+  ports:
+    - { name: http, port: 3000, targetPort: 3000 }
