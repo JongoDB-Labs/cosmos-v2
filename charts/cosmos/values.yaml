@@ -56,5 +56,8 @@ postgres:
   backupStorage: 5Gi
   psqlImage: postgres:16-alpine   # migrate hook's create-app-role init container (needs psql)
 
-# ── filled in later tasks ──
-# sso:      {...}   # T6/SP3 — Keycloak vs external OIDC vs local
+# Gov audit/compliance ops (SP3) — CronJobs/Jobs on the migrate image (carries
+# scripts/dsop/*), connecting over the same verified PGO TLS as the app.
+ops:
+  verifyAuditChain:
+    schedule: "0 */6 * * *"        # AU-9 tamper-evidence — every 6h
