@@ -308,6 +308,7 @@ curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   #
 | 9 | PGO self-signed TLS, Prisma verifies | `self-signed certificate in certificate chain` | mount PGO CA + `?sslmode=require&sslrootcert=…` |
 | 10 | Batch Jobs hang on `cosmos-pg-primary` | migrate hook / ops Jobs hang `waiting for postgres…` | **symptom of #11** — degraded Patroni left the *primary* Service with no endpoint; the `KubeAPI` allow fixes it (it was never an ambient-mesh issue, as first assumed) |
 | 11 | PGO/Patroni needs **`KubeAPI`** egress | PG `database` CrashLoopBackOff after a restart — Patroni *"No more API server nodes"*; also a chronic `3/4` pod | add `- { direction: Egress, remoteGenerated: KubeAPI }` to the Package `allow` — Patroni uses the kube API as its DCS |
+| 12 | RKE2 already ships metrics-server | UDS `core-metrics-server` deploy fails: APIService `v1beta1.metrics.k8s.io` *"cannot be imported"* (owned by `rke2-metrics-server`) | **skip the layer** — `kubectl top` already works via RKE2's; `uds zarf package remove core-metrics-server --confirm` |
 
 The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d. Detailed **Symptom → Diagnose → Fix** for each (plus the post-reboot recovery procedure) is in the [Troubleshooting playbook](#troubleshooting-playbook) below.
 
@@ -349,6 +350,46 @@ The VM resize to 12 vCPU / 32+ GiB was still the right call — it's the documen
 
 ---
 
+## SP2 — full UDS Core (SSO, runtime-security, observability)
+
+With the cluster resized, the remaining UDS Core **functional layers** go on top of `core-base`. UDS Core ships them as **separate OCI Zarf packages**, all released together — pin every layer to the **same version as `core-base`** (here `1.7.0-upstream`) or risk CRD/operator drift. Deploy incrementally, in dependency order:
+
+```bash
+for L in core-identity-authorization core-runtime-security core-monitoring; do
+  uds zarf package deploy oci://ghcr.io/defenseunicorns/packages/uds/$L:1.7.0-upstream --confirm
+done
+```
+
+| Layer | Deploys | Notes |
+|---|---|---|
+| `core-identity-authorization` | **Keycloak 26 + Authservice** | SSO foundation — **required** by the console layers |
+| `core-runtime-security` | **Falco** | runtime threat detection (the ConMon signal). UDS Core 1.7 **replaced NeuVector with Falco** — the deploy even removes legacy NeuVector CRDs |
+| `core-monitoring` | **kube-prometheus-stack** (Prometheus / Alertmanager / node + kube-state metrics) + **Grafana** | metrics + dashboards |
+| `core-metrics-server` | — | **skipped — gotcha #12**: RKE2 already ships one |
+
+Dependency order matters: `base` → `identity-authorization` → the rest (monitoring & runtime-security SSO their consoles through Keycloak). `core-logging` (Loki) and `core-backup-restore` (Velero) are **deferred** — both need an S3/MinIO-Operator backend (a later slice).
+
+UDS **auto-exposes each console on the admin gateway, SSO-protected by Keycloak** — no manual wiring:
+
+| Console | URL | Gateway |
+|---|---|---|
+| Keycloak admin | `https://keycloak.admin.uds.dev` | admin (`192.168.86.240`) |
+| Grafana | `https://grafana.admin.uds.dev` | admin |
+| Keycloak SSO | `https://sso.uds.dev` | tenant |
+| cosmos app | `https://cosmos.uds.dev` | tenant (`192.168.86.241`) |
+
+Browse from a laptop by adding both gateway IPs to `/etc/hosts`:
+```
+192.168.86.240  keycloak.admin.uds.dev grafana.admin.uds.dev
+192.168.86.241  cosmos.uds.dev sso.uds.dev
+```
+
+**Verify:** every UDS `Package` reports `Ready`; `kubectl top nodes` returns data (RKE2 metrics-server); `https://cosmos.uds.dev/api/health` still `db:up` (the new layers' default-deny netpols don't touch the cosmos app — it has its own Package allow-list).
+
+**Still open for SP2:** wire the **cosmos app itself** to authenticate via Keycloak (the app's OIDC IdP → a Keycloak client). That's app-level SSO, distinct from the auto-SSO'd UDS consoles, and ties into the runtime SSO toggle (SP8).
+
+---
+
 ## Troubleshooting playbook
 
 Every failure this lab hit, as **Symptom → Diagnose → Fix** with commands. Numbers map to the gotcha catalog. Triage by layer: is it the *platform*, UDS's *secure-by-default* posture, the *app/DB*, or *post-reboot recovery*?
@@ -366,6 +407,10 @@ Every failure this lab hit, as **Symptom → Diagnose → Fix** with commands. N
 **#6 / #7 · local-path PVC never binds under UDS**
 - *Diagnose:* `kubectl -n local-path-storage get events` shows a Pepr deny on the `helper-pod-*` hostPath, or the helper is stuck `create process timeout` (zarf rewrote its busybox image).
 - *Fix:* an `Exemption` for `helper-pod-*` (RestrictVolumeTypes / RestrictHostPathWrite) **and** `kubectl label ns local-path-storage zarf.dev/agent=ignore`; then delete the stuck PVC + helper pod to retrigger provisioning.
+
+**#12 · UDS `core-metrics-server` won't install**
+- *Diagnose:* `uds zarf package deploy …core-metrics-server` errors — APIService `v1beta1.metrics.k8s.io` *"cannot be imported"* (already owned by `rke2-metrics-server` in kube-system). The distro ships its own.
+- *Fix:* skip the layer — `kubectl top nodes` already works via RKE2's. Clean the failed release: `uds zarf package remove core-metrics-server --confirm`.
 
 ### UDS secure-by-default — identical on every target
 
