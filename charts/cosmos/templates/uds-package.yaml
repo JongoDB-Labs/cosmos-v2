@@ -1,0 +1,25 @@
+{{/*
+UDS Package — the UDS-native exposure. The uds-operator turns this into an Istio
+VirtualService on the tenant gateway + default-deny NetworkPolicies + Istio
+AuthorizationPolicies for the app. The intra-namespace `allow` rules keep
+Postgres/MinIO reachable under the default-deny (without them the app's DB/S3
+connections would be severed).
+*/}}
+apiVersion: uds.dev/v1alpha1
+kind: Package
+metadata:
+  name: cosmos
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+spec:
+  network:
+    expose:
+      - service: cosmos
+        selector:
+          app.kubernetes.io/name: {{ .Chart.Name }}
+          app.kubernetes.io/component: web
+        host: {{ .Values.expose.host | quote }}
+        gateway: tenant
+        port: 3000
+    allow:
+      - { direction: Egress, remoteGenerated: IntraNamespace }
+      - { direction: Ingress, remoteGenerated: IntraNamespace }
