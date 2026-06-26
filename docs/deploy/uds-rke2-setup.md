@@ -309,7 +309,7 @@ curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   #
 | 10 | Batch Jobs hang on `cosmos-pg-primary` | migrate hook / ops Jobs hang `waiting for postgres…` | **symptom of #11** — degraded Patroni left the *primary* Service with no endpoint; the `KubeAPI` allow fixes it (it was never an ambient-mesh issue, as first assumed) |
 | 11 | PGO/Patroni needs **`KubeAPI`** egress | PG `database` CrashLoopBackOff after a restart — Patroni *"No more API server nodes"*; also a chronic `3/4` pod | add `- { direction: Egress, remoteGenerated: KubeAPI }` to the Package `allow` — Patroni uses the kube API as its DCS |
 
-The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d.
+The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d. Detailed **Symptom → Diagnose → Fix** for each (plus the post-reboot recovery procedure) is in the [Troubleshooting playbook](#troubleshooting-playbook) below.
 
 ---
 
@@ -346,3 +346,59 @@ The actual cause was **gotcha #11**: the `Package` never allowed **`KubeAPI`** e
 **The lesson** (and why "reference the docs" mattered): the symptom pointed at the most recently-touched layer — the ambient mesh — but the [UDS Packages CR docs](https://uds.defenseunicorns.com/reference/configuration/custom-resources/packages-v1alpha1-cr/) name `KubeAPI` as a first-class egress target and explicitly call out Patroni-style DCS workloads. Reading that beat another round of reverse-engineering. **Under a default-deny mesh, enumerate every egress a workload needs from its docs** — for PGO that's intra-namespace *and* the kube API (`KubeAPI`), and for cloud object storage it'd add `CloudMetadata`/`Anywhere`.
 
 The VM resize to 12 vCPU / 32+ GiB was still the right call — it's the documented floor for **full UDS Core (SP2)**, and the reboot it required is exactly what surfaced the latent `KubeAPI` bug. SP1 runs green; on to SP2.
+
+---
+
+## Troubleshooting playbook
+
+Every failure this lab hit, as **Symptom → Diagnose → Fix** with commands. Numbers map to the gotcha catalog. Triage by layer: is it the *platform*, UDS's *secure-by-default* posture, the *app/DB*, or *post-reboot recovery*?
+
+### Platform layer — self-managed only (EKS/AKS/GKE provide these)
+
+**#1 · PVCs stuck `Pending`**
+- *Diagnose:* `kubectl get pvc -A` shows `Pending`; `kubectl get storageclass` returns nothing default.
+- *Fix:* install `local-path-provisioner`, then `kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'`.
+
+**#2 · Gateway `EXTERNAL-IP` stuck `<pending>`**
+- *Diagnose:* `kubectl -n istio-tenant-gateway get svc` → `<pending>`; no LoadBalancer controller on the cluster.
+- *Fix:* install MetalLB + an L2 `IPAddressPool` + `L2Advertisement` over a free LAN range.
+
+**#6 / #7 · local-path PVC never binds under UDS**
+- *Diagnose:* `kubectl -n local-path-storage get events` shows a Pepr deny on the `helper-pod-*` hostPath, or the helper is stuck `create process timeout` (zarf rewrote its busybox image).
+- *Fix:* an `Exemption` for `helper-pod-*` (RestrictVolumeTypes / RestrictHostPathWrite) **and** `kubectl label ns local-path-storage zarf.dev/agent=ignore`; then delete the stuck PVC + helper pod to retrigger provisioning.
+
+### UDS secure-by-default — identical on every target
+
+**#3 · `ImagePullBackOff` from `127.0.0.1:31999`**
+- *Diagnose:* the zarf mutating agent rewrote a pod image to the in-cluster registry in a namespace that shouldn't be mutated.
+- *Fix:* `kubectl label ns <ns> zarf.dev/agent=ignore`, then recreate the pods.
+
+**#4 / #5 · Pod denied, or crashes as forced-non-root**
+- *Diagnose:* `kubectl get events` shows admission denied for host-namespace / hostPort / NET_RAW, **or** a privileged infra pod crashes on a file `permission denied` after UDS mutated it to non-root.
+- *Fix:* an `Exemption` CR in `uds-policy-exemptions` naming the exact policies (`DisallowHostNamespaces`, `RestrictHostPorts`, `RestrictCapabilities`, **`RequireNonRootUser`**, …), scoped to that one workload — never blanket.
+
+**#10 / #11 · Anything hitting Postgres hangs; PG `database` CrashLoopBackOff (the big one)**
+- *Symptom:* `psql … → "waiting for postgres…"` forever (migrate hook, ops Jobs); PG pod chronic `3/4`; after any restart the `database` container crash-loops.
+- *Diagnose:* `kubectl -n cosmos logs <pg-pod> -c database` → Patroni `K8sConnectionFailed('No more API server nodes')` / `ReadTimeoutError … 10.43.0.1:443`. Patroni can't reach the kube API (its DCS) → no elected leader → the `cosmos-pg-primary` Service has **no endpoint** → every fresh connection to it hangs.
+- *Fix (live, no helm upgrade):* `kubectl -n cosmos patch package cosmos --type=json -p '[{"op":"add","path":"/spec/network/allow/-","value":{"direction":"Egress","remoteGenerated":"KubeAPI"}}]'`, then restart PG (`kubectl -n cosmos delete pod <pg-pod>`). Bake `- { direction: Egress, remoteGenerated: KubeAPI }` into the Package template so it persists.
+- *Lesson:* under a default-deny mesh, enumerate **every** egress a workload needs from its docs — PGO needs `IntraNamespace` **and** `KubeAPI`. The symptom (mesh) was not the cause (missing netpol allow).
+
+### App / database layer
+
+**#8 · app or migrate `ImagePullBackOff` (401 from GHCR)**
+- *Diagnose:* private `ghcr.io/...` image with no pull secret.
+- *Fix:* `kubectl -n cosmos create secret docker-registry ghcr-pull --docker-server=ghcr.io --docker-username=<user> --docker-password="$(gh auth token)"`, then add it to the namespace default ServiceAccount's `imagePullSecrets`. (Airgap: zarf seeds the images — no secret needed.)
+
+**#9 · app `db:down`, `self-signed certificate in certificate chain`**
+- *Diagnose:* Prisma verifies TLS and PGO presents its own CA.
+- *Fix:* mount `cosmos-pg-cluster-cert/ca.crt` and append `?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt` to `DATABASE_URL` / `DIRECT_URL`.
+
+### Recovery — after a host reboot
+
+A hard reboot restarts everything at once; on a single node the ambient mesh + PGO can lose the startup race. Expected, and recoverable:
+
+1. **Wait ~2–3 min.** RKE2 → CoreDNS → the Istio data-plane (`istiod` / `ztunnel` / `istio-cni`) and Pepr must be up first. Confirm: `kubectl -n istio-system get pods` and `kubectl -n pepr-system get pods` all `1/1`.
+2. **Restart workloads that lost the race** (PVCs/data untouched — StatefulSets recreate same-named pods): `kubectl -n cosmos delete pod <pg-instance-pod> minio-0`.
+3. **App** recovers once the DB is back; clear its crash-loop backoff with `kubectl -n cosmos rollout restart deployment cosmos`.
+4. If PG keeps crash-looping, it's **#10/#11** — confirm the egress allow exists: `kubectl -n cosmos get netpol | grep kubeapi`.
+5. **Verify end-to-end:** `curl -k --resolve cosmos.uds.dev:443:<gw-ip> https://cosmos.uds.dev/api/health` → `{"ok":true,"db":"up"}`.
