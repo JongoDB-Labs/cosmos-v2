@@ -203,6 +203,14 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("risk-register")) {
+    featureTabs.push({
+      feature: "risk-register",
+      label: "Risk Register",
+      href: `/${orgSlug}/projects/${projectKey}/risks`,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",
