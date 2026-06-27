@@ -6,11 +6,11 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import {
   Flag,
   Gauge,
-  Target,
+  ShieldAlert,
+  Ban,
   TrendingUp,
   TrendingDown,
   Minus,
-  CalendarClock,
   Briefcase,
   Landmark,
   LineChart,
@@ -18,9 +18,9 @@ import {
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
-// Public shape — scope-aware (project now; org / sub-element reuse the same
-// surface) and audience-aware (PM / Government / Executive, gated by RBAC).
-// Data is passed in from the server component so this stays presentational.
+// Public shape — scope-aware (project now; org / sub-element reuse the surface)
+// and audience-aware (PM / Government / Executive, RBAC-gated). Presentational:
+// data is fetched in the server component and passed in.
 // ---------------------------------------------------------------------------
 
 export type DashboardScope =
@@ -36,12 +36,16 @@ export type DashboardScope =
 export type AudienceView = "pm" | "government" | "executive";
 
 export type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
-export type GoalStatus =
-  | "PLANNED"
-  | "ON_TRACK"
-  | "AT_RISK"
-  | "OFF_TRACK"
-  | "ACHIEVED";
+export type GoalStatus = "PLANNED" | "ON_TRACK" | "AT_RISK" | "OFF_TRACK" | "ACHIEVED";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type DeliverableStatus =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "SUBMITTED"
+  | "IN_GOVT_REVIEW"
+  | "ACCEPTED"
+  | "REJECTED";
+export type BlockerType = "INTERNAL" | "EXTERNAL_GOVERNMENT" | "EXTERNAL_VENDOR";
 
 export interface MilestoneLite {
   id: string;
@@ -61,26 +65,51 @@ export interface GoalLite {
   id: string;
   title: string;
   status: GoalStatus;
-  progress: number; // 0-100
+  progress: number;
+}
+export interface RiskLite {
+  id: string;
+  code: string;
+  title: string;
+  level: RiskLevel;
+  status: "OPEN" | "MITIGATING" | "CLOSED";
+  score: number;
+  escalate: boolean;
+}
+export interface DeliverableLite {
+  id: string;
+  code: string;
+  title: string;
+  status: DeliverableStatus;
+  clin: string | null;
+  baselineDue: string | null; // ISO
+}
+export interface BlockerLite {
+  id: string;
+  code: string;
+  title: string;
+  type: BlockerType;
+  status: "OPEN" | "RESOLVED";
+  whatUnblocks: string | null;
+  escalate: boolean;
+  customerNotified: boolean;
 }
 
 export interface PmDashboardData {
   milestones: MilestoneLite[];
   kpis: KpiLite[];
   goals: GoalLite[];
+  risks: RiskLite[];
+  deliverables: DeliverableLite[];
+  blockers: BlockerLite[];
 }
 
 interface PmDashboardProps {
   scope: DashboardScope;
   data: PmDashboardData;
-  /** Initial audience; the switcher only offers audiences the actor may see. */
   audience?: AudienceView;
 }
 
-// Each audience is gated by its own permission bit. PM is the baseline view;
-// Government and Executive are progressively narrower (program/contracting
-// staff, then leadership) — server-enforced via the same bitmask the rest of
-// the app uses, replacing the prototype's client-side substring disclosure.
 const AUDIENCES: {
   key: AudienceView;
   label: string;
@@ -99,8 +128,6 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
 
   const audiences = useMemo(() => {
     const allowed = AUDIENCES.filter((a) => can(a.perm));
-    // Fall back to the PM baseline so the surface never renders empty for a
-    // project member who reached the feature-gated tab without analytics grants.
     return allowed.length > 0 ? allowed : [AUDIENCES[0]];
   }, [can]);
 
@@ -111,12 +138,10 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
 
   const stats = useMemo(() => computeStats(data), [data]);
   const scopeLabel = scope.kind === "project" ? scope.projectName : scope.orgName;
-
   const header = AUDIENCE_HEADER[audience];
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
-      {/* Header + audience switcher */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-[var(--text)]">{header.title}</h2>
@@ -173,57 +198,60 @@ function PmView({ data, stats }: ViewProps) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <MilestonesPanel milestones={data.milestones} />
         <KpisPanel kpis={data.kpis} />
-        <GoalsPanel goals={data.goals} className="lg:col-span-2" />
+        <RisksPanel risks={data.risks} />
+        <BlockersPanel blockers={data.blockers} />
+        <DeliverablesPanel deliverables={data.deliverables} />
+        <GoalsPanel goals={data.goals} />
       </div>
     </>
   );
 }
 
 function GovernmentView({ data, stats }: ViewProps) {
+  const govDecisions = data.blockers.filter((b) => b.type === "EXTERNAL_GOVERNMENT");
   return (
     <>
       <Panel title="Program Status — At a Glance">
         <p className="text-sm leading-relaxed text-[var(--text)]">
-          The program is in active execution.{" "}
-          <strong>{stats.slipped}</strong> milestone
+          The program is in active execution. <strong>{stats.slipped}</strong> milestone
           {stats.slipped === 1 ? " is" : "s are"} in progress or slipped,{" "}
-          <strong>{stats.goalsAtRisk}</strong> goal
-          {stats.goalsAtRisk === 1 ? " is" : "s are"} flagged at risk, and{" "}
+          <strong>{stats.risksElevated}</strong> high/critical risk
+          {stats.risksElevated === 1 ? " is" : "s are"} open, and{" "}
           <strong>
             {stats.onTarget}/{data.kpis.length}
           </strong>{" "}
-          KPIs are on target. Items awaiting a government decision are
-          consolidated under <em>Decisions Required</em>.
+          KPIs are on target. <strong>{govDecisions.length}</strong> item
+          {govDecisions.length === 1 ? "" : "s"} await a government decision (below).
         </p>
       </Panel>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <MilestonesPanel milestones={data.milestones} title="Schedule & Deliverables" />
+        <MilestonesPanel milestones={data.milestones} title="Schedule" />
+        <DeliverablesPanel deliverables={data.deliverables} title="Contract Deliverables (CDRLs)" />
         <KpisPanel kpis={data.kpis} title="Performance vs. Target" />
-        <Panel title="Decisions Required" className="lg:col-span-2">
-          <div className="flex items-center gap-2 py-2 text-sm text-[var(--text-muted)]">
-            <Gavel className="size-4 shrink-0" />
-            <span>
-              No items currently awaiting government action. Blockers escalated
-              to the customer surface here.
-            </span>
-          </div>
-        </Panel>
+        <RisksPanel
+          risks={data.risks.filter((r) => r.escalate)}
+          title="Risks — Customer Awareness"
+          emptyLabel="No risks flagged for customer awareness."
+        />
+        <DecisionsRequiredPanel blockers={govDecisions} className="lg:col-span-2" />
       </div>
     </>
   );
 }
 
 function ExecutiveView({ data, stats }: ViewProps) {
+  const flags = data.risks.filter((r) => r.level === "CRITICAL" || r.level === "HIGH");
   return (
     <>
       <StatRow data={data} stats={stats} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <RisksPanel risks={flags} title="Risk Flags" emptyLabel="No high or critical risks." />
         <GoalsPanel goals={data.goals} title="Strategic Goals" />
-        <KpisPanel kpis={data.kpis} title="Headline KPIs" />
+        <KpisPanel kpis={data.kpis} title="Headline KPIs" className="lg:col-span-2" />
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        Executive summary — program-health and outcome trajectory. No
-        task-level or government-specific detail.
+        Executive summary — program-health and outcome trajectory. No task-level or
+        government-specific detail.
       </p>
     </>
   );
@@ -244,7 +272,7 @@ const AUDIENCE_HEADER: Record<AudienceView, { title: string; subtitle: string }>
 };
 
 // ---------------------------------------------------------------------------
-// Shared panels
+// Panels
 // ---------------------------------------------------------------------------
 
 function StatRow({ data, stats }: ViewProps) {
@@ -257,23 +285,24 @@ function StatRow({ data, stats }: ViewProps) {
         sub={`${stats.slipped} in progress / slipped`}
       />
       <StatCard
+        icon={ShieldAlert}
+        label="Open risks"
+        value={data.risks.length}
+        sub={`${stats.risksElevated} high / critical`}
+        accent={stats.risksElevated > 0 ? "var(--status-warn, #d97706)" : undefined}
+      />
+      <StatCard
+        icon={Ban}
+        label="Open blockers"
+        value={data.blockers.length}
+        sub={`${stats.blockersEscalated} escalated`}
+        accent={stats.blockersEscalated > 0 ? "var(--status-blocked, #dc2626)" : undefined}
+      />
+      <StatCard
         icon={Gauge}
         label="KPIs on target"
         value={`${stats.onTarget}/${data.kpis.length}`}
         sub={data.kpis.length ? `${data.kpis.length} tracked` : "none tracked"}
-      />
-      <StatCard
-        icon={Target}
-        label="Goals"
-        value={data.goals.length}
-        sub={`${stats.goalsAtRisk} at risk`}
-        accent={stats.goalsAtRisk > 0 ? "var(--status-warn, #d97706)" : undefined}
-      />
-      <StatCard
-        icon={CalendarClock}
-        label="Next milestone"
-        value={nextMilestoneLabel(data.milestones)}
-        sub="by due date"
       />
     </div>
   );
@@ -295,18 +324,12 @@ function MilestonesPanel({
           {milestones.map((m) => {
             const meta = MILESTONE_META[m.status];
             return (
-              <li
-                key={m.id}
-                className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-2.5 last:border-0"
-              >
-                <span className="min-w-0 truncate text-sm text-[var(--text)]">{m.title}</span>
-                <div className="flex shrink-0 items-center gap-3">
-                  <span className="text-xs tabular-nums text-[var(--text-muted)]">
-                    {formatDate(m.dueDate)}
-                  </span>
-                  <StatusPill label={meta.label} color={meta.color} />
-                </div>
-              </li>
+              <Row key={m.id} title={m.title}>
+                <span className="text-xs tabular-nums text-[var(--text-muted)]">
+                  {formatDate(m.dueDate)}
+                </span>
+                <StatusPill label={meta.label} color={meta.color} />
+              </Row>
             );
           })}
         </ul>
@@ -315,9 +338,17 @@ function MilestonesPanel({
   );
 }
 
-function KpisPanel({ kpis, title = "Key Performance Indicators" }: { kpis: KpiLite[]; title?: string }) {
+function KpisPanel({
+  kpis,
+  title = "Key Performance Indicators",
+  className,
+}: {
+  kpis: KpiLite[];
+  title?: string;
+  className?: string;
+}) {
   return (
-    <Panel title={title}>
+    <Panel title={title} className={className}>
       {kpis.length === 0 ? (
         <EmptyRow label="No KPIs yet." />
       ) : (
@@ -327,31 +358,161 @@ function KpisPanel({ kpis, title = "Key Performance Indicators" }: { kpis: KpiLi
             const delta = k.currentValue - k.targetValue;
             const DeltaIcon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
             return (
-              <li
-                key={k.id}
-                className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-2.5 last:border-0"
-              >
-                <span className="min-w-0 truncate text-sm text-[var(--text)]">{k.name}</span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-sm font-medium tabular-nums text-[var(--text)]">
-                    {formatNumber(k.currentValue)}
-                    {k.unit ? ` ${k.unit}` : ""}
-                  </span>
-                  <span
-                    className="inline-flex items-center gap-0.5 text-xs tabular-nums"
-                    style={{
-                      color: onTarget
-                        ? "var(--status-done, #16a34a)"
-                        : "var(--status-blocked, #dc2626)",
-                    }}
-                  >
-                    <DeltaIcon className="size-3" aria-hidden />
-                    {formatNumber(Math.abs(delta))}
-                  </span>
-                </div>
-              </li>
+              <Row key={k.id} title={k.name}>
+                <span className="text-sm font-medium tabular-nums text-[var(--text)]">
+                  {formatNumber(k.currentValue)}
+                  {k.unit ? ` ${k.unit}` : ""}
+                </span>
+                <span
+                  className="inline-flex items-center gap-0.5 text-xs tabular-nums"
+                  style={{
+                    color: onTarget
+                      ? "var(--status-done, #16a34a)"
+                      : "var(--status-blocked, #dc2626)",
+                  }}
+                >
+                  <DeltaIcon className="size-3" aria-hidden />
+                  {formatNumber(Math.abs(delta))}
+                </span>
+              </Row>
             );
           })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function RisksPanel({
+  risks,
+  title = "Risk Register",
+  emptyLabel = "No open risks.",
+}: {
+  risks: RiskLite[];
+  title?: string;
+  emptyLabel?: string;
+}) {
+  return (
+    <Panel title={title}>
+      {risks.length === 0 ? (
+        <EmptyRow label={emptyLabel} />
+      ) : (
+        <ul className="flex flex-col">
+          {risks.map((r) => {
+            const meta = RISK_META[r.level];
+            return (
+              <Row key={r.id} title={r.title} code={r.code}>
+                {r.escalate && (
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--status-blocked,#dc2626)]">
+                    Escalated
+                  </span>
+                )}
+                <span className="text-xs tabular-nums text-[var(--text-muted)]">
+                  score {r.score}
+                </span>
+                <StatusPill label={meta.label} color={meta.color} />
+              </Row>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function DeliverablesPanel({
+  deliverables,
+  title = "Deliverables",
+}: {
+  deliverables: DeliverableLite[];
+  title?: string;
+}) {
+  return (
+    <Panel title={title}>
+      {deliverables.length === 0 ? (
+        <EmptyRow label="No deliverables yet." />
+      ) : (
+        <ul className="flex flex-col">
+          {deliverables.map((x) => {
+            const meta = DELIVERABLE_META[x.status];
+            return (
+              <Row key={x.id} title={x.title} code={x.clin ? `CLIN ${x.clin}` : x.code}>
+                {x.baselineDue && (
+                  <span className="text-xs tabular-nums text-[var(--text-muted)]">
+                    {formatDate(x.baselineDue)}
+                  </span>
+                )}
+                <StatusPill label={meta.label} color={meta.color} />
+              </Row>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function BlockersPanel({ blockers }: { blockers: BlockerLite[] }) {
+  return (
+    <Panel title="Open Blockers">
+      {blockers.length === 0 ? (
+        <EmptyRow label="No open blockers." />
+      ) : (
+        <ul className="flex flex-col">
+          {blockers.map((b) => {
+            const meta = BLOCKER_META[b.type];
+            return (
+              <Row key={b.id} title={b.title} code={b.code}>
+                {b.escalate && (
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--status-blocked,#dc2626)]">
+                    Escalated
+                  </span>
+                )}
+                <StatusPill label={meta.label} color={meta.color} />
+              </Row>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function DecisionsRequiredPanel({
+  blockers,
+  className,
+}: {
+  blockers: BlockerLite[];
+  className?: string;
+}) {
+  return (
+    <Panel title="Decisions Required" className={className}>
+      {blockers.length === 0 ? (
+        <div className="flex items-center gap-2 py-2 text-sm text-[var(--text-muted)]">
+          <Gavel className="size-4 shrink-0" />
+          <span>No items currently awaiting government action.</span>
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {blockers.map((b) => (
+            <li
+              key={b.id}
+              className="flex flex-col gap-1 rounded-[var(--radius)] border border-[var(--border)] p-3"
+            >
+              <div className="flex items-center gap-2">
+                <Gavel className="size-3.5 shrink-0 text-[var(--status-warn,#d97706)]" />
+                <span className="text-sm font-medium text-[var(--text)]">{b.title}</span>
+                <span className="ml-auto text-xs tabular-nums text-[var(--text-muted)]">
+                  {b.code}
+                </span>
+              </div>
+              {b.whatUnblocks && (
+                <p className="pl-5 text-xs text-[var(--text-muted)]">
+                  <span className="font-medium">Needs:</span> {b.whatUnblocks}
+                </p>
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </Panel>
@@ -372,18 +533,13 @@ function GoalsPanel({
       {goals.length === 0 ? (
         <EmptyRow label="No goals yet." />
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-3">
           {goals.map((g) => {
             const meta = GOAL_META[g.status];
             return (
-              <div
-                key={g.id}
-                className="flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] p-3"
-              >
+              <div key={g.id} className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-medium text-[var(--text)]">
-                    {g.title}
-                  </span>
+                  <span className="min-w-0 truncate text-sm text-[var(--text)]">{g.title}</span>
                   <StatusPill label={meta.label} color={meta.color} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -396,9 +552,7 @@ function GoalsPanel({
                       }}
                     />
                   </div>
-                  <span className="text-xs tabular-nums text-[var(--text-muted)]">
-                    {g.progress}%
-                  </span>
+                  <span className="text-xs tabular-nums text-[var(--text-muted)]">{g.progress}%</span>
                 </div>
               </div>
             );
@@ -410,7 +564,7 @@ function GoalsPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Small presentational pieces + helpers
+// Status metadata
 // ---------------------------------------------------------------------------
 
 const MILESTONE_META: Record<MilestoneStatus, { label: string; color: string }> = {
@@ -428,15 +582,42 @@ const GOAL_META: Record<GoalStatus, { label: string; color: string }> = {
   PLANNED: { label: "Planned", color: "var(--text-muted, #6b7280)" },
 };
 
+const RISK_META: Record<RiskLevel, { label: string; color: string }> = {
+  CRITICAL: { label: "Critical", color: "var(--status-blocked, #dc2626)" },
+  HIGH: { label: "High", color: "#ea580c" },
+  MEDIUM: { label: "Medium", color: "var(--status-warn, #d97706)" },
+  LOW: { label: "Low", color: "var(--text-muted, #6b7280)" },
+};
+
+const DELIVERABLE_META: Record<DeliverableStatus, { label: string; color: string }> = {
+  NOT_STARTED: { label: "Not started", color: "var(--text-muted, #6b7280)" },
+  IN_PROGRESS: { label: "In progress", color: "var(--status-progress, #2563eb)" },
+  SUBMITTED: { label: "Submitted", color: "var(--status-progress, #2563eb)" },
+  IN_GOVT_REVIEW: { label: "In govt review", color: "var(--status-warn, #d97706)" },
+  ACCEPTED: { label: "Accepted", color: "var(--status-done, #16a34a)" },
+  REJECTED: { label: "Rejected", color: "var(--status-blocked, #dc2626)" },
+};
+
+const BLOCKER_META: Record<BlockerType, { label: string; color: string }> = {
+  INTERNAL: { label: "Internal", color: "var(--status-progress, #2563eb)" },
+  EXTERNAL_GOVERNMENT: { label: "Gov", color: "var(--status-warn, #d97706)" },
+  EXTERNAL_VENDOR: { label: "Vendor", color: "#7c3aed" },
+};
+
+// ---------------------------------------------------------------------------
+// Helpers + small presentational pieces
+// ---------------------------------------------------------------------------
+
 function computeStats(data: PmDashboardData) {
   const slipped = data.milestones.filter(
     (m) => m.status === "MISSED" || m.status === "IN_PROGRESS",
   ).length;
   const onTarget = data.kpis.filter(isOnTarget).length;
-  const goalsAtRisk = data.goals.filter(
-    (g) => g.status === "AT_RISK" || g.status === "OFF_TRACK",
+  const risksElevated = data.risks.filter(
+    (r) => r.level === "CRITICAL" || r.level === "HIGH",
   ).length;
-  return { slipped, onTarget, goalsAtRisk };
+  const blockersEscalated = data.blockers.filter((b) => b.escalate).length;
+  return { slipped, onTarget, risksElevated, blockersEscalated };
 }
 
 function isOnTarget(k: KpiLite): boolean {
@@ -455,13 +636,6 @@ function formatDate(iso: string): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function nextMilestoneLabel(milestones: MilestoneLite[]): string {
-  const upcoming = milestones
-    .filter((m) => m.status !== "COMPLETED")
-    .sort((a, b) => +new Date(a.dueDate) - +new Date(b.dueDate))[0];
-  return upcoming ? formatDate(upcoming.dueDate) : "—";
 }
 
 function StatCard({
@@ -513,6 +687,29 @@ function Panel({
       <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** One list row: a title (with optional code prefix) on the left, meta on the right. */
+function Row({
+  title,
+  code,
+  children,
+}: {
+  title: string;
+  code?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <li className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-2.5 last:border-0">
+      <span className="flex min-w-0 items-baseline gap-1.5">
+        {code && (
+          <span className="shrink-0 font-mono text-[11px] text-[var(--text-muted)]">{code}</span>
+        )}
+        <span className="min-w-0 truncate text-sm text-[var(--text)]">{title}</span>
+      </span>
+      <div className="flex shrink-0 items-center gap-2">{children}</div>
+    </li>
   );
 }
 

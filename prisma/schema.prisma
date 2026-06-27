@@ -217,6 +217,10 @@ model Organization {
   connectorCredentials   ConnectorCredential[]
   // Prod-parity back-relations.
   documents              Document[]
+  risks                  Risk[]
+  deliverables           Deliverable[]
+  blockers               Blocker[]
+  changeRequests         ChangeRequest[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   meetingTypeOptions     MeetingTypeOption[]
@@ -580,6 +584,10 @@ model Project {
   journalLines        JournalLine[]
   dataClassifications DataClassification[]
   documents           Document[]
+  risks               Risk[]
+  deliverables        Deliverable[]
+  blockers            Blocker[]
+  changeRequests      ChangeRequest[]
 
   @@unique([orgId, key])
   @@map("projects")
@@ -3058,4 +3066,160 @@ model BankRule {
 
   @@index([orgId, isActive, priority])
   @@map("bank_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Govcon program-management models (PM Dashboard) — the compliance/reporting
+// layer the commercial schema lacks. Org-scoped, CUI-classified by default,
+// keyed on a stable per-org code. See docs schema-mapping for the full mapping.
+// ---------------------------------------------------------------------------
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskStatus {
+  OPEN
+  MITIGATING
+  CLOSED
+}
+
+enum DeliverableStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  IN_GOVT_REVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum BlockerType {
+  INTERNAL
+  EXTERNAL_GOVERNMENT
+  EXTERNAL_VENDOR
+}
+
+enum BlockerStatus {
+  OPEN
+  RESOLVED
+}
+
+enum ChangeRequestStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+}
+
+model Risk {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String              @map("org_id") @db.Uuid
+  projectId      String              @map("project_id") @db.Uuid
+  code           String
+  title          String
+  description    String?
+  category       String?
+  branch         String?
+  likelihood     Int                 @default(1)
+  impact         Int                 @default(1)
+  score          Int                 @default(1)
+  level          RiskLevel           @default(LOW)
+  owner          String?
+  mitigation     String?
+  status         RiskStatus          @default(OPEN)
+  trend          String?
+  escalate       Boolean             @default(false)
+  targetDate     DateTime?           @map("target_date")
+  classification ClassificationLevel @default(CUI)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("risks")
+}
+
+model Deliverable {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String              @map("org_id") @db.Uuid
+  projectId        String              @map("project_id") @db.Uuid
+  code             String
+  title            String
+  description      String?
+  clin             String?
+  status           DeliverableStatus   @default(NOT_STARTED)
+  baselineDue      DateTime?           @map("baseline_due")
+  actualSubmission DateTime?           @map("actual_submission")
+  govAcceptance    DateTime?           @map("gov_acceptance")
+  owner            String?
+  revisionCycle    Int                 @default(0) @map("revision_cycle")
+  escalate         Boolean             @default(false)
+  classification   ClassificationLevel @default(CUI)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("deliverables")
+}
+
+model Blocker {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String              @map("org_id") @db.Uuid
+  projectId        String              @map("project_id") @db.Uuid
+  code             String
+  title            String
+  description      String?
+  type             BlockerType         @default(INTERNAL)
+  status           BlockerStatus       @default(OPEN)
+  whatUnblocks     String?             @map("what_unblocks")
+  owner            String?
+  customerNotified Boolean             @default(false) @map("customer_notified")
+  escalate         Boolean             @default(false)
+  identifiedAt     DateTime            @default(now()) @map("identified_at")
+  resolvedAt       DateTime?           @map("resolved_at")
+  classification   ClassificationLevel @default(CUI)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("blockers")
+}
+
+model ChangeRequest {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String              @map("org_id") @db.Uuid
+  projectId          String              @map("project_id") @db.Uuid
+  code               String
+  title              String
+  description        String?
+  type               String?
+  status             ChangeRequestStatus @default(SUBMITTED)
+  costImpact         Decimal?            @map("cost_impact") @db.Decimal(14, 2)
+  scheduleDaysImpact Int?                @map("schedule_days_impact")
+  modRequired        Boolean             @default(false) @map("mod_required")
+  decidedAt          DateTime?           @map("decided_at")
+  classification     ClassificationLevel @default(CUI)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("change_requests")
 }
