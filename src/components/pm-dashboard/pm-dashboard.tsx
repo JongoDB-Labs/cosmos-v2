@@ -72,7 +72,7 @@ export interface RiskLite {
   code: string;
   title: string;
   level: RiskLevel;
-  status: "OPEN" | "MITIGATING" | "CLOSED";
+  status: "OPEN" | "MONITORING" | "MITIGATING" | "MITIGATED" | "CLOSED" | "ESCALATED";
   score: number;
   escalate: boolean;
 }

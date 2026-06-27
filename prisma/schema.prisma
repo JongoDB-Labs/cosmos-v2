@@ -3086,8 +3086,11 @@ enum RiskLevel {
 
 enum RiskStatus {
   OPEN
+  MONITORING
   MITIGATING
+  MITIGATED
   CLOSED
+  ESCALATED
 }
 
 enum DeliverableStatus {
@@ -3132,6 +3135,8 @@ model Risk {
   level          RiskLevel           @default(LOW)
   owner          String?
   mitigation     String?
+  contingency    String?
+  dateIdentified DateTime?            @map("date_identified")
   status         RiskStatus          @default(OPEN)
   trend          String?
   escalate       Boolean             @default(false)
