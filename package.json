@@ -16,7 +16,7 @@
     "e2e:install": "playwright install chromium",
     "prepare": "husky",
     "seed": "tsx prisma/seed/index.ts",
-    "seed:demo": "tsx prisma/seed/demo-defense.ts && tsx prisma/seed/demo-defense-extra.ts && tsx prisma/seed/demo-defense-fill.ts",
+    "seed:demo": "tsx prisma/seed/demo-defense.ts && tsx prisma/seed/demo-defense-extra.ts && tsx prisma/seed/demo-defense-fill.ts && tsx prisma/seed/demo-defense-pm.ts",
     "seed:demo:teardown": "tsx prisma/seed/demo-defense-teardown.ts",
     "seed:roadmap": "tsx prisma/seed/roadmap-import.ts",
     "test:arch": "vitest run arch.test.ts",
