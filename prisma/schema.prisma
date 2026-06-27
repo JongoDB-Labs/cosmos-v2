@@ -221,6 +221,7 @@ model Organization {
   deliverables           Deliverable[]
   blockers               Blocker[]
   changeRequests         ChangeRequest[]
+  programBranches        ProgramBranch[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   meetingTypeOptions     MeetingTypeOption[]
@@ -2202,6 +2203,8 @@ model Milestone {
 
   org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
   links   MilestoneLink[]
 
   @@index([orgId, projectId])
@@ -3139,6 +3142,8 @@ model Risk {
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3166,6 +3171,8 @@ model Deliverable {
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3193,6 +3200,8 @@ model Blocker {
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3218,8 +3227,33 @@ model ChangeRequest {
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
   @@map("change_requests")
+}
+
+// Org-configurable program branch (1.0 Program Mgmt … 6.0 Fielding & Transition).
+// First-class dimension referenced by every govcon tracker — powers the
+// Domain-Lead persona and all "by branch" rollups.
+model ProgramBranch {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  code      String
+  name      String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  risks          Risk[]
+  changeRequests ChangeRequest[]
+  blockers       Blocker[]
+  deliverables   Deliverable[]
+  milestones     Milestone[]
+
+  @@unique([orgId, code])
+  @@map("program_branches")
 }
