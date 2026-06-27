@@ -195,6 +195,14 @@ export function ProjectBoardTabs({
   // Build feature tabs based on enabledFeatures
   const featureTabs: FeatureTab[] = [];
 
+  if (enabledFeatures.includes("pm-dashboard")) {
+    featureTabs.push({
+      feature: "pm-dashboard",
+      label: "PM Dashboard",
+      href: `/${orgSlug}/projects/${projectKey}/pm-dashboard`,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",
