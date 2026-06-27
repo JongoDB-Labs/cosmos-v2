@@ -1,7 +1,8 @@
 /**
- * Govcon PM-Dashboard demo seed — adds Risks, Deliverables, Blockers, and
- * Change Requests to "Apex Defense Systems" / SENTINEL so the PM Dashboard and
- * its Government / Executive views show realistic content.
+ * Govcon PM-Dashboard demo seed — adds the 6 program branches, plus Risks,
+ * Deliverables, Blockers, and Change Requests to "Apex Defense Systems" /
+ * SENTINEL so the PM Dashboard and its Government / Executive views show
+ * realistic content.
  *
  * SAFE + IDEMPOTENT: upserts on (orgId, code). Run AFTER demo-defense.ts.
  * Run:  npx tsx prisma/seed/demo-defense-pm.ts
@@ -39,53 +40,35 @@ function d(days: number): Date {
   return x;
 }
 
+const BRANCHES: { code: string; name: string }[] = [
+  { code: "1.0", name: "Program Management" },
+  { code: "2.0", name: "Software Development" },
+  { code: "3.0", name: "Security & Compliance" },
+  { code: "4.0", name: "Infra & Environment" },
+  { code: "5.0", name: "OT&E" },
+  { code: "6.0", name: "Fielding & Transition" },
+];
+
 type RiskSeed = {
-  code: string;
-  title: string;
-  description: string;
-  category: string;
-  branch: string;
-  likelihood: number;
-  impact: number;
-  owner: string;
-  mitigation: string;
-  status: "OPEN" | "MITIGATING" | "CLOSED";
-  trend: string;
-  escalate: boolean;
-  targetDate: Date;
+  code: string; title: string; description: string; category: string; branchCode: string;
+  likelihood: number; impact: number; owner: string; mitigation: string;
+  status: "OPEN" | "MITIGATING" | "CLOSED"; trend: string; escalate: boolean; targetDate: Date;
 };
-
 type DeliverableSeed = {
-  code: string;
-  title: string;
-  clin: string;
+  code: string; title: string; clin: string; branchCode: string;
   status: "NOT_STARTED" | "IN_PROGRESS" | "SUBMITTED" | "IN_GOVT_REVIEW" | "ACCEPTED" | "REJECTED";
-  baselineDue: Date;
-  actualSubmission: Date | null;
-  owner: string;
+  baselineDue: Date; actualSubmission: Date | null; owner: string;
 };
-
 type BlockerSeed = {
-  code: string;
-  title: string;
-  description: string;
+  code: string; title: string; description: string; branchCode: string;
   type: "INTERNAL" | "EXTERNAL_GOVERNMENT" | "EXTERNAL_VENDOR";
-  status: "OPEN" | "RESOLVED";
-  whatUnblocks: string;
-  owner: string;
-  customerNotified: boolean;
-  escalate: boolean;
+  status: "OPEN" | "RESOLVED"; whatUnblocks: string; owner: string;
+  customerNotified: boolean; escalate: boolean;
 };
-
 type ChangeSeed = {
-  code: string;
-  title: string;
-  description: string;
-  type: string;
+  code: string; title: string; description: string; type: string; branchCode: string;
   status: "SUBMITTED" | "APPROVED" | "REJECTED" | "IMPLEMENTED";
-  costImpact: number | null;
-  scheduleDaysImpact: number | null;
-  modRequired: boolean;
+  costImpact: number | null; scheduleDaysImpact: number | null; modRequired: boolean;
 };
 
 async function main() {
@@ -95,62 +78,80 @@ async function main() {
   if (!project) throw new Error(`project "${PKEY}" not found — run demo-defense.ts first`);
   const base = { orgId: org.id, projectId: project.id };
 
+  // Branches first — build a code -> id map for FK wiring.
+  const branchId: Record<string, string> = {};
+  for (const [i, b] of BRANCHES.entries()) {
+    const row = await prisma.programBranch.upsert({
+      where: { orgId_code: { orgId: org.id, code: b.code } },
+      update: { name: b.name, sortOrder: i },
+      create: { orgId: org.id, code: b.code, name: b.name, sortOrder: i },
+    });
+    branchId[b.code] = row.id;
+  }
+
   const risks: RiskSeed[] = [
-    { code: "R-001", title: "ATO timeline slip", description: "RMF package submission may slip due to incomplete STIG remediation, blocking the phase gate.", category: "Security", branch: "3.0 Security & Compliance", likelihood: 4, impact: 5, owner: "Security Lead", mitigation: "Accelerate STIG remediation; prioritize ATO-blocking findings.", status: "OPEN", trend: "↑ Increasing", escalate: true, targetDate: d(45) },
-    { code: "R-002", title: "C3PAO assessment scheduling delay", description: "Limited C3PAO availability may push the CMMC L2 assessment window.", category: "Schedule", branch: "1.0 Program Mgmt", likelihood: 3, impact: 4, owner: "PM", mitigation: "Hold tentative dates with two C3PAOs.", status: "MITIGATING", trend: "→ Stable", escalate: false, targetDate: d(30) },
-    { code: "R-003", title: "Technical debt in legacy ingest module", description: "Legacy ingest path is fragile and slows feature delivery.", category: "Technical", branch: "2.0 Software Development", likelihood: 3, impact: 3, owner: "Tech Lead", mitigation: "Allocate a refactor spike in Increment 2.", status: "OPEN", trend: "→ Stable", escalate: false, targetDate: d(60) },
-    { code: "R-004", title: "Key personnel attrition", description: "Loss of cleared staff would impact delivery and ATO continuity.", category: "Resource", branch: "1.0 Program Mgmt", likelihood: 2, impact: 4, owner: "PM", mitigation: "Cross-train; maintain a cleared-candidate pipeline.", status: "OPEN", trend: "↓ Decreasing", escalate: false, targetDate: d(90) },
+    { code: "R-001", title: "ATO timeline slip", description: "RMF package submission may slip due to incomplete STIG remediation, blocking the phase gate.", category: "Security", branchCode: "3.0", likelihood: 4, impact: 5, owner: "Security Lead", mitigation: "Accelerate STIG remediation; prioritize ATO-blocking findings.", status: "OPEN", trend: "↑ Increasing", escalate: true, targetDate: d(45) },
+    { code: "R-002", title: "C3PAO assessment scheduling delay", description: "Limited C3PAO availability may push the CMMC L2 assessment window.", category: "Schedule", branchCode: "1.0", likelihood: 3, impact: 4, owner: "PM", mitigation: "Hold tentative dates with two C3PAOs.", status: "MITIGATING", trend: "→ Stable", escalate: false, targetDate: d(30) },
+    { code: "R-003", title: "Technical debt in legacy ingest module", description: "Legacy ingest path is fragile and slows feature delivery.", category: "Technical", branchCode: "2.0", likelihood: 3, impact: 3, owner: "Tech Lead", mitigation: "Allocate a refactor spike in Increment 2.", status: "OPEN", trend: "→ Stable", escalate: false, targetDate: d(60) },
+    { code: "R-004", title: "Key personnel attrition", description: "Loss of cleared staff would impact delivery and ATO continuity.", category: "Resource", branchCode: "1.0", likelihood: 2, impact: 4, owner: "PM", mitigation: "Cross-train; maintain a cleared-candidate pipeline.", status: "OPEN", trend: "↓ Decreasing", escalate: false, targetDate: d(90) },
   ];
   for (const r of risks) {
     const score = computeRiskScore(r.likelihood, r.impact);
+    const branch = BRANCHES.find((b) => b.code === r.branchCode)!;
     await prisma.risk.upsert({
       where: { orgId_code: { orgId: org.id, code: r.code } },
-      update: {},
-      create: { ...base, ...r, score, level: riskLevelFromScore(score) },
+      update: { branchId: branchId[r.branchCode] },
+      create: {
+        ...base, code: r.code, title: r.title, description: r.description, category: r.category,
+        branch: `${branch.code} ${branch.name}`, branchId: branchId[r.branchCode],
+        likelihood: r.likelihood, impact: r.impact, score, level: riskLevelFromScore(score),
+        owner: r.owner, mitigation: r.mitigation, status: r.status, trend: r.trend,
+        escalate: r.escalate, targetDate: r.targetDate,
+      },
     });
   }
 
   const deliverables: DeliverableSeed[] = [
-    { code: "CDRL-A001", title: "System Security Plan (SSP)", clin: "0001", status: "IN_GOVT_REVIEW", baselineDue: d(-12), actualSubmission: d(-10), owner: "Security Lead" },
-    { code: "CDRL-A002", title: "Plan of Action & Milestones (POA&M)", clin: "0001", status: "SUBMITTED", baselineDue: d(-5), actualSubmission: d(-4), owner: "Security Lead" },
-    { code: "CDRL-A003", title: "Architecture Design Document", clin: "0002", status: "ACCEPTED", baselineDue: d(-25), actualSubmission: d(-22), owner: "Tech Lead" },
-    { code: "CDRL-A004", title: "Monthly Status Report — current period", clin: "0003", status: "NOT_STARTED", baselineDue: d(8), actualSubmission: null, owner: "PM" },
+    { code: "CDRL-A001", title: "System Security Plan (SSP)", clin: "0001", branchCode: "3.0", status: "IN_GOVT_REVIEW", baselineDue: d(-12), actualSubmission: d(-10), owner: "Security Lead" },
+    { code: "CDRL-A002", title: "Plan of Action & Milestones (POA&M)", clin: "0001", branchCode: "3.0", status: "SUBMITTED", baselineDue: d(-5), actualSubmission: d(-4), owner: "Security Lead" },
+    { code: "CDRL-A003", title: "Architecture Design Document", clin: "0002", branchCode: "2.0", status: "ACCEPTED", baselineDue: d(-25), actualSubmission: d(-22), owner: "Tech Lead" },
+    { code: "CDRL-A004", title: "Monthly Status Report — current period", clin: "0003", branchCode: "1.0", status: "NOT_STARTED", baselineDue: d(8), actualSubmission: null, owner: "PM" },
   ];
   for (const x of deliverables) {
     await prisma.deliverable.upsert({
       where: { orgId_code: { orgId: org.id, code: x.code } },
-      update: {},
-      create: { ...base, ...x },
+      update: { branchId: branchId[x.branchCode] },
+      create: { ...base, code: x.code, title: x.title, clin: x.clin, branchId: branchId[x.branchCode], status: x.status, baselineDue: x.baselineDue, actualSubmission: x.actualSubmission, owner: x.owner },
     });
   }
 
   const blockers: BlockerSeed[] = [
-    { code: "BL-001", title: "GFE server delivery delayed", description: "Government-furnished equipment shipment is delayed, blocking the staging environment.", type: "EXTERNAL_GOVERNMENT", status: "OPEN", whatUnblocks: "Government expedites GFE shipment or authorizes an interim cloud env.", owner: "PM", customerNotified: true, escalate: true },
-    { code: "BL-002", title: "Awaiting ATO authorization decision", description: "Deployment cannot proceed until the AO issues the authorization decision.", type: "EXTERNAL_GOVERNMENT", status: "OPEN", whatUnblocks: "AO issues ATO or interim authorization.", owner: "Security Lead", customerNotified: true, escalate: true },
-    { code: "BL-003", title: "API schema decision pending (internal)", description: "Increment 2 integration is blocked on an internal API schema decision.", type: "INTERNAL", status: "OPEN", whatUnblocks: "Tech lead finalizes the v2 API schema.", owner: "Tech Lead", customerNotified: false, escalate: false },
+    { code: "BL-001", title: "GFE server delivery delayed", description: "Government-furnished equipment shipment is delayed, blocking the staging environment.", branchCode: "4.0", type: "EXTERNAL_GOVERNMENT", status: "OPEN", whatUnblocks: "Government expedites GFE shipment or authorizes an interim cloud env.", owner: "PM", customerNotified: true, escalate: true },
+    { code: "BL-002", title: "Awaiting ATO authorization decision", description: "Deployment cannot proceed until the AO issues the authorization decision.", branchCode: "3.0", type: "EXTERNAL_GOVERNMENT", status: "OPEN", whatUnblocks: "AO issues ATO or interim authorization.", owner: "Security Lead", customerNotified: true, escalate: true },
+    { code: "BL-003", title: "API schema decision pending (internal)", description: "Increment 2 integration is blocked on an internal API schema decision.", branchCode: "2.0", type: "INTERNAL", status: "OPEN", whatUnblocks: "Tech lead finalizes the v2 API schema.", owner: "Tech Lead", customerNotified: false, escalate: false },
   ];
   for (const b of blockers) {
     await prisma.blocker.upsert({
       where: { orgId_code: { orgId: org.id, code: b.code } },
-      update: {},
-      create: { ...base, ...b },
+      update: { branchId: branchId[b.branchCode] },
+      create: { ...base, code: b.code, title: b.title, description: b.description, branchId: branchId[b.branchCode], type: b.type, status: b.status, whatUnblocks: b.whatUnblocks, owner: b.owner, customerNotified: b.customerNotified, escalate: b.escalate },
     });
   }
 
   const changes: ChangeSeed[] = [
-    { code: "CR-001", title: "Add CMMC L2 scope to Increment 2", description: "Expand Increment 2 to include CMMC Level 2 controls per customer direction.", type: "Scope", status: "APPROVED", costImpact: 45000, scheduleDaysImpact: 14, modRequired: true },
-    { code: "CR-002", title: "Adjust delivery cadence to monthly", description: "Move from bi-weekly to monthly formal deliveries to align with MSR cycle.", type: "Schedule", status: "SUBMITTED", costImpact: 0, scheduleDaysImpact: 0, modRequired: false },
+    { code: "CR-001", title: "Add CMMC L2 scope to Increment 2", description: "Expand Increment 2 to include CMMC Level 2 controls per customer direction.", type: "Scope", branchCode: "3.0", status: "APPROVED", costImpact: 45000, scheduleDaysImpact: 14, modRequired: true },
+    { code: "CR-002", title: "Adjust delivery cadence to monthly", description: "Move from bi-weekly to monthly formal deliveries to align with MSR cycle.", type: "Schedule", branchCode: "1.0", status: "SUBMITTED", costImpact: 0, scheduleDaysImpact: 0, modRequired: false },
   ];
   for (const c of changes) {
     await prisma.changeRequest.upsert({
       where: { orgId_code: { orgId: org.id, code: c.code } },
-      update: {},
-      create: { ...base, ...c },
+      update: { branchId: branchId[c.branchCode] },
+      create: { ...base, code: c.code, title: c.title, description: c.description, type: c.type, branchId: branchId[c.branchCode], status: c.status, costImpact: c.costImpact, scheduleDaysImpact: c.scheduleDaysImpact, modRequired: c.modRequired },
     });
   }
 
   console.log(
-    `Govcon PM seed: ${risks.length} risks, ${deliverables.length} deliverables, ` +
+    `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
       `${blockers.length} blockers, ${changes.length} change requests upserted for ${PKEY}.`,
   );
 }
