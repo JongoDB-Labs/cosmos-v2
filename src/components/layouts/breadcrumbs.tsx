@@ -36,6 +36,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   okrs: "OKRs",
   kpis: "KPIs",
   "mcp-servers": "MCP Servers",
+  "pm-dashboard": "PM Dashboard",
 };
 
 function titleCase(segment: string): string {
