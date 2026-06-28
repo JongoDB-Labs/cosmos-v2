@@ -235,10 +235,40 @@ async function main() {
     linksCreated += plan.items.length;
   }
 
+  // KPIs: point a couple at execution so their currentValue trickles up.
+  let kpiAuto = 0;
+  const velocityKpi = await prisma.kpi.findFirst({ where: { ...base, name: "Sprint velocity" } });
+  if (velocityKpi) {
+    await prisma.kpi.update({ where: { id: velocityKpi.id }, data: { autoSource: "VELOCITY" } });
+    kpiAuto++;
+  }
+  const completionName = "Work items complete";
+  const existingCompletion = await prisma.kpi.findFirst({ where: { ...base, name: completionName } });
+  if (!existingCompletion) {
+    const last = await prisma.kpi.findFirst({
+      where: base,
+      orderBy: { sortOrder: "desc" },
+      select: { sortOrder: true },
+    });
+    await prisma.kpi.create({
+      data: {
+        ...base,
+        name: completionName,
+        unit: "%",
+        targetValue: 100,
+        currentValue: 0,
+        direction: "UP_GOOD",
+        autoSource: "COMPLETION_PCT",
+        sortOrder: (last?.sortOrder ?? -1) + 1,
+      },
+    });
+    kpiAuto++;
+  }
+
   console.log(
     `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
       `${blockers.length} blockers, ${changes.length} change requests, ${mUpdated} milestone baselines, ` +
-      `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links upserted for ${PKEY}.`,
+      `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links, ${kpiAuto} auto KPIs upserted for ${PKEY}.`,
   );
 }
 
