@@ -22,11 +22,11 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
   if (!org) notFound();
 
   const where = { orgId: ctx.orgId };
-  const [milestones, kpis, goals, risks, deliverables, blockers] = await Promise.all([
+  const [milestones, kpis, goals, risks, deliverables, blockers, changes] = await Promise.all([
     prisma.milestone.findMany({
       where,
       orderBy: { dueDate: "asc" },
-      select: { id: true, title: true, status: true, dueDate: true },
+      select: { id: true, title: true, status: true, dueDate: true, baselineDate: true },
     }),
     prisma.kpi.findMany({
       where,
@@ -69,6 +69,19 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
         customerNotified: true,
       },
     }),
+    prisma.changeRequest.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        code: true,
+        title: true,
+        type: true,
+        status: true,
+        costImpact: true,
+        scheduleDaysImpact: true,
+      },
+    }),
   ]);
 
   return (
@@ -80,6 +93,7 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
           title: m.title,
           status: m.status,
           dueDate: m.dueDate.toISOString(),
+          baselineDate: m.baselineDate ? m.baselineDate.toISOString() : null,
         })),
         kpis,
         goals,
@@ -93,6 +107,15 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
           baselineDue: d.baselineDue ? d.baselineDue.toISOString() : null,
         })),
         blockers,
+        changes: changes.map((c) => ({
+          id: c.id,
+          code: c.code,
+          title: c.title,
+          type: c.type,
+          status: c.status,
+          costImpact: c.costImpact != null ? Number(c.costImpact) : null,
+          scheduleDaysImpact: c.scheduleDaysImpact,
+        })),
       }}
     />
   );
