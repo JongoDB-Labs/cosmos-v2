@@ -53,6 +53,12 @@ interface Milestone {
   recoveryPlan: string | null;
   recoveryTarget: string | null;
   scheduleEscalate: boolean;
+  // Derived from linked work items (see lib/pm/schedule). status is already the
+  // derived value when autoStatus is on and links resolve.
+  autoStatus: boolean;
+  linkedTotal: number;
+  linkedDone: number;
+  completionPercent: number | null;
 }
 
 export interface ScheduleTrackerProps {
@@ -83,6 +89,7 @@ interface MilestoneForm {
   recoveryPlan: string;
   recoveryTarget: string;
   scheduleEscalate: boolean;
+  autoStatus: boolean;
 }
 
 const emptyForm: MilestoneForm = {
@@ -98,6 +105,7 @@ const emptyForm: MilestoneForm = {
   recoveryPlan: "",
   recoveryTarget: "",
   scheduleEscalate: false,
+  autoStatus: true,
 };
 
 function toDateInput(iso: string | null | undefined): string {
@@ -118,6 +126,7 @@ function milestoneToForm(m: Milestone): MilestoneForm {
     recoveryPlan: m.recoveryPlan ?? "",
     recoveryTarget: toDateInput(m.recoveryTarget),
     scheduleEscalate: m.scheduleEscalate,
+    autoStatus: m.autoStatus,
   };
 }
 
@@ -135,6 +144,7 @@ function formToBody(f: MilestoneForm) {
     recoveryPlan: f.recoveryPlan.trim() || null,
     recoveryTarget: f.recoveryTarget ? new Date(f.recoveryTarget).toISOString() : null,
     scheduleEscalate: f.scheduleEscalate,
+    autoStatus: f.autoStatus,
   };
 }
 
@@ -291,6 +301,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
                 <th className="px-3 py-2 font-medium">Projected</th>
                 <th className="px-3 py-2 font-medium">Variance</th>
                 <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Progress</th>
                 <th className="px-3 py-2 font-medium">Esc.</th>
                 <th className="px-3 py-2" />
               </tr>
@@ -321,8 +332,23 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
                     <td className="px-3 py-2">
                       <VariancePill variance={variance} />
                     </td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">
-                      {STATUS_LABEL[m.status]}
+                    <td className="px-3 py-2">
+                      <span className="text-[var(--text-muted)]">{STATUS_LABEL[m.status]}</span>
+                      {m.autoStatus && m.linkedTotal > 0 && (
+                        <span
+                          className="ml-1.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]"
+                          title="Status derived from linked work items"
+                        >
+                          auto
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <ProgressCell
+                        done={m.linkedDone}
+                        total={m.linkedTotal}
+                        percent={m.completionPercent}
+                      />
                     </td>
                     <td className="px-3 py-2">
                       {m.scheduleEscalate ? (
@@ -552,6 +578,22 @@ function MilestoneDialog({
             </div>
           </div>
 
+          <label className="flex items-start gap-2 text-sm text-[var(--text)]">
+            <input
+              type="checkbox"
+              checked={form.autoStatus}
+              onChange={(e) => setForm((f) => ({ ...f, autoStatus: e.target.checked }))}
+              className="mt-0.5 size-4 accent-[var(--primary)]"
+            />
+            <span>
+              Derive status from linked work items
+              <span className="block text-xs text-[var(--text-muted)]">
+                When on, status &amp; progress roll up from the work items linked to this
+                milestone; the status above is the manual fallback.
+              </span>
+            </span>
+          </label>
+
           <FormField label="Description">
             {(p) => (
               <Textarea
@@ -642,6 +684,37 @@ function VariancePill({ variance }: { variance: number | null }) {
     <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
       +{variance}d
     </span>
+  );
+}
+
+/** Completion of a milestone's linked work items — the "trickle up" signal. */
+function ProgressCell({
+  done,
+  total,
+  percent,
+}: {
+  done: number;
+  total: number;
+  percent: number | null;
+}) {
+  if (percent === null || total === 0) {
+    return <span className="text-xs text-[var(--text-muted)]">—</span>;
+  }
+  return (
+    <div
+      className="flex items-center gap-2"
+      title={`${done} of ${total} linked work items done`}
+    >
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
+        <div
+          className="h-full rounded-full bg-[var(--primary)]"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <span className="tabular-nums text-xs text-[var(--text-muted)]">
+        {done}/{total}
+      </span>
+    </div>
   );
 }
 

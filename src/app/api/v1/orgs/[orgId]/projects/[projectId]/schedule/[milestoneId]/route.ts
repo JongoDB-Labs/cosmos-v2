@@ -28,6 +28,7 @@ const updateSchema = z.object({
   recoveryPlan: z.string().nullish(),
   recoveryTarget: z.string().nullish(),
   scheduleEscalate: z.boolean().optional(),
+  autoStatus: z.boolean().optional(),
 });
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
@@ -63,6 +64,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.recoveryTarget !== undefined)
       update.recoveryTarget = data.recoveryTarget ? new Date(data.recoveryTarget) : null;
     if (data.scheduleEscalate !== undefined) update.scheduleEscalate = data.scheduleEscalate;
+    if (data.autoStatus !== undefined) update.autoStatus = data.autoStatus;
 
     const updated = await prisma.milestone.update({
       where: { id: milestoneId },

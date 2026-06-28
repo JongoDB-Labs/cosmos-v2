@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -25,11 +26,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const milestones = await prisma.milestone.findMany({
-      where: { orgId, projectId },
-      include: milestoneInclude,
-      orderBy: [{ dueDate: "asc" }, { title: "asc" }],
-    });
+    // Status + completion derive from linked work items (see lib/pm/schedule).
+    const milestones = await loadMilestonesWithDerived(orgId, projectId);
     return success(milestones);
   } catch (e) {
     return handleApiError(e);
@@ -49,6 +47,7 @@ const createSchema = z.object({
   recoveryPlan: z.string().nullish(),
   recoveryTarget: z.string().nullish(),
   scheduleEscalate: z.boolean().default(false),
+  autoStatus: z.boolean().default(true), // derive status from linked work items
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -84,6 +83,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         recoveryPlan: data.recoveryPlan ?? null,
         recoveryTarget: data.recoveryTarget ? new Date(data.recoveryTarget) : null,
         scheduleEscalate: data.scheduleEscalate,
+        autoStatus: data.autoStatus,
       },
       include: milestoneInclude,
     });

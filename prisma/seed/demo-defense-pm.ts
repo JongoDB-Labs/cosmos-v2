@@ -202,10 +202,43 @@ async function main() {
     }
   }
 
+  // Link milestones to work items so the Schedule + dashboard derive status and
+  // completion from real execution (the "data trickles up" demo). Idempotent:
+  // each seeded milestone's links are cleared + recreated.
+  const items = await prisma.workItem.findMany({
+    where: base,
+    select: { id: true, columnKey: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const inCol = (key: string) => items.filter((w) => w.columnKey === key).map((w) => w.id);
+  const done = inCol("done");
+  const todo = inCol("todo");
+  const backlog = inCol("backlog");
+  const wip = [...inCol("in-progress"), ...inCol("review")];
+
+  const linkPlan: { match: string; items: string[] }[] = [
+    { match: "Increment 1", items: done.slice(0, 5) }, // all done → COMPLETED
+    { match: "SSP package", items: [...done.slice(5, 8), ...todo.slice(0, 2)] }, // past due, mixed → MISSED
+    { match: "C3PAO pre-assessment", items: [...wip, ...done.slice(8, 10)] }, // wip present → IN_PROGRESS
+    { match: "Increment 2 ATO", items: todo.slice(2, 6) }, // todo only → UPCOMING
+    { match: "CMMC L2 certificate", items: backlog.slice(0, 4) }, // backlog only → UPCOMING
+  ];
+  let linksCreated = 0;
+  for (const plan of linkPlan) {
+    const m = milestones.find((x) => x.title.includes(plan.match));
+    if (!m || plan.items.length === 0) continue;
+    await prisma.milestoneLink.deleteMany({ where: { milestoneId: m.id } });
+    await prisma.milestoneLink.createMany({
+      data: plan.items.map((workItemId) => ({ milestoneId: m.id, workItemId })),
+    });
+    await prisma.milestone.update({ where: { id: m.id }, data: { autoStatus: true } });
+    linksCreated += plan.items.length;
+  }
+
   console.log(
     `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
       `${blockers.length} blockers, ${changes.length} change requests, ${mUpdated} milestone baselines, ` +
-      `${revAdded} deliverable revision(s) upserted for ${PKEY}.`,
+      `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links upserted for ${PKEY}.`,
   );
 }
 

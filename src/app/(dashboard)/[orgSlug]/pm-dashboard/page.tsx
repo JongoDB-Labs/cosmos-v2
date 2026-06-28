@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { PmDashboard } from "@/components/pm-dashboard/pm-dashboard";
+import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -23,11 +24,8 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
 
   const where = { orgId: ctx.orgId };
   const [milestones, kpis, goals, risks, deliverables, blockers, changes] = await Promise.all([
-    prisma.milestone.findMany({
-      where,
-      orderBy: { dueDate: "asc" },
-      select: { id: true, title: true, status: true, dueDate: true, baselineDate: true },
-    }),
+    // Milestone status + completion derive from linked work items (org-wide).
+    loadMilestonesWithDerived(ctx.orgId),
     prisma.kpi.findMany({
       where,
       orderBy: { sortOrder: "asc" },
@@ -94,6 +92,7 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
           status: m.status,
           dueDate: m.dueDate.toISOString(),
           baselineDate: m.baselineDate ? m.baselineDate.toISOString() : null,
+          completionPercent: m.completionPercent,
         })),
         kpis,
         goals,
