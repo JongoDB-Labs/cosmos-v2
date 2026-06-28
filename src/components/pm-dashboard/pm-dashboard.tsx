@@ -40,12 +40,22 @@ export type GoalStatus = "PLANNED" | "ON_TRACK" | "AT_RISK" | "OFF_TRACK" | "ACH
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type DeliverableStatus =
   | "NOT_STARTED"
+  | "DRAFT_IN_PROGRESS"
+  | "INTERNAL_REVIEW"
   | "IN_PROGRESS"
   | "SUBMITTED"
   | "IN_GOVT_REVIEW"
   | "ACCEPTED"
-  | "REJECTED";
-export type BlockerType = "INTERNAL" | "EXTERNAL_GOVERNMENT" | "EXTERNAL_VENDOR";
+  | "ACCEPTED_WITH_COMMENTS"
+  | "REVISION_REQUIRED"
+  | "REJECTED"
+  | "OVERDUE";
+export type BlockerType =
+  | "INTERNAL"
+  | "EXTERNAL_GOVERNMENT"
+  | "EXTERNAL_VENDOR"
+  | "EXTERNAL_PROCUREMENT"
+  | "EXTERNAL_THIRD_PARTY";
 
 export interface MilestoneLite {
   id: string;
@@ -89,7 +99,7 @@ export interface BlockerLite {
   code: string;
   title: string;
   type: BlockerType;
-  status: "OPEN" | "RESOLVED";
+  status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "ESCALATED";
   whatUnblocks: string | null;
   escalate: boolean;
   customerNotified: boolean;
@@ -596,12 +606,19 @@ const DELIVERABLE_META: Record<DeliverableStatus, { label: string; color: string
   IN_GOVT_REVIEW: { label: "In govt review", color: "var(--status-warn, #d97706)" },
   ACCEPTED: { label: "Accepted", color: "var(--status-done, #16a34a)" },
   REJECTED: { label: "Rejected", color: "var(--status-blocked, #dc2626)" },
+  DRAFT_IN_PROGRESS: { label: "Draft", color: "var(--status-progress, #2563eb)" },
+  INTERNAL_REVIEW: { label: "Internal review", color: "var(--status-progress, #2563eb)" },
+  ACCEPTED_WITH_COMMENTS: { label: "Accepted w/ comments", color: "var(--status-done, #16a34a)" },
+  REVISION_REQUIRED: { label: "Revision required", color: "var(--status-warn, #d97706)" },
+  OVERDUE: { label: "Overdue", color: "var(--status-blocked, #dc2626)" },
 };
 
 const BLOCKER_META: Record<BlockerType, { label: string; color: string }> = {
   INTERNAL: { label: "Internal", color: "var(--status-progress, #2563eb)" },
   EXTERNAL_GOVERNMENT: { label: "Gov", color: "var(--status-warn, #d97706)" },
   EXTERNAL_VENDOR: { label: "Vendor", color: "#7c3aed" },
+  EXTERNAL_PROCUREMENT: { label: "Procurement", color: "#7c3aed" },
+  EXTERNAL_THIRD_PARTY: { label: "Third party", color: "#7c3aed" },
 };
 
 // ---------------------------------------------------------------------------

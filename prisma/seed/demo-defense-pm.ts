@@ -150,9 +150,62 @@ async function main() {
     });
   }
 
+  // Schedule-variance backfill: existing milestones get a baseline + projected date
+  // so the Schedule tracker's variance column is meaningful. Keyed by title substring.
+  const milestoneBaselines: {
+    match: string; slipDays: number; rootCause?: string; recoveryPlan?: string;
+  }[] = [
+    { match: "Increment 1", slipDays: 0 },
+    { match: "SSP package", slipDays: 15, rootCause: "STIG remediation backlog delayed SSP finalization.", recoveryPlan: "Surge security staff; submit interim SSP to the C3PAO while closing residual findings." },
+    { match: "C3PAO pre-assessment", slipDays: 7, rootCause: "C3PAO availability pushed the review window right.", recoveryPlan: "Hold tentative dates with a second C3PAO to de-risk scheduling." },
+    { match: "Increment 2 ATO", slipDays: 0 },
+    { match: "CMMC L2 certificate", slipDays: 7 },
+  ];
+  const milestones = await prisma.milestone.findMany({ where: base });
+  let mUpdated = 0;
+  for (const m of milestones) {
+    const cfg = milestoneBaselines.find((x) => m.title.includes(x.match));
+    if (!cfg) continue;
+    const baseline = new Date(m.dueDate);
+    baseline.setDate(baseline.getDate() - cfg.slipDays);
+    await prisma.milestone.update({
+      where: { id: m.id },
+      data: {
+        baselineDate: baseline,
+        projectedDate: m.dueDate,
+        scheduleEscalate: cfg.slipDays >= 15,
+        ...(cfg.rootCause ? { rootCause: cfg.rootCause } : {}),
+        ...(cfg.recoveryPlan ? { recoveryPlan: cfg.recoveryPlan } : {}),
+      },
+    });
+    mUpdated++;
+  }
+
+  // One revision cycle on the SSP (CDRL-A001) to exercise the DeliverableRevision table.
+  let revAdded = 0;
+  const ssp = await prisma.deliverable.findFirst({ where: { orgId: org.id, code: "CDRL-A001" } });
+  if (ssp) {
+    const existing = await prisma.deliverableRevision.findFirst({
+      where: { deliverableId: ssp.id, cycle: 1 },
+    });
+    if (!existing) {
+      await prisma.deliverableRevision.create({
+        data: {
+          orgId: org.id, deliverableId: ssp.id, cycle: 1,
+          title: "Gov review — Rev 1 comments",
+          dateReturned: d(-6),
+          commentSummary: "12 comments: tighten control-inheritance narrative; add an authorization-boundary diagram; clarify FIPS-validated crypto modules.",
+          owner: "Security Lead", revisedTarget: d(2),
+        },
+      });
+      revAdded++;
+    }
+  }
+
   console.log(
     `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
-      `${blockers.length} blockers, ${changes.length} change requests upserted for ${PKEY}.`,
+      `${blockers.length} blockers, ${changes.length} change requests, ${mUpdated} milestone baselines, ` +
+      `${revAdded} deliverable revision(s) upserted for ${PKEY}.`,
   );
 }
 
