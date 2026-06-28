@@ -2238,6 +2238,17 @@ enum KpiDirection {
   DOWN_GOOD
 }
 
+// How a KPI's currentValue is sourced. MANUAL = typed in; the rest derive from
+// execution (work items + cycles) — see lib/pm/kpi-derive.
+enum KpiAutoSource {
+  MANUAL
+  VELOCITY        // avg story points delivered per completed cycle
+  COMPLETION_PCT  // % of work items done
+  THROUGHPUT      // items completed within the rolling window
+  OPEN_ITEMS      // count of not-done work items
+  AVG_CYCLE_TIME  // avg days from start to done
+}
+
 model Kpi {
   id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String       @map("org_id") @db.Uuid
@@ -2248,6 +2259,8 @@ model Kpi {
   targetValue  Float        @default(0) @map("target_value")
   currentValue Float        @default(0) @map("current_value")
   direction    KpiDirection @default(UP_GOOD)
+  autoSource   KpiAutoSource @default(MANUAL) @map("auto_source")
+  autoWindowDays Int?        @map("auto_window_days") // rolling window for THROUGHPUT (default 30)
   sortOrder    Int          @default(0) @map("sort_order")
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")

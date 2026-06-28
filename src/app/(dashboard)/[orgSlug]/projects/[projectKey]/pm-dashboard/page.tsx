@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { PmDashboard } from "@/components/pm-dashboard/pm-dashboard";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
+import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -26,18 +27,8 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
   const [milestones, kpis, goals, risks, deliverables, blockers, changes] = await Promise.all([
     // Milestone status + completion derive from linked work items.
     loadMilestonesWithDerived(ctx.orgId, project.id),
-    prisma.kpi.findMany({
-      where,
-      orderBy: { sortOrder: "asc" },
-      select: {
-        id: true,
-        name: true,
-        unit: true,
-        targetValue: true,
-        currentValue: true,
-        direction: true,
-      },
-    }),
+    // KPI currentValue derives from execution for auto-source KPIs.
+    loadKpisWithDerived(ctx.orgId, project.id),
     prisma.goal.findMany({
       where,
       orderBy: { sortOrder: "asc" },
@@ -100,7 +91,15 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
           baselineDate: m.baselineDate ? m.baselineDate.toISOString() : null,
           completionPercent: m.completionPercent,
         })),
-        kpis,
+        kpis: kpis.map((k) => ({
+          id: k.id,
+          name: k.name,
+          unit: k.unit,
+          targetValue: k.targetValue,
+          currentValue: k.currentValue,
+          direction: k.direction,
+          derived: k.derived,
+        })),
         goals,
         risks,
         deliverables: deliverables.map((d) => ({

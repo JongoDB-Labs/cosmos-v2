@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { KpiDirection } from "@prisma/client";
+import { KpiDirection, KpiAutoSource } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -19,6 +19,8 @@ const updateSchema = z.object({
   currentValue: z.number().optional(),
   direction: z.nativeEnum(KpiDirection).optional(),
   sortOrder: z.number().int().optional(),
+  autoSource: z.nativeEnum(KpiAutoSource).optional(),
+  autoWindowDays: z.number().int().positive().nullish(),
 });
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
@@ -50,6 +52,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }),
         ...(data.direction !== undefined && { direction: data.direction }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
+        ...(data.autoSource !== undefined && { autoSource: data.autoSource }),
+        ...(data.autoWindowDays !== undefined && {
+          autoWindowDays: data.autoWindowDays ?? null,
+        }),
       },
       include: { dataPoints: { orderBy: { recordedAt: "asc" } } },
     });

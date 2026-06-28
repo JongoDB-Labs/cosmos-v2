@@ -79,6 +79,7 @@ export interface KpiLite {
   targetValue: number;
   currentValue: number;
   direction: "UP_GOOD" | "DOWN_GOOD";
+  derived?: boolean; // currentValue rolls up from execution (auto-source KPI)
 }
 export interface GoalLite {
   id: string;
@@ -412,6 +413,14 @@ function KpisPanel({
             const DeltaIcon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
             return (
               <Row key={k.id} title={k.name}>
+                {k.derived && (
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]"
+                    title="Value rolls up from work execution"
+                  >
+                    auto
+                  </span>
+                )}
                 <span className="text-sm font-medium tabular-nums text-[var(--text)]">
                   {formatNumber(k.currentValue)}
                   {k.unit ? ` ${k.unit}` : ""}
