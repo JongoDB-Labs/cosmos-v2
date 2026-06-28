@@ -211,6 +211,38 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("change-log")) {
+    featureTabs.push({
+      feature: "change-log",
+      label: "Change Log",
+      href: `/${orgSlug}/projects/${projectKey}/changes`,
+    });
+  }
+
+  if (enabledFeatures.includes("blocked-items")) {
+    featureTabs.push({
+      feature: "blocked-items",
+      label: "Blocked Items",
+      href: `/${orgSlug}/projects/${projectKey}/blockers`,
+    });
+  }
+
+  if (enabledFeatures.includes("schedule-variance")) {
+    featureTabs.push({
+      feature: "schedule-variance",
+      label: "Schedule",
+      href: `/${orgSlug}/projects/${projectKey}/schedule`,
+    });
+  }
+
+  if (enabledFeatures.includes("deliverables-tracker")) {
+    featureTabs.push({
+      feature: "deliverables-tracker",
+      label: "Deliverables",
+      href: `/${orgSlug}/projects/${projectKey}/deliverables`,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",

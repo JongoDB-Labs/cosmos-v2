@@ -222,6 +222,7 @@ model Organization {
   blockers               Blocker[]
   changeRequests         ChangeRequest[]
   programBranches        ProgramBranch[]
+  deliverableRevisions   DeliverableRevision[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   meetingTypeOptions     MeetingTypeOption[]
@@ -2205,6 +2206,15 @@ model Milestone {
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   branchId      String?       @map("branch_id") @db.Uuid
   programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  baselineDate     DateTime?     @map("baseline_date")
+  projectedDate    DateTime?     @map("projected_date")
+  actualDate       DateTime?     @map("actual_date")
+  rootCause        String?       @map("root_cause")
+  recoveryPlan     String?       @map("recovery_plan")
+  recoveryTarget   DateTime?     @map("recovery_target")
+  phase            String?
+  scheduleEscalate Boolean       @default(false) @map("schedule_escalate")
+  deliverables     Deliverable[]
   links   MilestoneLink[]
 
   @@index([orgId, projectId])
@@ -3100,17 +3110,26 @@ enum DeliverableStatus {
   IN_GOVT_REVIEW
   ACCEPTED
   REJECTED
+  DRAFT_IN_PROGRESS
+  INTERNAL_REVIEW
+  ACCEPTED_WITH_COMMENTS
+  REVISION_REQUIRED
+  OVERDUE
 }
 
 enum BlockerType {
   INTERNAL
   EXTERNAL_GOVERNMENT
   EXTERNAL_VENDOR
+  EXTERNAL_PROCUREMENT
+  EXTERNAL_THIRD_PARTY
 }
 
 enum BlockerStatus {
   OPEN
   RESOLVED
+  IN_PROGRESS
+  ESCALATED
 }
 
 enum ChangeRequestStatus {
@@ -3118,6 +3137,8 @@ enum ChangeRequestStatus {
   APPROVED
   REJECTED
   IMPLEMENTED
+  UNDER_REVIEW
+  WITHDRAWN
 }
 
 model Risk {
@@ -3178,6 +3199,13 @@ model Deliverable {
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   branchId      String?       @map("branch_id") @db.Uuid
   programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  deliverableType String?               @map("deliverable_type")
+  internalReview  DateTime?             @map("internal_review")
+  govReviewPeriod Int?                  @map("gov_review_period")
+  revRequired     Boolean               @default(false) @map("rev_required")
+  milestoneId     String?               @map("milestone_id") @db.Uuid
+  milestone       Milestone?            @relation(fields: [milestoneId], references: [id])
+  revisions       DeliverableRevision[]
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3207,6 +3235,12 @@ model Blocker {
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   branchId      String?       @map("branch_id") @db.Uuid
   programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  source               String?
+  identifiedBy         String?            @map("identified_by")
+  decisionAuthority    String?            @map("decision_authority")
+  relatedRiskCode      String?            @map("related_risk_code")
+  targetDate           DateTime?          @map("target_date")
+  customerNotifiedDate DateTime?          @map("customer_notified_date")
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3234,6 +3268,12 @@ model ChangeRequest {
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   branchId      String?       @map("branch_id") @db.Uuid
   programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  initiatedBy       String?               @map("initiated_by")
+  decisionAuthority String?               @map("decision_authority")
+  approvedBy        String?               @map("approved_by")
+  modNumber         String?               @map("mod_number")
+  implDate          DateTime?             @map("impl_date")
+  relatedRiskCode   String?               @map("related_risk_code")
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3261,4 +3301,29 @@ model ProgramBranch {
 
   @@unique([orgId, code])
   @@map("program_branches")
+}
+
+// Deliverable revision cycle (gov returns a CDRL with comments → a new cycle opens).
+model DeliverableRevision {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String    @map("org_id") @db.Uuid
+  deliverableId  String    @map("deliverable_id") @db.Uuid
+  cycle          Int       @default(1)
+  title          String?
+  dateReturned   DateTime? @map("date_returned")
+  commentSummary String?   @map("comment_summary")
+  owner          String?
+  revisedTarget  DateTime? @map("revised_target")
+  actualRevised  DateTime? @map("actual_revised")
+  daysToResolve  Int?      @map("days_to_resolve")
+  govAcceptance  String?   @map("gov_acceptance")
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliverable Deliverable  @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, deliverableId])
+  @@map("deliverable_revisions")
 }
