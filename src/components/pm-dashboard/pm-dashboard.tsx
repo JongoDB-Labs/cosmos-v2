@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import {
-  Flag,
   Gauge,
   ShieldAlert,
   Ban,
@@ -15,6 +14,7 @@ import {
   Landmark,
   LineChart,
   Gavel,
+  CalendarClock,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -61,8 +61,16 @@ export interface MilestoneLite {
   id: string;
   title: string;
   status: MilestoneStatus;
-  dueDate: string; // ISO
+  dueDate: string; // ISO — the projected / current date
+  baselineDate?: string | null; // ISO — original committed date (for variance)
 }
+export type ChangeStatus =
+  | "SUBMITTED"
+  | "UNDER_REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | "IMPLEMENTED"
+  | "WITHDRAWN";
 export interface KpiLite {
   id: string;
   name: string;
@@ -104,6 +112,15 @@ export interface BlockerLite {
   escalate: boolean;
   customerNotified: boolean;
 }
+export interface ChangeLite {
+  id: string;
+  code: string;
+  title: string;
+  type: string | null;
+  status: ChangeStatus;
+  costImpact: number | null;
+  scheduleDaysImpact: number | null;
+}
 
 export interface PmDashboardData {
   milestones: MilestoneLite[];
@@ -112,6 +129,7 @@ export interface PmDashboardData {
   risks: RiskLite[];
   deliverables: DeliverableLite[];
   blockers: BlockerLite[];
+  changes: ChangeLite[];
 }
 
 interface PmDashboardProps {
@@ -211,6 +229,7 @@ function PmView({ data, stats }: ViewProps) {
         <RisksPanel risks={data.risks} />
         <BlockersPanel blockers={data.blockers} />
         <DeliverablesPanel deliverables={data.deliverables} />
+        <ChangesPanel changes={data.changes} />
         <GoalsPanel goals={data.goals} />
       </div>
     </>
@@ -237,6 +256,7 @@ function GovernmentView({ data, stats }: ViewProps) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <MilestonesPanel milestones={data.milestones} title="Schedule" />
         <DeliverablesPanel deliverables={data.deliverables} title="Contract Deliverables (CDRLs)" />
+        <ChangesPanel changes={data.changes} title="Change Requests & MODs" />
         <KpisPanel kpis={data.kpis} title="Performance vs. Target" />
         <RisksPanel
           risks={data.risks.filter((r) => r.escalate)}
@@ -289,10 +309,15 @@ function StatRow({ data, stats }: ViewProps) {
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <StatCard
-        icon={Flag}
-        label="Milestones"
+        icon={CalendarClock}
+        label="Schedule"
         value={data.milestones.length}
-        sub={`${stats.slipped} in progress / slipped`}
+        sub={
+          stats.scheduleSlipMax > 0
+            ? `${stats.scheduleSlipCount} slipped · max +${stats.scheduleSlipMax}d`
+            : `${stats.slipped} in progress`
+        }
+        accent={stats.scheduleSlipMax > 0 ? "var(--status-warn, #d97706)" : undefined}
       />
       <StatCard
         icon={ShieldAlert}
@@ -333,8 +358,17 @@ function MilestonesPanel({
         <ul className="flex flex-col">
           {milestones.map((m) => {
             const meta = MILESTONE_META[m.status];
+            const variance = milestoneVariance(m);
             return (
               <Row key={m.id} title={m.title}>
+                {variance !== null && variance > 0 && (
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wide text-[var(--status-blocked,#dc2626)]"
+                    title="Slip vs. baseline"
+                  >
+                    +{variance}d
+                  </span>
+                )}
                 <span className="text-xs tabular-nums text-[var(--text-muted)]">
                   {formatDate(m.dueDate)}
                 </span>
@@ -488,6 +522,43 @@ function BlockersPanel({ blockers }: { blockers: BlockerLite[] }) {
   );
 }
 
+function ChangesPanel({
+  changes,
+  title = "Change Requests",
+}: {
+  changes: ChangeLite[];
+  title?: string;
+}) {
+  return (
+    <Panel title={title}>
+      {changes.length === 0 ? (
+        <EmptyRow label="No change requests." />
+      ) : (
+        <ul className="flex flex-col">
+          {changes.map((c) => {
+            const meta = CHANGE_META[c.status];
+            return (
+              <Row key={c.id} title={c.title} code={c.code}>
+                {c.costImpact != null && c.costImpact !== 0 && (
+                  <span className="text-xs tabular-nums text-[var(--text-muted)]">
+                    {formatMoney(c.costImpact)}
+                  </span>
+                )}
+                {c.scheduleDaysImpact != null && c.scheduleDaysImpact !== 0 && (
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--status-warn,#d97706)]">
+                    {c.scheduleDaysImpact > 0 ? `+${c.scheduleDaysImpact}` : c.scheduleDaysImpact}d
+                  </span>
+                )}
+                <StatusPill label={meta.label} color={meta.color} />
+              </Row>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
 function DecisionsRequiredPanel({
   blockers,
   className,
@@ -621,6 +692,27 @@ const BLOCKER_META: Record<BlockerType, { label: string; color: string }> = {
   EXTERNAL_THIRD_PARTY: { label: "Third party", color: "#7c3aed" },
 };
 
+const CHANGE_META: Record<ChangeStatus, { label: string; color: string }> = {
+  SUBMITTED: { label: "Submitted", color: "var(--status-progress, #2563eb)" },
+  UNDER_REVIEW: { label: "Under review", color: "var(--status-warn, #d97706)" },
+  APPROVED: { label: "Approved", color: "var(--status-done, #16a34a)" },
+  REJECTED: { label: "Rejected", color: "var(--status-blocked, #dc2626)" },
+  IMPLEMENTED: { label: "Implemented", color: "var(--status-done, #16a34a)" },
+  WITHDRAWN: { label: "Withdrawn", color: "var(--text-muted, #6b7280)" },
+};
+
+/** Schedule variance in whole days (projected − baseline). Positive = slipped right. */
+function milestoneVariance(m: MilestoneLite): number | null {
+  if (!m.baselineDate) return null;
+  return Math.round(
+    (new Date(m.dueDate).getTime() - new Date(m.baselineDate).getTime()) / 86400000,
+  );
+}
+
+function formatMoney(n: number): string {
+  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers + small presentational pieces
 // ---------------------------------------------------------------------------
@@ -634,7 +726,23 @@ function computeStats(data: PmDashboardData) {
     (r) => r.level === "CRITICAL" || r.level === "HIGH",
   ).length;
   const blockersEscalated = data.blockers.filter((b) => b.escalate).length;
-  return { slipped, onTarget, risksElevated, blockersEscalated };
+  const variances = data.milestones
+    .map(milestoneVariance)
+    .filter((v): v is number => v !== null && v > 0);
+  const scheduleSlipCount = variances.length;
+  const scheduleSlipMax = variances.length ? Math.max(...variances) : 0;
+  const changesPending = data.changes.filter(
+    (c) => c.status === "SUBMITTED" || c.status === "UNDER_REVIEW",
+  ).length;
+  return {
+    slipped,
+    onTarget,
+    risksElevated,
+    blockersEscalated,
+    scheduleSlipCount,
+    scheduleSlipMax,
+    changesPending,
+  };
 }
 
 function isOnTarget(k: KpiLite): boolean {
