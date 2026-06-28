@@ -63,6 +63,7 @@ export interface MilestoneLite {
   status: MilestoneStatus;
   dueDate: string; // ISO — the projected / current date
   baselineDate?: string | null; // ISO — original committed date (for variance)
+  completionPercent?: number | null; // derived from linked work items
 }
 export type ChangeStatus =
   | "SUBMITTED"
@@ -367,6 +368,14 @@ function MilestonesPanel({
                     title="Slip vs. baseline"
                   >
                     +{variance}d
+                  </span>
+                )}
+                {m.completionPercent != null && (
+                  <span
+                    className="text-xs tabular-nums text-[var(--text-muted)]"
+                    title="Linked work items complete"
+                  >
+                    {m.completionPercent}%
                   </span>
                 )}
                 <span className="text-xs tabular-nums text-[var(--text-muted)]">
