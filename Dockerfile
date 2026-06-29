@@ -80,6 +80,20 @@ ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=1
 RUN apt-get update \
  && apt-get install -y --no-install-recommends --only-upgrade libgnutls30 \
  && rm -rf /var/lib/apt/lists/*
+# Headless LibreOffice — powers PM-dashboard PDF export and validates the
+# chart-injected combined .xlsx (render-to-PDF) before it's served. `soffice`
+# lands at /usr/bin/soffice (on PATH), which src/lib/office/libreoffice.ts probes.
+# `libreoffice-calc` (not full `libreoffice`) is the minimal Calc+headless set,
+# but it still pulls a chunk of the LibreOffice core + Java-free deps and adds
+# roughly ~450-550MB to the image. That size hit is the explicit tradeoff for
+# in-process conversion. The scale-out alternative is to drop this install and
+# run a SEPARATE LibreOffice sidecar container (e.g. a soffice/unoserver service)
+# that this app calls over the network — keeping the web image slim and letting
+# conversions scale independently. If you go that route, set LIBREOFFICE_PATH or
+# point the office service at the sidecar instead of bundling soffice here.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libreoffice-calc \
+ && rm -rf /var/lib/apt/lists/*
 # -m -d gives the non-root user a writable home (prisma/node tooling expect one).
 RUN groupadd -r cosmos && useradd -r -g cosmos -m -d /home/cosmos cosmos
 # Standalone server + static assets + Prisma engine/migrations for the migrate job.

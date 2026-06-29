@@ -25,10 +25,13 @@ import {
  * What survives: cell values, formulas (de-shared to concrete text, cached
  * results dropped so Excel recomputes), styles (fill/font/border/alignment),
  * number formats, column widths, row heights, hidden flags, frozen-pane views,
- * merged ranges, and tab colors. What does NOT survive: burn's embedded charts —
- * ExcelJS does not round-trip chart parts, and re-injecting them via raw OOXML
- * surgery could not be corruption-validated in this environment (no
- * soffice/libreoffice on PATH), so the safe choice is a clean chartless file.
+ * merged ranges, and tab colors. ExcelJS does NOT round-trip chart parts, so the
+ * merge itself is chartless — but {@link injectBurnCharts} can graft burn's 11
+ * charts back in via raw OOXML surgery (opt-in through `buildCombinedWorkbook`'s
+ * `withCharts`). That charted variant is only ever *served* after a headless
+ * LibreOffice render-to-PDF validates it isn't corrupt; the export route gates
+ * on that. Absent LibreOffice (or on a failed render) the caller ships the clean
+ * chartless file, so an un-validated charted workbook never reaches a user.
  */
 
 /** Short, stable per-tracker code used as the sheet-name prefix. */
@@ -330,17 +333,339 @@ function decodeXmlEntities(s: string): string {
     .replace(/&amp;/g, "&");
 }
 
+// ── chart injection (raw OOXML surgery) ──────────────────────────────────────
+
+/**
+ * Map every `<sheet name="…" r:id="rN">` in a workbook.xml to its worksheet
+ * part path (`xl/worksheets/sheetN.xml`), by joining workbook.xml to its rels.
+ * Shared shape between the burn source and the merged target.
+ */
+function mapSheetNamesToParts(
+  workbookXml: string,
+  relsXml: string,
+): Map<string, string> {
+  const relTarget = new Map<string, string>();
+  for (const m of relsXml.matchAll(
+    /<Relationship\b[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/?>/g,
+  )) {
+    relTarget.set(m[1], m[2]);
+  }
+  const out = new Map<string, string>();
+  for (const m of workbookXml.matchAll(
+    /<sheet\b[^>]*name="([^"]*)"[^>]*r:id="([^"]+)"[^>]*\/?>/g,
+  )) {
+    const target = relTarget.get(m[2]);
+    if (!target) continue;
+    const part = target.startsWith("/") ? target.slice(1) : `xl/${target}`;
+    out.set(decodeXmlEntities(m[1]), part);
+  }
+  return out;
+}
+
+/**
+ * Graft burn's charts into the merged (chartless) workbook via raw OOXML edits.
+ *
+ * ExcelJS drops chart parts on load, so the merge has none. This reaches back
+ * into burn's own populated template ({@link buildPopulatedTemplate}) — which
+ * still carries its 11 charts on 2 drawings — and copies those parts into the
+ * merged zip under collision-free names, rewires every reference, and attaches
+ * the drawings to the merged "BRN · …" chart worksheets. Concretely:
+ *
+ *   1. Copy `xl/charts/chart*.xml` and `xl/drawings/drawing*.xml` (+ the
+ *      drawings' `_rels`) into the merged zip, renaming each part to a name that
+ *      doesn't collide with anything already there.
+ *   2. Rewrite each chart's `<c:f>` sheet refs from the original burn sheet name
+ *      (e.g. `'📈 CLIN Charts'`) to its merged name (`'BRN · 📈 CLIN Charts'`).
+ *      Names are read from BOTH workbooks' workbook.xml (never hard-coded) and
+ *      replaced as LITERAL substrings — not regex — because the names contain
+ *      emoji (UTF-16 surrogate pairs) a global RegExp could split.
+ *   3. Rewrite each drawing `_rels` chart target to the renamed chart part.
+ *   4. For each burn worksheet that hosted a drawing, find the matching merged
+ *      "BRN · …" worksheet, add a worksheet `_rels` pointing at the renamed
+ *      drawing, and insert `<drawing r:id="…"/>` just before `</worksheet>`.
+ *   5. Register every new chart/drawing part as an Override in
+ *      `[Content_Types].xml`.
+ *
+ * Returns the new .xlsx bytes. If burn carries no charts (defensive), returns
+ * the input unchanged.
+ */
+export async function injectBurnCharts(
+  mergedBuffer: Buffer,
+  orgId: string,
+  projectId: string,
+  projectKey: string,
+): Promise<Buffer> {
+  // Burn's own populated template still has its charts/drawings intact.
+  const { buffer: burnBuffer } = await buildPopulatedTemplate(
+    "burn",
+    orgId,
+    projectId,
+    projectKey,
+  );
+  const burnZip = await JSZip.loadAsync(burnBuffer);
+  const mergedZip = await JSZip.loadAsync(mergedBuffer);
+
+  const chartParts = Object.keys(burnZip.files)
+    .filter((p) => /^xl\/charts\/chart\d+\.xml$/.test(p))
+    .sort();
+  const drawingParts = Object.keys(burnZip.files)
+    .filter((p) => /^xl\/drawings\/drawing\d+\.xml$/.test(p))
+    .sort();
+
+  // Nothing to inject (shouldn't happen for a real burn template, but be safe).
+  if (chartParts.length === 0 || drawingParts.length === 0) return mergedBuffer;
+
+  // ── name maps: burn sheet name → merged sheet name ─────────────────────────
+  const burnWb = await burnZip.file("xl/workbook.xml")!.async("string");
+  const burnWbRels = await burnZip
+    .file("xl/_rels/workbook.xml.rels")!
+    .async("string");
+  const mergedWb = await mergedZip.file("xl/workbook.xml")!.async("string");
+  const mergedWbRels = await mergedZip
+    .file("xl/_rels/workbook.xml.rels")!
+    .async("string");
+
+  const burnSheetToPart = mapSheetNamesToParts(burnWb, burnWbRels);
+  const mergedSheetToPart = mapSheetNamesToParts(mergedWb, mergedWbRels);
+
+  // Burn's sheets land in the merge under "BRN · <orig>" (possibly truncated /
+  // de-duped by makeSheetName). Read the ACTUAL merged names rather than
+  // recomputing them: match every merged sheet that ends with a burn sheet's
+  // (cleaned) original name behind the "BRN · " prefix. To be robust we map by
+  // looking for a merged name whose tail equals the burn name after stripping
+  // the prefix; the simplest reliable join is: for each burn sheet name, find
+  // the merged name that is `"BRN · " + <that burn name>` (post-clean), else the
+  // unique merged name containing it.
+  const mergedNames = [...mergedSheetToPart.keys()];
+  const burnToMergedName = new Map<string, string>();
+  for (const burnName of burnSheetToPart.keys()) {
+    const exact = `BRN${SEP}${burnName.replace(FORBIDDEN_SHEET_CHARS, " ").replace(/\s+/g, " ").trim()}`;
+    let match = mergedNames.find((n) => n === exact);
+    if (!match) {
+      // Truncation/dedupe fallback: the merged name starts with "BRN · " and the
+      // burn name's leading slice. Pick the unique BRN sheet that startsWith the
+      // truncated form. (For the real burn template the exact match always hits.)
+      const prefixForm = exact.slice(0, MAX_SHEET_NAME);
+      match = mergedNames.find(
+        (n) => n.startsWith("BRN" + SEP) && n.startsWith(prefixForm),
+      );
+    }
+    if (match) burnToMergedName.set(burnName, match);
+  }
+
+  // ── unique target part names in the merged zip ─────────────────────────────
+  const existing = new Set(Object.keys(mergedZip.files));
+  const uniquePart = (preferred: string): string => {
+    if (!existing.has(preferred)) {
+      existing.add(preferred);
+      return preferred;
+    }
+    const dot = preferred.lastIndexOf(".");
+    const stem = dot === -1 ? preferred : preferred.slice(0, dot);
+    const ext = dot === -1 ? "" : preferred.slice(dot);
+    for (let n = 1; n < 10000; n++) {
+      const cand = `${stem}_m${n}${ext}`;
+      if (!existing.has(cand)) {
+        existing.add(cand);
+        return cand;
+      }
+    }
+    throw new Error(`could not allocate unique part name for ${preferred}`);
+  };
+
+  // burn part path → merged part path (charts + drawings)
+  const partRename = new Map<string, string>();
+  for (const cp of chartParts) {
+    const base = cp.slice(cp.lastIndexOf("/") + 1); // chartN.xml
+    partRename.set(cp, uniquePart(`xl/charts/${base}`));
+  }
+  for (const dp of drawingParts) {
+    const base = dp.slice(dp.lastIndexOf("/") + 1); // drawingN.xml
+    partRename.set(dp, uniquePart(`xl/drawings/${base}`));
+  }
+
+  // ── copy + rewrite chart parts (c:f sheet-ref rewrite) ─────────────────────
+  for (const cp of chartParts) {
+    let xml = await burnZip.file(cp)!.async("string");
+    // Rewrite quoted sheet refs '<burn>'! → '<merged>'! and unquoted forms.
+    // Burn chart names are always quoted (they contain spaces + emoji), but
+    // handle both. LITERAL replace (surrogate-safe), longest name first.
+    const burnNames = [...burnToMergedName.keys()].sort(
+      (a, b) => b.length - a.length,
+    );
+    for (const burnName of burnNames) {
+      const mergedName = burnToMergedName.get(burnName)!;
+      const quotedOld = `'${burnName.replace(/'/g, "''")}'`;
+      const quotedNew = `'${mergedName.replace(/'/g, "''")}'`;
+      if (xml.includes(quotedOld)) xml = xml.split(quotedOld).join(quotedNew);
+    }
+    mergedZip.file(partRename.get(cp)!, Buffer.from(xml, "utf8"));
+  }
+
+  // ── copy + rewrite drawing parts and their _rels ───────────────────────────
+  for (const dp of drawingParts) {
+    // Drawing body copied verbatim (its r:ids stay; only the rels TARGETS move).
+    const body = await burnZip.file(dp)!.async("nodebuffer");
+    mergedZip.file(partRename.get(dp)!, body);
+
+    // Rewrite the drawing's _rels chart targets to the renamed chart parts.
+    const relsPart = dp.replace(
+      /drawings\/(drawing\d+\.xml)$/,
+      "drawings/_rels/$1.rels",
+    );
+    const relsFile = burnZip.file(relsPart);
+    if (!relsFile) continue;
+    let relsXml = await relsFile.async("string");
+    relsXml = relsXml.replace(
+      /Target="([^"]+)"/g,
+      (whole, target: string) => {
+        // Resolve "../charts/chartN.xml" (relative to xl/drawings/) → xl/charts/…
+        const norm = target.startsWith("../")
+          ? `xl/${target.slice(3)}`
+          : target.startsWith("/")
+            ? target.slice(1)
+            : `xl/drawings/${target}`;
+        const renamed = partRename.get(norm);
+        if (!renamed) return whole; // not a chart we moved — leave it
+        // New target is relative to xl/drawings/ again.
+        const rel = `../${renamed.replace(/^xl\//, "")}`;
+        return `Target="${rel}"`;
+      },
+    );
+    const mergedDrawing = partRename.get(dp)!;
+    const mergedRelsPart = mergedDrawing.replace(
+      /drawings\/(drawing[^/]+\.xml)$/,
+      "drawings/_rels/$1.rels",
+    );
+    mergedZip.file(mergedRelsPart, Buffer.from(relsXml, "utf8"));
+  }
+
+  // ── attach drawings to the merged BRN worksheets ───────────────────────────
+  // For each burn worksheet that hosted a drawing, find which drawing, map the
+  // burn sheet → merged "BRN · …" sheet, and wire the merged worksheet to the
+  // (renamed) drawing via a fresh _rels + a <drawing r:id> element.
+  for (const burnWsPart of Object.keys(burnZip.files).filter((p) =>
+    /^xl\/worksheets\/sheet\d+\.xml$/.test(p),
+  )) {
+    const burnWsXml = await burnZip.file(burnWsPart)!.async("string");
+    const drawTag = burnWsXml.match(/<drawing\b[^>]*r:id="([^"]+)"/);
+    if (!drawTag) continue;
+    const burnWsRelsPart = burnWsPart.replace(
+      /worksheets\/(sheet\d+\.xml)$/,
+      "worksheets/_rels/$1.rels",
+    );
+    const burnWsRels = await burnZip.file(burnWsRelsPart)?.async("string");
+    if (!burnWsRels) continue;
+    // The r:id in the <drawing> → its drawing target in the worksheet rels.
+    const relRe = new RegExp(
+      `<Relationship\\b[^>]*Id="${drawTag[1]}"[^>]*Target="([^"]+)"`,
+    );
+    const tgt = burnWsRels.match(relRe);
+    if (!tgt) continue;
+    const burnDrawingPart = tgt[1].startsWith("../")
+      ? `xl/${tgt[1].slice(3)}`
+      : `xl/worksheets/${tgt[1]}`;
+    const mergedDrawingPart = partRename.get(burnDrawingPart);
+    if (!mergedDrawingPart) continue;
+
+    // burn sheet display name → merged display name → merged worksheet part.
+    const burnSheetName = [...burnSheetToPart.entries()].find(
+      ([, part]) => part === burnWsPart,
+    )?.[0];
+    if (!burnSheetName) continue;
+    const mergedName = burnToMergedName.get(burnSheetName);
+    if (!mergedName) continue;
+    const mergedWsPart = mergedSheetToPart.get(mergedName);
+    if (!mergedWsPart) continue;
+
+    // Worksheet _rels: append (or create) a drawing relationship with a fresh,
+    // non-colliding rId. Target is relative to xl/worksheets/.
+    const mergedWsRelsPart = mergedWsPart.replace(
+      /worksheets\/(sheet\d+\.xml)$/,
+      "worksheets/_rels/$1.rels",
+    );
+    const relTarget = `../${mergedDrawingPart.replace(/^xl\//, "")}`;
+    const DRAWING_REL_TYPE =
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+
+    let rId: string;
+    const existingRels = await mergedZip.file(mergedWsRelsPart)?.async("string");
+    if (existingRels) {
+      // Pick an rId not already used in this rels file.
+      const used = new Set(
+        [...existingRels.matchAll(/Id="(rId\d+)"/g)].map((m) => m[1]),
+      );
+      let n = 1;
+      while (used.has(`rId${n}`)) n++;
+      rId = `rId${n}`;
+      const relEl = `<Relationship Id="${rId}" Type="${DRAWING_REL_TYPE}" Target="${relTarget}"/>`;
+      const merged = existingRels.replace("</Relationships>", `${relEl}</Relationships>`);
+      mergedZip.file(mergedWsRelsPart, Buffer.from(merged, "utf8"));
+    } else {
+      rId = "rId1";
+      const relsDoc =
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+        `<Relationship Id="${rId}" Type="${DRAWING_REL_TYPE}" Target="${relTarget}"/>` +
+        `</Relationships>`;
+      mergedZip.file(mergedWsRelsPart, Buffer.from(relsDoc, "utf8"));
+    }
+
+    // Insert <drawing r:id="…"/> just before </worksheet>. Skip if one is
+    // already present (defensive — the chartless merge never has one).
+    let wsXml = await mergedZip.file(mergedWsPart)!.async("string");
+    if (!/<drawing\b/.test(wsXml)) {
+      wsXml = wsXml.replace(
+        /<\/worksheet>\s*$/,
+        `<drawing r:id="${rId}"/></worksheet>`,
+      );
+      mergedZip.file(mergedWsPart, Buffer.from(wsXml, "utf8"));
+    }
+  }
+
+  // ── register new parts in [Content_Types].xml ──────────────────────────────
+  const CHART_CT =
+    "application/vnd.openxmlformats-officedocument.drawingml.chart+xml";
+  const DRAWING_CT =
+    "application/vnd.openxmlformats-officedocument.drawing+xml";
+  let ct = await mergedZip.file("[Content_Types].xml")!.async("string");
+  const overrides: string[] = [];
+  for (const cp of chartParts) {
+    overrides.push(
+      `<Override PartName="/${partRename.get(cp)!}" ContentType="${CHART_CT}"/>`,
+    );
+  }
+  for (const dp of drawingParts) {
+    overrides.push(
+      `<Override PartName="/${partRename.get(dp)!}" ContentType="${DRAWING_CT}"/>`,
+    );
+  }
+  ct = ct.replace("</Types>", `${overrides.join("")}</Types>`);
+  mergedZip.file("[Content_Types].xml", Buffer.from(ct, "utf8"));
+
+  return (await mergedZip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+  })) as Buffer;
+}
+
 /**
  * Build the full-fidelity combined workbook: EVERY tab of every selected
  * tracker, each carrying the template's formatting and live-data formulas, with
  * cross-sheet rollups rewired to the prefixed sheet names so they recompute on
  * open. Returns the .xlsx bytes.
+ *
+ * With `opts.withCharts` AND "burn" among the trackers, burn's 11 charts are
+ * grafted back onto the merged "BRN · …" sheets via {@link injectBurnCharts}.
+ * The charted bytes are only safe to serve once a headless-LibreOffice render
+ * validates them — that gating lives in the export route, not here.
  */
 export async function buildCombinedWorkbook(
   orgId: string,
   projectId: string,
   projectKey: string,
   trackers: Tracker[],
+  opts?: { withCharts?: boolean },
 ): Promise<Buffer> {
   const out = new ExcelJS.Workbook();
   out.creator = "Cosmos";
@@ -394,5 +719,13 @@ export async function buildCombinedWorkbook(
   // Repair any U+FFFD that ExcelJS introduced by splitting an emoji surrogate
   // pair across an XML write-chunk boundary. No-op when the file is clean.
   const { buffer } = await repairSurrogateCorruption(written, formulaLog);
+
+  // Optionally graft burn's charts back onto the merged BRN sheets. Only when
+  // burn is actually part of this export — otherwise there are no chart sheets
+  // to attach to. The caller validates the charted bytes (render-to-PDF) before
+  // serving them.
+  if (opts?.withCharts && trackers.includes("burn")) {
+    return injectBurnCharts(buffer, orgId, projectId, projectKey);
+  }
   return buffer;
 }

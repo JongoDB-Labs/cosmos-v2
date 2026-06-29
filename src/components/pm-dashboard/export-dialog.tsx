@@ -17,16 +17,19 @@ import { Loader2, Download, FileSpreadsheet } from "lucide-react";
 
 /**
  * Export dialog for the PM dashboard. Lets the user pick which of the eight
- * register trackers to export and whether to get full-fidelity template files
- * (separate → a ZIP, each a populated copy of the real tracker spreadsheet with
- * styles/formulas/charts intact) or one combined workbook (combined → every tab
- * of every selected tracker merged into a single file with styles and working
- * cross-sheet formulas preserved; charts omitted).
+ * register trackers to export and the output format:
+ *   • separate → a ZIP, each tracker a populated copy of the real spreadsheet
+ *     with styles/formulas/charts intact (one .xlsx if only one is selected).
+ *   • combined → one .xlsx with every tab of every selected tracker merged,
+ *     styles + working cross-sheet formulas preserved; burn's charts are
+ *     included when the server can render them.
+ *   • pdf → the combined workbook rendered to a single PDF (server-side, via
+ *     headless LibreOffice). Charts included when burn is selected.
  *
  * Controlled via `open`/`onOpenChange` — pm-dashboard.tsx owns the trigger.
  */
 
-type ExportMode = "separate" | "combined";
+type ExportMode = "separate" | "combined" | "pdf";
 
 const TRACKER_OPTIONS: { id: string; label: string; note: string }[] = [
   { id: "risks", label: "Risk Register", note: "Likelihood × Impact, level bands, summary dashboard" },
@@ -73,15 +76,29 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
     try {
       // Preserve the canonical tracker order regardless of click order.
       const trackers = ALL_IDS.filter((id) => selected.has(id));
+      // PDF renders the combined workbook server-side via its own endpoint; the
+      // two xlsx formats share the xlsx route and differ only by `mode`.
+      const endpoint = mode === "pdf" ? "pdf" : "xlsx";
+      const body =
+        mode === "pdf" ? { trackers } : { trackers, mode };
       const res = await fetch(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/export/xlsx`,
+        `/api/v1/orgs/${orgId}/projects/${projectId}/export/${endpoint}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trackers, mode }),
+          body: JSON.stringify(body),
         },
       );
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      if (!res.ok) {
+        // The PDF endpoint returns a JSON error (e.g. 503 when LibreOffice isn't
+        // configured); surface its message instead of a bare status code.
+        const msg = await res
+          .clone()
+          .json()
+          .then((j: { message?: string }) => j?.message)
+          .catch(() => undefined);
+        throw new Error(msg ?? `Export failed (${res.status})`);
+      }
 
       const blob = await res.blob();
       const filename = filenameFromDisposition(res.headers.get("Content-Disposition"))
@@ -168,7 +185,14 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
               checked={mode === "combined"}
               onSelect={() => setMode("combined")}
               title="Combined workbook"
-              note="One file with every tab of every selected tracker — Instructions, data registers, summary dashboards, and the full burn cascade — styles, number formats, and cross-sheet rollups all kept and recalculated on open. Charts live only in the separate files."
+              note="One .xlsx with every tab of every selected tracker — Instructions, data registers, summary dashboards, and the full burn cascade — styles, number formats, and cross-sheet rollups all kept and recalculated on open. Burn's charts are included when the server can render them."
+            />
+            <ModeOption
+              id="mode-pdf"
+              checked={mode === "pdf"}
+              onSelect={() => setMode("pdf")}
+              title="PDF (combined)"
+              note="The combined workbook rendered to a single PDF on the server — every tab laid out for printing/sharing, with burn's charts when selected. Requires server-side rendering; if unavailable, use one of the Excel formats."
             />
           </div>
         </div>
@@ -233,6 +257,7 @@ function filenameFromDisposition(header: string | null): string | null {
 }
 
 function defaultName(mode: ExportMode, count: number): string {
+  if (mode === "pdf") return "pm-dashboard.pdf";
   if (mode === "combined") return "pm-dashboard.xlsx";
   return count > 1 ? "pm-trackers.zip" : "pm-tracker.xlsx";
 }

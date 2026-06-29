@@ -1,16 +1,13 @@
 import { NextRequest } from "next/server";
 import JSZip from "jszip";
-import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
-import { buildCombinedWorkbook } from "@/lib/pm/combined-export";
+import { buildPopulatedTemplate, type Tracker } from "@/lib/pm/template-export";
 import {
-  buildPopulatedTemplate,
-  TRACKERS,
-  type Tracker,
-} from "@/lib/pm/template-export";
+  XLSX_MIME,
+  parseTrackers,
+  resolveContext,
+  buildCombinedWithCharts,
+} from "@/lib/pm/export-shared";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -24,38 +21,14 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  *     dashboards, and burn's full 19-tab cascade — with styles, number formats,
  *     merges, frozen panes, and working cross-sheet formulas preserved (the
  *     Summary COUNTIF/SUMIF rollups and the burn cascade recompute on open).
- *     Charts are omitted; they live only in the separate files.
+ *     Burn's 11 charts are grafted onto the merged BRN sheets WHEN a headless
+ *     LibreOffice is present to validate the result (render-to-PDF); if it's
+ *     absent or the render fails, a clean chartless workbook is served instead.
+ *     An un-validated charted file is never returned.
  *
  * Selection comes from `trackers` (comma list on GET, array on POST) and `mode`.
  * Omitting `trackers` selects all eight.
  */
-
-const XLSX_MIME =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-function parseTrackers(raw: string | string[] | null | undefined): Tracker[] {
-  if (raw == null) return [...TRACKERS];
-  const list = Array.isArray(raw) ? raw : String(raw).split(",");
-  const wanted = list.map((t) => t.trim().toLowerCase()).filter(Boolean);
-  const valid = wanted.filter((t): t is Tracker =>
-    (TRACKERS as readonly string[]).includes(t),
-  );
-  return valid.length ? [...new Set(valid)] : [...TRACKERS];
-}
-
-async function resolveContext(orgId: string, projectId: string) {
-  const org = await prisma.organization.findUnique({ where: { id: orgId } });
-  if (!org) return { error: new Response("Not found", { status: 404 }) } as const;
-  const ctx = await getAuthContext(org.slug);
-  if (!ctx) return { error: new Response("Unauthorized", { status: 401 }) } as const;
-  requirePermission(ctx, Permission.ANALYTICS_READ);
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, orgId },
-    select: { key: true },
-  });
-  if (!project) return { error: new Response("Not found", { status: 404 }) } as const;
-  return { project } as const;
-}
 
 async function buildResponse(
   orgId: string,
@@ -65,8 +38,13 @@ async function buildResponse(
   mode: string,
 ): Promise<Response> {
   if (mode === "combined") {
-    const buf = await buildCombinedWorkbook(orgId, projectId, projectKey, trackers);
-    return new Response(new Uint8Array(buf), {
+    const { buffer } = await buildCombinedWithCharts(
+      orgId,
+      projectId,
+      projectKey,
+      trackers,
+    );
+    return new Response(new Uint8Array(buffer), {
       headers: {
         "Content-Type": XLSX_MIME,
         "Content-Disposition": `attachment; filename="${projectKey}-pm-dashboard.xlsx"`,
