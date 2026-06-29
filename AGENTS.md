@@ -13,6 +13,16 @@ Bump `package.json`'s `version` for every user-visible code change using SemVer:
 
 The version is surfaced in the sidebar via `NEXT_PUBLIC_APP_VERSION`, built from `npm_package_version` in `next.config.ts:5` — `package.json` is the single source of truth for what's running. Use `npm version patch|minor|major` (it edits `package.json` and creates a git tag), or edit `version` directly when you don't want the tag.
 
+# Container image: never bake secrets in
+
+The image is signed and published to `ghcr.io/jongodb-labs/cosmos-v2` and may be **public** — treat its filesystem as world-readable. Never bake secrets or sensitive info into a layer:
+
+- **Secrets are runtime-only.** Credentials, tokens, keys, and connection strings come from env / mounted secrets / the sealed `ConnectorCredential` store — never `COPY`/`ADD`'d in or set via `ENV`/`ARG`. The DB URL stays `env("DATABASE_URL")` in `prisma/schema.prisma`; never hardcode one.
+- **`NEXT_PUBLIC_*` is inlined into the public client bundle at build time** (`next.config.ts`), so it ships in readable JS. Only non-secret values may use that prefix (today: `APP_VERSION`, `PRODUCT`). Never put a secret behind a `NEXT_PUBLIC_*` name.
+- **`public/` is served publicly** — static assets only; no `.env`, configs, or keys.
+- **The runtime stage copies only specific build outputs** (`.next/standalone`, `.next/static`, `public`, `prisma`, `node_modules/.prisma`, the ML libs) — NOT the root context. When you add a `COPY --from=build` to the runtime stage, scope it to the exact artifact; never `COPY . .` into runtime.
+- **`.dockerignore` keeps `.env*`, `deploy/secrets/`, and key material out of the build context** — keep those exclusions. They guard local builds (`.deploy/deploy-v2.sh`) where a developer's real `.env`/`.env.local` is on disk and would otherwise ride into the build stage via `COPY . .`.
+
 # Cosmos-specific patterns (read before writing code that touches these surfaces)
 
 ## Cache Components is ON
