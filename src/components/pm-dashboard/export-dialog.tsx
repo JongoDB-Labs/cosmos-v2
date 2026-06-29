@@ -19,7 +19,8 @@ import { Loader2, Download, FileSpreadsheet } from "lucide-react";
  * Export dialog for the PM dashboard. Lets the user pick which of the eight
  * register trackers to export and whether to get full-fidelity template files
  * (separate → a ZIP, each a populated copy of the real tracker spreadsheet with
- * styles/formulas/charts intact) or one flat convenience workbook (combined).
+ * styles/formulas/charts intact) or one styled combined workbook (combined →
+ * each register as a formatted sheet with same-sheet formulas, no charts).
  *
  * Controlled via `open`/`onOpenChange` — pm-dashboard.tsx owns the trigger.
  */
@@ -166,7 +167,7 @@ export function ExportDialog({ orgId, projectId, open, onOpenChange }: ExportDia
               checked={mode === "combined"}
               onSelect={() => setMode("combined")}
               title="Combined workbook"
-              note="One convenience file, a single flat data sheet per tracker. No styling, formulas, or charts."
+              note="One styled file — each register as its own formatted sheet (headers, widths, number formats) with same-sheet formulas kept. Charts live only in the separate files."
             />
           </div>
         </div>

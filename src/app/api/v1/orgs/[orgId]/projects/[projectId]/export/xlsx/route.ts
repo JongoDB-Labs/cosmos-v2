@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
-import { buildProjectWorkbook } from "@/lib/pm/export";
+import { buildCombinedWorkbook } from "@/lib/pm/combined-export";
 import {
   buildPopulatedTemplate,
   TRACKERS,
@@ -19,9 +19,11 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  *
  *   • mode=separate (default) → a ZIP of each selected tracker's fully-populated
  *     *template* file (full fidelity: styles, formulas, charts, validations).
- *   • mode=combined → one flat workbook (the legacy buildProjectWorkbook), a
- *     single clean data sheet per selected tracker. Convenience, not fidelity —
- *     merging 8 multi-tab styled templates into one workbook isn't practical.
+ *   • mode=combined → one STYLED workbook (buildCombinedWorkbook): each selected
+ *     tracker contributes its main register sheet with the template's formatting
+ *     (header fills/fonts, column widths, number formats) and its same-sheet
+ *     formula columns intact. Charts and the multi-tab cascades live only in the
+ *     separate files.
  *
  * Selection comes from `trackers` (comma list on GET, array on POST) and `mode`.
  * Omitting `trackers` selects all eight.
@@ -62,7 +64,7 @@ async function buildResponse(
   mode: string,
 ): Promise<Response> {
   if (mode === "combined") {
-    const buf = await buildProjectWorkbook(orgId, projectId, trackers);
+    const buf = await buildCombinedWorkbook(orgId, projectId, projectKey, trackers);
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": XLSX_MIME,
