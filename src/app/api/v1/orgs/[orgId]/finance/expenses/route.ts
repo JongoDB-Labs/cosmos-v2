@@ -15,6 +15,7 @@ const createExpenseSchema = z.object({
   vendor: z.string().nullish(),
   description: z.string().nullish(),
   recurring: z.boolean().optional(),
+  clinId: z.string().uuid().nullish(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         vendor: data.vendor ?? null,
         description: data.description ?? "",
         recurring: data.recurring ?? false,
+        clinId: data.clinId ?? null,
         createdById: ctx.userId,
       },
     });
