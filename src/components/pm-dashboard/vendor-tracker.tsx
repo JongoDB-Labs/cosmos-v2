@@ -43,6 +43,10 @@ interface PartnerDetail {
   socioEconomic: string | null;
   cageCode: string | null;
   perfRating: number | null;
+  ndaOnFile: boolean;
+  ndaExpiry: string | null;
+  pocName: string | null;
+  pocEmail: string | null;
 }
 
 interface Vendor {
@@ -50,7 +54,14 @@ interface Vendor {
   partnerId: string | null;
   partner: PartnerDetail | null;
   title: string;
-  value: number | null;
+  value: number | null; // contract ceiling
+  fundedValue: number | null;
+  invoicedValue: number | null;
+  remainingFunded: number | null;
+  pctBurnedFunded: number | null;
+  paymentTerms: string | null;
+  agmtType: string | null;
+  agmtNumber: string | null;
   currency: string;
   status: string;
   startDate: string | null;
@@ -85,20 +96,38 @@ interface VendorForm {
   partnerId: string;
   title: string;
   value: string;
+  fundedValue: string;
+  invoicedValue: string;
+  paymentTerms: string;
+  agmtType: string;
+  agmtNumber: string;
   currency: string;
   status: string;
   startDate: string;
   endDate: string;
+  ndaOnFile: boolean;
+  ndaExpiry: string;
+  pocName: string;
+  pocEmail: string;
 }
 
 const emptyForm: VendorForm = {
   partnerId: "",
   title: "",
   value: "",
+  fundedValue: "",
+  invoicedValue: "",
+  paymentTerms: "",
+  agmtType: "",
+  agmtNumber: "",
   currency: "USD",
   status: "active",
   startDate: "",
   endDate: "",
+  ndaOnFile: false,
+  ndaExpiry: "",
+  pocName: "",
+  pocEmail: "",
 };
 
 function toDateInput(iso: string | null): string {
@@ -110,10 +139,19 @@ function vendorToForm(v: Vendor): VendorForm {
     partnerId: v.partnerId ?? "",
     title: v.title,
     value: v.value != null ? String(v.value) : "",
+    fundedValue: v.fundedValue != null ? String(v.fundedValue) : "",
+    invoicedValue: v.invoicedValue != null ? String(v.invoicedValue) : "",
+    paymentTerms: v.paymentTerms ?? "",
+    agmtType: v.agmtType ?? "",
+    agmtNumber: v.agmtNumber ?? "",
     currency: v.currency,
     status: v.status,
     startDate: toDateInput(v.startDate),
     endDate: toDateInput(v.endDate),
+    ndaOnFile: v.partner?.ndaOnFile ?? false,
+    ndaExpiry: toDateInput(v.partner?.ndaExpiry ?? null),
+    pocName: v.partner?.pocName ?? "",
+    pocEmail: v.partner?.pocEmail ?? "",
   };
 }
 
@@ -122,11 +160,28 @@ function formToBody(f: VendorForm) {
     partnerId: f.partnerId,
     title: f.title.trim(),
     value: f.value !== "" ? Number(f.value) : null,
+    fundedValue: f.fundedValue !== "" ? Number(f.fundedValue) : null,
+    invoicedValue: f.invoicedValue !== "" ? Number(f.invoicedValue) : null,
+    paymentTerms: f.paymentTerms.trim() || null,
+    agmtType: f.agmtType.trim() || null,
+    agmtNumber: f.agmtNumber.trim() || null,
     currency: f.currency || "USD",
     status: f.status,
     startDate: f.startDate ? new Date(f.startDate).toISOString() : null,
     endDate: f.endDate ? new Date(f.endDate).toISOString() : null,
+    ndaOnFile: f.ndaOnFile,
+    ndaExpiry: f.ndaExpiry ? new Date(f.ndaExpiry).toISOString() : null,
+    pocName: f.pocName.trim() || null,
+    pocEmail: f.pocEmail.trim() || null,
   };
+}
+
+/** Burn color thresholds: over-funded → red, hot → amber, else green. */
+function burnTone(pct: number | null): string {
+  if (pct == null) return "var(--text-muted)";
+  if (pct > 100) return "var(--danger, #dc2626)";
+  if (pct >= 85) return "var(--warning, #d97706)";
+  return "var(--success, #16a34a)";
 }
 
 function formatMoney(value: number | null, currency: string): string {
@@ -136,14 +191,6 @@ function formatMoney(value: number | null, currency: string): string {
     currency: currency || "USD",
     maximumFractionDigits: 0,
   });
-}
-
-function formatPoP(startDate: string | null, endDate: string | null): string {
-  if (!startDate && !endDate) return "—";
-  const fmt = (iso: string) => new Date(iso).toISOString().slice(0, 10);
-  if (startDate && endDate) return `${fmt(startDate)} – ${fmt(endDate)}`;
-  if (startDate) return `${fmt(startDate)} –`;
-  return `– ${fmt(endDate!)}`;
 }
 
 export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps) {
@@ -288,10 +335,11 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
               <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
                 <th className="px-3 py-2 font-medium">Vendor</th>
                 <th className="px-3 py-2 font-medium">Socio-econ</th>
-                <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 text-right font-medium">Committed</th>
-                <th className="px-3 py-2 font-medium">PoP</th>
+                <th className="px-3 py-2 text-right font-medium">Ceiling</th>
+                <th className="px-3 py-2 text-right font-medium">Funded</th>
+                <th className="px-3 py-2 text-right font-medium">Invoiced</th>
+                <th className="px-3 py-2 font-medium">% Burned</th>
+                <th className="px-3 py-2 font-medium">NDA</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2" />
               </tr>
@@ -305,19 +353,53 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
                 >
                   <td className="px-3 py-2 font-medium text-[var(--text)]">
                     {v.partner?.name ?? "—"}
+                    {v.title ? (
+                      <span className="block text-xs font-normal text-[var(--text-muted)]">
+                        {v.title}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
                     {v.partner?.socioEconomic ?? "—"}
                   </td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                    {v.partner?.type ?? "—"}
-                  </td>
-                  <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{v.title}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
                     {formatMoney(v.value, v.currency)}
                   </td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                    {formatPoP(v.startDate, v.endDate)}
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
+                    {formatMoney(v.fundedValue, v.currency)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
+                    {formatMoney(v.invoicedValue, v.currency)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {v.pctBurnedFunded != null ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${Math.min(v.pctBurnedFunded, 100)}%`,
+                              background: burnTone(v.pctBurnedFunded),
+                            }}
+                          />
+                        </div>
+                        <span
+                          className="tabular-nums text-xs"
+                          style={{ color: burnTone(v.pctBurnedFunded) }}
+                        >
+                          {v.pctBurnedFunded}%
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-[var(--text-muted)]">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {v.partner?.ndaOnFile ? (
+                      <span style={{ color: "var(--success, #16a34a)" }}>On file</span>
+                    ) : (
+                      <span className="text-[var(--text-muted)]">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-[var(--text-muted)]">
                     {STATUS_LABEL[v.status] ?? v.status}
@@ -499,6 +581,70 @@ function VendorDialog({
             </FormField>
           </div>
 
+          {/* Funded + Invoiced (drives % burned) */}
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Funded to date ($)">
+              {(p) => (
+                <Input
+                  {...p}
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={form.fundedValue}
+                  onChange={(e) => setForm((f) => ({ ...f, fundedValue: e.target.value }))}
+                  placeholder="0"
+                />
+              )}
+            </FormField>
+            <FormField label="Invoiced to date ($)">
+              {(p) => (
+                <Input
+                  {...p}
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={form.invoicedValue}
+                  onChange={(e) => setForm((f) => ({ ...f, invoicedValue: e.target.value }))}
+                  placeholder="0"
+                />
+              )}
+            </FormField>
+          </div>
+
+          {/* Agreement + payment terms */}
+          <div className="grid grid-cols-3 gap-4">
+            <FormField label="Agmt type">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.agmtType}
+                  onChange={(e) => setForm((f) => ({ ...f, agmtType: e.target.value }))}
+                  placeholder="SUBK / MSA / PO"
+                />
+              )}
+            </FormField>
+            <FormField label="Agmt number">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.agmtNumber}
+                  onChange={(e) => setForm((f) => ({ ...f, agmtNumber: e.target.value }))}
+                  placeholder="SUB-2026-014"
+                />
+              )}
+            </FormField>
+            <FormField label="Payment terms">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.paymentTerms}
+                  onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))}
+                  placeholder="Net 30"
+                />
+              )}
+            </FormField>
+          </div>
+
           {/* Status */}
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium">Status</label>
@@ -538,6 +684,53 @@ function VendorDialog({
                   type="date"
                   value={form.endDate}
                   onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
+                />
+              )}
+            </FormField>
+          </div>
+
+          {/* NDA + POC (partner-level) */}
+          <div className="grid grid-cols-2 items-end gap-4">
+            <label className="flex items-center gap-2 py-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--primary,#2563eb)]"
+                checked={form.ndaOnFile}
+                onChange={(e) => setForm((f) => ({ ...f, ndaOnFile: e.target.checked }))}
+              />
+              NDA on file
+            </label>
+            <FormField label="NDA expiry">
+              {(p) => (
+                <Input
+                  {...p}
+                  type="date"
+                  value={form.ndaExpiry}
+                  onChange={(e) => setForm((f) => ({ ...f, ndaExpiry: e.target.value }))}
+                />
+              )}
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="POC name">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.pocName}
+                  onChange={(e) => setForm((f) => ({ ...f, pocName: e.target.value }))}
+                  placeholder="Primary contact"
+                />
+              )}
+            </FormField>
+            <FormField label="POC email">
+              {(p) => (
+                <Input
+                  {...p}
+                  type="email"
+                  value={form.pocEmail}
+                  onChange={(e) => setForm((f) => ({ ...f, pocEmail: e.target.value }))}
+                  placeholder="name@vendor.com"
                 />
               )}
             </FormField>

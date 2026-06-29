@@ -48,6 +48,10 @@ const createSchema = z.object({
   recoveryTarget: z.string().nullish(),
   scheduleEscalate: z.boolean().default(false),
   autoStatus: z.boolean().default(true), // derive status from linked work items
+  milestoneType: z.string().nullish(),
+  downstreamImpact: z.string().nullish(),
+  relatedRef: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -84,6 +88,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         recoveryTarget: data.recoveryTarget ? new Date(data.recoveryTarget) : null,
         scheduleEscalate: data.scheduleEscalate,
         autoStatus: data.autoStatus,
+        milestoneType: data.milestoneType ?? null,
+        downstreamImpact: data.downstreamImpact ?? null,
+        relatedRef: data.relatedRef ?? null,
+        notes: data.notes ?? null,
       },
       include: milestoneInclude,
     });

@@ -30,7 +30,14 @@ export async function buildProjectWorkbook(orgId: string, projectId: string): Pr
       loadMilestonesWithDerived(orgId, projectId),
       prisma.contract.findMany({
         where,
-        include: { partner: { select: { name: true, socioEconomic: true, cageCode: true, perfRating: true } } },
+        include: {
+          partner: {
+            select: {
+              name: true, socioEconomic: true, cageCode: true, perfRating: true,
+              ndaOnFile: true, ndaExpiry: true, pocName: true, pocEmail: true,
+            },
+          },
+        },
         orderBy: { value: "desc" },
       }),
       loadStaffing(orgId, projectId, { includeCost: true }),
@@ -50,29 +57,44 @@ export async function buildProjectWorkbook(orgId: string, projectId: string): Pr
   })));
   addSheet("Change Log", changes.map((c) => ({
     ID: c.code, Title: c.title, Type: c.type, Branch: c.programBranch?.code ?? "",
-    "Cost Impact": num(c.costImpact), "Schedule Days": c.scheduleDaysImpact ?? "",
-    "Initiated By": c.initiatedBy ?? "", "Decision Authority": c.decisionAuthority ?? "", Status: c.status,
+    Submitted: fmtDate(c.submittedDate), "Cost Impact": num(c.costImpact), "Schedule Days": c.scheduleDaysImpact ?? "",
+    "Scope Impact": c.scopeImpact ?? "", "Initiated By": c.initiatedBy ?? "",
+    "Decision Authority": c.decisionAuthority ?? "", Status: c.status, Notes: c.notes ?? "",
   })));
   addSheet("Blocked Items", blockers.map((b) => ({
     ID: b.code, Title: b.title, Type: b.type, Branch: b.programBranch?.code ?? "",
-    Owner: b.owner ?? "", "What Unblocks": b.whatUnblocks ?? "", Escalated: b.escalate ? "Yes" : "",
-    Status: b.status,
+    Owner: b.owner ?? "", "What Unblocks": b.whatUnblocks ?? "", "Related Ref": b.relatedRef ?? "",
+    Escalated: b.escalate ? "Yes" : "", Status: b.status, Notes: b.notes ?? "",
   })));
   addSheet("Schedule", milestones.map((m) => ({
-    Title: m.title, Branch: m.programBranch?.code ?? "", Baseline: fmtDate(m.baselineDate),
+    Title: m.title, Type: m.milestoneType ?? "", Branch: m.programBranch?.code ?? "", Baseline: fmtDate(m.baselineDate),
     Projected: fmtDate(m.dueDate), Status: m.status, "Progress %": m.completionPercent ?? "",
-    "Root Cause": m.rootCause ?? "", Escalate: m.scheduleEscalate ? "Yes" : "",
+    "Root Cause": m.rootCause ?? "", "Downstream Impact": m.downstreamImpact ?? "",
+    "Related Ref": m.relatedRef ?? "", Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
   })));
   addSheet("Deliverables", deliverables.map((d) => ({
     ID: d.code, Title: d.title, CLIN: d.clin ?? "", Branch: d.programBranch?.code ?? "",
-    "Baseline Due": fmtDate(d.baselineDue), "Actual Submission": fmtDate(d.actualSubmission),
-    Status: d.status, Owner: d.owner ?? "",
+    "Branch Owner": d.branchOwner ?? "", "Baseline Due": fmtDate(d.baselineDue),
+    "Actual Submission": fmtDate(d.actualSubmission), Status: d.status, Owner: d.owner ?? "",
+    "Work Item Ref": d.workItemRef ?? "", Notes: d.notes ?? "",
   })));
-  addSheet("Vendors", vendors.map((v) => ({
-    Vendor: v.partner?.name ?? "", "Socio-Economic": v.partner?.socioEconomic ?? "",
-    CAGE: v.partner?.cageCode ?? "", Title: v.title, Committed: num(v.value),
-    Currency: v.currency, Status: v.status, "PoP Start": fmtDate(v.startDate), "PoP End": fmtDate(v.endDate),
-  })));
+  addSheet("Vendors", vendors.map((v) => {
+    const funded = num(v.fundedValue);
+    const invoiced = num(v.invoicedValue);
+    const pctBurned =
+      typeof funded === "number" && funded > 0 && typeof invoiced === "number"
+        ? Math.round((invoiced / funded) * 100)
+        : "";
+    return {
+      Vendor: v.partner?.name ?? "", "Socio-Economic": v.partner?.socioEconomic ?? "",
+      CAGE: v.partner?.cageCode ?? "", Title: v.title, "Agmt Type": v.agmtType ?? "",
+      "Agmt #": v.agmtNumber ?? "", Ceiling: num(v.value), Funded: funded, Invoiced: invoiced,
+      "% Burned": pctBurned, "Payment Terms": v.paymentTerms ?? "",
+      NDA: v.partner?.ndaOnFile ? "On file" : "", "NDA Expiry": fmtDate(v.partner?.ndaExpiry),
+      POC: v.partner?.pocName ?? "", Currency: v.currency, Status: v.status,
+      "PoP Start": fmtDate(v.startDate), "PoP End": fmtDate(v.endDate),
+    };
+  }));
   addSheet("Staffing", staffing.map((s) => ({
     Person: s.name, Role: s.role, "Labor Category": s.laborCategory ?? "",
     Clearance: s.clearance ?? "", "Allocation %": s.allocationPercent ?? "", "Cost Rate": s.costRate ?? "",

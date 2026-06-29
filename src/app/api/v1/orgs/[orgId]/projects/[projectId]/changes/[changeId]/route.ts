@@ -28,6 +28,9 @@ const updateSchema = z.object({
   implDate: z.string().nullish(),
   relatedRiskCode: z.string().max(40).nullish(),
   status: z.nativeEnum(ChangeRequestStatus).optional(),
+  submittedDate: z.string().nullish(),
+  scopeImpact: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
@@ -63,6 +66,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }),
         ...(data.relatedRiskCode !== undefined && { relatedRiskCode: data.relatedRiskCode }),
         ...(data.status !== undefined && { status: data.status }),
+        ...(data.submittedDate !== undefined && {
+          submittedDate: data.submittedDate ? new Date(data.submittedDate) : null,
+        }),
+        ...(data.scopeImpact !== undefined && { scopeImpact: data.scopeImpact }),
+        ...(data.notes !== undefined && { notes: data.notes }),
       },
       include: changeInclude,
     });

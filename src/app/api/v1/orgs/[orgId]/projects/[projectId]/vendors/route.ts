@@ -5,50 +5,9 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
-
-const partnerSelect = {
-  id: true,
-  name: true,
-  type: true,
-  status: true,
-  socioEconomic: true,
-  cageCode: true,
-  perfRating: true,
-} as const;
-
-function mapContract(c: {
-  id: string;
-  partnerId: string | null;
-  partner: {
-    id: string;
-    name: string;
-    type: string;
-    status: string;
-    socioEconomic: string | null;
-    cageCode: string | null;
-    perfRating: number | null;
-  } | null;
-  title: string;
-  value: { toNumber(): number } | null;
-  currency: string;
-  status: string;
-  startDate: Date | null;
-  endDate: Date | null;
-}) {
-  return {
-    id: c.id,
-    partnerId: c.partnerId,
-    partner: c.partner,
-    title: c.title,
-    value: c.value != null ? Number(c.value) : null,
-    currency: c.currency,
-    status: c.status,
-    startDate: c.startDate ? c.startDate.toISOString() : null,
-    endDate: c.endDate ? c.endDate.toISOString() : null,
-  };
-}
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -68,7 +27,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       orderBy: { value: "desc" },
     });
 
-    return success(contracts.map(mapContract));
+    return success(contracts.map(mapVendorContract));
   } catch (e) {
     return handleApiError(e);
   }
@@ -78,6 +37,11 @@ const createSchema = z.object({
   partnerId: z.string().uuid(),
   title: z.string().min(1).max(200),
   value: z.number().nullish(),
+  fundedValue: z.number().nullish(),
+  invoicedValue: z.number().nullish(),
+  paymentTerms: z.string().max(120).nullish(),
+  agmtType: z.string().max(40).nullish(),
+  agmtNumber: z.string().max(80).nullish(),
   currency: z.string().default("USD"),
   status: z.string().default("active"),
   startDate: z.string().nullish(),
@@ -98,7 +62,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const data = createSchema.parse(await request.json());
 
-    // Verify the partner belongs to this org.
     const partner = await prisma.partner.findFirst({ where: { id: data.partnerId, orgId } });
     if (!partner) return new Response("Partner not found", { status: 404 });
 
@@ -109,6 +72,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         partnerId: data.partnerId,
         title: data.title,
         value: data.value ?? null,
+        fundedValue: data.fundedValue ?? null,
+        invoicedValue: data.invoicedValue ?? null,
+        paymentTerms: data.paymentTerms ?? null,
+        agmtType: data.agmtType ?? null,
+        agmtNumber: data.agmtNumber ?? null,
         currency: data.currency,
         status: data.status,
         startDate: data.startDate ? new Date(data.startDate) : null,
@@ -117,7 +85,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       include: { partner: { select: partnerSelect } },
     });
 
-    return success(mapContract(created));
+    return success(mapVendorContract(created));
   } catch (e) {
     return handleApiError(e);
   }

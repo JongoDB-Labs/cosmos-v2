@@ -850,6 +850,10 @@ model Partner {
   socioEconomic String? @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
   cageCode      String? @map("cage_code")
   perfRating    Int?    @map("perf_rating") // 1-5
+  ndaOnFile     Boolean @default(false) @map("nda_on_file")
+  ndaExpiry     DateTime? @map("nda_expiry")
+  pocName       String? @map("poc_name")
+  pocEmail      String? @map("poc_email")
   notes        String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -885,6 +889,11 @@ model Contract {
   partnerId          String?                     @map("partner_id") @db.Uuid
   productId          String?                     @map("product_id") @db.Uuid
   projectId          String?                     @map("project_id") @db.Uuid
+  fundedValue        Decimal?                    @map("funded_value") @db.Decimal(19, 4)
+  invoicedValue      Decimal?                    @map("invoiced_value") @db.Decimal(19, 4)
+  paymentTerms       String?                     @map("payment_terms")
+  agmtType           String?                     @map("agmt_type")
+  agmtNumber         String?                     @map("agmt_number")
   title              String
   value              Decimal?                    @db.Decimal(19, 4)
   currency           String                      @default("USD")
@@ -2222,6 +2231,10 @@ model Milestone {
   recoveryTarget   DateTime?     @map("recovery_target")
   phase            String?
   scheduleEscalate Boolean       @default(false) @map("schedule_escalate")
+  milestoneType    String?       @map("milestone_type")
+  downstreamImpact String?       @map("downstream_impact")
+  relatedRef       String?       @map("related_ref")
+  notes            String?
   deliverables     Deliverable[]
   links   MilestoneLink[]
 
@@ -3227,6 +3240,9 @@ model Deliverable {
   milestoneId     String?               @map("milestone_id") @db.Uuid
   milestone       Milestone?            @relation(fields: [milestoneId], references: [id])
   revisions       DeliverableRevision[]
+  branchOwner     String?               @map("branch_owner")
+  workItemRef     String?               @map("work_item_ref")
+  notes           String?
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3262,6 +3278,8 @@ model Blocker {
   relatedRiskCode      String?            @map("related_risk_code")
   targetDate           DateTime?          @map("target_date")
   customerNotifiedDate DateTime?          @map("customer_notified_date")
+  relatedRef           String?            @map("related_ref")
+  notes                String?
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -3295,6 +3313,9 @@ model ChangeRequest {
   modNumber         String?               @map("mod_number")
   implDate          DateTime?             @map("impl_date")
   relatedRiskCode   String?               @map("related_risk_code")
+  submittedDate     DateTime?             @map("submitted_date")
+  scopeImpact       String?               @map("scope_impact")
+  notes             String?
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])

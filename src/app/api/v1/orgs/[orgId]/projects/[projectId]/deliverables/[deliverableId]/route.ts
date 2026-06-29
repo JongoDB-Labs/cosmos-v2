@@ -29,6 +29,9 @@ const updateSchema = z.object({
   revRequired: z.boolean().optional(),
   escalate: z.boolean().optional(),
   status: z.nativeEnum(DeliverableStatus).optional(),
+  branchOwner: z.string().nullish(),
+  workItemRef: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
@@ -61,6 +64,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.revRequired !== undefined) updateData.revRequired = data.revRequired;
     if (data.escalate !== undefined) updateData.escalate = data.escalate;
     if (data.status !== undefined) updateData.status = data.status;
+    if (data.branchOwner !== undefined) updateData.branchOwner = data.branchOwner ?? null;
+    if (data.workItemRef !== undefined) updateData.workItemRef = data.workItemRef ?? null;
+    if (data.notes !== undefined) updateData.notes = data.notes ?? null;
 
     const updated = await prisma.deliverable.update({
       where: { id: deliverableId },

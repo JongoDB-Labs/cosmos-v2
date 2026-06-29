@@ -63,6 +63,10 @@ interface Milestone {
   // Derived from linked work items (see lib/pm/schedule). status is already the
   // derived value when autoStatus is on and links resolve.
   autoStatus: boolean;
+  milestoneType: string | null;
+  downstreamImpact: string | null;
+  relatedRef: string | null;
+  notes: string | null;
   linkedTotal: number;
   linkedDone: number;
   completionPercent: number | null;
@@ -98,6 +102,10 @@ interface MilestoneForm {
   recoveryTarget: string;
   scheduleEscalate: boolean;
   autoStatus: boolean;
+  milestoneType: string;
+  downstreamImpact: string;
+  relatedRef: string;
+  notes: string;
 }
 
 const emptyForm: MilestoneForm = {
@@ -114,6 +122,10 @@ const emptyForm: MilestoneForm = {
   recoveryTarget: "",
   scheduleEscalate: false,
   autoStatus: true,
+  milestoneType: "",
+  downstreamImpact: "",
+  relatedRef: "",
+  notes: "",
 };
 
 function toDateInput(iso: string | null | undefined): string {
@@ -135,6 +147,10 @@ function milestoneToForm(m: Milestone): MilestoneForm {
     recoveryTarget: toDateInput(m.recoveryTarget),
     scheduleEscalate: m.scheduleEscalate,
     autoStatus: m.autoStatus,
+    milestoneType: m.milestoneType ?? "",
+    downstreamImpact: m.downstreamImpact ?? "",
+    relatedRef: m.relatedRef ?? "",
+    notes: m.notes ?? "",
   };
 }
 
@@ -153,6 +169,10 @@ function formToBody(f: MilestoneForm) {
     recoveryTarget: f.recoveryTarget ? new Date(f.recoveryTarget).toISOString() : null,
     scheduleEscalate: f.scheduleEscalate,
     autoStatus: f.autoStatus,
+    milestoneType: f.milestoneType.trim() || null,
+    downstreamImpact: f.downstreamImpact.trim() || null,
+    relatedRef: f.relatedRef.trim() || null,
+    notes: f.notes.trim() || null,
   };
 }
 
@@ -715,6 +735,51 @@ function MilestoneDialog({
             />
             Escalate (surfaces in the Government view)
           </label>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Milestone type">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.milestoneType}
+                  onChange={(e) => setForm((f) => ({ ...f, milestoneType: e.target.value }))}
+                  placeholder="e.g. CDR, PDR, delivery"
+                />
+              )}
+            </FormField>
+            <FormField label="Related reference">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.relatedRef}
+                  onChange={(e) => setForm((f) => ({ ...f, relatedRef: e.target.value }))}
+                  placeholder="e.g. CR-001, R-003"
+                />
+              )}
+            </FormField>
+          </div>
+          <FormField label="Downstream impact">
+            {(p) => (
+              <Textarea
+                {...p}
+                value={form.downstreamImpact}
+                onChange={(e) => setForm((f) => ({ ...f, downstreamImpact: e.target.value }))}
+                placeholder="Describe downstream effects if this milestone slips"
+                rows={2}
+              />
+            )}
+          </FormField>
+          <FormField label="Notes">
+            {(p) => (
+              <Textarea
+                {...p}
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Additional notes"
+                rows={2}
+              />
+            )}
+          </FormField>
 
           {milestone && onLink && onUnlink && (
             <LinkedWorkItems

@@ -51,6 +51,9 @@ const createSchema = z.object({
   implDate: z.string().nullish(),
   relatedRiskCode: z.string().max(40).nullish(),
   status: z.nativeEnum(ChangeRequestStatus).default(ChangeRequestStatus.SUBMITTED),
+  submittedDate: z.string().nullish(),
+  scopeImpact: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 /** Next CR-NNN code for the org (codes are unique per org). */
@@ -96,6 +99,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         implDate: data.implDate ? new Date(data.implDate) : null,
         relatedRiskCode: data.relatedRiskCode ?? null,
         status: data.status,
+        submittedDate: data.submittedDate ? new Date(data.submittedDate) : null,
+        scopeImpact: data.scopeImpact ?? null,
+        notes: data.notes ?? null,
       },
       include: changeInclude,
     });
