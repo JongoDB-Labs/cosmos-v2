@@ -68,6 +68,9 @@ interface Deliverable {
   revRequired: boolean;
   escalate: boolean;
   status: DeliverableStatus;
+  branchOwner: string | null;
+  workItemRef: string | null;
+  notes: string | null;
 }
 
 interface DeliverableTrackerProps {
@@ -120,6 +123,9 @@ interface DeliverableForm {
   revRequired: boolean;
   escalate: boolean;
   status: DeliverableStatus;
+  branchOwner: string;
+  workItemRef: string;
+  notes: string;
 }
 
 const emptyForm: DeliverableForm = {
@@ -138,6 +144,9 @@ const emptyForm: DeliverableForm = {
   revRequired: false,
   escalate: false,
   status: "NOT_STARTED",
+  branchOwner: "",
+  workItemRef: "",
+  notes: "",
 };
 
 function toDateInput(iso: string | null): string {
@@ -161,6 +170,9 @@ function deliverableToForm(d: Deliverable): DeliverableForm {
     revRequired: d.revRequired,
     escalate: d.escalate,
     status: d.status,
+    branchOwner: d.branchOwner ?? "",
+    workItemRef: d.workItemRef ?? "",
+    notes: d.notes ?? "",
   };
 }
 
@@ -181,6 +193,9 @@ function formToBody(f: DeliverableForm) {
     revRequired: f.revRequired,
     escalate: f.escalate,
     status: f.status,
+    branchOwner: f.branchOwner.trim() || null,
+    workItemRef: f.workItemRef.trim() || null,
+    notes: f.notes.trim() || null,
   };
 }
 
@@ -652,6 +667,40 @@ function DeliverableDialog({
               Escalate to customer (surfaces in the Government view)
             </label>
           </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Branch owner">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.branchOwner}
+                  onChange={(e) => setForm((f) => ({ ...f, branchOwner: e.target.value }))}
+                  placeholder="Branch-level accountable person"
+                />
+              )}
+            </FormField>
+            <FormField label="Work item reference">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.workItemRef}
+                  onChange={(e) => setForm((f) => ({ ...f, workItemRef: e.target.value }))}
+                  placeholder="e.g. WI-042 or ticket number"
+                />
+              )}
+            </FormField>
+          </div>
+          <FormField label="Notes">
+            {(p) => (
+              <Textarea
+                {...p}
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Additional notes"
+                rows={2}
+              />
+            )}
+          </FormField>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>

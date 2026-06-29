@@ -52,6 +52,8 @@ const createSchema = z.object({
   targetDate: z.string().nullish(),
   escalate: z.boolean().default(false),
   status: z.nativeEnum(BlockerStatus).default(BlockerStatus.OPEN),
+  relatedRef: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 /** Next BL-NNN code for the org (codes are unique per org). */
@@ -99,6 +101,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         escalate: data.escalate,
         status: data.status,
         // identifiedAt defaults to now() in schema
+        relatedRef: data.relatedRef ?? null,
+        notes: data.notes ?? null,
       },
       include: blockerInclude,
     });

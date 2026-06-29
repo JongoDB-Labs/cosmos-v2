@@ -52,6 +52,9 @@ const createSchema = z.object({
   revRequired: z.boolean().default(false),
   escalate: z.boolean().default(false),
   status: z.nativeEnum(DeliverableStatus).default(DeliverableStatus.NOT_STARTED),
+  branchOwner: z.string().nullish(),
+  workItemRef: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 /** Next CDRL-A00N code for the org (codes are unique per org). */
@@ -98,6 +101,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         revRequired: data.revRequired,
         escalate: data.escalate,
         status: data.status,
+        branchOwner: data.branchOwner ?? null,
+        workItemRef: data.workItemRef ?? null,
+        notes: data.notes ?? null,
       },
       include: deliverableInclude,
     });

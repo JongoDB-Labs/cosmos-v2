@@ -64,6 +64,8 @@ interface Blocker {
   targetDate: string | null;
   escalate: boolean;
   identifiedAt: string;
+  relatedRef: string | null;
+  notes: string | null;
 }
 
 interface BlockerTrackerProps {
@@ -111,6 +113,8 @@ interface BlockerForm {
   targetDate: string;
   escalate: boolean;
   status: BlockerStatus;
+  relatedRef: string;
+  notes: string;
 }
 
 const emptyForm: BlockerForm = {
@@ -129,6 +133,8 @@ const emptyForm: BlockerForm = {
   targetDate: "",
   escalate: false,
   status: "OPEN",
+  relatedRef: "",
+  notes: "",
 };
 
 function toDateInput(iso: string | null): string {
@@ -152,6 +158,8 @@ function blockerToForm(b: Blocker): BlockerForm {
     targetDate: toDateInput(b.targetDate),
     escalate: b.escalate,
     status: b.status,
+    relatedRef: b.relatedRef ?? "",
+    notes: b.notes ?? "",
   };
 }
 
@@ -172,6 +180,8 @@ function formToBody(f: BlockerForm) {
     targetDate: f.targetDate ? new Date(f.targetDate).toISOString() : null,
     escalate: f.escalate,
     status: f.status,
+    relatedRef: f.relatedRef.trim() || null,
+    notes: f.notes.trim() || null,
   };
 }
 
@@ -589,6 +599,28 @@ function BlockerDialog({
               Escalate (surfaces in the Government view)
             </label>
           </div>
+
+          <FormField label="Related reference">
+            {(p) => (
+              <Input
+                {...p}
+                value={form.relatedRef}
+                onChange={(e) => setForm((f) => ({ ...f, relatedRef: e.target.value }))}
+                placeholder="e.g. ticket, contract section, or risk ID"
+              />
+            )}
+          </FormField>
+          <FormField label="Notes">
+            {(p) => (
+              <Textarea
+                {...p}
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Additional notes"
+                rows={2}
+              />
+            )}
+          </FormField>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>

@@ -29,6 +29,8 @@ const updateSchema = z.object({
   targetDate: z.string().nullish(),
   escalate: z.boolean().optional(),
   status: z.nativeEnum(BlockerStatus).optional(),
+  relatedRef: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
@@ -67,6 +69,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }),
         ...(data.escalate !== undefined && { escalate: data.escalate }),
         ...(data.status !== undefined && { status: data.status }),
+        ...(data.relatedRef !== undefined && { relatedRef: data.relatedRef }),
+        ...(data.notes !== undefined && { notes: data.notes }),
       },
       include: blockerInclude,
     });

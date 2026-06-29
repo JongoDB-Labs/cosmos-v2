@@ -63,6 +63,9 @@ interface ChangeRequest {
   implDate: string | null;
   relatedRiskCode: string | null;
   status: ChangeRequestStatus;
+  submittedDate: string | null;
+  scopeImpact: string | null;
+  notes: string | null;
 }
 
 interface ChangeTrackerProps {
@@ -122,6 +125,9 @@ interface ChangeForm {
   implDate: string;
   relatedRiskCode: string;
   status: ChangeRequestStatus;
+  submittedDate: string;
+  scopeImpact: string;
+  notes: string;
 }
 
 const emptyForm: ChangeForm = {
@@ -139,6 +145,9 @@ const emptyForm: ChangeForm = {
   implDate: "",
   relatedRiskCode: "",
   status: "SUBMITTED",
+  submittedDate: "",
+  scopeImpact: "",
+  notes: "",
 };
 
 function toDateInput(iso: string | null): string {
@@ -161,6 +170,9 @@ function changeToForm(c: ChangeRequest): ChangeForm {
     implDate: toDateInput(c.implDate),
     relatedRiskCode: c.relatedRiskCode ?? "",
     status: c.status,
+    submittedDate: toDateInput(c.submittedDate),
+    scopeImpact: c.scopeImpact ?? "",
+    notes: c.notes ?? "",
   };
 }
 
@@ -180,6 +192,9 @@ function formToBody(f: ChangeForm) {
     implDate: f.implDate ? new Date(f.implDate).toISOString() : null,
     relatedRiskCode: f.relatedRiskCode.trim() || null,
     status: f.status,
+    submittedDate: f.submittedDate ? new Date(f.submittedDate).toISOString() : null,
+    scopeImpact: f.scopeImpact.trim() || null,
+    notes: f.notes.trim() || null,
   };
 }
 
@@ -614,6 +629,40 @@ function ChangeDialog({
             />
             MOD required (contract modification needed)
           </label>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Submitted date">
+              {(p) => (
+                <Input
+                  {...p}
+                  type="date"
+                  value={form.submittedDate}
+                  onChange={(e) => setForm((f) => ({ ...f, submittedDate: e.target.value }))}
+                />
+              )}
+            </FormField>
+            <FormField label="Scope impact">
+              {(p) => (
+                <Input
+                  {...p}
+                  value={form.scopeImpact}
+                  onChange={(e) => setForm((f) => ({ ...f, scopeImpact: e.target.value }))}
+                  placeholder="Describe scope impact"
+                />
+              )}
+            </FormField>
+          </div>
+          <FormField label="Notes">
+            {(p) => (
+              <Textarea
+                {...p}
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Additional notes"
+                rows={2}
+              />
+            )}
+          </FormField>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>

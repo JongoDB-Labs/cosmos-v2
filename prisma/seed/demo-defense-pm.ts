@@ -268,22 +268,32 @@ async function main() {
   // Subcontractors (Partner) + their SENTINEL sub-contracts (Contract, project-scoped).
   const SUBS: {
     name: string; socioEconomic: string; cageCode: string; perfRating: number;
-    title: string; value: number; status: string; start: number; end: number;
+    title: string; value: number; funded: number; invoiced: number;
+    agmtType: string; agmtNumber: string; paymentTerms: string;
+    nda: boolean; ndaExp: number | null; pocName: string; pocEmail: string;
+    status: string; start: number; end: number;
   }[] = [
-    { name: "Aegis Cyber Solutions LLC", socioEconomic: "SDVOSB", cageCode: "8F2K1", perfRating: 4, title: "RMF / ATO engineering support", value: 480000, status: "active", start: -120, end: 245 },
-    { name: "Lumen Data Systems", socioEconomic: "WOSB", cageCode: "7Q9X3", perfRating: 5, title: "Data pipeline & ingest development", value: 320000, status: "active", start: -90, end: 275 },
-    { name: "Harbor Point Analytics", socioEconomic: "8(a)", cageCode: "5R2M8", perfRating: 3, title: "ML threat-scoring models", value: 210000, status: "signed", start: -30, end: 335 },
-    { name: "Ridgeline Integration Inc", socioEconomic: "HUBZone", cageCode: "9T4P2", perfRating: 4, title: "OT&E test harness & range support", value: 150000, status: "draft", start: 15, end: 380 },
+    { name: "Aegis Cyber Solutions LLC", socioEconomic: "SDVOSB", cageCode: "8F2K1", perfRating: 4, title: "RMF / ATO engineering support", value: 480000, funded: 360000, invoiced: 295000, agmtType: "SUBK", agmtNumber: "SUB-2026-001", paymentTerms: "Net 30", nda: true, ndaExp: 400, pocName: "Rachel Kim", pocEmail: "rachel.kim@aegiscyber.com", status: "active", start: -120, end: 245 },
+    { name: "Lumen Data Systems", socioEconomic: "WOSB", cageCode: "7Q9X3", perfRating: 5, title: "Data pipeline & ingest development", value: 320000, funded: 240000, invoiced: 211000, agmtType: "SUBK", agmtNumber: "SUB-2026-002", paymentTerms: "Net 30", nda: true, ndaExp: 210, pocName: "David Osei", pocEmail: "d.osei@lumendata.com", status: "active", start: -90, end: 275 },
+    { name: "Harbor Point Analytics", socioEconomic: "8(a)", cageCode: "5R2M8", perfRating: 3, title: "ML threat-scoring models", value: 210000, funded: 120000, invoiced: 64000, agmtType: "MSA", agmtNumber: "MSA-2026-007", paymentTerms: "Net 45", nda: true, ndaExp: 95, pocName: "Lena Park", pocEmail: "lpark@harborpoint.io", status: "signed", start: -30, end: 335 },
+    { name: "Ridgeline Integration Inc", socioEconomic: "HUBZone", cageCode: "9T4P2", perfRating: 4, title: "OT&E test harness & range support", value: 150000, funded: 0, invoiced: 0, agmtType: "PO", agmtNumber: "PO-2026-019", paymentTerms: "Net 30", nda: false, ndaExp: null, pocName: "Sam Vance", pocEmail: "svance@ridgeline-inc.com", status: "draft", start: 15, end: 380 },
   ];
   let subsCreated = 0;
   for (const v of SUBS) {
     let partner = await prisma.partner.findFirst({ where: { orgId: org.id, name: v.name } });
-    const govcon = { socioEconomic: v.socioEconomic, cageCode: v.cageCode, perfRating: v.perfRating, type: "subcontractor" };
+    const govcon = {
+      socioEconomic: v.socioEconomic, cageCode: v.cageCode, perfRating: v.perfRating, type: "subcontractor",
+      ndaOnFile: v.nda, ndaExpiry: v.ndaExp != null ? d(v.ndaExp) : null, pocName: v.pocName, pocEmail: v.pocEmail,
+    };
     if (!partner) {
       partner = await prisma.partner.create({ data: { orgId: org.id, name: v.name, status: "active", ...govcon } });
     } else {
       await prisma.partner.update({ where: { id: partner.id }, data: govcon });
     }
+    const fin = {
+      value: v.value, fundedValue: v.funded, invoicedValue: v.invoiced,
+      paymentTerms: v.paymentTerms, agmtType: v.agmtType, agmtNumber: v.agmtNumber,
+    };
     const existing = await prisma.contract.findFirst({
       where: { orgId: org.id, projectId: project.id, partnerId: partner.id, title: v.title },
     });
@@ -291,10 +301,12 @@ async function main() {
       await prisma.contract.create({
         data: {
           orgId: org.id, projectId: project.id, partnerId: partner.id, title: v.title,
-          value: v.value, currency: "USD", status: v.status, startDate: d(v.start), endDate: d(v.end),
+          ...fin, currency: "USD", status: v.status, startDate: d(v.start), endDate: d(v.end),
         },
       });
       subsCreated++;
+    } else {
+      await prisma.contract.update({ where: { id: existing.id }, data: fin }); // refresh financials on re-seed
     }
   }
 
