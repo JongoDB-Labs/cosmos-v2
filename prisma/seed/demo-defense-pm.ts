@@ -298,11 +298,35 @@ async function main() {
     }
   }
 
+  // Staffing — put the org's employees on SENTINEL with roles + allocations so
+  // the Team & Staffing lens has a roster (joins to Employee for labor cat /
+  // clearance / cost rate).
+  const STAFF: { name: string; role: "MANAGER" | "LEAD" | "MEMBER"; allocation: number }[] = [
+    { name: "Jon", role: "MANAGER", allocation: 40 },
+    { name: "Marcus Hale", role: "LEAD", allocation: 100 },
+    { name: "Dana Reyes", role: "MEMBER", allocation: 80 },
+    { name: "Priya Nair", role: "MEMBER", allocation: 100 },
+    { name: "Tom Becker", role: "MEMBER", allocation: 50 },
+  ];
+  let staffed = 0;
+  for (const s of STAFF) {
+    const user = await prisma.user.findFirst({ where: { displayName: s.name } });
+    if (!user) continue;
+    const om = await prisma.orgMember.findFirst({ where: { orgId: org.id, userId: user.id } });
+    if (!om) continue;
+    await prisma.projectMember.upsert({
+      where: { projectId_orgMemberId: { projectId: project.id, orgMemberId: om.id } },
+      update: { role: s.role, allocationPercent: s.allocation },
+      create: { projectId: project.id, orgMemberId: om.id, role: s.role, allocationPercent: s.allocation },
+    });
+    staffed++;
+  }
+
   console.log(
     `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
       `${blockers.length} blockers, ${changes.length} change requests, ${mUpdated} milestone baselines, ` +
       `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links, ${kpiAuto} auto KPIs, ` +
-      `${subsCreated} subcontracts upserted for ${PKEY}.`,
+      `${subsCreated} subcontracts, ${staffed} staffed for ${PKEY}.`,
   );
 }
 
