@@ -29,6 +29,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, AlertTriangle, ClipboardList } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 
 type ChangeRequestStatus =
   | "SUBMITTED"
@@ -191,6 +192,7 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
     queryKey,
     queryFn: () => jsonFetch<ChangeRequest[]>(apiBase),
   });
+  const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("code");
@@ -267,9 +269,11 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
             {changes.length} change request{changes.length === 1 ? "" : "s"}
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" /> New Change Request
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate}>
+            <Plus className="size-4" /> New Change Request
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -299,7 +303,7 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
             filter ? "Try a different filter." : "Log the first change request to start the register."
           }
           action={
-            !filter ? (
+            !filter && canEdit ? (
               <Button onClick={openCreate}>
                 <Plus className="size-4" /> New Change Request
               </Button>
@@ -325,8 +329,8 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
               {view.map((c) => (
                 <tr
                   key={c.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => openEdit(c)}
+                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
+                  onClick={canEdit ? () => openEdit(c) : undefined}
                 >
                   <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{c.code}</td>
                   <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{c.title}</td>
@@ -346,17 +350,19 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
                     <StatusPill status={c.status} />
                   </td>
                   <td className="px-2 py-2 text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label="Delete change request"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleting(c);
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Delete change request"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleting(c);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

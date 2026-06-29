@@ -29,6 +29,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, Calendar, AlertTriangle, X } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -168,6 +169,7 @@ type SortKey = "dueDate" | "title" | "variance";
 export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/schedule`;
   const queryKey = useOrgQueryKey("schedule", projectId);
+  const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const { data: milestones = [], isLoading, isError, refetch } = useQuery({
     queryKey,
@@ -288,9 +290,11 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
             variance = projected − baseline
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" /> New Milestone
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate}>
+            <Plus className="size-4" /> New Milestone
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -322,7 +326,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
               : "Add the first milestone to start tracking the schedule."
           }
           action={
-            !filter ? (
+            !filter && canEdit ? (
               <Button onClick={openCreate}>
                 <Plus className="size-4" /> New Milestone
               </Button>
@@ -351,8 +355,8 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
                 return (
                   <tr
                     key={m.id}
-                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                    onClick={() => openEdit(m)}
+                    className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
+                    onClick={canEdit ? () => openEdit(m) : undefined}
                   >
                     <td className="max-w-xs truncate px-3 py-2 font-medium text-[var(--text)]">
                       {m.title}
@@ -399,17 +403,19 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
                       )}
                     </td>
                     <td className="px-2 py-2 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete milestone"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(m);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Delete milestone"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleting(m);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 );

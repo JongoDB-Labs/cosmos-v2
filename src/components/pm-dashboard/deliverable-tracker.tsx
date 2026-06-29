@@ -29,6 +29,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, FileText, AlertTriangle } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 
 type DeliverableStatus =
   | "NOT_STARTED"
@@ -203,6 +204,7 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
     queryKey,
     queryFn: () => jsonFetch<Deliverable[]>(apiBase),
   });
+  const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("baselineDue");
@@ -281,9 +283,11 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
             {deliverables.length} deliverable{deliverables.length === 1 ? "" : "s"} · CDRL tracking
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" /> New Deliverable
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate}>
+            <Plus className="size-4" /> New Deliverable
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -310,7 +314,7 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
           icon={FileText}
           title={filter ? "No matching deliverables" : "No deliverables yet"}
           description={filter ? "Try a different filter." : "Log the first deliverable to start tracking CDRLs."}
-          action={!filter ? <Button onClick={openCreate}><Plus className="size-4" /> New Deliverable</Button> : undefined}
+          action={!filter && canEdit ? <Button onClick={openCreate}><Plus className="size-4" /> New Deliverable</Button> : undefined}
         />
       ) : (
         <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
@@ -335,8 +339,8 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
                 return (
                   <tr
                     key={d.id}
-                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                    onClick={() => openEdit(d)}
+                    className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
+                    onClick={canEdit ? () => openEdit(d) : undefined}
                   >
                     <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{d.code}</td>
                     <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{d.title}</td>
@@ -362,17 +366,19 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
                       </span>
                     </td>
                     <td className="px-2 py-2 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete deliverable"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(d);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Delete deliverable"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleting(d);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 );
