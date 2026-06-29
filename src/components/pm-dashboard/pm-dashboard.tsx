@@ -16,6 +16,7 @@ import {
   Gavel,
   CalendarClock,
   Download,
+  Share2,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -164,6 +165,53 @@ const AUDIENCES: {
 
 // ---------------------------------------------------------------------------
 
+function MirrorToSharePointButton({ orgId, projectId }: { orgId: string; projectId: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const [msg, setMsg] = useState("");
+
+  async function mirror() {
+    setState("busy");
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/export/sharepoint`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.ok) {
+        setState("done");
+        setMsg("Mirrored to SharePoint.");
+      } else {
+        setState("error");
+        setMsg(body?.error ?? `Failed (HTTP ${res.status}).`);
+      }
+    } catch (e) {
+      setState("error");
+      setMsg(e instanceof Error ? e.message : "Failed.");
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={mirror}
+      disabled={state === "busy"}
+      title={msg || "Mirror the workbook to the org's SharePoint library (requires Microsoft 365)"}
+      className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)] disabled:opacity-60"
+      style={state === "error" ? { color: "var(--status-blocked, #dc2626)" } : undefined}
+    >
+      <Share2 className="size-3.5" />
+      {state === "busy"
+        ? "Mirroring…"
+        : state === "done"
+          ? "Mirrored ✓"
+          : state === "error"
+            ? "Mirror failed"
+            : "Mirror to SharePoint"}
+    </button>
+  );
+}
+
 export function PmDashboard({ scope, data, audience: initialAudience }: PmDashboardProps) {
   const { can } = usePermissions();
 
@@ -192,13 +240,16 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
         </div>
         <div className="flex items-center gap-2">
           {scope.kind === "project" && (
-            <a
-              href={`/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/export/xlsx`}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)]"
-              title="Download every register as an Excel workbook"
-            >
-              <Download className="size-3.5" /> Export Excel
-            </a>
+            <>
+              <a
+                href={`/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/export/xlsx`}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)]"
+                title="Download every register as an Excel workbook"
+              >
+                <Download className="size-3.5" /> Export Excel
+              </a>
+              <MirrorToSharePointButton orgId={scope.orgId} projectId={scope.projectId} />
+            </>
           )}
           {audiences.length > 1 && (
             <div
