@@ -5,6 +5,7 @@ import { PmDashboard } from "@/components/pm-dashboard/pm-dashboard";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
+import { loadStaffing, summarizeCompliance } from "@/lib/pm/staffing";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -25,7 +26,8 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
   if (!project) notFound();
 
   const where = { orgId: ctx.orgId, projectId: project.id };
-  const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins] = await Promise.all([
+  const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins, staffing] =
+    await Promise.all([
     // Milestone status + completion derive from linked work items.
     loadMilestonesWithDerived(ctx.orgId, project.id),
     // KPI currentValue derives from execution for auto-source KPIs.
@@ -73,7 +75,10 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
       },
     }),
     loadClinsWithBurn(ctx.orgId, project.id),
+    loadStaffing(ctx.orgId, project.id, { includeCost: false }),
   ]);
+
+  const compliance = summarizeCompliance(staffing);
 
   return (
     <PmDashboard
@@ -130,6 +135,7 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
           burned: c.burned,
           percentConsumed: c.percentConsumed,
         })),
+        compliance,
       }}
     />
   );

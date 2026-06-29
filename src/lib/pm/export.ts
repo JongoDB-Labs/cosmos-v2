@@ -98,6 +98,9 @@ export async function buildProjectWorkbook(orgId: string, projectId: string): Pr
   addSheet("Staffing", staffing.map((s) => ({
     Person: s.name, Role: s.role, "Labor Category": s.laborCategory ?? "",
     Clearance: s.clearance ?? "", "Allocation %": s.allocationPercent ?? "", "Cost Rate": s.costRate ?? "",
+    "On Contract": s.onContract ? "Yes" : "No", CAC: s.cacStatus ?? "", "CAC Expiry": fmtDate(s.cacExpiry),
+    Training: s.trainingStatus ?? "", "System Access": s.accessStatus ?? "", NDA: s.ndaStatus ?? "",
+    Compliant: s.compliant ? "Yes" : "No",
   })));
   addSheet("CLIN Burn", clins.map((c) => ({
     CLIN: c.code, Title: c.title, Funded: c.fundedValue, Ceiling: c.value, Burned: c.burned,

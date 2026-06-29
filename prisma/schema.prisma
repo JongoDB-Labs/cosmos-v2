@@ -601,6 +601,13 @@ model ProjectMember {
   orgMemberId String      @map("org_member_id") @db.Uuid
   role        ProjectRole @default(MEMBER)
   allocationPercent Int? @map("allocation_percent") // % of time on this project
+  onContract      Boolean   @default(true) @map("on_contract")
+  cacStatus       String?   @map("cac_status")
+  cacExpiry       DateTime? @map("cac_expiry")
+  trainingStatus  String?   @map("training_status")
+  accessStatus    String?   @map("access_status")
+  ndaStatus       String?   @map("nda_status")
+  complianceNotes String?   @map("compliance_notes")
 
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   orgMember OrgMember @relation(fields: [orgMemberId], references: [id], onDelete: Cascade)
