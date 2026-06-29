@@ -48,6 +48,12 @@ interface Project {
   key: string;
 }
 
+interface Clin {
+  id: string;
+  code: string;
+  title: string;
+}
+
 interface TimeTrackerProps {
   orgId: string;
 }
@@ -96,6 +102,7 @@ interface EntryFormData {
   date: string;
   hours: string;
   projectId: string;
+  clinId: string;
   description: string;
   billableType: TimeEntry["billableType"];
   tags: string;
@@ -105,6 +112,7 @@ const emptyForm: EntryFormData = {
   date: toDateString(new Date()),
   hours: "",
   projectId: "",
+  clinId: "",
   description: "",
   billableType: "BILLABLE",
   tags: "",
@@ -124,6 +132,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   const [filterBillable, setFilterBillable] = useState<string>("ALL");
   const [showFilters, setShowFilters] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [clins, setClins] = useState<Clin[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -138,6 +147,28 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       }
     })();
   }, [orgId]);
+
+  // Fetch CLINs for the selected project whenever projectId changes in the form.
+  // (The CLIN picker is hidden without a project, so we just skip the fetch then
+  // — no synchronous state-clear in the effect body.)
+  useEffect(() => {
+    if (!form.projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/projects/${form.projectId}/clins`);
+        if (cancelled) return;
+        const data = res.ok ? await res.json() : null;
+        const rows: Clin[] = Array.isArray(data) ? data : (data?.data ?? []);
+        if (!cancelled) setClins(rows);
+      } catch {
+        if (!cancelled) setClins([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, form.projectId]);
 
   const weekDates = getWeekDates(weekBase);
   const weekStart = toDateString(weekDates[0]);
@@ -191,6 +222,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
         date: form.date,
         hours: parseFloat(form.hours) || 0,
         projectId: form.projectId || null,
+        clinId: form.clinId || null,
         description: form.description,
         billableType: form.billableType,
         tags: form.tags
@@ -261,6 +293,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       date: entry.date.split("T")[0],
       hours: String(entry.hours),
       projectId: entry.projectId || "",
+      clinId: entry.clinId || "",
       description: entry.description,
       billableType: entry.billableType,
       tags: entry.tags.join(", "),
@@ -377,7 +410,11 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
                   <Select
                     value={form.projectId || "none"}
                     onValueChange={(val) =>
-                      setForm({ ...form, projectId: !val || val === "none" ? "" : val })
+                      setForm({
+                        ...form,
+                        projectId: !val || val === "none" ? "" : val,
+                        clinId: "",
+                      })
                     }
                   >
                     <SelectTrigger className="w-full">
@@ -393,6 +430,29 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
                     </SelectContent>
                   </Select>
                 </div>
+                {form.projectId && (
+                  <div className="flex flex-col gap-1.5">
+                    <Label>CLIN (optional)</Label>
+                    <Select
+                      value={form.clinId || "none"}
+                      onValueChange={(val) =>
+                        setForm({ ...form, clinId: !val || val === "none" ? "" : val })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a CLIN" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— No CLIN —</SelectItem>
+                        {clins.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.code} — {c.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="te-desc">Description</Label>
                   <Textarea
