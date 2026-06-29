@@ -217,6 +217,12 @@ model Organization {
   connectorCredentials   ConnectorCredential[]
   // Prod-parity back-relations.
   documents              Document[]
+  risks                  Risk[]
+  deliverables           Deliverable[]
+  blockers               Blocker[]
+  changeRequests         ChangeRequest[]
+  programBranches        ProgramBranch[]
+  deliverableRevisions   DeliverableRevision[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   meetingTypeOptions     MeetingTypeOption[]
@@ -580,6 +586,10 @@ model Project {
   journalLines        JournalLine[]
   dataClassifications DataClassification[]
   documents           Document[]
+  risks               Risk[]
+  deliverables        Deliverable[]
+  blockers            Blocker[]
+  changeRequests      ChangeRequest[]
 
   @@unique([orgId, key])
   @@map("projects")
@@ -590,6 +600,14 @@ model ProjectMember {
   projectId   String      @map("project_id") @db.Uuid
   orgMemberId String      @map("org_member_id") @db.Uuid
   role        ProjectRole @default(MEMBER)
+  allocationPercent Int? @map("allocation_percent") // % of time on this project
+  onContract      Boolean   @default(true) @map("on_contract")
+  cacStatus       String?   @map("cac_status")
+  cacExpiry       DateTime? @map("cac_expiry")
+  trainingStatus  String?   @map("training_status")
+  accessStatus    String?   @map("access_status")
+  ndaStatus       String?   @map("nda_status")
+  complianceNotes String?   @map("compliance_notes")
 
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   orgMember OrgMember @relation(fields: [orgMemberId], references: [id], onDelete: Cascade)
@@ -709,7 +727,9 @@ model WorkItem {
 model Activity {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId      String   @map("org_id") @db.Uuid
-  workItemId String   @map("work_item_id") @db.Uuid
+  workItemId String?  @map("work_item_id") @db.Uuid
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id") @db.Uuid
   userId     String   @map("user_id") @db.Uuid
   action     String
   field      String?
@@ -717,23 +737,27 @@ model Activity {
   newValue   String?  @map("new_value")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
   @@index([orgId, workItemId])
+  @@index([orgId, subjectType, subjectId])
   @@map("activities")
 }
 
 model Comment {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId      String   @map("org_id") @db.Uuid
-  workItemId String   @map("work_item_id") @db.Uuid
+  workItemId String?  @map("work_item_id") @db.Uuid
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id") @db.Uuid
   authorId   String   @map("author_id") @db.Uuid
   content    String
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
+  @@index([orgId, subjectType, subjectId])
   @@map("comments")
 }
 
@@ -836,6 +860,13 @@ model Partner {
   contactName  String?  @map("contact_name")
   contactEmail String?  @map("contact_email")
   contactPhone String?  @map("contact_phone")
+  socioEconomic String? @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
+  cageCode      String? @map("cage_code")
+  perfRating    Int?    @map("perf_rating") // 1-5
+  ndaOnFile     Boolean @default(false) @map("nda_on_file")
+  ndaExpiry     DateTime? @map("nda_expiry")
+  pocName       String? @map("poc_name")
+  pocEmail      String? @map("poc_email")
   notes        String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -870,6 +901,12 @@ model Contract {
   orgId              String                      @map("org_id") @db.Uuid
   partnerId          String?                     @map("partner_id") @db.Uuid
   productId          String?                     @map("product_id") @db.Uuid
+  projectId          String?                     @map("project_id") @db.Uuid
+  fundedValue        Decimal?                    @map("funded_value") @db.Decimal(19, 4)
+  invoicedValue      Decimal?                    @map("invoiced_value") @db.Decimal(19, 4)
+  paymentTerms       String?                     @map("payment_terms")
+  agmtType           String?                     @map("agmt_type")
+  agmtNumber         String?                     @map("agmt_number")
   title              String
   value              Decimal?                    @db.Decimal(19, 4)
   currency           String                      @default("USD")
@@ -895,6 +932,7 @@ model Contract {
   journalLines JournalLine[]
 
   @@index([orgId, status])
+  @@index([orgId, projectId])
   @@map("contracts")
 }
 
@@ -1163,6 +1201,7 @@ model TimeEntry {
   // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
   // prod's Prisma defines it as a bare scalar, not a PayRun relation).
   payRunId     String?         @map("pay_run_id") @db.Uuid
+  clinId       String?         @map("clin_id") @db.Uuid
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
@@ -1200,6 +1239,7 @@ model Expense {
   description  String        @default("")
   recurring    Boolean       @default(false)
   status       ExpenseStatus @default(DRAFT)
+  clinId       String?       @map("clin_id") @db.Uuid
   approvedById String?       @map("approved_by_id") @db.Uuid
   submittedAt  DateTime?     @map("submitted_at")
   approvedAt   DateTime?     @map("approved_at")
@@ -2194,6 +2234,21 @@ model Milestone {
 
   org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  baselineDate     DateTime?     @map("baseline_date")
+  projectedDate    DateTime?     @map("projected_date")
+  actualDate       DateTime?     @map("actual_date")
+  rootCause        String?       @map("root_cause")
+  recoveryPlan     String?       @map("recovery_plan")
+  recoveryTarget   DateTime?     @map("recovery_target")
+  phase            String?
+  scheduleEscalate Boolean       @default(false) @map("schedule_escalate")
+  milestoneType    String?       @map("milestone_type")
+  downstreamImpact String?       @map("downstream_impact")
+  relatedRef       String?       @map("related_ref")
+  notes            String?
+  deliverables     Deliverable[]
   links   MilestoneLink[]
 
   @@index([orgId, projectId])
@@ -2217,6 +2272,17 @@ enum KpiDirection {
   DOWN_GOOD
 }
 
+// How a KPI's currentValue is sourced. MANUAL = typed in; the rest derive from
+// execution (work items + cycles) — see lib/pm/kpi-derive.
+enum KpiAutoSource {
+  MANUAL
+  VELOCITY        // avg story points delivered per completed cycle
+  COMPLETION_PCT  // % of work items done
+  THROUGHPUT      // items completed within the rolling window
+  OPEN_ITEMS      // count of not-done work items
+  AVG_CYCLE_TIME  // avg days from start to done
+}
+
 model Kpi {
   id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String       @map("org_id") @db.Uuid
@@ -2227,6 +2293,8 @@ model Kpi {
   targetValue  Float        @default(0) @map("target_value")
   currentValue Float        @default(0) @map("current_value")
   direction    KpiDirection @default(UP_GOOD)
+  autoSource   KpiAutoSource @default(MANUAL) @map("auto_source")
+  autoWindowDays Int?        @map("auto_window_days") // rolling window for THROUGHPUT (default 30)
   sortOrder    Int          @default(0) @map("sort_order")
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
@@ -3058,4 +3126,303 @@ model BankRule {
 
   @@index([orgId, isActive, priority])
   @@map("bank_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Govcon program-management models (PM Dashboard) — the compliance/reporting
+// layer the commercial schema lacks. Org-scoped, CUI-classified by default,
+// keyed on a stable per-org code. See docs schema-mapping for the full mapping.
+// ---------------------------------------------------------------------------
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskStatus {
+  OPEN
+  MONITORING
+  MITIGATING
+  MITIGATED
+  CLOSED
+  ESCALATED
+}
+
+enum DeliverableStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  IN_GOVT_REVIEW
+  ACCEPTED
+  REJECTED
+  DRAFT_IN_PROGRESS
+  INTERNAL_REVIEW
+  ACCEPTED_WITH_COMMENTS
+  REVISION_REQUIRED
+  OVERDUE
+}
+
+enum BlockerType {
+  INTERNAL
+  EXTERNAL_GOVERNMENT
+  EXTERNAL_VENDOR
+  EXTERNAL_PROCUREMENT
+  EXTERNAL_THIRD_PARTY
+}
+
+enum BlockerStatus {
+  OPEN
+  RESOLVED
+  IN_PROGRESS
+  ESCALATED
+}
+
+enum ChangeRequestStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+  UNDER_REVIEW
+  WITHDRAWN
+}
+
+model Risk {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String              @map("org_id") @db.Uuid
+  projectId      String              @map("project_id") @db.Uuid
+  code           String
+  title          String
+  description    String?
+  category       String?
+  branch         String?
+  likelihood     Int                 @default(1)
+  impact         Int                 @default(1)
+  score          Int                 @default(1)
+  level          RiskLevel           @default(LOW)
+  owner          String?
+  mitigation     String?
+  contingency    String?
+  dateIdentified DateTime?            @map("date_identified")
+  status         RiskStatus          @default(OPEN)
+  trend          String?
+  escalate       Boolean             @default(false)
+  targetDate     DateTime?           @map("target_date")
+  classification ClassificationLevel @default(CUI)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("risks")
+}
+
+model Deliverable {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String              @map("org_id") @db.Uuid
+  projectId        String              @map("project_id") @db.Uuid
+  code             String
+  title            String
+  description      String?
+  clin             String?
+  status           DeliverableStatus   @default(NOT_STARTED)
+  baselineDue      DateTime?           @map("baseline_due")
+  actualSubmission DateTime?           @map("actual_submission")
+  govAcceptance    DateTime?           @map("gov_acceptance")
+  owner            String?
+  revisionCycle    Int                 @default(0) @map("revision_cycle")
+  escalate         Boolean             @default(false)
+  classification   ClassificationLevel @default(CUI)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  deliverableType String?               @map("deliverable_type")
+  internalReview  DateTime?             @map("internal_review")
+  govReviewPeriod Int?                  @map("gov_review_period")
+  revRequired     Boolean               @default(false) @map("rev_required")
+  milestoneId     String?               @map("milestone_id") @db.Uuid
+  milestone       Milestone?            @relation(fields: [milestoneId], references: [id])
+  revisions       DeliverableRevision[]
+  branchOwner     String?               @map("branch_owner")
+  workItemRef     String?               @map("work_item_ref")
+  notes           String?
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("deliverables")
+}
+
+model Blocker {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String              @map("org_id") @db.Uuid
+  projectId        String              @map("project_id") @db.Uuid
+  code             String
+  title            String
+  description      String?
+  type             BlockerType         @default(INTERNAL)
+  status           BlockerStatus       @default(OPEN)
+  whatUnblocks     String?             @map("what_unblocks")
+  owner            String?
+  customerNotified Boolean             @default(false) @map("customer_notified")
+  escalate         Boolean             @default(false)
+  identifiedAt     DateTime            @default(now()) @map("identified_at")
+  resolvedAt       DateTime?           @map("resolved_at")
+  classification   ClassificationLevel @default(CUI)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  source               String?
+  identifiedBy         String?            @map("identified_by")
+  decisionAuthority    String?            @map("decision_authority")
+  relatedRiskCode      String?            @map("related_risk_code")
+  targetDate           DateTime?          @map("target_date")
+  customerNotifiedDate DateTime?          @map("customer_notified_date")
+  relatedRef           String?            @map("related_ref")
+  notes                String?
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("blockers")
+}
+
+model ChangeRequest {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String              @map("org_id") @db.Uuid
+  projectId          String              @map("project_id") @db.Uuid
+  code               String
+  title              String
+  description        String?
+  type               String?
+  status             ChangeRequestStatus @default(SUBMITTED)
+  costImpact         Decimal?            @map("cost_impact") @db.Decimal(14, 2)
+  scheduleDaysImpact Int?                @map("schedule_days_impact")
+  modRequired        Boolean             @default(false) @map("mod_required")
+  decidedAt          DateTime?           @map("decided_at")
+  classification     ClassificationLevel @default(CUI)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?       @map("branch_id") @db.Uuid
+  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  initiatedBy       String?               @map("initiated_by")
+  decisionAuthority String?               @map("decision_authority")
+  approvedBy        String?               @map("approved_by")
+  modNumber         String?               @map("mod_number")
+  implDate          DateTime?             @map("impl_date")
+  relatedRiskCode   String?               @map("related_risk_code")
+  submittedDate     DateTime?             @map("submitted_date")
+  scopeImpact       String?               @map("scope_impact")
+  notes             String?
+
+  @@unique([orgId, code])
+  @@index([orgId, projectId, status])
+  @@map("change_requests")
+}
+
+// Org-configurable program branch (1.0 Program Mgmt … 6.0 Fielding & Transition).
+// First-class dimension referenced by every govcon tracker — powers the
+// Domain-Lead persona and all "by branch" rollups.
+model ProgramBranch {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  code      String
+  name      String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  risks          Risk[]
+  changeRequests ChangeRequest[]
+  blockers       Blocker[]
+  deliverables   Deliverable[]
+  milestones     Milestone[]
+
+  @@unique([orgId, code])
+  @@map("program_branches")
+}
+
+// Deliverable revision cycle (gov returns a CDRL with comments → a new cycle opens).
+model DeliverableRevision {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String    @map("org_id") @db.Uuid
+  deliverableId  String    @map("deliverable_id") @db.Uuid
+  cycle          Int       @default(1)
+  title          String?
+  dateReturned   DateTime? @map("date_returned")
+  commentSummary String?   @map("comment_summary")
+  owner          String?
+  revisedTarget  DateTime? @map("revised_target")
+  actualRevised  DateTime? @map("actual_revised")
+  daysToResolve  Int?      @map("days_to_resolve")
+  govAcceptance  String?   @map("gov_acceptance")
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliverable Deliverable  @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, deliverableId])
+  @@map("deliverable_revisions")
+}
+
+// A CLIN (Contract Line Item Number) — the cost-rollup dimension. Time entries
+// and expenses attribute to a CLIN; burn = labor (hours x cost rate) + expenses
+// vs the funded value / ceiling. See lib/pm/burn.ts.
+model Clin {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  code        String
+  title       String
+  value       Decimal   @default(0) @db.Decimal(19, 4) // ceiling
+  fundedValue Decimal   @default(0) @map("funded_value") @db.Decimal(19, 4)
+  popStart    DateTime? @map("pop_start")
+  popEnd      DateTime? @map("pop_end")
+  status      String    @default("active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@unique([orgId, projectId, code])
+  @@index([orgId, projectId])
+  @@map("clins")
+}
+
+// A directional cross-reference between two PM entities (or a PM entity and a
+// work item). "Soft" references: from/to are (type, id) pairs resolved at read
+// time via lib/pm/subjects.ts — no FK relations, so a link can point at any of
+// the polymorphic subject kinds without per-kind columns. The detail drawer's
+// "Related" tab reads links in either direction and resolves the far end.
+model PmLink {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  fromType    String   @map("from_type")
+  fromId      String   @map("from_id") @db.Uuid
+  toType      String   @map("to_type")
+  toId        String   @map("to_id") @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([fromType, fromId, toType, toId])
+  @@index([orgId, fromType, fromId])
+  @@index([orgId, toType, toId])
+  @@map("pm_links")
 }

@@ -21,6 +21,15 @@ import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission } from "./executors/_ctx";
 import { logAudit } from "@/lib/audit";
 import { queryComplianceControls, updateComplianceControl, listOrgMembers } from "./executors/compliance";
+import {
+  listRisks,
+  createRisk,
+  updateRisk,
+  addPmComment,
+  listBlockers,
+  listDeliverables,
+  listChanges,
+} from "./executors/pm-register";
 
 interface ToolContext {
   orgId: string;
@@ -266,6 +275,22 @@ async function dispatchTool(
     case "list_org_members":
       return listOrgMembers(input, ctx);
 
+    // PM Dashboard registers
+    case "list_risks":
+      return listRisks(input, ctx);
+    case "create_risk":
+      return createRisk(input, ctx);
+    case "update_risk":
+      return updateRisk(input, ctx);
+    case "add_pm_comment":
+      return addPmComment(input, ctx);
+    case "list_blockers":
+      return listBlockers(input, ctx);
+    case "list_deliverables":
+      return listDeliverables(input, ctx);
+    case "list_changes":
+      return listChanges(input, ctx);
+
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -290,6 +315,9 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   log_expense: { action: "assistant.expense.logged", entity: "expense" },
   create_cycle: { action: "assistant.cycle.created", entity: "cycle" },
   update_compliance_control: { action: "assistant.compliance_control.updated", entity: "compliance_control" },
+  create_risk: { action: "assistant.risk.created", entity: "risk" },
+  update_risk: { action: "assistant.risk.updated", entity: "risk" },
+  add_pm_comment: { action: "assistant.pm_comment.added", entity: "comment" },
   send_email: { action: "assistant.email.sent", entity: "email" },
   create_calendar_event: { action: "assistant.calendar_event.created", entity: "calendar_event" },
   update_calendar_event: { action: "assistant.calendar_event.updated", entity: "calendar_event" },
@@ -302,7 +330,7 @@ function pickEntityId(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   const r = result as Record<string, unknown>;
   if (typeof r.id === "string") return r.id;
-  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "cycle", "event", "item"]) {
+  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "cycle", "event", "item", "risk"]) {
     const nested = r[key];
     if (nested && typeof nested === "object" && typeof (nested as Record<string, unknown>).id === "string") {
       return (nested as Record<string, unknown>).id as string;

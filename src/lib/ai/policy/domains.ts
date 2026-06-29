@@ -69,6 +69,7 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   add_comment: "comments",
   list_comments: "comments",
   delete_comment: "comments",
+  add_pm_comment: "comments", // PM-dashboard register comments — a comment is a comment
 
   // ── time ────────────────────────────────────────────────────────────────────
   log_time: "time",
@@ -89,9 +90,18 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   query_compliance_controls: "compliance",
   update_compliance_control: "compliance",
 
-  // ── projects ────────────────────────────────────────────────────────────────
+  // ── projects (incl. govcon PM Dashboard registers) ───────────────────────────
   list_projects: "projects",
   list_org_members: "projects",
+  // PM Dashboard register tools (risk/blocker/deliverable/change) — project-management
+  // data, grouped under `projects` so an org denies the whole PM agent via one coarse
+  // lever (paired with `comments` for add_pm_comment).
+  list_risks: "projects",
+  create_risk: "projects",
+  update_risk: "projects",
+  list_blockers: "projects",
+  list_deliverables: "projects",
+  list_changes: "projects",
 
   // ── cycles ──────────────────────────────────────────────────────────────────
   query_cycles: "cycles",

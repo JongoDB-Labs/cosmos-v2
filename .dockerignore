@@ -8,3 +8,16 @@ e2e
 # pg_dump rollback points written by .deploy/deploy-v2.sh before each build — keep
 # them out of the build context so a new dump doesn't bust the COPY . . cache.
 .deploy
+# Secrets / sensitive material — keep out of the build context. The local .env and
+# .env.local hold real (gitignored) secrets; without this they ride into the build
+# stage via `COPY . .`. CI passes build config via ENV / --build-arg, not a .env file.
+# (.env.example template + next-env.d.ts are unaffected by these patterns.)
+.env
+.env.local
+.env.*.local
+deploy/secrets
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*

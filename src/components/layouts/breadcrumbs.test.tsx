@@ -34,4 +34,14 @@ describe("buildCrumbs", () => {
       { label: "CRM", href: "/fsc/crm" },
     ]);
   });
+
+  it("applies multi-word overrides (pm-dashboard → PM Dashboard, not Pm Dashboard)", () => {
+    const orgs = [{ slug: "fsc", name: "Fighting Smart Cyber" }];
+    expect(buildCrumbs("/fsc/projects/SENTINEL/pm-dashboard", orgs)).toEqual([
+      { label: "Fighting Smart Cyber", href: "/fsc" },
+      { label: "Projects", href: "/fsc/projects" },
+      { label: "SENTINEL", href: "/fsc/projects/SENTINEL" },
+      { label: "PM Dashboard", href: "/fsc/projects/SENTINEL/pm-dashboard" },
+    ]);
+  });
 });
