@@ -279,3 +279,53 @@ export async function graphFetch(
 
   return { ok: true, data: await res.json() };
 }
+
+/**
+ * Upload (PUT) a binary file to Microsoft Graph for the org — e.g. mirror an
+ * export to a SharePoint document library. `uploadPath` is appended to the
+ * cloud-correct Graph base URL, e.g.
+ *   /sites/{siteId}/drives/{driveId}/root:/{folder}/{name}.xlsx:/content
+ * Uses the real `fetch` (binary body); the Bearer token is sent but never
+ * returned/logged. A not-connected org, token failure, or Graph 4xx/5xx all map
+ * to a graceful `{ ok:false, error }`. Requires the Entra app to hold
+ * `Sites.ReadWrite.All` (or `Sites.Selected`) + admin consent.
+ */
+export async function graphUploadFile(
+  orgId: string,
+  uploadPath: string,
+  content: ArrayBuffer,
+  contentType: string,
+): Promise<GraphFetchResult> {
+  const tok = await getGraphToken(orgId);
+  if ("error" in tok) return { ok: false, error: tok.error };
+
+  const url = `${tok.graphBaseUrl}${uploadPath.startsWith("/") ? uploadPath : `/${uploadPath}`}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${tok.accessToken}`,
+        "Content-Type": contentType,
+        "User-Agent": "cosmos-connector",
+      },
+      body: content,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Microsoft Graph upload failed: ${msg}` };
+  }
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const parsed = (await res.json()) as { error?: { code?: unknown } };
+      if (typeof parsed?.error?.code === "string") detail = `: ${parsed.error.code}`;
+    } catch {
+      /* body not JSON — ignore */
+    }
+    return { ok: false, error: `Microsoft Graph upload error (HTTP ${res.status})${detail}` };
+  }
+
+  return { ok: true, data: await res.json() };
+}
