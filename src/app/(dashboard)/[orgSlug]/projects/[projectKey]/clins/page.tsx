@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { ClinBurnTracker } from "@/components/pm-dashboard/clin-burn-tracker";
+import { ClinEvmPanel } from "@/components/pm-dashboard/clin-evm-panel";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -16,5 +17,10 @@ export default async function ClinsPage({ params }: PageParams) {
   });
   if (!project) notFound();
 
-  return <ClinBurnTracker orgId={ctx.orgId} projectId={project.id} />;
+  return (
+    <>
+      <ClinEvmPanel orgId={ctx.orgId} projectId={project.id} />
+      <ClinBurnTracker orgId={ctx.orgId} projectId={project.id} />
+    </>
+  );
 }
