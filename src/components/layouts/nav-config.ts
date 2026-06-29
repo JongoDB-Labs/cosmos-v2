@@ -15,7 +15,6 @@ import {
   Wallet,
   Percent,
   BookOpen,
-  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import { Permission } from "@/lib/rbac/permissions";
@@ -198,14 +197,6 @@ export const SIDEBAR_NAV: NavEntry[] = [
     label: "Analytics",
     href: "/analytics",
     anyOf: [Permission.ANALYTICS_READ],
-  },
-  {
-    type: "leaf",
-    id: "pm-dashboard",
-    icon: ClipboardList,
-    label: "PM Dashboard",
-    href: "/pm-dashboard",
-    anyOf: [Permission.ANALYTICS_READ, Permission.REPORT_CREATE],
   },
   {
     type: "leaf",

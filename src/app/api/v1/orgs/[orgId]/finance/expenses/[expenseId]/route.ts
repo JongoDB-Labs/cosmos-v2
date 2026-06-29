@@ -16,6 +16,7 @@ const updateExpenseSchema = z.object({
   vendor: z.string().nullish(),
   description: z.string().nullish(),
   recurring: z.boolean().optional(),
+  clinId: z.string().uuid().nullish(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; expenseId: string }> };
@@ -91,6 +92,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.vendor !== undefined && { vendor: data.vendor }),
         ...(data.description !== undefined && { description: data.description ?? "" }),
         ...(data.recurring !== undefined && { recurring: data.recurring }),
+        ...(data.clinId !== undefined && { clinId: data.clinId }),
       },
     });
 

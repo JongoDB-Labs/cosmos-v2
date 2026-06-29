@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -23,8 +24,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
+    const branchScope = await resolveBranchScope(orgId, ctx.userId);
     const changes = await prisma.changeRequest.findMany({
-      where: { orgId, projectId },
+      where: { orgId, projectId, ...branchScopeWhere(branchScope) },
       include: changeInclude,
       orderBy: { createdAt: "desc" },
     });

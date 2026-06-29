@@ -355,6 +355,7 @@ export interface TimeEntry {
   userId: string;
   projectId: string | null;
   workItemId: string | null;
+  clinId: string | null;
   date: string;
   hours: number;
   rate: string | null;
@@ -394,6 +395,7 @@ export interface Expense {
   vendor: string | null;
   description: string;
   recurring: boolean;
+  clinId: string | null;
   status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
   approvedById: string | null;
   submittedAt: string | null;
