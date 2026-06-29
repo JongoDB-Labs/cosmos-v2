@@ -322,11 +322,59 @@ async function main() {
     staffed++;
   }
 
+  // CLINs + attributed (approved) time + expenses so the burn rolls up.
+  const CLINS: { code: string; title: string; value: number; funded: number; start: number; end: number }[] = [
+    { code: "0001", title: "Program Management", value: 850000, funded: 850000, start: -180, end: 185 },
+    { code: "0002", title: "Engineering & Development", value: 2400000, funded: 1800000, start: -180, end: 185 },
+    { code: "0003", title: "Security & RMF/ATO", value: 620000, funded: 620000, start: -180, end: 185 },
+    { code: "0004", title: "OT&E & Fielding", value: 450000, funded: 200000, start: 0, end: 365 },
+  ];
+  const clinId: Record<string, string> = {};
+  for (const c of CLINS) {
+    const row = await prisma.clin.upsert({
+      where: { orgId_projectId_code: { orgId: org.id, projectId: project.id, code: c.code } },
+      update: { title: c.title, value: c.value, fundedValue: c.funded, popStart: d(c.start), popEnd: d(c.end) },
+      create: { orgId: org.id, projectId: project.id, code: c.code, title: c.title, value: c.value, fundedValue: c.funded, popStart: d(c.start), popEnd: d(c.end) },
+    });
+    clinId[c.code] = row.id;
+  }
+  const uid: Record<string, string> = {};
+  for (const name of ["Jon", "Marcus Hale", "Dana Reyes", "Priya Nair", "Tom Becker"]) {
+    const u = await prisma.user.findFirst({ where: { displayName: name } });
+    if (u) uid[name] = u.id;
+  }
+  // Idempotent: clear prior attributed time/expense for these CLINs, then re-create.
+  const allClinIds = Object.values(clinId);
+  await prisma.timeEntry.deleteMany({ where: { orgId: org.id, clinId: { in: allClinIds } } });
+  await prisma.expense.deleteMany({ where: { orgId: org.id, clinId: { in: allClinIds } } });
+  const TIME: { code: string; name: string; hours: number }[] = [
+    { code: "0001", name: "Marcus Hale", hours: 1800 }, { code: "0001", name: "Jon", hours: 400 },
+    { code: "0002", name: "Priya Nair", hours: 1600 }, { code: "0002", name: "Marcus Hale", hours: 400 },
+    { code: "0003", name: "Dana Reyes", hours: 1700 }, { code: "0003", name: "Tom Becker", hours: 800 },
+    { code: "0004", name: "Tom Becker", hours: 300 },
+  ];
+  for (const t of TIME) {
+    if (!uid[t.name]) continue;
+    await prisma.timeEntry.create({
+      data: { orgId: org.id, userId: uid[t.name], projectId: project.id, clinId: clinId[t.code], date: d(-30), hours: t.hours, status: "APPROVED", billableType: "BILLABLE", description: "Accrued labor (demo)" },
+    });
+  }
+  const EXP: { code: string; amount: number; category: string }[] = [
+    { code: "0001", amount: 18000, category: "Travel" }, { code: "0002", amount: 65000, category: "Equipment" },
+    { code: "0003", amount: 12000, category: "Training" }, { code: "0004", amount: 8000, category: "Travel" },
+  ];
+  const createdBy = uid["Jon"] ?? Object.values(uid)[0];
+  for (const e of EXP) {
+    await prisma.expense.create({
+      data: { orgId: org.id, amount: e.amount, currency: "USD", date: d(-20), category: e.category, status: "APPROVED", description: `${e.category} (demo)`, createdById: createdBy, clinId: clinId[e.code] },
+    });
+  }
+
   console.log(
     `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
       `${blockers.length} blockers, ${changes.length} change requests, ${mUpdated} milestone baselines, ` +
       `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links, ${kpiAuto} auto KPIs, ` +
-      `${subsCreated} subcontracts, ${staffed} staffed for ${PKEY}.`,
+      `${subsCreated} subcontracts, ${staffed} staffed, ${CLINS.length} CLINs for ${PKEY}.`,
   );
 }
 

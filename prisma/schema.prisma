@@ -1179,6 +1179,7 @@ model TimeEntry {
   // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
   // prod's Prisma defines it as a bare scalar, not a PayRun relation).
   payRunId     String?         @map("pay_run_id") @db.Uuid
+  clinId       String?         @map("clin_id") @db.Uuid
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
@@ -1216,6 +1217,7 @@ model Expense {
   description  String        @default("")
   recurring    Boolean       @default(false)
   status       ExpenseStatus @default(DRAFT)
+  clinId       String?       @map("clin_id") @db.Uuid
   approvedById String?       @map("approved_by_id") @db.Uuid
   submittedAt  DateTime?     @map("submitted_at")
   approvedAt   DateTime?     @map("approved_at")
@@ -3345,4 +3347,26 @@ model DeliverableRevision {
 
   @@index([orgId, deliverableId])
   @@map("deliverable_revisions")
+}
+
+// A CLIN (Contract Line Item Number) — the cost-rollup dimension. Time entries
+// and expenses attribute to a CLIN; burn = labor (hours x cost rate) + expenses
+// vs the funded value / ceiling. See lib/pm/burn.ts.
+model Clin {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  code        String
+  title       String
+  value       Decimal   @default(0) @db.Decimal(19, 4) // ceiling
+  fundedValue Decimal   @default(0) @map("funded_value") @db.Decimal(19, 4)
+  popStart    DateTime? @map("pop_start")
+  popEnd      DateTime? @map("pop_end")
+  status      String    @default("active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@unique([orgId, projectId, code])
+  @@index([orgId, projectId])
+  @@map("clins")
 }
