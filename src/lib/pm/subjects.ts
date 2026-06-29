@@ -89,3 +89,51 @@ export async function resolvePmSubject(
       return null;
   }
 }
+
+/**
+ * Resolved far-end of a cross-reference link. Same shape as the link API rows:
+ * carries the subject's kind + id alongside its display title/code and the
+ * register page segment (for deep-linking). `work_item` is included here (it is
+ * NOT a PmSubjectType — comments/activity don't attach to it) so a PM entity can
+ * link to a board item; its "code" is the `#<ticketNumber>` ticket reference
+ * (the schema has no `identifier` column).
+ */
+export type LinkSubjectType = PmSubjectType | "work_item";
+
+export interface ResolvedLinkSubject {
+  type: LinkSubjectType;
+  id: string;
+  title: string;
+  code: string | null;
+  urlSeg: string;
+}
+
+export async function resolveLinkSubject(
+  type: string,
+  id: string,
+  orgId: string,
+  projectId: string,
+): Promise<ResolvedLinkSubject | null> {
+  if (type === "work_item") {
+    const w = await prisma.workItem.findFirst({
+      where: { id, orgId, projectId },
+      select: { title: true, ticketNumber: true },
+    });
+    return w
+      ? {
+          type: "work_item",
+          id,
+          title: w.title,
+          code: w.ticketNumber != null ? `#${w.ticketNumber}` : null,
+          urlSeg: "work-items",
+        }
+      : null;
+  }
+
+  if (isPmSubjectType(type)) {
+    const s = await resolvePmSubject(type, id, orgId, projectId);
+    return s ? { type, id, title: s.title, code: s.code, urlSeg: s.urlSeg } : null;
+  }
+
+  return null;
+}

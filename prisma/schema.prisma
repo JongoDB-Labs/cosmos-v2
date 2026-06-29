@@ -3404,3 +3404,25 @@ model Clin {
   @@index([orgId, projectId])
   @@map("clins")
 }
+
+// A directional cross-reference between two PM entities (or a PM entity and a
+// work item). "Soft" references: from/to are (type, id) pairs resolved at read
+// time via lib/pm/subjects.ts — no FK relations, so a link can point at any of
+// the polymorphic subject kinds without per-kind columns. The detail drawer's
+// "Related" tab reads links in either direction and resolves the far end.
+model PmLink {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  fromType    String   @map("from_type")
+  fromId      String   @map("from_id") @db.Uuid
+  toType      String   @map("to_type")
+  toId        String   @map("to_id") @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([fromType, fromId, toType, toId])
+  @@index([orgId, fromType, fromId])
+  @@index([orgId, toType, toId])
+  @@map("pm_links")
+}
