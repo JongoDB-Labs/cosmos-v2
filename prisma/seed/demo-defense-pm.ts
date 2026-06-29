@@ -265,10 +265,44 @@ async function main() {
     kpiAuto++;
   }
 
+  // Subcontractors (Partner) + their SENTINEL sub-contracts (Contract, project-scoped).
+  const SUBS: {
+    name: string; socioEconomic: string; cageCode: string; perfRating: number;
+    title: string; value: number; status: string; start: number; end: number;
+  }[] = [
+    { name: "Aegis Cyber Solutions LLC", socioEconomic: "SDVOSB", cageCode: "8F2K1", perfRating: 4, title: "RMF / ATO engineering support", value: 480000, status: "active", start: -120, end: 245 },
+    { name: "Lumen Data Systems", socioEconomic: "WOSB", cageCode: "7Q9X3", perfRating: 5, title: "Data pipeline & ingest development", value: 320000, status: "active", start: -90, end: 275 },
+    { name: "Harbor Point Analytics", socioEconomic: "8(a)", cageCode: "5R2M8", perfRating: 3, title: "ML threat-scoring models", value: 210000, status: "signed", start: -30, end: 335 },
+    { name: "Ridgeline Integration Inc", socioEconomic: "HUBZone", cageCode: "9T4P2", perfRating: 4, title: "OT&E test harness & range support", value: 150000, status: "draft", start: 15, end: 380 },
+  ];
+  let subsCreated = 0;
+  for (const v of SUBS) {
+    let partner = await prisma.partner.findFirst({ where: { orgId: org.id, name: v.name } });
+    const govcon = { socioEconomic: v.socioEconomic, cageCode: v.cageCode, perfRating: v.perfRating, type: "subcontractor" };
+    if (!partner) {
+      partner = await prisma.partner.create({ data: { orgId: org.id, name: v.name, status: "active", ...govcon } });
+    } else {
+      await prisma.partner.update({ where: { id: partner.id }, data: govcon });
+    }
+    const existing = await prisma.contract.findFirst({
+      where: { orgId: org.id, projectId: project.id, partnerId: partner.id, title: v.title },
+    });
+    if (!existing) {
+      await prisma.contract.create({
+        data: {
+          orgId: org.id, projectId: project.id, partnerId: partner.id, title: v.title,
+          value: v.value, currency: "USD", status: v.status, startDate: d(v.start), endDate: d(v.end),
+        },
+      });
+      subsCreated++;
+    }
+  }
+
   console.log(
     `Govcon PM seed: ${BRANCHES.length} branches, ${risks.length} risks, ${deliverables.length} deliverables, ` +
       `${blockers.length} blockers, ${changes.length} change requests, ${mUpdated} milestone baselines, ` +
-      `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links, ${kpiAuto} auto KPIs upserted for ${PKEY}.`,
+      `${revAdded} deliverable revision(s), ${linksCreated} milestone→work-item links, ${kpiAuto} auto KPIs, ` +
+      `${subsCreated} subcontracts upserted for ${PKEY}.`,
   );
 }
 
