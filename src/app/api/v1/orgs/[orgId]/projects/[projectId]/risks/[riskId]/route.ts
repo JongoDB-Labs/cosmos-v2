@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; riskId: string }>;
@@ -76,6 +77,36 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
       include: riskInclude,
     });
+
+    // Audit field changes (best-effort). Label-keyed maps so the Activity log
+    // reads "changed Status: OPEN → MITIGATED". Only the audited fields below
+    // are diffed; `logPmFieldChanges` skips keys whose before === after.
+    await logPmFieldChanges(
+      { orgId, subjectType: "risk", subjectId: riskId, userId: ctx.userId },
+      {
+        title: existing.title,
+        status: existing.status,
+        likelihood: existing.likelihood,
+        impact: existing.impact,
+        owner: existing.owner,
+        mitigation: existing.mitigation,
+        branchId: existing.branchId,
+        category: existing.category,
+        escalate: existing.escalate,
+      },
+      {
+        title: updated.title,
+        status: updated.status,
+        likelihood: updated.likelihood,
+        impact: updated.impact,
+        owner: updated.owner,
+        mitigation: updated.mitigation,
+        branchId: updated.branchId,
+        category: updated.category,
+        escalate: updated.escalate,
+      },
+    );
+
     return success(updated);
   } catch (e) {
     return handleApiError(e);
