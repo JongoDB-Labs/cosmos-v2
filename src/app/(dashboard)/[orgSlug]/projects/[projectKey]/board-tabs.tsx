@@ -195,75 +195,17 @@ export function ProjectBoardTabs({
   // Build feature tabs based on enabledFeatures
   const featureTabs: FeatureTab[] = [];
 
+  // PM Dashboard is the single top-level tab for the whole PM suite; the
+  // registers (Risk/Change/Blocked/Schedule/Deliverables/Vendors/Staffing/CLIN)
+  // now live as sub-tabs INSIDE it (see pm-dashboard/pm-nav.tsx), so they no
+  // longer crowd this board strip. `prefix` keeps this tab active on any
+  // /pm-dashboard/* sub-page.
   if (enabledFeatures.includes("pm-dashboard")) {
     featureTabs.push({
       feature: "pm-dashboard",
       label: "PM Dashboard",
       href: `/${orgSlug}/projects/${projectKey}/pm-dashboard`,
-    });
-  }
-
-  if (enabledFeatures.includes("risk-register")) {
-    featureTabs.push({
-      feature: "risk-register",
-      label: "Risk Register",
-      href: `/${orgSlug}/projects/${projectKey}/risks`,
-    });
-  }
-
-  if (enabledFeatures.includes("change-log")) {
-    featureTabs.push({
-      feature: "change-log",
-      label: "Change Log",
-      href: `/${orgSlug}/projects/${projectKey}/changes`,
-    });
-  }
-
-  if (enabledFeatures.includes("blocked-items")) {
-    featureTabs.push({
-      feature: "blocked-items",
-      label: "Blocked Items",
-      href: `/${orgSlug}/projects/${projectKey}/blockers`,
-    });
-  }
-
-  if (enabledFeatures.includes("schedule-variance")) {
-    featureTabs.push({
-      feature: "schedule-variance",
-      label: "Schedule",
-      href: `/${orgSlug}/projects/${projectKey}/schedule`,
-    });
-  }
-
-  if (enabledFeatures.includes("deliverables-tracker")) {
-    featureTabs.push({
-      feature: "deliverables-tracker",
-      label: "Deliverables",
-      href: `/${orgSlug}/projects/${projectKey}/deliverables`,
-    });
-  }
-
-  if (enabledFeatures.includes("vendors")) {
-    featureTabs.push({
-      feature: "vendors",
-      label: "Vendors",
-      href: `/${orgSlug}/projects/${projectKey}/vendors`,
-    });
-  }
-
-  if (enabledFeatures.includes("staffing")) {
-    featureTabs.push({
-      feature: "staffing",
-      label: "Staffing",
-      href: `/${orgSlug}/projects/${projectKey}/staffing`,
-    });
-  }
-
-  if (enabledFeatures.includes("clin-burn")) {
-    featureTabs.push({
-      feature: "clin-burn",
-      label: "CLIN Burn",
-      href: `/${orgSlug}/projects/${projectKey}/clins`,
+      prefix: true,
     });
   }
 
