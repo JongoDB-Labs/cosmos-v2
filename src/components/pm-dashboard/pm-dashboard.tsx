@@ -19,6 +19,7 @@ import {
   Share2,
   UserCheck,
 } from "lucide-react";
+import { ExportDialog } from "./export-dialog";
 
 // ---------------------------------------------------------------------------
 // Public shape — scope-aware (project now; org / sub-element reuse the surface)
@@ -238,6 +239,7 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
   });
 
   const stats = useMemo(() => computeStats(data), [data]);
+  const [exportOpen, setExportOpen] = useState(false);
   const scopeLabel = scope.kind === "project" ? scope.projectName : scope.orgName;
   const header = AUDIENCE_HEADER[audience];
 
@@ -253,14 +255,21 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
         <div className="flex items-center gap-2">
           {scope.kind === "project" && (
             <>
-              <a
-                href={`/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/export/xlsx`}
+              <button
+                type="button"
+                onClick={() => setExportOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)]"
-                title="Download every register as an Excel workbook"
+                title="Export registers as Excel (pick trackers + format)"
               >
                 <Download className="size-3.5" /> Export Excel
-              </a>
+              </button>
               <MirrorToSharePointButton orgId={scope.orgId} projectId={scope.projectId} />
+              <ExportDialog
+                orgId={scope.orgId}
+                projectId={scope.projectId}
+                open={exportOpen}
+                onOpenChange={setExportOpen}
+              />
             </>
           )}
           {audiences.length > 1 && (

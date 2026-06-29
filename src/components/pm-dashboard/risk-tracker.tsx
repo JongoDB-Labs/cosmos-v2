@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, ShieldAlert, AlertTriangle } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type RiskStatus = "OPEN" | "MONITORING" | "MITIGATED" | "CLOSED" | "ESCALATED";
 
@@ -119,27 +120,6 @@ const emptyForm: RiskForm = {
   dateIdentified: "",
 };
 
-function toDateInput(iso: string | null): string {
-  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-}
-function riskToForm(r: Risk): RiskForm {
-  return {
-    title: r.title,
-    description: r.description ?? "",
-    category: r.category ?? "Technical",
-    branchId: r.branchId ?? "",
-    likelihood: r.likelihood,
-    impact: r.impact,
-    owner: r.owner ?? "",
-    mitigation: r.mitigation ?? "",
-    contingency: r.contingency ?? "",
-    status: r.status,
-    trend: r.trend ?? "→ Stable",
-    escalate: r.escalate,
-    targetDate: toDateInput(r.targetDate),
-    dateIdentified: toDateInput(r.dateIdentified),
-  };
-}
 function formToBody(f: RiskForm) {
   return {
     title: f.title.trim(),
@@ -173,22 +153,18 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("priority");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<Risk | null>(null);
   const [deleting, setDeleting] = useState<Risk | null>(null);
   const [form, setForm] = useState<RiskForm>(emptyForm);
+  // The drawer is the primary row-detail view. We hold the open risk's id so the
+  // drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  const [openRiskId, setOpenRiskId] = useState<string | null>(null);
+  const openRisk = openRiskId ? risks.find((r) => r.id === openRiskId) ?? null : null;
 
   const createMutation = useOrgMutation<Risk, Error, RiskForm>({
     mutationFn: (f) => jsonFetch(apiBase, { method: "POST", body: JSON.stringify(formToBody(f)) }),
     invalidate: [["risks", projectId]],
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the risk."),
-  });
-  const updateMutation = useOrgMutation<Risk, Error, { id: string; f: RiskForm }>({
-    mutationFn: ({ id, f }) =>
-      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["risks", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the risk."),
   });
   const deleteMutation = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }),
@@ -222,9 +198,98 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
   }
-  function openEdit(r: Risk) {
-    setForm(riskToForm(r));
-    setEditing(r);
+  // Row click → open the detail drawer (the primary row-detail view).
+  function openDetail(r: Risk) {
+    setOpenRiskId(r.id);
+  }
+
+  // Build the drawer's inline-editable field list for the open risk. Title,
+  // owner, mitigation, etc. are editable and PATCH the risk endpoint by key;
+  // score + level are derived server-side and shown read-only.
+  function riskFields(r: Risk): PmField[] {
+    return [
+      { key: "title", label: "Title", type: "text", value: r.title, editable: canEdit },
+      {
+        key: "description",
+        label: "Description",
+        type: "textarea",
+        value: r.description,
+        editable: canEdit,
+        placeholder: "Condition and potential consequence",
+      },
+      {
+        key: "branchId",
+        label: "Branch",
+        type: "select",
+        value: r.branchId,
+        editable: canEdit && branches.length > 0,
+        options: branches.map((b) => ({ value: b.id, label: `${b.code} ${b.name}` })),
+        placeholder: "Select branch",
+      },
+      {
+        key: "category",
+        label: "Category",
+        type: "select",
+        value: r.category,
+        editable: canEdit,
+        options: CATEGORY_OPTIONS.map((c) => ({ value: c, label: c })),
+      },
+      {
+        key: "likelihood",
+        label: "Likelihood (1-5)",
+        type: "number",
+        value: r.likelihood,
+        editable: canEdit,
+        min: 1,
+        max: 5,
+      },
+      {
+        key: "impact",
+        label: "Impact (1-5)",
+        type: "number",
+        value: r.impact,
+        editable: canEdit,
+        min: 1,
+        max: 5,
+      },
+      { key: "score", label: "Score", type: "number", value: r.score, editable: false },
+      {
+        key: "level",
+        label: "Level",
+        type: "text",
+        value: LEVEL_META[r.level].label,
+        editable: false,
+      },
+      { key: "owner", label: "Owner", type: "text", value: r.owner, editable: canEdit },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: r.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+      },
+      {
+        key: "mitigation",
+        label: "Mitigation",
+        type: "textarea",
+        value: r.mitigation,
+        editable: canEdit,
+        placeholder: "Actions to reduce likelihood or impact",
+      },
+      {
+        key: "escalate",
+        label: "Escalate to customer",
+        type: "select",
+        value: r.escalate ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+    ];
   }
 
   if (isLoading) return <TableSkeleton />;
@@ -300,8 +365,8 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
                 return (
                   <tr
                     key={r.id}
-                    className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                    onClick={canEdit ? () => openEdit(r) : undefined}
+                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                    onClick={() => openDetail(r)}
                   >
                     <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{r.code}</td>
                     <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{r.title}</td>
@@ -358,18 +423,24 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
       />
-      {/* Edit */}
-      <RiskDialog
-        open={editing !== null}
-        onOpenChange={(o) => !o && setEditing(null)}
-        title={editing ? `Edit ${editing.code}` : "Edit Risk"}
-        form={form}
-        setForm={setForm}
-        branches={branches}
-        pending={updateMutation.isPending}
-        onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
-        submitLabel="Save"
-      />
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. */}
+      {openRisk && (
+        <PmEntityDrawer
+          key={openRisk.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="risk"
+          subjectId={openRisk.id}
+          title={openRisk.title}
+          code={openRisk.code}
+          patchPath={`${apiBase}/${openRisk.id}`}
+          fields={riskFields(openRisk)}
+          open={openRiskId !== null}
+          onOpenChange={(o) => !o && setOpenRiskId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-sm">

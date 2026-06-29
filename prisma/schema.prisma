@@ -727,7 +727,9 @@ model WorkItem {
 model Activity {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId      String   @map("org_id") @db.Uuid
-  workItemId String   @map("work_item_id") @db.Uuid
+  workItemId String?  @map("work_item_id") @db.Uuid
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id") @db.Uuid
   userId     String   @map("user_id") @db.Uuid
   action     String
   field      String?
@@ -735,23 +737,27 @@ model Activity {
   newValue   String?  @map("new_value")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
   @@index([orgId, workItemId])
+  @@index([orgId, subjectType, subjectId])
   @@map("activities")
 }
 
 model Comment {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId      String   @map("org_id") @db.Uuid
-  workItemId String   @map("work_item_id") @db.Uuid
+  workItemId String?  @map("work_item_id") @db.Uuid
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id") @db.Uuid
   authorId   String   @map("author_id") @db.Uuid
   content    String
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
+  @@index([orgId, subjectType, subjectId])
   @@map("comments")
 }
 
