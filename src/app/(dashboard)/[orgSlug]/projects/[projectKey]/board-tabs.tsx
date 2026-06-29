@@ -195,6 +195,20 @@ export function ProjectBoardTabs({
   // Build feature tabs based on enabledFeatures
   const featureTabs: FeatureTab[] = [];
 
+  // PM Dashboard is the single top-level tab for the whole PM suite; the
+  // registers (Risk/Change/Blocked/Schedule/Deliverables/Vendors/Staffing/CLIN)
+  // now live as sub-tabs INSIDE it (see pm-dashboard/pm-nav.tsx), so they no
+  // longer crowd this board strip. `prefix` keeps this tab active on any
+  // /pm-dashboard/* sub-page.
+  if (enabledFeatures.includes("pm-dashboard")) {
+    featureTabs.push({
+      feature: "pm-dashboard",
+      label: "PM Dashboard",
+      href: `/${orgSlug}/projects/${projectKey}/pm-dashboard`,
+      prefix: true,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",

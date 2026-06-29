@@ -76,6 +76,9 @@ interface Kpi {
   targetValue: number;
   currentValue: number;
   direction: KpiDirection;
+  autoSource: KpiAutoSource;
+  autoWindowDays: number | null;
+  derived?: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -92,6 +95,27 @@ const DIRECTION_OPTIONS = [
   { value: "DOWN_GOOD", label: "Lower is better" },
 ] as const;
 
+type KpiAutoSource =
+  | "MANUAL"
+  | "VELOCITY"
+  | "COMPLETION_PCT"
+  | "THROUGHPUT"
+  | "OPEN_ITEMS"
+  | "AVG_CYCLE_TIME";
+
+const AUTO_SOURCE_OPTIONS: { value: KpiAutoSource; label: string }[] = [
+  { value: "MANUAL", label: "Manual entry" },
+  { value: "VELOCITY", label: "Velocity — pts / completed cycle" },
+  { value: "COMPLETION_PCT", label: "Work items complete (%)" },
+  { value: "THROUGHPUT", label: "Throughput — items / window" },
+  { value: "OPEN_ITEMS", label: "Open work items (count)" },
+  { value: "AVG_CYCLE_TIME", label: "Avg cycle time (days)" },
+];
+
+const AUTO_SOURCE_LABEL: Record<KpiAutoSource, string> = Object.fromEntries(
+  AUTO_SOURCE_OPTIONS.map((o) => [o.value, o.label]),
+) as Record<KpiAutoSource, string>;
+
 // ---------------------------------------------------------------------------
 // Form shapes / helpers
 // ---------------------------------------------------------------------------
@@ -103,6 +127,8 @@ interface KpiFormData {
   targetValue: string;
   currentValue: string;
   direction: KpiDirection;
+  autoSource: KpiAutoSource;
+  autoWindowDays: string;
 }
 
 const emptyKpiForm: KpiFormData = {
@@ -112,6 +138,8 @@ const emptyKpiForm: KpiFormData = {
   targetValue: "0",
   currentValue: "0",
   direction: "UP_GOOD",
+  autoSource: "MANUAL",
+  autoWindowDays: "",
 };
 
 function kpiToForm(k: Kpi): KpiFormData {
@@ -122,6 +150,8 @@ function kpiToForm(k: Kpi): KpiFormData {
     targetValue: String(k.targetValue),
     currentValue: String(k.currentValue),
     direction: k.direction,
+    autoSource: k.autoSource,
+    autoWindowDays: k.autoWindowDays != null ? String(k.autoWindowDays) : "",
   };
 }
 
@@ -198,6 +228,8 @@ export function KpisDashboard({ orgId, projectId }: KpisDashboardProps) {
           targetValue: toNumber(data.targetValue),
           currentValue: toNumber(data.currentValue),
           direction: data.direction,
+          autoSource: data.autoSource,
+          autoWindowDays: data.autoWindowDays ? toNumber(data.autoWindowDays) : null,
         }),
       }),
     invalidate: [["kpis", projectId]],
@@ -219,6 +251,8 @@ export function KpisDashboard({ orgId, projectId }: KpisDashboardProps) {
           targetValue: toNumber(data.targetValue),
           currentValue: toNumber(data.currentValue),
           direction: data.direction,
+          autoSource: data.autoSource,
+          autoWindowDays: data.autoWindowDays ? toNumber(data.autoWindowDays) : null,
         }),
       }),
     invalidate: [["kpis", projectId]],
@@ -577,6 +611,14 @@ function KpiCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-[var(--text)]">{kpi.name}</h3>
+          {kpi.derived && (
+            <span
+              className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]"
+              title={`Derived from execution — ${AUTO_SOURCE_LABEL[kpi.autoSource]}`}
+            >
+              Auto · {kpi.autoSource.replace(/_/g, " ").toLowerCase()}
+            </span>
+          )}
           {kpi.description && (
             <p className="mt-0.5 line-clamp-2 text-xs text-[var(--text-muted)]">
               {kpi.description}
@@ -785,7 +827,14 @@ function KpiForm({
           )}
         </FormField>
 
-        <FormField label="Current value" hint="Updated automatically by data points.">
+        <FormField
+          label="Current value"
+          hint={
+            form.autoSource === "MANUAL"
+              ? "Updated automatically by data points."
+              : `Derived from execution (${AUTO_SOURCE_LABEL[form.autoSource]}).`
+          }
+        >
           {(p) => (
             <Input
               {...p}
@@ -794,9 +843,50 @@ function KpiForm({
               value={form.currentValue}
               onChange={(e) => setForm((f) => ({ ...f, currentValue: e.target.value }))}
               placeholder="0"
+              disabled={form.autoSource !== "MANUAL"}
             />
           )}
         </FormField>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium" id="kpi-source-label">
+            Value source
+          </label>
+          <Select
+            value={form.autoSource}
+            onValueChange={(val) =>
+              setForm((f) => ({ ...f, autoSource: (val as KpiAutoSource) ?? "MANUAL" }))
+            }
+          >
+            <SelectTrigger className="w-full" aria-labelledby="kpi-source-label">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AUTO_SOURCE_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {form.autoSource === "THROUGHPUT" && (
+          <FormField label="Window (days)" hint="Rolling window for throughput. Default 30.">
+            {(p) => (
+              <Input
+                {...p}
+                type="number"
+                inputMode="numeric"
+                value={form.autoWindowDays}
+                onChange={(e) => setForm((f) => ({ ...f, autoWindowDays: e.target.value }))}
+                placeholder="30"
+              />
+            )}
+          </FormField>
+        )}
       </div>
 
       <FormField label="Description">

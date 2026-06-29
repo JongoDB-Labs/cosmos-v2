@@ -43,8 +43,10 @@ describe("buildModelPlans — classification", () => {
     // Bumped from <75 when the prod-parity reconciliation added 17 org-scoped models
     // (chat_bots, work_item_links, finance/bank/document tables — migration
     // 20260607030000); ChatAlertKeyword is user-scoped so it's not a plan here.
+    // Bumped from <95 when the PM Dashboard added 4 org-scoped govcon models
+    // (risks, deliverables, blockers, change_requests — migration 20260627000000).
     expect(plans.length).toBeGreaterThan(50);
-    expect(plans.length).toBeLessThan(95);
+    expect(plans.length).toBeLessThan(105);
   });
 
   it("excludes the 5 v2-only models (no v1 source)", () => {
