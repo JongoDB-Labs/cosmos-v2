@@ -19,11 +19,12 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  *
  *   • mode=separate (default) → a ZIP of each selected tracker's fully-populated
  *     *template* file (full fidelity: styles, formulas, charts, validations).
- *   • mode=combined → one STYLED workbook (buildCombinedWorkbook): each selected
- *     tracker contributes its main register sheet with the template's formatting
- *     (header fills/fonts, column widths, number formats) and its same-sheet
- *     formula columns intact. Charts and the multi-tab cascades live only in the
- *     separate files.
+ *   • mode=combined → ONE workbook (buildCombinedWorkbook) containing EVERY tab
+ *     of every selected tracker — Instructions, data registers, summary
+ *     dashboards, and burn's full 19-tab cascade — with styles, number formats,
+ *     merges, frozen panes, and working cross-sheet formulas preserved (the
+ *     Summary COUNTIF/SUMIF rollups and the burn cascade recompute on open).
+ *     Charts are omitted; they live only in the separate files.
  *
  * Selection comes from `trackers` (comma list on GET, array on POST) and `mode`.
  * Omitting `trackers` selects all eight.
