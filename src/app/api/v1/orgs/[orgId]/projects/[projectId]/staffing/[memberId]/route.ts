@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; memberId: string }>;
@@ -54,7 +55,32 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.complianceNotes !== undefined)
       update.complianceNotes = data.complianceNotes ?? null;
 
-    await prisma.projectMember.update({ where: { id: memberId }, data: update });
+    const updated = await prisma.projectMember.update({ where: { id: memberId }, data: update });
+
+    // Audit field changes (best-effort). `logPmFieldChanges` skips keys whose
+    // before === after, so an unchanged PATCH writes no activity rows.
+    await logPmFieldChanges(
+      { orgId, subjectType: "staff", subjectId: memberId, userId: ctx.userId },
+      {
+        role: member.role,
+        allocationPercent: member.allocationPercent,
+        onContract: member.onContract,
+        cacStatus: member.cacStatus,
+        trainingStatus: member.trainingStatus,
+        accessStatus: member.accessStatus,
+        ndaStatus: member.ndaStatus,
+      },
+      {
+        role: updated.role,
+        allocationPercent: updated.allocationPercent,
+        onContract: updated.onContract,
+        cacStatus: updated.cacStatus,
+        trainingStatus: updated.trainingStatus,
+        accessStatus: updated.accessStatus,
+        ndaStatus: updated.ndaStatus,
+      },
+    );
+
     return success({ id: memberId });
   } catch (e) {
     return handleApiError(e);

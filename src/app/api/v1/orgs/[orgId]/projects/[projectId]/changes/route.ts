@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
+import { logPmActivity } from "@/lib/pm/activity-log";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -105,6 +106,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
       include: changeInclude,
     });
+
+    // Seed the activity log with a "created" event (best-effort).
+    await logPmActivity({
+      orgId,
+      subjectType: "change",
+      subjectId: created.id,
+      userId: ctx.userId,
+      action: "created",
+    });
+
     return success(created);
   } catch (e) {
     return handleApiError(e);

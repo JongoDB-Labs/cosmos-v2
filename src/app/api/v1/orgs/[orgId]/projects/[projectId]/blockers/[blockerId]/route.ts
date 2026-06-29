@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; blockerId: string }>;
@@ -74,6 +75,42 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
       include: blockerInclude,
     });
+
+    // Audit field changes (best-effort). Label-keyed maps so the Activity log
+    // reads "changed Status: OPEN → RESOLVED". Only the audited fields below are
+    // diffed; `logPmFieldChanges` skips keys whose before === after.
+    await logPmFieldChanges(
+      { orgId, subjectType: "blocker", subjectId: blockerId, userId: ctx.userId },
+      {
+        title: existing.title,
+        status: existing.status,
+        type: existing.type,
+        branchId: existing.branchId,
+        owner: existing.owner,
+        source: existing.source,
+        identifiedBy: existing.identifiedBy,
+        decisionAuthority: existing.decisionAuthority,
+        whatUnblocks: existing.whatUnblocks,
+        relatedRiskCode: existing.relatedRiskCode,
+        customerNotified: existing.customerNotified,
+        escalate: existing.escalate,
+      },
+      {
+        title: updated.title,
+        status: updated.status,
+        type: updated.type,
+        branchId: updated.branchId,
+        owner: updated.owner,
+        source: updated.source,
+        identifiedBy: updated.identifiedBy,
+        decisionAuthority: updated.decisionAuthority,
+        whatUnblocks: updated.whatUnblocks,
+        relatedRiskCode: updated.relatedRiskCode,
+        customerNotified: updated.customerNotified,
+        escalate: updated.escalate,
+      },
+    );
+
     return success(updated);
   } catch (e) {
     return handleApiError(e);

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, AlertTriangle, Handshake } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 interface PartnerLite {
   id: string;
@@ -130,31 +131,6 @@ const emptyForm: VendorForm = {
   pocEmail: "",
 };
 
-function toDateInput(iso: string | null): string {
-  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-}
-
-function vendorToForm(v: Vendor): VendorForm {
-  return {
-    partnerId: v.partnerId ?? "",
-    title: v.title,
-    value: v.value != null ? String(v.value) : "",
-    fundedValue: v.fundedValue != null ? String(v.fundedValue) : "",
-    invoicedValue: v.invoicedValue != null ? String(v.invoicedValue) : "",
-    paymentTerms: v.paymentTerms ?? "",
-    agmtType: v.agmtType ?? "",
-    agmtNumber: v.agmtNumber ?? "",
-    currency: v.currency,
-    status: v.status,
-    startDate: toDateInput(v.startDate),
-    endDate: toDateInput(v.endDate),
-    ndaOnFile: v.partner?.ndaOnFile ?? false,
-    ndaExpiry: toDateInput(v.partner?.ndaExpiry ?? null),
-    pocName: v.partner?.pocName ?? "",
-    pocEmail: v.partner?.pocEmail ?? "",
-  };
-}
-
 function formToBody(f: VendorForm) {
   return {
     partnerId: f.partnerId,
@@ -205,9 +181,12 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("value");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<Vendor | null>(null);
   const [deleting, setDeleting] = useState<Vendor | null>(null);
   const [form, setForm] = useState<VendorForm>(emptyForm);
+  // The drawer is the primary row-detail view. We hold the open vendor's id so
+  // the drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  const [openVendorId, setOpenVendorId] = useState<string | null>(null);
+  const openVendor = openVendorId ? vendors.find((v) => v.id === openVendorId) ?? null : null;
 
   const createMutation = useOrgMutation<Vendor, Error, VendorForm>({
     mutationFn: (f) =>
@@ -215,14 +194,6 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
     invalidate: [["vendors", projectId]],
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the vendor contract."),
-  });
-
-  const updateMutation = useOrgMutation<Vendor, Error, { id: string; f: VendorForm }>({
-    mutationFn: ({ id, f }) =>
-      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["vendors", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the vendor contract."),
   });
 
   const deleteMutation = useOrgMutation<unknown, Error, string>({
@@ -255,9 +226,106 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
     setForm({ ...emptyForm, partnerId: partners[0]?.id ?? "" });
     setCreateOpen(true);
   }
-  function openEdit(v: Vendor) {
-    setForm(vendorToForm(v));
-    setEditing(v);
+
+  // Build the drawer's inline-editable field list for the open vendor. Contract
+  // fields (title, status, value…) and partner-level NDA/POC fields all PATCH the
+  // vendors endpoint by key; the burn signal (% burned, remaining) is derived
+  // server-side and shown read-only.
+  function vendorFields(v: Vendor): PmField[] {
+    return [
+      { key: "title", label: "Contract title", type: "text", value: v.title, editable: canEdit },
+      {
+        key: "partnerId",
+        label: "Vendor",
+        type: "select",
+        value: v.partnerId,
+        editable: canEdit && partners.length > 0,
+        options: partners.map((p) => ({ value: p.id, label: p.name })),
+        placeholder: "Select vendor",
+      },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: v.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS,
+      },
+      { key: "value", label: "Committed value ($)", type: "number", value: v.value, editable: canEdit },
+      {
+        key: "fundedValue",
+        label: "Funded to date ($)",
+        type: "number",
+        value: v.fundedValue,
+        editable: canEdit,
+      },
+      {
+        key: "invoicedValue",
+        label: "Invoiced to date ($)",
+        type: "number",
+        value: v.invoicedValue,
+        editable: canEdit,
+      },
+      { key: "currency", label: "Currency", type: "text", value: v.currency, editable: canEdit },
+      { key: "agmtType", label: "Agmt type", type: "text", value: v.agmtType, editable: canEdit },
+      { key: "agmtNumber", label: "Agmt number", type: "text", value: v.agmtNumber, editable: canEdit },
+      {
+        key: "paymentTerms",
+        label: "Payment terms",
+        type: "text",
+        value: v.paymentTerms,
+        editable: canEdit,
+      },
+      { key: "startDate", label: "PoP start", type: "date", value: v.startDate, editable: canEdit },
+      { key: "endDate", label: "PoP end", type: "date", value: v.endDate, editable: canEdit },
+      {
+        key: "ndaOnFile",
+        label: "NDA on file",
+        type: "select",
+        value: v.partner?.ndaOnFile ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (val) => val === "true",
+      },
+      {
+        key: "ndaExpiry",
+        label: "NDA expiry",
+        type: "date",
+        value: v.partner?.ndaExpiry ?? null,
+        editable: canEdit,
+      },
+      {
+        key: "pocName",
+        label: "POC name",
+        type: "text",
+        value: v.partner?.pocName ?? null,
+        editable: canEdit,
+      },
+      {
+        key: "pocEmail",
+        label: "POC email",
+        type: "text",
+        value: v.partner?.pocEmail ?? null,
+        editable: canEdit,
+      },
+      {
+        key: "pctBurnedFunded",
+        label: "% burned (funded)",
+        type: "number",
+        value: v.pctBurnedFunded,
+        editable: false,
+      },
+      {
+        key: "remainingFunded",
+        label: "Remaining funded ($)",
+        type: "number",
+        value: v.remainingFunded,
+        editable: false,
+      },
+    ];
   }
 
   const totalCommitted = vendors.reduce((sum, v) => sum + (v.value ?? 0), 0);
@@ -348,8 +416,8 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
               {view.map((v) => (
                 <tr
                   key={v.id}
-                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                  onClick={canEdit ? () => openEdit(v) : undefined}
+                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                  onClick={() => setOpenVendorId(v.id)}
                 >
                   <td className="px-3 py-2 font-medium text-[var(--text)]">
                     {v.partner?.name ?? "—"}
@@ -439,18 +507,24 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
         submitLabel="Create"
       />
 
-      {/* Edit */}
-      <VendorDialog
-        open={editing !== null}
-        onOpenChange={(o) => !o && setEditing(null)}
-        title="Edit Vendor Contract"
-        form={form}
-        setForm={setForm}
-        partners={partners}
-        pending={updateMutation.isPending}
-        onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
-        submitLabel="Save"
-      />
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. */}
+      {openVendor && (
+        <PmEntityDrawer
+          key={openVendor.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="vendor"
+          subjectId={openVendor.id}
+          title={openVendor.title}
+          code={null}
+          patchPath={`${apiBase}/${openVendor.id}`}
+          fields={vendorFields(openVendor)}
+          open={openVendorId !== null}
+          onOpenChange={(o) => !o && setOpenVendorId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
 
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

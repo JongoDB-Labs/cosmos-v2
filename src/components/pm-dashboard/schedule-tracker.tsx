@@ -28,8 +28,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, Calendar, AlertTriangle, X } from "lucide-react";
+import { Loader2, Plus, Trash2, Calendar, AlertTriangle, X, Link2 } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -210,6 +211,14 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   const [editing, setEditing] = useState<Milestone | null>(null);
   const [deleting, setDeleting] = useState<Milestone | null>(null);
   const [form, setForm] = useState<MilestoneForm>(emptyForm);
+  // The drawer is the primary row-detail view. We hold the open milestone's id so
+  // the drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  // The edit dialog (which hosts work-item linking) stays reachable via the row's
+  // edit-icon button — the drawer's PmField model can't host the link panel.
+  const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
+  const openMilestone = openMilestoneId
+    ? milestones.find((m) => m.id === openMilestoneId) ?? null
+    : null;
 
   const createMutation = useOrgMutation<Milestone, Error, MilestoneForm>({
     mutationFn: (f) =>
@@ -291,6 +300,156 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   const editingFresh = editing
     ? milestones.find((m) => m.id === editing.id) ?? editing
     : null;
+
+  // Build the drawer's inline-editable field list for the open milestone. Most
+  // fields are editable and PATCH the schedule endpoint by key; progress and the
+  // linked done/total counts are derived server-side from linked work items and
+  // shown read-only (the "trickle up" signal). Linking itself stays in the edit
+  // dialog, which the row's edit-icon button still opens.
+  function milestoneFields(m: Milestone): PmField[] {
+    return [
+      { key: "title", label: "Title", type: "text", value: m.title, editable: canEdit },
+      { key: "phase", label: "Phase", type: "text", value: m.phase, editable: canEdit },
+      {
+        key: "branchId",
+        label: "Branch",
+        type: "select",
+        value: m.branchId,
+        editable: canEdit && branches.length > 0,
+        options: branches.map((b) => ({ value: b.id, label: `${b.code} ${b.name}` })),
+        placeholder: "Select branch",
+      },
+      {
+        key: "baselineDate",
+        label: "Baseline date",
+        type: "date",
+        value: m.baselineDate,
+        editable: canEdit,
+      },
+      {
+        key: "dueDate",
+        label: "Projected / current date",
+        type: "date",
+        value: m.dueDate,
+        editable: canEdit,
+      },
+      {
+        key: "actualDate",
+        label: "Actual date",
+        type: "date",
+        value: m.actualDate,
+        editable: canEdit,
+      },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: m.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+      },
+      {
+        key: "autoStatus",
+        label: "Auto-derive status from linked items",
+        type: "select",
+        value: m.autoStatus ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "true", label: "Yes" },
+          { value: "false", label: "No" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      {
+        key: "scheduleEscalate",
+        label: "Escalate",
+        type: "select",
+        value: m.scheduleEscalate ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      {
+        key: "milestoneType",
+        label: "Milestone type",
+        type: "text",
+        value: m.milestoneType,
+        editable: canEdit,
+      },
+      {
+        key: "relatedRef",
+        label: "Related reference",
+        type: "text",
+        value: m.relatedRef,
+        editable: canEdit,
+      },
+      // Derived (read-only) — the trickle-up signal from linked work items.
+      {
+        key: "completionPercent",
+        label: "Progress %",
+        type: "number",
+        value: m.completionPercent,
+        editable: false,
+      },
+      {
+        key: "linkedProgress",
+        label: "Linked done / total",
+        type: "text",
+        value: `${m.linkedDone}/${m.linkedTotal}`,
+        editable: false,
+      },
+      {
+        key: "description",
+        label: "Description",
+        type: "textarea",
+        value: m.description,
+        editable: canEdit,
+        placeholder: "Milestone description",
+      },
+      {
+        key: "rootCause",
+        label: "Root cause",
+        type: "textarea",
+        value: m.rootCause,
+        editable: canEdit,
+        placeholder: "Why is this milestone slipping?",
+      },
+      {
+        key: "recoveryPlan",
+        label: "Recovery plan",
+        type: "textarea",
+        value: m.recoveryPlan,
+        editable: canEdit,
+        placeholder: "Steps to get back on track",
+      },
+      {
+        key: "recoveryTarget",
+        label: "Recovery target date",
+        type: "date",
+        value: m.recoveryTarget,
+        editable: canEdit,
+      },
+      {
+        key: "downstreamImpact",
+        label: "Downstream impact",
+        type: "textarea",
+        value: m.downstreamImpact,
+        editable: canEdit,
+        placeholder: "Describe downstream effects if this milestone slips",
+      },
+      {
+        key: "notes",
+        label: "Notes",
+        type: "textarea",
+        value: m.notes,
+        editable: canEdit,
+        placeholder: "Additional notes",
+      },
+    ];
+  }
 
   if (isLoading) return <TableSkeleton />;
   if (isError)
@@ -375,8 +534,8 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
                 return (
                   <tr
                     key={m.id}
-                    className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                    onClick={canEdit ? () => openEdit(m) : undefined}
+                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                    onClick={() => setOpenMilestoneId(m.id)}
                   >
                     <td className="max-w-xs truncate px-3 py-2 font-medium text-[var(--text)]">
                       {m.title}
@@ -423,6 +582,19 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
                       )}
                     </td>
                     <td className="px-2 py-2 text-right">
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Edit milestone & linked items"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(m);
+                          }}
+                        >
+                          <Link2 className="size-3.5" />
+                        </Button>
+                      )}
                       {canEdit && (
                         <Button
                           variant="ghost"
@@ -477,6 +649,26 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         onUnlink={(linkId) => editing && unlinkMutation.mutate({ milestoneId: editing.id, linkId })}
         linkBusy={linkMutation.isPending || unlinkMutation.isPending}
       />
+
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Primary row-detail view (row click). Work-item linking stays in the edit
+          dialog, reachable via the row's edit-icon button. */}
+      {openMilestone && (
+        <PmEntityDrawer
+          key={openMilestone.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="milestone"
+          subjectId={openMilestone.id}
+          title={openMilestone.title}
+          code={null}
+          patchPath={`${apiBase}/${openMilestone.id}`}
+          fields={milestoneFields(openMilestone)}
+          open={openMilestoneId !== null}
+          onOpenChange={(o) => !o && setOpenMilestoneId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
 
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

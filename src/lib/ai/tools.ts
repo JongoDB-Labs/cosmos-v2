@@ -9,6 +9,7 @@ import { projectTools } from "./tools/projects";
 import { utilityTools } from "./tools/utility";
 import { ragTools } from "./tools/rag";
 import { complianceTools } from "./tools/compliance";
+import { pmRegisterTools } from "./tools/pm-register";
 
 export interface ToolDefinition {
   name: string;
@@ -180,6 +181,9 @@ export const cosmosTools: ToolDefinition[] = [
   ...ragTools,
   // Compliance: run control checks, drive remediation, resolve members to assign/notify.
   ...complianceTools,
+  // PM Dashboard registers: read/create/update risks, list blockers/deliverables/changes,
+  // and comment on any PM register subject.
+  ...pmRegisterTools,
   // EXTERNAL connectors (Google Workspace, GitHub, …) are no longer hand-listed
   // here — they come from the declarative connector registry (connectors/index.ts),
   // so adding a connector is one descriptor + one registration, with no edit to this
@@ -200,4 +204,5 @@ export {
   utilityTools,
   ragTools,
   complianceTools,
+  pmRegisterTools,
 };

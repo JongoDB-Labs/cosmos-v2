@@ -4,31 +4,13 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
-import { useOrgMutation } from "@/lib/query/use-org-mutation";
-import { notifyError } from "@/lib/errors/notify";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { EmptyState } from "@/components/ui/empty-state";
-import { FormField } from "@/components/ui/form-field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Loader2, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type ProjectRole = "MANAGER" | "LEAD" | "MEMBER" | "VIEWER";
 
@@ -161,51 +143,6 @@ const ROLE_OPTIONS: { value: ProjectRole; label: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Edit form
-// ---------------------------------------------------------------------------
-interface EditForm {
-  role: ProjectRole;
-  allocationPercent: string;
-  // compliance
-  onContract: boolean;
-  cacStatus: string;
-  cacExpiry: string;
-  trainingStatus: string;
-  accessStatus: string;
-  ndaStatus: string;
-  complianceNotes: string;
-}
-
-function rowToForm(row: StaffRow): EditForm {
-  return {
-    role: row.role,
-    allocationPercent: row.allocationPercent != null ? String(row.allocationPercent) : "",
-    onContract:       row.onContract ?? false,
-    cacStatus:        row.cacStatus ?? "",
-    cacExpiry:        row.cacExpiry ?? "",
-    trainingStatus:   row.trainingStatus ?? "",
-    accessStatus:     row.accessStatus ?? "",
-    ndaStatus:        row.ndaStatus ?? "",
-    complianceNotes:  row.complianceNotes ?? "",
-  };
-}
-
-function formToBody(form: EditForm, currentRole: ProjectRole) {
-  const parsed = form.allocationPercent.trim() === "" ? null : Number(form.allocationPercent);
-  return {
-    role:             form.role ?? currentRole,
-    allocationPercent: parsed != null && !isNaN(parsed) ? parsed : null,
-    onContract:       form.onContract,
-    cacStatus:        form.cacStatus || null,
-    cacExpiry:        form.cacExpiry || null,
-    trainingStatus:   form.trainingStatus || null,
-    accessStatus:     form.accessStatus || null,
-    ndaStatus:        form.ndaStatus || null,
-    complianceNotes:  form.complianceNotes || null,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Compliance summary header
 // ---------------------------------------------------------------------------
 interface ComplianceSummaryProps {
@@ -304,27 +241,12 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
     queryFn: () => jsonFetch<StaffRow[]>(apiBase),
   });
 
-  const [filter, setFilter]   = useState("");
-  const [editing, setEditing] = useState<StaffRow | null>(null);
-  const [form, setForm]       = useState<EditForm>({
-    role:             "MEMBER",
-    allocationPercent: "",
-    onContract:       false,
-    cacStatus:        "",
-    cacExpiry:        "",
-    trainingStatus:   "",
-    accessStatus:     "",
-    ndaStatus:        "",
-    complianceNotes:  "",
-  });
-
-  const patchMutation = useOrgMutation<StaffRow, Error, { memberId: string; body: ReturnType<typeof formToBody> }>({
-    mutationFn: ({ memberId, body }) =>
-      jsonFetch(`${apiBase}/${memberId}`, { method: "PATCH", body: JSON.stringify(body) }),
-    invalidate: [["staffing", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the team member."),
-  });
+  const [filter, setFilter] = useState("");
+  // The drawer is the primary row-detail view. We hold the open member's id so
+  // the drawer's fields rebuild from the freshest cached row after an inline
+  // PATCH.
+  const [openMemberId, setOpenMemberId] = useState<string | null>(null);
+  const openRow = openMemberId ? staff.find((r) => r.id === openMemberId) ?? null : null;
 
   const showCostRate = useMemo(() => staff.some((r) => r.costRate != null), [staff]);
 
@@ -339,17 +261,130 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
     );
   }, [staff, filter]);
 
-  function openEdit(row: StaffRow) {
-    setForm(rowToForm(row));
-    setEditing(row);
-  }
-
-  function handleSave() {
-    if (!editing) return;
-    patchMutation.mutate({
-      memberId: editing.id,
-      body: formToBody(form, editing.role),
+  // Build the drawer's inline-editable field list for the open member. Role,
+  // allocation, and the compliance fields PATCH the staffing endpoint by key;
+  // labor category / clearance / employment type / cost rate / overall are
+  // derived or owned on the Members page and shown read-only.
+  function staffFields(row: StaffRow): PmField[] {
+    const out: PmField[] = [
+      {
+        key: "role",
+        label: "Project role",
+        type: "select",
+        value: row.role,
+        editable: canEdit,
+        options: ROLE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+      },
+      {
+        key: "allocationPercent",
+        label: "Allocation %",
+        type: "number",
+        value: row.allocationPercent,
+        editable: canEdit,
+        min: 0,
+        max: 100,
+      },
+      {
+        key: "onContract",
+        label: "On contract",
+        type: "select",
+        value: row.onContract ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      {
+        key: "cacStatus",
+        label: "CAC status",
+        type: "select",
+        value: row.cacStatus,
+        editable: canEdit,
+        options: [
+          { value: "active", label: "Active" },
+          { value: "pending", label: "Pending" },
+          { value: "expired", label: "Expired" },
+        ],
+        placeholder: "Select…",
+      },
+      {
+        key: "cacExpiry",
+        label: "CAC expiry",
+        type: "date",
+        value: row.cacExpiry,
+        editable: canEdit,
+      },
+      {
+        key: "trainingStatus",
+        label: "Training status",
+        type: "select",
+        value: row.trainingStatus,
+        editable: canEdit,
+        options: [
+          { value: "complete", label: "Complete" },
+          { value: "in_progress", label: "In progress" },
+          { value: "incomplete", label: "Incomplete" },
+        ],
+        placeholder: "Select…",
+      },
+      {
+        key: "accessStatus",
+        label: "System access",
+        type: "select",
+        value: row.accessStatus,
+        editable: canEdit,
+        options: [
+          { value: "granted", label: "Granted" },
+          { value: "pending", label: "Pending" },
+          { value: "revoked", label: "Revoked" },
+        ],
+        placeholder: "Select…",
+      },
+      {
+        key: "ndaStatus",
+        label: "NDA status",
+        type: "select",
+        value: row.ndaStatus,
+        editable: canEdit,
+        options: [
+          { value: "executed", label: "Executed" },
+          { value: "pending", label: "Pending" },
+          { value: "not_executed", label: "Not executed" },
+        ],
+        placeholder: "Select…",
+      },
+      {
+        key: "complianceNotes",
+        label: "Compliance notes",
+        type: "textarea",
+        value: row.complianceNotes,
+        editable: canEdit,
+        placeholder: "Optional notes…",
+      },
+      // ── Read-only — derived / owned on the Members page ──
+      { key: "laborCategory", label: "Labor category", type: "text", value: row.laborCategory, editable: false },
+      { key: "clearance", label: "Clearance", type: "text", value: row.clearance, editable: false },
+      { key: "employmentType", label: "Employment type", type: "text", value: row.employmentType, editable: false },
+    ];
+    if (row.costRate != null) {
+      out.push({
+        key: "costRate",
+        label: "Cost rate ($/hr)",
+        type: "number",
+        value: row.costRate,
+        editable: false,
+      });
+    }
+    out.push({
+      key: "compliant",
+      label: "Overall",
+      type: "text",
+      value: row.compliant ? "Compliant" : "Pending",
+      editable: false,
     });
+    return out;
   }
 
   if (isLoading) return <TableSkeleton />;
@@ -413,8 +448,8 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
               {view.map((row) => (
                 <tr
                   key={row.id}
-                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                  onClick={canEdit ? () => openEdit(row) : undefined}
+                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                  onClick={() => setOpenMemberId(row.id)}
                 >
                   <td className="px-3 py-2 font-medium text-[var(--text)]">{row.name}</td>
                   <td className="px-3 py-2 text-[var(--text-muted)]">
@@ -448,216 +483,24 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
         </div>
       )}
 
-      {/* Edit dialog */}
-      <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Edit {editing?.name}</DialogTitle>
-            <DialogDescription className="text-[var(--text-muted)]">
-              Update role, allocation, and compliance for this team member.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-4 py-2">
-            {/* ── Existing fields ── */}
-            <FormField label="Project role">
-              {(p) => (
-                <Select
-                  value={form.role}
-                  onValueChange={(v) =>
-                    setForm((f) => ({ ...f, role: (v ?? form.role) as ProjectRole }))
-                  }
-                >
-                  <SelectTrigger {...p}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROLE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </FormField>
-
-            <FormField label="Allocation %">
-              {(p) => (
-                <Input
-                  {...p}
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={form.allocationPercent}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, allocationPercent: e.target.value }))
-                  }
-                  placeholder="e.g. 50"
-                />
-              )}
-            </FormField>
-
-            {/* ── Compliance fields ── */}
-            <FormField label="On contract">
-              {(p) => (
-                <label
-                  {...p}
-                  style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: "0.875rem" }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.onContract}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, onContract: e.target.checked }))
-                    }
-                    style={{ width: 16, height: 16, accentColor: "var(--accent)" }}
-                  />
-                  Active on contract
-                </label>
-              )}
-            </FormField>
-
-            <FormField label="CAC status">
-              {(p) => (
-                <Select
-                  value={form.cacStatus}
-                  onValueChange={(v) =>
-                    setForm((f) => ({ ...f, cacStatus: v ?? "" }))
-                  }
-                >
-                  <SelectTrigger {...p}>
-                    <SelectValue placeholder="Select…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="expired">Expired</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </FormField>
-
-            <FormField label="CAC expiry">
-              {(p) => (
-                <Input
-                  {...p}
-                  type="date"
-                  value={form.cacExpiry}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, cacExpiry: e.target.value }))
-                  }
-                />
-              )}
-            </FormField>
-
-            <FormField label="Training status">
-              {(p) => (
-                <Select
-                  value={form.trainingStatus}
-                  onValueChange={(v) =>
-                    setForm((f) => ({ ...f, trainingStatus: v ?? "" }))
-                  }
-                >
-                  <SelectTrigger {...p}>
-                    <SelectValue placeholder="Select…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="complete">Complete</SelectItem>
-                    <SelectItem value="in_progress">In progress</SelectItem>
-                    <SelectItem value="incomplete">Incomplete</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </FormField>
-
-            <FormField label="System access">
-              {(p) => (
-                <Select
-                  value={form.accessStatus}
-                  onValueChange={(v) =>
-                    setForm((f) => ({ ...f, accessStatus: v ?? "" }))
-                  }
-                >
-                  <SelectTrigger {...p}>
-                    <SelectValue placeholder="Select…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="granted">Granted</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="revoked">Revoked</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </FormField>
-
-            <FormField label="NDA status">
-              {(p) => (
-                <Select
-                  value={form.ndaStatus}
-                  onValueChange={(v) =>
-                    setForm((f) => ({ ...f, ndaStatus: v ?? "" }))
-                  }
-                >
-                  <SelectTrigger {...p}>
-                    <SelectValue placeholder="Select…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="executed">Executed</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="not_executed">Not executed</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </FormField>
-
-            <FormField label="Compliance notes">
-              {(p) => (
-                <textarea
-                  {...p}
-                  rows={3}
-                  value={form.complianceNotes}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, complianceNotes: e.target.value }))
-                  }
-                  placeholder="Optional notes…"
-                  style={{
-                    width: "100%",
-                    padding: "6px 10px",
-                    borderRadius: "var(--radius, 6px)",
-                    border: "1px solid var(--border)",
-                    background: "var(--input, var(--surface))",
-                    color: "var(--text)",
-                    fontSize: "0.875rem",
-                    resize: "vertical",
-                    outline: "none",
-                  }}
-                />
-              )}
-            </FormField>
-
-            <p className="text-xs text-[var(--text-muted)]">
-              Add or remove people on the Members tab.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditing(null)}
-              disabled={patchMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={patchMutation.isPending}>
-              {patchMutation.isPending && (
-                <Loader2 className="mr-1 size-3.5 animate-spin" />
-              )}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. */}
+      {openRow && (
+        <PmEntityDrawer
+          key={openRow.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="staff"
+          subjectId={openRow.id}
+          title={openRow.name}
+          code={null}
+          patchPath={`${apiBase}/${openRow.id}`}
+          fields={staffFields(openRow)}
+          open={openMemberId !== null}
+          onOpenChange={(o) => !o && setOpenMemberId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
     </div>
   );
 }

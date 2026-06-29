@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, FileText, AlertTriangle } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type DeliverableStatus =
   | "NOT_STARTED"
@@ -149,33 +150,6 @@ const emptyForm: DeliverableForm = {
   notes: "",
 };
 
-function toDateInput(iso: string | null): string {
-  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-}
-
-function deliverableToForm(d: Deliverable): DeliverableForm {
-  return {
-    title: d.title,
-    description: d.description ?? "",
-    deliverableType: d.deliverableType ?? "Report",
-    clin: d.clin ?? "",
-    branchId: d.branchId ?? "",
-    owner: d.owner ?? "",
-    baselineDue: toDateInput(d.baselineDue),
-    internalReview: toDateInput(d.internalReview),
-    actualSubmission: toDateInput(d.actualSubmission),
-    govReviewPeriod: d.govReviewPeriod != null ? String(d.govReviewPeriod) : "",
-    govAcceptance: toDateInput(d.govAcceptance),
-    revisionCycle: d.revisionCycle != null ? String(d.revisionCycle) : "",
-    revRequired: d.revRequired,
-    escalate: d.escalate,
-    status: d.status,
-    branchOwner: d.branchOwner ?? "",
-    workItemRef: d.workItemRef ?? "",
-    notes: d.notes ?? "",
-  };
-}
-
 function formToBody(f: DeliverableForm) {
   return {
     title: f.title.trim(),
@@ -224,22 +198,20 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("baselineDue");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<Deliverable | null>(null);
   const [deleting, setDeleting] = useState<Deliverable | null>(null);
   const [form, setForm] = useState<DeliverableForm>(emptyForm);
+  // The drawer is the primary row-detail view. We hold the open deliverable's id
+  // so the drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  const [openDeliverableId, setOpenDeliverableId] = useState<string | null>(null);
+  const openDeliverable = openDeliverableId
+    ? deliverables.find((d) => d.id === openDeliverableId) ?? null
+    : null;
 
   const createMutation = useOrgMutation<Deliverable, Error, DeliverableForm>({
     mutationFn: (f) => jsonFetch(apiBase, { method: "POST", body: JSON.stringify(formToBody(f)) }),
     invalidate: [["deliverables", projectId]],
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the deliverable."),
-  });
-  const updateMutation = useOrgMutation<Deliverable, Error, { id: string; f: DeliverableForm }>({
-    mutationFn: ({ id, f }) =>
-      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["deliverables", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the deliverable."),
   });
   const deleteMutation = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }),
@@ -276,9 +248,122 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
   }
-  function openEdit(d: Deliverable) {
-    setForm(deliverableToForm(d));
-    setEditing(d);
+
+  // Build the drawer's inline-editable field list for the open deliverable. Each
+  // field PATCHes the deliverable endpoint by key. The early/late indicator is
+  // table-only, so there are no derived read-only fields here.
+  function deliverableFields(d: Deliverable): PmField[] {
+    return [
+      { key: "title", label: "Title", type: "text", value: d.title, editable: canEdit },
+      {
+        key: "description",
+        label: "Description",
+        type: "textarea",
+        value: d.description,
+        editable: canEdit,
+        placeholder: "Purpose and scope of this deliverable",
+      },
+      {
+        key: "deliverableType",
+        label: "Type",
+        type: "select",
+        value: d.deliverableType,
+        editable: canEdit,
+        options: TYPE_OPTIONS.map((o) => ({ value: o, label: o })),
+        placeholder: "Select type",
+      },
+      { key: "clin", label: "CLIN", type: "text", value: d.clin, editable: canEdit },
+      {
+        key: "branchId",
+        label: "Branch",
+        type: "select",
+        value: d.branchId,
+        editable: canEdit && branches.length > 0,
+        options: branches.map((b) => ({ value: b.id, label: `${b.code} ${b.name}` })),
+        placeholder: "Select branch",
+      },
+      { key: "owner", label: "Owner", type: "text", value: d.owner, editable: canEdit },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: d.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+      },
+      { key: "baselineDue", label: "Baseline due", type: "date", value: d.baselineDue, editable: canEdit },
+      {
+        key: "internalReview",
+        label: "Internal review date",
+        type: "date",
+        value: d.internalReview,
+        editable: canEdit,
+      },
+      {
+        key: "actualSubmission",
+        label: "Actual submission",
+        type: "date",
+        value: d.actualSubmission,
+        editable: canEdit,
+      },
+      {
+        key: "govReviewPeriod",
+        label: "Govt review period (days)",
+        type: "number",
+        value: d.govReviewPeriod,
+        editable: canEdit,
+        min: 0,
+      },
+      {
+        key: "govAcceptance",
+        label: "Govt acceptance date",
+        type: "date",
+        value: d.govAcceptance,
+        editable: canEdit,
+      },
+      {
+        key: "revisionCycle",
+        label: "Revision cycle",
+        type: "number",
+        value: d.revisionCycle,
+        editable: canEdit,
+        min: 0,
+      },
+      {
+        key: "revRequired",
+        label: "Revision required",
+        type: "select",
+        value: d.revRequired ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      {
+        key: "escalate",
+        label: "Escalate to customer",
+        type: "select",
+        value: d.escalate ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      { key: "branchOwner", label: "Branch owner", type: "text", value: d.branchOwner, editable: canEdit },
+      { key: "workItemRef", label: "Work item reference", type: "text", value: d.workItemRef, editable: canEdit },
+      {
+        key: "notes",
+        label: "Notes",
+        type: "textarea",
+        value: d.notes,
+        editable: canEdit,
+        placeholder: "Additional notes",
+      },
+    ];
   }
 
   if (isLoading) return <TableSkeleton />;
@@ -354,8 +439,8 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
                 return (
                   <tr
                     key={d.id}
-                    className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                    onClick={canEdit ? () => openEdit(d) : undefined}
+                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                    onClick={() => setOpenDeliverableId(d.id)}
                   >
                     <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{d.code}</td>
                     <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{d.title}</td>
@@ -415,18 +500,24 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
       />
-      {/* Edit */}
-      <DeliverableDialog
-        open={editing !== null}
-        onOpenChange={(o) => !o && setEditing(null)}
-        title={editing ? `Edit ${editing.code}` : "Edit Deliverable"}
-        form={form}
-        setForm={setForm}
-        branches={branches}
-        pending={updateMutation.isPending}
-        onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
-        submitLabel="Save"
-      />
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. */}
+      {openDeliverable && (
+        <PmEntityDrawer
+          key={openDeliverable.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="deliverable"
+          subjectId={openDeliverable.id}
+          title={openDeliverable.title}
+          code={openDeliverable.code}
+          patchPath={`${apiBase}/${openDeliverable.id}`}
+          fields={deliverableFields(openDeliverable)}
+          open={openDeliverableId !== null}
+          onOpenChange={(o) => !o && setOpenDeliverableId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-sm">
