@@ -28,7 +28,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, Calendar, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Trash2, Calendar, AlertTriangle, X } from "lucide-react";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -36,6 +36,12 @@ interface BranchLite {
   id: string;
   code: string;
   name: string;
+}
+
+interface WorkItemLite {
+  id: string;
+  title: string;
+  columnKey: string;
 }
 
 interface Milestone {
@@ -59,6 +65,7 @@ interface Milestone {
   linkedTotal: number;
   linkedDone: number;
   completionPercent: number | null;
+  links: { id: string; workItemId: string }[];
 }
 
 export interface ScheduleTrackerProps {
@@ -167,6 +174,14 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
     queryFn: () => jsonFetch<Milestone[]>(apiBase),
   });
 
+  // Work items power the linking picker + resolve linked-item titles.
+  const workItemsKey = useOrgQueryKey("work-items", projectId);
+  const { data: workItems = [] } = useQuery({
+    queryKey: workItemsKey,
+    queryFn: () =>
+      jsonFetch<WorkItemLite[]>(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`),
+  });
+
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("dueDate");
   const [createOpen, setCreateOpen] = useState(false);
@@ -195,6 +210,24 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
     invalidate: [["schedule", projectId]],
     onSuccess: () => setDeleting(null),
     onError: (e) => notifyError(e, "Couldn't delete the milestone."),
+  });
+
+  // Link / unlink work items so a milestone's status + completion derive from them.
+  const milestonesBase = `/api/v1/orgs/${orgId}/projects/${projectId}/milestones`;
+  const linkMutation = useOrgMutation<unknown, Error, { milestoneId: string; workItemId: string }>({
+    mutationFn: ({ milestoneId, workItemId }) =>
+      jsonFetch(`${milestonesBase}/${milestoneId}/links`, {
+        method: "POST",
+        body: JSON.stringify({ workItemId }),
+      }),
+    invalidate: [["schedule", projectId]],
+    onError: (e) => notifyError(e, "Couldn't link the work item."),
+  });
+  const unlinkMutation = useOrgMutation<unknown, Error, { milestoneId: string; linkId: string }>({
+    mutationFn: ({ milestoneId, linkId }) =>
+      jsonFetch(`${milestonesBase}/${milestoneId}/links/${linkId}`, { method: "DELETE" }),
+    invalidate: [["schedule", projectId]],
+    onError: (e) => notifyError(e, "Couldn't unlink the work item."),
   });
 
   const view = useMemo(() => {
@@ -230,6 +263,12 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
     setForm(milestoneToForm(m));
     setEditing(m);
   }
+
+  // The freshest copy of the milestone being edited, so its linked-items list
+  // updates after a link/unlink without reopening the dialog.
+  const editingFresh = editing
+    ? milestones.find((m) => m.id === editing.id) ?? editing
+    : null;
 
   if (isLoading) return <TableSkeleton />;
   if (isError)
@@ -404,6 +443,13 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         pending={updateMutation.isPending}
         onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
         submitLabel="Save"
+        milestone={editingFresh}
+        workItems={workItems}
+        onLink={(workItemId) =>
+          editing && linkMutation.mutate({ milestoneId: editing.id, workItemId })
+        }
+        onUnlink={(linkId) => editing && unlinkMutation.mutate({ milestoneId: editing.id, linkId })}
+        linkBusy={linkMutation.isPending || unlinkMutation.isPending}
       />
 
       {/* Delete confirm */}
@@ -453,6 +499,11 @@ function MilestoneDialog({
   pending,
   onSubmit,
   submitLabel,
+  milestone,
+  workItems,
+  onLink,
+  onUnlink,
+  linkBusy,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -463,6 +514,11 @@ function MilestoneDialog({
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
+  milestone?: Milestone | null;
+  workItems?: WorkItemLite[];
+  onLink?: (workItemId: string) => void;
+  onUnlink?: (linkId: string) => void;
+  linkBusy?: boolean;
 }) {
   const isValid = form.title.trim().length > 0 && form.dueDate.length > 0;
 
@@ -653,6 +709,16 @@ function MilestoneDialog({
             />
             Escalate (surfaces in the Government view)
           </label>
+
+          {milestone && onLink && onUnlink && (
+            <LinkedWorkItems
+              milestone={milestone}
+              workItems={workItems ?? []}
+              onLink={onLink}
+              onUnlink={onUnlink}
+              busy={!!linkBusy}
+            />
+          )}
         </div>
 
         <DialogFooter>
@@ -684,6 +750,88 @@ function VariancePill({ variance }: { variance: number | null }) {
     <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
       +{variance}d
     </span>
+  );
+}
+
+/** Link / unlink the work items a milestone's status + completion derive from. */
+function LinkedWorkItems({
+  milestone,
+  workItems,
+  onLink,
+  onUnlink,
+  busy,
+}: {
+  milestone: Milestone;
+  workItems: WorkItemLite[];
+  onLink: (workItemId: string) => void;
+  onUnlink: (linkId: string) => void;
+  busy: boolean;
+}) {
+  const byId = new Map(workItems.map((w) => [w.id, w]));
+  const linkedIds = new Set(milestone.links.map((l) => l.workItemId));
+  const available = workItems.filter((w) => !linkedIds.has(w.id));
+
+  return (
+    <div className="flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-[var(--text)]">Linked work items</span>
+        <span className="text-xs text-[var(--text-muted)]">
+          {milestone.linkedDone}/{milestone.linkedTotal} done · status &amp; progress derive from
+          these
+        </span>
+      </div>
+
+      {milestone.links.length === 0 ? (
+        <p className="text-xs text-[var(--text-muted)]">
+          None yet — link work items so this milestone rolls up from execution.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {milestone.links.map((l) => {
+            const wi = byId.get(l.workItemId);
+            return (
+              <li key={l.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate text-[var(--text)]">
+                  {wi?.title ?? "(unknown work item)"}
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  {wi && (
+                    <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                      {wi.columnKey}
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Unlink work item"
+                    disabled={busy}
+                    onClick={() => onUnlink(l.id)}
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {available.length > 0 && (
+        <Select value="" onValueChange={(v) => v && onLink(v)}>
+          <SelectTrigger className="w-full" disabled={busy}>
+            <SelectValue placeholder="Link a work item…" />
+          </SelectTrigger>
+          <SelectContent>
+            {available.slice(0, 100).map((w) => (
+              <SelectItem key={w.id} value={w.id}>
+                {w.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
   );
 }
 
