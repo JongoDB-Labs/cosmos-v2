@@ -222,9 +222,11 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
 // ---------------------------------------------------------------------------
 
 function PmView({ data, stats }: ViewProps) {
+  const decisions = computeDecisions(data);
   return (
     <>
       <StatRow data={data} stats={stats} />
+      {decisions.length > 0 && <DecisionsRequiredPanel decisions={decisions} />}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <MilestonesPanel milestones={data.milestones} />
         <KpisPanel kpis={data.kpis} />
@@ -239,7 +241,7 @@ function PmView({ data, stats }: ViewProps) {
 }
 
 function GovernmentView({ data, stats }: ViewProps) {
-  const govDecisions = data.blockers.filter((b) => b.type === "EXTERNAL_GOVERNMENT");
+  const decisions = computeDecisions(data);
   return (
     <>
       <Panel title="Program Status — At a Glance">
@@ -251,8 +253,8 @@ function GovernmentView({ data, stats }: ViewProps) {
           <strong>
             {stats.onTarget}/{data.kpis.length}
           </strong>{" "}
-          KPIs are on target. <strong>{govDecisions.length}</strong> item
-          {govDecisions.length === 1 ? "" : "s"} await a government decision (below).
+          KPIs are on target. <strong>{decisions.length}</strong> item
+          {decisions.length === 1 ? "" : "s"} await a decision (below).
         </p>
       </Panel>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -265,7 +267,7 @@ function GovernmentView({ data, stats }: ViewProps) {
           title="Risks — Customer Awareness"
           emptyLabel="No risks flagged for customer awareness."
         />
-        <DecisionsRequiredPanel blockers={govDecisions} className="lg:col-span-2" />
+        <DecisionsRequiredPanel decisions={decisions} className="lg:col-span-2" />
       </div>
     </>
   );
@@ -577,41 +579,130 @@ function ChangesPanel({
   );
 }
 
+// A "decision required" can come from four registers — they roll up into one
+// board so a PM/COR sees everything awaiting a call in one place.
+type DecisionSource = "Blocker" | "Change" | "Risk" | "Deliverable";
+
+interface DecisionItem {
+  id: string;
+  source: DecisionSource;
+  code: string;
+  title: string;
+  need: string;
+}
+
+const DECISION_SOURCE_COLOR: Record<DecisionSource, string> = {
+  Blocker: "var(--status-blocked, #dc2626)",
+  Change: "var(--status-progress, #2563eb)",
+  Risk: "var(--status-warn, #d97706)",
+  Deliverable: "#7c3aed",
+};
+
+/** Aggregate the four registers into the items awaiting a decision. */
+function computeDecisions(data: PmDashboardData): DecisionItem[] {
+  const out: DecisionItem[] = [];
+
+  for (const b of data.blockers) {
+    if (b.escalate || b.type === "EXTERNAL_GOVERNMENT") {
+      out.push({
+        id: b.id,
+        source: "Blocker",
+        code: b.code,
+        title: b.title,
+        need: b.whatUnblocks ?? "Resolution / decision needed.",
+      });
+    }
+  }
+  for (const c of data.changes) {
+    if (c.status === "SUBMITTED" || c.status === "UNDER_REVIEW") {
+      const impact: string[] = [];
+      if (c.costImpact) impact.push(formatMoney(c.costImpact));
+      if (c.scheduleDaysImpact)
+        impact.push(`${c.scheduleDaysImpact > 0 ? "+" : ""}${c.scheduleDaysImpact}d`);
+      out.push({
+        id: c.id,
+        source: "Change",
+        code: c.code,
+        title: c.title,
+        need: `Approval decision${impact.length ? ` — ${impact.join(" · ")}` : ""}.`,
+      });
+    }
+  }
+  for (const r of data.risks) {
+    if (r.escalate && r.status !== "CLOSED") {
+      out.push({
+        id: r.id,
+        source: "Risk",
+        code: r.code,
+        title: r.title,
+        need: `Escalation decision (${r.level.toLowerCase()} risk).`,
+      });
+    }
+  }
+  for (const d of data.deliverables) {
+    if (
+      d.status === "IN_GOVT_REVIEW" ||
+      d.status === "REVISION_REQUIRED" ||
+      d.status === "ACCEPTED_WITH_COMMENTS"
+    ) {
+      out.push({
+        id: d.id,
+        source: "Deliverable",
+        code: d.code,
+        title: d.title,
+        need: `Government action — ${DELIVERABLE_META[d.status].label}.`,
+      });
+    }
+  }
+  return out;
+}
+
 function DecisionsRequiredPanel({
-  blockers,
+  decisions,
   className,
 }: {
-  blockers: BlockerLite[];
+  decisions: DecisionItem[];
   className?: string;
 }) {
   return (
     <Panel title="Decisions Required" className={className}>
-      {blockers.length === 0 ? (
+      {decisions.length === 0 ? (
         <div className="flex items-center gap-2 py-2 text-sm text-[var(--text-muted)]">
           <Gavel className="size-4 shrink-0" />
-          <span>No items currently awaiting government action.</span>
+          <span>Nothing awaiting a decision right now.</span>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
-          {blockers.map((b) => (
-            <li
-              key={b.id}
-              className="flex flex-col gap-1 rounded-[var(--radius)] border border-[var(--border)] p-3"
-            >
-              <div className="flex items-center gap-2">
-                <Gavel className="size-3.5 shrink-0 text-[var(--status-warn,#d97706)]" />
-                <span className="text-sm font-medium text-[var(--text)]">{b.title}</span>
-                <span className="ml-auto text-xs tabular-nums text-[var(--text-muted)]">
-                  {b.code}
-                </span>
-              </div>
-              {b.whatUnblocks && (
-                <p className="pl-5 text-xs text-[var(--text-muted)]">
-                  <span className="font-medium">Needs:</span> {b.whatUnblocks}
+          {decisions.map((d) => {
+            const color = DECISION_SOURCE_COLOR[d.source];
+            return (
+              <li
+                key={`${d.source}-${d.id}`}
+                className="flex flex-col gap-1 rounded-[var(--radius)] border border-[var(--border)] p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                    style={{
+                      color,
+                      backgroundColor: `color-mix(in srgb, ${color} 14%, transparent)`,
+                    }}
+                  >
+                    {d.source}
+                  </span>
+                  <span className="min-w-0 truncate text-sm font-medium text-[var(--text)]">
+                    {d.title}
+                  </span>
+                  <span className="ml-auto shrink-0 text-xs tabular-nums text-[var(--text-muted)]">
+                    {d.code}
+                  </span>
+                </div>
+                <p className="pl-1 text-xs text-[var(--text-muted)]">
+                  <span className="font-medium">Needs:</span> {d.need}
                 </p>
-              )}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </Panel>
