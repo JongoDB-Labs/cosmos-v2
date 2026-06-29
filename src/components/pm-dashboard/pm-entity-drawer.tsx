@@ -34,10 +34,72 @@ import type { PmSubjectType } from "@/lib/pm/subjects";
 import {
   MessageSquare,
   History,
+  Link2,
   Send,
   Pencil,
   Trash2,
+  Plus,
+  X,
 } from "lucide-react";
+
+// The set a PM entity can reference: the 8 drill-down subjects plus board work
+// items. Mirrors LinkSubjectType in lib/pm/subjects.ts (kept local so the drawer
+// has no server import). Used to build the "Add reference" type picker.
+type LinkSubjectType = PmSubjectType | "work_item";
+
+// Display label + the register GET segment each linkable type is fetched from.
+// `seg` is the project sub-route whose list endpoint returns that type's rows.
+const LINK_TYPE_META: Record<LinkSubjectType, { label: string; seg: string }> = {
+  risk: { label: "Risk", seg: "risks" },
+  change: { label: "Change", seg: "changes" },
+  blocker: { label: "Blocker", seg: "blockers" },
+  milestone: { label: "Milestone", seg: "schedule" },
+  deliverable: { label: "Deliverable", seg: "deliverables" },
+  vendor: { label: "Vendor", seg: "vendors" },
+  staff: { label: "Staff", seg: "staffing" },
+  clin: { label: "CLIN", seg: "clins" },
+  work_item: { label: "Work item", seg: "work-items" },
+};
+
+const LINK_TYPE_ORDER: LinkSubjectType[] = [
+  "risk",
+  "change",
+  "blocker",
+  "milestone",
+  "deliverable",
+  "vendor",
+  "staff",
+  "clin",
+  "work_item",
+];
+
+// A resolved link row from GET /pm-links — the far end of a reference.
+interface PmLinkRow {
+  linkId: string;
+  type: LinkSubjectType;
+  id: string;
+  title: string;
+  code: string | null;
+  urlSeg: string;
+}
+
+// A raw register row, read defensively for the picker. Each register returns a
+// different shape; we only need an id and a human label, so we probe the common
+// label fields (code/name/title, plus #ticketNumber for work items).
+interface RegisterRow {
+  id: string;
+  code?: string | null;
+  title?: string | null;
+  name?: string | null;
+  ticketNumber?: number | null;
+}
+
+/** Build a picker label from whatever label-ish fields a register row carries. */
+function registerRowLabel(r: RegisterRow): string {
+  const code = r.code ?? (r.ticketNumber != null ? `#${r.ticketNumber}` : null);
+  const name = r.title ?? r.name ?? "";
+  return [code, name].filter(Boolean).join(" ") || code || name || "(untitled)";
+}
 
 // ---------------------------------------------------------------------------
 // Public field model. A consumer (each register) describes the entity's
@@ -179,15 +241,17 @@ export function PmEntityDrawer({
     return seed;
   });
 
-  const [tab, setTab] = useState<"comments" | "activity">("comments");
+  const [tab, setTab] = useState<"comments" | "activity" | "related">("comments");
 
   // Query keys are org-scoped + subject-scoped so two open drawers (or the same
   // subject reopened) share one cache entry and invalidate cleanly.
   const commentsKey = useOrgQueryKey("pm-comments", subjectType, subjectId);
   const activityKey = useOrgQueryKey("pm-activity", subjectType, subjectId);
+  const relatedKey = useOrgQueryKey("pm-links", subjectType, subjectId);
 
   const commentsBase = `/api/v1/orgs/${orgId}/projects/${projectId}/pm-comments`;
   const activityBase = `/api/v1/orgs/${orgId}/projects/${projectId}/pm-activity`;
+  const linksBase = `/api/v1/orgs/${orgId}/projects/${projectId}/pm-links`;
 
   const { data: comments = [] } = useQuery({
     queryKey: commentsKey,
@@ -205,6 +269,14 @@ export function PmEntityDrawer({
         `${activityBase}?subjectType=${subjectType}&subjectId=${subjectId}`,
       ),
   });
+  const { data: relatedLinks = [] } = useQuery({
+    queryKey: relatedKey,
+    enabled: open && !!subjectId,
+    queryFn: () =>
+      jsonFetch<PmLinkRow[]>(
+        `${linksBase}?subjectType=${subjectType}&subjectId=${subjectId}`,
+      ),
+  });
 
   const { data: mentionMembers } = useOrgMembers(orgId);
   const members = mentionMembers ?? [];
@@ -217,6 +289,11 @@ export function PmEntityDrawer({
   function invalidateActivity() {
     void qc.invalidateQueries({
       queryKey: orgQueryKey(orgSlug, "pm-activity", subjectType, subjectId),
+    });
+  }
+  function invalidateRelated() {
+    void qc.invalidateQueries({
+      queryKey: orgQueryKey(orgSlug, "pm-links", subjectType, subjectId),
     });
   }
 
@@ -349,6 +426,63 @@ export function PmEntityDrawer({
     }
   }
 
+  // --- Related references (cross-entity links) -------------------------------
+  // The picker is two cascading Selects: choose a target type, then a target
+  // item of that type. The item list is a query keyed on the chosen type (NOT a
+  // setState-in-effect), so switching types just swaps the active query.
+  const [pickerType, setPickerType] = useState<LinkSubjectType | "">("");
+  const [linking, setLinking] = useState(false);
+
+  const { data: pickerRows = [], isFetching: pickerLoading } = useQuery({
+    queryKey: useOrgQueryKey("pm-link-picker", pickerType),
+    enabled: open && !!pickerType,
+    queryFn: () =>
+      jsonFetch<RegisterRow[]>(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/${
+          LINK_TYPE_META[pickerType as LinkSubjectType].seg
+        }`,
+      ),
+  });
+
+  // Candidates = the chosen type's rows, minus the current subject itself and
+  // anything already linked (so you can't double-link or self-link).
+  const linkedIds = new Set(relatedLinks.map((l) => `${l.type}:${l.id}`));
+  const pickerCandidates = pickerRows.filter((r) => {
+    if (pickerType === subjectType && r.id === subjectId) return false;
+    return !linkedIds.has(`${pickerType}:${r.id}`);
+  });
+
+  async function handleAddLink(targetId: string) {
+    if (!pickerType || !subjectId || linking) return;
+    setLinking(true);
+    try {
+      await jsonFetch(linksBase, {
+        method: "POST",
+        body: JSON.stringify({
+          fromType: subjectType,
+          fromId: subjectId,
+          toType: pickerType,
+          toId: targetId,
+        }),
+      });
+      setPickerType("");
+      invalidateRelated();
+    } catch (err) {
+      notifyError(err, "Couldn't add the reference.");
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function handleRemoveLink(linkId: string) {
+    try {
+      await jsonFetch(`${linksBase}/${linkId}`, { method: "DELETE" });
+      invalidateRelated();
+    } catch (err) {
+      notifyError(err, "Couldn't remove the reference.");
+    }
+  }
+
   if (!subjectId) return null;
 
   return (
@@ -415,6 +549,19 @@ export function PmEntityDrawer({
             >
               <History className="h-3.5 w-3.5" />
               Activity ({activities.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("related")}
+              className={cn(
+                "flex items-center gap-1.5 border-b-2 pb-1 text-sm transition-colors",
+                tab === "related"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              Related ({relatedLinks.length})
             </button>
           </div>
 
@@ -563,6 +710,105 @@ export function PmEntityDrawer({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Related tab — cross-entity references in either direction. */}
+          {tab === "related" && (
+            <div className="space-y-3">
+              {relatedLinks.length === 0 && (
+                <p className="py-4 text-center text-xs text-muted-foreground">
+                  No references yet
+                </p>
+              )}
+              {relatedLinks.map((l) => (
+                <div
+                  key={l.linkId}
+                  className="group/link flex items-center gap-2 rounded-md border border-input px-2.5 py-1.5"
+                >
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {LINK_TYPE_META[l.type]?.label ?? l.type}
+                  </span>
+                  {l.code && (
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                      {l.code}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-sm">{l.title}</span>
+                  <button
+                    type="button"
+                    aria-label="Remove reference"
+                    className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/link:opacity-100"
+                    onClick={() => void handleRemoveLink(l.linkId)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+
+              {/* Add reference: pick a type, then an item of that type. */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Select
+                  value={pickerType}
+                  onValueChange={(v) => setPickerType(v as LinkSubjectType)}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    aria-label="Reference type"
+                    className="w-36 text-xs"
+                  >
+                    <SelectValue placeholder="Add reference…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LINK_TYPE_ORDER.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {LINK_TYPE_META[t].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {pickerType && (
+                  <Select
+                    // Keyed by pickerType so it remounts (clears its selection)
+                    // when the target type changes — no setState-in-effect.
+                    key={pickerType}
+                    value=""
+                    disabled={linking || pickerLoading}
+                    onValueChange={(v) => v && void handleAddLink(v)}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      aria-label="Reference target"
+                      className="min-w-44 flex-1 text-xs"
+                    >
+                      <SelectValue
+                        placeholder={
+                          pickerLoading
+                            ? "Loading…"
+                            : pickerCandidates.length === 0
+                              ? "No items available"
+                              : `Select ${LINK_TYPE_META[pickerType].label.toLowerCase()}…`
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pickerCandidates.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {registerRowLabel(r)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {!pickerType && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Plus className="h-3 w-3" />
+                    Link a risk, blocker, work item, and more
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
