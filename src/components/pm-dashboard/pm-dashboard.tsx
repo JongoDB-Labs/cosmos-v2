@@ -17,6 +17,7 @@ import {
   CalendarClock,
   Download,
   Share2,
+  UserCheck,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,16 @@ export interface ClinBurnLite {
   percentConsumed: number | null;
 }
 
+export interface ComplianceLite {
+  total: number;
+  compliant: number;
+  percent: number | null;
+  cacPending: number;
+  trainingIncomplete: number;
+  accessPending: number;
+  ndaNotExecuted: number;
+}
+
 export interface PmDashboardData {
   milestones: MilestoneLite[];
   kpis: KpiLite[];
@@ -144,6 +155,7 @@ export interface PmDashboardData {
   blockers: BlockerLite[];
   changes: ChangeLite[];
   clins: ClinBurnLite[];
+  compliance?: ComplianceLite | null;
 }
 
 interface PmDashboardProps {
@@ -385,8 +397,14 @@ const AUDIENCE_HEADER: Record<AudienceView, { title: string; subtitle: string }>
 // ---------------------------------------------------------------------------
 
 function StatRow({ data, stats }: ViewProps) {
+  const compliance = data.compliance;
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div
+      className={cn(
+        "grid grid-cols-2 gap-4",
+        compliance ? "lg:grid-cols-5" : "lg:grid-cols-4",
+      )}
+    >
       <StatCard
         icon={CalendarClock}
         label="Schedule"
@@ -418,6 +436,19 @@ function StatRow({ data, stats }: ViewProps) {
         value={`${stats.onTarget}/${data.kpis.length}`}
         sub={data.kpis.length ? `${data.kpis.length} tracked` : "none tracked"}
       />
+      {compliance && (
+        <StatCard
+          icon={UserCheck}
+          label="Personnel compliant"
+          value={`${compliance.percent ?? 0}%`}
+          sub={`${compliance.compliant}/${compliance.total} fully compliant`}
+          accent={
+            compliance.percent != null && compliance.percent < 100
+              ? "var(--status-warn, #d97706)"
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

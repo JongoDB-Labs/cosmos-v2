@@ -5,8 +5,9 @@ import { prisma } from "@/lib/db/client";
  * Staffing lens — join the existing project membership (`ProjectMember` →
  * `OrgMember` → `User`) with HR data (`Employee`: labor category, clearance,
  * cost rate) into one view. Cost rate is only included when the caller may see
- * financials. Surfaces existing data; the only PM-owned field is
- * `allocationPercent` on the membership.
+ * financials. PM-owned fields on the membership: `allocationPercent` and the
+ * per-contract compliance status (CAC / training / system access / NDA / on
+ * contract), from which "fully compliant" is derived.
  */
 export interface StaffRow {
   id: string; // projectMember id
@@ -18,6 +19,48 @@ export interface StaffRow {
   clearance: string | null; // Employee.classification, "None"/empty normalized to null
   employmentType: string | null;
   costRate: number | null; // only when includeCost
+  // Compliance (per-contract onboarding posture)
+  onContract: boolean;
+  cacStatus: string | null;
+  cacExpiry: string | null;
+  trainingStatus: string | null;
+  accessStatus: string | null;
+  ndaStatus: string | null;
+  complianceNotes: string | null;
+  compliant: boolean; // derived: every dimension green
+}
+
+// A dimension is "green" only when explicitly at its compliant value — missing
+// data reads as not-yet-compliant (matches govcon onboarding tracking).
+export const cacOk = (s: string | null) => s === "active";
+export const trainingOk = (s: string | null) => s === "complete";
+export const accessOk = (s: string | null) => s === "granted";
+export const ndaOk = (s: string | null) => s === "executed";
+
+export interface ComplianceSummary {
+  total: number;
+  compliant: number;
+  percent: number | null;
+  cacPending: number;
+  trainingIncomplete: number;
+  accessPending: number;
+  ndaNotExecuted: number;
+  offContract: number;
+}
+
+export function summarizeCompliance(rows: StaffRow[]): ComplianceSummary {
+  const total = rows.length;
+  const compliant = rows.filter((r) => r.compliant).length;
+  return {
+    total,
+    compliant,
+    percent: total > 0 ? Math.round((compliant / total) * 100) : null,
+    cacPending: rows.filter((r) => !cacOk(r.cacStatus)).length,
+    trainingIncomplete: rows.filter((r) => !trainingOk(r.trainingStatus)).length,
+    accessPending: rows.filter((r) => !accessOk(r.accessStatus)).length,
+    ndaNotExecuted: rows.filter((r) => !ndaOk(r.ndaStatus)).length,
+    offContract: rows.filter((r) => !r.onContract).length,
+  };
 }
 
 export async function loadStaffing(
@@ -52,6 +95,12 @@ export async function loadStaffing(
     const e = empByUser.get(m.orgMember.userId);
     const clearance =
       e?.classification && e.classification.toLowerCase() !== "none" ? e.classification : null;
+    const compliant =
+      m.onContract &&
+      cacOk(m.cacStatus) &&
+      trainingOk(m.trainingStatus) &&
+      accessOk(m.accessStatus) &&
+      ndaOk(m.ndaStatus);
     return {
       id: m.id,
       userId: m.orgMember.userId,
@@ -62,6 +111,14 @@ export async function loadStaffing(
       clearance,
       employmentType: e?.employmentType ?? null,
       costRate: opts.includeCost && e?.costRate != null ? Number(e.costRate) : null,
+      onContract: m.onContract,
+      cacStatus: m.cacStatus,
+      cacExpiry: m.cacExpiry ? m.cacExpiry.toISOString() : null,
+      trainingStatus: m.trainingStatus,
+      accessStatus: m.accessStatus,
+      ndaStatus: m.ndaStatus,
+      complianceNotes: m.complianceNotes,
+      compliant,
     };
   });
   rows.sort((a, b) => a.name.localeCompare(b.name));

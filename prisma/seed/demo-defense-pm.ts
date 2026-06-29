@@ -313,12 +313,15 @@ async function main() {
   // Staffing — put the org's employees on SENTINEL with roles + allocations so
   // the Team & Staffing lens has a roster (joins to Employee for labor cat /
   // clearance / cost rate).
-  const STAFF: { name: string; role: "MANAGER" | "LEAD" | "MEMBER"; allocation: number }[] = [
-    { name: "Jon", role: "MANAGER", allocation: 40 },
-    { name: "Marcus Hale", role: "LEAD", allocation: 100 },
-    { name: "Dana Reyes", role: "MEMBER", allocation: 80 },
-    { name: "Priya Nair", role: "MEMBER", allocation: 100 },
-    { name: "Tom Becker", role: "MEMBER", allocation: 50 },
+  const STAFF: {
+    name: string; role: "MANAGER" | "LEAD" | "MEMBER"; allocation: number;
+    onContract: boolean; cac: string; cacExp: number | null; training: string; access: string; nda: string;
+  }[] = [
+    { name: "Jon", role: "MANAGER", allocation: 40, onContract: true, cac: "active", cacExp: 500, training: "complete", access: "granted", nda: "executed" },
+    { name: "Marcus Hale", role: "LEAD", allocation: 100, onContract: true, cac: "active", cacExp: 320, training: "complete", access: "granted", nda: "executed" },
+    { name: "Priya Nair", role: "MEMBER", allocation: 100, onContract: true, cac: "active", cacExp: 210, training: "complete", access: "granted", nda: "executed" },
+    { name: "Dana Reyes", role: "MEMBER", allocation: 80, onContract: true, cac: "pending", cacExp: null, training: "in_progress", access: "granted", nda: "executed" },
+    { name: "Tom Becker", role: "MEMBER", allocation: 50, onContract: true, cac: "active", cacExp: 60, training: "complete", access: "pending", nda: "not_executed" },
   ];
   let staffed = 0;
   for (const s of STAFF) {
@@ -326,10 +329,14 @@ async function main() {
     if (!user) continue;
     const om = await prisma.orgMember.findFirst({ where: { orgId: org.id, userId: user.id } });
     if (!om) continue;
+    const comp = {
+      onContract: s.onContract, cacStatus: s.cac, cacExpiry: s.cacExp != null ? d(s.cacExp) : null,
+      trainingStatus: s.training, accessStatus: s.access, ndaStatus: s.nda,
+    };
     await prisma.projectMember.upsert({
       where: { projectId_orgMemberId: { projectId: project.id, orgMemberId: om.id } },
-      update: { role: s.role, allocationPercent: s.allocation },
-      create: { projectId: project.id, orgMemberId: om.id, role: s.role, allocationPercent: s.allocation },
+      update: { role: s.role, allocationPercent: s.allocation, ...comp },
+      create: { projectId: project.id, orgMemberId: om.id, role: s.role, allocationPercent: s.allocation, ...comp },
     });
     staffed++;
   }
