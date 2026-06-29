@@ -124,6 +124,15 @@ export interface ChangeLite {
   scheduleDaysImpact: number | null;
 }
 
+export interface ClinBurnLite {
+  id: string;
+  code: string;
+  title: string;
+  value: number;
+  burned: number;
+  percentConsumed: number | null;
+}
+
 export interface PmDashboardData {
   milestones: MilestoneLite[];
   kpis: KpiLite[];
@@ -132,6 +141,7 @@ export interface PmDashboardData {
   deliverables: DeliverableLite[];
   blockers: BlockerLite[];
   changes: ChangeLite[];
+  clins: ClinBurnLite[];
 }
 
 interface PmDashboardProps {
@@ -234,6 +244,7 @@ function PmView({ data, stats }: ViewProps) {
         <BlockersPanel blockers={data.blockers} />
         <DeliverablesPanel deliverables={data.deliverables} />
         <ChangesPanel changes={data.changes} />
+        <ClinBurnPanel clins={data.clins} className="lg:col-span-2" />
         <GoalsPanel goals={data.goals} />
       </div>
     </>
@@ -261,6 +272,7 @@ function GovernmentView({ data, stats }: ViewProps) {
         <MilestonesPanel milestones={data.milestones} title="Schedule" />
         <DeliverablesPanel deliverables={data.deliverables} title="Contract Deliverables (CDRLs)" />
         <ChangesPanel changes={data.changes} title="Change Requests & MODs" />
+        <ClinBurnPanel clins={data.clins} className="lg:col-span-2" />
         <KpisPanel kpis={data.kpis} title="Performance vs. Target" />
         <RisksPanel
           risks={data.risks.filter((r) => r.escalate)}
@@ -537,6 +549,63 @@ function BlockersPanel({ blockers }: { blockers: BlockerLite[] }) {
             );
           })}
         </ul>
+      )}
+    </Panel>
+  );
+}
+
+function BurnBar({ percent }: { percent: number | null }) {
+  const pct = percent ?? 0;
+  const color =
+    pct > 100
+      ? "var(--status-blocked, #dc2626)"
+      : pct >= 80
+        ? "var(--status-warn, #d97706)"
+        : "var(--status-done, #16a34a)";
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
+      <div
+        className="h-full rounded-full"
+        style={{ width: `${Math.min(100, pct)}%`, backgroundColor: color }}
+      />
+    </div>
+  );
+}
+
+function ClinBurnPanel({ clins, className }: { clins: ClinBurnLite[]; className?: string }) {
+  const totalValue = clins.reduce((s, c) => s + c.value, 0);
+  const totalBurned = clins.reduce((s, c) => s + c.burned, 0);
+  const totalPct = totalValue > 0 ? Math.round((totalBurned / totalValue) * 100) : null;
+  return (
+    <Panel title="CLIN Burn" className={className}>
+      {clins.length === 0 ? (
+        <EmptyRow label="No CLINs yet." />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="text-[var(--text-muted)]">
+              {formatMoney(totalBurned)} burned of {formatMoney(totalValue)}
+            </span>
+            {totalPct != null && (
+              <span className="font-semibold tabular-nums text-[var(--text)]">{totalPct}%</span>
+            )}
+          </div>
+          <ul className="flex flex-col gap-2">
+            {clins.map((c) => (
+              <li key={c.id} className="flex flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate text-[var(--text)]">
+                    <span className="font-mono text-[var(--text-muted)]">{c.code}</span> {c.title}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[var(--text-muted)]">
+                    {formatMoney(c.burned)} / {formatMoney(c.value)}
+                  </span>
+                </div>
+                <BurnBar percent={c.percentConsumed} />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </Panel>
   );

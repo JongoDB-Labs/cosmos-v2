@@ -259,6 +259,14 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("clin-burn")) {
+    featureTabs.push({
+      feature: "clin-burn",
+      label: "CLIN Burn",
+      href: `/${orgSlug}/projects/${projectKey}/clins`,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",

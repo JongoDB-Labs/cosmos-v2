@@ -4,6 +4,7 @@ import { redirect, notFound } from "next/navigation";
 import { PmDashboard } from "@/components/pm-dashboard/pm-dashboard";
 import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
+import { loadClinsWithBurn } from "@/lib/pm/burn";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -24,7 +25,7 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
   if (!org) notFound();
 
   const where = { orgId: ctx.orgId };
-  const [milestones, kpis, goals, risks, deliverables, blockers, changes] = await Promise.all([
+  const [milestones, kpis, goals, risks, deliverables, blockers, changes, clins] = await Promise.all([
     // Milestone status + completion derive from linked work items (org-wide).
     loadMilestonesWithDerived(ctx.orgId),
     // KPI currentValue derives from execution for auto-source KPIs (org-wide).
@@ -71,6 +72,7 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
         scheduleDaysImpact: true,
       },
     }),
+    loadClinsWithBurn(ctx.orgId),
   ]);
 
   return (
@@ -113,6 +115,14 @@ export default async function OrgPmDashboardPage({ params }: PageParams) {
           status: c.status,
           costImpact: c.costImpact != null ? Number(c.costImpact) : null,
           scheduleDaysImpact: c.scheduleDaysImpact,
+        })),
+        clins: clins.map((c) => ({
+          id: c.id,
+          code: c.code,
+          title: c.title,
+          value: c.value,
+          burned: c.burned,
+          percentConsumed: c.percentConsumed,
         })),
       }}
     />
