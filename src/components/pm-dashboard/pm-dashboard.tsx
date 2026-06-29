@@ -15,6 +15,7 @@ import {
   LineChart,
   Gavel,
   CalendarClock,
+  Download,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -189,12 +190,22 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
             {scopeLabel} — {header.subtitle}
           </p>
         </div>
-        {audiences.length > 1 && (
-          <div
-            role="tablist"
-            aria-label="Audience view"
-            className="inline-flex rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-0.5"
-          >
+        <div className="flex items-center gap-2">
+          {scope.kind === "project" && (
+            <a
+              href={`/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/export/xlsx`}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--text)] transition-colors hover:text-[var(--primary)]"
+              title="Download every register as an Excel workbook"
+            >
+              <Download className="size-3.5" /> Export Excel
+            </a>
+          )}
+          {audiences.length > 1 && (
+            <div
+              role="tablist"
+              aria-label="Audience view"
+              className="inline-flex rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-0.5"
+            >
             {audiences.map((a) => {
               const active = a.key === audience;
               const Icon = a.icon;
@@ -216,8 +227,9 @@ export function PmDashboard({ scope, data, audience: initialAudience }: PmDashbo
                 </button>
               );
             })}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       {audience === "pm" && <PmView data={data} stats={stats} />}
