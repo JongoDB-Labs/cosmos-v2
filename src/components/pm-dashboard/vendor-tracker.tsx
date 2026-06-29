@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, AlertTriangle, Handshake } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 
 interface PartnerLite {
   id: string;
@@ -152,6 +153,7 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
     queryKey,
     queryFn: () => jsonFetch<Vendor[]>(apiBase),
   });
+  const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("value");
@@ -236,9 +238,11 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
             total committed
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" /> New Vendor Contract
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate}>
+            <Plus className="size-4" /> New Vendor Contract
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -270,7 +274,7 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
               : "Add the first subcontract to start the vendor register."
           }
           action={
-            !filter ? (
+            !filter && canEdit ? (
               <Button onClick={openCreate}>
                 <Plus className="size-4" /> New Vendor Contract
               </Button>
@@ -296,8 +300,8 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
               {view.map((v) => (
                 <tr
                   key={v.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => openEdit(v)}
+                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
+                  onClick={canEdit ? () => openEdit(v) : undefined}
                 >
                   <td className="px-3 py-2 font-medium text-[var(--text)]">
                     {v.partner?.name ?? "—"}
@@ -319,17 +323,19 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
                     {STATUS_LABEL[v.status] ?? v.status}
                   </td>
                   <td className="px-2 py-2 text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label="Delete vendor contract"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleting(v);
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Delete vendor contract"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleting(v);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -29,7 +29,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Trash2, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Trash2, ShieldAlert, AlertTriangle } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 
 type RiskStatus = "OPEN" | "MONITORING" | "MITIGATED" | "CLOSED" | "ESCALATED";
 
@@ -167,6 +168,7 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
     queryKey,
     queryFn: () => jsonFetch<Risk[]>(apiBase),
   });
+  const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("priority");
@@ -242,9 +244,11 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
             {risks.length} risk{risks.length === 1 ? "" : "s"} · score = likelihood × impact
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" /> New Risk
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate}>
+            <Plus className="size-4" /> New Risk
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -272,7 +276,7 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
           icon={ShieldAlert}
           title={filter ? "No matching risks" : "No risks yet"}
           description={filter ? "Try a different filter." : "Log the first risk to start the register."}
-          action={!filter ? <Button onClick={openCreate}><Plus className="size-4" /> New Risk</Button> : undefined}
+          action={!filter && canEdit ? <Button onClick={openCreate}><Plus className="size-4" /> New Risk</Button> : undefined}
         />
       ) : (
         <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
@@ -296,8 +300,8 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
                 return (
                   <tr
                     key={r.id}
-                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                    onClick={() => openEdit(r)}
+                    className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
+                    onClick={canEdit ? () => openEdit(r) : undefined}
                   >
                     <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{r.code}</td>
                     <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{r.title}</td>
@@ -320,17 +324,19 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
                       )}
                     </td>
                     <td className="px-2 py-2 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete risk"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(r);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Delete risk"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleting(r);
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 );

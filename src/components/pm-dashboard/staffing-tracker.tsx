@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Users } from "lucide-react";
+import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 
 type ProjectRole = "MANAGER" | "LEAD" | "MEMBER" | "VIEWER";
 
@@ -70,6 +71,7 @@ interface StaffingTrackerProps {
 export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/staffing`;
   const queryKey = useOrgQueryKey("staffing", projectId);
+  const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const { data: staff = [], isLoading, isError, refetch } = useQuery({
     queryKey,
@@ -171,8 +173,8 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
               {view.map((row) => (
                 <tr
                   key={row.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => openEdit(row)}
+                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
+                  onClick={canEdit ? () => openEdit(row) : undefined}
                 >
                   <td className="px-3 py-2 font-medium text-[var(--text)]">{row.name}</td>
                   <td className="px-3 py-2 text-[var(--text-muted)]">
