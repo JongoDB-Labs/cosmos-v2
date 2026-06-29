@@ -600,6 +600,7 @@ model ProjectMember {
   projectId   String      @map("project_id") @db.Uuid
   orgMemberId String      @map("org_member_id") @db.Uuid
   role        ProjectRole @default(MEMBER)
+  allocationPercent Int? @map("allocation_percent") // % of time on this project
 
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   orgMember OrgMember @relation(fields: [orgMemberId], references: [id], onDelete: Cascade)

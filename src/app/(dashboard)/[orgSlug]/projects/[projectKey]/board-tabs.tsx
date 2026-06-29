@@ -251,6 +251,14 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("staffing")) {
+    featureTabs.push({
+      feature: "staffing",
+      label: "Staffing",
+      href: `/${orgSlug}/projects/${projectKey}/staffing`,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",
