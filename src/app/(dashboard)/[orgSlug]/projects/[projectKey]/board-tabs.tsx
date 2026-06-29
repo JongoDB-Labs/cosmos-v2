@@ -243,6 +243,14 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("vendors")) {
+    featureTabs.push({
+      feature: "vendors",
+      label: "Vendors",
+      href: `/${orgSlug}/projects/${projectKey}/vendors`,
+    });
+  }
+
   if (enabledFeatures.includes("okr")) {
     featureTabs.push({
       feature: "okr",

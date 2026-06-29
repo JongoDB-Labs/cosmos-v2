@@ -846,6 +846,9 @@ model Partner {
   contactName  String?  @map("contact_name")
   contactEmail String?  @map("contact_email")
   contactPhone String?  @map("contact_phone")
+  socioEconomic String? @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
+  cageCode      String? @map("cage_code")
+  perfRating    Int?    @map("perf_rating") // 1-5
   notes        String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -880,6 +883,7 @@ model Contract {
   orgId              String                      @map("org_id") @db.Uuid
   partnerId          String?                     @map("partner_id") @db.Uuid
   productId          String?                     @map("product_id") @db.Uuid
+  projectId          String?                     @map("project_id") @db.Uuid
   title              String
   value              Decimal?                    @db.Decimal(19, 4)
   currency           String                      @default("USD")
@@ -905,6 +909,7 @@ model Contract {
   journalLines JournalLine[]
 
   @@index([orgId, status])
+  @@index([orgId, projectId])
   @@map("contracts")
 }
 
