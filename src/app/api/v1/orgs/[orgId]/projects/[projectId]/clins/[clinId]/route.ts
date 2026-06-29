@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; clinId: string }>;
@@ -44,6 +45,29 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.popEnd !== undefined) update.popEnd = data.popEnd ? new Date(data.popEnd) : null;
 
     const updated = await prisma.clin.update({ where: { id: clinId }, data: update });
+
+    // Audit field changes (best-effort). Label-keyed maps so the Activity log
+    // reads "changed Status: active → closed". Only the audited fields below are
+    // diffed; `logPmFieldChanges` skips keys whose before === after. value /
+    // fundedValue are Prisma Decimal — `actVal` stringifies via String().
+    await logPmFieldChanges(
+      { orgId, subjectType: "clin", subjectId: clinId, userId: ctx.userId },
+      {
+        code: existing.code,
+        title: existing.title,
+        status: existing.status,
+        value: existing.value,
+        fundedValue: existing.fundedValue,
+      },
+      {
+        code: updated.code,
+        title: updated.title,
+        status: updated.status,
+        value: updated.value,
+        fundedValue: updated.fundedValue,
+      },
+    );
+
     return success(updated);
   } catch (e) {
     return handleApiError(e);

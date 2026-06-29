@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, ShieldOff, AlertTriangle } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type BlockerStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "ESCALATED";
 type BlockerType =
@@ -137,32 +138,6 @@ const emptyForm: BlockerForm = {
   notes: "",
 };
 
-function toDateInput(iso: string | null): string {
-  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-}
-
-function blockerToForm(b: Blocker): BlockerForm {
-  return {
-    title: b.title,
-    description: b.description ?? "",
-    type: b.type,
-    branchId: b.branchId ?? "",
-    source: b.source ?? "",
-    identifiedBy: b.identifiedBy ?? "",
-    owner: b.owner ?? "",
-    whatUnblocks: b.whatUnblocks ?? "",
-    decisionAuthority: b.decisionAuthority ?? "",
-    relatedRiskCode: b.relatedRiskCode ?? "",
-    customerNotified: b.customerNotified,
-    customerNotifiedDate: toDateInput(b.customerNotifiedDate),
-    targetDate: toDateInput(b.targetDate),
-    escalate: b.escalate,
-    status: b.status,
-    relatedRef: b.relatedRef ?? "",
-    notes: b.notes ?? "",
-  };
-}
-
 function formToBody(f: BlockerForm) {
   return {
     title: f.title.trim(),
@@ -204,24 +179,20 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("code");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<Blocker | null>(null);
   const [deleting, setDeleting] = useState<Blocker | null>(null);
   const [form, setForm] = useState<BlockerForm>(emptyForm);
   // Snapshot "now" once at mount so days-open is stable across re-renders (React purity).
   const [nowMs] = useState(() => Date.now());
+  // The drawer is the primary row-detail view. We hold the open blocker's id so
+  // the drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  const [openBlockerId, setOpenBlockerId] = useState<string | null>(null);
+  const openBlocker = openBlockerId ? blockers.find((b) => b.id === openBlockerId) ?? null : null;
 
   const createMutation = useOrgMutation<Blocker, Error, BlockerForm>({
     mutationFn: (f) => jsonFetch(apiBase, { method: "POST", body: JSON.stringify(formToBody(f)) }),
     invalidate: [["blockers", projectId]],
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the blocker."),
-  });
-  const updateMutation = useOrgMutation<Blocker, Error, { id: string; f: BlockerForm }>({
-    mutationFn: ({ id, f }) =>
-      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["blockers", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the blocker."),
   });
   const deleteMutation = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }),
@@ -256,9 +227,133 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
   }
-  function openEdit(b: Blocker) {
-    setForm(blockerToForm(b));
-    setEditing(b);
+
+  // Build the drawer's inline-editable field list for the open blocker. Each
+  // editable field PATCHes the blocker endpoint by key; identifiedAt and
+  // days-open are derived and already shown in the table, so they're omitted.
+  function blockerFields(b: Blocker): PmField[] {
+    return [
+      { key: "title", label: "Title", type: "text", value: b.title, editable: canEdit },
+      {
+        key: "description",
+        label: "Description",
+        type: "textarea",
+        value: b.description,
+        editable: canEdit,
+        placeholder: "What is blocking progress?",
+      },
+      {
+        key: "type",
+        label: "Type",
+        type: "select",
+        value: b.type,
+        editable: canEdit,
+        options: TYPE_OPTIONS,
+      },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: b.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+      },
+      {
+        key: "branchId",
+        label: "Branch",
+        type: "select",
+        value: b.branchId,
+        editable: canEdit && branches.length > 0,
+        options: branches.map((br) => ({ value: br.id, label: `${br.code} ${br.name}` })),
+        placeholder: "Select branch",
+      },
+      { key: "source", label: "Source", type: "text", value: b.source, editable: canEdit },
+      {
+        key: "identifiedBy",
+        label: "Identified by",
+        type: "text",
+        value: b.identifiedBy,
+        editable: canEdit,
+      },
+      { key: "owner", label: "Owner", type: "text", value: b.owner, editable: canEdit },
+      {
+        key: "decisionAuthority",
+        label: "Decision authority",
+        type: "text",
+        value: b.decisionAuthority,
+        editable: canEdit,
+      },
+      {
+        key: "whatUnblocks",
+        label: "What unblocks this",
+        type: "textarea",
+        value: b.whatUnblocks,
+        editable: canEdit,
+        placeholder: "Describe what action or decision removes this blocker",
+      },
+      {
+        key: "relatedRiskCode",
+        label: "Related risk code",
+        type: "text",
+        value: b.relatedRiskCode,
+        editable: canEdit,
+        placeholder: "e.g. R-001",
+      },
+      {
+        key: "relatedRef",
+        label: "Related reference",
+        type: "text",
+        value: b.relatedRef,
+        editable: canEdit,
+        placeholder: "e.g. ticket, contract section, or risk ID",
+      },
+      {
+        key: "targetDate",
+        label: "Target resolution",
+        type: "date",
+        value: b.targetDate,
+        editable: canEdit,
+      },
+      {
+        key: "customerNotified",
+        label: "Customer notified",
+        type: "select",
+        value: b.customerNotified ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      {
+        key: "customerNotifiedDate",
+        label: "Customer notified date",
+        type: "date",
+        value: b.customerNotifiedDate,
+        editable: canEdit,
+      },
+      {
+        key: "escalate",
+        label: "Escalate to customer",
+        type: "select",
+        value: b.escalate ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      {
+        key: "notes",
+        label: "Notes",
+        type: "textarea",
+        value: b.notes,
+        editable: canEdit,
+        placeholder: "Additional notes",
+      },
+    ];
   }
 
   if (isLoading) return <TableSkeleton />;
@@ -330,8 +425,8 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
               {view.map((b) => (
                 <tr
                   key={b.id}
-                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                  onClick={canEdit ? () => openEdit(b) : undefined}
+                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                  onClick={() => setOpenBlockerId(b.id)}
                 >
                   <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{b.code}</td>
                   <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{b.title}</td>
@@ -384,18 +479,24 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
       />
-      {/* Edit */}
-      <BlockerDialog
-        open={editing !== null}
-        onOpenChange={(o) => !o && setEditing(null)}
-        title={editing ? `Edit ${editing.code}` : "Edit Blocker"}
-        form={form}
-        setForm={setForm}
-        branches={branches}
-        pending={updateMutation.isPending}
-        onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
-        submitLabel="Save"
-      />
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. */}
+      {openBlocker && (
+        <PmEntityDrawer
+          key={openBlocker.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="blocker"
+          subjectId={openBlocker.id}
+          title={openBlocker.title}
+          code={openBlocker.code}
+          patchPath={`${apiBase}/${openBlocker.id}`}
+          fields={blockerFields(openBlocker)}
+          open={openBlockerId !== null}
+          onOpenChange={(o) => !o && setOpenBlockerId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-sm">

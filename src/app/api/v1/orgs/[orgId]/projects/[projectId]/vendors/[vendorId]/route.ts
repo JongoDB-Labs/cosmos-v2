@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; vendorId: string }>;
@@ -85,6 +86,38 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       data: update,
       include: { partner: { select: partnerSelect } },
     });
+
+    // Audit contract field changes (best-effort). Label-keyed maps so the
+    // Activity log reads "changed status: active → completed". `existing` is the
+    // raw Contract before the update; `updated` is the raw Contract after. Only
+    // these contract fields are diffed; partner NDA/POC auditing is omitted.
+    await logPmFieldChanges(
+      { orgId, subjectType: "vendor", subjectId: vendorId, userId: ctx.userId },
+      {
+        title: existing.title,
+        status: existing.status,
+        value: existing.value,
+        fundedValue: existing.fundedValue,
+        invoicedValue: existing.invoicedValue,
+        agmtType: existing.agmtType,
+        agmtNumber: existing.agmtNumber,
+        paymentTerms: existing.paymentTerms,
+        currency: existing.currency,
+        partnerId: existing.partnerId,
+      },
+      {
+        title: updated.title,
+        status: updated.status,
+        value: updated.value,
+        fundedValue: updated.fundedValue,
+        invoicedValue: updated.invoicedValue,
+        agmtType: updated.agmtType,
+        agmtNumber: updated.agmtNumber,
+        paymentTerms: updated.paymentTerms,
+        currency: updated.currency,
+        partnerId: updated.partnerId,
+      },
+    );
 
     return success(mapVendorContract(updated));
   } catch (e) {

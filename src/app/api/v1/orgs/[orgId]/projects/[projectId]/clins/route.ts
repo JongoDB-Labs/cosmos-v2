@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
+import { logPmActivity } from "@/lib/pm/activity-log";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -64,6 +65,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         status: data.status,
       },
     });
+
+    // Seed the activity log with a "created" event (best-effort).
+    await logPmActivity({
+      orgId,
+      subjectType: "clin",
+      subjectId: created.id,
+      userId: ctx.userId,
+      action: "created",
+    });
+
     return success(created);
   } catch (e) {
     return handleApiError(e);

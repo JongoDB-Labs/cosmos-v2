@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, DollarSign, AlertTriangle } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type ClinStatus = "active" | "on_hold" | "closed";
 
@@ -84,22 +85,6 @@ const emptyForm: ClinForm = {
   popStart: "",
   popEnd: "",
 };
-
-function toDateInput(iso: string | null): string {
-  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-}
-
-function clinToForm(c: ClinBurn): ClinForm {
-  return {
-    code: c.code,
-    title: c.title,
-    value: c.value === 0 ? "" : String(c.value),
-    fundedValue: c.fundedValue === 0 ? "" : String(c.fundedValue),
-    status: c.status,
-    popStart: toDateInput(c.popStart),
-    popEnd: toDateInput(c.popEnd),
-  };
-}
 
 function formToBody(f: ClinForm) {
   return {
@@ -169,9 +154,12 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("code");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<ClinBurn | null>(null);
   const [deleting, setDeleting] = useState<ClinBurn | null>(null);
   const [form, setForm] = useState<ClinForm>(emptyForm);
+  // The drawer is the primary row-detail view. We hold the open CLIN's id so the
+  // drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  const [openClinId, setOpenClinId] = useState<string | null>(null);
+  const openClin = openClinId ? clins.find((c) => c.id === openClinId) ?? null : null;
 
   const createMutation = useOrgMutation<ClinBurn, Error, ClinForm>({
     mutationFn: (f) =>
@@ -179,16 +167,6 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
     invalidate: [["clins", projectId]],
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the CLIN."),
-  });
-  const updateMutation = useOrgMutation<ClinBurn, Error, { id: string; f: ClinForm }>({
-    mutationFn: ({ id, f }) =>
-      jsonFetch(`${apiBase}/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(formToBody(f)),
-      }),
-    invalidate: [["clins", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the CLIN."),
   });
   const deleteMutation = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }),
@@ -221,9 +199,56 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
     setForm(emptyForm);
     setCreateOpen(true);
   }
-  function openEdit(c: ClinBurn) {
-    setForm(clinToForm(c));
-    setEditing(c);
+
+  // Build the drawer's inline-editable field list for the open CLIN. Code,
+  // title, status, value, etc. are editable and PATCH the clins endpoint by
+  // key; burned / remaining / % consumed are computed server-side, read-only.
+  function clinFields(c: ClinBurn): PmField[] {
+    return [
+      { key: "code", label: "CLIN code", type: "text", value: c.code, editable: canEdit },
+      { key: "title", label: "Title", type: "text", value: c.title, editable: canEdit },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: c.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS,
+      },
+      {
+        key: "value",
+        label: "Ceiling value ($)",
+        type: "number",
+        value: c.value,
+        editable: canEdit,
+        min: 0,
+      },
+      {
+        key: "fundedValue",
+        label: "Funded value ($)",
+        type: "number",
+        value: c.fundedValue,
+        editable: canEdit,
+        min: 0,
+      },
+      { key: "popStart", label: "PoP start", type: "date", value: c.popStart, editable: canEdit },
+      { key: "popEnd", label: "PoP end", type: "date", value: c.popEnd, editable: canEdit },
+      { key: "burned", label: "Burned ($)", type: "number", value: c.burned, editable: false },
+      {
+        key: "remaining",
+        label: "Remaining ($)",
+        type: "number",
+        value: c.remaining,
+        editable: false,
+      },
+      {
+        key: "percentConsumed",
+        label: "% consumed",
+        type: "number",
+        value: c.percentConsumed,
+        editable: false,
+      },
+    ];
   }
 
   if (isLoading) return <TableSkeleton />;
@@ -306,8 +331,8 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
               {view.map((c) => (
                 <tr
                   key={c.id}
-                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                  onClick={canEdit ? () => openEdit(c) : undefined}
+                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                  onClick={() => setOpenClinId(c.id)}
                 >
                   <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">
                     {c.code}
@@ -367,18 +392,25 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
         submitLabel="Create"
       />
 
-      {/* Edit */}
-      <ClinDialog
-        open={editing !== null}
-        onOpenChange={(o) => !o && setEditing(null)}
-        title={editing ? `Edit ${editing.code}` : "Edit CLIN"}
-        form={form}
-        setForm={setForm}
-        pending={updateMutation.isPending}
-        onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
-        submitLabel="Save"
-        readOnlyBurn={editing ?? undefined}
-      />
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. Burned /
+          remaining / % consumed are computed server-side and shown read-only. */}
+      {openClin && (
+        <PmEntityDrawer
+          key={openClin.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="clin"
+          subjectId={openClin.id}
+          title={openClin.title}
+          code={openClin.code}
+          patchPath={`${apiBase}/${openClin.id}`}
+          fields={clinFields(openClin)}
+          open={openClinId !== null}
+          onOpenChange={(o) => !o && setOpenClinId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
 
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

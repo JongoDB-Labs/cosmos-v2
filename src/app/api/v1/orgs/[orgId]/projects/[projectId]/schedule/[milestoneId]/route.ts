@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; milestoneId: string }>;
@@ -79,6 +80,37 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       data: update,
       include: milestoneInclude,
     });
+
+    // Audit field changes (best-effort). Label-keyed maps so the Activity log
+    // reads "changed status: UPCOMING → COMPLETED". Date fields (dueDate,
+    // baselineDate) are Date objects — actVal slices them to yyyy-mm-dd. Only the
+    // audited fields below are diffed; logPmFieldChanges skips before === after.
+    await logPmFieldChanges(
+      { orgId, subjectType: "milestone", subjectId: milestoneId, userId: ctx.userId },
+      {
+        title: existing.title,
+        status: existing.status,
+        phase: existing.phase,
+        branchId: existing.branchId,
+        dueDate: existing.dueDate,
+        baselineDate: existing.baselineDate,
+        scheduleEscalate: existing.scheduleEscalate,
+        autoStatus: existing.autoStatus,
+        milestoneType: existing.milestoneType,
+      },
+      {
+        title: updated.title,
+        status: updated.status,
+        phase: updated.phase,
+        branchId: updated.branchId,
+        dueDate: updated.dueDate,
+        baselineDate: updated.baselineDate,
+        scheduleEscalate: updated.scheduleEscalate,
+        autoStatus: updated.autoStatus,
+        milestoneType: updated.milestoneType,
+      },
+    );
+
     return success(updated);
   } catch (e) {
     return handleApiError(e);

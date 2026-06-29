@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, AlertTriangle, ClipboardList } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 
 type ChangeRequestStatus =
   | "SUBMITTED"
@@ -150,32 +151,6 @@ const emptyForm: ChangeForm = {
   notes: "",
 };
 
-function toDateInput(iso: string | null): string {
-  return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-}
-
-function changeToForm(c: ChangeRequest): ChangeForm {
-  return {
-    title: c.title,
-    description: c.description ?? "",
-    type: c.type ?? "Scope",
-    branchId: c.branchId ?? "",
-    initiatedBy: c.initiatedBy ?? "",
-    decisionAuthority: c.decisionAuthority ?? "",
-    approvedBy: c.approvedBy ?? "",
-    costImpact: c.costImpact != null ? String(c.costImpact) : "",
-    scheduleDaysImpact: c.scheduleDaysImpact != null ? String(c.scheduleDaysImpact) : "",
-    modRequired: c.modRequired,
-    modNumber: c.modNumber ?? "",
-    implDate: toDateInput(c.implDate),
-    relatedRiskCode: c.relatedRiskCode ?? "",
-    status: c.status,
-    submittedDate: toDateInput(c.submittedDate),
-    scopeImpact: c.scopeImpact ?? "",
-    notes: c.notes ?? "",
-  };
-}
-
 function formToBody(f: ChangeForm) {
   return {
     title: f.title.trim(),
@@ -212,22 +187,18 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("code");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<ChangeRequest | null>(null);
   const [deleting, setDeleting] = useState<ChangeRequest | null>(null);
   const [form, setForm] = useState<ChangeForm>(emptyForm);
+  // The drawer is the primary row-detail view. We hold the open change's id so the
+  // drawer's fields rebuild from the freshest cached row after an inline PATCH.
+  const [openChangeId, setOpenChangeId] = useState<string | null>(null);
+  const openChange = openChangeId ? changes.find((c) => c.id === openChangeId) ?? null : null;
 
   const createMutation = useOrgMutation<ChangeRequest, Error, ChangeForm>({
     mutationFn: (f) => jsonFetch(apiBase, { method: "POST", body: JSON.stringify(formToBody(f)) }),
     invalidate: [["changes", projectId]],
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the change request."),
-  });
-  const updateMutation = useOrgMutation<ChangeRequest, Error, { id: string; f: ChangeForm }>({
-    mutationFn: ({ id, f }) =>
-      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["changes", projectId]],
-    onSuccess: () => setEditing(null),
-    onError: (e) => notifyError(e, "Couldn't update the change request."),
   });
   const deleteMutation = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }),
@@ -262,9 +233,101 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
   }
-  function openEdit(c: ChangeRequest) {
-    setForm(changeToForm(c));
-    setEditing(c);
+
+  // Build the drawer's inline-editable field list for the open change request.
+  // Mirrors the fields the edit dialog used to cover; each persists a single-key
+  // PATCH to the changes endpoint.
+  function changeFields(c: ChangeRequest): PmField[] {
+    return [
+      { key: "title", label: "Title", type: "text", value: c.title, editable: canEdit },
+      {
+        key: "description",
+        label: "Description",
+        type: "textarea",
+        value: c.description,
+        editable: canEdit,
+        placeholder: "Background, rationale, and expected impact",
+      },
+      {
+        key: "type",
+        label: "Type",
+        type: "select",
+        value: c.type,
+        editable: canEdit,
+        options: TYPE_OPTIONS.map((o) => ({ value: o, label: o })),
+      },
+      {
+        key: "branchId",
+        label: "Branch",
+        type: "select",
+        value: c.branchId,
+        editable: canEdit && branches.length > 0,
+        options: branches.map((b) => ({ value: b.id, label: `${b.code} ${b.name}` })),
+        placeholder: "Select branch",
+      },
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        value: c.status,
+        editable: canEdit,
+        options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+      },
+      { key: "initiatedBy", label: "Initiated by", type: "text", value: c.initiatedBy, editable: canEdit },
+      {
+        key: "decisionAuthority",
+        label: "Decision authority",
+        type: "text",
+        value: c.decisionAuthority,
+        editable: canEdit,
+      },
+      { key: "approvedBy", label: "Approved by", type: "text", value: c.approvedBy, editable: canEdit },
+      {
+        key: "costImpact",
+        label: "Cost impact ($)",
+        type: "number",
+        value: c.costImpact,
+        editable: canEdit,
+      },
+      {
+        key: "scheduleDaysImpact",
+        label: "Schedule impact (days)",
+        type: "number",
+        value: c.scheduleDaysImpact,
+        editable: canEdit,
+      },
+      { key: "modNumber", label: "MOD number", type: "text", value: c.modNumber, editable: canEdit },
+      {
+        key: "modRequired",
+        label: "MOD required",
+        type: "select",
+        value: c.modRequired ? "true" : "false",
+        editable: canEdit,
+        options: [
+          { value: "false", label: "No" },
+          { value: "true", label: "Yes" },
+        ],
+        coerce: (v) => v === "true",
+      },
+      { key: "implDate", label: "Implementation date", type: "date", value: c.implDate, editable: canEdit },
+      { key: "submittedDate", label: "Submitted date", type: "date", value: c.submittedDate, editable: canEdit },
+      {
+        key: "relatedRiskCode",
+        label: "Related risk ID",
+        type: "text",
+        value: c.relatedRiskCode,
+        editable: canEdit,
+      },
+      { key: "scopeImpact", label: "Scope impact", type: "text", value: c.scopeImpact, editable: canEdit },
+      {
+        key: "notes",
+        label: "Notes",
+        type: "textarea",
+        value: c.notes,
+        editable: canEdit,
+        placeholder: "Additional notes",
+      },
+    ];
   }
 
   if (isLoading) return <TableSkeleton />;
@@ -344,8 +407,8 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
               {view.map((c) => (
                 <tr
                   key={c.id}
-                  className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]${canEdit ? " cursor-pointer" : ""}`}
-                  onClick={canEdit ? () => openEdit(c) : undefined}
+                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
+                  onClick={() => setOpenChangeId(c.id)}
                 >
                   <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{c.code}</td>
                   <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{c.title}</td>
@@ -398,18 +461,24 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
       />
-      {/* Edit */}
-      <ChangeDialog
-        open={editing !== null}
-        onOpenChange={(o) => !o && setEditing(null)}
-        title={editing ? `Edit ${editing.code}` : "Edit Change Request"}
-        form={form}
-        setForm={setForm}
-        branches={branches}
-        pending={updateMutation.isPending}
-        onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
-        submitLabel="Save"
-      />
+      {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
+          Replaces the old edit dialog as the primary row-detail view. */}
+      {openChange && (
+        <PmEntityDrawer
+          key={openChange.id}
+          orgId={orgId}
+          projectId={projectId}
+          subjectType="change"
+          subjectId={openChange.id}
+          title={openChange.title}
+          code={openChange.code}
+          patchPath={`${apiBase}/${openChange.id}`}
+          fields={changeFields(openChange)}
+          open={openChangeId !== null}
+          onOpenChange={(o) => !o && setOpenChangeId(null)}
+          onSaved={() => void refetch()}
+        />
+      )}
       {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-sm">

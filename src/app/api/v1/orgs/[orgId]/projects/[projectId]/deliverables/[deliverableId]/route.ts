@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { logPmFieldChanges } from "@/lib/pm/activity-log";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; deliverableId: string }>;
@@ -73,6 +74,40 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       data: updateData,
       include: deliverableInclude,
     });
+
+    // Audit field changes (best-effort). Label-keyed maps so the Activity log
+    // reads "changed Status: NOT_STARTED → SUBMITTED". Only the audited fields
+    // below are diffed; `logPmFieldChanges` skips keys whose before === after.
+    await logPmFieldChanges(
+      { orgId, subjectType: "deliverable", subjectId: deliverableId, userId: ctx.userId },
+      {
+        title: existing.title,
+        status: existing.status,
+        deliverableType: existing.deliverableType,
+        clin: existing.clin,
+        branchId: existing.branchId,
+        owner: existing.owner,
+        govReviewPeriod: existing.govReviewPeriod,
+        revisionCycle: existing.revisionCycle,
+        revRequired: existing.revRequired,
+        escalate: existing.escalate,
+        branchOwner: existing.branchOwner,
+      },
+      {
+        title: updated.title,
+        status: updated.status,
+        deliverableType: updated.deliverableType,
+        clin: updated.clin,
+        branchId: updated.branchId,
+        owner: updated.owner,
+        govReviewPeriod: updated.govReviewPeriod,
+        revisionCycle: updated.revisionCycle,
+        revRequired: updated.revRequired,
+        escalate: updated.escalate,
+        branchOwner: updated.branchOwner,
+      },
+    );
+
     return success(updated);
   } catch (e) {
     return handleApiError(e);
