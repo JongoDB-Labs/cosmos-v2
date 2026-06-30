@@ -18,6 +18,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
   isCustomFieldEmpty,
@@ -25,11 +26,21 @@ import {
 } from "@/components/work-items/custom-field-input";
 import type { Board, OrgMember } from "@/types/models";
 
-const TYPES = ["TASK", "STORY", "BUG", "EPIC", "SUBTASK"] as const;
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
 function titleCase(s: string) {
   return s.charAt(0) + s.slice(1).toLowerCase();
+}
+
+/**
+ * Pick the default type to preselect: the project's "task" type if present
+ * (built-in keys end with `.task`), else the first type. Returns "" when the
+ * list is empty (still loading).
+ */
+function defaultTypeId(types: { id: string; key: string }[]): string {
+  if (types.length === 0) return "";
+  const task = types.find((t) => t.key === "task" || t.key.endsWith(".task"));
+  return (task ?? types[0]).id;
 }
 
 const fieldClass =
@@ -65,7 +76,7 @@ export function CreateWorkItemDialog({
 }) {
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState(prefilledProjectId ?? "");
-  const [type, setType] = useState<(typeof TYPES)[number]>("TASK");
+  const [workItemTypeId, setWorkItemTypeId] = useState("");
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("MEDIUM");
   const [assigneeId, setAssigneeId] = useState("");
   const [storyPoints, setStoryPoints] = useState("");
@@ -80,13 +91,17 @@ export function CreateWorkItemDialog({
   const [showCustomErrors, setShowCustomErrors] = useState(false);
   const { fields: customFields } = useCustomFields(orgId, projectId || undefined);
   const renderableFields = customFields.filter(isRenderableCustomField);
+  // The org's ACTUAL types (built-ins + custom) so the Type picker offers e.g.
+  // a "Feature" type. We submit the selected type's id (workItemTypeId) so the
+  // server doesn't have to re-derive a sector-prefixed key — which never
+  // resolves bare custom keys like "feature".
+  const { types: workItemTypes } = useWorkItemTypes(orgId);
 
   // Reset the form each time the dialog opens; default the project.
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitle("");
-      setType("TASK");
       setPriority("MEDIUM");
       setAssigneeId("");
       setStoryPoints("");
@@ -98,6 +113,18 @@ export function CreateWorkItemDialog({
       setProjectId(prefilledProjectId ?? projects[0]?.id ?? "");
     }
   }, [open, prefilledProjectId, projects]);
+
+  // Default / repair the Type selection once the types load (and re-default
+  // when the dialog reopens). Keep a valid selection if one is already chosen.
+  useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkItemTypeId((prev) =>
+      prev && workItemTypes.some((t) => t.id === prev)
+        ? prev
+        : defaultTypeId(workItemTypes),
+    );
+  }, [open, workItemTypes]);
 
   useEffect(() => {
     if (!open) return;
@@ -117,7 +144,7 @@ export function CreateWorkItemDialog({
 
   async function handleSubmit() {
     const trimmed = title.trim();
-    if (!trimmed || !projectId || submitting) return;
+    if (!trimmed || !projectId || !workItemTypeId || submitting) return;
 
     // Enforce required custom fields before hitting the API.
     const missing = renderableFields.filter(
@@ -165,7 +192,7 @@ export function CreateWorkItemDialog({
         method: "POST",
         body: JSON.stringify({
           title: trimmed,
-          type,
+          workItemTypeId,
           columnKey,
           priority,
           assigneeId: assigneeId || null,
@@ -237,14 +264,17 @@ export function CreateWorkItemDialog({
             <div className="space-y-1">
               <Label className="text-xs">Type</Label>
               <select
-                value={type}
-                onChange={(e) => setType(e.target.value as (typeof TYPES)[number])}
+                value={workItemTypeId}
+                onChange={(e) => setWorkItemTypeId(e.target.value)}
                 className={fieldClass}
-                disabled={submitting}
+                disabled={submitting || workItemTypes.length === 0}
               >
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {titleCase(t)}
+                {workItemTypes.length === 0 && (
+                  <option value="">Loading…</option>
+                )}
+                {workItemTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
                   </option>
                 ))}
               </select>
@@ -375,7 +405,7 @@ export function CreateWorkItemDialog({
             </Button>
             <Button
               onClick={() => void handleSubmit()}
-              disabled={!title.trim() || !projectId || submitting}
+              disabled={!title.trim() || !projectId || !workItemTypeId || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create issue"}
             </Button>

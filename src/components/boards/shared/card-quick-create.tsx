@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { WorkItem } from "@/types/models";
 
 interface CardQuickCreateProps {
@@ -16,7 +17,16 @@ interface CardQuickCreateProps {
   onCreated: (item: WorkItem) => void;
 }
 
-const TYPES = ["TASK", "STORY", "BUG", "EPIC", "SUBTASK"] as const;
+/**
+ * Pick the default type to preselect: the project's "task" type if present
+ * (built-in keys end with `.task`), else the first type. Returns "" while the
+ * list is still loading/empty.
+ */
+function defaultTypeId(types: { id: string; key: string }[]): string {
+  if (types.length === 0) return "";
+  const task = types.find((t) => t.key === "task" || t.key.endsWith(".task"));
+  return (task ?? types[0]).id;
+}
 
 export function CardQuickCreate({
   columnKey,
@@ -27,10 +37,13 @@ export function CardQuickCreate({
 }: CardQuickCreateProps) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<(typeof TYPES)[number]>("TASK");
+  const [workItemTypeId, setWorkItemTypeId] = useState("");
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const { can } = usePermissions();
+  // The org's ACTUAL types (built-ins + custom). We submit the selected type's
+  // id so a custom type (bare key like "feature") resolves on create.
+  const { types: workItemTypes } = useWorkItemTypes(orgId);
 
   useEffect(() => {
     if (open && inputRef.current) {
@@ -38,8 +51,20 @@ export function CardQuickCreate({
     }
   }, [open]);
 
+  // Default / repair the Type selection from the org's types (re-run when they
+  // load while the inline form is open).
+  useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkItemTypeId((prev) =>
+      prev && workItemTypes.some((t) => t.id === prev)
+        ? prev
+        : defaultTypeId(workItemTypes),
+    );
+  }, [open, workItemTypes]);
+
   function handleSubmit() {
-    if (!title.trim()) return;
+    if (!title.trim() || !workItemTypeId) return;
 
     startTransition(async () => {
       try {
@@ -50,7 +75,7 @@ export function CardQuickCreate({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: title.trim(),
-              type,
+              workItemTypeId,
               columnKey,
             }),
           }
@@ -61,7 +86,7 @@ export function CardQuickCreate({
         const item: WorkItem = await res.json();
         onCreated(item);
         setTitle("");
-        setType("TASK");
+        setWorkItemTypeId(defaultTypeId(workItemTypes));
         setOpen(false);
       } catch (err) {
         console.error("Failed to create card:", err);
@@ -112,14 +137,15 @@ export function CardQuickCreate({
       />
       <div className="flex items-center justify-between gap-2">
         <select
-          value={type}
-          onChange={(e) => setType(e.target.value as (typeof TYPES)[number])}
+          value={workItemTypeId}
+          onChange={(e) => setWorkItemTypeId(e.target.value)}
           className="h-6 rounded border border-input bg-transparent px-1.5 text-xs outline-none"
-          disabled={isPending}
+          disabled={isPending || workItemTypes.length === 0}
         >
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t.charAt(0) + t.slice(1).toLowerCase()}
+          {workItemTypes.length === 0 && <option value="">Loading…</option>}
+          {workItemTypes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
             </option>
           ))}
         </select>
@@ -138,7 +164,7 @@ export function CardQuickCreate({
           <Button
             size="xs"
             onClick={handleSubmit}
-            disabled={!title.trim() || isPending}
+            disabled={!title.trim() || !workItemTypeId || isPending}
           >
             {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
           </Button>
