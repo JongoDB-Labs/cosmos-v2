@@ -21,7 +21,7 @@ export default async function NewBoardPage({ params }: PageParams) {
       key: { equals: projectKey, mode: "insensitive" },
       archived: false,
     },
-    select: { id: true, key: true },
+    select: { id: true, key: true, enabledFeatures: true },
   });
 
   if (!project) notFound();
@@ -40,6 +40,7 @@ export default async function NewBoardPage({ params }: PageParams) {
       projectId={project.id}
       orgSlug={orgSlug}
       projectKey={project.key}
+      enabledFeatures={project.enabledFeatures}
     />
   );
 }

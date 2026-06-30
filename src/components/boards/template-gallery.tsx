@@ -48,8 +48,17 @@ interface BoardTemplate {
   methodology?: string;
   description: string;
   icon: string;
-  boardType: string;
+  /** Present for board-type templates (creates a Board row). */
+  boardType?: string;
+  /** Present for FEATURE views (e.g. "pm-dashboard"): selecting enables the
+   *  project feature flag + opens that view instead of creating a board. */
+  feature?: string;
 }
+
+/** Feature key → the project sub-route segment to open after enabling it. */
+const FEATURE_ROUTE_SEGMENT: Record<string, string> = {
+  "pm-dashboard": "pm-dashboard",
+};
 
 const categories = [
   "all",
@@ -76,6 +85,8 @@ interface TemplateGalleryProps {
   projectId: string;
   orgSlug: string;
   projectKey: string;
+  /** The project's currently-enabled feature flags (for feature-view cards). */
+  enabledFeatures?: string[];
 }
 
 export function TemplateGallery({
@@ -83,6 +94,7 @@ export function TemplateGallery({
   projectId,
   orgSlug,
   projectKey,
+  enabledFeatures = [],
 }: TemplateGalleryProps) {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = useState<string>("all");
@@ -116,8 +128,39 @@ export function TemplateGallery({
       ? templates
       : templates.filter((t) => t.category === activeCategory);
 
-  async function handleCreate(template: BoardTemplate) {
+  function handleSelect(template: BoardTemplate) {
     if (creatingSlug) return;
+    if (template.feature) void handleEnableFeature(template);
+    else void handleCreate(template);
+  }
+
+  // Feature-view card (e.g. PM Dashboard): enable the project feature flag (if not
+  // already on) and open that view, instead of creating a Board row.
+  async function handleEnableFeature(template: BoardTemplate) {
+    const feature = template.feature!;
+    const segment = FEATURE_ROUTE_SEGMENT[feature] ?? feature;
+    const target = `/${orgSlug}/projects/${projectKey}/${segment}`;
+    setCreatingSlug(template.slug);
+    try {
+      if (!enabledFeatures.includes(feature)) {
+        const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          // The PUT replaces+filters enabledFeatures to the known toggleable set,
+          // so send the union of current + the new feature.
+          body: JSON.stringify({ enabledFeatures: [...enabledFeatures, feature] }),
+        });
+        if (!res.ok) throw new Error("Failed to enable feature");
+        toast.success(`${template.name} enabled`);
+      }
+      router.push(target);
+    } catch (err) {
+      notifyError(err, `Couldn't enable ${template.name}.`);
+      setCreatingSlug(null);
+    }
+  }
+
+  async function handleCreate(template: BoardTemplate) {
     setCreatingSlug(template.slug);
 
     try {
@@ -189,7 +232,7 @@ export function TemplateGallery({
             return (
               <button
                 key={template.slug}
-                onClick={() => handleCreate(template)}
+                onClick={() => handleSelect(template)}
                 disabled={creatingSlug !== null}
                 className={cn(
                   "group relative flex flex-col gap-3 rounded-lg border p-4 text-left transition-all",

@@ -117,6 +117,18 @@ const BUILT_IN_BOARD_TEMPLATES = [
     icon: "Network",
     boardType: "PROGRAM",
   },
+  {
+    // A FEATURE view (not a board type): selecting it enables the project's
+    // `pm-dashboard` feature flag and opens the dashboard, rather than creating a
+    // Board row. The gallery branches on `feature` vs `boardType`.
+    slug: "pm-dashboard",
+    name: "PM Dashboard",
+    category: "enterprise",
+    methodology: "govcon",
+    description: "GovCon program-management suite: risk, change, blocker, schedule, deliverables, vendors, staffing & CLIN registers with drill-down, derived metrics, and Excel export.",
+    icon: "BarChart3",
+    feature: "pm-dashboard",
+  },
 ];
 
 type RouteParams = { params: Promise<{ orgId: string }> };
