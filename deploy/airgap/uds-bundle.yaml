@@ -51,6 +51,25 @@ packages:
     path: "pgo"
     ref: "6.0.2"
 
+  # MinIO Operator — S3 control plane (the TLS Tenant for the layers below + pgBackRest
+  # repo2). Local package; must precede the S3 consumers. Operator + Tenant runtime images.
+  - name: minio-operator
+    path: "minio-operator"
+    ref: "7.1.1"
+
+  # core-logging (Loki) + core-backup-restore (Velero) — the S3-backed observability +
+  # backup layers (items 5-6), pinned to core-base 1.7.0. Their S3 ENDPOINT/BUCKET point
+  # at the MinIO Tenant (https://minio.minio.svc:443) via overrides (Loki) / Zarf vars
+  # (Velero); the S3 ACCESS KEYS + the uds-trust-bundle CA are supplied at `uds deploy`
+  # time (SOPS/--set), NOT baked in. Full override blocks + trust-bundle wiring are in the
+  # runbook "Storage stack" section.
+  - name: core-logging
+    repository: ghcr.io/defenseunicorns/packages/uds/core-logging
+    ref: 1.7.0-upstream
+  - name: core-backup-restore
+    repository: ghcr.io/defenseunicorns/packages/uds/core-backup-restore
+    ref: 1.7.0-upstream
+
   # COSMOS app — the SP5 Zarf package (built from ./zarf.yaml in this same dir).
   - name: cosmos
     path: "."
