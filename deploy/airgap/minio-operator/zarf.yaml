@@ -1,0 +1,41 @@
+# Zarf package — MinIO Operator: the S3 CONTROL PLANE for the platform-infra object
+# store (the Tenant that backs Loki, Velero, and pgBackRest repo2). Mirrors the PGO
+# package pattern (deploy/airgap/pgo): wrap the operator Helm chart + its images so the
+# storage control plane installs from one airgap tarball.
+#
+#   zarf package create deploy/airgap/minio-operator
+#
+# Deploy order (SP6 bundle): AFTER core-base, BEFORE core-logging / core-backup-restore
+# (they point their S3 at the Tenant this operator reconciles) and BEFORE cosmos
+# (pgBackRest repo2 also targets it).
+#
+# Control-plane / data-plane split (like PGO): the OPERATOR image lives here; the Tenant
+# DATA-PLANE image (minio/minio) is also carried here since the Tenant CR pulls it. The
+# Tenant CR itself + its SOPS-managed root creds are applied at DEPLOY time (like the
+# cosmos chart's PostgresCluster), NOT baked in — see the runbook "Storage stack" section.
+#
+# Two airgap notes (cf. the connected-lab install, runbook gotcha #3): the operator + the
+# `minio` Tenant namespaces are labeled `zarf.dev/agent=ignore` on the connected lab so the
+# images pull from quay; in airgap the mutating agent rewrites them to the in-cluster
+# registry instead. The Tenant's `requestAutoCert` TLS is signed by the cluster CA via the
+# K8s CSR API (no cert-manager).
+kind: ZarfPackageConfig
+metadata:
+  name: cosmos-minio-operator
+  version: "7.1.1"
+  description: "MinIO Operator — S3 control plane (TLS Tenants for Loki/Velero/pgBackRest)"
+
+components:
+  - name: minio-operator
+    required: true
+    description: "MinIO Operator (minio-operator ns) — reconciles MinIO Tenant CRs"
+    charts:
+      - name: operator
+        url: https://operator.min.io/
+        version: 7.1.1
+        namespace: minio-operator
+    images:
+      # operator (control plane) + the Tenant runtime (data plane the Tenant CR pulls).
+      # registry1/Iron Bank flavor would digest-pin these for a hardened/ATO build.
+      - quay.io/minio/operator:v7.1.1
+      - minio/minio:RELEASE.2025-04-08T15-41-24Z
