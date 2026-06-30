@@ -101,6 +101,28 @@ export default async function ProjectLayout({
             ? ((project.settings as Record<string, unknown>).defaultBoardId as string)
             : null
         }
+        defaultTab={
+          typeof (project.settings as Record<string, unknown> | null)?.defaultTab ===
+          "string"
+            ? ((project.settings as Record<string, unknown>).defaultTab as string)
+            : null
+        }
+        tabOrder={
+          Array.isArray((project.settings as Record<string, unknown> | null)?.tabOrder)
+            ? ((project.settings as Record<string, unknown>).tabOrder as string[])
+            : []
+        }
+        featureTabLabels={
+          typeof (project.settings as Record<string, unknown> | null)?.featureTabLabels ===
+            "object" &&
+          (project.settings as Record<string, unknown> | null)?.featureTabLabels !== null &&
+          !Array.isArray((project.settings as Record<string, unknown>)?.featureTabLabels)
+            ? ((project.settings as Record<string, unknown>).featureTabLabels as Record<
+                string,
+                string
+              >)
+            : {}
+        }
         hiddenBoardIds={
           Array.isArray((project.settings as Record<string, unknown> | null)?.hiddenBoardIds)
             ? ((project.settings as Record<string, unknown>).hiddenBoardIds as string[])
