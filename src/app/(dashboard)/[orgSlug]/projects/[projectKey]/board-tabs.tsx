@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Plus, Users, Trash2, Star, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Users, Trash2, Star, Pencil, ChevronLeft, ChevronRight, EyeOff, Eye } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import {
   Dialog,
@@ -39,6 +39,9 @@ interface ProjectBoardTabsProps {
   /** The project's current default board (everyone lands here) — from
    *  Project.settings.defaultBoardId. Managers can change it from a board's menu. */
   defaultBoardId?: string | null;
+  /** Board ids hidden from the tab strip — from Project.settings.hiddenBoardIds.
+   *  Managers can hide/show from a board's menu; the board itself is kept. */
+  hiddenBoardIds?: string[];
   templateDefaultConfig?: Record<string, unknown> | null;
 }
 
@@ -60,10 +63,51 @@ export function ProjectBoardTabs({
   canManageBoards = false,
   canCreateBoards = false,
   defaultBoardId = null,
+  hiddenBoardIds = [],
   templateDefaultConfig,
 }: ProjectBoardTabsProps) {
   const pathname = usePathname();
   const router = useRouter();
+
+  // Split the boards into the visible strip vs the hidden set (managers can
+  // unhide from the "Hidden" menu). Reorder/rename/delete operate on visible.
+  const hiddenSet = new Set(hiddenBoardIds);
+  const visibleBoards = boards.filter((b) => !hiddenSet.has(b.id));
+  const hiddenBoards = boards.filter((b) => hiddenSet.has(b.id));
+  const [hiding, setHiding] = useState(false);
+
+  // Persist the hidden-board list to Project.settings (merged server-side).
+  async function patchHidden(next: string[]) {
+    setHiding(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { hiddenBoardIds: next } }),
+      });
+      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't update hidden tabs.");
+    } finally {
+      setHiding(false);
+    }
+  }
+
+  async function handleHide(board: BoardTab) {
+    await patchHidden([...hiddenBoardIds.filter((id) => id !== board.id), board.id]);
+    // If we're viewing the board we just hid, move to another visible board.
+    if (pathname === `/${orgSlug}/projects/${projectKey}/boards/${board.id}`) {
+      const next = visibleBoards.find((b) => b.id !== board.id);
+      router.push(
+        next
+          ? `/${orgSlug}/projects/${projectKey}/boards/${next.id}`
+          : `/${orgSlug}/projects/${projectKey}`,
+      );
+    }
+  }
+
+  const handleUnhide = (id: string) => patchHidden(hiddenBoardIds.filter((x) => x !== id));
 
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -108,8 +152,8 @@ export function ProjectBoardTabs({
   // default 0), via parallel PUTs, then refreshes.
   async function handleMove(idx: number, dir: "left" | "right") {
     const j = dir === "left" ? idx - 1 : idx + 1;
-    if (j < 0 || j >= boards.length) return;
-    const next = [...boards];
+    if (j < 0 || j >= visibleBoards.length) return;
+    const next = [...visibleBoards];
     [next[idx], next[j]] = [next[j], next[idx]];
     setMoving(true);
     try {
@@ -263,7 +307,7 @@ export function ProjectBoardTabs({
 
   return (
     <div className="flex items-center gap-1 px-4 border-b overflow-x-auto">
-      {boards.map((board, idx) => {
+      {visibleBoards.map((board, idx) => {
         const href = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
         const isActive = pathname === href;
 
@@ -328,13 +372,19 @@ export function ProjectBoardTabs({
               {
                 label: "Move right",
                 icon: ChevronRight,
-                disabled: moving || idx === boards.length - 1,
+                disabled: moving || idx === visibleBoards.length - 1,
                 onClick: () => handleMove(idx, "right"),
               },
             ],
           },
           {
             items: [
+              {
+                label: "Hide tab",
+                icon: EyeOff,
+                disabled: hiding,
+                onClick: () => handleHide(board),
+              },
               {
                 label: "Delete board",
                 icon: Trash2,
@@ -352,6 +402,27 @@ export function ProjectBoardTabs({
           </div>
         );
       })}
+
+      {/* Hidden boards — a manager can restore any to the strip. */}
+      {canManageBoards && hiddenBoards.length > 0 && (
+        <ActionMenu
+          triggerLabel="Show hidden board tabs"
+          groups={[
+            {
+              items: hiddenBoards.map((board) => ({
+                label: `Show "${board.name}"`,
+                icon: Eye,
+                disabled: hiding,
+                onClick: () => handleUnhide(board.id),
+              })),
+            },
+          ]}
+        >
+          <span className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">
+            <EyeOff className="h-3.5 w-3.5" /> Hidden ({hiddenBoards.length})
+          </span>
+        </ActionMenu>
+      )}
 
       {featureTabs.map((tab) => {
         const isActive = tab.prefix

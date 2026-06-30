@@ -101,6 +101,11 @@ export default async function ProjectLayout({
             ? ((project.settings as Record<string, unknown>).defaultBoardId as string)
             : null
         }
+        hiddenBoardIds={
+          Array.isArray((project.settings as Record<string, unknown> | null)?.hiddenBoardIds)
+            ? ((project.settings as Record<string, unknown>).hiddenBoardIds as string[])
+            : []
+        }
         templateDefaultConfig={
           project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
         }
