@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { Board, OrgMember, WorkItem } from "@/types/models";
 
 export interface PaletteProject {
@@ -28,11 +29,19 @@ interface QuickCreateWorkItemProps {
   onClose: () => void;
 }
 
-const TYPES = ["TASK", "STORY", "BUG", "EPIC", "SUBTASK"] as const;
-type WorkItemKind = (typeof TYPES)[number];
-
 const fieldClass =
   "h-7 w-full rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring";
+
+/**
+ * Pick the default type to preselect: the project's "task" type if present
+ * (built-in keys end with `.task`), else the first type. Returns "" while the
+ * list is still loading/empty.
+ */
+function defaultTypeId(types: { id: string; key: string }[]): string {
+  if (types.length === 0) return "";
+  const task = types.find((t) => t.key === "task" || t.key.endsWith(".task"));
+  return (task ?? types[0]).id;
+}
 
 /**
  * In-palette capture form for "Create work item…". The title is driven by the
@@ -50,7 +59,7 @@ export function QuickCreateWorkItem({
   onClose,
 }: QuickCreateWorkItemProps) {
   const router = useRouter();
-  const [type, setType] = useState<WorkItemKind>("TASK");
+  const [workItemTypeId, setWorkItemTypeId] = useState("");
   const [projectId, setProjectId] = useState<string>(
     prefilledProject?.id ?? "",
   );
@@ -58,6 +67,9 @@ export function QuickCreateWorkItem({
   const [dueDate, setDueDate] = useState<string>("");
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  // The org's ACTUAL types (built-ins + custom). We submit the selected type's
+  // id so a custom type (bare key like "feature") resolves on create.
+  const { types: workItemTypes } = useWorkItemTypes(orgId);
 
   // Default the project selection once the project list arrives (when not on a
   // project route there's nothing prefilled).
@@ -67,6 +79,16 @@ export function QuickCreateWorkItem({
       setProjectId(projects[0].id);
     }
   }, [projects, projectId]);
+
+  // Default / repair the Type selection once the org's types load.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkItemTypeId((prev) =>
+      prev && workItemTypes.some((t) => t.id === prev)
+        ? prev
+        : defaultTypeId(workItemTypes),
+    );
+  }, [workItemTypes]);
 
   // Lazily load members for the optional assignee picker.
   useEffect(() => {
@@ -112,7 +134,7 @@ export function QuickCreateWorkItem({
           method: "POST",
           body: JSON.stringify({
             title: trimmed,
-            type,
+            ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
             columnKey,
             assigneeId: assigneeId || null,
             dueDate: dueDate ? new Date(dueDate).toISOString() : null,
@@ -167,14 +189,15 @@ export function QuickCreateWorkItem({
         <div className="space-y-1">
           <Label className="px-0.5 text-[11px]">Type</Label>
           <select
-            value={type}
-            onChange={(e) => setType(e.target.value as WorkItemKind)}
+            value={workItemTypeId}
+            onChange={(e) => setWorkItemTypeId(e.target.value)}
             className={fieldClass}
-            disabled={submitting}
+            disabled={submitting || workItemTypes.length === 0}
           >
-            {TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t.charAt(0) + t.slice(1).toLowerCase()}
+            {workItemTypes.length === 0 && <option value="">Loading…</option>}
+            {workItemTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
               </option>
             ))}
           </select>
@@ -250,7 +273,7 @@ export function QuickCreateWorkItem({
           <Button
             size="xs"
             onClick={() => void handleSubmit()}
-            disabled={!title.trim() || !projectId || submitting}
+            disabled={!title.trim() || !projectId || !workItemTypeId || submitting}
           >
             {submitting ? (
               <Loader2 className="h-3 w-3 animate-spin" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -13,6 +13,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { Search, X, UserCheck } from "lucide-react";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { OrgMember, Cycle, CustomField } from "@/types/models";
 
 /**
@@ -74,6 +75,12 @@ interface FilterBarProps {
   members: OrgMember[];
   cycles: Cycle[];
   /**
+   * Org id, used to load the org's ACTUAL work-item types so the Type filter
+   * lists custom types (e.g. "Feature") alongside the built-ins instead of a
+   * hardcoded five. Falls back to the built-ins while the types load.
+   */
+  orgId: string;
+  /**
    * When true, render the board-only "Swimlanes" group-by control. Defaults to
    * false so non-board consumers (e.g. the table view) are unaffected — keeping
    * this component backward-compatible.
@@ -87,6 +94,11 @@ interface FilterBarProps {
   customFields?: CustomField[];
 }
 
+/**
+ * Loading/empty fallback for the Type filter — the legacy hardcoded built-ins.
+ * At runtime the options come from the org's real types (see `useWorkItemTypes`)
+ * so custom types show up too; this only fills the gap before they load.
+ */
 const WORK_ITEM_TYPES = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
@@ -211,13 +223,25 @@ function MultiToggle({
   );
 }
 
+const DEFAULT_TYPE_COLOR = "bg-muted text-muted-foreground";
+
 const typeColors: Record<string, string> = {
   EPIC: "bg-purple-500/20 text-purple-400",
   STORY: "bg-blue-500/20 text-blue-400",
   TASK: "bg-cyan-500/20 text-cyan-400",
   BUG: "bg-red-500/20 text-red-400",
   SUBTASK: "bg-muted text-muted-foreground",
+  FEATURE: "bg-emerald-500/20 text-emerald-400",
 };
+
+/**
+ * Chip color for a (bare, uppercase) type key — falls back to a neutral muted
+ * color so any unknown/custom org type still renders a sensible chip instead of
+ * the generic active-primary tint.
+ */
+export function colorFor(type: string): string {
+  return typeColors[type] ?? DEFAULT_TYPE_COLOR;
+}
 
 const priorityColors: Record<string, string> = {
   CRITICAL: "bg-red-500/20 text-red-400",
@@ -231,11 +255,22 @@ export function FilterBar({
   onFilterChange,
   members,
   cycles,
+  orgId,
   showSwimlane = false,
   customFields = [],
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const currentUserId = useCurrentUserId();
+  // Drive the Type filter off the org's ACTUAL types (built-ins + custom) so a
+  // custom type like "Feature" appears as a filter chip too. `bareKeys` falls
+  // back to the built-in five while the types load. Build a color map covering
+  // every visible key so unknown/custom types get a neutral chip color.
+  const { bareKeys: typeOptions } = useWorkItemTypes(orgId);
+  const typeColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of typeOptions) map[t] = colorFor(t);
+    return map;
+  }, [typeOptions]);
   // FR "Assigned to me": one-click filter to the current user on any board view.
   const assignedToMe =
     currentUserId !== null && filters.assigneeId === currentUserId;
@@ -304,10 +339,10 @@ export function FilterBar({
 
       <MultiToggle
         label="Type"
-        options={WORK_ITEM_TYPES}
+        options={typeOptions.length > 0 ? typeOptions : WORK_ITEM_TYPES}
         selected={filters.types}
         onChange={(types) => onFilterChange({ ...filters, types })}
-        colorMap={typeColors}
+        colorMap={typeColorMap}
       />
 
       <MultiToggle
