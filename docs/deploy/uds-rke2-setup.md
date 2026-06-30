@@ -374,7 +374,74 @@ done
 | `core-monitoring` | **kube-prometheus-stack** (Prometheus / Alertmanager / node + kube-state metrics) + **Grafana** | metrics + dashboards |
 | `core-metrics-server` | — | **skipped — gotcha #12**: RKE2 already ships one |
 
-Dependency order matters: `base` → `identity-authorization` → the rest (monitoring & runtime-security SSO their consoles through Keycloak). `core-logging` (Loki) and `core-backup-restore` (Velero) are **deferred** — both need an S3/MinIO-Operator backend (a later slice).
+Dependency order matters: `base` → `identity-authorization` → the rest (monitoring & runtime-security SSO their consoles through Keycloak). **`core-logging` (Loki) + `core-backup-restore` (Velero) are now deployed** onto an on-cluster **MinIO Operator** S3 backend (items 5–6) — see the **Storage stack** section just below.
+
+### Storage stack — MinIO Operator + Tenant (S3 over TLS), Loki, Velero
+
+The platform-infra object store is a **MinIO Operator Tenant** (TLS), kept **separate from the app's standalone `minio-0`** (coexist — the app store, incl. its object-locked WORM bucket, is untouched). All consumers (Loki, Velero, pgBackRest repo2) reach it at `https://minio.minio.svc:443` and trust the **cluster CA** (`kube-root-ca.crt`).
+
+**1. MinIO Operator** (helm; the operator image must dodge the zarf rewrite — gotcha #3):
+```bash
+helm repo add minio https://operator.min.io/ && helm repo update
+helm install minio-operator minio/operator -n minio-operator --create-namespace
+kubectl label ns minio-operator zarf.dev/agent=ignore --overwrite        # gotcha #3
+kubectl -n minio-operator rollout restart deploy/minio-operator          # repull from quay
+```
+
+**2. Tenant `cosmos-infra`** — `requestAutoCert` makes the Operator submit a CSR to `certificates.k8s.io`; RKE2's `kubelet-serving` signer signs it with the **cluster CA**, so the cert verifies against `kube-root-ca.crt` and its SAN covers `minio.minio.svc` (no cert-manager needed; `externalCertSecret` is the fallback):
+```bash
+kubectl create ns minio && kubectl label ns minio zarf.dev/agent=ignore --overwrite
+# create the root-creds Secret cosmos-infra-env (key config.env: export MINIO_ROOT_USER/PASSWORD), then:
+kubectl apply -f - <<'YAML'
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata: { name: cosmos-infra, namespace: minio }
+spec:
+  requestAutoCert: true
+  configuration: { name: cosmos-infra-env }
+  pools:
+    - name: pool-0
+      servers: 1
+      volumesPerServer: 4
+      volumeClaimTemplate:
+        metadata: { name: data }
+        spec: { accessModes: [ReadWriteOnce], storageClassName: local-path, resources: { requests: { storage: 8Gi } } }
+  buckets: [ { name: loki }, { name: velero }, { name: cosmos-pgbackrest } ]
+YAML
+```
+
+**3. Trust bundle** — each consumer namespace needs a `uds-trust-bundle` ConfigMap with `ca-bundle.pem` = the cluster CA (Loki/Velero mount it at `/etc/ssl/certs/ca-bundle.pem`; it's `optional:true`, so if absent they use only system CAs → TLS verify FAILS for the Tenant):
+```bash
+for ns in loki velero; do kubectl create ns $ns 2>/dev/null; \
+  kubectl -n $ns create configmap uds-trust-bundle \
+    --from-literal=ca-bundle.pem="$(kubectl -n cosmos get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}')"; done
+```
+
+**4. Loki** (`core-logging`) exposes **no Zarf S3 vars**, so configure it via a UDS **bundle `overrides`** block (`uds create` + `uds deploy`):
+```yaml
+# uds-bundle.yaml — under packages[core-logging]:
+overrides:
+  loki:
+    loki:
+      values:
+        - { path: loki.storage.s3.endpoint,         value: "https://minio.minio.svc:443" }
+        - { path: loki.storage.s3.accessKeyId,       value: "<key>" }
+        - { path: loki.storage.s3.secretAccessKey,   value: "<secret>" }
+        - { path: loki.storage.bucketNames.chunks,   value: "loki" }
+        - { path: loki.storage.bucketNames.admin,    value: "loki" }
+```
+UDS ships a Loki→storage egress (`Anywhere`), so no manual netpol is needed here.
+
+**5. Velero** (`core-backup-restore`) **does** expose Zarf vars (simpler — `uds zarf package deploy --set`):
+```bash
+uds zarf package deploy oci://ghcr.io/defenseunicorns/packages/uds/core-backup-restore:1.7.0-upstream \
+  --set VELERO_BUCKET=velero --set VELERO_BUCKET_PROVIDER_URL=https://minio.minio.svc:443 \
+  --set VELERO_BUCKET_REGION=us-east-1 --set VELERO_BUCKET_KEY=<key> --set VELERO_BUCKET_KEY_SECRET=<secret> --confirm
+kubectl -n velero rollout restart deploy/velero    # after creating the uds-trust-bundle CM (step 3)
+```
+`snapshotsEnabled:false` (local-path has no CSI snapshotter — volume data backup uses the node-agent; cluster-resource backup is unaffected).
+
+**Lab-verified 2026-06-30:** Loki wrote **339 chunks** to the `loki` bucket; a Velero backup **Completed** (56 items) to the `velero` bucket; pgBackRest repo2 (item 6) wrote a **full backup** (1892 objects) — all over verified TLS. **Follow-up:** least-priv per-consumer S3 keys (the lab used the Tenant root creds for Loki/Velero + a dedicated svcacct for pgBackRest).
 
 UDS **auto-exposes each console on the admin gateway, SSO-protected by Keycloak** — no manual wiring:
 
