@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { PageShell } from "@/components/ui/page-shell";
-import { WorkItemImportWizard } from "@/components/import/work-item-import-wizard";
+import { ImportWizard } from "@/components/import/import-wizard";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -60,28 +60,19 @@ export default async function ProjectImportPage({ params }: PageParams) {
     .filter((m) => m.user)
     .map((m) => ({ id: m.user.id, name: m.user.displayName, email: m.user.email }));
 
+  // Default work-item type for the Work Items flow (falls back to the first
+  // available; "" when the workspace has none — only the Work Items card needs
+  // it, the generic entity flows don't).
   const defaultType =
     typeRows.find((t) => /task/i.test(t.key) || /task/i.test(t.name)) ?? typeRows[0];
 
-  if (!defaultType) {
-    // No work-item types at all — can't import without a target type.
-    return (
-      <PageShell title="Import work items" description={`Project ${projectKey}`}>
-        <p className="text-sm text-[var(--text-muted)]">
-          This workspace has no work-item types configured, so there&apos;s
-          nothing to import into yet.
-        </p>
-      </PageShell>
-    );
-  }
-
   return (
     <PageShell
-      title="Import work items"
-      description={`Bring issues into ${projectKey} from a Jira / CSV / Excel export`}
+      title="Import"
+      description={`Bring records into ${projectKey} from a CSV / Excel export`}
       maxWidth="5xl"
     >
-      <WorkItemImportWizard
+      <ImportWizard
         orgId={ctx.orgId}
         projectId={project.id}
         orgSlug={orgSlug}
@@ -91,7 +82,7 @@ export default async function ProjectImportPage({ params }: PageParams) {
         members={members}
         defaults={{
           columnKey: columns[0]?.key ?? "todo",
-          workItemTypeId: defaultType.id,
+          workItemTypeId: defaultType?.id ?? "",
         }}
       />
     </PageShell>

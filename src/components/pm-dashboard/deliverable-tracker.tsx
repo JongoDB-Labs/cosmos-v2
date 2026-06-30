@@ -6,6 +6,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -244,6 +245,34 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
     return rows;
   }, [deliverables, filter, sort]);
 
+  // MSR roll-up — the headline numbers a PM reports in government reviews
+  // (mirrors the deliverable tracker's "Summary Dashboard" sheet).
+  // Stable "now" captured once at mount (Date.now() in render/useMemo is impure).
+  const [now] = useState(() => Date.now());
+  const metrics = useMemo(() => {
+    const in60 = now + 60 * 86_400_000;
+    let submitted = 0, onTime = 0, overdue = 0, due60 = 0;
+    for (const d of deliverables) {
+      const due = d.baselineDue ? new Date(d.baselineDue).getTime() : null;
+      const sub = d.actualSubmission ? new Date(d.actualSubmission).getTime() : null;
+      if (sub) {
+        submitted++;
+        if (due == null || sub <= due) onTime++;
+      } else if (due != null && due < now) {
+        overdue++;
+      } else if (due != null && due <= in60) {
+        due60++;
+      }
+    }
+    return {
+      total: deliverables.length,
+      submitted,
+      onTimeRate: submitted > 0 ? Math.round((onTime / submitted) * 100) : null,
+      overdue,
+      due60,
+    };
+  }, [deliverables, now]);
+
   function openCreate() {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
@@ -407,6 +436,29 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
             <SelectItem value="code">Sort: CDRL ID</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/* MSR roll-up metrics */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { l: "Total", v: String(metrics.total) },
+          { l: "Submitted", v: String(metrics.submitted) },
+          { l: "On-time rate", v: metrics.onTimeRate == null ? "—" : `${metrics.onTimeRate}%` },
+          { l: "Overdue", v: String(metrics.overdue), bad: metrics.overdue > 0 },
+          { l: "Due ≤60d", v: String(metrics.due60), warn: metrics.due60 > 0 },
+        ].map((m) => (
+          <div
+            key={m.l}
+            className={cn(
+              "rounded-md border px-3 py-1.5",
+              m.bad && "border-red-500/40",
+              m.warn && "border-amber-500/40",
+            )}
+          >
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{m.l}</div>
+            <div className="text-sm font-semibold tabular-nums">{m.v}</div>
+          </div>
+        ))}
       </div>
 
       {view.length === 0 ? (
