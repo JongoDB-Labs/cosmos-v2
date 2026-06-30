@@ -3,8 +3,10 @@ CrunchyData PGO PostgresCluster — Postgres {{ .Values.postgres.version }} with
 (bundled in the crunchy-postgres image). DB-contract roles:
   cosmos      — owner/superuser role migrations run as (matches the compose POSTGRES_USER)
   cosmos_app  — least-privilege app role; its audit/WORM grants are applied by migrate (T5)
-pgBackRest uses a local volume repo for now; the MinIO-S3 repo (cosmos-pgbackrest bucket)
-is a refinement once MinIO serves TLS (pgBackRest requires HTTPS for S3).
+pgBackRest backs up to a local volume repo (repo1) and, when `postgres.backups.s3` is
+enabled, ALSO to a MinIO (Operator Tenant) S3 repo over TLS (repo2, the cosmos-pgbackrest
+bucket) — kept ALONGSIDE repo1 for backup continuity. The S3 keys + the Tenant CA come
+from the SOPS-managed `cosmos-pgbackrest-s3` Secret, projected into /etc/pgbackrest/conf.d.
 */}}
 apiVersion: postgres-operator.crunchydata.com/v1beta1
 kind: PostgresCluster
@@ -29,6 +31,18 @@ spec:
   # can't contain '_', and the role + its audit/WORM grants are migration-time DB-contract logic.
   backups:
     pgbackrest:
+      {{- if .Values.postgres.backups.s3.enabled }}
+      # repo2 (S3) extras: project the SOPS secret's s3.conf (keys) + ca.crt (the MinIO
+      # Tenant CA) into /etc/pgbackrest/conf.d via PGO's `configuration`, and trust that
+      # CA for the HTTPS S3 connection. uri-style=path is required for MinIO.
+      configuration:
+        - secret:
+            name: {{ .Values.postgres.backups.s3.secretName | quote }}
+      global:
+        repo2-s3-uri-style: path
+        repo2-storage-verify-tls: "y"
+        repo2-storage-ca-file: /etc/pgbackrest/conf.d/ca.crt
+      {{- end }}
       repos:
         - name: repo1
           volume:
@@ -37,3 +51,18 @@ spec:
               resources:
                 requests:
                   storage: {{ .Values.postgres.backupStorage }}
+        {{- if .Values.postgres.backups.s3.enabled }}
+        # repo2 = MinIO Operator Tenant, S3 over TLS (cosmos-pgbackrest bucket). The
+        # cluster-CA-signed Tenant cert verifies via the projected ca.crt. Off-node
+        # scheduled backups are the durability win over the local repo1 (kept for
+        # continuity — retire only after a verified S3 restore).
+        - name: repo2
+          s3:
+            bucket: {{ .Values.postgres.backups.s3.bucket | quote }}
+            endpoint: {{ .Values.postgres.backups.s3.endpoint | quote }}
+            region: {{ .Values.postgres.backups.s3.region | quote }}
+          {{- with .Values.postgres.backups.s3.schedules }}
+          schedules:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
