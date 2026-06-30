@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,12 +20,18 @@ import {
 import { Plus, Loader2 } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { WorkItem, BoardColumn } from "@/types/models";
 
-const TYPES = ["TASK", "STORY", "BUG", "EPIC", "SUBTASK"] as const;
-
-function titleCase(s: string) {
-  return s.charAt(0) + s.slice(1).toLowerCase();
+/**
+ * Pick the default type to preselect: the project's "task" type if present
+ * (built-in keys end with `.task`), else the first type. Returns "" while the
+ * list is still loading/empty.
+ */
+function defaultTypeId(types: { id: string; key: string }[]): string {
+  if (types.length === 0) return "";
+  const task = types.find((t) => t.key === "task" || t.key.endsWith(".task"));
+  return (task ?? types[0]).id;
 }
 
 /**
@@ -54,13 +60,34 @@ export function CreateIssueButton({
   const [open, setOpen] = useState(false);
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<(typeof TYPES)[number]>("TASK");
+  const [workItemTypeId, setWorkItemTypeId] = useState("");
   const [columnKey, setColumnKey] = useState("");
   const [pending, setPending] = useState(false);
   const [loadingCols, setLoadingCols] = useState(false);
+  // The org's ACTUAL types (built-ins + custom). We submit the selected type's
+  // id so a custom type (bare key like "feature") resolves — sending the bare
+  // `type` string would make the server build a sector-prefixed key that misses.
+  const { types: workItemTypes } = useWorkItemTypes(orgId);
+
+  // Default / repair the Type selection once the types load while the dialog is
+  // open (openDialog seeds it eagerly, but the list may still be in flight).
+  useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkItemTypeId((prev) =>
+      prev && workItemTypes.some((t) => t.id === prev)
+        ? prev
+        : defaultTypeId(workItemTypes),
+    );
+  }, [open, workItemTypes]);
 
   async function openDialog() {
     setOpen(true);
+    setWorkItemTypeId((prev) =>
+      prev && workItemTypes.some((t) => t.id === prev)
+        ? prev
+        : defaultTypeId(workItemTypes),
+    );
     setLoadingCols(true);
     try {
       const res = await fetch(
@@ -90,7 +117,9 @@ export function CreateIssueButton({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.trim(), type, columnKey }),
+          // Fall back to the bare "TASK" type if the async types fetch hasn't
+          // resolved yet, so creation never silently no-ops.
+          body: JSON.stringify({ title: title.trim(), ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }), columnKey }),
         },
       );
       if (!res.ok) throw new Error(`Failed to create issue (HTTP ${res.status})`);
@@ -98,7 +127,7 @@ export function CreateIssueButton({
       toast.success(`Created #${item.ticketNumber}`);
       onCreated(item);
       setTitle("");
-      setType("TASK");
+      setWorkItemTypeId(defaultTypeId(workItemTypes));
       setOpen(false);
     } catch (err) {
       notifyError(err, "Couldn't create the issue.");
@@ -133,6 +162,7 @@ export function CreateIssueButton({
                   e.key === "Enter" &&
                   title.trim() &&
                   columnKey &&
+                  workItemTypeId &&
                   !pending
                 ) {
                   e.preventDefault();
@@ -144,17 +174,20 @@ export function CreateIssueButton({
             />
             <div className="flex flex-wrap items-center gap-2">
               <Select
-                items={Object.fromEntries(TYPES.map((t) => [t, titleCase(t)]))}
-                value={type}
-                onValueChange={(v) => v && setType(v as (typeof TYPES)[number])}
+                items={Object.fromEntries(
+                  workItemTypes.map((t) => [t.id, t.name]),
+                )}
+                value={workItemTypeId}
+                onValueChange={(v) => v && setWorkItemTypeId(v as string)}
+                disabled={workItemTypes.length === 0}
               >
                 <SelectTrigger size="sm" aria-label="Issue type" className="w-32 text-xs">
-                  <SelectValue />
+                  <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {titleCase(t)}
+                  {workItemTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

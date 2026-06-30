@@ -42,6 +42,15 @@ const FEATURE_OPTIONS: { key: string; label: string; description: string }[] = [
   { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that issues link to as source-of-truth." },
   { key: "files", label: "Files", description: "Upload & navigate project documents (docx/pdf/pptx/xlsx); convert them to items." },
   { key: "pm-dashboard", label: "PM Dashboard", description: "GovCon program-management suite: risk/change/blocked/schedule/deliverables/vendors/staffing/CLIN registers with drill-down, derived metrics & Excel export." },
+  // PM Dashboard register sub-tabs (require PM Dashboard; each adds a sub-tab).
+  { key: "risk-register", label: "PM · Risk Register", description: "Risk register sub-tab (likelihood × impact, mitigation, owner)." },
+  { key: "change-log", label: "PM · Change Log", description: "Change-request register sub-tab (cost/schedule impact, approvals)." },
+  { key: "blocked-items", label: "PM · Blocked Items", description: "Blocker register sub-tab (what unblocks, owner, escalation)." },
+  { key: "schedule-variance", label: "PM · Schedule", description: "Schedule/milestone variance sub-tab (baseline vs projected vs actual)." },
+  { key: "deliverables-tracker", label: "PM · Deliverables", description: "CDRL/deliverable tracker sub-tab (due dates, gov review, revisions)." },
+  { key: "vendors", label: "PM · Vendors", description: "Vendor/subcontract register sub-tab (agreements, value, performance)." },
+  { key: "staffing", label: "PM · Staffing", description: "Staffing & compliance sub-tab (allocation, CAC/NDA/training status)." },
+  { key: "clin-burn", label: "PM · CLIN Burn", description: "CLIN funding/burn sub-tab (ceiling, funded, period of performance)." },
 ];
 
 export function ProjectSettingsClient({
