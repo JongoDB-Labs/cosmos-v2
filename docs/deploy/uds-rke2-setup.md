@@ -450,7 +450,9 @@ cosign verify \
   ghcr.io/jongodb-labs/charts/cosmos@<digest>
 helm install cosmos oci://ghcr.io/jongodb-labs/charts/cosmos --version <X.Y.Z> -n cosmos
 ```
-> Exercised only on a real `vX.Y.Z` release tag (the user cuts releases), so it's not yet run live. Validated as far as possible offline: the chart lints + packages clean, the workflow is valid YAML, and every new `uses:` is SHA-pinned so the `security.yml` config gate passes.
+> **Exercised live on `v2.103.0`** (2026-06-30 — release run green in 8m27s): the chart `ghcr.io/jongodb-labs/charts/cosmos:2.103.0` **and** the `cosmos-v2` runtime image both `cosign verify` against public Fulcio/Rekor *from outside CI* (keyless OIDC sig present), so the sign → verify-after-sign gate works end to end.
+>
+> ⚠️ **Image visibility caveat:** `cosmos-v2` + `charts/cosmos` are **public**, but `cosmos-v2-migrate` + `cosmos-v2-postgres` were left **private** — so unauthenticated `cosign verify` / airgap pull *fails* for those two. Make them public to match (GitHub has **no REST API** for package visibility — flip it in each package's settings UI: `…/orgs/JongoDB-Labs/packages/container/<name>/settings` → Change visibility → Public). The in-CI verify-gate passes regardless because the runner is authenticated; the gap only bites an external/airgap-bootstrap verifier.
 
 ---
 
@@ -458,12 +460,14 @@ helm install cosmos oci://ghcr.io/jongodb-labs/charts/cosmos --version <X.Y.Z> -
 
 `deploy/airgap/zarf.yaml` packages the cosmos chart + its 7 images into a single tarball for disconnected delivery:
 ```bash
-zarf package create deploy/airgap                                  # pull images + chart → tarball (needs GHCR auth)
-zarf package deploy zarf-package-cosmos-2.102.2-amd64.tar.zst      # seed images + install chart
+zarf package create deploy/airgap                                  # pull images + chart → tarball (public images → anonymous, NO auth)
+zarf package deploy zarf-package-cosmos-2.103.0-amd64.tar.zst      # seed images + install chart
 ```
 On deploy the zarf agent rewrites every image ref to the **in-cluster registry**, so **gotcha #8 (the GHCR pull-secret) disappears in airgap** — zarf seeds the images, nothing to authenticate.
 
 Images carried: app + migrate (digest-pinned to the signed release), MinIO + `mc`, `postgres:16-alpine` (the migrate init), and the two Crunchy images the PostgresCluster pulls (`crunchy-postgres` + `crunchy-pgbackrest`). `zarf dev lint` passes; the three upstream images are tag-pinned (a hardened `registry1`/Iron-Bank flavor would digest-pin all of them).
+
+**Build-proven at 2.103.0** (2026-06-30): `zarf package create` assembled a **3.4 GB** tarball, pulling all 7 images **anonymously** (runtime + migrate are public). ⚠️ **Gotcha #13 — a STALE `ghcr.io` login breaks anonymous pulls of now-public images:** zarf (go-containerregistry) presents the cached docker credential, so GHCR returns **`403 denied`** (not `401`) on a by-digest fetch *even though the image is public*. Fix: `docker logout ghcr.io` so the build pulls anonymously. Do **not** "fix" it by depositing a broad-scope token on the build host.
 
 **Target-cluster prereqs** (all bundled together in SP6): UDS Core and CrunchyData PGO (the `deploy/airgap/pgo` package — added below), plus the cosmos secrets (provided out-of-band — SOPS/Flux; not baked into the package). Production points the chart at the **signed OCI chart** (SP4) so the airgap deploy verifies its signature before install.
 
@@ -474,7 +478,7 @@ Images carried: app + migrate (digest-pinned to the signed release), MinIO + `mc
 `deploy/airgap/uds-bundle.yaml` composes the **entire stack** into one tarball — the DoD disconnected-delivery milestone:
 ```bash
 uds create deploy/airgap                                          # every package's images → one bundle
-uds deploy uds-bundle-cosmos-stack-2.102.2-*.tar.zst --confirm    # deploy the whole stack offline
+uds deploy uds-bundle-cosmos-stack-2.103.0-*.tar.zst --confirm    # deploy the whole stack offline
 ```
 Package order = deploy order: zarf `init` → `core-base` → `core-identity-authorization` (Keycloak) → `core-runtime-security` (Falco) + `core-monitoring` → `cosmos-pgo` (CrunchyData PGO) → `cosmos`. This is the SP2 layer sequence plus the DB control plane, now bundled with the app. Every UDS Core layer is pinned to `1.7.0` (mismatched layers drift — SP2's lesson); `upstream` flavor for the lab, `registry1` (Iron Bank) for a hardened ATO build.
 
