@@ -225,6 +225,12 @@ sops -d deploy/secrets/cosmos-app-secrets.enc.yaml | kubectl apply -f -
 ```
 In the committed file each value reads `SSO_VAULT_KEY: ENC[AES256_GCM,...]` — the plaintext (`SSO_VAULT_KEY`, `WORM_MANIFEST_HMAC_KEY`, `INTERNAL_ADMINS`) only ever exists in-cluster. **The age private key is the one thing you never commit.**
 
+> **Invariant — `SSO_VAULT_KEY` must base64-decode to EXACTLY 32 bytes (AES-256).** Generate with `openssl rand -base64 32` — **never `48`**: a 48-byte key base64s to a plausible-looking 64-char string but `decodeKey` (`src/lib/crypto/vault.ts`, `KEY_BYTES`) throws on the first SSO call (in legacy mode — `SSO_VAULT_KEYS` unset — this `SSO_VAULT_KEY` is the *active* key, not dormant). Verify before committing, value never printed:
+> ```bash
+> sops -d --extract '["stringData"]["SSO_VAULT_KEY"]' deploy/secrets/cosmos-app-secrets.enc.yaml | base64 -d | wc -c   # must print 32
+> ```
+> History: 2026-06-29 the committed source had drifted to **48 bytes** while the live cluster ran a correct **32-byte** key (the source was never re-applied, so SSO stayed up). Resynced source→live with `sops --set` (no new key → no orphaned sealed data); before/after hashes confirmed only `SSO_VAULT_KEY` changed.
+
 > Lab note: MinIO's `cosmos-minio-creds` was created ad-hoc in T2 and left as-is (re-keying live MinIO is out of scope); a clean install SOPS-manages it the same way.
 
 ## T5 — Migrate hook (`cosmos_app` + 65 migrations)
