@@ -196,7 +196,7 @@ Result: `cosmos-pg-instance1-*` (4/4), `cosmos-pg-repo-host-*` (pgBackRest) + an
 Notes / gotchas:
 - **PGO operator + all Postgres pods pass the UDS Pepr baseline with NO exemption** — Crunchy images are non-root/least-priv by design (contrast with MetalLB/local-path).
 - **PGO usernames can't contain `_`** (DNS-label regex) → the least-priv **`cosmos_app`** role is created by the **migrate step (T5)** as the `cosmos` superuser, where its audit/WORM grants belong anyway.
-- **pgBackRest uses a local *volume* repo** for now; the MinIO-S3 repo (the `cosmos-pgbackrest` bucket) is a refinement once MinIO serves **TLS** (pgBackRest requires HTTPS for S3).
+- **pgBackRest backs up to a local *volume* repo (repo1)** and — with `postgres.backups.s3.enabled` — ALSO to a **MinIO Operator Tenant S3 repo over TLS (repo2)**, the `cosmos-pgbackrest` bucket. repo2 is kept **alongside** repo1 for backup continuity (retire repo1 only after a verified S3 restore). The S3 keys + the Tenant CA come from the SOPS `cosmos-pgbackrest-s3` Secret, projected into `/etc/pgbackrest/conf.d` via PGO's `configuration`; the cluster-CA-signed Tenant cert verifies via the projected `ca.crt` (`repo2-storage-verify-tls=y`, `repo2-s3-uri-style=path`). **Lab-verified 2026-06-30: a full backup landed in the bucket (1892 objects).** ⚠️ See **gotcha #15** for the egress pitfall.
 
 ## T4 — Secrets with SOPS (encrypted in git)
 
@@ -315,6 +315,7 @@ curl -k --resolve cosmos.uds.dev:443:$GWIP https://cosmos.uds.dev/api/health   #
 | 10 | Batch Jobs hang on `cosmos-pg-primary` | migrate hook / ops Jobs hang `waiting for postgres…` | **symptom of #11** — degraded Patroni left the *primary* Service with no endpoint; the `KubeAPI` allow fixes it (it was never an ambient-mesh issue, as first assumed) |
 | 11 | PGO/Patroni needs **`KubeAPI`** egress | PG `database` CrashLoopBackOff after a restart — Patroni *"No more API server nodes"*; also a chronic `3/4` pod | add `- { direction: Egress, remoteGenerated: KubeAPI }` to the Package `allow` — Patroni uses the kube API as its DCS |
 | 12 | RKE2 already ships metrics-server | UDS `core-metrics-server` deploy fails: APIService `v1beta1.metrics.k8s.io` *"cannot be imported"* (owned by `rke2-metrics-server`) | **skip the layer** — `kubectl top` already works via RKE2's; `uds zarf package remove core-metrics-server --confirm` |
+| 15 | cosmos→MinIO S3 egress silently times out | pgBackRest repo2 `error (other)`; `openssl s_client` from the repo-host hangs (exit 124) — looks like a TLS/DNS problem, isn't | the cosmos→`minio` Package egress must be **portless**: the Tenant Service is `443→targetPort 9000`, so a `port: 443` netpol drops the packet **post-DNAT**. Use `remoteNamespace: minio` with **no port** (UDS Core's own Loki/Velero storage egress is likewise portless) |
 
 The throughline: **UDS is secure-by-default** (deny + mutate + default-deny netpol). Privileged *infra* (MetalLB, local-path) needs narrow exemptions; well-behaved *workloads* (MinIO, Postgres, the app) pass clean. That's the whole point — and the lab made every one of these failures visible, which is exactly why we run RKE2 here instead of k3d. Detailed **Symptom → Diagnose → Fix** for each (plus the post-reboot recovery procedure) is in the [Troubleshooting playbook](#troubleshooting-playbook) below.
 

@@ -48,6 +48,17 @@ spec:
           app.kubernetes.io/name: {{ .Chart.Name }}
           app.kubernetes.io/component: web
       {{- end }}
+      {{- if .Values.postgres.backups.s3.enabled }}
+      # pgBackRest (repo2) -> the MinIO Operator Tenant S3 endpoint in ns `minio`.
+      # GOTCHA #15: do NOT add `port: 443` here. The Tenant Service is 443->targetPort
+      # 9000, so post-DNAT the packet hits the pod on 9000 and a port-443 netpol drops
+      # it (silent connect timeout). A portless `remoteNamespace` allow (all ports to
+      # ns minio) is what works — UDS Core's own Loki/Velero storage egress is likewise
+      # portless. Scoped to the namespace, which is reasonably tight.
+      - description: pgBackRest -> MinIO infra S3 (TLS)
+        direction: Egress
+        remoteNamespace: minio
+      {{- end }}
   {{- if .Values.sso.enabled }}
   # SSO — the uds-operator creates this Keycloak client (realm `uds`) + writes its
   # credentials to `secretName`. The app does NOT read that secret from env; the

@@ -70,6 +70,23 @@ postgres:
   storage: 5Gi
   backupStorage: 5Gi
   psqlImage: postgres:16-alpine   # migrate hook's create-app-role init container (needs psql)
+  # pgBackRest repo2 = MinIO Operator Tenant S3 over TLS, ALONGSIDE the local repo1.
+  # When enabled, the chart adds repo2 to the PostgresCluster + a cosmos->minio egress
+  # (uds-package.yaml). Requires: the MinIO Tenant (S3 at endpoint below) + the SOPS
+  # secret `secretName` holding `s3.conf` (repo2-s3-key/secret) + `ca.crt` (the Tenant
+  # CA = cluster CA). endpoint is the Tenant Service host (HTTPS:443; pgBackRest S3 is
+  # always TLS). NOTE the egress to ns minio must be PORTLESS — the Tenant Service is
+  # 443->targetPort 9000, so a port-443 netpol drops post-DNAT (runbook gotcha #15).
+  backups:
+    s3:
+      enabled: false
+      bucket: cosmos-pgbackrest
+      endpoint: minio.minio.svc          # MinIO Operator Tenant Service (ns minio)
+      region: us-east-1                  # required by the S3 API; MinIO ignores it
+      secretName: cosmos-pgbackrest-s3
+      schedules:
+        full: "0 1 * * 0"                # weekly full (Sun 01:00)
+        incremental: "0 1 * * 1-6"       # daily incremental
 
 # Gov audit/compliance ops (SP3) — CronJobs/Jobs on the migrate image (carries
 # scripts/dsop/*), connecting over the same verified PGO TLS as the app.
