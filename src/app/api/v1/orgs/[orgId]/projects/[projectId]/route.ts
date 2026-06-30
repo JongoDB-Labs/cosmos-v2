@@ -21,6 +21,17 @@ export const TOGGLEABLE_FEATURES = [
   "roadmap",
   "files",
   "pm-dashboard",
+  // PM Dashboard register sub-tabs — each gated by its own flag (see
+  // pm-dashboard/pm-nav.tsx). Independent of "pm-dashboard" (which only shows
+  // the Overview); enable the registers you want as sub-tabs.
+  "risk-register",
+  "change-log",
+  "blocked-items",
+  "schedule-variance",
+  "deliverables-tracker",
+  "vendors",
+  "staffing",
+  "clin-burn",
 ] as const;
 
 const updateProjectSchema = z.object({

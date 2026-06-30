@@ -706,6 +706,7 @@ function KanbanBoardInner({
         onFilterChange={setFilters}
         members={members}
         cycles={cycles}
+        orgId={orgId}
         customFields={projectCustomFields}
         showSwimlane
       />
