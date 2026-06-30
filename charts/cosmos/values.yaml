@@ -10,10 +10,10 @@
 image:
   app:
     repo: ghcr.io/jongodb-labs/cosmos-v2
-    digest: "sha256:a2c7fa0bece331bb12ec547ac73439e871daff3b5544c677c4bbc567c71ec467"
+    digest: "sha256:62275339aa9372b837f6376d26b890238a7d8f7b035b03af91f777419e0d3361"
   migrate:
     repo: ghcr.io/jongodb-labs/cosmos-v2-migrate
-    digest: "sha256:23e122e7474597e6bcba6e1b8361fe94d4140b65ddaa934d21c5a7cf8e932186"
+    digest: "sha256:b1294c50d9590beb9f784852a9c07423c5814df9fbc50c39890036eb252a41a6"
   pullPolicy: IfNotPresent
 
 # App workload sizing (small/large profiles override these).
