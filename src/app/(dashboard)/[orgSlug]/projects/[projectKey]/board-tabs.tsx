@@ -42,6 +42,10 @@ interface ProjectBoardTabsProps {
   /** Board ids hidden from the tab strip — from Project.settings.hiddenBoardIds.
    *  Managers can hide/show from a board's menu; the board itself is kept. */
   hiddenBoardIds?: string[];
+  /** Feature-tab keys hidden from the strip (e.g. "pm-dashboard", "goal",
+   *  "cycle") — from Project.settings.hiddenFeatureTabs. The feature stays
+   *  enabled; only the tab is hidden. */
+  hiddenFeatureTabs?: string[];
   templateDefaultConfig?: Record<string, unknown> | null;
 }
 
@@ -64,26 +68,29 @@ export function ProjectBoardTabs({
   canCreateBoards = false,
   defaultBoardId = null,
   hiddenBoardIds = [],
+  hiddenFeatureTabs = [],
   templateDefaultConfig,
 }: ProjectBoardTabsProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // Split the boards into the visible strip vs the hidden set (managers can
-  // unhide from the "Hidden" menu). Reorder/rename/delete operate on visible.
+  // Split boards + feature tabs into visible vs hidden (managers tailor the
+  // strip; hiding keeps the board/feature, only the tab goes). Restore from the
+  // "Hidden" menu. Reorder/rename/delete operate on visible boards.
   const hiddenSet = new Set(hiddenBoardIds);
   const visibleBoards = boards.filter((b) => !hiddenSet.has(b.id));
   const hiddenBoards = boards.filter((b) => hiddenSet.has(b.id));
+  const hiddenFeatureSet = new Set(hiddenFeatureTabs);
   const [hiding, setHiding] = useState(false);
 
-  // Persist the hidden-board list to Project.settings (merged server-side).
-  async function patchHidden(next: string[]) {
+  // Persist a settings patch to Project.settings (merged server-side).
+  async function patchSettings(patch: Record<string, unknown>) {
     setHiding(true);
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { hiddenBoardIds: next } }),
+        body: JSON.stringify({ settings: patch }),
       });
       if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
       router.refresh();
@@ -95,7 +102,7 @@ export function ProjectBoardTabs({
   }
 
   async function handleHide(board: BoardTab) {
-    await patchHidden([...hiddenBoardIds.filter((id) => id !== board.id), board.id]);
+    await patchSettings({ hiddenBoardIds: [...hiddenBoardIds.filter((id) => id !== board.id), board.id] });
     // If we're viewing the board we just hid, move to another visible board.
     if (pathname === `/${orgSlug}/projects/${projectKey}/boards/${board.id}`) {
       const next = visibleBoards.find((b) => b.id !== board.id);
@@ -107,7 +114,19 @@ export function ProjectBoardTabs({
     }
   }
 
-  const handleUnhide = (id: string) => patchHidden(hiddenBoardIds.filter((x) => x !== id));
+  const handleUnhideFeature = (feature: string) =>
+    patchSettings({ hiddenFeatureTabs: hiddenFeatureTabs.filter((f) => f !== feature) });
+
+  async function handleHideFeature(tab: FeatureTab) {
+    await patchSettings({ hiddenFeatureTabs: [...hiddenFeatureTabs.filter((f) => f !== tab.feature), tab.feature] });
+    // If viewing the tab we just hid, fall back to the project root.
+    if (pathname === tab.href || pathname.startsWith(`${tab.href}/`)) {
+      router.push(`/${orgSlug}/projects/${projectKey}`);
+    }
+  }
+
+  const handleUnhide = (id: string) =>
+    patchSettings({ hiddenBoardIds: hiddenBoardIds.filter((x) => x !== id) });
 
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -303,6 +322,19 @@ export function ProjectBoardTabs({
     });
   }
 
+  // Cycles/Sprints — label is template-driven (e.g. "Sprints"). Folded into the
+  // feature-tab list so it gets the same hide/show ⋯ menu as the others.
+  if (enabledFeatures.includes("cycle")) {
+    featureTabs.push({
+      feature: "cycle",
+      label: cycleNavLabel,
+      href: `/${orgSlug}/projects/${projectKey}/cycles`,
+    });
+  }
+
+  const visibleFeatureTabs = featureTabs.filter((t) => !hiddenFeatureSet.has(t.feature));
+  const hiddenFeatureTabList = featureTabs.filter((t) => hiddenFeatureSet.has(t.feature));
+
   const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
 
   return (
@@ -404,34 +436,15 @@ export function ProjectBoardTabs({
       })}
 
       {/* Hidden boards — a manager can restore any to the strip. */}
-      {canManageBoards && hiddenBoards.length > 0 && (
-        <ActionMenu
-          triggerLabel="Show hidden board tabs"
-          groups={[
-            {
-              items: hiddenBoards.map((board) => ({
-                label: `Show "${board.name}"`,
-                icon: Eye,
-                disabled: hiding,
-                onClick: () => handleUnhide(board.id),
-              })),
-            },
-          ]}
-        >
-          <span className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">
-            <EyeOff className="h-3.5 w-3.5" /> Hidden ({hiddenBoards.length})
-          </span>
-        </ActionMenu>
-      )}
-
-      {featureTabs.map((tab) => {
+      {/* Feature view tabs (PM Dashboard, Goals, Milestones, Sprints, …) — each
+          gets the same Hide ⋯ menu as a board so the whole strip is tailorable. */}
+      {visibleFeatureTabs.map((tab) => {
         const isActive = tab.prefix
           ? pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           : pathname === tab.href;
 
-        return (
+        const link = (
           <Link
-            key={tab.feature}
             href={tab.href}
             className={cn(
               "relative px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
@@ -446,30 +459,63 @@ export function ProjectBoardTabs({
             )}
           </Link>
         );
+
+        if (!canManageBoards) return <span key={tab.feature}>{link}</span>;
+        return (
+          <div key={tab.feature} className="group/action relative flex items-center">
+            <ActionMenu
+              triggerLabel={`Tab actions for ${tab.label}`}
+              groups={[
+                {
+                  items: [
+                    {
+                      label: "Hide tab",
+                      icon: EyeOff,
+                      disabled: hiding,
+                      onClick: () => handleHideFeature(tab),
+                    },
+                  ],
+                },
+              ]}
+            >
+              {link}
+            </ActionMenu>
+          </div>
+        );
       })}
 
-      {/* Cycles tab — label driven by template config */}
-      {enabledFeatures.includes("cycle") && (() => {
-        const cyclesHref = `/${orgSlug}/projects/${projectKey}/cycles`;
-        const isCyclesActive = pathname === cyclesHref;
-        return (
-          <Link
-            key="cycle"
-            href={cyclesHref}
-            className={cn(
-              "relative px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
-              isCyclesActive
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {cycleNavLabel}
-            {isCyclesActive && (
-              <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
-            )}
-          </Link>
-        );
-      })()}
+      {/* Hidden tabs (boards + feature views) — a manager can restore any. */}
+      {canManageBoards && (hiddenBoards.length > 0 || hiddenFeatureTabList.length > 0) && (
+        <ActionMenu
+          triggerLabel="Show hidden tabs"
+          groups={[
+            ...(hiddenBoards.length > 0
+              ? [{
+                  items: hiddenBoards.map((board) => ({
+                    label: `Show "${board.name}"`,
+                    icon: Eye,
+                    disabled: hiding,
+                    onClick: () => handleUnhide(board.id),
+                  })),
+                }]
+              : []),
+            ...(hiddenFeatureTabList.length > 0
+              ? [{
+                  items: hiddenFeatureTabList.map((tab) => ({
+                    label: `Show "${tab.label}"`,
+                    icon: Eye,
+                    disabled: hiding,
+                    onClick: () => handleUnhideFeature(tab.feature),
+                  })),
+                }]
+              : []),
+          ]}
+        >
+          <span className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">
+            <EyeOff className="h-3.5 w-3.5" /> Hidden ({hiddenBoards.length + hiddenFeatureTabList.length})
+          </span>
+        </ActionMenu>
+      )}
 
       {canCreateBoards && (
         <Link

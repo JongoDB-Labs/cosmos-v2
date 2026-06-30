@@ -106,6 +106,11 @@ export default async function ProjectLayout({
             ? ((project.settings as Record<string, unknown>).hiddenBoardIds as string[])
             : []
         }
+        hiddenFeatureTabs={
+          Array.isArray((project.settings as Record<string, unknown> | null)?.hiddenFeatureTabs)
+            ? ((project.settings as Record<string, unknown>).hiddenFeatureTabs as string[])
+            : []
+        }
         templateDefaultConfig={
           project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
         }
