@@ -27,3 +27,40 @@ spec:
       # Without this the namespace default-deny blocks it and Postgres crash-loops
       # on every fresh pod start (survives only on an already-established connection).
       - { direction: Egress, remoteGenerated: KubeAPI }
+      {{- if .Values.sso.enabled }}
+      # App authenticates users against the substrate Keycloak (server-side OIDC:
+      # discovery + token + JWKS). Keycloak is published at the tenant gateway (e.g.
+      # sso.uds.dev), so the app's egress target is the tenant ingressgateway — the
+      # same "SSO Provider" hop UDS Core's own Grafana package declares. UDS does NOT
+      # auto-add this egress for a Package.sso client, so without it ztunnel RSTs the
+      # call under the namespace default-deny and OIDC discovery fails with
+      # `sso_discovery_failed` — a silent netpol drop that masquerades as a DNS/Keycloak
+      # problem (cf. gotchas #10/#11). Scoped to the web pods (only they call Keycloak).
+      # Fallback if a cluster's egress path is NOT via the gateway: target the keycloak
+      # namespace directly (remoteNamespace: keycloak, remoteSelector:
+      # { app.kubernetes.io/name: keycloak }, port: 8080).
+      - description: app->Keycloak OIDC via tenant gateway
+        direction: Egress
+        remoteNamespace: istio-tenant-gateway
+        remoteSelector:
+          app: tenant-ingressgateway
+        selector:
+          app.kubernetes.io/name: {{ .Chart.Name }}
+          app.kubernetes.io/component: web
+      {{- end }}
+  {{- if .Values.sso.enabled }}
+  # SSO — the uds-operator creates this Keycloak client (realm `uds`) + writes its
+  # credentials to `secretName`. The app does NOT read that secret from env; the
+  # wire-keycloak-idp seed seals it into the DB IdpConnection, which is what the app's
+  # OIDC RP (src/lib/auth/sso.ts) actually uses. redirectUris MUST match the URI the
+  # app builds: https://<expose.host>.<expose.domain>/api/auth/sso/<orgSlug>/callback.
+  sso:
+    - clientId: {{ .Values.sso.clientId | quote }}
+      name: {{ .Values.sso.name | quote }}
+      enabled: true
+      standardFlowEnabled: true
+      publicClient: false
+      redirectUris:
+        - {{ printf "https://%s.%s/api/auth/sso/%s/callback" .Values.expose.host .Values.expose.domain .Values.sso.orgSlug | quote }}
+      secretName: {{ .Values.sso.secretName | quote }}
+  {{- end }}
