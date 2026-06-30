@@ -21,7 +21,7 @@
 kind: ZarfPackageConfig
 metadata:
   name: cosmos
-  version: "2.102.2"
+  version: "2.103.0"
   description: "COSMOS app + MinIO + PostgresCluster — airgap, onto UDS Core + PGO"
 
 components:
@@ -34,9 +34,9 @@ components:
         localPath: ../../charts/cosmos
         version: 0.1.0
     images:
-      # app + migrate (digest-pinned to the cosign-verified release)
-      - ghcr.io/jongodb-labs/cosmos-v2@sha256:a2c7fa0bece331bb12ec547ac73439e871daff3b5544c677c4bbc567c71ec467
-      - ghcr.io/jongodb-labs/cosmos-v2-migrate@sha256:23e122e7474597e6bcba6e1b8361fe94d4140b65ddaa934d21c5a7cf8e932186
+      # app + migrate (digest-pinned to the cosign-verified 2.103.0 release)
+      - ghcr.io/jongodb-labs/cosmos-v2@sha256:62275339aa9372b837f6376d26b890238a7d8f7b035b03af91f777419e0d3361
+      - ghcr.io/jongodb-labs/cosmos-v2-migrate@sha256:b1294c50d9590beb9f784852a9c07423c5814df9fbc50c39890036eb252a41a6
       # object store + its init client
       - minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
       - minio/mc@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
