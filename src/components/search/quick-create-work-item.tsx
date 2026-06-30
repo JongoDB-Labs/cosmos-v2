@@ -116,7 +116,7 @@ export function QuickCreateWorkItem({
 
   async function handleSubmit() {
     const trimmed = title.trim();
-    if (!trimmed || !projectId || !workItemTypeId || submitting) return;
+    if (!trimmed || !projectId || submitting) return;
 
     setSubmitting(true);
     try {
@@ -134,7 +134,7 @@ export function QuickCreateWorkItem({
           method: "POST",
           body: JSON.stringify({
             title: trimmed,
-            workItemTypeId,
+            ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
             columnKey,
             assigneeId: assigneeId || null,
             dueDate: dueDate ? new Date(dueDate).toISOString() : null,

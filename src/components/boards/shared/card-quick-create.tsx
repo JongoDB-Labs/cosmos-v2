@@ -64,7 +64,7 @@ export function CardQuickCreate({
   }, [open, workItemTypes]);
 
   function handleSubmit() {
-    if (!title.trim() || !workItemTypeId) return;
+    if (!title.trim()) return;
 
     startTransition(async () => {
       try {
@@ -73,9 +73,12 @@ export function CardQuickCreate({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            // Send the chosen type id, but fall back to the bare "TASK" type
+            // (server-resolved) if types haven't loaded yet — never block a
+            // quick-add on the async types fetch.
             body: JSON.stringify({
               title: title.trim(),
-              workItemTypeId,
+              ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
               columnKey,
             }),
           }
@@ -164,7 +167,7 @@ export function CardQuickCreate({
           <Button
             size="xs"
             onClick={handleSubmit}
-            disabled={!title.trim() || !workItemTypeId || isPending}
+            disabled={!title.trim() || isPending}
           >
             {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
           </Button>

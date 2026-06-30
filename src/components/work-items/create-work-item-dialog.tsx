@@ -144,7 +144,7 @@ export function CreateWorkItemDialog({
 
   async function handleSubmit() {
     const trimmed = title.trim();
-    if (!trimmed || !projectId || !workItemTypeId || submitting) return;
+    if (!trimmed || !projectId || submitting) return;
 
     // Enforce required custom fields before hitting the API.
     const missing = renderableFields.filter(
@@ -192,7 +192,7 @@ export function CreateWorkItemDialog({
         method: "POST",
         body: JSON.stringify({
           title: trimmed,
-          workItemTypeId,
+          ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
           columnKey,
           priority,
           assigneeId: assigneeId || null,

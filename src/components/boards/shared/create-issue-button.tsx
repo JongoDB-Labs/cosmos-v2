@@ -109,7 +109,7 @@ export function CreateIssueButton({
   }
 
   async function handleCreate() {
-    if (!title.trim() || !columnKey || !workItemTypeId) return;
+    if (!title.trim() || !columnKey) return;
     setPending(true);
     try {
       const res = await fetch(
@@ -117,7 +117,9 @@ export function CreateIssueButton({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.trim(), workItemTypeId, columnKey }),
+          // Fall back to the bare "TASK" type if the async types fetch hasn't
+          // resolved yet, so creation never silently no-ops.
+          body: JSON.stringify({ title: title.trim(), ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }), columnKey }),
         },
       );
       if (!res.ok) throw new Error(`Failed to create issue (HTTP ${res.status})`);
@@ -220,7 +222,7 @@ export function CreateIssueButton({
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!title.trim() || !columnKey || !workItemTypeId || pending}
+              disabled={!title.trim() || !columnKey || pending}
             >
               {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               Create issue
