@@ -5,8 +5,9 @@ the cosmos-migrate service:
     LOGIN role. Its table GRANT/REVOKEs live INSIDE the migrations (audit_immutability).
   - main container: `prisma migrate deploy` as cosmos — applies all migrations
     (incl. pgvector CREATE EXTENSION, run as the cosmos superuser).
-The published migrate image runs as root, so we force a non-root UID for UDS; the
-proper fix is a `USER` line in the Dockerfile `migrate` stage (CI follow-up).
+The migrate image is non-root by construction (USER cosmos in the Dockerfile `migrate`
+stage). The runAsUser/fsGroup/HOME below is now defense-in-depth — it pins a UID/HOME
+for UDS regardless of the image, but is no longer the only thing forcing non-root.
 */}}
 apiVersion: batch/v1
 kind: Job

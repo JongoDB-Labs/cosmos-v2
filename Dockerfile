@@ -53,9 +53,18 @@ RUN npx prisma generate && npm run build
 RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel,strict)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy]'+(strict?' FATAL':'')+' missing source',s); if(strict)process.exit(1); return;} fs.mkdirSync(p.dirname(d),{recursive:true}); fs.copyFileSync(s,d); console.log('[instr-copy]',rel);}; cp('instrumentation.js',true); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''),false);}} else {console.error('[instr-copy] FATAL no nft manifest — instrumentation hook would not run'); process.exit(1);}"
 # --- migrate: one-shot job image with the FULL prisma toolchain ---
 # The slim standalone runtime omits the `prisma` CLI and its hoisted deps (effect, etc.),
-# so migrations run from the build stage (complete node_modules, root → no cache/home EACCES).
+# so migrations run from the build stage (complete node_modules).
 # Defined BEFORE runtime so that `docker build` (no --target) defaults to the app runtime.
+# Run as a non-root user (mirrors the runtime stage) so the image is non-root BY
+# CONSTRUCTION. `prisma migrate deploy` only reads node_modules/prisma (world-readable
+# from npm ci) and writes to HOME for its engine/checkpoint cache — so -m (writable home)
+# + ENV HOME is all it needs; no chown of the large /app tree required. The chart's
+# runAsUser/HOME override (charts/cosmos/templates/migrate-job.yaml) is then
+# belt-and-suspenders, not the only thing forcing non-root at deploy time.
 FROM build AS migrate
+RUN groupadd -r cosmos && useradd -r -g cosmos -m -d /home/cosmos cosmos
+ENV HOME=/home/cosmos
+USER cosmos
 CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
 # --- runtime (standalone) — the default build target ---
