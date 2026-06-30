@@ -29,7 +29,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
-import { parseImportFile, type ParsedFile } from "@/lib/import/parse-file";
+import {
+  parseWorkbook,
+  guessHeaderRow,
+  matrixToObjects,
+  type ParsedFile,
+  type Workbook,
+} from "@/lib/import/parse-file";
 import { WorkItemImportWizard } from "@/components/import/work-item-import-wizard";
 import {
   ENTITY_DEFS,
@@ -187,6 +193,10 @@ function GenericImportFlow({
   const router = useRouter();
   const [step, setStep] = useState<GStep>("upload");
   const [fileName, setFileName] = useState("");
+  const [workbook, setWorkbook] = useState<Workbook | null>(null);
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const [headerRow, setHeaderRow] = useState(0);
+  const [dataStartRow, setDataStartRow] = useState(1); // first data row (skips template/instruction rows below the header)
   const [parsed, setParsed] = useState<ParsedFile | null>(null);
   const [parsing, setParsing] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
@@ -194,26 +204,106 @@ function GenericImportFlow({
   const [busy, setBusy] = useState(false);
   const [committed, setCommitted] = useState<EntityImportReport | null>(null);
 
+  // Auto-map every header of a freshly-built ParsedFile onto entity fields.
+  // `guessFieldForHeader` matches the WHOLE header against field synonyms; many
+  // spreadsheet headers qualify a generic synonym ("Deliverable ID", "Risk
+  // Title"), so when the whole header misses we retry each whitespace token
+  // against the SAME matcher (first hit wins) before giving up.
+  function autoMap(result: ParsedFile) {
+    const guessed: Record<string, string> = {};
+    const taken = new Set<string>(); // each field claimed by at most one column
+    // Pass 1 — whole-header matches (highest confidence) claim their field first.
+    for (const h of result.headers) {
+      const key = guessFieldForHeader(def, h);
+      if (key && !taken.has(key)) {
+        guessed[h] = key;
+        taken.add(key);
+      }
+    }
+    // Pass 2 — token fallback ("Deliverable ID" → "id" → code) for still-unmapped
+    // headers, skipping fields already claimed so e.g. "Related Milestone ID"
+    // can't also grab `code` (left-most column wins by header order).
+    for (const h of result.headers) {
+      if (guessed[h]) continue;
+      let key = "";
+      for (const token of h.split(/\s+/)) {
+        const t = guessFieldForHeader(def, token);
+        if (t && !taken.has(t)) {
+          key = t;
+          break;
+        }
+      }
+      guessed[h] = key || IGNORE;
+      if (key) taken.add(key);
+    }
+    setMapping(guessed);
+  }
+
+  // Re-derive rows/headers for a given sheet + header row, then re-run mapping.
+  function applySelection(wb: Workbook, sIdx: number, hRow: number, dStart: number) {
+    const sheet = wb.sheets[sIdx];
+    if (!sheet) return;
+    const result = matrixToObjects(sheet.matrix, hRow, dStart);
+    setParsed(result);
+    autoMap(result);
+  }
+
   async function onFile(file: File) {
     setParsing(true);
     setFileName(file.name);
     try {
-      const result = await parseImportFile(file);
-      if (result.rows.length === 0) {
-        notifyError(new Error("No rows"), "That file has no data rows.");
+      const wb = await parseWorkbook(file);
+      if (wb.sheets.length === 0) {
+        notifyError(new Error("No sheets"), "That file has no readable sheets.");
         return;
       }
+      // Default to the most likely data sheet + its guessed header row.
+      const sIdx = chooseDefaultSheet(wb);
+      const hRow = guessHeaderRow(wb.sheets[sIdx].matrix);
+      const dStart = hRow + 1;
+      const result = matrixToObjects(wb.sheets[sIdx].matrix, hRow, dStart);
+      if (result.rows.length === 0) {
+        // Still let the user proceed — they may pick a different sheet/header.
+        notifyError(
+          new Error("No rows"),
+          "No data rows found on the default sheet — pick the right sheet or header row.",
+        );
+      }
+      setWorkbook(wb);
+      setSheetIndex(sIdx);
+      setHeaderRow(hRow);
+      setDataStartRow(dStart);
       setParsed(result);
-      // Auto-guess the field mapping from header names.
-      const guessed: Record<string, string> = {};
-      for (const h of result.headers) guessed[h] = guessFieldForHeader(def, h) || IGNORE;
-      setMapping(guessed);
+      autoMap(result);
       setStep("fields");
     } catch (err) {
       notifyError(err, "Couldn't read that file. Use CSV, TSV, or XLSX.");
     } finally {
       setParsing(false);
     }
+  }
+
+  // When the user picks a different sheet, reset to that sheet's guessed header.
+  function onSheetChange(sIdx: number) {
+    if (!workbook) return;
+    const hRow = guessHeaderRow(workbook.sheets[sIdx].matrix);
+    setSheetIndex(sIdx);
+    setHeaderRow(hRow);
+    setDataStartRow(hRow + 1);
+    applySelection(workbook, sIdx, hRow, hRow + 1);
+  }
+
+  function onHeaderRowChange(hRow: number) {
+    if (!workbook) return;
+    setHeaderRow(hRow);
+    setDataStartRow(hRow + 1);
+    applySelection(workbook, sheetIndex, hRow, hRow + 1);
+  }
+
+  function onDataStartChange(dStart: number) {
+    if (!workbook) return;
+    setDataStartRow(dStart);
+    applySelection(workbook, sheetIndex, headerRow, dStart);
   }
 
   // A required field is satisfied when some column maps to it.
@@ -271,6 +361,10 @@ function GenericImportFlow({
               setCommitted(null);
               setReport(null);
               setParsed(null);
+              setWorkbook(null);
+              setSheetIndex(0);
+              setHeaderRow(0);
+              setDataStartRow(1);
               setMapping({});
               setFileName("");
               setStep("upload");
@@ -325,6 +419,66 @@ function GenericImportFlow({
             <FileSpreadsheet className="h-4 w-4" />
             {fileName} — {parsed.rows.length} rows, {parsed.headers.length} columns
           </div>
+
+          {/* Sheet + header-row pickers for multi-sheet / offset-header files. */}
+          {workbook && (
+            <div className="flex flex-wrap items-end gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+              {workbook.sheets.length > 1 && (
+                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                  <span className="font-medium uppercase tracking-wide">Sheet</span>
+                  <select
+                    className={selectCls}
+                    value={sheetIndex}
+                    onChange={(e) => onSheetChange(Number(e.target.value))}
+                  >
+                    {workbook.sheets.map((s, i) => (
+                      <option key={i} value={i}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-[var(--text-muted)]">
+                <span className="font-medium uppercase tracking-wide">Header row</span>
+                <select
+                  className={cn(selectCls, "w-full")}
+                  value={headerRow}
+                  onChange={(e) => onHeaderRowChange(Number(e.target.value))}
+                >
+                  {workbook.sheets[sheetIndex].matrix
+                    // Show the first ~12 rows, but always include the selected
+                    // one so a guessed header below row 12 stays in range.
+                    .slice(0, Math.max(12, headerRow + 1))
+                    .map((row, i) => (
+                      <option key={i} value={i}>
+                        Row {i + 1}: {rowPreview(row)}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-[var(--text-muted)]">
+                <span className="font-medium uppercase tracking-wide">First data row</span>
+                <select
+                  className={cn(selectCls, "w-full")}
+                  value={dataStartRow}
+                  onChange={(e) => onDataStartChange(Number(e.target.value))}
+                >
+                  {workbook.sheets[sheetIndex].matrix
+                    // Candidates are rows below the header (skip instruction/
+                    // template rows); always keep the current selection in range.
+                    .map((row, i) => ({ row, i }))
+                    .filter(({ i }) => i > headerRow && i <= Math.max(headerRow + 12, dataStartRow))
+                    .map(({ row, i }) => (
+                      <option key={i} value={i}>
+                        Row {i + 1}: {rowPreview(row)}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+          )}
+
           {missingRequired.length > 0 && (
             <div className="flex items-center gap-2 rounded-md border border-[var(--status-critical-text)]/30 bg-destructive/10 px-3 py-2 text-sm text-[var(--status-critical-text)]">
               <AlertTriangle className="h-4 w-4" /> Map a column to{" "}
@@ -419,6 +573,49 @@ function GenericImportFlow({
 
 function cellStr(v: string | number | null | undefined): string {
   return v === null || v === undefined ? "" : String(v).trim();
+}
+
+/** Sheet names that are almost never the data table (used to de-prioritize). */
+const NON_DATA_SHEET = /instruction|dashboard|readme|cover|summary/i;
+
+/** Number of non-blank rows beneath `headerRow` (a sheet's "data weight"). */
+function dataRowCount(matrix: string[][], headerRow: number): number {
+  let n = 0;
+  for (let r = headerRow + 1; r < matrix.length; r++) {
+    const row = matrix[r];
+    if (row && row.some((c) => (c ?? "").trim() !== "")) n++;
+  }
+  return n;
+}
+
+/**
+ * Pick the most likely data sheet: score each by its guessed header's column
+ * count, then by rows of data beneath it. Sheets whose NAME looks like an
+ * instructions/summary tab are demoted, but only as a tiebreak — a demoted
+ * sheet still wins if it's the only one carrying a real table.
+ */
+function chooseDefaultSheet(wb: Workbook): number {
+  let best = 0;
+  let bestScore = -Infinity;
+  wb.sheets.forEach((s, i) => {
+    const hr = guessHeaderRow(s.matrix);
+    const cols = (s.matrix[hr] ?? []).filter((c) => (c ?? "").trim() !== "").length;
+    const rows = dataRowCount(s.matrix, hr);
+    // Columns dominate, data rows break ties, name-penalty is the weakest term.
+    const penalty = NON_DATA_SHEET.test(s.name) ? 0.5 : 0;
+    const score = cols * 1000 + rows - penalty;
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** First ~4 non-empty cells of a row, for the header-row picker preview. */
+function rowPreview(row: string[] | undefined): string {
+  const cells = (row ?? []).map((c) => (c ?? "").trim()).filter(Boolean).slice(0, 4);
+  return cells.join(" · ") || "(blank row)";
 }
 
 function GStepBadge({ step, s, n, label }: { step: GStep; s: GStep; n: number; label: string }) {

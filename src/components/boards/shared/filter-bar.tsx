@@ -10,8 +10,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { Search, X, UserCheck } from "lucide-react";
+import { Search, X, UserCheck, ChevronDown } from "lucide-react";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { OrgMember, Cycle, CustomField } from "@/types/models";
@@ -179,7 +185,12 @@ type ReadonlyURLSearchParams = {
   getAll?(name: string): string[];
 };
 
-function MultiToggle({
+/**
+ * Compact multi-select filter — a dropdown with a count badge instead of a row
+ * of inline chips (the chip row got unwieldy once custom types like Feature were
+ * added). The menu stays open across toggles (base-ui CheckboxItem).
+ */
+function MultiSelectMenu({
   label,
   options,
   selected,
@@ -192,34 +203,41 @@ function MultiToggle({
   onChange: (values: string[]) => void;
   colorMap?: Record<string, string>;
 }) {
+  const count = selected.length;
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-xs text-muted-foreground mr-1">{label}:</span>
-      {options.map((opt) => {
-        const active = selected.includes(opt);
-        return (
-          <button
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+          count > 0
+            ? "border-primary/50 text-foreground"
+            : "border-input text-muted-foreground hover:bg-muted",
+        )}
+      >
+        {label}
+        {count > 0 && (
+          <span className="rounded bg-primary/20 px-1 text-[10px] tabular-nums text-primary">
+            {count}
+          </span>
+        )}
+        <ChevronDown className="h-3 w-3" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-44">
+        {options.map((opt) => (
+          <DropdownMenuCheckboxItem
             key={opt}
-            type="button"
-            onClick={() => {
-              if (active) {
-                onChange(selected.filter((s) => s !== opt));
-              } else {
-                onChange([...selected, opt]);
-              }
-            }}
-            className={cn(
-              "rounded-md px-2 py-0.5 text-xs font-medium transition-colors",
-              active
-                ? colorMap?.[opt] ?? "bg-primary/20 text-primary"
-                : "bg-muted/50 text-muted-foreground hover:bg-muted"
-            )}
+            checked={selected.includes(opt)}
+            onCheckedChange={(c) =>
+              onChange(c ? [...selected, opt] : selected.filter((s) => s !== opt))
+            }
           >
-            {opt.charAt(0) + opt.slice(1).toLowerCase()}
-          </button>
-        );
-      })}
-    </div>
+            <span className={cn("rounded px-1.5 py-0.5 text-xs", colorMap?.[opt])}>
+              {opt.charAt(0) + opt.slice(1).toLowerCase()}
+            </span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -337,7 +355,7 @@ export function FilterBar({
         </Button>
       )}
 
-      <MultiToggle
+      <MultiSelectMenu
         label="Type"
         options={typeOptions.length > 0 ? typeOptions : WORK_ITEM_TYPES}
         selected={filters.types}
@@ -345,7 +363,7 @@ export function FilterBar({
         colorMap={typeColorMap}
       />
 
-      <MultiToggle
+      <MultiSelectMenu
         label="Priority"
         options={PRIORITIES}
         selected={filters.priorities}
