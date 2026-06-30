@@ -13,10 +13,12 @@
 # layers risk CRD/operator drift (learned in SP2). `upstream` flavor for the lab;
 # swap to `registry1` (Iron Bank) for a hardened/ATO build.
 #
-# TODO before this bundle is deploy-complete: add a CrunchyData PGO package (the
-# cosmos chart creates a PostgresCluster the PGO operator reconciles). PGO ships as
-# a Helm chart; wrap it in its own zarf.yaml (operator image + CRDs) and insert it
-# after core-base, before cosmos. Until then PGO is a documented cluster prereq.
+# The CrunchyData PGO package (deploy/airgap/pgo) sits between the UDS Core layers and
+# cosmos: the cosmos chart creates a PostgresCluster the PGO operator reconciles, so the
+# operator + its CRDs must land BEFORE cosmos. PGO ships as an OCI Helm chart (operator
+# image + CRDs) and runs cluster-wide outside the UDS Package model (no netpol of its
+# own — see deploy/airgap/pgo/zarf.yaml). With it bundled, `uds deploy` brings up the
+# full COSMOS platform on a disconnected cluster from one tarball.
 kind: UDSBundle
 metadata:
   name: cosmos-stack
@@ -42,6 +44,12 @@ packages:
   - name: core-monitoring
     repository: ghcr.io/defenseunicorns/packages/uds/core-monitoring
     ref: 1.7.0-upstream
+
+  # CrunchyData PGO — the DB control plane (operator + CRDs). Must precede cosmos so
+  # the PostgresCluster CR the cosmos chart creates has its CRDs + reconciler ready.
+  - name: cosmos-pgo
+    path: "pgo"
+    ref: "6.0.2"
 
   # COSMOS app — the SP5 Zarf package (built from ./zarf.yaml in this same dir).
   - name: cosmos
