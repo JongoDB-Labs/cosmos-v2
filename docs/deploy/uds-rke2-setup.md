@@ -386,7 +386,18 @@ Browse from a laptop by adding both gateway IPs to `/etc/hosts`:
 
 **Verify:** every UDS `Package` reports `Ready`; `kubectl top nodes` returns data (RKE2 metrics-server); `https://cosmos.uds.dev/api/health` still `db:up` (the new layers' default-deny netpols don't touch the cosmos app — it has its own Package allow-list).
 
-**Still open for SP2:** wire the **cosmos app itself** to authenticate via Keycloak (the app's OIDC IdP → a Keycloak client). That's app-level SSO, distinct from the auto-SSO'd UDS consoles, and ties into the runtime SSO toggle (SP8).
+**App-level SSO (cosmos login → Keycloak OIDC) — now codified in the chart.** The app's OIDC relying party (`src/lib/auth/sso.ts` + `/api/auth/sso/[orgSlug]/*`) was always present, but the working `cosmos-acme` client + the Keycloak egress allow had been **hand-patched into the live `Package` and were NOT in the chart** — so a `helm upgrade` / airgap rebuild silently dropped them and login broke with `sso_discovery_failed`. Both are now in `charts/cosmos/templates/uds-package.yaml`, values-gated on `sso.enabled`:
+- The `Package.sso` block creates the Keycloak client (realm `uds`) + the `cosmos-sso-acme` secret. `redirectUris` is derived from `expose.host`.`expose.domain` + `sso.orgSlug`, so it can't drift from the Istio host.
+- **`gotcha #14` — an egress `allow` to the tenant gateway** (the SSO-provider hop, mirroring UDS Core's own Grafana package). **UDS does NOT auto-add egress for a `Package.sso` client**, so without it ztunnel RSTs the OIDC call under the namespace default-deny and discovery fails *silently at the netpol layer* — looks like a DNS/Keycloak problem, isn't (same class as #10/#11). Fallback target: `remoteNamespace: keycloak` directly. **Verified on the lab (2026-06-30):** with *only* the tenant-gateway rule present (the prior `Anywhere` allow removed + its netpol GC'd), the app pod completes OIDC discovery (`issuer`+`token_endpoint`+`jwks_uri`) — the tighter egress is sufficient, no `Anywhere` needed.
+
+Turning login ON for an org = writing its `IdpConnection` row (which seals the client secret into the DB). Run the reference seed in-cluster so it uses the same `SSO_VAULT_KEY` the app holds:
+```bash
+CID=$(kubectl -n cosmos get secret cosmos-sso-acme -o jsonpath='{.data.clientId}' | base64 -d)
+CSEC=$(kubectl -n cosmos get secret cosmos-sso-acme -o jsonpath='{.data.secret}' | base64 -d)
+# run prisma/seed/wire-keycloak-idp.ts (as a Job/exec) with:
+#   ORG_SLUG=acme  ISSUER_URL=https://sso.uds.dev/realms/uds  CLIENT_ID=$CID  CLIENT_SECRET=$CSEC  JIT=1  DEFAULT_ROLE=MEMBER
+```
+**Verify (JIT end-to-end):** `https://cosmos.uds.dev/login?org=acme` → "Sign in with SSO" → Keycloak → back to `/` with a session cookie; in the DB a `federated_identities` row binds the Keycloak `sub` (NOT email) to the JIT-provisioned user, `org_members` has them at MEMBER, `sessions.auth_method='oidc'` (the `docs/sso-acceptance/` dex run is the template). `IdpConnection.enabled` is the **runtime SSO toggle** (SP8) — flips login on/off per org with no rebuild.
 
 ---
 
