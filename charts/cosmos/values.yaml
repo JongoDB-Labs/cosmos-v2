@@ -31,8 +31,23 @@ app:
 posture: baseline
 
 # Istio exposure via the UDS Package CR (host under the tenant gateway).
+# `host`.`domain` = the external FQDN the app is reached at (e.g. cosmos.uds.dev);
+# `domain` must match the UDS cluster domain (UDS_DOMAIN, default uds.dev).
 expose:
   host: cosmos
+  domain: uds.dev
+
+# App-level SSO (server-side OIDC) against the substrate Keycloak. When enabled, the
+# UDS Package creates the Keycloak client + a secret, and the chart adds the egress
+# allow the app needs to reach Keycloak (UDS does NOT auto-add it — see uds-package.yaml).
+# The IdpConnection row (which actually turns login on for an org) is written by the
+# `prisma/seed/wire-keycloak-idp.ts` seed, sealing this client's secret into the DB.
+sso:
+  enabled: true
+  clientId: cosmos-acme            # the Keycloak client (realm `uds`)
+  name: "COSMOS — acme (demo)"     # human label shown in Keycloak
+  orgSlug: acme                    # the cosmos org this client logs into (redirect path + seed)
+  secretName: cosmos-sso-acme      # k8s Secret the UDS operator writes the client creds to
 
 # Object storage — single-instance MinIO for the lab (MinIO Operator / external
 # GovCloud S3 is the prod path per north-star §2). Creds live in a Secret,
