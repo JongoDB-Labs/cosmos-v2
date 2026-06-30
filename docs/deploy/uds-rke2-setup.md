@@ -252,7 +252,7 @@ Result: `migrations_applied=65`, the `cosmos_app` role, `pgvector` installed, **
 
 Gotchas:
 - **Private GHCR images → 401** without a pull secret (gotcha #8). MinIO/Postgres are public; ours aren't.
-- **The migrate image runs as root** (the Dockerfile `migrate` stage sets no `USER`) → forced `runAsUser: 1000` for UDS + a writable `/tmp` emptyDir. Clean fix: add `USER` to the migrate stage (CI follow-up).
+- **The migrate image is now non-root by construction** (the Dockerfile `migrate` stage mirrors the runtime stage: `groupadd/useradd cosmos` + `ENV HOME=/home/cosmos` + `USER cosmos`). The chart's `runAsUser: 1000` + `/tmp` emptyDir (migrate-job.yaml) is therefore belt-and-suspenders, not load-bearing. Verified: as `cosmos`, `prisma migrate deploy` reaches DB-connect (`P1001`) with **no HOME/cache `EACCES`**. `migrate deploy` only reads `node_modules`/`prisma` (world-readable from `npm ci`) and writes to HOME, so `-m` (writable home) + `ENV HOME` is sufficient — no `chown` of the large `/app` tree.
 - **PGO requires TLS** → append `?sslmode=require` to the connection URI.
 
 ## T6 — The app (Deployment + Service)
