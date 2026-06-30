@@ -447,7 +447,7 @@ On deploy the zarf agent rewrites every image ref to the **in-cluster registry**
 
 Images carried: app + migrate (digest-pinned to the signed release), MinIO + `mc`, `postgres:16-alpine` (the migrate init), and the two Crunchy images the PostgresCluster pulls (`crunchy-postgres` + `crunchy-pgbackrest`). `zarf dev lint` passes; the three upstream images are tag-pinned (a hardened `registry1`/Iron-Bank flavor would digest-pin all of them).
 
-**Target-cluster prereqs** (bundled together in SP6): UDS Core, CrunchyData PGO, and the cosmos secrets (provided out-of-band — SOPS/Flux; not baked into the package). Production points the chart at the **signed OCI chart** (SP4) so the airgap deploy verifies its signature before install.
+**Target-cluster prereqs** (all bundled together in SP6): UDS Core and CrunchyData PGO (the `deploy/airgap/pgo` package — added below), plus the cosmos secrets (provided out-of-band — SOPS/Flux; not baked into the package). Production points the chart at the **signed OCI chart** (SP4) so the airgap deploy verifies its signature before install.
 
 ---
 
@@ -458,9 +458,9 @@ Images carried: app + migrate (digest-pinned to the signed release), MinIO + `mc
 uds create deploy/airgap                                          # every package's images → one bundle
 uds deploy uds-bundle-cosmos-stack-2.102.2-*.tar.zst --confirm    # deploy the whole stack offline
 ```
-Package order = deploy order: zarf `init` → `core-base` → `core-identity-authorization` (Keycloak) → `core-runtime-security` (Falco) + `core-monitoring` → `cosmos`. This is exactly the SP2 layer sequence, now bundled with the app. Every UDS Core layer is pinned to `1.7.0` (mismatched layers drift — SP2's lesson); `upstream` flavor for the lab, `registry1` (Iron Bank) for a hardened ATO build.
+Package order = deploy order: zarf `init` → `core-base` → `core-identity-authorization` (Keycloak) → `core-runtime-security` (Falco) + `core-monitoring` → `cosmos-pgo` (CrunchyData PGO) → `cosmos`. This is the SP2 layer sequence plus the DB control plane, now bundled with the app. Every UDS Core layer is pinned to `1.7.0` (mismatched layers drift — SP2's lesson); `upstream` flavor for the lab, `registry1` (Iron Bank) for a hardened ATO build.
 
-**One piece still to package:** CrunchyData PGO. The cosmos chart creates a `PostgresCluster` the PGO operator reconciles, so a PGO Zarf package belongs between `core-base` and `cosmos` (PGO ships as a Helm chart — wrap its operator image + CRDs in a `zarf.yaml`). Until then PGO is a documented prereq. With it added, `uds deploy` brings up the full COSMOS platform on a disconnected cluster from a single signed tarball — SP1→SP2→SP5→SP6, the airgap critical path, complete.
+**CrunchyData PGO is now packaged** (`deploy/airgap/pgo/zarf.yaml`) and sits between `core-base` and `cosmos`: the cosmos chart creates a `PostgresCluster` the PGO operator reconciles, so the operator + its 3 CRDs must land first. The PGO package wraps the OCI Helm chart (`oci://registry.developers.crunchydata.com/crunchydata/pgo`, chart `6.0.2`) + the operator image (`postgres-operator:ubi9-6.0.2-0`); the data-plane images (`crunchy-postgres`/`crunchy-pgbackrest`) stay with the cosmos package since the `PostgresCluster` CR pulls them. Unlike the connected-lab install (T3), the airgap package does **not** label the namespace `zarf.dev/agent=ignore` — in airgap the mutating agent must rewrite the operator image to the in-cluster registry. PGO runs cluster-wide with no UDS `Package`/netpol of its own. `zarf dev lint` passes (one expected tag-not-digest warning, matching the upstream-flavor pattern); `zarf package create ./pgo` assembles the chart + operator image. With PGO bundled, `uds deploy` brings up the full COSMOS platform on a disconnected cluster from a single tarball — SP1→SP2→SP5→SP6, the airgap critical path, complete.
 
 ---
 

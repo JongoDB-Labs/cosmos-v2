@@ -1,0 +1,47 @@
+# Zarf package — CrunchyData Postgres Operator (PGO), the control plane the cosmos
+# chart's PostgresCluster CR is reconciled by. PGO ships as an OCI Helm chart; this
+# wraps the operator image + the chart (which carries the 3 CRDs + operator RBAC) so
+# the whole DB control plane installs from a single airgap tarball.
+#
+#   zarf package create deploy/airgap/pgo        # pulls the operator image + chart
+#   zarf package deploy zarf-package-cosmos-pgo-*.tar.zst
+#
+# Deploy order (SP6 bundle): AFTER core-base (needs the cluster + zarf init), BEFORE
+# cosmos (the cosmos chart creates a PostgresCluster, which needs PGO's CRDs to exist).
+#
+# Control-plane / data-plane split: the OPERATOR image lives here; the data-plane
+# images the PostgresCluster CR pulls (crunchy-postgres + crunchy-pgbackrest) stay with
+# the cosmos package (deploy/airgap/zarf.yaml), since the cosmos chart owns that CR.
+#
+# Mirrors the connected-lab install (runbook T3: `helm install pgo
+# oci://registry.developers.crunchydata.com/crunchydata/pgo -n postgres-operator`,
+# chart pgo-6.0.2, operator postgres-operator:ubi9-6.0.2-0). Two deliberate differences
+# for airgap:
+#   • NO `zarf.dev/agent=ignore` on the namespace — in airgap we WANT the mutating agent
+#     to rewrite the operator image to the in-cluster registry (the connected lab labels
+#     it ignore so PGO pulls straight from Crunchy's registry; that's the wrong default
+#     here). Zarf creates the namespace on install.
+#   • NO UDS Package CR / netpol — PGO runs cluster-wide outside the UDS Package model
+#     (the postgres-operator namespace has no default-deny, so the operator reaches the
+#     kube API freely). The DB *data-plane* netpol allows (IntraNamespace + KubeAPI for
+#     Patroni — gotcha #11) live on the cosmos namespace's Package, not here.
+kind: ZarfPackageConfig
+metadata:
+  name: cosmos-pgo
+  version: "6.0.2"
+  description: "CrunchyData Postgres Operator (PGO) — operator + CRDs for the cosmos PostgresCluster"
+
+components:
+  - name: pgo
+    required: true
+    description: "PGO operator (postgres-operator ns) + CRDs — reconciles the cosmos PostgresCluster"
+    charts:
+      - name: pgo
+        url: oci://registry.developers.crunchydata.com/crunchydata/pgo
+        version: 6.0.2
+        namespace: postgres-operator
+    images:
+      # The only image the operator Deployment runs (the CRD-referenced crunchy-postgres
+      # /pgbackrest images are seeded by the cosmos package). registry1/Iron Bank flavor
+      # would digest-pin this for a hardened/ATO build.
+      - registry.developers.crunchydata.com/crunchydata/postgres-operator:ubi9-6.0.2-0
