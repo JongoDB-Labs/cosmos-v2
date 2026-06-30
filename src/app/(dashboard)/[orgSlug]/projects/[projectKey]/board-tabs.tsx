@@ -37,8 +37,13 @@ interface ProjectBoardTabsProps {
   /** Whether the actor may create boards (org BOARD_CREATE or project MANAGER). */
   canCreateBoards?: boolean;
   /** The project's current default board (everyone lands here) — from
-   *  Project.settings.defaultBoardId. Managers can change it from a board's menu. */
+   *  Project.settings.defaultBoardId. Kept for back-compat; `defaultTab`
+   *  (a board:/feature: token) supersedes it when set. */
   defaultBoardId?: string | null;
+  /** The default landing tab as a token (`board:<id>` | `feature:<key>`) — from
+   *  Project.settings.defaultTab. Generalizes defaultBoardId across feature tabs
+   *  too; the project page redirect honors it. */
+  defaultTab?: string | null;
   /** Board ids hidden from the tab strip — from Project.settings.hiddenBoardIds.
    *  Managers can hide/show from a board's menu; the board itself is kept. */
   hiddenBoardIds?: string[];
@@ -46,6 +51,15 @@ interface ProjectBoardTabsProps {
    *  "cycle") — from Project.settings.hiddenFeatureTabs. The feature stays
    *  enabled; only the tab is hidden. */
   hiddenFeatureTabs?: string[];
+  /** Unified strip order as tokens (`board:<id>` | `feature:<key>`) — from
+   *  Project.settings.tabOrder. Authoritative for the strip; tokens not present
+   *  sort last (boards by sortOrder, then feature tabs in build order). May
+   *  include tokens for hidden tabs (they keep their slot, just aren't shown). */
+  tabOrder?: string[];
+  /** Per-feature custom labels (`{ goal: "Objectives" }`) — from
+   *  Project.settings.featureTabLabels. Rendered label is
+   *  featureTabLabels[key] ?? <defaultLabel>. */
+  featureTabLabels?: Record<string, string>;
   templateDefaultConfig?: Record<string, unknown> | null;
 }
 
@@ -54,6 +68,19 @@ interface FeatureTab {
   label: string;
   href: string;
   /** Match the tab as active on any sub-path (e.g. roadmap node deep-links). */
+  prefix?: boolean;
+}
+
+// A unified strip tab — a board OR an enabled feature view. `token` is the
+// stable identity used for ordering / default / hide across both kinds.
+interface Tab {
+  token: string;
+  kind: "board" | "feature";
+  label: string;
+  href: string;
+  board?: BoardTab;
+  feature?: FeatureTab;
+  /** Match active on any sub-path (feature tabs only). */
   prefix?: boolean;
 }
 
@@ -67,19 +94,17 @@ export function ProjectBoardTabs({
   canManageBoards = false,
   canCreateBoards = false,
   defaultBoardId = null,
+  defaultTab = null,
   hiddenBoardIds = [],
   hiddenFeatureTabs = [],
+  tabOrder = [],
+  featureTabLabels = {},
   templateDefaultConfig,
 }: ProjectBoardTabsProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // Split boards + feature tabs into visible vs hidden (managers tailor the
-  // strip; hiding keeps the board/feature, only the tab goes). Restore from the
-  // "Hidden" menu. Reorder/rename/delete operate on visible boards.
   const hiddenSet = new Set(hiddenBoardIds);
-  const visibleBoards = boards.filter((b) => !hiddenSet.has(b.id));
-  const hiddenBoards = boards.filter((b) => hiddenSet.has(b.id));
   const hiddenFeatureSet = new Set(hiddenFeatureTabs);
   const [hiding, setHiding] = useState(false);
 
@@ -101,29 +126,8 @@ export function ProjectBoardTabs({
     }
   }
 
-  async function handleHide(board: BoardTab) {
-    await patchSettings({ hiddenBoardIds: [...hiddenBoardIds.filter((id) => id !== board.id), board.id] });
-    // If we're viewing the board we just hid, move to another visible board.
-    if (pathname === `/${orgSlug}/projects/${projectKey}/boards/${board.id}`) {
-      const next = visibleBoards.find((b) => b.id !== board.id);
-      router.push(
-        next
-          ? `/${orgSlug}/projects/${projectKey}/boards/${next.id}`
-          : `/${orgSlug}/projects/${projectKey}`,
-      );
-    }
-  }
-
   const handleUnhideFeature = (feature: string) =>
     patchSettings({ hiddenFeatureTabs: hiddenFeatureTabs.filter((f) => f !== feature) });
-
-  async function handleHideFeature(tab: FeatureTab) {
-    await patchSettings({ hiddenFeatureTabs: [...hiddenFeatureTabs.filter((f) => f !== tab.feature), tab.feature] });
-    // If viewing the tab we just hid, fall back to the project root.
-    if (pathname === tab.href || pathname.startsWith(`${tab.href}/`)) {
-      router.push(`/${orgSlug}/projects/${projectKey}`);
-    }
-  }
 
   const handleUnhide = (id: string) =>
     patchSettings({ hiddenBoardIds: hiddenBoardIds.filter((x) => x !== id) });
@@ -131,92 +135,13 @@ export function ProjectBoardTabs({
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
-  const [boardToRename, setBoardToRename] = useState<BoardTab | null>(null);
+  // Rename works for BOTH kinds: a board (PUT name) or a feature tab
+  // (patchSettings featureTabLabels). `tabToRename` holds whichever the manager
+  // opened the dialog on.
+  const [tabToRename, setTabToRename] = useState<Tab | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [moving, setMoving] = useState(false);
-
-  // Rename a board (PUT name). Opens via the tab ⋯ menu → dialog.
-  async function handleRename() {
-    const board = boardToRename;
-    if (!board) return;
-    const name = renameValue.trim();
-    if (!name || name === board.name) {
-      setBoardToRename(null);
-      return;
-    }
-    setRenaming(true);
-    try {
-      const res = await fetch(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${board.id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        },
-      );
-      if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
-      toast.success(`Renamed to "${name}".`);
-      setBoardToRename(null);
-      router.refresh();
-    } catch (err) {
-      notifyError(err, "Couldn't rename the board.");
-    } finally {
-      setRenaming(false);
-    }
-  }
-
-  // Move a board left/right in the tab strip. Renormalizes EVERY board's
-  // sortOrder to its new array index (robust even if existing rows share the
-  // default 0), via parallel PUTs, then refreshes.
-  async function handleMove(idx: number, dir: "left" | "right") {
-    const j = dir === "left" ? idx - 1 : idx + 1;
-    if (j < 0 || j >= visibleBoards.length) return;
-    const next = [...visibleBoards];
-    [next[idx], next[j]] = [next[j], next[idx]];
-    setMoving(true);
-    try {
-      await Promise.all(
-        next.map((b, i) =>
-          fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/boards/${b.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sortOrder: i }),
-          }).then((r) => {
-            if (!r.ok) throw new Error(`Failed to reorder (HTTP ${r.status})`);
-          }),
-        ),
-      );
-      router.refresh();
-    } catch (err) {
-      notifyError(err, "Couldn't reorder the boards.");
-    } finally {
-      setMoving(false);
-    }
-  }
-
-  // FR "Default view": a manager picks the board everyone lands on. Persisted in
-  // Project.settings.defaultBoardId (merged server-side) and honored by the
-  // project page's redirect.
-  async function handleSetDefault(board: BoardTab) {
-    setSettingDefault(true);
-    try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { defaultBoardId: board.id } }),
-      });
-      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
-      toast.success(`"${board.name}" is now the default board.`);
-      router.refresh();
-    } catch (err) {
-      notifyError(err, "Couldn't set the default board.");
-    } finally {
-      setSettingDefault(false);
-    }
-  }
-
-  const newBoardHref = `/${orgSlug}/projects/${projectKey}/boards/new`;
 
   // Derive cycle nav label from template config, fallback to "Sprints"
   const cycleNavLabel =
@@ -224,38 +149,12 @@ export function ProjectBoardTabs({
       ? templateDefaultConfig.cycleNavLabel
       : "Sprints";
 
-  async function handleDeleteBoard() {
-    const board = boardToDelete;
-    if (!board) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${board.id}`,
-        { method: "DELETE" },
-      );
-      if (!res.ok) throw new Error(`Failed to delete board (HTTP ${res.status})`);
-      toast.success(`Deleted "${board.name}".`);
-      setBoardToDelete(null);
-      // If we just deleted the board we're viewing, move to another board (or the
-      // project root); otherwise just refresh the tab list.
-      const deletedHref = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
-      if (pathname === deletedHref) {
-        const next = boards.find((b) => b.id !== board.id);
-        router.push(
-          next
-            ? `/${orgSlug}/projects/${projectKey}/boards/${next.id}`
-            : `/${orgSlug}/projects/${projectKey}`,
-        );
-      }
-      router.refresh();
-    } catch (err) {
-      notifyError(err, "Couldn't delete the board.");
-    } finally {
-      setDeleting(false);
-    }
-  }
+  const newBoardHref = `/${orgSlug}/projects/${projectKey}/boards/new`;
+  const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
 
-  // Build feature tabs based on enabledFeatures
+  // Build feature tabs based on enabledFeatures. Default labels live here;
+  // featureTabLabels[key] overrides the visible label below when building the
+  // unified Tab list.
   const featureTabs: FeatureTab[] = [];
 
   // PM Dashboard is the single top-level tab for the whole PM suite; the
@@ -332,21 +231,230 @@ export function ProjectBoardTabs({
     });
   }
 
-  const visibleFeatureTabs = featureTabs.filter((t) => !hiddenFeatureSet.has(t.feature));
-  const hiddenFeatureTabList = featureTabs.filter((t) => hiddenFeatureSet.has(t.feature));
+  // ── Unified Tab model ───────────────────────────────────────────────────
+  // Every board (visible + hidden) and every ENABLED feature tab become a Tab
+  // with a stable `token`. featureTabLabels override the rendered label.
+  const boardTabs: Tab[] = boards.map((board) => ({
+    token: `board:${board.id}`,
+    kind: "board" as const,
+    label: board.name,
+    href: `/${orgSlug}/projects/${projectKey}/boards/${board.id}`,
+    board,
+  }));
 
-  const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
+  const featureTabModels: Tab[] = featureTabs.map((feature) => ({
+    token: `feature:${feature.feature}`,
+    kind: "feature" as const,
+    label: featureTabLabels[feature.feature] ?? feature.label,
+    href: feature.href,
+    feature,
+    prefix: feature.prefix,
+  }));
+
+  // Build order is the append-fallback: boards first (already sorted by
+  // sortOrder upstream), then feature tabs in their build order above.
+  const buildOrder: Tab[] = [...boardTabs, ...featureTabModels];
+
+  // Sort by tabOrder token index; tokens NOT in tabOrder sort last in build
+  // order. Stable for equal indices (buildIdx tiebreak), so unlisted tabs keep
+  // boards-by-sortOrder then features-by-build-order.
+  const orderIndex = new Map(tabOrder.map((token, i) => [token, i]));
+  const allTabs: Tab[] = buildOrder
+    .map((tab, buildIdx) => ({ tab, buildIdx }))
+    .sort((a, b) => {
+      const ai = orderIndex.has(a.tab.token) ? orderIndex.get(a.tab.token)! : Infinity;
+      const bi = orderIndex.has(b.tab.token) ? orderIndex.get(b.tab.token)! : Infinity;
+      if (ai !== bi) return ai - bi;
+      return a.buildIdx - b.buildIdx;
+    })
+    .map((entry) => entry.tab);
+
+  const isHidden = (tab: Tab) =>
+    tab.kind === "board"
+      ? hiddenSet.has(tab.board!.id)
+      : hiddenFeatureSet.has(tab.feature!.feature);
+
+  // Rendered strip (ordered, visible) + the restore menu's hidden list.
+  const visibleTabs = allTabs.filter((tab) => !isHidden(tab));
+  const hiddenTabs = allTabs.filter((tab) => isHidden(tab));
+
+  // The default star follows `defaultTab` when set, falling back to the legacy
+  // `defaultBoardId` (as a board: token) for projects that predate defaultTab.
+  const effectiveDefaultToken =
+    defaultTab ?? (defaultBoardId ? `board:${defaultBoardId}` : null);
+
+  // ── Handlers ────────────────────────────────────────────────────────────
+
+  async function handleHide(tab: Tab) {
+    if (tab.kind === "board") {
+      const board = tab.board!;
+      await patchSettings({
+        hiddenBoardIds: [...hiddenBoardIds.filter((id) => id !== board.id), board.id],
+      });
+      // If we're viewing the board we just hid, move to another visible board.
+      if (pathname === tab.href) {
+        const next = visibleTabs.find((t) => t.token !== tab.token);
+        router.push(next ? next.href : `/${orgSlug}/projects/${projectKey}`);
+      }
+    } else {
+      const feature = tab.feature!.feature;
+      await patchSettings({
+        hiddenFeatureTabs: [...hiddenFeatureTabs.filter((f) => f !== feature), feature],
+      });
+      // If viewing the tab we just hid, fall back to the project root.
+      if (pathname === tab.href || pathname.startsWith(`${tab.href}/`)) {
+        router.push(`/${orgSlug}/projects/${projectKey}`);
+      }
+    }
+  }
+
+  // Move a tab left/right in the UNIFIED strip. Operates on the rendered
+  // (visible, ordered) list: swap the clicked tab with its visible neighbor,
+  // then write the FULL token order (hidden tokens kept in their existing
+  // relative positions) to settings.tabOrder in ONE PUT. Boards AND feature
+  // tabs move identically; board.sortOrder is now only the append-fallback.
+  async function handleMove(idx: number, dir: "left" | "right") {
+    const j = dir === "left" ? idx - 1 : idx + 1;
+    if (j < 0 || j >= visibleTabs.length) return;
+
+    const a = visibleTabs[idx].token;
+    const b = visibleTabs[j].token;
+
+    // Start from the full ordered token list (authoritative strip order) and
+    // swap the two adjacent VISIBLE tokens' positions within it. Hidden tokens
+    // interleaved between them keep their slots.
+    const fullOrder = allTabs.map((t) => t.token);
+    const ai = fullOrder.indexOf(a);
+    const bi = fullOrder.indexOf(b);
+    if (ai === -1 || bi === -1) return;
+    [fullOrder[ai], fullOrder[bi]] = [fullOrder[bi], fullOrder[ai]];
+
+    setMoving(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { tabOrder: fullOrder } }),
+      });
+      if (!res.ok) throw new Error(`Failed to reorder (HTTP ${res.status})`);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't reorder the tabs.");
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  // FR "Default view": a manager picks the tab everyone lands on. Persisted as a
+  // token in Project.settings.defaultTab (merged server-side) and honored by the
+  // project page's redirect — works for boards AND feature tabs.
+  async function handleSetDefault(tab: Tab) {
+    setSettingDefault(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { defaultTab: tab.token } }),
+      });
+      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      toast.success(`"${tab.label}" is now the default tab.`);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't set the default tab.");
+    } finally {
+      setSettingDefault(false);
+    }
+  }
+
+  // Rename a tab. Board → PUT board.name (server stores it). Feature → write
+  // featureTabLabels[key] (settings). Opens via the tab ⋯ menu → shared dialog.
+  async function handleRename() {
+    const tab = tabToRename;
+    if (!tab) return;
+    const name = renameValue.trim();
+    if (!name || name === tab.label) {
+      setTabToRename(null);
+      return;
+    }
+    setRenaming(true);
+    try {
+      if (tab.kind === "board") {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${tab.board!.id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          },
+        );
+        if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
+      } else {
+        const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            settings: {
+              featureTabLabels: { ...featureTabLabels, [tab.feature!.feature]: name },
+            },
+          }),
+        });
+        if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
+      }
+      toast.success(`Renamed to "${name}".`);
+      setTabToRename(null);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't rename the tab.");
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  async function handleDeleteBoard() {
+    const board = boardToDelete;
+    if (!board) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${board.id}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error(`Failed to delete board (HTTP ${res.status})`);
+      toast.success(`Deleted "${board.name}".`);
+      setBoardToDelete(null);
+      // If we just deleted the board we're viewing, move to another board (or the
+      // project root); otherwise just refresh the tab list.
+      const deletedHref = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
+      if (pathname === deletedHref) {
+        const next = boards.find((b) => b.id !== board.id);
+        router.push(
+          next
+            ? `/${orgSlug}/projects/${projectKey}/boards/${next.id}`
+            : `/${orgSlug}/projects/${projectKey}`,
+        );
+      }
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't delete the board.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <div className="flex items-center gap-1 px-4 border-b overflow-x-auto">
-      {visibleBoards.map((board, idx) => {
-        const href = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
-        const isActive = pathname === href;
+      {/* Unified strip — boards + enabled feature views, one order. Every
+          visible tab gets the SAME ⋯ menu for managers: Rename · Set as default
+          · Move left/right · Hide · (Delete for boards only). */}
+      {visibleTabs.map((tab, idx) => {
+        const isActive = tab.prefix
+          ? pathname === tab.href || pathname.startsWith(`${tab.href}/`)
+          : pathname === tab.href;
+        const isDefault = tab.token === effectiveDefaultToken;
 
-        const isDefault = board.id === defaultBoardId;
-        const tab = (
+        const link = (
           <Link
-            href={href}
+            href={tab.href}
             className={cn(
               "relative flex items-center gap-1 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
               isActive
@@ -357,38 +465,38 @@ export function ProjectBoardTabs({
             {isDefault && (
               <Star
                 className="h-3 w-3 shrink-0 fill-primary text-primary"
-                aria-label="Default board"
+                aria-label="Default tab"
               />
             )}
-            {board.name}
+            {tab.label}
             {isActive && (
               <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
             )}
           </Link>
         );
 
-        // A board manager gets a ⋯ / right-click menu on each tab: rename,
-        // set-as-default, move left/right, and delete.
-        if (!canManageBoards) return <span key={board.id}>{tab}</span>;
+        // Non-managers get a plain link (current behavior).
+        if (!canManageBoards) return <span key={tab.token}>{link}</span>;
+
         const groups: ActionMenuGroup[] = [
           {
             items: [
               {
-                label: "Rename board",
+                label: tab.kind === "board" ? "Rename board" : "Rename tab",
                 icon: Pencil,
                 onClick: () => {
-                  setRenameValue(board.name);
-                  setBoardToRename(board);
+                  setRenameValue(tab.label);
+                  setTabToRename(tab);
                 },
               },
               ...(isDefault
                 ? []
                 : [
                     {
-                      label: "Set as default board",
+                      label: "Set as default",
                       icon: Star,
                       disabled: settingDefault,
-                      onClick: () => handleSetDefault(board),
+                      onClick: () => handleSetDefault(tab),
                     },
                   ]),
             ],
@@ -404,7 +512,7 @@ export function ProjectBoardTabs({
               {
                 label: "Move right",
                 icon: ChevronRight,
-                disabled: moving || idx === visibleBoards.length - 1,
+                disabled: moving || idx === visibleTabs.length - 1,
                 onClick: () => handleMove(idx, "right"),
               },
             ],
@@ -415,69 +523,27 @@ export function ProjectBoardTabs({
                 label: "Hide tab",
                 icon: EyeOff,
                 disabled: hiding,
-                onClick: () => handleHide(board),
+                onClick: () => handleHide(tab),
               },
-              {
-                label: "Delete board",
-                icon: Trash2,
-                variant: "destructive" as const,
-                onClick: () => setBoardToDelete(board),
-              },
+              // Delete is boards-only — feature tabs can't be deleted, only
+              // hidden or disabled from Project Settings.
+              ...(tab.kind === "board"
+                ? [
+                    {
+                      label: "Delete board",
+                      icon: Trash2,
+                      variant: "destructive" as const,
+                      onClick: () => setBoardToDelete(tab.board!),
+                    },
+                  ]
+                : []),
             ],
           },
         ];
+
         return (
-          <div key={board.id} className="group/action relative flex items-center">
-            <ActionMenu groups={groups} triggerLabel={`Board actions for ${board.name}`}>
-              {tab}
-            </ActionMenu>
-          </div>
-        );
-      })}
-
-      {/* Hidden boards — a manager can restore any to the strip. */}
-      {/* Feature view tabs (PM Dashboard, Goals, Milestones, Sprints, …) — each
-          gets the same Hide ⋯ menu as a board so the whole strip is tailorable. */}
-      {visibleFeatureTabs.map((tab) => {
-        const isActive = tab.prefix
-          ? pathname === tab.href || pathname.startsWith(`${tab.href}/`)
-          : pathname === tab.href;
-
-        const link = (
-          <Link
-            href={tab.href}
-            className={cn(
-              "relative px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
-              isActive
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {tab.label}
-            {isActive && (
-              <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
-            )}
-          </Link>
-        );
-
-        if (!canManageBoards) return <span key={tab.feature}>{link}</span>;
-        return (
-          <div key={tab.feature} className="group/action relative flex items-center">
-            <ActionMenu
-              triggerLabel={`Tab actions for ${tab.label}`}
-              groups={[
-                {
-                  items: [
-                    {
-                      label: "Hide tab",
-                      icon: EyeOff,
-                      disabled: hiding,
-                      onClick: () => handleHideFeature(tab),
-                    },
-                  ],
-                },
-              ]}
-            >
+          <div key={tab.token} className="group/action relative flex items-center">
+            <ActionMenu groups={groups} triggerLabel={`Tab actions for ${tab.label}`}>
               {link}
             </ActionMenu>
           </div>
@@ -485,34 +551,25 @@ export function ProjectBoardTabs({
       })}
 
       {/* Hidden tabs (boards + feature views) — a manager can restore any. */}
-      {canManageBoards && (hiddenBoards.length > 0 || hiddenFeatureTabList.length > 0) && (
+      {canManageBoards && hiddenTabs.length > 0 && (
         <ActionMenu
           triggerLabel="Show hidden tabs"
           groups={[
-            ...(hiddenBoards.length > 0
-              ? [{
-                  items: hiddenBoards.map((board) => ({
-                    label: `Show "${board.name}"`,
-                    icon: Eye,
-                    disabled: hiding,
-                    onClick: () => handleUnhide(board.id),
-                  })),
-                }]
-              : []),
-            ...(hiddenFeatureTabList.length > 0
-              ? [{
-                  items: hiddenFeatureTabList.map((tab) => ({
-                    label: `Show "${tab.label}"`,
-                    icon: Eye,
-                    disabled: hiding,
-                    onClick: () => handleUnhideFeature(tab.feature),
-                  })),
-                }]
-              : []),
+            {
+              items: hiddenTabs.map((tab) => ({
+                label: `Show "${tab.label}"`,
+                icon: Eye,
+                disabled: hiding,
+                onClick: () =>
+                  tab.kind === "board"
+                    ? handleUnhide(tab.board!.id)
+                    : handleUnhideFeature(tab.feature!.feature),
+              })),
+            },
           ]}
         >
           <span className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground whitespace-nowrap">
-            <EyeOff className="h-3.5 w-3.5" /> Hidden ({hiddenBoards.length + hiddenFeatureTabList.length})
+            <EyeOff className="h-3.5 w-3.5" /> Hidden ({hiddenTabs.length})
           </span>
         </ActionMenu>
       )}
@@ -590,15 +647,21 @@ export function ProjectBoardTabs({
       </Dialog>
 
       <Dialog
-        open={boardToRename !== null}
+        open={tabToRename !== null}
         onOpenChange={(o) => {
-          if (!o) setBoardToRename(null);
+          if (!o) setTabToRename(null);
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename board</DialogTitle>
-            <DialogDescription>Give this board a new name.</DialogDescription>
+            <DialogTitle>
+              {tabToRename?.kind === "board" ? "Rename board" : "Rename tab"}
+            </DialogTitle>
+            <DialogDescription>
+              {tabToRename?.kind === "board"
+                ? "Give this board a new name."
+                : "Give this tab a new label."}
+            </DialogDescription>
           </DialogHeader>
           <Input
             value={renameValue}
@@ -606,14 +669,14 @@ export function ProjectBoardTabs({
             onKeyDown={(e) => {
               if (e.key === "Enter") void handleRename();
             }}
-            placeholder="Board name"
+            placeholder={tabToRename?.kind === "board" ? "Board name" : "Tab label"}
             maxLength={100}
             autoFocus
           />
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setBoardToRename(null)}
+              onClick={() => setTabToRename(null)}
               disabled={renaming}
             >
               Cancel
