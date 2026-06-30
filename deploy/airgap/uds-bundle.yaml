@@ -22,7 +22,7 @@
 kind: UDSBundle
 metadata:
   name: cosmos-stack
-  version: "2.102.2"
+  version: "2.103.0"
   description: "COSMOS airgap stack — UDS Core (Istio/Keycloak/Falco/monitoring) + cosmos"
 
 packages:
@@ -54,4 +54,4 @@ packages:
   # COSMOS app — the SP5 Zarf package (built from ./zarf.yaml in this same dir).
   - name: cosmos
     path: "."
-    ref: "2.102.2"
+    ref: "2.103.0"
