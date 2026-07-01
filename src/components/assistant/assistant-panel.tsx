@@ -7,6 +7,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
+import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
+import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
+import type { ResolvedEntity } from "@/lib/mentions/refs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -204,6 +207,13 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
+  // @-mention typeahead. Tokens are inserted id-only (`<@type:id>`) and travel
+  // to the assistant as opaque ids — never expanded to CUI content client-side;
+  // any server-side expansion must go through the egress gate.
+  const [mentionState, setMentionState] = useState<{
+    q: string;
+    anchor: { top: number; left: number };
+  } | null>(null);
   const [loadingConvos, setLoadingConvos] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
@@ -799,14 +809,45 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
     setStreamingStatus(null);
   }, []);
 
+  const onInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const v = e.target.value;
+      setInput(v);
+      const q = detectMentionQuery(v, e.target.selectionStart ?? v.length);
+      if (q !== null) {
+        const rect = e.target.getBoundingClientRect();
+        setMentionState({ q, anchor: { top: rect.top - 8 - 220, left: rect.left + 24 } });
+      } else {
+        setMentionState(null);
+      }
+    },
+    [],
+  );
+
+  const pickEntity = useCallback(
+    (hit: ResolvedEntity) => {
+      const ta = textareaRef.current;
+      const caret = ta?.selectionStart ?? input.length;
+      const { value, caret: nc } = insertMentionToken(input, caret, hit.type, hit.id);
+      setInput(value);
+      setMentionState(null);
+      requestAnimationFrame(() => {
+        ta?.focus();
+        ta?.setSelectionRange(nc, nc);
+      });
+    },
+    [input],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (mentionState) return; // let the mention picker handle Enter/Arrows/Esc
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
       }
     },
-    [sendMessage]
+    [sendMessage, mentionState]
   );
 
   const toggleToolExpand = useCallback((messageId: string) => {
@@ -1180,17 +1221,26 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
               <textarea
                 ref={textareaRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={onInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   activeId
-                    ? "Type a message..."
-                    : "Type a message to start a new conversation..."
+                    ? "Type a message... (@ to mention)"
+                    : "Type a message to start a new conversation... (@ to mention)"
                 }
                 disabled={sending}
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-input bg-transparent px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 max-h-32 field-sizing-content"
               />
+              {mentionState && (
+                <EntityMentionPicker
+                  orgId={orgId}
+                  query={mentionState.q}
+                  anchor={mentionState.anchor}
+                  onPick={pickEntity}
+                  onCancel={() => setMentionState(null)}
+                />
+              )}
               {sending ? (
                 <Button
                   size="icon"

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { parseMentions } from "@/lib/chat/mentions";
+import { syncReferences } from "@/lib/mentions/references";
 import { fanOutChatMessage } from "@/lib/chat/notifications";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
@@ -100,6 +101,16 @@ export async function createUserMessage(input: CreateUserMessageInput): Promise<
     attachments,
     replyCount: 0,
   });
+
+  // Record @-entity backlinks (any-entity references) — best-effort; never
+  // block the send. Person mentions are handled above via ChatMessageMention.
+  void syncReferences({
+    orgId,
+    sourceType: "chatMessage",
+    sourceId: message.id,
+    content: input.content,
+    createdById: input.authorId,
+  }).catch(() => {});
 
   // Notification fan-out per recipient's notificationPref
   const author = await prisma.user.findUnique({

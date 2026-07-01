@@ -1,10 +1,13 @@
 "use client";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import { MessageItem } from "./message-item";
 import { ReadReceiptAvatars } from "./read-receipt-avatars";
 import type { ChatMessageDto } from "@/hooks/use-chat-messages";
+import { useRefResolver } from "@/components/mentions/hooks";
+import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 
 export function MessageList({
+  orgId,
   messages,
   usersById,
   currentUserId,
@@ -16,6 +19,7 @@ export function MessageList({
   onOpenThread,
   onTogglePin,
 }: {
+  orgId: string;
   messages: ChatMessageDto[];
   usersById: Map<string, { displayName: string; avatarUrl: string | null }>;
   currentUserId: string;
@@ -32,8 +36,16 @@ export function MessageList({
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length]);
 
-  const mentionMap = new Map<string, string>();
-  for (const [id, u] of usersById) mentionMap.set(id, u.displayName);
+  // Seed person chips instantly from the loaded member map; resolve every other
+  // referenced entity via the batch endpoint. `refMap` is keyed by refKey().
+  const userSeed = useMemo(() => {
+    const m = new Map<string, ResolvedEntity>();
+    for (const [id, u] of usersById)
+      m.set(refKey("user", id), { type: "user", id, label: u.displayName, url: null });
+    return m;
+  }, [usersById]);
+  const contents = useMemo(() => messages.map((mm) => mm.content), [messages]);
+  const refMap = useRefResolver(orgId, contents, userSeed);
 
   return (
     <div role="log" className="flex-1 overflow-y-auto">
@@ -54,7 +66,7 @@ export function MessageList({
               }
               isOwn={m.authorId === currentUserId}
               currentUserId={currentUserId}
-              mentionMap={mentionMap}
+              refMap={refMap}
               isPinned={pinnedIds.has(m.id)}
               onEdit={(next) => onEdit(m.id, next)}
               onDelete={() => onDelete(m.id)}

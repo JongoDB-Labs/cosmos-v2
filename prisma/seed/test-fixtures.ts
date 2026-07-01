@@ -168,6 +168,75 @@ async function ensureBuiltInTaskType(): Promise<void> {
   });
 }
 
+/**
+ * Fixtures for the @-tag-any-entity E2E (`e2e/mentions.spec.ts`): a distinct
+ * "Falcon" project + work items + a note, plus one backlink reference so the
+ * "Mentioned in" panel has content. Idempotent on the FAL project key. Separate
+ * from the TEST project so it never affects the board/work-item journeys.
+ */
+async function ensureMentionFixtures(orgId: string, aliceId: string): Promise<void> {
+  const existing = await prisma.project.findFirst({
+    where: { orgId, key: "FAL" },
+    select: { id: true },
+  });
+  if (existing) return;
+  const taskType = await prisma.workItemType.findFirst({
+    where: { isBuiltIn: true, key: "software.task" },
+    select: { id: true },
+  });
+  if (!taskType) return; // ensureBuiltInTaskType runs first
+
+  await prisma.$transaction(async (tx) => {
+    const proj = await tx.project.create({
+      data: {
+        orgId,
+        name: "Falcon Program",
+        key: "FAL",
+        description: "Seeded for @-mention E2E",
+      },
+    });
+    const titles = [
+      "Falcon radar upgrade",
+      "Falcon telemetry pipeline",
+      "Falcon SSO integration",
+    ];
+    await tx.workItem.createMany({
+      data: titles.map((title, i) => ({
+        orgId,
+        projectId: proj.id,
+        workItemTypeId: taskType.id,
+        title,
+        columnKey: "backlog",
+        ticketNumber: i + 1,
+        sortOrder: i,
+        priority: "MEDIUM" as const,
+        createdById: aliceId,
+        tags: [] as string[],
+      })),
+    });
+    const note = await tx.note.create({
+      data: {
+        orgId,
+        authorId: aliceId,
+        title: "Falcon plan",
+        content: `Depends on <@project:${proj.id}> delivery`,
+        visibility: "ORG",
+      },
+    });
+    // A backlink so the "Mentioned in" panel has content for the backlinks E2E.
+    await tx.reference.create({
+      data: {
+        orgId,
+        sourceType: "note",
+        sourceId: note.id,
+        targetType: "project",
+        targetId: proj.id,
+        createdById: aliceId,
+      },
+    });
+  });
+}
+
 async function main() {
   const org = await prisma.organization.upsert({
     where: { slug: "test-org" },
@@ -210,6 +279,7 @@ async function main() {
   const projectId = await ensureProjectFixture(org.id, aliceMember.id);
   await ensureSecondBoard(org.id, projectId);
   await ensureBuiltInTaskType();
+  await ensureMentionFixtures(org.id, alice.id);
 
   console.log("Seeded test fixtures:", {
     orgId: org.id,

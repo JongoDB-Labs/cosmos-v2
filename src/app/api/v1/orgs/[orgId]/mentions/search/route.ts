@@ -5,21 +5,15 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { searchEntities } from "@/lib/mentions/registry.server";
-import type { EntityType } from "@/lib/mentions/refs";
+import { isEntityType, type EntityType } from "@/lib/mentions/refs";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
-// The ⌘K palette groups by these legacy type strings; map the registry's
-// canonical types onto them so the palette keeps working while both the palette
-// and the @-mention typeahead now draw from ONE index (`searchEntities`).
-const PALETTE_TYPES: EntityType[] = ["project", "workItem", "crmContact", "note"];
-const LEGACY_TYPE: Partial<Record<EntityType, string>> = {
-  project: "project",
-  workItem: "work_item",
-  crmContact: "contact",
-  note: "note",
-};
-
+/**
+ * @-mention typeahead source. Shares `searchEntities` with the ⌘K palette so
+ * both draw from one entity index. `?q=` term, optional `?types=a,b,c` filter,
+ * optional `?perType=`.
+ */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
@@ -33,28 +27,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_READ);
 
-    const q = request.nextUrl.searchParams.get("q");
-    if (!q || q.trim().length === 0) {
-      return success([]);
-    }
+    const sp = request.nextUrl.searchParams;
+    const q = sp.get("q") ?? "";
+    const typesParam = sp.get("types");
+    const types: EntityType[] | undefined = typesParam
+      ? typesParam.split(",").map((s) => s.trim()).filter(isEntityType)
+      : undefined;
+    const perType = Math.min(Math.max(Number(sp.get("perType")) || 6, 1), 15);
 
     const hits = await searchEntities({
       orgId: org.id,
       orgSlug: org.slug,
       userId: ctx.userId,
       query: q,
-      types: PALETTE_TYPES,
-      perType: 10,
+      types,
+      perType,
     });
-
-    // Flatten to the shape the command palette consumes: { id, type, name, url }.
-    const results = hits.map((h) => ({
-      id: h.id,
-      type: LEGACY_TYPE[h.type] ?? h.type,
-      name: h.label,
-      url: h.url ?? "#",
-    }));
-    return success(results);
+    return success(hits);
   } catch (error) {
     return handleApiError(error);
   }

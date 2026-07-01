@@ -1,4 +1,5 @@
 "use client";
+import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useChatThread } from "@/hooks/use-chat-thread";
@@ -6,6 +7,8 @@ import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { X } from "lucide-react";
 import { MessageItem } from "./message-item";
 import { Composer } from "./composer";
+import { useRefResolver } from "@/components/mentions/hooks";
+import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import type { ChatMessageDto } from "@/hooks/use-chat-messages";
 
 export function ThreadPane({
@@ -86,8 +89,17 @@ export function ThreadPane({
     },
   });
 
-  const mentionMap = new Map<string, string>();
-  for (const [id, u] of usersById) mentionMap.set(id, u.displayName);
+  const userSeed = useMemo(() => {
+    const m = new Map<string, ResolvedEntity>();
+    for (const [id, u] of usersById)
+      m.set(refKey("user", id), { type: "user", id, label: u.displayName, url: null });
+    return m;
+  }, [usersById]);
+  const contents = useMemo(
+    () => [parentMessage.content, ...(data ?? []).map((m) => m.content)],
+    [parentMessage.content, data],
+  );
+  const refMap = useRefResolver(orgId, contents, userSeed);
 
   const noop = () => {};
   const noopReact = () => {};
@@ -107,7 +119,7 @@ export function ThreadPane({
           message={parentMessage}
           author={usersById.get(parentMessage.authorId) ?? { displayName: "User", avatarUrl: null }}
           isOwn={parentMessage.authorId === currentUserId}
-          mentionMap={mentionMap}
+          refMap={refMap}
           currentUserId={currentUserId}
           isPinned={false}
           onEdit={(next) => onEdit(parentMessage.id, next)}
@@ -123,7 +135,7 @@ export function ThreadPane({
             message={m}
             author={usersById.get(m.authorId) ?? { displayName: "User", avatarUrl: null }}
             isOwn={m.authorId === currentUserId}
-            mentionMap={mentionMap}
+            refMap={refMap}
             currentUserId={currentUserId}
             isPinned={false}
             onEdit={(next) => onEdit(m.id, next)}

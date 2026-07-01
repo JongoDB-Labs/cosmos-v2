@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Smile, MessageSquare, Pin } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MarkdownContent } from "./markdown-content";
+import { MarkdownContent, type RefMap } from "./markdown-content";
 import { ReactionBar } from "./reaction-bar";
 import { EmojiPicker } from "./emoji-picker";
 import { AttachmentTile } from "./attachment-tile";
@@ -13,7 +13,7 @@ export function MessageItem({
   author,
   isOwn,
   currentUserId,
-  mentionMap,
+  refMap,
   isPinned,
   onEdit,
   onDelete,
@@ -25,7 +25,7 @@ export function MessageItem({
   author: { displayName: string; avatarUrl: string | null };
   isOwn: boolean;
   currentUserId: string;
-  mentionMap: Map<string, string>;
+  refMap: RefMap;
   isPinned: boolean;
   onEdit: (nextContent: string) => void;
   onDelete: () => void;
@@ -184,7 +184,7 @@ export function MessageItem({
                   : "rounded-tl-sm bg-[var(--overlay)] text-[var(--text)]",
               )}
             >
-              <MarkdownContent content={message.content} mentionMap={mentionMap} />
+              <MarkdownContent content={message.content} refMap={refMap} />
             </div>
           )}
         </div>

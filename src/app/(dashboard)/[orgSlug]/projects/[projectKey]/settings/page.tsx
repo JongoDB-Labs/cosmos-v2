@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { ProjectSettingsClient } from "./project-settings-client";
+import { MentionedIn } from "@/components/mentions/mentioned-in";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -41,6 +42,12 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         projectKey={project.key}
         projectDescription={project.description ?? ""}
         enabledFeatures={project.enabledFeatures}
+      />
+      <MentionedIn
+        orgId={ctx.orgId}
+        type="project"
+        id={project.id}
+        className="mt-8 border-t pt-6"
       />
     </div>
   );

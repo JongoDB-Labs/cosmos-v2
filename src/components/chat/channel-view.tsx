@@ -450,6 +450,7 @@ export function ChannelView({
           />
         )}
         <MessageList
+          orgId={orgId}
           messages={messages ?? []}
           usersById={usersById}
           currentUserId={userId}

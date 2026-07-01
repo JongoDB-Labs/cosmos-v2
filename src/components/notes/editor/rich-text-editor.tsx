@@ -27,7 +27,6 @@ import { notesTransformers } from "./markdown";
 import { noteEditorTheme } from "./theme";
 import { ToolbarPlugin } from "./toolbar";
 import { MentionPlugin } from "./mention-plugin";
-import type { OrgUser } from "@/components/chat/mention-typeahead";
 
 const EDITOR_NODES: ReadonlyArray<Klass<LexicalNode>> = [
   HeadingNode,
@@ -49,27 +48,25 @@ const EDITOR_NODES: ReadonlyArray<Klass<LexicalNode>> = [
  * + split write/preview, fixing the toggle (Bug 1) and combined-emphasis
  * (Bug 2) classes of bug natively.
  *
- * Mount only AFTER members have loaded so the initial import resolves mention
- * display names (see NoteEditor).
+ * Mount only AFTER mention labels have resolved so the initial import shows the
+ * right chip labels (see NoteEditor).
  */
 export function NoteRichTextEditor({
   initialMarkdown,
-  members,
+  orgId,
+  mentionLabels,
   onChange,
   placeholder = "Start writing… (Markdown supported · @ to mention)",
 }: {
   initialMarkdown: string;
-  members: OrgUser[];
+  orgId: string;
+  mentionLabels: Map<string, string>;
   onChange: (markdown: string) => void;
   placeholder?: string;
 }) {
-  // Computed once: this component is keyed per note, and only mounts after
-  // members load, so the member map is complete for the initial import.
-  const [transformers] = useState(() =>
-    notesTransformers(
-      new Map(members.map((m) => [m.id.toLowerCase(), m.displayName])),
-    ),
-  );
+  // Computed once: this component is keyed per note, and only mounts after the
+  // label map is complete, so the initial import resolves chip labels.
+  const [transformers] = useState(() => notesTransformers(mentionLabels));
 
   const [initialConfig] = useState<InitialConfigType>(() => ({
     namespace: "note-editor",
@@ -109,7 +106,7 @@ export function NoteRichTextEditor({
       <ListPlugin />
       <LinkPlugin />
       <MarkdownShortcutPlugin transformers={transformers} />
-      <MentionPlugin members={members} />
+      <MentionPlugin orgId={orgId} />
       <OnChangePlugin
         ignoreSelectionChange
         onChange={(editorState) => {
