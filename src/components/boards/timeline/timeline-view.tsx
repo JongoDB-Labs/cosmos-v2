@@ -76,6 +76,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+
+  // Keep the left item-list and the right Gantt chart vertically in lockstep —
+  // their rows share ROW_HEIGHT, so mirroring scrollTop keeps each label aligned
+  // with its bar. Only the vertical axis syncs (the chart also scrolls
+  // horizontally). The equality guard stops the mirrored set from looping.
+  const syncScroll = useCallback((from: "left" | "right") => {
+    const src = from === "left" ? leftRef.current : scrollRef.current;
+    const dst = from === "left" ? scrollRef.current : leftRef.current;
+    if (src && dst && dst.scrollTop !== src.scrollTop) dst.scrollTop = src.scrollTop;
+  }, []);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -433,7 +444,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       <div className="flex-1 flex overflow-hidden">
         {/* Left panel - item labels. Narrower on phones so the chart isn't
             crowded off-screen; the SVG rows align by height, not this width. */}
-        <div className="shrink-0 border-r bg-background overflow-y-auto w-[140px] sm:w-[260px]">
+        <div
+          ref={leftRef}
+          onScroll={() => syncScroll("left")}
+          className="shrink-0 border-r bg-background overflow-y-auto w-[140px] sm:w-[260px]"
+        >
           <div
             className="border-b bg-muted/50 flex items-center px-3 text-xs font-medium text-muted-foreground"
             style={{ height: HEADER_HEIGHT }}
@@ -469,7 +484,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         </div>
 
         {/* Right panel - timeline SVG */}
-        <div ref={scrollRef} className="flex-1 overflow-auto relative">
+        <div
+          ref={scrollRef}
+          onScroll={() => syncScroll("right")}
+          className="flex-1 overflow-auto relative"
+        >
           <svg
             width={svgWidth}
             height={svgHeight}
