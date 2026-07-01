@@ -31,8 +31,29 @@ export default async function ProjectPage({ params }: PageParams) {
 
   const settings = (project.settings as Record<string, unknown> | null) ?? {};
 
+  // Per-user tab prefs (order / hidden / default) now override the project's
+  // baseline. Load the CALLER'S prefs for THIS project so the redirect lands
+  // them on THEIR chosen default, honoring THEIR hidden feature tabs. Falls
+  // through: user default → user defaultBoardId → project defaultTab →
+  // project defaultBoardId → first board → empty state. Never crash on a stale
+  // token (disabled feature / deleted board).
+  const userPrefs = await prisma.userPreferences.findUnique({
+    where: { userId: ctx.userId },
+    select: { tabPrefs: true, defaultBoardId: true },
+  });
+  const allTabPrefs =
+    userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
+      ? (userPrefs.tabPrefs as Record<string, unknown>)
+      : {};
+  const tp =
+    allTabPrefs[project.id] &&
+    typeof allTabPrefs[project.id] === "object" &&
+    !Array.isArray(allTabPrefs[project.id])
+      ? (allTabPrefs[project.id] as Record<string, unknown>)
+      : {};
+
   // Map a feature-tab key to its route segment. Used to honor a feature tab set
-  // as the project default (e.g. land everyone on PM Dashboard).
+  // as the default (e.g. land on PM Dashboard).
   const FEATURE_ROUTES: Record<string, string> = {
     "pm-dashboard": "pm-dashboard",
     okr: "okrs",
@@ -44,26 +65,24 @@ export default async function ProjectPage({ params }: PageParams) {
     cycle: "cycles",
   };
 
-  const hiddenFeatureTabs = Array.isArray(settings.hiddenFeatureTabs)
-    ? (settings.hiddenFeatureTabs as string[])
-    : [];
+  // Effective hidden-feature set for the redirect check: the user's own list
+  // wins, else the project baseline. A default pointing at a hidden feature is
+  // treated as invalid and falls through.
+  const hiddenFeatureTabs = Array.isArray(tp.hiddenFeatureTabs)
+    ? (tp.hiddenFeatureTabs as string[])
+    : Array.isArray(settings.hiddenFeatureTabs)
+      ? (settings.hiddenFeatureTabs as string[])
+      : [];
 
-  // Honor a manager-set default tab (FR: "Default view" — everyone lands on the
-  // board/feature the project lead chose). `defaultTab` is a token
-  // (`board:<id>` | `feature:<key>`); fall back to the legacy `defaultBoardId`,
-  // then the first board, then the empty state. A default pointing at a
-  // now-disabled/hidden feature (or a deleted board) is treated as invalid and
-  // falls through — never crash.
-  const defaultTab = typeof settings.defaultTab === "string" ? settings.defaultTab : null;
-  if (defaultTab) {
+  // Try a `defaultTab` token (`board:<id>` | `feature:<key>`). Returns true when
+  // it resolved to a redirect (which throws), false when the token is invalid
+  // and we should keep falling through.
+  const tryDefaultTab = (defaultTab: string | null): void => {
+    if (!defaultTab) return;
     if (defaultTab.startsWith("feature:")) {
       const key = defaultTab.slice("feature:".length);
       const route = FEATURE_ROUTES[key];
-      if (
-        route &&
-        project.enabledFeatures.includes(key) &&
-        !hiddenFeatureTabs.includes(key)
-      ) {
+      if (route && project.enabledFeatures.includes(key) && !hiddenFeatureTabs.includes(key)) {
         redirect(`/${orgSlug}/projects/${projectKey}/${route}`);
       }
     } else if (defaultTab.startsWith("board:")) {
@@ -72,11 +91,25 @@ export default async function ProjectPage({ params }: PageParams) {
         redirect(`/${orgSlug}/projects/${projectKey}/boards/${boardId}`);
       }
     }
-    // Otherwise: invalid token (disabled feature / deleted board) → fall through.
+    // Invalid token (disabled feature / deleted board) → caller falls through.
+  };
+
+  // 1) The user's OWN default tab (their personal choice wins over everything).
+  tryDefaultTab(typeof tp.defaultTab === "string" ? tp.defaultTab : null);
+
+  // 2) The user's legacy per-user defaultBoardId (existing UserPreferences field).
+  if (
+    typeof userPrefs?.defaultBoardId === "string" &&
+    project.boards.some((b) => b.id === userPrefs.defaultBoardId)
+  ) {
+    redirect(`/${orgSlug}/projects/${projectKey}/boards/${userPrefs.defaultBoardId}`);
   }
 
+  // 3) The project-level default tab (manager baseline).
+  tryDefaultTab(typeof settings.defaultTab === "string" ? settings.defaultTab : null);
+
   if (project.boards.length > 0) {
-    // Falls back to the legacy defaultBoardId, else the first board.
+    // 4) Project-level legacy defaultBoardId, else 5) the first board.
     const defaultBoardId =
       typeof settings.defaultBoardId === "string" ? settings.defaultBoardId : null;
     const target =

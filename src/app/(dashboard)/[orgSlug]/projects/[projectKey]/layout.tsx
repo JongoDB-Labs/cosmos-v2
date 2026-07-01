@@ -54,6 +54,50 @@ export default async function ProjectLayout({
   const canCreateBoards =
     hasPermission(ctx.permissions, Permission.BOARD_CREATE) || isProjectManager;
 
+  // Per-user tab tailoring. Order / hidden / default / feature-labels are now
+  // PER USER (each member tailors their own strip). The effective value for
+  // each key is `user tabPrefs ?? Project.settings ?? natural default`, so a
+  // manager's legacy Project.settings still seeds what a brand-new user sees,
+  // and the user's own PUTs to …/tab-prefs override it. A board's NAME stays
+  // shared (it's the board row) — only the view is personal.
+  const userPrefs = await prisma.userPreferences.findUnique({
+    where: { userId: ctx.userId },
+    select: { tabPrefs: true },
+  });
+  const projectSettings = (project.settings as Record<string, unknown> | null) ?? {};
+  const allTabPrefs =
+    userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
+      ? (userPrefs.tabPrefs as Record<string, unknown>)
+      : {};
+  const tp =
+    allTabPrefs[project.id] &&
+    typeof allTabPrefs[project.id] === "object" &&
+    !Array.isArray(allTabPrefs[project.id])
+      ? (allTabPrefs[project.id] as Record<string, unknown>)
+      : {};
+
+  // Coercers that fall through user → project → default with the same defensive
+  // shape-guards the props already relied on.
+  const strArr = (v: unknown): string[] | undefined =>
+    Array.isArray(v) ? (v as string[]) : undefined;
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" ? v : undefined;
+  const strMap = (v: unknown): Record<string, string> | undefined =>
+    typeof v === "object" && v !== null && !Array.isArray(v)
+      ? (v as Record<string, string>)
+      : undefined;
+
+  const defaultTab = str(tp.defaultTab) ?? str(projectSettings.defaultTab) ?? null;
+  const tabOrder = strArr(tp.tabOrder) ?? strArr(projectSettings.tabOrder) ?? [];
+  const featureTabLabels =
+    strMap(tp.featureTabLabels) ?? strMap(projectSettings.featureTabLabels) ?? {};
+  const hiddenBoardIds =
+    strArr(tp.hiddenBoardIds) ?? strArr(projectSettings.hiddenBoardIds) ?? [];
+  const hiddenFeatureTabs =
+    strArr(tp.hiddenFeatureTabs) ?? strArr(projectSettings.hiddenFeatureTabs) ?? [];
+  // defaultBoardId stays a project-level baseline (legacy back-compat token).
+  const defaultBoardId = str(projectSettings.defaultBoardId) ?? null;
+
   return (
     <div className="flex flex-col h-full">
       {/* Data-classification marking strip (FOUO+); renders nothing otherwise. */}
@@ -95,44 +139,12 @@ export default async function ProjectLayout({
         enabledFeatures={project.enabledFeatures}
         canManageBoards={canManageBoards}
         canCreateBoards={canCreateBoards}
-        defaultBoardId={
-          typeof (project.settings as Record<string, unknown> | null)?.defaultBoardId ===
-          "string"
-            ? ((project.settings as Record<string, unknown>).defaultBoardId as string)
-            : null
-        }
-        defaultTab={
-          typeof (project.settings as Record<string, unknown> | null)?.defaultTab ===
-          "string"
-            ? ((project.settings as Record<string, unknown>).defaultTab as string)
-            : null
-        }
-        tabOrder={
-          Array.isArray((project.settings as Record<string, unknown> | null)?.tabOrder)
-            ? ((project.settings as Record<string, unknown>).tabOrder as string[])
-            : []
-        }
-        featureTabLabels={
-          typeof (project.settings as Record<string, unknown> | null)?.featureTabLabels ===
-            "object" &&
-          (project.settings as Record<string, unknown> | null)?.featureTabLabels !== null &&
-          !Array.isArray((project.settings as Record<string, unknown>)?.featureTabLabels)
-            ? ((project.settings as Record<string, unknown>).featureTabLabels as Record<
-                string,
-                string
-              >)
-            : {}
-        }
-        hiddenBoardIds={
-          Array.isArray((project.settings as Record<string, unknown> | null)?.hiddenBoardIds)
-            ? ((project.settings as Record<string, unknown>).hiddenBoardIds as string[])
-            : []
-        }
-        hiddenFeatureTabs={
-          Array.isArray((project.settings as Record<string, unknown> | null)?.hiddenFeatureTabs)
-            ? ((project.settings as Record<string, unknown>).hiddenFeatureTabs as string[])
-            : []
-        }
+        defaultBoardId={defaultBoardId}
+        defaultTab={defaultTab}
+        tabOrder={tabOrder}
+        featureTabLabels={featureTabLabels}
+        hiddenBoardIds={hiddenBoardIds}
+        hiddenFeatureTabs={hiddenFeatureTabs}
         templateDefaultConfig={
           project.projectTemplate?.defaultConfig as Record<string, unknown> | null | undefined
         }
