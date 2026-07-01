@@ -1494,6 +1494,9 @@ model UserPreferences {
   dndStart        String?         @map("dnd_start") // "HH:MM" 24h, local to dndTimezone
   dndEnd          String?         @map("dnd_end") // "HH:MM"
   dndTimezone     String?         @map("dnd_timezone") // IANA tz, e.g. "America/New_York"
+  /// Per-project tab layout prefs, keyed by projectId:
+  /// { [projectId]: { tabOrder?, hiddenBoardIds?, hiddenFeatureTabs?, featureTabLabels?, defaultTab? } }
+  tabPrefs        Json            @default("{}") @map("tab_prefs")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
