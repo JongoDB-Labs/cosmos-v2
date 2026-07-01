@@ -196,7 +196,7 @@ Result: `cosmos-pg-instance1-*` (4/4), `cosmos-pg-repo-host-*` (pgBackRest) + an
 Notes / gotchas:
 - **PGO operator + all Postgres pods pass the UDS Pepr baseline with NO exemption** — Crunchy images are non-root/least-priv by design (contrast with MetalLB/local-path).
 - **PGO usernames can't contain `_`** (DNS-label regex) → the least-priv **`cosmos_app`** role is created by the **migrate step (T5)** as the `cosmos` superuser, where its audit/WORM grants belong anyway.
-- **pgBackRest backs up to a local *volume* repo (repo1)** and — with `postgres.backups.s3.enabled` — ALSO to a **MinIO Operator Tenant S3 repo over TLS (repo2)**, the `cosmos-pgbackrest` bucket. repo2 is kept **alongside** repo1 for backup continuity (retire repo1 only after a verified S3 restore). The S3 keys + the Tenant CA come from the SOPS `cosmos-pgbackrest-s3` Secret, projected into `/etc/pgbackrest/conf.d` via PGO's `configuration`; the cluster-CA-signed Tenant cert verifies via the projected `ca.crt` (`repo2-storage-verify-tls=y`, `repo2-s3-uri-style=path`). **Lab-verified 2026-06-30: a full backup landed in the bucket (1892 objects).** ⚠️ See **gotcha #15** for the egress pitfall.
+- **pgBackRest backs up to a local *volume* repo (repo1)** and — with `postgres.backups.s3.enabled` — ALSO to a **MinIO Operator Tenant S3 repo over TLS (repo2)**, the `cosmos-pgbackrest` bucket. repo2 is kept **alongside** repo1 for backup continuity (retire repo1 only after a verified S3 restore). The S3 keys + the Tenant CA come from the SOPS `cosmos-pgbackrest-s3` Secret, projected into `/etc/pgbackrest/conf.d` via PGO's `configuration`; the cluster-CA-signed Tenant cert verifies via the projected `ca.crt` (`repo2-storage-verify-tls=y`, `repo2-s3-uri-style=path`). **Lab-verified 2026-06-30: a full backup landed in the bucket (1892 objects).** As of **2026-07-01** repo2 authenticates with a **bucket-scoped least-priv svcacct** (inline policy = `s3:*` on the `cosmos-pgbackrest` ARN only — not a full-access key); rotating it is just the `s3.conf` in this Secret (PGO re-projects it within seconds, no pod restart), and the committed `cosmos-pgbackrest-s3.enc.yaml` must be re-encrypted to match. ⚠️ See **gotcha #15** for the egress pitfall.
 
 ## T4 — Secrets with SOPS (encrypted in git)
 
@@ -443,7 +443,9 @@ kubectl -n velero rollout restart deploy/velero    # after creating the uds-trus
 ```
 `snapshotsEnabled:false` (local-path has no CSI snapshotter — volume data backup uses the node-agent; cluster-resource backup is unaffected).
 
-**Lab-verified 2026-06-30:** Loki wrote **339 chunks** to the `loki` bucket; a Velero backup **Completed** (56 items) to the `velero` bucket; pgBackRest repo2 (item 6) wrote a **full backup** (1892 objects) — all over verified TLS. **Follow-up:** least-priv per-consumer S3 keys (the lab used the Tenant root creds for Loki/Velero + a dedicated svcacct for pgBackRest).
+**Lab-verified 2026-06-30:** Loki wrote **339 chunks** to the `loki` bucket; a Velero backup **Completed** (56 items) to the `velero` bucket; pgBackRest repo2 (item 6) wrote a **full backup** (1892 objects) — all over verified TLS. **Least-priv rotation (2026-07-01, consumer-by-consumer):** each consumer moves off its broad creds onto a **bucket-scoped svcacct** (inline `s3:*` on a single bucket ARN; keys stashed as `scoped-key-*` Secrets in ns `minio` for repeatable rotation).
+- ✅ **pgBackRest** — rotated to the scoped key; repo2 incr backup **Completed** over verified TLS (`stanza=db` `status: ok`, objects `1901→1910`); committed `cosmos-pgbackrest-s3.enc.yaml` re-encrypted to match (round-trip verified).
+- ⏳ **Velero**, **Loki** — still on the Tenant **root** creds (next in the sequence). The old full-access pgBackRest svcacct + the orphaned `svc-loki-*` are pruned as their steps land.
 
 UDS **auto-exposes each console on the admin gateway, SSO-protected by Keycloak** — no manual wiring:
 
