@@ -1,7 +1,9 @@
 "use client";
 import { useRef, useState } from "react";
 import { Send, Paperclip, X } from "lucide-react";
-import { MentionPicker, useOrgMembers } from "./mention-picker";
+import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
+import { insertMentionToken } from "@/lib/mentions/input";
+import type { ResolvedEntity } from "@/lib/mentions/refs";
 import { SlashCommandMenu } from "./slash-command-menu";
 import type { ChatMessageAttachmentDto } from "@/hooks/use-chat-messages";
 import { parseSlash, getCommand } from "@/lib/chat/commands";
@@ -40,7 +42,6 @@ export function Composer({
     prefix: string;
     anchor: { top: number; left: number };
   } | null>(null);
-  const { data: members } = useOrgMembers(orgId);
 
   async function upload(file: File) {
     setUploading(true);
@@ -202,17 +203,17 @@ export function Composer({
     }
   }
 
-  function pickMention(user: { id: string; displayName: string }) {
+  function pickEntity(hit: ResolvedEntity) {
     const ta = ref.current;
     if (!ta) return;
     const caret = ta.selectionStart ?? value.length;
-    const before = value
-      .slice(0, caret)
-      .replace(/(?:^|\s)@([\w-]*)$/, (m) => m.replace(/@[\w-]*$/, `<@${user.id}>`));
-    const after = value.slice(caret);
-    setValue(before + after);
+    const { value: nv, caret: nc } = insertMentionToken(value, caret, hit.type, hit.id);
+    setValue(nv);
     setMentionState(null);
-    requestAnimationFrame(() => ta.focus());
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(nc, nc);
+    });
   }
 
   function pickSlash(cmd: SlashCommand) {
@@ -327,12 +328,12 @@ export function Composer({
           onCancel={() => setSlashState(null)}
         />
       )}
-      {mentionState && members && (
-        <MentionPicker
+      {mentionState && (
+        <EntityMentionPicker
+          orgId={orgId}
           query={mentionState.q}
           anchor={mentionState.anchor}
-          members={members}
-          onPick={pickMention}
+          onPick={pickEntity}
           onCancel={() => setMentionState(null)}
         />
       )}

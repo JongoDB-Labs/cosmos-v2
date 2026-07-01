@@ -7,6 +7,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
+import { syncReferences } from "@/lib/mentions/references";
 import { createNotification } from "@/lib/notifications/create";
 import { z } from "zod";
 import { Visibility } from "@prisma/client";
@@ -130,6 +131,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     } catch {
       /* notifications are best-effort */
     }
+
+    // Record @-entity backlinks — best-effort.
+    void syncReferences({
+      orgId,
+      sourceType: "note",
+      sourceId: note.id,
+      content: note.content,
+      createdById: ctx.userId,
+    }).catch(() => {});
 
     return created(note);
   } catch (error) {

@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useOrgMembers } from "@/components/chat/mention-typeahead";
+import { useRefResolver } from "@/components/mentions/hooks";
+import { MentionedIn } from "@/components/mentions/mentioned-in";
+import { parseRefs, refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { NoteRichTextEditor } from "./editor/rich-text-editor";
 import {
   Dialog,
@@ -62,9 +65,29 @@ export function NoteEditor({
   );
   const [saving, setSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  // The editor imports `<@uuid>` mentions and needs member display names to
-  // render them, so it only mounts once members have loaded.
+  // The editor imports entity mentions and needs their labels to render, so it
+  // only mounts once members load AND any non-person refs have resolved. People
+  // resolve instantly from the member map (seed); other entities via the batch
+  // resolver.
   const { data: mentionMembers } = useOrgMembers(orgId);
+  const noteContent = note?.content ?? "";
+  const userSeed = useMemo(() => {
+    const m = new Map<string, ResolvedEntity>();
+    for (const u of mentionMembers ?? [])
+      m.set(refKey("user", u.id), { type: "user", id: u.id, label: u.displayName, url: null });
+    return m;
+  }, [mentionMembers]);
+  const refMap = useRefResolver(orgId, [noteContent], userSeed);
+  const nonUserRefs = useMemo(
+    () => parseRefs(noteContent).filter((r) => r.type !== "user"),
+    [noteContent],
+  );
+  const labelsReady =
+    !!mentionMembers && nonUserRefs.every((r) => refMap.has(refKey(r.type, r.id)));
+  const mentionLabels = useMemo(
+    () => new Map([...refMap].map(([k, v]) => [k, v.label])),
+    [refMap],
+  );
 
   const isNew = !note;
 
@@ -183,11 +206,12 @@ export function NoteEditor({
         </div>
 
         <div className="flex flex-1 min-h-0 flex-col">
-          {mentionMembers ? (
+          {labelsReady ? (
             <NoteRichTextEditor
               key={note?.id ?? "new"}
-              initialMarkdown={note?.content ?? ""}
-              members={mentionMembers}
+              initialMarkdown={noteContent}
+              orgId={orgId}
+              mentionLabels={mentionLabels}
               onChange={setContent}
             />
           ) : (
@@ -197,6 +221,14 @@ export function NoteEditor({
             </div>
           )}
         </div>
+        {note && (
+          <MentionedIn
+            orgId={orgId}
+            type="note"
+            id={note.id}
+            className="mt-3 border-t pt-3"
+          />
+        )}
       </div>
 
       <Dialog

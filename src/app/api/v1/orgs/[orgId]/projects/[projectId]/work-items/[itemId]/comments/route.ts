@@ -8,6 +8,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
 import { parseMentions } from "@/lib/chat/mentions";
+import { syncReferences } from "@/lib/mentions/references";
 import { z } from "zod";
 
 const createCommentSchema = z.object({
@@ -178,6 +179,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     } catch {
       /* swallow — notifications are best-effort */
     }
+
+    // Record @-entity backlinks — best-effort. Person mentions handled above.
+    void syncReferences({
+      orgId,
+      sourceType: "comment",
+      sourceId: comment.id,
+      content: comment.content ?? "",
+      createdById: ctx.userId,
+    }).catch(() => {});
 
     return created(comment);
   } catch (error) {

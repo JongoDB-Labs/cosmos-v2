@@ -8,6 +8,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
+import { syncReferences } from "@/lib/mentions/references";
 import { createNotification } from "@/lib/notifications/create";
 import { z } from "zod";
 import { Visibility } from "@prisma/client";
@@ -105,6 +106,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       metadata: { changes: Object.keys(data).join(", ") } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
+
+    // Reconcile @-entity backlinks whenever the body changed — best-effort.
+    if (data.content !== undefined) {
+      void syncReferences({
+        orgId,
+        sourceType: "note",
+        sourceId: noteId,
+        content: updated.content,
+        createdById: ctx.userId,
+      }).catch(() => {});
+    }
 
     // Mention notifications — only fire for newly-added mentions to avoid
     // re-notifying people who were already mentioned in prior saves.
