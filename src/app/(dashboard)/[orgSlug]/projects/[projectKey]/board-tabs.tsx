@@ -1,10 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Plus, Users, Trash2, Star, Pencil, ChevronLeft, ChevronRight, EyeOff, Eye } from "lucide-react";
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import {
   Dialog,
@@ -36,29 +50,29 @@ interface ProjectBoardTabsProps {
   canManageBoards?: boolean;
   /** Whether the actor may create boards (org BOARD_CREATE or project MANAGER). */
   canCreateBoards?: boolean;
-  /** The project's current default board (everyone lands here) — from
-   *  Project.settings.defaultBoardId. Kept for back-compat; `defaultTab`
-   *  (a board:/feature: token) supersedes it when set. */
+  /** The project's current default board (baseline) — from
+   *  Project.settings.defaultBoardId. Kept for back-compat; the effective
+   *  `defaultTab` (a board:/feature: token, now per-user) supersedes it. */
   defaultBoardId?: string | null;
-  /** The default landing tab as a token (`board:<id>` | `feature:<key>`) — from
-   *  Project.settings.defaultTab. Generalizes defaultBoardId across feature tabs
-   *  too; the project page redirect honors it. */
+  /** The default landing tab as a token (`board:<id>` | `feature:<key>`) —
+   *  EFFECTIVE value composed in layout.tsx as user pref ?? project ?? null.
+   *  Drives the ⭐ + the project page redirect. */
   defaultTab?: string | null;
-  /** Board ids hidden from the tab strip — from Project.settings.hiddenBoardIds.
-   *  Managers can hide/show from a board's menu; the board itself is kept. */
+  /** Board ids hidden from THIS user's strip — effective value (user tabPrefs ??
+   *  project baseline). Anyone can hide/show from a tab's menu; the board row
+   *  itself is untouched. */
   hiddenBoardIds?: string[];
-  /** Feature-tab keys hidden from the strip (e.g. "pm-dashboard", "goal",
-   *  "cycle") — from Project.settings.hiddenFeatureTabs. The feature stays
-   *  enabled; only the tab is hidden. */
+  /** Feature-tab keys hidden from THIS user's strip (e.g. "pm-dashboard",
+   *  "goal", "cycle") — effective (user ?? project). The feature stays enabled;
+   *  only the tab is hidden for this user. */
   hiddenFeatureTabs?: string[];
-  /** Unified strip order as tokens (`board:<id>` | `feature:<key>`) — from
-   *  Project.settings.tabOrder. Authoritative for the strip; tokens not present
-   *  sort last (boards by sortOrder, then feature tabs in build order). May
-   *  include tokens for hidden tabs (they keep their slot, just aren't shown). */
+  /** Unified strip order as tokens (`board:<id>` | `feature:<key>`) — EFFECTIVE
+   *  (user ?? project). Authoritative for the strip; tokens not present sort
+   *  last (boards by sortOrder, then feature tabs in build order). May include
+   *  tokens for hidden tabs (they keep their slot, just aren't shown). */
   tabOrder?: string[];
-  /** Per-feature custom labels (`{ goal: "Objectives" }`) — from
-   *  Project.settings.featureTabLabels. Rendered label is
-   *  featureTabLabels[key] ?? <defaultLabel>. */
+  /** Per-feature custom labels (`{ goal: "Objectives" }`) — EFFECTIVE (user ??
+   *  project). Rendered label is featureTabLabels[key] ?? <defaultLabel>. */
   featureTabLabels?: Record<string, string>;
   templateDefaultConfig?: Record<string, unknown> | null;
 }
@@ -107,37 +121,43 @@ export function ProjectBoardTabs({
   const hiddenSet = new Set(hiddenBoardIds);
   const hiddenFeatureSet = new Set(hiddenFeatureTabs);
   const [hiding, setHiding] = useState(false);
+  // Optimistic order override applied on drag end so the strip re-flows
+  // immediately; cleared once the server round-trip + router.refresh() land the
+  // authoritative order back through props.
+  const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
 
-  // Persist a settings patch to Project.settings (merged server-side).
-  async function patchSettings(patch: Record<string, unknown>) {
+  // Persist a per-user tab-prefs patch (order / hidden / default / labels).
+  // Merged server-side into the caller's UserPreferences.tabPrefs[projectId] —
+  // this is the user's OWN view, NOT a shared project setting.
+  async function patchTabPrefs(patch: Record<string, unknown>) {
     setHiding(true);
     try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/tab-prefs`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: patch }),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
       router.refresh();
     } catch (err) {
-      notifyError(err, "Couldn't update hidden tabs.");
+      notifyError(err, "Couldn't update your tabs.");
     } finally {
       setHiding(false);
     }
   }
 
   const handleUnhideFeature = (feature: string) =>
-    patchSettings({ hiddenFeatureTabs: hiddenFeatureTabs.filter((f) => f !== feature) });
+    patchTabPrefs({ hiddenFeatureTabs: hiddenFeatureTabs.filter((f) => f !== feature) });
 
   const handleUnhide = (id: string) =>
-    patchSettings({ hiddenBoardIds: hiddenBoardIds.filter((x) => x !== id) });
+    patchTabPrefs({ hiddenBoardIds: hiddenBoardIds.filter((x) => x !== id) });
 
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
-  // Rename works for BOTH kinds: a board (PUT name) or a feature tab
-  // (patchSettings featureTabLabels). `tabToRename` holds whichever the manager
-  // opened the dialog on.
+  // Rename works for BOTH kinds: a board (PUT name — SHARED) or a feature tab
+  // (patchTabPrefs featureTabLabels — PER USER). `tabToRename` holds whichever
+  // the actor opened the dialog on.
   const [tabToRename, setTabToRename] = useState<Tab | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -257,8 +277,10 @@ export function ProjectBoardTabs({
 
   // Sort by tabOrder token index; tokens NOT in tabOrder sort last in build
   // order. Stable for equal indices (buildIdx tiebreak), so unlisted tabs keep
-  // boards-by-sortOrder then features-by-build-order.
-  const orderIndex = new Map(tabOrder.map((token, i) => [token, i]));
+  // boards-by-sortOrder then features-by-build-order. `optimisticOrder` (set on
+  // drag end) wins over the prop order until the refresh lands.
+  const effectiveOrder = optimisticOrder ?? tabOrder;
+  const orderIndex = new Map(effectiveOrder.map((token, i) => [token, i]));
   const allTabs: Tab[] = buildOrder
     .map((tab, buildIdx) => ({ tab, buildIdx }))
     .sort((a, b) => {
@@ -283,12 +305,27 @@ export function ProjectBoardTabs({
   const effectiveDefaultToken =
     defaultTab ?? (defaultBoardId ? `board:${defaultBoardId}` : null);
 
+  // Drag reorder is available to EVERY authenticated member (it tailors their
+  // OWN strip). A press-and-drag past the activation distance reorders; a plain
+  // click (no movement) falls through to the tab's <Link> and navigates.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  // dnd attaches client-only attributes; render plain tabs on the server + first
+  // client render (so hydration matches), then enable drag after mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot post-hydration mount flag
+    setMounted(true);
+  }, []);
+
   // ── Handlers ────────────────────────────────────────────────────────────
 
   async function handleHide(tab: Tab) {
     if (tab.kind === "board") {
       const board = tab.board!;
-      await patchSettings({
+      await patchTabPrefs({
         hiddenBoardIds: [...hiddenBoardIds.filter((id) => id !== board.id), board.id],
       });
       // If we're viewing the board we just hid, move to another visible board.
@@ -298,7 +335,7 @@ export function ProjectBoardTabs({
       }
     } else {
       const feature = tab.feature!.feature;
-      await patchSettings({
+      await patchTabPrefs({
         hiddenFeatureTabs: [...hiddenFeatureTabs.filter((f) => f !== feature), feature],
       });
       // If viewing the tab we just hid, fall back to the project root.
@@ -308,11 +345,33 @@ export function ProjectBoardTabs({
     }
   }
 
+  // Persist a full token order to the caller's per-user tab prefs. Shared by
+  // the drag handler and the Move-left/right menu items (a11y / no-pointer
+  // fallback). Optimistically applies `order` so the strip re-flows at once.
+  async function persistOrder(fullOrder: string[]) {
+    setMoving(true);
+    setOptimisticOrder(fullOrder);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/tab-prefs`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tabOrder: fullOrder }),
+      });
+      if (!res.ok) throw new Error(`Failed to reorder (HTTP ${res.status})`);
+      router.refresh();
+    } catch (err) {
+      setOptimisticOrder(null); // roll back the optimistic reorder
+      notifyError(err, "Couldn't reorder the tabs.");
+    } finally {
+      setMoving(false);
+    }
+  }
+
   // Move a tab left/right in the UNIFIED strip. Operates on the rendered
   // (visible, ordered) list: swap the clicked tab with its visible neighbor,
   // then write the FULL token order (hidden tokens kept in their existing
-  // relative positions) to settings.tabOrder in ONE PUT. Boards AND feature
-  // tabs move identically; board.sortOrder is now only the append-fallback.
+  // relative positions) to the caller's tab prefs in ONE PUT. Boards AND
+  // feature tabs move identically; board.sortOrder is now only the fallback.
   async function handleMove(idx: number, dir: "left" | "right") {
     const j = dir === "left" ? idx - 1 : idx + 1;
     if (j < 0 || j >= visibleTabs.length) return;
@@ -329,45 +388,68 @@ export function ProjectBoardTabs({
     if (ai === -1 || bi === -1) return;
     [fullOrder[ai], fullOrder[bi]] = [fullOrder[bi], fullOrder[ai]];
 
-    setMoving(true);
-    try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { tabOrder: fullOrder } }),
-      });
-      if (!res.ok) throw new Error(`Failed to reorder (HTTP ${res.status})`);
-      router.refresh();
-    } catch (err) {
-      notifyError(err, "Couldn't reorder the tabs.");
-    } finally {
-      setMoving(false);
-    }
+    await persistOrder(fullOrder);
   }
 
-  // FR "Default view": a manager picks the tab everyone lands on. Persisted as a
-  // token in Project.settings.defaultTab (merged server-side) and honored by the
-  // project page's redirect — works for boards AND feature tabs.
+  // Drag-to-reorder end: compute the NEW visible-token order (move the dragged
+  // token to the drop target's visible slot), then splice it back into the FULL
+  // token order so hidden tokens keep their relative slots (same approach as
+  // handleMove). Persist as the user's tabOrder.
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const activeToken = active.id as string;
+    const overToken = over.id as string;
+
+    const visibleTokens = visibleTabs.map((t) => t.token);
+    const from = visibleTokens.indexOf(activeToken);
+    const to = visibleTokens.indexOf(overToken);
+    if (from === -1 || to === -1) return;
+
+    // New VISIBLE order after moving `active` to `over`'s slot.
+    const newVisible = [...visibleTokens];
+    newVisible.splice(from, 1);
+    newVisible.splice(to, 0, activeToken);
+
+    // Rebuild the FULL order: walk the current full order and, at each visible
+    // slot, emit the next token from `newVisible`; hidden tokens keep their
+    // exact positions. This preserves hidden tokens' interleaving (identical to
+    // handleMove's "keep hidden slots" guarantee).
+    const visibleSet = new Set(visibleTokens);
+    const fullOrder = allTabs.map((t) => t.token);
+    let vi = 0;
+    const nextFull = fullOrder.map((token) =>
+      visibleSet.has(token) ? newVisible[vi++] : token,
+    );
+
+    void persistOrder(nextFull);
+  }
+
+  // FR "Default view": pick the tab YOU land on. Persisted PER USER as a token
+  // in tabPrefs[projectId].defaultTab and honored by the project page redirect —
+  // works for boards AND feature tabs.
   async function handleSetDefault(tab: Tab) {
     setSettingDefault(true);
     try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/tab-prefs`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { defaultTab: tab.token } }),
+        body: JSON.stringify({ defaultTab: tab.token }),
       });
       if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
-      toast.success(`"${tab.label}" is now the default tab.`);
+      toast.success(`"${tab.label}" is now your default tab.`);
       router.refresh();
     } catch (err) {
-      notifyError(err, "Couldn't set the default tab.");
+      notifyError(err, "Couldn't set your default tab.");
     } finally {
       setSettingDefault(false);
     }
   }
 
-  // Rename a tab. Board → PUT board.name (server stores it). Feature → write
-  // featureTabLabels[key] (settings). Opens via the tab ⋯ menu → shared dialog.
+  // Rename a tab. Board → PUT board.name (SHARED — it's the board row, managers
+  // only). Feature → write per-user featureTabLabels[key]. Opens via the tab ⋯
+  // menu → shared dialog.
   async function handleRename() {
     const tab = tabToRename;
     if (!tab) return;
@@ -389,13 +471,11 @@ export function ProjectBoardTabs({
         );
         if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
       } else {
-        const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/tab-prefs`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            settings: {
-              featureTabLabels: { ...featureTabLabels, [tab.feature!.feature]: name },
-            },
+            featureTabLabels: { ...featureTabLabels, [tab.feature!.feature]: name },
           }),
         });
         if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
@@ -441,117 +521,129 @@ export function ProjectBoardTabs({
     }
   }
 
+  // Build the ⋯ action groups for a tab. Order / Set-default / Hide are
+  // available to EVERY member (their own view); Rename-board / Delete-board are
+  // manager-only (shared board row). Feature-tab rename is per-user, so it's
+  // open to everyone.
+  function buildTabGroups(tab: Tab, idx: number): ActionMenuGroup[] {
+    const isDefault = tab.token === effectiveDefaultToken;
+    const isBoard = tab.kind === "board";
+
+    // Group 1: rename + set-default. A board rename is manager-gated; a feature
+    // rename (per-user label) is open to everyone.
+    const renameItems = [];
+    if (isBoard) {
+      if (canManageBoards) {
+        renameItems.push({
+          label: "Rename board",
+          icon: Pencil,
+          onClick: () => {
+            setRenameValue(tab.label);
+            setTabToRename(tab);
+          },
+        });
+      }
+    } else {
+      renameItems.push({
+        label: "Rename tab",
+        icon: Pencil,
+        onClick: () => {
+          setRenameValue(tab.label);
+          setTabToRename(tab);
+        },
+      });
+    }
+    if (!isDefault) {
+      renameItems.push({
+        label: "Set as default",
+        icon: Star,
+        disabled: settingDefault,
+        onClick: () => handleSetDefault(tab),
+      });
+    }
+
+    // Group 3: hide (everyone) + delete (managers, boards only).
+    const hideItems: ActionMenuGroup["items"] = [
+      {
+        label: "Hide tab",
+        icon: EyeOff,
+        disabled: hiding,
+        onClick: () => handleHide(tab),
+      },
+    ];
+    if (isBoard && canManageBoards) {
+      hideItems.push({
+        label: "Delete board",
+        icon: Trash2,
+        variant: "destructive" as const,
+        onClick: () => setBoardToDelete(tab.board!),
+      });
+    }
+
+    const groups: ActionMenuGroup[] = [];
+    if (renameItems.length > 0) groups.push({ items: renameItems });
+    groups.push({
+      items: [
+        {
+          label: "Move left",
+          icon: ChevronLeft,
+          disabled: moving || idx === 0,
+          onClick: () => handleMove(idx, "left"),
+        },
+        {
+          label: "Move right",
+          icon: ChevronRight,
+          disabled: moving || idx === visibleTabs.length - 1,
+          onClick: () => handleMove(idx, "right"),
+        },
+      ],
+    });
+    groups.push({ items: hideItems });
+    return groups;
+  }
+
   return (
     <div className="flex items-center gap-1 px-4 border-b overflow-x-auto">
-      {/* Unified strip — boards + enabled feature views, one order. Every
-          visible tab gets the SAME ⋯ menu for managers: Rename · Set as default
-          · Move left/right · Hide · (Delete for boards only). */}
-      {visibleTabs.map((tab, idx) => {
-        const isActive = tab.prefix
-          ? pathname === tab.href || pathname.startsWith(`${tab.href}/`)
-          : pathname === tab.href;
-        const isDefault = tab.token === effectiveDefaultToken;
-
-        const link = (
-          <Link
-            href={tab.href}
-            className={cn(
-              "relative flex items-center gap-1 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap",
-              isActive
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {isDefault && (
-              <Star
-                className="h-3 w-3 shrink-0 fill-primary text-primary"
-                aria-label="Default tab"
-              />
-            )}
-            {tab.label}
-            {isActive && (
-              <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
-            )}
-          </Link>
-        );
-
-        // Non-managers get a plain link (current behavior).
-        if (!canManageBoards) return <span key={tab.token}>{link}</span>;
-
-        const groups: ActionMenuGroup[] = [
-          {
-            items: [
-              {
-                label: tab.kind === "board" ? "Rename board" : "Rename tab",
-                icon: Pencil,
-                onClick: () => {
-                  setRenameValue(tab.label);
-                  setTabToRename(tab);
-                },
-              },
-              ...(isDefault
-                ? []
-                : [
-                    {
-                      label: "Set as default",
-                      icon: Star,
-                      disabled: settingDefault,
-                      onClick: () => handleSetDefault(tab),
-                    },
-                  ]),
-            ],
-          },
-          {
-            items: [
-              {
-                label: "Move left",
-                icon: ChevronLeft,
-                disabled: moving || idx === 0,
-                onClick: () => handleMove(idx, "left"),
-              },
-              {
-                label: "Move right",
-                icon: ChevronRight,
-                disabled: moving || idx === visibleTabs.length - 1,
-                onClick: () => handleMove(idx, "right"),
-              },
-            ],
-          },
-          {
-            items: [
-              {
-                label: "Hide tab",
-                icon: EyeOff,
-                disabled: hiding,
-                onClick: () => handleHide(tab),
-              },
-              // Delete is boards-only — feature tabs can't be deleted, only
-              // hidden or disabled from Project Settings.
-              ...(tab.kind === "board"
-                ? [
-                    {
-                      label: "Delete board",
-                      icon: Trash2,
-                      variant: "destructive" as const,
-                      onClick: () => setBoardToDelete(tab.board!),
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ];
-
+      {/* Unified strip — boards + enabled feature views, one order. Drag any tab
+          to reorder YOUR OWN strip; a plain click still navigates. The ⋯ menu
+          per tab gives everyone Move · Set-as-default · Hide (+ per-user feature
+          rename); board Rename/Delete stay manager-only. */}
+      {(() => {
+        const tabProps = (tab: Tab, idx: number) => ({
+          tab,
+          isActive: tab.prefix
+            ? pathname === tab.href || pathname.startsWith(`${tab.href}/`)
+            : pathname === tab.href,
+          isDefault: tab.token === effectiveDefaultToken,
+          groups: buildTabGroups(tab, idx),
+        });
+        // SSR + first client render: plain tabs (hydration-stable). After mount:
+        // the draggable strip.
+        if (!mounted) {
+          return visibleTabs.map((tab, idx) => (
+            <PlainTab key={tab.token} {...tabProps(tab, idx)} />
+          ));
+        }
         return (
-          <div key={tab.token} className="group/action relative flex items-center">
-            <ActionMenu groups={groups} triggerLabel={`Tab actions for ${tab.label}`}>
-              {link}
-            </ActionMenu>
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={visibleTabs.map((t) => t.token)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {visibleTabs.map((tab, idx) => (
+                <SortableTab key={tab.token} {...tabProps(tab, idx)} />
+              ))}
+            </SortableContext>
+          </DndContext>
         );
-      })}
+      })()}
 
-      {/* Hidden tabs (boards + feature views) — a manager can restore any. */}
-      {canManageBoards && hiddenTabs.length > 0 && (
+      {/* Hidden tabs (boards + feature views) — anyone can restore their own. */}
+      {hiddenTabs.length > 0 && (
         <ActionMenu
           triggerLabel="Show hidden tabs"
           groups={[
@@ -660,7 +752,7 @@ export function ProjectBoardTabs({
             <DialogDescription>
               {tabToRename?.kind === "board"
                 ? "Give this board a new name."
-                : "Give this tab a new label."}
+                : "Give this tab a new label (just for you)."}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -691,5 +783,91 @@ export function ProjectBoardTabs({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// A single strip tab, sortable (drag-to-reorder) with an ⋯ actions menu. The
+// whole tab is the drag handle: with the DndContext's distance activation
+// constraint a plain click falls through to the <Link> (navigates) while a
+// press-and-drag reorders. Every member gets the menu + drag (their own view);
+// which ITEMS appear inside is decided by the parent (buildTabGroups).
+interface TabItemProps {
+  tab: Tab;
+  isActive: boolean;
+  isDefault: boolean;
+  groups: ActionMenuGroup[];
+}
+
+/** dnd wiring applied to the LINK only — so the ⋯ trigger (a sibling ActionMenu
+ *  renders) stays outside the drag listeners and its click still opens the menu. */
+type TabDnd = {
+  setNodeRef: (el: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  isDragging: boolean;
+};
+
+// One tab: the LINK carries the drag handle (whole-tab drag; distance-6 so a
+// click still navigates); ActionMenu adds the ⋯ trigger as a SIBLING of the
+// link (NOT under the drag listeners, so its click works). The plain variant
+// (SSR / pre-mount) passes no `dnd`, keeping SSR/first-client HTML stable.
+function TabItem({ tab, isActive, isDefault, groups, dnd }: TabItemProps & { dnd?: TabDnd }) {
+  const link = (
+    <Link
+      ref={dnd?.setNodeRef as React.Ref<HTMLAnchorElement>}
+      href={tab.href}
+      draggable={false}
+      // dnd `listeners` (pointer drag) only — NOT `attributes`, which would put
+      // role="button" on a nav link. Keyboard reorder is via the ⋯ Move items.
+      style={dnd?.style}
+      {...(dnd?.listeners ?? {})}
+      className={cn(
+        "relative flex items-center gap-1 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap select-none",
+        dnd && "touch-none cursor-grab active:cursor-grabbing",
+        dnd?.isDragging && "opacity-70",
+        isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {isDefault && (
+        <Star className="h-3 w-3 shrink-0 fill-primary text-primary" aria-label="Default tab" />
+      )}
+      {tab.label}
+      {isActive && (
+        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary rounded-full" />
+      )}
+    </Link>
+  );
+  return (
+    <div className={cn("group/action relative flex items-center", dnd?.isDragging && "z-20")}>
+      {groups.length > 0 ? (
+        <ActionMenu groups={groups} triggerLabel={`Tab actions for ${tab.label}`}>
+          {link}
+        </ActionMenu>
+      ) : (
+        link
+      )}
+    </div>
+  );
+}
+
+// Plain (non-draggable) tab — SSR + first client render (hydration-stable).
+function PlainTab(props: TabItemProps) {
+  return <TabItem {...props} />;
+}
+
+// Draggable tab (post-mount). dnd wiring goes on the link, not the wrapper.
+function SortableTab(props: TabItemProps) {
+  const { listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.tab.token });
+  return (
+    <TabItem
+      {...props}
+      dnd={{
+        setNodeRef,
+        style: { transform: CSS.Transform.toString(transform), transition },
+        listeners,
+        isDragging,
+      }}
+    />
   );
 }
