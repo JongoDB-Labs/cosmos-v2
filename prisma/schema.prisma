@@ -3429,3 +3429,22 @@ model PmLink {
   @@index([orgId, toType, toId])
   @@map("pm_links")
 }
+
+/// @-mention backlinks: a `source` (chat message / comment / note / work item)
+/// references a `target` entity (any type). Polymorphic + org-scoped, no FKs
+/// (target/source span many tables); stale rows resolve to nothing at render.
+model Reference {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  sourceType  String   @map("source_type")
+  sourceId    String   @map("source_id") @db.Uuid
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id") @db.Uuid
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([sourceType, sourceId, targetType, targetId])
+  @@index([orgId, targetType, targetId])
+  @@index([sourceType, sourceId])
+  @@map("entity_references")
+}

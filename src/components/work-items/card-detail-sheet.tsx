@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback, useRef } from "react";
+import { useState, useEffect, useTransition, useCallback, useMemo, useRef } from "react";
 import {
   Sheet,
   SheetContent,
@@ -33,7 +33,13 @@ import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
-import { MentionPicker, useOrgMembers } from "@/components/chat/mention-typeahead";
+import { useOrgMembers } from "@/components/chat/mention-typeahead";
+import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
+import { useRefResolver } from "@/components/mentions/hooks";
+import { MarkdownContent } from "@/components/chat/markdown-content";
+import { MentionedIn } from "@/components/mentions/mentioned-in";
+import { insertMentionToken } from "@/lib/mentions/input";
+import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
@@ -146,6 +152,19 @@ export function CardDetailSheet({
     anchor: { top: number; left: number };
   } | null>(null);
   const { data: mentionMembers } = useOrgMembers(orgId);
+  // Person chips resolve instantly from the member map; other entity chips via
+  // the batch resolver. Comments render markdown (was raw text — now chips).
+  const commentUserSeed = useMemo(() => {
+    const m = new Map<string, ResolvedEntity>();
+    for (const u of mentionMembers ?? [])
+      m.set(refKey("user", u.id), { type: "user", id: u.id, label: u.displayName, url: null });
+    return m;
+  }, [mentionMembers]);
+  const commentRefMap = useRefResolver(
+    orgId,
+    comments.map((c) => c.content),
+    commentUserSeed,
+  );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
@@ -456,21 +475,20 @@ export function CardDetailSheet({
     }
   }
 
-  function pickMention(user: { id: string; displayName: string }) {
+  function pickEntity(hit: ResolvedEntity) {
     const ta = commentRef.current;
     if (!ta) return;
     const caret = ta.selectionStart ?? newComment.length;
-    const before = newComment
-      .slice(0, caret)
-      .replace(/(?:^|\s)@([\w-]*)$/, (m) =>
-        m.replace(/@[\w-]*$/, `<@${user.id}>`)
-      );
-    const after = newComment.slice(caret);
-    setNewComment(before + after);
+    const { value, caret: caretAfter } = insertMentionToken(
+      newComment,
+      caret,
+      hit.type,
+      hit.id,
+    );
+    setNewComment(value);
     setMentionState(null);
     // Restore the caret to just after the inserted mention (not the end of the
     // whole comment) so typing continues in place when mentioning mid-sentence.
-    const caretAfter = before.length;
     requestAnimationFrame(() => {
       ta.focus();
       ta.setSelectionRange(caretAfter, caretAfter);
@@ -1119,14 +1137,23 @@ export function CardDetailSheet({
                           </div>
                         </div>
                       ) : (
-                        <p className="text-sm text-muted-foreground mt-0.5 whitespace-pre-wrap">
-                          {c.content}
-                        </p>
+                        <div className="text-sm text-muted-foreground mt-0.5">
+                          <MarkdownContent content={c.content} refMap={commentRefMap} />
+                        </div>
                       )}
                     </div>
                   </div>
                 );
               })}
+
+              {item && (
+                <MentionedIn
+                  orgId={orgId}
+                  type="workItem"
+                  id={item.id}
+                  className="border-t pt-3"
+                />
+              )}
 
               <div className="relative flex gap-2">
                 <textarea
@@ -1147,12 +1174,12 @@ export function CardDetailSheet({
                 >
                   <Send className="h-4 w-4" />
                 </Button>
-                {mentionState && mentionMembers && (
-                  <MentionPicker
+                {mentionState && (
+                  <EntityMentionPicker
+                    orgId={orgId}
                     query={mentionState.q}
                     anchor={mentionState.anchor}
-                    members={mentionMembers}
-                    onPick={pickMention}
+                    onPick={pickEntity}
                     onCancel={() => setMentionState(null)}
                   />
                 )}
