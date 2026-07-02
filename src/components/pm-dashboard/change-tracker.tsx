@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -11,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -28,9 +28,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, AlertTriangle, ClipboardList } from "lucide-react";
+import { Loader2, Trash2, AlertTriangle, ClipboardList, Eye, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type ChangeRequestStatus =
   | "SUBMITTED"
@@ -111,6 +114,77 @@ const STATUS_COLOR: Record<ChangeRequestStatus, string> = {
   WITHDRAWN: "var(--text-muted, #6b7280)",
 };
 
+// Status ordering for the sortable Status column (workflow order).
+const STATUS_RANK: Record<ChangeRequestStatus, number> = {
+  SUBMITTED: 0,
+  UNDER_REVIEW: 1,
+  APPROVED: 2,
+  REJECTED: 3,
+  IMPLEMENTED: 4,
+  WITHDRAWN: 5,
+};
+
+const USD = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope.
+const CHANGE_COLUMNS: ColumnDef<ChangeRequest>[] = [
+  {
+    accessorKey: "code",
+    header: "ID",
+    cell: ({ row }) => <span className="font-mono text-xs text-[var(--text-muted)]">{row.original.code}</span>,
+  },
+  {
+    accessorKey: "title",
+    header: "Title",
+    cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
+  },
+  {
+    id: "branch",
+    header: "Branch",
+    accessorFn: (c) => c.programBranch?.code ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
+  },
+  {
+    id: "type",
+    header: "Type",
+    accessorFn: (c) => c.type ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.type ?? "—"}</span>,
+  },
+  {
+    accessorKey: "costImpact",
+    header: "Cost ($)",
+    sortingFn: (a, b) => (a.original.costImpact ?? -Infinity) - (b.original.costImpact ?? -Infinity),
+    cell: ({ row }) =>
+      row.original.costImpact != null ? (
+        <span className="tabular-nums text-[var(--text)]">{USD.format(Number(row.original.costImpact))}</span>
+      ) : (
+        <span className="text-[var(--text-muted)]">—</span>
+      ),
+  },
+  {
+    accessorKey: "scheduleDaysImpact",
+    header: "Sched (days)",
+    sortingFn: (a, b) => (a.original.scheduleDaysImpact ?? -Infinity) - (b.original.scheduleDaysImpact ?? -Infinity),
+    cell: ({ row }) =>
+      row.original.scheduleDaysImpact != null ? (
+        <span className="tabular-nums text-[var(--text)]">{row.original.scheduleDaysImpact}</span>
+      ) : (
+        <span className="text-[var(--text-muted)]">—</span>
+      ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    sortingFn: (a, b) => STATUS_RANK[a.original.status] - STATUS_RANK[b.original.status],
+    cell: ({ row }) => <StatusPill status={row.original.status} />,
+  },
+];
+
 interface ChangeForm {
   title: string;
   description: string;
@@ -173,8 +247,6 @@ function formToBody(f: ChangeForm) {
   };
 }
 
-type SortKey = "code" | "status" | "cost";
-
 export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/changes`;
   const queryKey = useOrgQueryKey("changes", projectId);
@@ -185,7 +257,6 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("code");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<ChangeRequest | null>(null);
   const [form, setForm] = useState<ChangeForm>(emptyForm);
@@ -207,31 +278,48 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
     onError: (e) => notifyError(e, "Couldn't delete the change request."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? changes.filter(
-          (c) =>
-            c.title.toLowerCase().includes(f) ||
-            c.code.toLowerCase().includes(f) ||
-            (c.initiatedBy ?? "").toLowerCase().includes(f) ||
-            (c.programBranch?.name ?? "").toLowerCase().includes(f),
-        )
-      : changes.slice();
-    rows.sort((a, b) => {
-      if (sort === "code") return a.code.localeCompare(b.code);
-      if (sort === "status") return a.status.localeCompare(b.status);
-      // cost descending (nulls last)
-      const ca = a.costImpact ?? -Infinity;
-      const cb = b.costImpact ?? -Infinity;
-      return cb - ca;
-    });
-    return rows;
-  }, [changes, filter, sort]);
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu: view+edit, quick status, delete.
+  const rowActions = useCallback(
+    (c: ChangeRequest): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenChangeId(c.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: STATUS_LABEL[st],
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(c.id, { status: st });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(c) }] });
+      }
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   function openCreate() {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
+  }
+  // Row click → open the detail drawer (the primary row-detail view).
+  function openDetail(c: ChangeRequest) {
+    setOpenChangeId(c.id);
   }
 
   // Build the drawer's inline-editable field list for the open change request.
@@ -339,115 +427,62 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">Change Log</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {changes.length} change request{changes.length === 1 ? "" : "s"}
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New Change Request
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by title, ID, initiator, branch…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "code") as SortKey)}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="code">Sort: CR ID</SelectItem>
-            <SelectItem value="status">Sort: Status</SelectItem>
-            <SelectItem value="cost">Sort: Cost Impact</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={ClipboardList}
-          title={filter ? "No matching change requests" : "No change requests yet"}
-          description={
-            filter ? "Try a different filter." : "Log the first change request to start the register."
-          }
-          action={
-            !filter && canEdit ? (
-              <Button onClick={openCreate}>
-                <Plus className="size-4" /> New Change Request
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">ID</th>
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 font-medium">Branch</th>
-                <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 text-right font-medium">Cost ($)</th>
-                <th className="px-3 py-2 text-right font-medium">Sched (days)</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((c) => (
-                <tr
-                  key={c.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => setOpenChangeId(c.id)}
-                >
-                  <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{c.code}</td>
-                  <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{c.title}</td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                    {c.programBranch?.code ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">{c.type ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {c.costImpact != null
-                      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(c.costImpact))
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {c.scheduleDaysImpact != null ? c.scheduleDaysImpact : "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <StatusPill status={c.status} />
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {canEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete change request"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(c);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <>
+      <PmDataTable
+        title="Change Log"
+        subtitle={`${changes.length} change request${changes.length === 1 ? "" : "s"}`}
+        rows={changes}
+        columns={CHANGE_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(c) => [c.code, c.title, c.initiatedBy ?? "", c.programBranch?.name ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, initiator, branch…"
+        onRowClick={openDetail}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New Change Request"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st} value={st}>{STATUS_LABEL[st]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} change request${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={ClipboardList}
+        emptyTitle="No change requests yet"
+        emptyDescription="Log the first change request to start the register."
+      />
 
       {/* Create */}
       <ChangeDialog
@@ -506,7 +541,7 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
