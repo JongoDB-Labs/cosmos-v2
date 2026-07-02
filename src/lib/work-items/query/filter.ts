@@ -38,6 +38,9 @@ export interface DateRange {
  * inert. Multi-value array fields are OR-within, AND-across.
  */
 export interface WorkItemFilter {
+  /** WorkItem.id values — direct id lookup (still intersected with RBAC project
+   *  scope). Used to open a single item by id (e.g. a mention deep-link). */
+  ids?: string[];
   /** Project.id values — OR within, scoped to allowed projects by the builder. */
   projectIds?: string[];
   /** WorkItemType.id values. */
