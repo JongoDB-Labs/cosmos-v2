@@ -183,6 +183,11 @@ export function TemplateGallery({
       router.push(
         `/${orgSlug}/projects/${projectKey}/boards/${board.id}`
       );
+      // The board-tabs strip is rendered from the project layout's server-side
+      // Prisma query, so a client push() alone navigates to the new board while
+      // the tabs still show the stale list. Refresh re-runs the layout so the
+      // new board appears in the tabs without a manual reload.
+      router.refresh();
     } catch (err) {
       notifyError(err, "Couldn't create the board.");
       setCreatingSlug(null);
