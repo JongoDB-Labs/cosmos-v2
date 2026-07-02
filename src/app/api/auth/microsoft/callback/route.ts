@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
 
   let email: string;
   let displayName: string;
+  let candidates: string[] = [];
   try {
     const tokens = await exchangeMicrosoftCode({
       clientId: cfg.clientId,
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
       redirectUri: microsoftRedirectUri(request),
     });
     if (!tokens.access_token) {
+      console.error("[auth:microsoft] token exchange returned no access_token");
       const res = redirectToLogin(origin, "auth_failed");
       res.cookies.delete(MS_STATE_COOKIE);
       return res;
@@ -66,26 +68,44 @@ export async function GET(request: NextRequest) {
     const profile = await fetchMicrosoftProfile(tokens.access_token);
     email = profile.email;
     displayName = profile.displayName;
-  } catch {
+    candidates = profile.emailCandidates;
+  } catch (err) {
+    console.error(
+      "[auth:microsoft] token/profile exchange failed:",
+      err instanceof Error ? err.message : String(err),
+    );
     const res = redirectToLogin(origin, "auth_failed");
     res.cookies.delete(MS_STATE_COOKIE);
     return res;
   }
 
   // Allowlist parity with the Google path: ALLOWED_EMAILS env bootstrap on top
-  // of the DB-managed allowed_emails table.
+  // of the DB-managed allowed_emails table. Checked against ALL of the user's
+  // own verified addresses (primary SMTP `mail` + UPN) — enterprise M365 accounts
+  // frequently have a `mail` alias that differs from the UPN, and gating only on
+  // `mail || UPN` would wrongly reject a user whose OTHER address is allowlisted.
+  // The matched address becomes the identity so they resolve to their account.
   const envAllowed = (process.env.ALLOWED_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  const dbAllowed = envAllowed.includes(email)
-    ? true
-    : Boolean(await prisma.allowedEmail.findUnique({ where: { email } }));
-  if (!dbAllowed) {
+  let matchedEmail = candidates.find((c) => envAllowed.includes(c)) ?? null;
+  if (!matchedEmail) {
+    const row = await prisma.allowedEmail.findFirst({
+      where: { email: { in: candidates } },
+      select: { email: true },
+    });
+    matchedEmail = row?.email ?? null;
+  }
+  if (!matchedEmail) {
+    console.warn(
+      `[auth:microsoft] sign-in denied — no allowlisted address among [${candidates.join(", ")}]`,
+    );
     const res = redirectToLogin(origin, "not_allowed");
     res.cookies.delete(MS_STATE_COOKIE);
     return res;
   }
+  email = matchedEmail;
 
   // Find or create by email. We don't store a provider id for Microsoft (no
   // schema column) — the email is the identity, shared with any existing

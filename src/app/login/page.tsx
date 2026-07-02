@@ -43,7 +43,12 @@ function LoginInner() {
           ? decodeURIComponent(document.cookie.match(/(^| )org=([^;]+)/)![2])
           : null)
       : null);
-  const [submitting, setSubmitting] = useState(false);
+  // Which provider the user clicked — only that button shows "Redirecting…".
+  // (A single boolean flipped every provider's label to loading at once.)
+  const [submitting, setSubmitting] = useState<
+    "sso" | "google" | "microsoft" | null
+  >(null);
+  const anySubmitting = submitting !== null;
 
   // SSO discovery: when an org slug is present, ask whether that org offers SSO
   // and whether it's enforced (gov SSO-only → hide Google). null = unknown/loading.
@@ -238,15 +243,15 @@ function LoginInner() {
           <Button
             size="lg"
             className="mt-6 w-full"
-            disabled={submitting}
+            disabled={anySubmitting}
             onClick={() => {
-              setSubmitting(true);
+              setSubmitting("sso");
               window.location.href = `/api/auth/sso/${encodeURIComponent(
                 orgSlug,
               )}/login`;
             }}
           >
-            {submitting ? "Redirecting…" : "Sign in with SSO"}
+            {submitting === "sso" ? "Redirecting…" : "Sign in with SSO"}
           </Button>
         )}
 
@@ -256,14 +261,14 @@ function LoginInner() {
             // When SSO is also offered, the Google button is the secondary option.
             variant={ssoEnabled && orgSlug ? "secondary" : "default"}
             className="mt-3 w-full"
-            disabled={submitting}
+            disabled={anySubmitting}
             onClick={() => {
-              setSubmitting(true);
+              setSubmitting("google");
               window.location.href = "/api/auth/google";
             }}
           >
             <GoogleLogo className="h-4 w-4" />
-            {submitting ? "Redirecting to Google…" : "Sign in with Google"}
+            {submitting === "google" ? "Redirecting to Google…" : "Sign in with Google"}
           </Button>
         )}
 
@@ -272,14 +277,14 @@ function LoginInner() {
             size="lg"
             variant="secondary"
             className="mt-3 w-full"
-            disabled={submitting}
+            disabled={anySubmitting}
             onClick={() => {
-              setSubmitting(true);
+              setSubmitting("microsoft");
               window.location.href = "/api/auth/microsoft";
             }}
           >
             <MicrosoftLogo className="h-4 w-4" />
-            {submitting ? "Redirecting to Microsoft…" : "Sign in with Microsoft"}
+            {submitting === "microsoft" ? "Redirecting to Microsoft…" : "Sign in with Microsoft"}
           </Button>
         )}
 

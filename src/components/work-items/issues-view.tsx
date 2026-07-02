@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
@@ -211,6 +211,30 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [tagDraft, setTagDraft] = useState("");
   const [bulkPending, setBulkPending] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Deep-link: `/issues?item=<id>` opens that work item's detail sheet even when
+  // it isn't on the current page (mention chips / "Mentioned in" backlinks link
+  // here). Fetch the single row (RBAC-scoped), open the sheet, then strip the
+  // param so closing it doesn't re-open and the URL stays clean.
+  useEffect(() => {
+    const itemId = searchParams.get("item");
+    if (!itemId) return;
+    let cancelled = false;
+    jsonFetch<IssueRow>(`/api/v1/orgs/${orgId}/work-items/${itemId}/row`)
+      .then((row) => {
+        if (!cancelled && row) setDetailRow(row);
+      })
+      .catch(() => {
+        /* item not readable / gone — leave the list as-is */
+      });
+    const url = new URL(window.location.href);
+    url.searchParams.delete("item");
+    router.replace(url.pathname + url.search);
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, orgId, router]);
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
