@@ -10,8 +10,12 @@ async function clearSession(request: NextRequest) {
       .delete({ where: { id: sessionId } })
       .catch(() => undefined);
   }
+  // 303 See Other (NOT the default 307): logout is called via `fetch(…, POST)`,
+  // and a 307 preserves the method, so the fetch re-issues POST /login → 405
+  // (a page route is GET-only). 303 forces the redirect to GET /login.
   const response = NextResponse.redirect(
     new URL("/login", getPublicOrigin(request)),
+    303,
   );
   response.cookies.delete(SESSION_COOKIE);
   return response;
