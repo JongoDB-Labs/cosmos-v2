@@ -123,6 +123,10 @@ export function SaveAsBoardDialog({
         router.push(
           `/${orgSlug}/projects/${project.key}/boards/${board.slug ?? board.id}`,
         );
+        // Board tabs are rendered from the project layout's server query, so the
+        // React Query invalidate above doesn't update them — refresh the server
+        // tree so the new board shows in the tabs immediately.
+        router.refresh();
       }
     },
   });
