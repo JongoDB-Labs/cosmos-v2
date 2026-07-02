@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -10,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -27,9 +27,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, AlertTriangle, Handshake } from "lucide-react";
+import { Loader2, Trash2, AlertTriangle, Handshake, Eye, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 interface PartnerLite {
   id: string;
@@ -75,8 +78,6 @@ interface VendorTrackerProps {
   partners: PartnerLite[];
 }
 
-type SortKey = "value" | "name" | "status";
-
 const STATUS_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "active", label: "Active" },
@@ -91,6 +92,15 @@ const STATUS_LABEL: Record<string, string> = {
   signed: "Signed",
   completed: "Completed",
   terminated: "Terminated",
+};
+
+// Lifecycle order for the sortable Status column.
+const STATUS_RANK: Record<string, number> = {
+  draft: 0,
+  active: 1,
+  signed: 2,
+  completed: 3,
+  terminated: 4,
 };
 
 interface VendorForm {
@@ -169,6 +179,120 @@ function formatMoney(value: number | null, currency: string): string {
   });
 }
 
+/** Sort numeric columns with nulls last (treated as the lowest value). */
+function numSort(a: number | null, b: number | null): number {
+  return (a ?? -Infinity) - (b ?? -Infinity);
+}
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope. Value/burn/status columns get an
+// explicit sortingFn so they order by number/lifecycle, not lexicographically.
+const VENDOR_COLUMNS: ColumnDef<Vendor>[] = [
+  {
+    id: "vendor",
+    header: "Vendor",
+    accessorFn: (v) => v.partner?.name ?? "",
+    cell: ({ row }) => {
+      const v = row.original;
+      return (
+        <div>
+          <span className="font-medium text-[var(--text)]">{v.partner?.name ?? "—"}</span>
+          {v.title ? (
+            <span className="block text-xs font-normal text-[var(--text-muted)]">{v.title}</span>
+          ) : null}
+        </div>
+      );
+    },
+  },
+  {
+    id: "socioEconomic",
+    header: "Socio-econ",
+    accessorFn: (v) => v.partner?.socioEconomic ?? "",
+    cell: ({ row }) => (
+      <span className="text-xs text-[var(--text-muted)]">{row.original.partner?.socioEconomic ?? "—"}</span>
+    ),
+  },
+  {
+    id: "value",
+    header: "Ceiling",
+    accessorFn: (v) => v.value ?? 0,
+    sortingFn: (a, b) => numSort(a.original.value, b.original.value),
+    cell: ({ row }) => (
+      <span className="tabular-nums text-[var(--text)]">
+        {formatMoney(row.original.value, row.original.currency)}
+      </span>
+    ),
+  },
+  {
+    id: "fundedValue",
+    header: "Funded",
+    accessorFn: (v) => v.fundedValue ?? 0,
+    sortingFn: (a, b) => numSort(a.original.fundedValue, b.original.fundedValue),
+    cell: ({ row }) => (
+      <span className="tabular-nums text-[var(--text)]">
+        {formatMoney(row.original.fundedValue, row.original.currency)}
+      </span>
+    ),
+  },
+  {
+    id: "invoicedValue",
+    header: "Invoiced",
+    accessorFn: (v) => v.invoicedValue ?? 0,
+    sortingFn: (a, b) => numSort(a.original.invoicedValue, b.original.invoicedValue),
+    cell: ({ row }) => (
+      <span className="tabular-nums text-[var(--text)]">
+        {formatMoney(row.original.invoicedValue, row.original.currency)}
+      </span>
+    ),
+  },
+  {
+    id: "pctBurnedFunded",
+    header: "% Burned",
+    accessorFn: (v) => v.pctBurnedFunded ?? 0,
+    sortingFn: (a, b) => numSort(a.original.pctBurnedFunded, b.original.pctBurnedFunded),
+    cell: ({ row }) => {
+      const pct = row.original.pctBurnedFunded;
+      if (pct == null) return <span className="text-xs text-[var(--text-muted)]">—</span>;
+      return (
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${Math.min(pct, 100)}%`, background: burnTone(pct) }}
+            />
+          </div>
+          <span className="tabular-nums text-xs" style={{ color: burnTone(pct) }}>
+            {pct}%
+          </span>
+        </div>
+      );
+    },
+  },
+  {
+    id: "nda",
+    header: "NDA",
+    accessorFn: (v) => (v.partner?.ndaOnFile ? 1 : 0),
+    cell: ({ row }) =>
+      row.original.partner?.ndaOnFile ? (
+        <span className="text-xs" style={{ color: "var(--success, #16a34a)" }}>On file</span>
+      ) : (
+        <span className="text-xs text-[var(--text-muted)]">—</span>
+      ),
+  },
+  {
+    id: "status",
+    header: "Status",
+    accessorFn: (v) => v.status,
+    sortingFn: (a, b) =>
+      (STATUS_RANK[a.original.status] ?? 99) - (STATUS_RANK[b.original.status] ?? 99),
+    cell: ({ row }) => (
+      <span className="text-[var(--text-muted)]">
+        {STATUS_LABEL[row.original.status] ?? row.original.status}
+      </span>
+    ),
+  },
+];
+
 export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/vendors`;
   const queryKey = useOrgQueryKey("vendors", projectId);
@@ -179,7 +303,6 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("value");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<Vendor | null>(null);
   const [form, setForm] = useState<VendorForm>(emptyForm);
@@ -203,28 +326,48 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
     onError: (e) => notifyError(e, "Couldn't delete the vendor contract."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? vendors.filter(
-          (v) =>
-            v.title.toLowerCase().includes(f) ||
-            (v.partner?.name ?? "").toLowerCase().includes(f) ||
-            (v.partner?.socioEconomic ?? "").toLowerCase().includes(f),
-        )
-      : vendors.slice();
-    rows.sort((a, b) => {
-      if (sort === "value") return (b.value ?? -Infinity) - (a.value ?? -Infinity);
-      if (sort === "name")
-        return (a.partner?.name ?? "").localeCompare(b.partner?.name ?? "");
-      return a.status.localeCompare(b.status);
-    });
-    return rows;
-  }, [vendors, filter, sort]);
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu: view+edit, quick status change, delete.
+  const rowActions = useCallback(
+    (v: Vendor): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenVendorId(v.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: st.label,
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(v.id, { status: st.value });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(v) }] });
+      }
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   function openCreate() {
     setForm({ ...emptyForm, partnerId: partners[0]?.id ?? "" });
     setCreateOpen(true);
+  }
+  // Row click → open the detail drawer (the primary row-detail view).
+  function openDetail(v: Vendor) {
+    setOpenVendorId(v.id);
   }
 
   // Build the drawer's inline-editable field list for the open vendor. Contract
@@ -339,160 +482,65 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">Vendor Register</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {vendors.length} contract{vendors.length === 1 ? "" : "s"} ·{" "}
-            {totalCommitted.toLocaleString(undefined, {
-              style: "currency",
-              currency: "USD",
-              maximumFractionDigits: 0,
-            })}{" "}
-            total committed
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New Vendor Contract
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by vendor, title, socio-econ…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "value") as SortKey)}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="value">Sort: Committed (high→low)</SelectItem>
-            <SelectItem value="name">Sort: Vendor name</SelectItem>
-            <SelectItem value="status">Sort: Status</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={Handshake}
-          title={filter ? "No matching vendor contracts" : "No vendor contracts yet"}
-          description={
-            filter
-              ? "Try a different filter."
-              : "Add the first subcontract to start the vendor register."
-          }
-          action={
-            !filter && canEdit ? (
-              <Button onClick={openCreate}>
-                <Plus className="size-4" /> New Vendor Contract
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">Vendor</th>
-                <th className="px-3 py-2 font-medium">Socio-econ</th>
-                <th className="px-3 py-2 text-right font-medium">Ceiling</th>
-                <th className="px-3 py-2 text-right font-medium">Funded</th>
-                <th className="px-3 py-2 text-right font-medium">Invoiced</th>
-                <th className="px-3 py-2 font-medium">% Burned</th>
-                <th className="px-3 py-2 font-medium">NDA</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((v) => (
-                <tr
-                  key={v.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => setOpenVendorId(v.id)}
-                >
-                  <td className="px-3 py-2 font-medium text-[var(--text)]">
-                    {v.partner?.name ?? "—"}
-                    {v.title ? (
-                      <span className="block text-xs font-normal text-[var(--text-muted)]">
-                        {v.title}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                    {v.partner?.socioEconomic ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {formatMoney(v.value, v.currency)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {formatMoney(v.fundedValue, v.currency)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {formatMoney(v.invoicedValue, v.currency)}
-                  </td>
-                  <td className="px-3 py-2">
-                    {v.pctBurnedFunded != null ? (
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.min(v.pctBurnedFunded, 100)}%`,
-                              background: burnTone(v.pctBurnedFunded),
-                            }}
-                          />
-                        </div>
-                        <span
-                          className="tabular-nums text-xs"
-                          style={{ color: burnTone(v.pctBurnedFunded) }}
-                        >
-                          {v.pctBurnedFunded}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-xs">
-                    {v.partner?.ndaOnFile ? (
-                      <span style={{ color: "var(--success, #16a34a)" }}>On file</span>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-[var(--text-muted)]">
-                    {STATUS_LABEL[v.status] ?? v.status}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {canEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete vendor contract"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(v);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <>
+      <PmDataTable
+        title="Vendor Register"
+        subtitle={`${vendors.length} contract${vendors.length === 1 ? "" : "s"} · ${totalCommitted.toLocaleString(
+          undefined,
+          { style: "currency", currency: "USD", maximumFractionDigits: 0 },
+        )} total committed`}
+        rows={vendors}
+        columns={VENDOR_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(v) => [v.title, v.partner?.name ?? "", v.partner?.socioEconomic ?? ""].join(" ")}
+        searchPlaceholder="Filter by vendor, title, socio-econ…"
+        onRowClick={openDetail}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New Vendor Contract"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} vendor contract${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={Handshake}
+        emptyTitle="No vendor contracts yet"
+        emptyDescription="Add the first subcontract to start the vendor register."
+      />
 
       {/* Create */}
       <VendorDialog
@@ -558,7 +606,7 @@ export function VendorTracker({ orgId, projectId, partners }: VendorTrackerProps
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 

@@ -4,7 +4,7 @@
  * Each definition describes one importable PM entity: a stable `key`, a display
  * `label` + lucide `icon` name, the list of mappable `fields`, and a
  * `naturalKey` (the field(s) that anchor idempotency — a row whose natural key
- * already exists is SKIPPED, never updated).
+ * already exists is UPDATED with the mapped fields, never duplicated).
  *
  * NO server-only imports here — this file is shared by the wizard (client) and
  * the server engine (src/lib/import/entity-import.ts). The server engine owns
@@ -322,8 +322,12 @@ export interface EntityImportRowError {
 export interface EntityImportReport {
   total: number;
   willCreate: number;
+  /** rows whose natural key already exists → the mapped fields are UPDATED
+   *  (only the columns present in the import; blanks never clobber). */
+  willUpdate: number;
   skipped: number;
   errors: EntityImportRowError[];
   /** committed only */
   created?: number;
+  updated?: number;
 }

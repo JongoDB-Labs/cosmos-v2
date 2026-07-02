@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -11,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -28,9 +28,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, Calendar, AlertTriangle, X, Link2 } from "lucide-react";
+import { Loader2, Trash2, Calendar, AlertTriangle, X, Link2, Eye, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -87,6 +90,13 @@ const STATUS_LABEL: Record<MilestoneStatus, string> = {
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   MISSED: "Missed",
+};
+
+const STATUS_RANK: Record<MilestoneStatus, number> = {
+  UPCOMING: 0,
+  IN_PROGRESS: 1,
+  COMPLETED: 2,
+  MISSED: 3,
 };
 
 interface MilestoneForm {
@@ -185,7 +195,104 @@ function computeVariance(baselineDate: string | null, dueDate: string): number |
   return Math.round((due - base) / 86_400_000);
 }
 
-type SortKey = "dueDate" | "title" | "variance";
+function dateMs(iso: string | null | undefined): number {
+  return iso ? new Date(iso).getTime() : 0;
+}
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope. VariancePill / ProgressCell are
+// hoisted function declarations referenced from the cell closures.
+const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
+  {
+    accessorKey: "title",
+    header: "Title",
+    cell: ({ row }) => (
+      <span className="block max-w-xs truncate font-medium text-[var(--text)]">{row.original.title}</span>
+    ),
+  },
+  {
+    id: "branch",
+    header: "Branch",
+    accessorFn: (m) => m.programBranch?.code ?? "",
+    cell: ({ row }) => (
+      <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>
+    ),
+  },
+  {
+    id: "baselineDate",
+    header: "Baseline",
+    accessorFn: (m) => dateMs(m.baselineDate),
+    sortingFn: (a, b) => dateMs(a.original.baselineDate) - dateMs(b.original.baselineDate),
+    cell: ({ row }) => (
+      <span className="tabular-nums text-[var(--text-muted)]">
+        {row.original.baselineDate ? new Date(row.original.baselineDate).toLocaleDateString() : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "dueDate",
+    header: "Projected",
+    accessorFn: (m) => dateMs(m.dueDate),
+    sortingFn: (a, b) => dateMs(a.original.dueDate) - dateMs(b.original.dueDate),
+    cell: ({ row }) => (
+      <span className="tabular-nums text-[var(--text)]">{new Date(row.original.dueDate).toLocaleDateString()}</span>
+    ),
+  },
+  {
+    id: "variance",
+    header: "Variance",
+    accessorFn: (m) => computeVariance(m.baselineDate, m.dueDate) ?? -Infinity,
+    sortingFn: (a, b) => {
+      const va = computeVariance(a.original.baselineDate, a.original.dueDate) ?? -Infinity;
+      const vb = computeVariance(b.original.baselineDate, b.original.dueDate) ?? -Infinity;
+      return va - vb;
+    },
+    cell: ({ row }) => (
+      <VariancePill variance={computeVariance(row.original.baselineDate, row.original.dueDate)} />
+    ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    sortingFn: (a, b) => STATUS_RANK[a.original.status] - STATUS_RANK[b.original.status],
+    cell: ({ row }) => (
+      <>
+        <span className="text-[var(--text-muted)]">{STATUS_LABEL[row.original.status]}</span>
+        {row.original.autoStatus && row.original.linkedTotal > 0 && (
+          <span
+            className="ml-1.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]"
+            title="Status derived from linked work items"
+          >
+            auto
+          </span>
+        )}
+      </>
+    ),
+  },
+  {
+    id: "progress",
+    header: "Progress",
+    accessorFn: (m) => m.completionPercent ?? -1,
+    cell: ({ row }) => (
+      <ProgressCell
+        done={row.original.linkedDone}
+        total={row.original.linkedTotal}
+        percent={row.original.completionPercent}
+      />
+    ),
+  },
+  {
+    id: "escalate",
+    header: "Esc.",
+    accessorFn: (m) => (m.scheduleEscalate ? 1 : 0),
+    cell: ({ row }) =>
+      row.original.scheduleEscalate ? (
+        <span className="text-[10px] font-semibold uppercase text-[var(--status-blocked,#dc2626)]">Yes</span>
+      ) : (
+        <span className="text-xs text-[var(--text-muted)]">—</span>
+      ),
+  },
+];
 
 export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/schedule`;
@@ -206,7 +313,6 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   });
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("dueDate");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
   const [deleting, setDeleting] = useState<Milestone | null>(null);
@@ -261,38 +367,57 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
     onError: (e) => notifyError(e, "Couldn't unlink the work item."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? milestones.filter(
-          (m) =>
-            m.title.toLowerCase().includes(f) ||
-            (m.phase ?? "").toLowerCase().includes(f) ||
-            (m.programBranch?.code ?? "").toLowerCase().includes(f),
-        )
-      : milestones.slice();
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
 
-    rows.sort((a, b) => {
-      if (sort === "title") return a.title.localeCompare(b.title);
-      if (sort === "variance") {
-        const va = computeVariance(a.baselineDate, a.dueDate) ?? -Infinity;
-        const vb = computeVariance(b.baselineDate, b.dueDate) ?? -Infinity;
-        return vb - va; // largest slip first
+  // Right-click / ⋯ row menu: view+edit (drawer), quick status, edit + linked
+  // items (the work-item-link dialog), delete.
+  const rowActions = useCallback(
+    (m: Milestone): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenMilestoneId(m.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: STATUS_LABEL[st],
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(m.id, { status: st });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({
+          items: [
+            {
+              label: "Edit & linked items",
+              icon: Link2,
+              onClick: () => {
+                setForm(milestoneToForm(m));
+                setEditing(m);
+              },
+            },
+          ],
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(m) }] });
       }
-      // default: dueDate asc
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-    });
-    return rows;
-  }, [milestones, filter, sort]);
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   function openCreate() {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
-  }
-
-  function openEdit(m: Milestone) {
-    setForm(milestoneToForm(m));
-    setEditing(m);
   }
 
   // The freshest copy of the milestone being edited, so its linked-items list
@@ -460,162 +585,62 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">Schedule Tracker</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {milestones.length} milestone{milestones.length === 1 ? "" : "s"} ·
-            variance = projected − baseline
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New Milestone
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by title, phase, branch…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "dueDate") as SortKey)}>
-          <SelectTrigger className="w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="dueDate">Sort: Projected date</SelectItem>
-            <SelectItem value="title">Sort: Title</SelectItem>
-            <SelectItem value="variance">Sort: Variance (largest slip)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={Calendar}
-          title={filter ? "No matching milestones" : "No milestones yet"}
-          description={
-            filter
-              ? "Try a different filter."
-              : "Add the first milestone to start tracking the schedule."
-          }
-          action={
-            !filter && canEdit ? (
-              <Button onClick={openCreate}>
-                <Plus className="size-4" /> New Milestone
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 font-medium">Branch</th>
-                <th className="px-3 py-2 font-medium">Baseline</th>
-                <th className="px-3 py-2 font-medium">Projected</th>
-                <th className="px-3 py-2 font-medium">Variance</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Progress</th>
-                <th className="px-3 py-2 font-medium">Esc.</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((m) => {
-                const variance = computeVariance(m.baselineDate, m.dueDate);
-                return (
-                  <tr
-                    key={m.id}
-                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                    onClick={() => setOpenMilestoneId(m.id)}
+    <>
+      <PmDataTable
+        title="Schedule Tracker"
+        subtitle={`${milestones.length} milestone${milestones.length === 1 ? "" : "s"} · variance = projected − baseline`}
+        rows={milestones}
+        columns={MILESTONE_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(m) => [m.title, m.phase ?? "", m.programBranch?.code ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, phase, branch…"
+        onRowClick={(m) => setOpenMilestoneId(m.id)}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New Milestone"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
                   >
-                    <td className="max-w-xs truncate px-3 py-2 font-medium text-[var(--text)]">
-                      {m.title}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                      {m.programBranch?.code ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-[var(--text-muted)]">
-                      {m.baselineDate
-                        ? new Date(m.baselineDate).toLocaleDateString()
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-[var(--text)]">
-                      {new Date(m.dueDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-3 py-2">
-                      <VariancePill variance={variance} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="text-[var(--text-muted)]">{STATUS_LABEL[m.status]}</span>
-                      {m.autoStatus && m.linkedTotal > 0 && (
-                        <span
-                          className="ml-1.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]"
-                          title="Status derived from linked work items"
-                        >
-                          auto
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <ProgressCell
-                        done={m.linkedDone}
-                        total={m.linkedTotal}
-                        percent={m.completionPercent}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      {m.scheduleEscalate ? (
-                        <span className="text-[10px] font-semibold uppercase text-[var(--status-blocked,#dc2626)]">
-                          Yes
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[var(--text-muted)]">—</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Edit milestone & linked items"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEdit(m);
-                          }}
-                        >
-                          <Link2 className="size-3.5" />
-                        </Button>
-                      )}
-                      {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Delete milestone"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleting(m);
-                          }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st} value={st}>{STATUS_LABEL[st]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} milestone${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={Calendar}
+        emptyTitle="No milestones yet"
+        emptyDescription="Add the first milestone to start tracking the schedule."
+      />
 
       {/* Create */}
       <MilestoneDialog
@@ -703,7 +728,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 

@@ -349,6 +349,7 @@ function GenericImportFlow({
         <h3 className="text-lg font-semibold">Import complete</h3>
         <p className="mt-1 text-sm text-[var(--text-muted)]">
           Created {committed.created ?? 0}
+          {committed.updated ? `, updated ${committed.updated}` : ""}
           {committed.skipped ? `, skipped ${committed.skipped}` : ""}.
         </p>
         <div className="mt-5 flex justify-center gap-2">
@@ -538,9 +539,10 @@ function GenericImportFlow({
       {/* STEP 3 — Review */}
       {step === "review" && report && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Stat label="Will create" value={report.willCreate} tone="primary" />
-            <Stat label="Skipped (exists / invalid)" value={report.skipped} tone={report.skipped ? "warn" : "muted"} />
+            <Stat label="Will update (existing)" value={report.willUpdate} tone={report.willUpdate ? "primary" : "muted"} />
+            <Stat label="Skipped (invalid / dup)" value={report.skipped} tone={report.skipped ? "warn" : "muted"} />
           </div>
           {report.errors.length > 0 && (
             <div className="rounded-lg border border-[var(--border)]">
@@ -561,8 +563,12 @@ function GenericImportFlow({
             <Button variant="ghost" onClick={() => setStep("fields")}>
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
-            <Button disabled={busy || report.willCreate === 0} onClick={() => void submit("commit")}>
-              {busy ? "Importing…" : `Import ${report.willCreate} ${def.label.toLowerCase()}`}
+            <Button disabled={busy || report.willCreate + report.willUpdate === 0} onClick={() => void submit("commit")}>
+              {busy
+                ? "Importing…"
+                : report.willUpdate > 0
+                  ? `Import ${report.willCreate + report.willUpdate} ${def.label.toLowerCase()} (${report.willCreate} new · ${report.willUpdate} update)`
+                  : `Import ${report.willCreate} ${def.label.toLowerCase()}`}
             </Button>
           </div>
         </div>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -12,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -29,9 +29,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, FileText, AlertTriangle, Eye, Flag, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type DeliverableStatus =
   | "NOT_STARTED"
@@ -185,7 +188,95 @@ function computeEarlyLate(baselineDue: string | null, actualSubmission: string |
   return `${days}d late`;
 }
 
-type SortKey = "baselineDue" | "status" | "code";
+// Status sorts by workflow order (STATUS_OPTIONS), not alphabetically.
+const STATUS_RANK: Record<DeliverableStatus, number> = Object.fromEntries(
+  STATUS_OPTIONS.map((s, i) => [s, i]),
+) as Record<DeliverableStatus, number>;
+
+// Baseline-due timestamp — missing dates sort last.
+function baselineTime(d: Deliverable): number {
+  return d.baselineDue ? new Date(d.baselineDue).getTime() : Infinity;
+}
+
+// Signed day delta between actual submission and baseline due (negative = early,
+// positive = late). null when either date is missing — sorts last.
+function earlyLateDays(baselineDue: string | null, actualSubmission: string | null): number | null {
+  if (!actualSubmission || !baselineDue) return null;
+  return Math.round((new Date(actualSubmission).getTime() - new Date(baselineDue).getTime()) / 86400000);
+}
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope. Status sorts by workflow rank;
+// Baseline Due + Early/Late sort numerically (not by their rendered strings).
+const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
+  {
+    accessorKey: "code",
+    header: "ID",
+    cell: ({ row }) => <span className="font-mono text-xs text-[var(--text-muted)]">{row.original.code}</span>,
+  },
+  {
+    accessorKey: "title",
+    header: "Title",
+    cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
+  },
+  {
+    id: "clin",
+    header: "CLIN",
+    accessorFn: (d) => d.clin ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.clin ?? "—"}</span>,
+  },
+  {
+    id: "branch",
+    header: "Branch",
+    accessorFn: (d) => d.programBranch?.code ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    sortingFn: (a, b) => STATUS_RANK[a.original.status] - STATUS_RANK[b.original.status],
+    cell: ({ row }) => <span className="text-[var(--text-muted)]">{STATUS_LABEL[row.original.status]}</span>,
+  },
+  {
+    id: "baselineDue",
+    header: "Baseline Due",
+    accessorFn: (d) => baselineTime(d),
+    sortingFn: (a, b) => baselineTime(a.original) - baselineTime(b.original),
+    cell: ({ row }) => (
+      <span className="text-[var(--text-muted)]">
+        {row.original.baselineDue ? new Date(row.original.baselineDue).toLocaleDateString() : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "earlyLate",
+    header: "Early/Late",
+    accessorFn: (d) => earlyLateDays(d.baselineDue, d.actualSubmission) ?? Infinity,
+    sortingFn: (a, b) => {
+      const av = earlyLateDays(a.original.baselineDue, a.original.actualSubmission) ?? Infinity;
+      const bv = earlyLateDays(b.original.baselineDue, b.original.actualSubmission) ?? Infinity;
+      return av - bv;
+    },
+    cell: ({ row }) => {
+      const earlyLate = computeEarlyLate(row.original.baselineDue, row.original.actualSubmission);
+      const isLate = earlyLate.endsWith("d late");
+      const isEarly = earlyLate.endsWith("d early");
+      return (
+        <span
+          className={
+            isLate
+              ? "text-xs font-medium text-[var(--status-blocked,#dc2626)]"
+              : isEarly
+                ? "text-xs font-medium text-[var(--status-ok,#16a34a)]"
+                : "text-xs text-[var(--text-muted)]"
+          }
+        >
+          {earlyLate}
+        </span>
+      );
+    },
+  },
+];
 
 export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/deliverables`;
@@ -197,7 +288,6 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("baselineDue");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<Deliverable | null>(null);
   const [form, setForm] = useState<DeliverableForm>(emptyForm);
@@ -221,29 +311,56 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
     onError: (e) => notifyError(e, "Couldn't delete the deliverable."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? deliverables.filter(
-          (d) =>
-            d.title.toLowerCase().includes(f) ||
-            d.code.toLowerCase().includes(f) ||
-            (d.clin ?? "").toLowerCase().includes(f) ||
-            (d.owner ?? "").toLowerCase().includes(f) ||
-            (d.programBranch?.name ?? "").toLowerCase().includes(f),
-        )
-      : deliverables.slice();
-    rows.sort((a, b) => {
-      if (sort === "baselineDue") {
-        const aDate = a.baselineDue ? new Date(a.baselineDue).getTime() : Infinity;
-        const bDate = b.baselineDue ? new Date(b.baselineDue).getTime() : Infinity;
-        return aDate - bDate;
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu: view+edit, quick status, escalate toggle, delete.
+  const rowActions = useCallback(
+    (d: Deliverable): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenDeliverableId(d.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: STATUS_LABEL[st],
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(d.id, { status: st });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({
+          items: [
+            {
+              label: d.escalate ? "Remove escalation" : "Escalate to customer",
+              icon: Flag,
+              onClick: async () => {
+                try {
+                  await patch(d.id, { escalate: !d.escalate });
+                  void refetch();
+                } catch (e) {
+                  notifyError(e, "Couldn't update escalation.");
+                }
+              },
+            },
+          ],
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(d) }] });
       }
-      if (sort === "status") return a.status.localeCompare(b.status);
-      return a.code.localeCompare(b.code);
-    });
-    return rows;
-  }, [deliverables, filter, sort]);
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   // MSR roll-up — the headline numbers a PM reports in government reviews
   // (mirrors the deliverable tracker's "Summary Dashboard" sheet).
@@ -276,6 +393,10 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
   function openCreate() {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
+  }
+  // Row click → open the detail drawer (the primary row-detail view).
+  function openDetail(d: Deliverable) {
+    setOpenDeliverableId(d.id);
   }
 
   // Build the drawer's inline-editable field list for the open deliverable. Each
@@ -404,42 +525,9 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">Deliverable Register</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {deliverables.length} deliverable{deliverables.length === 1 ? "" : "s"} · CDRL tracking
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New Deliverable
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by title, ID, CLIN, owner, branch…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "baselineDue") as SortKey)}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="baselineDue">Sort: Baseline Due</SelectItem>
-            <SelectItem value="status">Sort: Status</SelectItem>
-            <SelectItem value="code">Sort: CDRL ID</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* MSR roll-up metrics */}
-      <div className="flex flex-wrap gap-2">
+    <>
+      {/* MSR roll-up metrics — headline numbers a PM reports in government reviews. */}
+      <div className="mx-auto flex max-w-6xl flex-wrap gap-2 px-6 pt-6">
         {[
           { l: "Total", v: String(metrics.total) },
           { l: "Submitted", v: String(metrics.submitted) },
@@ -461,84 +549,61 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         ))}
       </div>
 
-      {view.length === 0 ? (
-        <EmptyState
-          icon={FileText}
-          title={filter ? "No matching deliverables" : "No deliverables yet"}
-          description={filter ? "Try a different filter." : "Log the first deliverable to start tracking CDRLs."}
-          action={!filter && canEdit ? <Button onClick={openCreate}><Plus className="size-4" /> New Deliverable</Button> : undefined}
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">ID</th>
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 font-medium">CLIN</th>
-                <th className="px-3 py-2 font-medium">Branch</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Baseline Due</th>
-                <th className="px-3 py-2 font-medium">Early/Late</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((d) => {
-                const earlyLate = computeEarlyLate(d.baselineDue, d.actualSubmission);
-                const isLate = earlyLate.endsWith("d late");
-                const isEarly = earlyLate.endsWith("d early");
-                return (
-                  <tr
-                    key={d.id}
-                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                    onClick={() => setOpenDeliverableId(d.id)}
+      <PmDataTable
+        title="Deliverable Register"
+        subtitle={`${deliverables.length} deliverable${deliverables.length === 1 ? "" : "s"} · CDRL tracking`}
+        rows={deliverables}
+        columns={DELIVERABLE_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(d) => [d.code, d.title, d.clin ?? "", d.owner ?? "", d.programBranch?.name ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, CLIN, owner, branch…"
+        onRowClick={openDetail}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New Deliverable"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
                   >
-                    <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{d.code}</td>
-                    <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{d.title}</td>
-                    <td className="px-3 py-2 text-xs text-[var(--text-muted)]">{d.clin ?? "—"}</td>
-                    <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                      {d.programBranch?.code ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{STATUS_LABEL[d.status]}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">
-                      {d.baselineDue ? new Date(d.baselineDue).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      <span
-                        className={
-                          isLate
-                            ? "font-medium text-[var(--status-blocked,#dc2626)]"
-                            : isEarly
-                              ? "font-medium text-[var(--status-ok,#16a34a)]"
-                              : "text-[var(--text-muted)]"
-                        }
-                      >
-                        {earlyLate}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Delete deliverable"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleting(d);
-                          }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st} value={st}>{STATUS_LABEL[st]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} deliverable${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={FileText}
+        emptyTitle="No deliverables yet"
+        emptyDescription="Log the first deliverable to start tracking CDRLs."
+      />
 
       {/* Create */}
       <DeliverableDialog
@@ -597,7 +662,7 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 

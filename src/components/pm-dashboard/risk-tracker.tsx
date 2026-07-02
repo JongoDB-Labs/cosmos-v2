@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -12,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -29,9 +29,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, ShieldAlert, AlertTriangle, Eye, Flag, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type RiskStatus = "OPEN" | "MONITORING" | "MITIGATED" | "CLOSED" | "ESCALATED";
 
@@ -86,6 +89,65 @@ const LEVEL_META: Record<RiskLevel, { label: string; color: string }> = {
   LOW: { label: "Low", color: "var(--text-muted, #6b7280)" },
 };
 
+const LEVEL_RANK: Record<RiskLevel, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope.
+const RISK_COLUMNS: ColumnDef<Risk>[] = [
+  {
+    accessorKey: "code",
+    header: "ID",
+    cell: ({ row }) => <span className="font-mono text-xs text-[var(--text-muted)]">{row.original.code}</span>,
+  },
+  {
+    accessorKey: "title",
+    header: "Risk",
+    cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
+  },
+  {
+    id: "branch",
+    header: "Branch",
+    accessorFn: (r) => r.programBranch?.code ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
+  },
+  {
+    accessorKey: "level",
+    header: "Level",
+    sortingFn: (a, b) => LEVEL_RANK[a.original.level] - LEVEL_RANK[b.original.level],
+    cell: ({ row }) => {
+      const lm = LEVEL_META[row.original.level];
+      return <Pill label={lm.label} color={lm.color} />;
+    },
+  },
+  {
+    accessorKey: "score",
+    header: "Score",
+    cell: ({ row }) => <span className="tabular-nums text-[var(--text)]">{row.original.score}</span>,
+  },
+  {
+    id: "owner",
+    header: "Owner",
+    accessorFn: (r) => r.owner ?? "",
+    cell: ({ row }) => <span className="text-[var(--text-muted)]">{row.original.owner ?? "—"}</span>,
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => STATUS_LABEL[row.original.status],
+  },
+  {
+    id: "escalate",
+    header: "Esc.",
+    accessorFn: (r) => (r.escalate ? 1 : 0),
+    cell: ({ row }) =>
+      row.original.escalate ? (
+        <span className="text-[10px] font-semibold uppercase text-[var(--status-blocked,#dc2626)]">Yes</span>
+      ) : (
+        <span className="text-xs text-[var(--text-muted)]">—</span>
+      ),
+  },
+];
+
 interface RiskForm {
   title: string;
   description: string;
@@ -139,8 +201,6 @@ function formToBody(f: RiskForm) {
   };
 }
 
-type SortKey = "priority" | "code" | "level" | "status";
-
 export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/risks`;
   const queryKey = useOrgQueryKey("risks", projectId);
@@ -151,7 +211,6 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("priority");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<Risk | null>(null);
   const [form, setForm] = useState<RiskForm>(emptyForm);
@@ -173,26 +232,56 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
     onError: (e) => notifyError(e, "Couldn't delete the risk."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? risks.filter(
-          (r) =>
-            r.title.toLowerCase().includes(f) ||
-            r.code.toLowerCase().includes(f) ||
-            (r.owner ?? "").toLowerCase().includes(f) ||
-            (r.programBranch?.name ?? "").toLowerCase().includes(f),
-        )
-      : risks.slice();
-    const levelRank: Record<RiskLevel, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-    rows.sort((a, b) => {
-      if (sort === "priority") return b.score - a.score;
-      if (sort === "code") return a.code.localeCompare(b.code);
-      if (sort === "level") return levelRank[a.level] - levelRank[b.level];
-      return a.status.localeCompare(b.status);
-    });
-    return rows;
-  }, [risks, filter, sort]);
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu: view+edit, quick status, escalate toggle, delete.
+  const rowActions = useCallback(
+    (r: Risk): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenRiskId(r.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: STATUS_LABEL[st],
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(r.id, { status: st });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({
+          items: [
+            {
+              label: r.escalate ? "Remove escalation" : "Escalate to customer",
+              icon: Flag,
+              onClick: async () => {
+                try {
+                  await patch(r.id, { escalate: !r.escalate });
+                  void refetch();
+                } catch (e) {
+                  notifyError(e, "Couldn't update escalation.");
+                }
+              },
+            },
+          ],
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(r) }] });
+      }
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   function openCreate() {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
@@ -301,115 +390,62 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">Risk Register</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {risks.length} risk{risks.length === 1 ? "" : "s"} · score = likelihood × impact
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New Risk
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by title, ID, owner, branch…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "priority") as SortKey)}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="priority">Sort: Priority (score)</SelectItem>
-            <SelectItem value="code">Sort: Risk ID</SelectItem>
-            <SelectItem value="level">Sort: Level</SelectItem>
-            <SelectItem value="status">Sort: Status</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={ShieldAlert}
-          title={filter ? "No matching risks" : "No risks yet"}
-          description={filter ? "Try a different filter." : "Log the first risk to start the register."}
-          action={!filter && canEdit ? <Button onClick={openCreate}><Plus className="size-4" /> New Risk</Button> : undefined}
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">ID</th>
-                <th className="px-3 py-2 font-medium">Risk</th>
-                <th className="px-3 py-2 font-medium">Branch</th>
-                <th className="px-3 py-2 font-medium">Level</th>
-                <th className="px-3 py-2 text-right font-medium">Score</th>
-                <th className="px-3 py-2 font-medium">Owner</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Esc.</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((r) => {
-                const lm = LEVEL_META[r.level];
-                return (
-                  <tr
-                    key={r.id}
-                    className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                    onClick={() => openDetail(r)}
+    <>
+      <PmDataTable
+        title="Risk Register"
+        subtitle={`${risks.length} risk${risks.length === 1 ? "" : "s"} · score = likelihood × impact`}
+        rows={risks}
+        columns={RISK_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(r) => [r.code, r.title, r.owner ?? "", r.programBranch?.name ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, owner, branch…"
+        onRowClick={openDetail}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New Risk"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
                   >
-                    <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{r.code}</td>
-                    <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{r.title}</td>
-                    <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                      {r.programBranch?.code ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Pill label={lm.label} color={lm.color} />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">{r.score}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{r.owner ?? "—"}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{STATUS_LABEL[r.status]}</td>
-                    <td className="px-3 py-2">
-                      {r.escalate ? (
-                        <span className="text-[10px] font-semibold uppercase text-[var(--status-blocked,#dc2626)]">
-                          Yes
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[var(--text-muted)]">—</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Delete risk"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleting(r);
-                          }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st} value={st}>{STATUS_LABEL[st]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} risk${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={ShieldAlert}
+        emptyTitle="No risks yet"
+        emptyDescription="Log the first risk to start the register."
+      />
 
       {/* Create */}
       <RiskDialog
@@ -468,7 +504,7 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 

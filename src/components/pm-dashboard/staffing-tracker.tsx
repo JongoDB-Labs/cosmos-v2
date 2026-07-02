@@ -1,16 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
-import { Input } from "@/components/ui/input";
+import { notifyError } from "@/lib/errors/notify";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Users } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Users, Eye, UserCog, BadgeCheck } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type ProjectRole = "MANAGER" | "LEAD" | "MEMBER" | "VIEWER";
 
@@ -142,6 +152,101 @@ const ROLE_OPTIONS: { value: ProjectRole; label: string }[] = [
   { value: "VIEWER",  label: "Viewer"  },
 ];
 
+// Roles sort by seniority, not alphabetically (Manager → Lead → Member → Viewer).
+const ROLE_RANK: Record<ProjectRole, number> = { MANAGER: 0, LEAD: 1, MEMBER: 2, VIEWER: 3 };
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope. Numeric columns (allocation, cost
+// rate) carry an explicit `sortingFn` so the visual order is numeric, not string.
+const STAFFING_COLUMNS: ColumnDef<StaffRow>[] = [
+  {
+    accessorKey: "name",
+    header: "Person",
+    cell: ({ row }) => <span className="font-medium text-[var(--text)]">{row.original.name}</span>,
+  },
+  {
+    accessorKey: "role",
+    header: "Role",
+    sortingFn: (a, b) => ROLE_RANK[a.original.role] - ROLE_RANK[b.original.role],
+    cell: ({ row }) => (
+      <span className="text-[var(--text-muted)]">
+        {ROLE_OPTIONS.find((o) => o.value === row.original.role)?.label ?? row.original.role}
+      </span>
+    ),
+  },
+  {
+    id: "laborCategory",
+    header: "Labor category",
+    accessorFn: (r) => r.laborCategory ?? "",
+    cell: ({ row }) => <span className="text-[var(--text-muted)]">{row.original.laborCategory ?? "—"}</span>,
+  },
+  {
+    id: "clearance",
+    header: "Clearance",
+    accessorFn: (r) => r.clearance ?? "",
+    cell: ({ row }) => <span className="text-[var(--text-muted)]">{row.original.clearance ?? "—"}</span>,
+  },
+  {
+    id: "allocation",
+    header: "Allocation",
+    accessorFn: (r) => r.allocationPercent ?? -1,
+    sortingFn: (a, b) => (a.original.allocationPercent ?? -1) - (b.original.allocationPercent ?? -1),
+    cell: ({ row }) => (
+      <span className="tabular-nums text-[var(--text-muted)]">
+        {row.original.allocationPercent != null ? `${row.original.allocationPercent}%` : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "cac",
+    header: "CAC",
+    accessorFn: (r) => r.cacStatus ?? "",
+    cell: ({ row }) => <CacPill status={row.original.cacStatus} />,
+  },
+  {
+    id: "training",
+    header: "Training",
+    accessorFn: (r) => r.trainingStatus ?? "",
+    cell: ({ row }) => <TrainingPill status={row.original.trainingStatus} />,
+  },
+  {
+    id: "access",
+    header: "Access",
+    accessorFn: (r) => r.accessStatus ?? "",
+    cell: ({ row }) => <AccessPill status={row.original.accessStatus} />,
+  },
+  {
+    id: "nda",
+    header: "NDA",
+    accessorFn: (r) => r.ndaStatus ?? "",
+    cell: ({ row }) => <NdaPill status={row.original.ndaStatus} />,
+  },
+  {
+    id: "overall",
+    header: "Overall",
+    accessorFn: (r) => (r.compliant ? 1 : 0),
+    cell: ({ row }) => <OverallPill compliant={row.original.compliant} />,
+  },
+];
+
+// Cost rate is sensitive — only present when a finance-cleared caller loaded it
+// (any row has a value). Inserted after Allocation only in that case, mirroring
+// the old conditional column.
+const COST_RATE_COLUMN: ColumnDef<StaffRow> = {
+  id: "costRate",
+  header: "Cost rate",
+  accessorFn: (r) => r.costRate ?? -1,
+  sortingFn: (a, b) => (a.original.costRate ?? -1) - (b.original.costRate ?? -1),
+  cell: ({ row }) =>
+    row.original.costRate != null ? (
+      <span className="tabular-nums text-[var(--text-muted)]">
+        ${row.original.costRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/hr
+      </span>
+    ) : (
+      <span className="text-[var(--text-muted)]">—</span>
+    ),
+};
+
 // ---------------------------------------------------------------------------
 // Compliance summary header
 // ---------------------------------------------------------------------------
@@ -248,18 +353,68 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
   const [openMemberId, setOpenMemberId] = useState<string | null>(null);
   const openRow = openMemberId ? staff.find((r) => r.id === openMemberId) ?? null : null;
 
+  // Cost rate is only present for finance-cleared callers; show its column only
+  // when the loaded rows actually carry a value.
   const showCostRate = useMemo(() => staff.some((r) => r.costRate != null), [staff]);
+  const columns = useMemo<ColumnDef<StaffRow>[]>(() => {
+    if (!showCostRate) return STAFFING_COLUMNS;
+    const i = STAFFING_COLUMNS.findIndex((c) => c.id === "allocation");
+    const next = [...STAFFING_COLUMNS];
+    next.splice(i + 1, 0, COST_RATE_COLUMN);
+    return next;
+  }, [showCostRate]);
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    if (!f) return staff;
-    return staff.filter(
-      (r) =>
-        r.name.toLowerCase().includes(f) ||
-        (r.laborCategory ?? "").toLowerCase().includes(f) ||
-        (r.clearance ?? "").toLowerCase().includes(f),
-    );
-  }, [staff, filter]);
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu. Membership is created/removed on the Members page
+  // and there's no staffing DELETE route, so the menu is view + PATCH-only quick
+  // edits (project role, on-contract) — no create/delete.
+  const rowActions = useCallback(
+    (row: StaffRow): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View details", icon: Eye, onClick: () => setOpenMemberId(row.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set role",
+          items: ROLE_OPTIONS.map((o) => ({
+            label: o.label,
+            icon: UserCog,
+            onClick: async () => {
+              try {
+                await patch(row.id, { role: o.value });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update role.");
+              }
+            },
+          })),
+        });
+        groups.push({
+          items: [
+            {
+              label: row.onContract ? "Mark off contract" : "Mark on contract",
+              icon: BadgeCheck,
+              onClick: async () => {
+                try {
+                  await patch(row.id, { onContract: !row.onContract });
+                  void refetch();
+                } catch (e) {
+                  notifyError(e, "Couldn't update contract status.");
+                }
+              },
+            },
+          ],
+        });
+      }
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   // Build the drawer's inline-editable field list for the open member. Role,
   // allocation, and the compliance fields PATCH the staffing endpoint by key;
@@ -396,92 +551,70 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
     );
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4 p-6">
-      <div>
-        <h2 className="text-lg font-semibold text-[var(--text)]">Team &amp; Staffing</h2>
-        <p className="text-sm text-[var(--text-muted)]">
-          {staff.length} team member{staff.length === 1 ? "" : "s"}
-        </p>
-      </div>
-
-      {/* Compliance summary header */}
-      {staff.length > 0 && <ComplianceSummary staff={staff} />}
-
-      <Input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter by name, labor category, or clearance…"
-        className="max-w-xs"
-      />
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title={filter ? "No matching members" : "No team members yet"}
-          description={
-            filter
-              ? "Try a different filter."
-              : "Add people to this project on the Members tab."
-          }
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">Person</th>
-                <th className="px-3 py-2 font-medium">Role</th>
-                <th className="px-3 py-2 font-medium">Labor category</th>
-                <th className="px-3 py-2 font-medium">Clearance</th>
-                <th className="px-3 py-2 font-medium">Allocation</th>
-                {showCostRate && (
-                  <th className="px-3 py-2 text-right font-medium">Cost rate</th>
-                )}
-                <th className="px-3 py-2 font-medium">CAC</th>
-                <th className="px-3 py-2 font-medium">Training</th>
-                <th className="px-3 py-2 font-medium">Access</th>
-                <th className="px-3 py-2 font-medium">NDA</th>
-                <th className="px-3 py-2 font-medium">Overall</th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((row) => (
-                <tr
-                  key={row.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => setOpenMemberId(row.id)}
-                >
-                  <td className="px-3 py-2 font-medium text-[var(--text)]">{row.name}</td>
-                  <td className="px-3 py-2 text-[var(--text-muted)]">
-                    {ROLE_OPTIONS.find((o) => o.value === row.role)?.label ?? row.role}
-                  </td>
-                  <td className="px-3 py-2 text-[var(--text-muted)]">
-                    {row.laborCategory ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-[var(--text-muted)]">
-                    {row.clearance ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-[var(--text-muted)]">
-                    {row.allocationPercent != null ? `${row.allocationPercent}%` : "—"}
-                  </td>
-                  {showCostRate && (
-                    <td className="px-3 py-2 text-right tabular-nums text-[var(--text-muted)]">
-                      {row.costRate != null
-                        ? `$${row.costRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/hr`
-                        : "—"}
-                    </td>
-                  )}
-                  <td className="px-3 py-2"><CacPill status={row.cacStatus} /></td>
-                  <td className="px-3 py-2"><TrainingPill status={row.trainingStatus} /></td>
-                  <td className="px-3 py-2"><AccessPill status={row.accessStatus} /></td>
-                  <td className="px-3 py-2"><NdaPill status={row.ndaStatus} /></td>
-                  <td className="px-3 py-2"><OverallPill compliant={row.compliant} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <>
+      {/* Compliance summary header — kept above the shared table shell. */}
+      {staff.length > 0 && (
+        <div className="mx-auto max-w-6xl px-6 pt-6">
+          <ComplianceSummary staff={staff} />
         </div>
       )}
+
+      <PmDataTable
+        title="Team & Staffing"
+        subtitle={`${staff.length} team member${staff.length === 1 ? "" : "s"}`}
+        rows={staff}
+        columns={columns}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(r) => [r.name, r.laborCategory ?? "", r.clearance ?? ""].join(" ")}
+        searchPlaceholder="Filter by name, labor category, or clearance…"
+        onRowClick={(r) => setOpenMemberId(r.id)}
+        rowActions={rowActions}
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { role: v }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-36">
+                      <SelectValue placeholder="Set role…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROLE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { onContract: v === "true" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="On contract…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">On contract</SelectItem>
+                      <SelectItem value="false">Off contract</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={Users}
+        emptyTitle="No team members yet"
+        emptyDescription="Add people to this project on the Members tab."
+      />
 
       {/* Detail drawer — issue-style: inline-editable fields + Comments + Activity.
           Replaces the old edit dialog as the primary row-detail view. */}
@@ -501,7 +634,7 @@ export function StaffingTracker({ orgId, projectId }: StaffingTrackerProps) {
           onSaved={() => void refetch()}
         />
       )}
-    </div>
+    </>
   );
 }
 

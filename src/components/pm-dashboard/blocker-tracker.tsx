@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -11,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -28,9 +28,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, ShieldOff, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, ShieldOff, AlertTriangle, Eye, Flag, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type BlockerStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "ESCALATED";
 type BlockerType =
@@ -98,6 +101,79 @@ const TYPE_LABEL: Record<BlockerType, string> = {
   EXTERNAL_THIRD_PARTY: "External — Third Party",
 };
 
+// Register-severity order for status sorting (escalated/open first, resolved last).
+const STATUS_RANK: Record<BlockerStatus, number> = {
+  ESCALATED: 0,
+  OPEN: 1,
+  IN_PROGRESS: 2,
+  RESOLVED: 3,
+};
+
+// Snapshot "now" once at module load so days-open is stable across re-renders
+// (React purity) without threading component state into the module-level columns.
+const NOW_MS = Date.now();
+
+// Numeric days-open, or null when resolved (rendered as "—", sorted last).
+function daysOpenNum(b: Blocker): number | null {
+  if (b.status === "RESOLVED") return null;
+  return Math.floor((NOW_MS - new Date(b.identifiedAt).getTime()) / 86400000);
+}
+function daysOpenLabel(b: Blocker): string {
+  const n = daysOpenNum(b);
+  return n === null ? "—" : String(n);
+}
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope.
+const BLOCKER_COLUMNS: ColumnDef<Blocker>[] = [
+  {
+    accessorKey: "code",
+    header: "ID",
+    cell: ({ row }) => <span className="font-mono text-xs text-[var(--text-muted)]">{row.original.code}</span>,
+  },
+  {
+    accessorKey: "title",
+    header: "Title",
+    cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
+  },
+  {
+    id: "branch",
+    header: "Branch",
+    accessorFn: (b) => b.programBranch?.code ?? "",
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
+  },
+  {
+    id: "type",
+    header: "Type",
+    accessorFn: (b) => TYPE_LABEL[b.type],
+    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{TYPE_LABEL[row.original.type]}</span>,
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    sortingFn: (a, b) => STATUS_RANK[a.original.status] - STATUS_RANK[b.original.status],
+    cell: ({ row }) => <span className="text-[var(--text-muted)]">{STATUS_LABEL[row.original.status]}</span>,
+  },
+  {
+    id: "escalate",
+    header: "Esc.",
+    accessorFn: (b) => (b.escalate ? 1 : 0),
+    cell: ({ row }) =>
+      row.original.escalate ? (
+        <span className="text-[10px] font-semibold uppercase text-[var(--status-blocked,#dc2626)]">Yes</span>
+      ) : (
+        <span className="text-xs text-[var(--text-muted)]">—</span>
+      ),
+  },
+  {
+    id: "days",
+    header: "Days Open",
+    accessorFn: (b) => daysOpenNum(b) ?? -1,
+    sortingFn: (a, b) => (daysOpenNum(a.original) ?? -1) - (daysOpenNum(b.original) ?? -1),
+    cell: ({ row }) => <span className="tabular-nums text-[var(--text)]">{daysOpenLabel(row.original)}</span>,
+  },
+];
+
 interface BlockerForm {
   title: string;
   description: string;
@@ -160,13 +236,6 @@ function formToBody(f: BlockerForm) {
   };
 }
 
-function daysOpen(b: Blocker, nowMs: number): string {
-  if (b.status === "RESOLVED") return "—";
-  return String(Math.floor((nowMs - new Date(b.identifiedAt).getTime()) / 86400000));
-}
-
-type SortKey = "code" | "status" | "days";
-
 export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/blockers`;
   const queryKey = useOrgQueryKey("blockers", projectId);
@@ -177,12 +246,9 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("code");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<Blocker | null>(null);
   const [form, setForm] = useState<BlockerForm>(emptyForm);
-  // Snapshot "now" once at mount so days-open is stable across re-renders (React purity).
-  const [nowMs] = useState(() => Date.now());
   // The drawer is the primary row-detail view. We hold the open blocker's id so
   // the drawer's fields rebuild from the freshest cached row after an inline PATCH.
   const [openBlockerId, setOpenBlockerId] = useState<string | null>(null);
@@ -201,31 +267,64 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
     onError: (e) => notifyError(e, "Couldn't delete the blocker."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? blockers.filter(
-          (b) =>
-            b.title.toLowerCase().includes(f) ||
-            b.code.toLowerCase().includes(f) ||
-            (b.owner ?? "").toLowerCase().includes(f) ||
-            (b.programBranch?.name ?? "").toLowerCase().includes(f),
-        )
-      : blockers.slice();
-    rows.sort((a, b) => {
-      if (sort === "code") return a.code.localeCompare(b.code);
-      if (sort === "status") return a.status.localeCompare(b.status);
-      // days: resolved last (—), otherwise sort descending by days open
-      const da = a.status === "RESOLVED" ? -1 : Math.floor((nowMs - new Date(a.identifiedAt).getTime()) / 86400000);
-      const db = b.status === "RESOLVED" ? -1 : Math.floor((nowMs - new Date(b.identifiedAt).getTime()) / 86400000);
-      return db - da;
-    });
-    return rows;
-  }, [blockers, filter, sort, nowMs]);
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu: view+edit, quick status, escalate toggle, delete.
+  const rowActions = useCallback(
+    (b: Blocker): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenBlockerId(b.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: STATUS_LABEL[st],
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(b.id, { status: st });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({
+          items: [
+            {
+              label: b.escalate ? "Remove escalation" : "Escalate to customer",
+              icon: Flag,
+              onClick: async () => {
+                try {
+                  await patch(b.id, { escalate: !b.escalate });
+                  void refetch();
+                } catch (e) {
+                  notifyError(e, "Couldn't update escalation.");
+                }
+              },
+            },
+          ],
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(b) }] });
+      }
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   function openCreate() {
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
     setCreateOpen(true);
+  }
+  // Row click → open the detail drawer (the primary row-detail view).
+  function openDetail(b: Blocker) {
+    setOpenBlockerId(b.id);
   }
 
   // Build the drawer's inline-editable field list for the open blocker. Each
@@ -365,107 +464,62 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">Blocked Items</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {blockers.length} blocker{blockers.length === 1 ? "" : "s"}
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New Blocker
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by title, ID, owner, branch…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "code") as SortKey)}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="code">Sort: Blocker ID</SelectItem>
-            <SelectItem value="status">Sort: Status</SelectItem>
-            <SelectItem value="days">Sort: Days Open</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={ShieldOff}
-          title={filter ? "No matching blockers" : "No blockers yet"}
-          description={filter ? "Try a different filter." : "Log the first blocker to start tracking."}
-          action={!filter && canEdit ? <Button onClick={openCreate}><Plus className="size-4" /> New Blocker</Button> : undefined}
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">ID</th>
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 font-medium">Branch</th>
-                <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Esc.</th>
-                <th className="px-3 py-2 text-right font-medium">Days Open</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((b) => (
-                <tr
-                  key={b.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => setOpenBlockerId(b.id)}
-                >
-                  <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{b.code}</td>
-                  <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">{b.title}</td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">
-                    {b.programBranch?.code ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)]">{TYPE_LABEL[b.type]}</td>
-                  <td className="px-3 py-2 text-[var(--text-muted)]">{STATUS_LABEL[b.status]}</td>
-                  <td className="px-3 py-2">
-                    {b.escalate ? (
-                      <span className="text-[10px] font-semibold uppercase text-[var(--status-blocked,#dc2626)]">
-                        Yes
-                      </span>
-                    ) : (
-                      <span className="text-xs text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">{daysOpen(b, nowMs)}</td>
-                  <td className="px-2 py-2 text-right">
-                    {canEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete blocker"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(b);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <>
+      <PmDataTable
+        title="Blocked Items"
+        subtitle={`${blockers.length} blocker${blockers.length === 1 ? "" : "s"}`}
+        rows={blockers}
+        columns={BLOCKER_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(b) => [b.code, b.title, b.owner ?? "", b.programBranch?.name ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, owner, branch…"
+        onRowClick={openDetail}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New Blocker"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st} value={st}>{STATUS_LABEL[st]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} blocker${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={ShieldOff}
+        emptyTitle="No blockers yet"
+        emptyDescription="Log the first blocker to start tracking."
+      />
 
       {/* Create */}
       <BlockerDialog
@@ -524,7 +578,7 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
