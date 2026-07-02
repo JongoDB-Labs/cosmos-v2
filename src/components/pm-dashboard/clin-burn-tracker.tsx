@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -10,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -27,9 +27,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, DollarSign, AlertTriangle } from "lucide-react";
+import { Loader2, Trash2, DollarSign, AlertTriangle, Eye, CircleDot } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
+import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
+import { bulkFanOut } from "@/lib/pm/bulk";
+import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type ClinStatus = "active" | "on_hold" | "closed";
 
@@ -66,6 +69,109 @@ const STATUS_LABEL: Record<ClinStatus, string> = {
   closed: "Closed",
 };
 
+const USD = (n: number) =>
+  n.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+
+function BurnBar({ percentConsumed }: { percentConsumed: number | null }) {
+  if (percentConsumed === null) {
+    return <span className="text-[var(--text-muted)]">—</span>;
+  }
+  const pct = percentConsumed;
+  const barColor =
+    pct > 100
+      ? "var(--status-blocked,#dc2626)"
+      : pct >= 80
+        ? "var(--status-warn,#d97706)"
+        : "#16a34a";
+  const width = `${Math.min(100, pct)}%`;
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="relative h-2 w-20 overflow-hidden rounded-full"
+        style={{ backgroundColor: "var(--border)" }}
+      >
+        <div
+          style={{ width, backgroundColor: barColor }}
+          className="absolute inset-y-0 left-0 rounded-full transition-all"
+        />
+      </div>
+      <span className="tabular-nums text-xs" style={{ color: barColor }}>
+        {pct.toFixed(1)}%
+      </span>
+    </div>
+  );
+}
+
+// Sortable columns (headers sort on click via the shared DataTable). Pure — no
+// component state, so defined at module scope. The money + burn columns are
+// computed server-side; each gets an accessorFn returning the numeric value plus
+// an explicit numeric sortingFn so the header sorts by magnitude, not string.
+const CLIN_COLUMNS: ColumnDef<ClinBurn>[] = [
+  {
+    accessorKey: "code",
+    header: "CLIN",
+    cell: ({ row }) => <span className="font-mono text-xs text-[var(--text-muted)]">{row.original.code}</span>,
+  },
+  {
+    accessorKey: "title",
+    header: "Title",
+    cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
+  },
+  {
+    id: "fundedValue",
+    header: "Funded ($)",
+    accessorFn: (c) => c.fundedValue,
+    sortingFn: (a, b) => a.original.fundedValue - b.original.fundedValue,
+    cell: ({ row }) => (
+      <span className="block text-right tabular-nums text-[var(--text)]">{USD(row.original.fundedValue)}</span>
+    ),
+  },
+  {
+    id: "value",
+    header: "Ceiling ($)",
+    accessorFn: (c) => c.value,
+    sortingFn: (a, b) => a.original.value - b.original.value,
+    cell: ({ row }) => (
+      <span className="block text-right tabular-nums text-[var(--text)]">{USD(row.original.value)}</span>
+    ),
+  },
+  {
+    id: "burned",
+    header: "Burned ($)",
+    accessorFn: (c) => c.burned,
+    sortingFn: (a, b) => a.original.burned - b.original.burned,
+    cell: ({ row }) => (
+      <span className="block text-right tabular-nums text-[var(--text)]">{USD(row.original.burned)}</span>
+    ),
+  },
+  {
+    id: "remaining",
+    header: "Remaining ($)",
+    accessorFn: (c) => c.remaining,
+    sortingFn: (a, b) => a.original.remaining - b.original.remaining,
+    cell: ({ row }) => (
+      <span className="block text-right tabular-nums text-[var(--text)]">{USD(row.original.remaining)}</span>
+    ),
+  },
+  {
+    id: "percentConsumed",
+    header: "% Consumed",
+    // Null (no burn baseline yet) sorts to the bottom via -1.
+    accessorFn: (c) => c.percentConsumed ?? -1,
+    sortingFn: (a, b) => (a.original.percentConsumed ?? -1) - (b.original.percentConsumed ?? -1),
+    cell: ({ row }) => <BurnBar percentConsumed={row.original.percentConsumed} />,
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => STATUS_LABEL[row.original.status],
+  },
+];
+
 interface ClinForm {
   code: string;
   title: string;
@@ -98,45 +204,6 @@ function formToBody(f: ClinForm) {
   };
 }
 
-const USD = (n: number) =>
-  n.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-
-type SortKey = "code" | "percentConsumed" | "burned";
-
-function BurnBar({ percentConsumed }: { percentConsumed: number | null }) {
-  if (percentConsumed === null) {
-    return <span className="text-[var(--text-muted)]">—</span>;
-  }
-  const pct = percentConsumed;
-  const barColor =
-    pct > 100
-      ? "var(--status-blocked,#dc2626)"
-      : pct >= 80
-        ? "var(--status-warn,#d97706)"
-        : "#16a34a";
-  const width = `${Math.min(100, pct)}%`;
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className="relative h-2 w-20 overflow-hidden rounded-full"
-        style={{ backgroundColor: "var(--border)" }}
-      >
-        <div
-          style={{ width, backgroundColor: barColor }}
-          className="absolute inset-y-0 left-0 rounded-full transition-all"
-        />
-      </div>
-      <span className="tabular-nums text-xs" style={{ color: barColor }}>
-        {pct.toFixed(1)}%
-      </span>
-    </div>
-  );
-}
-
 export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/clins`;
   const queryKey = useOrgQueryKey("clins", projectId);
@@ -152,7 +219,6 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
 
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("code");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<ClinBurn | null>(null);
   const [form, setForm] = useState<ClinForm>(emptyForm);
@@ -175,29 +241,48 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
     onError: (e) => notifyError(e, "Couldn't delete the CLIN."),
   });
 
-  const view = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const rows = f
-      ? clins.filter(
-          (c) =>
-            c.code.toLowerCase().includes(f) || c.title.toLowerCase().includes(f),
-        )
-      : clins.slice();
-    rows.sort((a, b) => {
-      if (sort === "code") return a.code.localeCompare(b.code);
-      if (sort === "percentConsumed") {
-        const ap = a.percentConsumed ?? -1;
-        const bp = b.percentConsumed ?? -1;
-        return bp - ap;
+  const patch = useCallback(
+    (id: string, body: Record<string, unknown>) =>
+      jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    [apiBase],
+  );
+
+  // Right-click / ⋯ row menu: view+edit, quick status, delete.
+  const rowActions = useCallback(
+    (c: ClinBurn): ActionMenuGroup[] => {
+      const groups: ActionMenuGroup[] = [
+        { items: [{ label: "View / edit", icon: Eye, onClick: () => setOpenClinId(c.id) }] },
+      ];
+      if (canEdit) {
+        groups.push({
+          label: "Set status",
+          items: STATUS_OPTIONS.map((st) => ({
+            label: st.label,
+            icon: CircleDot,
+            onClick: async () => {
+              try {
+                await patch(c.id, { status: st.value });
+                void refetch();
+              } catch (e) {
+                notifyError(e, "Couldn't update status.");
+              }
+            },
+          })),
+        });
+        groups.push({ items: [{ label: "Delete", icon: Trash2, variant: "destructive", onClick: () => setDeleting(c) }] });
       }
-      return b.burned - a.burned;
-    });
-    return rows;
-  }, [clins, filter, sort]);
+      return groups;
+    },
+    [canEdit, patch, refetch],
+  );
 
   function openCreate() {
     setForm(emptyForm);
     setCreateOpen(true);
+  }
+  // Row click → open the detail drawer (the primary row-detail view).
+  function openDetail(c: ClinBurn) {
+    setOpenClinId(c.id);
   }
 
   // Build the drawer's inline-editable field list for the open CLIN. Code,
@@ -260,125 +345,62 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
     );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text)]">CLIN Burn</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {clins.length} CLIN{clins.length === 1 ? "" : "s"}
-          </p>
-        </div>
-        {canEdit && (
-          <Button onClick={openCreate}>
-            <Plus className="size-4" /> New CLIN
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by CLIN code or title…"
-          className="max-w-xs"
-        />
-        <Select value={sort} onValueChange={(v) => setSort((v ?? "code") as SortKey)}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="code">Sort: CLIN Code</SelectItem>
-            <SelectItem value="percentConsumed">Sort: % Consumed</SelectItem>
-            <SelectItem value="burned">Sort: Burned ($)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {view.length === 0 ? (
-        <EmptyState
-          icon={DollarSign}
-          title={filter ? "No matching CLINs" : "No CLINs yet"}
-          description={
-            filter
-              ? "Try a different filter."
-              : "Add the first CLIN to start tracking burn."
-          }
-          action={
-            !filter && canEdit ? (
-              <Button onClick={openCreate}>
-                <Plus className="size-4" /> New CLIN
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-3 py-2 font-medium">CLIN</th>
-                <th className="px-3 py-2 font-medium">Title</th>
-                <th className="px-3 py-2 text-right font-medium">Funded ($)</th>
-                <th className="px-3 py-2 text-right font-medium">Ceiling ($)</th>
-                <th className="px-3 py-2 text-right font-medium">Burned ($)</th>
-                <th className="px-3 py-2 text-right font-medium">Remaining ($)</th>
-                <th className="px-3 py-2 font-medium">% Consumed</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {view.map((c) => (
-                <tr
-                  key={c.id}
-                  className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface)]"
-                  onClick={() => setOpenClinId(c.id)}
-                >
-                  <td className="px-3 py-2 font-mono text-xs text-[var(--text-muted)]">
-                    {c.code}
-                  </td>
-                  <td className="max-w-xs truncate px-3 py-2 text-[var(--text)]">
-                    {c.title}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {USD(c.fundedValue)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {USD(c.value)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {USD(c.burned)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[var(--text)]">
-                    {USD(c.remaining)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <BurnBar percentConsumed={c.percentConsumed} />
-                  </td>
-                  <td className="px-3 py-2 text-[var(--text-muted)]">
-                    {STATUS_LABEL[c.status]}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    {canEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Delete CLIN"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleting(c);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <>
+      <PmDataTable
+        title="CLIN Burn"
+        subtitle={`${clins.length} CLIN${clins.length === 1 ? "" : "s"}`}
+        rows={clins}
+        columns={CLIN_COLUMNS}
+        search={filter}
+        onSearchChange={setFilter}
+        searchText={(c) => [c.code, c.title].join(" ")}
+        searchPlaceholder="Filter by CLIN code or title…"
+        onRowClick={openDetail}
+        rowActions={rowActions}
+        onNew={canEdit ? openCreate : undefined}
+        newLabel="New CLIN"
+        renderBulkActions={
+          canEdit
+            ? (ids, clear) => (
+                <>
+                  <Select
+                    onValueChange={async (v) => {
+                      if (!v) return;
+                      await bulkFanOut(ids, (id) => patch(id, { status: v }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Set status…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((st) => (
+                        <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${ids.length} CLIN${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+                      await bulkFanOut(ids, (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }));
+                      void refetch();
+                      clear();
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </>
+              )
+            : undefined
+        }
+        emptyIcon={DollarSign}
+        emptyTitle="No CLINs yet"
+        emptyDescription="Add the first CLIN to start tracking burn."
+      />
 
       {/* Create */}
       <ClinDialog
@@ -445,7 +467,7 @@ export function ClinBurnTracker({ orgId, projectId }: ClinBurnTrackerProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
