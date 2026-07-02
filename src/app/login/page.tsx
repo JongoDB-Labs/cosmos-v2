@@ -33,16 +33,27 @@ function LoginInner() {
   const params = useSearchParams();
   const error = params.get("error");
   const message = error ? (ERROR_MESSAGES[error] ?? "Sign-in failed.") : null;
+  // Cookie-derived values (remembered org, skin motif) MUST NOT be read during
+  // render: the server has no cookies, so `document.cookie` reads diverge from
+  // the client and fail hydration (React #418 — e.g. the <Starfield/> motif
+  // renders on the server but not the client, or vice versa), which breaks the
+  // page's interactivity (the OAuth buttons stop working). Gate every cookie
+  // read behind a post-mount flag so the first render matches the server, then
+  // reconcile after hydration.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
   // Org slug entrypoint: /login?org=<slug>, falling back to the remembered-org
-  // cookie set on the user's last successful login.
+  // cookie set on the user's last successful login (read only after mount).
   const orgFromQuery = params.get("org");
+  const cookieOrgMatch = mounted
+    ? document.cookie.match(/(^| )org=([^;]+)/)
+    : null;
   const orgSlug =
     orgFromQuery ??
-    (typeof document !== "undefined"
-      ? (document.cookie.match(/(^| )org=([^;]+)/)?.[2]
-          ? decodeURIComponent(document.cookie.match(/(^| )org=([^;]+)/)![2])
-          : null)
-      : null);
+    (cookieOrgMatch?.[2] ? decodeURIComponent(cookieOrgMatch[2]) : null);
   // Which provider the user clicked — only that button shows "Redirecting…".
   // (A single boolean flipped every provider's label to loading at once.)
   const [submitting, setSubmitting] = useState<
@@ -128,9 +139,16 @@ function LoginInner() {
   const brandTagline = orgBrand?.tagline ?? brand.tagline;
   const brandLogo = orgBrand?.logoUrl ?? null;
 
+  // Skin motif drives whether <Starfield/> renders — so it must be identical on
+  // the server and the first client render. Read the skin cookie only after
+  // mount (see the `mounted` note above); the pre-paint script in the root
+  // layout already applies the correct CSS theme, so this only reconciles the
+  // React-rendered motif element post-hydration.
+  const cookieSkin = mounted
+    ? document.cookie.match(/(^| )skin=([^;]+)/)?.[2]
+    : undefined;
   const activeSkin =
-    (typeof document !== "undefined" &&
-      document.cookie.match(/(^| )skin=([^;]+)/)?.[2]) ||
+    cookieSkin ||
     orgBrand?.defaultSkinId ||
     brand.defaultSkinId ||
     DEFAULT_SKIN_ID;
