@@ -52,6 +52,14 @@ test.describe("@-tag any entity — chat", () => {
     const chip = page.getByRole("link", { name: /Falcon telemetry/ }).last();
     await expect(chip).toBeVisible();
     await expect(chip).toHaveAttribute("href", /\/issues\?item=/);
+
+    // Deep-link: clicking the chip lands on /issues and auto-opens the item's
+    // detail sheet (fetched by id even though it's not on the current page).
+    await chip.click();
+    await expect(page).toHaveURL(/\/issues/);
+    await expect(
+      page.getByRole("heading", { name: /Falcon telemetry pipeline/ }),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test("legacy person mention still renders", async ({ page, signInAs }) => {

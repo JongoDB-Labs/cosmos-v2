@@ -84,7 +84,13 @@ export async function exchangeMicrosoftCode(opts: {
 
 export interface MicrosoftProfile {
   id: string;
+  /** Primary address (mail, else UPN) — used for display + the create path. */
   email: string;
+  /** All of the user's own verified addresses (mail + UPN), deduped +
+   *  lowercased. Enterprise M365 accounts often have a primary SMTP `mail`
+   *  alias that differs from the UPN, so the allowlist is checked against BOTH
+   *  rather than only `mail || UPN`. */
+  emailCandidates: string[];
   displayName: string;
 }
 
@@ -109,13 +115,18 @@ export async function fetchMicrosoftProfile(
     userPrincipalName?: string | null;
     displayName?: string | null;
   };
-  const email = (me.mail || me.userPrincipalName || "").toLowerCase();
+  const candidates = [me.mail, me.userPrincipalName]
+    .map((v) => (v ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  const emailCandidates = [...new Set(candidates)];
+  const email = emailCandidates[0] ?? "";
   if (!me.id || !email) {
     throw new Error("microsoft profile missing id/email");
   }
   return {
     id: me.id,
     email,
+    emailCandidates,
     displayName: me.displayName || email.split("@")[0],
   };
 }

@@ -61,6 +61,12 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
 
   const and: Prisma.WorkItemWhereInput[] = [];
 
+  // ── Direct id lookup (deep-link to a single item) ────────────────────
+  // Still bounded by the RBAC project scope above, so an id outside the
+  // caller's readable projects yields nothing.
+  const ids = clean(filter.ids);
+  if (ids.length > 0) where.id = { in: ids };
+
   // ── Work-item type ───────────────────────────────────────────────────
   const typeIds = clean(filter.typeIds);
   if (typeIds.length > 0) where.workItemTypeId = { in: typeIds };
