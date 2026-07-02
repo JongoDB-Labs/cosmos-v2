@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check, Rows3, ChevronDown, Flag, Target, Goal, Repeat, Map as MapIcon, type LucideIcon } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -239,6 +240,38 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
     onError: (e) => notifyError(e, "Couldn't delete the document."),
   });
 
+  // Right-click / ⋯ actions for a document in the left list. Open navigates to
+  // the reader; Delete confirms first (the list has no undo). Matches the
+  // note/meeting list pattern so every list item exposes the same CRUD affordance.
+  const docActions = useCallback(
+    (d: DocListItem): ActionMenuGroup[] => [
+      {
+        items: [
+          {
+            label: "Open",
+            icon: FileText,
+            onClick: () => router.push(`${base}/${d.id}`, { scroll: false }),
+          },
+        ],
+      },
+      {
+        items: [
+          {
+            label: "Delete",
+            icon: Trash2,
+            variant: "destructive",
+            onClick: () => {
+              if (window.confirm(`Delete "${d.title}"? This can't be undone.`)) {
+                deleteMutation.mutate(d.id);
+              }
+            },
+          },
+        ],
+      },
+    ],
+    [router, base, deleteMutation],
+  );
+
   function onPick(files: FileList | null) {
     const f = files?.[0];
     if (f) uploadMutation.mutate(f);
@@ -289,26 +322,33 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
           ) : (
             <div className="space-y-0.5">
               {(docs ?? []).map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => router.push(`${base}/${d.id}`, { scroll: false })}
-                  className={cn(
-                    "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-sm",
-                    selectedId === d.id ? "bg-[var(--primary)]/10" : "hover:bg-[var(--surface)]",
-                  )}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
-                    <span className="truncate text-[var(--text)]">{d.title}</span>
-                  </span>
-                  <span className="flex items-center gap-1.5 pl-5 text-[10px] uppercase text-[var(--text-muted)]">
-                    <span>{d.format}</span>
-                    {d.status !== "READY" && <span>· {d.status.toLowerCase()}</span>}
-                    {d.classificationLevel !== "UNCLASSIFIED" && (
-                      <span className="font-semibold text-[var(--status-critical)]">· {d.classificationLevel}</span>
-                    )}
-                  </span>
-                </button>
+                // Wrapper carries `group/action relative` so the ActionMenu's
+                // hidden ⋯ trigger (a sibling, revealed on hover) positions over
+                // the row; ActionMenu itself uses display:contents. Right-click
+                // anywhere on the row opens the same menu.
+                <div key={d.id} className="group/action relative">
+                  <ActionMenu groups={docActions(d)} triggerLabel={`Actions for ${d.title}`} triggerClassName="absolute right-1 top-1.5">
+                    <button
+                      onClick={() => router.push(`${base}/${d.id}`, { scroll: false })}
+                      className={cn(
+                        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-sm",
+                        selectedId === d.id ? "bg-[var(--primary)]/10" : "hover:bg-[var(--surface)]",
+                      )}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                        <span className="truncate text-[var(--text)]">{d.title}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 pl-5 text-[10px] uppercase text-[var(--text-muted)]">
+                        <span>{d.format}</span>
+                        {d.status !== "READY" && <span>· {d.status.toLowerCase()}</span>}
+                        {d.classificationLevel !== "UNCLASSIFIED" && (
+                          <span className="font-semibold text-[var(--status-critical)]">· {d.classificationLevel}</span>
+                        )}
+                      </span>
+                    </button>
+                  </ActionMenu>
+                </div>
               ))}
             </div>
           )}
