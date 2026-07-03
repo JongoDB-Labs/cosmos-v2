@@ -33,7 +33,7 @@ export default async function ProjectLayout({
     include: {
       boards: {
         orderBy: { sortOrder: "asc" },
-        select: { id: true, name: true, type: true },
+        select: { id: true, name: true, type: true, slug: true },
       },
       projectTemplate: {
         select: { defaultConfig: true },

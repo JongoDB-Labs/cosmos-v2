@@ -37,6 +37,7 @@ interface BoardTab {
   id: string;
   name: string;
   type: string;
+  slug: string | null;
 }
 
 interface ProjectBoardTabsProps {
@@ -258,7 +259,8 @@ export function ProjectBoardTabs({
     token: `board:${board.id}`,
     kind: "board" as const,
     label: board.name,
-    href: `/${orgSlug}/projects/${projectKey}/boards/${board.id}`,
+    // Human-readable slug when present; fall back to id for legacy boards.
+    href: `/${orgSlug}/projects/${projectKey}/boards/${board.slug ?? board.id}`,
     board,
   }));
 
@@ -503,13 +505,14 @@ export function ProjectBoardTabs({
       toast.success(`Deleted "${board.name}".`);
       setBoardToDelete(null);
       // If we just deleted the board we're viewing, move to another board (or the
-      // project root); otherwise just refresh the tab list.
-      const deletedHref = `/${orgSlug}/projects/${projectKey}/boards/${board.id}`;
-      if (pathname === deletedHref) {
+      // project root); otherwise just refresh the tab list. The current URL may be
+      // the slug (canonical) or a legacy id link — match either.
+      const base = `/${orgSlug}/projects/${projectKey}/boards`;
+      if (pathname === `${base}/${board.slug ?? board.id}` || pathname === `${base}/${board.id}`) {
         const next = boards.find((b) => b.id !== board.id);
         router.push(
           next
-            ? `/${orgSlug}/projects/${projectKey}/boards/${next.id}`
+            ? `${base}/${next.slug ?? next.id}`
             : `/${orgSlug}/projects/${projectKey}`,
         );
       }

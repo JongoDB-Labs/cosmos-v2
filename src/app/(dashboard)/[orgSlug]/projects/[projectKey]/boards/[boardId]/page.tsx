@@ -28,12 +28,26 @@ export default async function BoardPage({ params }: PageParams) {
 
   if (!project) notFound();
 
+  // The [boardId] segment is the human-readable slug for new boards, but old
+  // links (and boards created before slugs existed) use the UUID — resolve either.
+  // Only match by id when the segment actually looks like a UUID, so a slug never
+  // hits the uuid column type.
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const board = await prisma.board.findFirst({
-    where: { id: boardId, projectId: project.id },
-    select: { id: true, type: true, name: true, config: true },
+    where: {
+      projectId: project.id,
+      OR: [{ slug: boardId }, ...(UUID_RE.test(boardId) ? [{ id: boardId }] : [])],
+    },
+    select: { id: true, slug: true, type: true, name: true, config: true },
   });
 
   if (!board) notFound();
+
+  // Canonicalize to the readable slug URL when reached via UUID (or a stale slug).
+  if (board.slug && boardId !== board.slug) {
+    redirect(`/${orgSlug}/projects/${projectKey}/boards/${board.slug}`);
+  }
 
   // A board's view variant lives in its config (e.g. a TIMELINE board rendered as
   // the static "release-timeline" snapshot vs the interactive Gantt default).
