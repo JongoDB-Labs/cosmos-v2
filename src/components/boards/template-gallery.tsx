@@ -185,7 +185,7 @@ export function TemplateGallery({
       const board = await res.json();
       toast.success("Board created");
       router.push(
-        `/${orgSlug}/projects/${projectKey}/boards/${board.id}`
+        `/${orgSlug}/projects/${projectKey}/boards/${board.slug ?? board.id}`
       );
       // The board-tabs strip is rendered from the project layout's server-side
       // Prisma query, so a client push() alone navigates to the new board while

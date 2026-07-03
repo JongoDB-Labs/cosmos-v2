@@ -34,8 +34,10 @@ test.describe("journey — create board", () => {
     await expect(kanban).toBeVisible({ timeout: 20_000 });
     await kanban.click();
 
-    // The click is the submit → router.push to the new board's UUID URL.
-    await expect(page).toHaveURL(/\/projects\/[^/]+\/boards\/[0-9a-f-]{36}$/i, {
+    // The click is the submit → router.push to the new board's human-readable
+    // slug URL — the "Kanban Board" template slugifies to `kanban-board`
+    // (with a -N suffix if one already exists), NOT a UUID and NOT /boards/new.
+    await expect(page).toHaveURL(/\/projects\/[^/]+\/boards\/kanban-board(-\d+)?$/i, {
       timeout: 25_000,
     });
   });

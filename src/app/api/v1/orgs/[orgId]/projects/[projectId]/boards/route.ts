@@ -6,6 +6,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { uniqueBoardSlug } from "@/lib/templates/slugify";
 import { z } from "zod";
 import { BoardType, Prisma } from "@prisma/client";
 
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         orgId,
         projectId,
         name: data.name,
+        slug: await uniqueBoardSlug(data.name, projectId),
         type: data.type,
         config: (data.config ?? {}) as Prisma.InputJsonValue,
         sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
