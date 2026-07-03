@@ -21,10 +21,13 @@ export default async function NewBoardPage({ params }: PageParams) {
       key: { equals: projectKey, mode: "insensitive" },
       archived: false,
     },
-    select: { id: true, key: true, enabledFeatures: true },
+    select: { id: true, key: true, enabledFeatures: true, settings: true },
   });
 
   if (!project) notFound();
+
+  const disabledBoardTypes =
+    ((project.settings as { disabledBoardTypes?: string[] } | null)?.disabledBoardTypes) ?? [];
 
   // Guard create — same authority as the boards POST API (org BOARD_CREATE or a
   // manager of THIS project). A VIEWER/GUEST hitting the URL directly is sent
@@ -41,6 +44,7 @@ export default async function NewBoardPage({ params }: PageParams) {
       orgSlug={orgSlug}
       projectKey={project.key}
       enabledFeatures={project.enabledFeatures}
+      disabledBoardTypes={disabledBoardTypes}
     />
   );
 }

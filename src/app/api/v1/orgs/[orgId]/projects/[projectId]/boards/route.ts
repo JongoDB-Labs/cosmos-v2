@@ -69,6 +69,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = createBoardSchema.parse(body);
 
+    // Respect the project's board-type allow-list (settings.disabledBoardTypes).
+    const disabledTypes =
+      ((project.settings as { disabledBoardTypes?: string[] } | null)?.disabledBoardTypes) ?? [];
+    if (disabledTypes.includes(data.type)) {
+      return new Response("This board type is disabled for this project", { status: 403 });
+    }
+
     const maxSort = await prisma.board.aggregate({
       where: { projectId },
       _max: { sortOrder: true },

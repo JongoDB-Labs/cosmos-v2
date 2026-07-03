@@ -29,6 +29,7 @@ interface ProjectSettingsClientProps {
   projectKey: string;
   projectDescription: string;
   enabledFeatures: string[];
+  disabledBoardTypes: string[];
 }
 
 // The optional project features that surface as board tabs (board-tabs.tsx).
@@ -53,6 +54,24 @@ const FEATURE_OPTIONS: { key: string; label: string; description: string }[] = [
   { key: "clin-burn", label: "PM · CLIN Burn", description: "CLIN funding/burn sub-tab (ceiling, funded, period of performance)." },
 ];
 
+// The 13 board VIEW types. A project starts with all enabled; toggling one OFF
+// records it in settings.disabledBoardTypes, which hides it from "New board".
+const BOARD_TYPE_OPTIONS: { key: string; label: string; description: string }[] = [
+  { key: "KANBAN", label: "Kanban", description: "Drag-drop columns with WIP limits & swimlanes." },
+  { key: "SCRUM", label: "Scrum / Sprint", description: "Active-sprint board with the Kanban scoped to it." },
+  { key: "BACKLOG", label: "Backlog", description: "Ranked product backlog with sprint assignment." },
+  { key: "TABLE", label: "Table", description: "Sortable, filterable spreadsheet-style grid." },
+  { key: "CALENDAR", label: "Calendar", description: "Due dates & ceremonies on a month/week view." },
+  { key: "TIMELINE", label: "Timeline / Gantt", description: "Interactive schedule with dependencies (or a static Release Timeline)." },
+  { key: "ROADMAP", label: "Roadmap", description: "Strategic epic swimlanes across increments." },
+  { key: "OKR", label: "OKRs", description: "Objectives & key results." },
+  { key: "DASHBOARD", label: "Dashboard", description: "Rollup widgets & metrics." },
+  { key: "PORTFOLIO", label: "Portfolio", description: "Cross-project rollup dashboard." },
+  { key: "PROGRAM", label: "Program", description: "Program-level rollup dashboard." },
+  { key: "RAID", label: "RAID Log", description: "Risks, assumptions, issues & dependencies." },
+  { key: "CFD", label: "Cumulative Flow", description: "Cumulative-flow diagram of work over time." },
+];
+
 export function ProjectSettingsClient({
   orgId,
   orgSlug,
@@ -61,6 +80,7 @@ export function ProjectSettingsClient({
   projectKey,
   projectDescription,
   enabledFeatures,
+  disabledBoardTypes,
 }: ProjectSettingsClientProps) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -74,6 +94,8 @@ export function ProjectSettingsClient({
   const [deleting, setDeleting] = useState(false);
   const [features, setFeatures] = useState<string[]>(enabledFeatures);
   const [savingFeatures, setSavingFeatures] = useState(false);
+  const [disabledTypes, setDisabledTypes] = useState<string[]>(disabledBoardTypes);
+  const [savingTypes, setSavingTypes] = useState(false);
 
   const canUpdate = can(Permission.PROJECT_UPDATE);
   const canDelete = can(Permission.PROJECT_DELETE);
@@ -125,6 +147,32 @@ export function ProjectSettingsClient({
       toast.error("Failed to update features");
     } finally {
       setSavingFeatures(false);
+    }
+  }
+
+  // `on` = allowed/enabled. We persist the DISABLED set (opt-out), so an existing
+  // project with no setting keeps all 13 board types.
+  async function toggleBoardType(key: string, on: boolean) {
+    const next = on
+      ? disabledTypes.filter((t) => t !== key)
+      : [...new Set([...disabledTypes, key])];
+    const prev = disabledTypes;
+    setDisabledTypes(next); // optimistic
+    setSavingTypes(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabledBoardTypes: next }),
+      });
+      if (!res.ok) throw new Error("Failed to update board types");
+      toast.success(on ? "Board type enabled" : "Board type disabled");
+      router.refresh();
+    } catch {
+      setDisabledTypes(prev); // rollback
+      toast.error("Failed to update board types");
+    } finally {
+      setSavingTypes(false);
     }
   }
 
@@ -260,6 +308,46 @@ export function ProjectSettingsClient({
           <p className="text-xs text-muted-foreground">
             Enabled features appear as tabs on this project. Disabling a feature
             hides its tab; existing data is kept.
+          </p>
+        </div>
+      </div>
+
+      {/* Board Types */}
+      <div className="rounded-lg border">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">Board Types</h3>
+          {savingTypes ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+        <div className="divide-y">
+          {BOARD_TYPE_OPTIONS.map((b) => {
+            const on = !disabledTypes.includes(b.key);
+            return (
+              <div
+                key={b.key}
+                className="flex items-center justify-between gap-4 px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium">{b.label}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {b.description}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={on}
+                  onCheckedChange={(v) => toggleBoardType(b.key, v)}
+                  disabled={!canUpdate || savingTypes}
+                  aria-label={`${on ? "Disable" : "Enable"} ${b.label} boards`}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="border-t px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            Which board views this project can create. Disabling one hides it from
+            “New board”; existing boards of that type are kept and still open.
           </p>
         </div>
       </div>

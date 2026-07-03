@@ -22,10 +22,14 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
       key: true,
       description: true,
       enabledFeatures: true,
+      settings: true,
     },
   });
 
   if (!project) notFound();
+
+  const disabledBoardTypes =
+    ((project.settings as { disabledBoardTypes?: string[] } | null)?.disabledBoardTypes) ?? [];
 
   // No PageShell here: the project layout already renders the project name as
   // the page's single <h1>; this section uses an <h2> so we don't stack two H1s.
@@ -42,6 +46,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         projectKey={project.key}
         projectDescription={project.description ?? ""}
         enabledFeatures={project.enabledFeatures}
+        disabledBoardTypes={disabledBoardTypes}
       />
       <MentionedIn
         orgId={ctx.orgId}

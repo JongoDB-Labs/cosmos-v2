@@ -90,6 +90,9 @@ interface TemplateGalleryProps {
   projectKey: string;
   /** The project's currently-enabled feature flags (for feature-view cards). */
   enabledFeatures?: string[];
+  /** Board view types disabled for this project (settings.disabledBoardTypes) —
+   *  their templates are hidden from the gallery. */
+  disabledBoardTypes?: string[];
 }
 
 export function TemplateGallery({
@@ -98,6 +101,7 @@ export function TemplateGallery({
   orgSlug,
   projectKey,
   enabledFeatures = [],
+  disabledBoardTypes = [],
 }: TemplateGalleryProps) {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = useState<string>("all");
@@ -126,10 +130,11 @@ export function TemplateGallery({
     void load();
   }, [load]);
 
-  const filtered =
-    activeCategory === "all"
-      ? templates
-      : templates.filter((t) => t.category === activeCategory);
+  const filtered = templates
+    // Hide board-type templates the project has disabled (settings.disabledBoardTypes).
+    // Feature-view cards (no boardType) are unaffected.
+    .filter((t) => !(t.boardType && disabledBoardTypes.includes(t.boardType)))
+    .filter((t) => activeCategory === "all" || t.category === activeCategory);
 
   function handleSelect(template: BoardTemplate) {
     if (creatingSlug) return;
