@@ -50,6 +50,9 @@ interface BoardTemplate {
   icon: string;
   /** Present for board-type templates (creates a Board row). */
   boardType?: string;
+  /** Optional board config seed (e.g. a TIMELINE template that opens as the
+   *  static "release-timeline" variant). */
+  config?: Record<string, unknown>;
   /** Present for FEATURE views (e.g. "pm-dashboard"): selecting enables the
    *  project feature flag + opens that view instead of creating a board. */
   feature?: string;
@@ -172,6 +175,7 @@ export function TemplateGallery({
           body: JSON.stringify({
             name: template.name,
             type: template.boardType,
+            ...(template.config ? { config: template.config } : {}),
           }),
         }
       );
