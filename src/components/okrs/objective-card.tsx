@@ -15,6 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { KeyResultRow } from "./key-result-row";
+import { krProgressPercent } from "@/lib/okr/progress";
 import type { Objective, KeyResult } from "@/types/models";
 
 interface ObjectiveCardProps {
@@ -30,12 +31,11 @@ interface ObjectiveCardProps {
 
 function computeProgress(keyResults: KeyResult[]): number {
   if (!keyResults || keyResults.length === 0) return 0;
-  const total = keyResults.reduce((sum, kr) => {
-    if (kr.targetValue === kr.startValue) return sum + 100;
-    const range = kr.targetValue - kr.startValue;
-    const progress = kr.currentValue - kr.startValue;
-    return sum + Math.min(100, Math.max(0, (progress / range) * 100));
-  }, 0);
+  const total = keyResults.reduce(
+    (sum, kr) =>
+      sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
+    0,
+  );
   return Math.round(total / keyResults.length);
 }
 
