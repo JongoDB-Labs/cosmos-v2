@@ -8,7 +8,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, BoardType } from "@prisma/client";
 
 // Project features that drive the optional board tabs (see board-tabs.tsx).
 // Toggleable from Project Settings; validated here so only known flags persist.
@@ -50,6 +50,10 @@ const updateProjectSchema = z.object({
       arr.filter((f) => (TOGGLEABLE_FEATURES as readonly string[]).includes(f)),
     )
     .optional(),
+  // Board view types this project may NOT create (opt-out; absent/empty = all 13
+  // allowed). Persisted under settings.disabledBoardTypes; the New-board gallery
+  // hides these and the board POST route rejects them.
+  disabledBoardTypes: z.array(z.nativeEnum(BoardType)).optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -128,10 +132,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.description !== undefined && { description: data.description ?? "" }),
         // MERGE settings (don't clobber): a partial patch like
         // `{ settings: { defaultBoardId } }` keeps every other setting intact.
-        ...(data.settings !== undefined && {
+        ...((data.settings !== undefined || data.disabledBoardTypes !== undefined) && {
           settings: {
             ...((existing.settings as Record<string, unknown> | null) ?? {}),
             ...data.settings,
+            ...(data.disabledBoardTypes !== undefined && {
+              disabledBoardTypes: data.disabledBoardTypes,
+            }),
           } as Prisma.InputJsonValue,
         }),
         ...(data.archived !== undefined && { archived: data.archived }),
