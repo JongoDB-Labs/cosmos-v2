@@ -152,6 +152,9 @@ export function DataTable<T>({
   const pageSizeOptions = paginationObj?.pageSizeOptions ?? [10, 20, 50, 100];
   const paginate = Boolean(pagination);
 
+  // Anchor row id for shift-click range selection (last checkbox the user clicked).
+  const lastSelectedRef = useRef<string | null>(null);
+
   const columnsWithSelection = useMemo<ColumnDef<T>[]>(() => {
     let cols = columns;
     if (rowSelection !== undefined) {
@@ -168,10 +171,34 @@ export function DataTable<T>({
             aria-label="Select all"
           />
         ),
-        cell: ({ row }) => (
+        cell: ({ row, table }) => (
           // Stop the click bubbling to the row's onClick — otherwise ticking a
           // checkbox to bulk-select also opens the detail drawer (FR/BR).
-          <div onClick={(e) => e.stopPropagation()}>
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              // Shift-click selects the contiguous range between the last-clicked
+              // row and this one (in the current sorted/filtered order), like a
+              // file list. preventDefault cancels this checkbox's own toggle so we
+              // set the whole range instead; a plain click just toggles + anchors.
+              const anchor = lastSelectedRef.current;
+              if (e.shiftKey && anchor && anchor !== row.id && onRowSelectionChange) {
+                const rows = table.getRowModel().rows;
+                const from = rows.findIndex((r) => r.id === anchor);
+                const to = rows.findIndex((r) => r.id === row.id);
+                if (from !== -1 && to !== -1) {
+                  e.preventDefault();
+                  const [a, b] = from < to ? [from, to] : [to, from];
+                  const next: RowSelectionState = { ...(rowSelection ?? {}) };
+                  for (let i = a; i <= b; i++) {
+                    if (rows[i].getCanSelect()) next[rows[i].id] = true;
+                  }
+                  onRowSelectionChange(next);
+                }
+              }
+              lastSelectedRef.current = row.id;
+            }}
+          >
             <Checkbox
               checked={row.getIsSelected()}
               disabled={!row.getCanSelect()}
@@ -212,8 +239,8 @@ export function DataTable<T>({
     return cols;
     // openRowMenu is stable across renders (refs/setState); excluded to keep the
     // memo from rebuilding the columns every render.
-     
-  }, [columns, rowSelection, rowActions]);
+
+  }, [columns, rowSelection, rowActions, onRowSelectionChange]);
 
   const table = useReactTable({
     data,
