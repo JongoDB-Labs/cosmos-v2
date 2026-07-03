@@ -4,6 +4,7 @@ import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
 import { TableView } from "@/components/boards/table/table-view";
 import { CalendarView } from "@/components/boards/calendar/calendar-view";
 import { TimelineView } from "@/components/boards/timeline/timeline-view";
+import { ReleaseTimelineView } from "@/components/boards/timeline/release-timeline-view";
 import { RoadmapView } from "@/components/boards/roadmap/roadmap-view";
 import { DashboardView } from "@/components/boards/dashboard/dashboard-view";
 import { CfdView } from "@/components/boards/cfd/cfd-view";
@@ -18,6 +19,9 @@ interface BoardRendererProps {
   projectKey: string;
   boardId: string;
   boardType: string;
+  /** Optional view variant from the board's config (e.g. TIMELINE →
+   *  "release-timeline" static snapshot vs the interactive Gantt default). */
+  viewMode?: string | null;
 }
 
 /**
@@ -28,7 +32,8 @@ interface BoardRendererProps {
  *   BACKLOG  → ranked product backlog (re-rank + assign-to-sprint)
  *   RAID     → RAID log (risks/assumptions/issues/dependencies, grouped by tag)
  *   ROADMAP  → strategic Roadmap (epic swimlanes × increments, Jira-Plans style)
- *   TIMELINE → interactive Gantt (date-driven bars + dependency arrows)
+ *   TIMELINE → interactive Gantt by default; the static Release Timeline snapshot
+ *              when config.mode === "release-timeline"
  *   PORTFOLIO/PROGRAM → Dashboard (rollup widgets)
  *   OKR      → the dedicated objectives/key-results board
  */
@@ -38,6 +43,7 @@ export function BoardRenderer({
   projectKey,
   boardId,
   boardType,
+  viewMode,
 }: BoardRendererProps) {
   const viewProps = { orgId, projectId, projectKey, boardId };
 
@@ -58,7 +64,13 @@ export function BoardRenderer({
       return <RoadmapView {...viewProps} />;
 
     case "TIMELINE":
-      return <TimelineView {...viewProps} />;
+      // Same board type, two variants: the static, read-only Release Timeline
+      // snapshot (config.mode) vs the interactive Gantt (default).
+      return viewMode === "release-timeline" ? (
+        <ReleaseTimelineView {...viewProps} />
+      ) : (
+        <TimelineView {...viewProps} />
+      );
 
     case "DASHBOARD":
     case "PORTFOLIO":
