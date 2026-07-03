@@ -41,6 +41,7 @@ const createSchema = z.object({
   description: z.string().nullish(),
   period: z.string().nullish(),
   status: z.nativeEnum(ObjectiveStatus).default(ObjectiveStatus.ACTIVE),
+  parentId: z.string().uuid().nullish(),
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         description: data.description ?? null,
         period: data.period ?? null,
         status: data.status,
+        parentId: data.parentId ?? null,
         progress: 0,
       },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },

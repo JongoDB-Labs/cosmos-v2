@@ -17,6 +17,7 @@ import {
 import { Plus, Target } from "lucide-react";
 import { ObjectiveCard } from "./objective-card";
 import { OkrHealthView } from "./okr-health-view";
+import { OkrAlignmentView } from "./okr-alignment-view";
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
 import type { Objective, KeyResult } from "@/types/models";
@@ -38,10 +39,11 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editPeriod, setEditPeriod] = useState("");
+  const [editParentId, setEditParentId] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [view, setView] = useState<"objectives" | "health">("objectives");
+  const [view, setView] = useState<"objectives" | "health" | "alignment">("objectives");
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -154,6 +156,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     setEditTitle(objective.title);
     setEditDescription(objective.description ?? "");
     setEditPeriod(objective.period ?? "");
+    setEditParentId(objective.parentId ?? "");
   }
 
   async function handleSaveEdit() {
@@ -168,6 +171,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           title: editTitle.trim(),
           description: editDescription.trim() || null,
           period: editPeriod.trim() || null,
+          parentId: editParentId || null,
         }),
       });
 
@@ -229,7 +233,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b border-[var(--border)] px-4 py-2">
-        {(["objectives", "health"] as const).map((v) => (
+        {(["objectives", "health", "alignment"] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -248,6 +252,10 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
       {view === "health" ? (
         <div className="flex-1 overflow-auto">
           <OkrHealthView orgId={orgId} projectId={projectId} objectives={objectives} />
+        </div>
+      ) : view === "alignment" ? (
+        <div className="flex-1 overflow-auto">
+          <OkrAlignmentView orgId={orgId} objectives={objectives} />
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-4">
@@ -368,6 +376,24 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
                 value={editPeriod}
                 onChange={(e) => setEditPeriod(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="objective-parent">Aligns to (parent objective)</Label>
+              <select
+                id="objective-parent"
+                value={editParentId}
+                onChange={(e) => setEditParentId(e.target.value)}
+                className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+              >
+                <option value="">— None (top-level) —</option>
+                {objectives
+                  .filter((o) => o.id !== editObjective?.id)
+                  .map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.title}
+                    </option>
+                  ))}
+              </select>
             </div>
           </div>
           <DialogFooter>
