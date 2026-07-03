@@ -152,8 +152,13 @@ export function DataTable<T>({
   const pageSizeOptions = paginationObj?.pageSizeOptions ?? [10, 20, 50, 100];
   const paginate = Boolean(pagination);
 
-  // Anchor row id for shift-click range selection (last checkbox the user clicked).
+  // Shift-click range selection. `lastSelectedRef` is the anchor (last checkbox
+  // clicked). A checkbox click fires onClick THEN its own onChange; the onChange
+  // toggles a single row off STALE selection state and would clobber a range we
+  // set in onClick — so onClick raises `suppressToggleRef` to make the very next
+  // onChange a no-op. (preventDefault on the click does NOT stop that onChange.)
   const lastSelectedRef = useRef<string | null>(null);
+  const suppressToggleRef = useRef(false);
 
   const columnsWithSelection = useMemo<ColumnDef<T>[]>(() => {
     let cols = columns;
@@ -179,21 +184,23 @@ export function DataTable<T>({
               e.stopPropagation();
               // Shift-click selects the contiguous range between the last-clicked
               // row and this one (in the current sorted/filtered order), like a
-              // file list. preventDefault cancels this checkbox's own toggle so we
-              // set the whole range instead; a plain click just toggles + anchors.
+              // file list. A plain click just toggles + re-anchors (handled by the
+              // checkbox's onChange below).
               const anchor = lastSelectedRef.current;
               if (e.shiftKey && anchor && anchor !== row.id && onRowSelectionChange) {
                 const rows = table.getRowModel().rows;
                 const from = rows.findIndex((r) => r.id === anchor);
                 const to = rows.findIndex((r) => r.id === row.id);
                 if (from !== -1 && to !== -1) {
-                  e.preventDefault();
                   const [a, b] = from < to ? [from, to] : [to, from];
                   const next: RowSelectionState = { ...(rowSelection ?? {}) };
                   for (let i = a; i <= b; i++) {
                     if (rows[i].getCanSelect()) next[rows[i].id] = true;
                   }
                   onRowSelectionChange(next);
+                  // The checkbox's onChange fires right after this and would toggle
+                  // just this row off stale state, clobbering the range — skip it.
+                  suppressToggleRef.current = true;
                 }
               }
               lastSelectedRef.current = row.id;
@@ -202,7 +209,13 @@ export function DataTable<T>({
             <Checkbox
               checked={row.getIsSelected()}
               disabled={!row.getCanSelect()}
-              onChange={(e) => row.toggleSelected(e.target.checked)}
+              onChange={(e) => {
+                if (suppressToggleRef.current) {
+                  suppressToggleRef.current = false;
+                  return;
+                }
+                row.toggleSelected(e.target.checked);
+              }}
               aria-label="Select row"
             />
           </div>

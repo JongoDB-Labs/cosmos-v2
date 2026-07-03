@@ -603,7 +603,7 @@ export function ProjectBoardTabs({
   }
 
   return (
-    <div className="flex items-center gap-1 px-4 border-b overflow-x-auto">
+    <div className="flex items-center gap-1 px-4 border-b overflow-x-auto scrollbar-x">
       {/* Unified strip — boards + enabled feature views, one order. Drag any tab
           to reorder YOUR OWN strip; a plain click still navigates. The ⋯ menu
           per tab gives everyone Move · Set-as-default · Hide (+ per-user feature
