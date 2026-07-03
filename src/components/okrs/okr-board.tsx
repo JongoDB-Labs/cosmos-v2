@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Target } from "lucide-react";
 import { ObjectiveCard } from "./objective-card";
+import { OkrHealthView } from "./okr-health-view";
 import { notifyError } from "@/lib/errors/notify";
+import { cn } from "@/lib/utils";
 import type { Objective, KeyResult } from "@/types/models";
 
 interface OkrBoardProps {
@@ -39,6 +41,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [view, setView] = useState<"objectives" | "health">("objectives");
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -224,7 +227,31 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   }
 
   return (
-    <div className="p-4 max-w-3xl mx-auto space-y-3">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-1 border-b border-[var(--border)] px-4 py-2">
+        {(["objectives", "health"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={cn(
+              "rounded-md px-3 py-1 text-sm capitalize transition-colors",
+              view === v
+                ? "bg-[var(--primary)] text-white"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]",
+            )}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {view === "health" ? (
+        <div className="flex-1 overflow-auto">
+          <OkrHealthView orgId={orgId} projectId={projectId} objectives={objectives} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-4">
+          <div className="mx-auto max-w-3xl space-y-3">
       {objectives.length === 0 && !showAddForm && (
         <div className="text-center py-16 border rounded-lg border-dashed">
           <Target className="mx-auto h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -294,6 +321,9 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
             Add Objective
           </Button>
         )
+      )}
+          </div>
+        </div>
       )}
 
       <Dialog
