@@ -3,14 +3,21 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Route, Minimize2, Maximize2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
 import type { WorkItem, OrgMember, Cycle, Board, BoardColumn } from "@/types/models";
-import { bareTypeKey } from "@/components/boards/shared/filter-bar";
+import {
+  bareTypeKey,
+  FilterBar,
+  emptyFilters,
+  type BoardFilters,
+} from "@/components/boards/shared/filter-bar";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 
@@ -72,6 +79,36 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
 
 type DragMode = "move" | "start" | "end";
 
+/** Client-side board-filter match (search/type/priority/assignee/cycle) — mirrors
+ *  the Kanban/Table logic so the Gantt's FilterBar behaves identically. Custom
+ *  fields aren't surfaced on the Gantt, so they're not applied here. */
+function matchesFilters(item: WorkItem, f: BoardFilters): boolean {
+  if (
+    f.search &&
+    !item.title.toLowerCase().includes(f.search.toLowerCase()) &&
+    !String(item.ticketNumber).includes(f.search)
+  )
+    return false;
+  if (f.types.length > 0 && !f.types.includes(bareTypeKey(item.workItemType?.key)))
+    return false;
+  if (f.priorities.length > 0 && !f.priorities.includes(item.priority)) return false;
+  if (f.assigneeId && item.assigneeId !== f.assigneeId) return false;
+  if (f.cycleId && item.cycleId !== f.cycleId) return false;
+  return true;
+}
+
+/** 0..1 completion for a bar's progress fill. A parent rolls up its children's
+ *  done ratio; a leaf is complete (1) if it's completed or sits in a DONE column. */
+function progressOf(item: WorkItem, doneKeys: Set<string>): number {
+  const kids = item.children ?? [];
+  if (kids.length > 0) {
+    const done = kids.filter((k) => k.columnKey != null && doneKeys.has(k.columnKey)).length;
+    return done / kids.length;
+  }
+  if (item.completedAt) return 1;
+  return doneKeys.has(item.columnKey) ? 1 : 0;
+}
+
 export function TimelineView({ orgId, projectId, projectKey, boardId }: TimelineViewProps) {
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
@@ -126,11 +163,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     ],
   });
 
-  const items: WorkItem[] = itemsQ.data ?? [];
-  const members: OrgMember[] = membersQ.data ?? [];
-  const links: WorkItemLink[] = linksQ.data ?? [];
-  const columns: BoardColumn[] = boardQ.data?.columns ?? [];
-  const cycles: Cycle[] = cyclesQ.data ?? [];
+  const items = useMemo<WorkItem[]>(() => itemsQ.data ?? [], [itemsQ.data]);
+  const members = useMemo<OrgMember[]>(() => membersQ.data ?? [], [membersQ.data]);
+  const links = useMemo<WorkItemLink[]>(() => linksQ.data ?? [], [linksQ.data]);
+  const columns = useMemo<BoardColumn[]>(() => boardQ.data?.columns ?? [], [boardQ.data]);
+  const cycles = useMemo<Cycle[]>(() => cyclesQ.data ?? [], [cyclesQ.data]);
+
+  // ── Gantt controls ───────────────────────────────────────────────────────
+  // FilterBar filters (search/type/priority/assignee/cycle), a critical-path
+  // highlight toggle, and a busy flag while a bulk shift/compress is in flight.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const [showCritical, setShowCritical] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const filteredItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
+  );
+  const doneKeys = useMemo(
+    () => new Set(columns.filter((c) => c.category === "DONE").map((c) => c.key)),
+    [columns],
+  );
 
   // Click a bar → open the shared work-item detail (same as other board views).
   // Tracked by id + derived from the live items so edits/deletes stay in sync.
@@ -157,8 +210,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   }, [members]);
 
   // Compute timeline range
-  const { timelineStart, timelineEnd, totalDays, sortedItems } = useMemo(() => {
-    if (items.length === 0) {
+  const { timelineStart, totalDays, sortedItems } = useMemo(() => {
+    if (filteredItems.length === 0) {
       const now = startOfDay(new Date());
       return {
         timelineStart: addDays(now, -7),
@@ -171,7 +224,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     let minDate = new Date();
     let maxDate = new Date();
 
-    for (const item of items) {
+    for (const item of filteredItems) {
       const start = item.startDate ? new Date(item.startDate) : new Date(item.createdAt);
       const end = item.dueDate ? new Date(item.dueDate) : addDays(start, 7);
 
@@ -184,7 +237,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     const padEnd = addDays(startOfDay(maxDate), 7);
     const days = Math.max(diffDays(padStart, padEnd), 30);
 
-    const sorted = [...items].sort((a, b) => {
+    const sorted = [...filteredItems].sort((a, b) => {
       const aStart = a.startDate ?? a.createdAt;
       const bStart = b.startDate ?? b.createdAt;
       return new Date(aStart).getTime() - new Date(bStart).getTime();
@@ -196,7 +249,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       totalDays: days,
       sortedItems: sorted,
     };
-  }, [items]);
+  }, [filteredItems]);
 
   // Generate date headers
   const dateHeaders = useMemo(() => {
@@ -395,6 +448,128 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     [qc, itemsKey, basePath],
   );
 
+  // ── Critical path ────────────────────────────────────────────────────────
+  // The longest dependency chain (by summed bar duration) through the currently
+  // visible items. DP over the dependency DAG (cycle-guarded); highlighted only
+  // when toggled on.
+  const criticalSet = useMemo(() => {
+    if (!showCritical) return new Set<string>();
+    const ids = new Set(filteredItems.map((i) => i.id));
+    const dur = new Map<string, number>();
+    for (const it of filteredItems) {
+      const { start, end } = itemSpan(it);
+      dur.set(it.id, Math.max(diffDays(start, end), 1));
+    }
+    const preds = new Map<string, string[]>();
+    for (const l of links) {
+      if (ids.has(l.sourceItemId) && ids.has(l.targetItemId)) {
+        const arr = preds.get(l.targetItemId) ?? [];
+        arr.push(l.sourceItemId);
+        preds.set(l.targetItemId, arr);
+      }
+    }
+    const memo = new Map<string, number>();
+    const best = new Map<string, string | null>();
+    const visiting = new Set<string>();
+    const dp = (id: string): number => {
+      const cached = memo.get(id);
+      if (cached !== undefined) return cached;
+      if (visiting.has(id)) return dur.get(id) ?? 1; // cycle guard
+      visiting.add(id);
+      let bestVal = 0;
+      let bestPred: string | null = null;
+      for (const p of preds.get(id) ?? []) {
+        const v = dp(p);
+        if (v > bestVal) {
+          bestVal = v;
+          bestPred = p;
+        }
+      }
+      visiting.delete(id);
+      const total = (dur.get(id) ?? 1) + bestVal;
+      memo.set(id, total);
+      best.set(id, bestPred);
+      return total;
+    };
+    let endId: string | null = null;
+    let max = -1;
+    for (const it of filteredItems) {
+      const v = dp(it.id);
+      if (v > max) {
+        max = v;
+        endId = it.id;
+      }
+    }
+    const set = new Set<string>();
+    let cur: string | null = endId;
+    while (cur) {
+      set.add(cur);
+      cur = best.get(cur) ?? null;
+    }
+    return set;
+  }, [showCritical, filteredItems, links]);
+
+  // ── Bulk schedule ops ────────────────────────────────────────────────────
+  // The "adjust schedules / time compression in real-time" workspace: shift
+  // moves every VISIBLE item by N days; compress/expand scales each item's
+  // offset-from-start AND its duration by a factor, pivoting on the timeline
+  // start. Optimistic cache write, then PUT each; refetch on any failure.
+  const bulkReschedule = useCallback(
+    async (compute: (span: { start: Date; end: Date }) => { start: Date; end: Date }) => {
+      if (!canEdit || busy || filteredItems.length === 0) return;
+      setBusy(true);
+      const updates = filteredItems.map((it) => {
+        const next = compute(itemSpan(it));
+        return {
+          id: it.id,
+          startDate: next.start.toISOString(),
+          dueDate: next.end.toISOString(),
+        };
+      });
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        prev?.map((it) => {
+          const u = updates.find((x) => x.id === it.id);
+          return u ? { ...it, startDate: u.startDate, dueDate: u.dueDate } : it;
+        }),
+      );
+      const results = await Promise.allSettled(
+        updates.map((u) =>
+          jsonFetch(`${basePath}/work-items/${u.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ startDate: u.startDate, dueDate: u.dueDate }),
+          }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        notifyError(
+          new Error("Some items couldn't be rescheduled"),
+          `${failed} of ${updates.length} failed`,
+        );
+      } else {
+        toast.success(`Rescheduled ${updates.length} item${updates.length === 1 ? "" : "s"}`);
+      }
+      qc.invalidateQueries({ queryKey: itemsKey });
+      setBusy(false);
+    },
+    [canEdit, busy, filteredItems, qc, itemsKey, basePath],
+  );
+
+  const shiftDays = (days: number) =>
+    void bulkReschedule(({ start, end }) => ({
+      start: addDays(start, days),
+      end: addDays(end, days),
+    }));
+
+  const scaleBy = (factor: number) =>
+    void bulkReschedule(({ start, end }) => {
+      const offset = diffDays(timelineStart, start);
+      const dur = Math.max(diffDays(start, end), 1);
+      const newStart = addDays(timelineStart, Math.round(offset * factor));
+      const newEnd = addDays(newStart, Math.max(Math.round(dur * factor), 1));
+      return { start: newStart, end: newEnd };
+    });
+
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
@@ -414,7 +589,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     );
   }
 
-  if (sortedItems.length === 0) {
+  // Only short-circuit when the board is TRULY empty. If items exist but the
+  // active filters match none, fall through so the FilterBar still renders (the
+  // user needs it to clear the filter) over an empty chart.
+  if (items.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-sm text-muted-foreground">
@@ -426,20 +604,83 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
-        {canEdit ? (
-          <p className="hidden text-xs text-muted-foreground sm:block">
-            Drag a bar to reschedule · drag its edges to resize
-          </p>
-        ) : (
-          <span />
-        )}
-        <CreateIssueButton
-          orgId={orgId}
-          projectId={projectId}
-          boardId={boardId}
-          onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-        />
+      <FilterBar
+        filters={filters}
+        onFilterChange={setFilters}
+        members={members}
+        cycles={cycles}
+        orgId={orgId}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setShowCritical((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors",
+              showCritical
+                ? "border-[var(--status-critical)] bg-[var(--status-critical)]/10 text-[var(--status-critical)]"
+                : "border-border text-muted-foreground hover:text-foreground",
+            )}
+            title="Highlight the longest dependency chain"
+          >
+            <Route className="size-3.5" /> Critical path
+          </button>
+          {canEdit && (
+            <>
+              <div className="mx-1 h-5 w-px bg-border" />
+              <span className="text-xs text-muted-foreground">Shift</span>
+              {[-7, -1, 1, 7].map((d) => (
+                <Button
+                  key={d}
+                  variant="outline"
+                  size="xs"
+                  disabled={busy}
+                  onClick={() => shiftDays(d)}
+                  title={`Shift all visible items ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`}
+                >
+                  {d < 0 ? <ChevronLeft className="size-3" /> : null}
+                  {d > 0 ? "+" : ""}
+                  {d}d
+                  {d > 0 ? <ChevronRight className="size-3" /> : null}
+                </Button>
+              ))}
+              <div className="mx-1 h-5 w-px bg-border" />
+              <span className="text-xs text-muted-foreground">Scale</span>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={busy}
+                onClick={() => scaleBy(0.9)}
+                title="Compress the schedule 10% (pull dates toward the start)"
+              >
+                <Minimize2 className="size-3" /> Compress
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={busy}
+                onClick={() => scaleBy(1.1)}
+                title="Expand the schedule 10% (push dates out from the start)"
+              >
+                <Maximize2 className="size-3" /> Expand
+              </Button>
+              {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <p className="hidden text-xs text-muted-foreground lg:block">
+              Drag a bar to reschedule · drag edges to resize
+            </p>
+          )}
+          <CreateIssueButton
+            orgId={orgId}
+            projectId={projectId}
+            boardId={boardId}
+            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+          />
+        </div>
       </div>
       <div className="flex-1 flex overflow-hidden">
         {/* Left panel - item labels. Narrower on phones so the chart isn't
@@ -506,6 +747,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 orient="auto-start-reverse"
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
+              </marker>
+              <marker
+                id="timeline-dep-arrow-crit"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--status-critical)" />
               </marker>
             </defs>
 
@@ -605,14 +857,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const x2 = to.x;
               const y2 = to.y + to.h / 2;
               const midX = (x1 + x2) / 2;
+              const crit =
+                showCritical &&
+                criticalSet.has(link.sourceItemId) &&
+                criticalSet.has(link.targetItemId);
               return (
                 <path
                   key={link.id}
                   d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
-                  className="stroke-muted-foreground/60"
-                  strokeWidth={1.5}
+                  className={crit ? undefined : "stroke-muted-foreground/60"}
+                  stroke={crit ? "var(--status-critical)" : undefined}
+                  strokeWidth={crit ? 2.5 : 1.5}
                   fill="none"
-                  markerEnd="url(#timeline-dep-arrow)"
+                  markerEnd={crit ? "url(#timeline-dep-arrow-crit)" : "url(#timeline-dep-arrow)"}
                 >
                   <title>
                     {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
@@ -657,6 +914,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               }
 
               const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
+              const prog = progressOf(item, doneKeys);
+              const isCrit = showCritical && criticalSet.has(item.id);
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -695,8 +954,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <polygon
                       points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
                       fill={colors.fill}
-                      stroke={colors.stroke}
-                      strokeWidth={1.5}
+                      stroke={isCrit ? "var(--status-critical)" : colors.stroke}
+                      strokeWidth={isCrit ? 2.5 : 1.5}
                     />
                   </g>
                 );
@@ -720,8 +979,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     height={h}
                     rx={4}
                     fill={colors.fill}
-                    stroke={colors.stroke}
-                    strokeWidth={1}
+                    stroke={isCrit ? "var(--status-critical)" : colors.stroke}
+                    strokeWidth={isCrit ? 2.5 : 1}
                     opacity={preview ? 1 : 0.85}
                     onPointerDown={(e) => beginDrag(item, "move", e)}
                     onPointerMove={onDragMove}
@@ -736,6 +995,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   />
+                  {/* Progress fill — a darker inset showing % complete (child
+                      roll-up, or done/not-done for a leaf). Non-interactive so it
+                      never intercepts a drag on the bar. */}
+                  {prog > 0 && (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={Math.max(w * prog, 2)}
+                      height={h}
+                      rx={4}
+                      fill={colors.stroke}
+                      opacity={preview ? 0.65 : 0.5}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  )}
                   {canEdit && (
                     <>
                       {/* Left edge → move start date */}
