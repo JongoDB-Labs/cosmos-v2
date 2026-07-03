@@ -13,7 +13,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Activity, AlertTriangle, TrendingDown, Ban } from "lucide-react";
+import { Activity, AlertTriangle, TrendingDown, TrendingUp, Ban } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import { RAG_META } from "./key-result-checkin-dialog";
 import type { Objective, OrgMember } from "@/types/models";
@@ -116,7 +116,7 @@ export function OkrHealthView({
     };
   }, [basePath, orgId]);
 
-  // Flatten KRs with their objective + owner + latest snapshot.
+  // Flatten KRs with their objective + owner + latest snapshot + progress.
   const krRows = useMemo(() => {
     const rows: {
       krId: string;
@@ -126,9 +126,16 @@ export function OkrHealthView({
       ownerId: string | null;
       rag: Rag | null;
       confidence: number | null;
+      progress: number;
     }[] = [];
     for (const o of objectives) {
       for (const kr of o.keyResults ?? []) {
+        const frac =
+          kr.targetValue === kr.startValue
+            ? kr.currentValue >= kr.targetValue
+              ? 1
+              : 0
+            : Math.max(0, Math.min(1, (kr.currentValue - kr.startValue) / (kr.targetValue - kr.startValue)));
         rows.push({
           krId: kr.id,
           title: kr.title,
@@ -137,6 +144,7 @@ export function OkrHealthView({
           ownerId: kr.ownerId ?? o.ownerId ?? null,
           rag: (kr.rag as Rag | null) ?? null,
           confidence: kr.confidence,
+          progress: Math.round(frac * 100),
         });
       }
     }
@@ -208,6 +216,29 @@ export function OkrHealthView({
       }
     }
     return { behind, atRisk, blockers, confDrops };
+  }, [krRows, checkinsByKr]);
+
+  // Momentum map: progress (x) × momentum (y). Momentum = did the latest check-in's
+  // confidence hold or rise vs the prior one. Only KRs with a check-in qualify.
+  const quadrants = useMemo(() => {
+    const q = {
+      leading: [] as typeof krRows,
+      coasting: [] as typeof krRows,
+      rising: [] as typeof krRows,
+      atRisk: [] as typeof krRows,
+    };
+    for (const r of krRows) {
+      const list = checkinsByKr.get(r.krId);
+      if (!list || list.length === 0) continue;
+      const rising =
+        list.length >= 2 ? list[list.length - 1].confidence >= list[list.length - 2].confidence : true;
+      const high = r.progress >= 50;
+      if (high && rising) q.leading.push(r);
+      else if (high && !rising) q.coasting.push(r);
+      else if (!high && rising) q.rising.push(r);
+      else q.atRisk.push(r);
+    }
+    return q;
   }, [krRows, checkinsByKr]);
 
   if (loading) {
@@ -343,6 +374,28 @@ export function OkrHealthView({
           </table>
         </div>
       )}
+
+      {/* momentum map — progress × momentum quadrants (okrstool's Momentum Map) */}
+      {!noHistory && (
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--text)]">
+            <TrendingUp className="size-4 text-[var(--primary)]" /> Momentum
+            <span className="text-xs font-normal text-[var(--text-muted)]">
+              progress × whether confidence is holding/rising
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <AttentionCard icon={TrendingUp} tone="green" title="Leading" count={quadrants.leading.length}
+              items={quadrants.leading.map((r) => ({ key: r.krId, label: r.title, sub: `${r.progress}% · gaining` }))} />
+            <AttentionCard icon={Activity} tone="yellow" title="Coasting" count={quadrants.coasting.length}
+              items={quadrants.coasting.map((r) => ({ key: r.krId, label: r.title, sub: `${r.progress}% · slowing` }))} />
+            <AttentionCard icon={TrendingUp} tone="yellow" title="Rising" count={quadrants.rising.length}
+              items={quadrants.rising.map((r) => ({ key: r.krId, label: r.title, sub: `${r.progress}% · gaining` }))} />
+            <AttentionCard icon={TrendingDown} tone="red" title="At risk" count={quadrants.atRisk.length}
+              items={quadrants.atRisk.map((r) => ({ key: r.krId, label: r.title, sub: `${r.progress}% · not improving` }))} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -384,12 +437,13 @@ function AttentionCard({
   items,
 }: {
   icon: typeof Activity;
-  tone: "red" | "yellow";
+  tone: "red" | "yellow" | "green";
   title: string;
   count: number;
   items: { key: string; label: string; sub?: string }[];
 }) {
-  const toneCls = tone === "red" ? "text-red-600" : "text-yellow-600";
+  const toneCls =
+    tone === "red" ? "text-red-600" : tone === "green" ? "text-green-600" : "text-yellow-600";
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)]/40 p-3">
       <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[var(--text)]">

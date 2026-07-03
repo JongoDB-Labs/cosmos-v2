@@ -2127,14 +2127,20 @@ model Objective {
   period      String?
   status      ObjectiveStatus @default(ACTIVE)
   progress    Int             @default(0) // 0-100, derived from key results
+  // Alignment: this objective ladders up to a parent objective (org→team→…).
+  // SetNull on parent delete so a child is orphaned, never cascade-deleted.
+  parentId    String?         @map("parent_objective_id") @db.Uuid
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   keyResults KeyResult[]
+  parent     Objective?   @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Objective[]  @relation("ObjectiveAlignment")
 
   @@index([orgId, projectId])
+  @@index([parentId])
   @@map("objectives")
 }
 
