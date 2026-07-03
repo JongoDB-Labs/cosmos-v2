@@ -4,6 +4,7 @@ import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
 import { TableView } from "@/components/boards/table/table-view";
 import { CalendarView } from "@/components/boards/calendar/calendar-view";
 import { TimelineView } from "@/components/boards/timeline/timeline-view";
+import { RoadmapView } from "@/components/boards/roadmap/roadmap-view";
 import { DashboardView } from "@/components/boards/dashboard/dashboard-view";
 import { CfdView } from "@/components/boards/cfd/cfd-view";
 import { SprintBoard } from "@/components/boards/scrum/sprint-board";
@@ -26,7 +27,8 @@ interface BoardRendererProps {
  *   SCRUM    → Sprint board (active-sprint header + the Kanban scoped to it)
  *   BACKLOG  → ranked product backlog (re-rank + assign-to-sprint)
  *   RAID     → RAID log (risks/assumptions/issues/dependencies, grouped by tag)
- *   ROADMAP  → Timeline
+ *   ROADMAP  → strategic Roadmap (epic swimlanes × increments, Jira-Plans style)
+ *   TIMELINE → interactive Gantt (date-driven bars + dependency arrows)
  *   PORTFOLIO/PROGRAM → Dashboard (rollup widgets)
  *   OKR      → the dedicated objectives/key-results board
  */
@@ -52,8 +54,10 @@ export function BoardRenderer({
     case "CALENDAR":
       return <CalendarView {...viewProps} />;
 
-    case "TIMELINE":
     case "ROADMAP":
+      return <RoadmapView {...viewProps} />;
+
+    case "TIMELINE":
       return <TimelineView {...viewProps} />;
 
     case "DASHBOARD":
