@@ -71,7 +71,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
         children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
-        _count: { select: { comments: true, activities: true } },
+        // (No `_count` of comments/activities — the list is fetched on every board
+        // load and nothing on a card renders those counts, so the two per-row
+        // subqueries were pure cost. Add back a scoped count if a badge needs it.)
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     });
