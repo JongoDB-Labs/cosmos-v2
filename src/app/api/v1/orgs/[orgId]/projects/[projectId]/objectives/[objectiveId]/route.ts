@@ -45,6 +45,8 @@ const updateSchema = z.object({
   description: z.string().nullish(),
   period: z.string().nullish(),
   status: z.nativeEnum(ObjectiveStatus).optional(),
+  // Alignment parent; null unsets it. Guarded against self/cycles below.
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
@@ -69,6 +71,30 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const data = updateSchema.parse(await request.json());
 
+    // Alignment validation: a same-project parent, never itself, never a
+    // descendant (which would make a cycle and break the tree/rollup).
+    if (data.parentId) {
+      if (data.parentId === objectiveId) {
+        return new Response("An objective can't align to itself", { status: 400 });
+      }
+      const parent = await prisma.objective.findFirst({
+        where: { id: data.parentId, orgId, projectId },
+        select: { parentId: true },
+      });
+      if (!parent) return new Response("Parent objective not found", { status: 400 });
+      let cur = parent.parentId;
+      for (let guard = 0; cur && guard < 100; guard++) {
+        if (cur === objectiveId) {
+          return new Response("That alignment would create a cycle", { status: 400 });
+        }
+        const next = await prisma.objective.findUnique({
+          where: { id: cur },
+          select: { parentId: true },
+        });
+        cur = next?.parentId ?? null;
+      }
+    }
+
     const updated = await prisma.objective.update({
       where: { id: objectiveId },
       data: {
@@ -76,6 +102,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.description !== undefined && { description: data.description }),
         ...(data.period !== undefined && { period: data.period }),
         ...(data.status !== undefined && { status: data.status }),
+        ...(data.parentId !== undefined && { parentId: data.parentId }),
       },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
