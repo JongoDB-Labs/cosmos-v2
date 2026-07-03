@@ -140,7 +140,7 @@ export function ProjectSettingsClient({
         body: JSON.stringify({ enabledFeatures: next }),
       });
       if (!res.ok) throw new Error("Failed to update features");
-      toast.success(on ? "Feature enabled" : "Feature disabled");
+      toast.success(on ? "Module enabled" : "Module disabled");
       router.refresh(); // re-render the project tabs
     } catch {
       setFeatures(prev); // rollback
@@ -274,10 +274,16 @@ export function ProjectSettingsClient({
 
       {/* Features */}
       <div className="rounded-lg border">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="text-sm font-semibold">Features</h3>
+        <div className="flex items-start justify-between border-b px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Modules</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Optional capabilities that show up as project tabs — OKRs, Goals,
+              KPIs, the PM suites, Files. (Not board views — see Board Types below.)
+            </p>
+          </div>
           {savingFeatures ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
           ) : null}
         </div>
         <div className="divide-y">
@@ -306,18 +312,25 @@ export function ProjectSettingsClient({
         </div>
         <div className="border-t px-4 py-2.5">
           <p className="text-xs text-muted-foreground">
-            Enabled features appear as tabs on this project. Disabling a feature
-            hides its tab; existing data is kept.
+            Enabled modules appear as tabs on this project. Disabling one hides
+            its tab; existing data is kept.
           </p>
         </div>
       </div>
 
       {/* Board Types */}
       <div className="rounded-lg border">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="text-sm font-semibold">Board Types</h3>
+        <div className="flex items-start justify-between border-b px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Board Types</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Which board <em>views</em> this project can create from “New board”
+              (Kanban, Table, Timeline, RAID, …). Disabling one just hides it from
+              the gallery.
+            </p>
+          </div>
           {savingTypes ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
           ) : null}
         </div>
         <div className="divide-y">
