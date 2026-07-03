@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -39,6 +39,9 @@ import {
 import { CheckSquare, X } from "lucide-react";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
+import { useQueryClient } from "@tanstack/react-query";
+import { useOrgSlug } from "@/lib/query/keys";
+import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import type {
@@ -147,6 +150,31 @@ function KanbanBoardInner({
   // controls and the client-side custom-field predicate below.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
 
+  // Board data is cached in React Query (keyed per org/project) so switching
+  // between a project's boards reuses it instead of refetching everything each
+  // time. Local `items` state stays the source of truth for optimistic drag/edit;
+  // `applyItems` mirrors every change into the cache so the two never diverge.
+  // NB: build the query keys with useMemo (NOT useOrgQueryKey, which returns a
+  // fresh array every render). fetchData depends on these keys, and its mount
+  // effect re-runs whenever fetchData's identity changes — an unstable key array
+  // there causes an infinite refetch loop that thrashes the board.
+  const qc = useQueryClient();
+  const orgSlug = useOrgSlug();
+  const itemsKey = useMemo(() => ["org", orgSlug, "work-items", projectId], [orgSlug, projectId]);
+  const membersKey = useMemo(() => ["org", orgSlug, "members"], [orgSlug]);
+  const cyclesKey = useMemo(() => ["org", orgSlug, "cycles", projectId], [orgSlug, projectId]);
+  const boardKey = useMemo(() => ["org", orgSlug, "board", boardId], [orgSlug, boardId]);
+
+  const applyItems = useCallback(
+    (updater: WorkItem[] | ((prev: WorkItem[]) => WorkItem[])) => {
+      setItems((prev) => (typeof updater === "function" ? updater(prev) : updater));
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        typeof updater === "function" ? updater(prev ?? []) : updater,
+      );
+    },
+    [qc, itemsKey],
+  );
+
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -175,29 +203,41 @@ function KanbanBoardInner({
   // Fetch board, items, members, sprints. `silent` skips the loading skeleton
   // so a live-update refetch doesn't flash the board away under the user.
   const fetchData = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; fresh?: boolean }) => {
       const seq = ++reqSeq.current;
       if (!opts?.silent) setLoading(true);
       setError(null);
+      // Serve from cache on a plain board switch (staleTime), but force a live
+      // read when a realtime event or our own bulk op needs server truth.
+      const staleTime = opts?.fresh ? 0 : 30_000;
       try {
-        const [boardRes, itemsRes, membersRes, sprintsRes] = await Promise.all([
-          fetch(`${basePath}/boards/${boardId}`),
-          fetch(`${basePath}/work-items`),
-          fetch(`/api/v1/orgs/${orgId}/members`),
-          fetch(`${basePath}/cycles`),
+        const [boardData, itemsData, membersData, cyclesData] = await Promise.all([
+          qc.fetchQuery({
+            queryKey: boardKey,
+            queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
+            staleTime,
+          }),
+          qc.fetchQuery({
+            queryKey: itemsKey,
+            queryFn: () => jsonFetch<WorkItem[]>(`${basePath}/work-items`),
+            staleTime,
+          }),
+          // Members/cycles are non-critical — tolerate a failure (keep prior state).
+          qc
+            .fetchQuery({
+              queryKey: membersKey,
+              queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
+              staleTime,
+            })
+            .catch(() => null),
+          qc
+            .fetchQuery({
+              queryKey: cyclesKey,
+              queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+              staleTime,
+            })
+            .catch(() => null),
         ]);
-
-        if (!boardRes.ok) throw new Error("Failed to load board");
-        if (!itemsRes.ok) throw new Error("Failed to load work items");
-
-        const boardData: Board = await boardRes.json();
-        const itemsData: WorkItem[] = await itemsRes.json();
-        const membersData: OrgMember[] | null = membersRes.ok
-          ? await membersRes.json()
-          : null;
-        const cyclesData: Cycle[] | null = sprintsRes.ok
-          ? await sprintsRes.json()
-          : null;
 
         if (seq !== reqSeq.current) return; // superseded by a newer fetch
 
@@ -216,7 +256,7 @@ function KanbanBoardInner({
         if (seq === reqSeq.current && !opts?.silent) setLoading(false);
       }
     },
-    [orgId, basePath, boardId],
+    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, cyclesKey],
   );
 
   // Initial load. fetchData sets `loading` up front (the skeleton); that's the
@@ -233,7 +273,7 @@ function KanbanBoardInner({
   useWorkItemRealtime(orgId, projectId, () => {
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
     refetchTimer.current = setTimeout(() => {
-      void fetchData({ silent: true });
+      void fetchData({ silent: true, fresh: true });
     }, 400);
   });
 
@@ -435,7 +475,7 @@ function KanbanBoardInner({
     if (!targetColumnKey || srcItem.columnKey === targetColumnKey) return;
 
     // Move item to the new column optimistically
-    setItems((prev) =>
+    applyItems((prev) =>
       prev.map((i) =>
         i.id === activeItemId ? { ...i, columnKey: targetColumnKey } : i
       )
@@ -501,7 +541,7 @@ function KanbanBoardInner({
         // move back using the pre-drag snapshot; default is warn-but-allow.
         const hardEnforce = board?.config?.wipHardEnforce === true;
         if (hardEnforce) {
-          setItems(beforeDragItemsRef.current);
+          applyItems(beforeDragItemsRef.current);
           notifyError(
             new Error("wip-limit"),
             `"${label}" is at its WIP limit (${wipLimit}) — move blocked.`,
@@ -525,7 +565,7 @@ function KanbanBoardInner({
 
       // Optimistic update. (Pre-drag state was captured in handleDragStart,
       // before handleDragOver moved the card, so we can truly revert.)
-      setItems((prev) =>
+      applyItems((prev) =>
         prev.map((i) => {
           const seq = seqById.get(i.id);
           if (i.id === activeId) {
@@ -581,16 +621,16 @@ function KanbanBoardInner({
           }
         } catch (err) {
           console.error("Failed to update work item position:", err);
-          setItems(beforeDragItemsRef.current);
+          applyItems(beforeDragItemsRef.current);
           notifyError(err, "Couldn't move the card — it's been put back.");
         }
       })();
     },
-    [items, columns, basePath, board]
+    [items, columns, basePath, board, applyItems]
   );
 
   function handleCardCreated(item: WorkItem) {
-    setItems((prev) => [...prev, item]);
+    applyItems((prev) => [...prev, item]);
   }
 
   function handleCardClick(item: WorkItem) {
@@ -620,18 +660,18 @@ function KanbanBoardInner({
   }
 
   function handleItemUpdate(updated: WorkItem) {
-    setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    applyItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
     setDetailItem(updated);
   }
 
   function handleItemDeleted(id: string) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    applyItems((prev) => prev.filter((i) => i.id !== id));
   }
 
   function handleItemDuplicated(dupe: WorkItem) {
     // Append the new item so it shows immediately, then open it for editing
     // (it lands in the same column as its source).
-    setItems((prev) => [...prev, dupe]);
+    applyItems((prev) => [...prev, dupe]);
     setDetailItem(dupe);
   }
 
@@ -651,7 +691,7 @@ function KanbanBoardInner({
         if (!res.ok) throw new Error("bulk update failed");
         toast.success(`Updated ${ids.length} item${ids.length === 1 ? "" : "s"} — ${label}`);
         setSelectedIds(new Set());
-        await fetchData({ silent: true });
+        await fetchData({ silent: true, fresh: true });
       } catch (err) {
         notifyError(err, "Couldn't apply the bulk change.");
       } finally {
@@ -673,14 +713,14 @@ function KanbanBoardInner({
       });
       if (!res.ok) throw new Error("bulk delete failed");
       toast.success(`Deleted ${ids.length} item${ids.length === 1 ? "" : "s"}`);
-      setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
+      applyItems((prev) => prev.filter((i) => !ids.includes(i.id)));
       setSelectedIds(new Set());
     } catch (err) {
       notifyError(err, "Couldn't delete the selected items.");
     } finally {
       setBulkPending(false);
     }
-  }, [basePath]);
+  }, [basePath, applyItems]);
 
   if (loading) {
     return <KanbanBoardSkeleton />;
