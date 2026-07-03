@@ -30,10 +30,23 @@ export default async function BoardPage({ params }: PageParams) {
 
   const board = await prisma.board.findFirst({
     where: { id: boardId, projectId: project.id },
-    select: { id: true, type: true },
+    select: { id: true, type: true, name: true, config: true },
   });
 
   if (!board) notFound();
+
+  // A board's view variant lives in its config (e.g. a TIMELINE board rendered as
+  // the static "release-timeline" snapshot vs the interactive Gantt default).
+  // Templates seed config.mode explicitly. For TIMELINE boards created BEFORE the
+  // Gantt/Release-Timeline split (no config.mode), fall back to a name signal so a
+  // board literally called "Release Timeline" opens as the static snapshot without
+  // a data backfill; explicit config.mode always wins.
+  const cfg = (board.config ?? {}) as { mode?: string };
+  const viewMode =
+    cfg.mode ??
+    (board.type === "TIMELINE" && /release\s*timeline/i.test(board.name)
+      ? "release-timeline"
+      : null);
 
   return (
     <BoardRenderer
@@ -42,6 +55,7 @@ export default async function BoardPage({ params }: PageParams) {
       projectKey={project.key}
       boardId={board.id}
       boardType={board.type}
+      viewMode={viewMode}
     />
   );
 }
