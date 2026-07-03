@@ -27,6 +27,20 @@ export async function uniqueSlug(
   }
 }
 
+/** A human-readable, project-unique board slug derived from its name (matches the
+ *  Board `@@unique([projectId, slug])` constraint). Empty/symbol-only names fall
+ *  back to "board". Collisions get a -2, -3, … suffix. */
+export async function uniqueBoardSlug(base: string, projectId: string): Promise<string> {
+  const slug = slugify(base) || "board";
+  let suffix = 1;
+  while (true) {
+    const candidate = suffix === 1 ? slug : `${slug}-${suffix}`;
+    const existing = await prisma.board.findFirst({ where: { projectId, slug: candidate } });
+    if (!existing) return candidate;
+    suffix++;
+  }
+}
+
 export async function uniqueKey(
   base: string,
   orgId: string,
