@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,32 +42,27 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchObjectives() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const res = await fetch(`${basePath}/objectives`);
-        if (!res.ok) throw new Error("Failed to load objectives");
-        const data: Objective[] = await res.json();
-        if (!cancelled) setObjectives(data);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  // Refetch all objectives (with their key results). Reused on mount and after a
+  // check-in (which changes value + progress + RAG + confidence).
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${basePath}/objectives`);
+      if (!res.ok) throw new Error("Failed to load objectives");
+      setObjectives(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
     }
-
-    fetchObjectives();
-    return () => {
-      cancelled = true;
-    };
   }, [basePath]);
+
+  useEffect(() => {
+    // Intended one-shot mount fetch (reload also sets loading/error state).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload();
+  }, [reload]);
 
   async function handleAddObjective() {
     if (!newTitle.trim()) return;
@@ -254,6 +249,9 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           onDelete={(id: string) =>
             setDeleteTarget(objectives.find((o) => o.id === id) ?? null)
           }
+          orgId={orgId}
+          projectId={projectId}
+          onCheckedIn={reload}
         />
       ))}
 
