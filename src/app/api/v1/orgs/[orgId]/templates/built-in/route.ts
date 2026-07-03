@@ -53,7 +53,7 @@ const BUILT_IN_BOARD_TEMPLATES = [
     slug: "roadmap",
     name: "Roadmap",
     category: "planning",
-    description: "Epic and feature timeline across quarters with dependency arrows",
+    description: "Strategic epic swimlanes across increments, with feature roll-up",
     icon: "Map",
     boardType: "ROADMAP",
   },
