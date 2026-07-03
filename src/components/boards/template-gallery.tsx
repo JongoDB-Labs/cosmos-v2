@@ -164,6 +164,7 @@ export function TemplateGallery({
       router.push(target);
     } catch (err) {
       notifyError(err, `Couldn't enable ${template.name}.`);
+    } finally {
       setCreatingSlug(null);
     }
   }
@@ -199,6 +200,11 @@ export function TemplateGallery({
       router.refresh();
     } catch (err) {
       notifyError(err, "Couldn't create the board.");
+    } finally {
+      // ALWAYS clear the creating flag — even on success. router.refresh() keeps
+      // this client component mounted, so a leftover creatingSlug would leave the
+      // whole gallery disabled + spinning the next time it's shown (the "new-board
+      // section hangs after creating" bug).
       setCreatingSlug(null);
     }
   }
