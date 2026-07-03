@@ -189,9 +189,25 @@ export interface KeyResult {
   status: "NOT_STARTED" | "IN_PROGRESS" | "AT_RISK" | "ON_TRACK" | "DONE";
   ownerId: string | null;
   sortOrder: number;
+  /** Latest check-in snapshot (null until the first check-in). */
+  confidence: number | null;
+  rag: "GREEN" | "YELLOW" | "RED" | null;
   createdAt: string;
   updatedAt: string;
   owner?: OrgMember;
+}
+
+/** A point-in-time key-result check-in (OKR health over time). */
+export interface KeyResultCheckin {
+  id: string;
+  keyResultId: string;
+  value: number;
+  confidence: number;
+  rag: "GREEN" | "YELLOW" | "RED";
+  note: string | null;
+  blockers: string | null;
+  checkedInById: string | null;
+  createdAt: string;
 }
 
 export interface CrmContact {

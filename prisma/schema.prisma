@@ -2109,6 +2109,14 @@ enum KeyResultStatus {
   DONE
 }
 
+// Stoplight health: on-track / at-risk / behind. Shared health language for OKR
+// check-ins (and, later, deliverables/milestones) — see the OKR redesign.
+enum RagStatus {
+  GREEN
+  YELLOW
+  RED
+}
+
 model Objective {
   id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String          @map("org_id") @db.Uuid
@@ -2142,13 +2150,38 @@ model KeyResult {
   status       KeyResultStatus @default(NOT_STARTED)
   ownerId      String?         @map("owner_id") @db.Uuid
   sortOrder    Int             @default(0) @map("sort_order")
+  // Latest check-in snapshot, denormalized so a board load needs no subquery.
+  // Null until the first check-in. The full history lives in KeyResultCheckin.
+  confidence   Int?            // 0-100, from the latest check-in
+  rag          RagStatus?      // stoplight, from the latest check-in
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
-  objective Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+  objective Objective          @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+  checkins  KeyResultCheckin[]
 
   @@index([objectiveId])
   @@map("key_results")
+}
+
+// A point-in-time check-in on a key result: the value + confidence + stoplight at
+// that moment, plus a note and any blockers. This time-series is what the OKR
+// stoplight-over-time grid + exec attention panel (P2) read.
+model KeyResultCheckin {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  keyResultId   String    @map("key_result_id") @db.Uuid
+  value         Float
+  confidence    Int       @default(50) // 0-100
+  rag           RagStatus
+  note          String?
+  blockers      String?
+  checkedInById String?   @map("checked_in_by_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+
+  @@index([keyResultId, createdAt])
+  @@map("key_result_checkins")
 }
 
 // ─────────────────────────────────────────────

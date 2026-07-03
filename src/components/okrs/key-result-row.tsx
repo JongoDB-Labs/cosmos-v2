@@ -5,10 +5,15 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { KeyResult } from "@/types/models";
+import { KeyResultCheckinDialog, RAG_META } from "./key-result-checkin-dialog";
 
 interface KeyResultRowProps {
   keyResult: KeyResult;
   onUpdate: (id: string, currentValue: number) => void;
+  orgId: string;
+  projectId: string;
+  /** Called after a successful check-in so the board refetches (progress + RAG). */
+  onCheckedIn: () => void;
 }
 
 const statusLabels: Record<KeyResult["status"], string> = {
@@ -40,9 +45,16 @@ function getProgressColor(percent: number): string {
   return "bg-green-500";
 }
 
-export function KeyResultRow({ keyResult, onUpdate }: KeyResultRowProps) {
+export function KeyResultRow({
+  keyResult,
+  onUpdate,
+  orgId,
+  projectId,
+  onCheckedIn,
+}: KeyResultRowProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(String(keyResult.currentValue));
+  const [checkinOpen, setCheckinOpen] = useState(false);
 
   const progress = getProgressPercent(keyResult);
 
@@ -112,10 +124,42 @@ export function KeyResultRow({ keyResult, onUpdate }: KeyResultRowProps) {
           </button>
         )}
 
+        {keyResult.rag && (
+          <span
+            className="flex items-center gap-1"
+            title={`${RAG_META[keyResult.rag].label}${
+              keyResult.confidence != null ? ` · ${keyResult.confidence}% confidence` : ""
+            }`}
+          >
+            <span className={cn("size-2.5 rounded-full", RAG_META[keyResult.rag].dot)} />
+            {keyResult.confidence != null && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {keyResult.confidence}%
+              </span>
+            )}
+          </span>
+        )}
+
+        <button
+          onClick={() => setCheckinOpen(true)}
+          className="rounded-md border border-[var(--border)] px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Check in
+        </button>
+
         <Badge variant={statusVariants[keyResult.status]}>
           {statusLabels[keyResult.status]}
         </Badge>
       </div>
+
+      <KeyResultCheckinDialog
+        orgId={orgId}
+        projectId={projectId}
+        keyResult={keyResult}
+        open={checkinOpen}
+        onOpenChange={setCheckinOpen}
+        onDone={onCheckedIn}
+      />
     </div>
   );
 }

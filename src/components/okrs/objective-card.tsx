@@ -23,6 +23,9 @@ interface ObjectiveCardProps {
   onAddKeyResult: (objectiveId: string, title: string) => void | Promise<void>;
   onEdit: (objective: Objective) => void;
   onDelete: (objectiveId: string) => void;
+  orgId: string;
+  projectId: string;
+  onCheckedIn: () => void;
 }
 
 function computeProgress(keyResults: KeyResult[]): number {
@@ -61,6 +64,9 @@ export function ObjectiveCard({
   onAddKeyResult,
   onEdit,
   onDelete,
+  orgId,
+  projectId,
+  onCheckedIn,
 }: ObjectiveCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showAddKr, setShowAddKr] = useState(false);
@@ -241,6 +247,9 @@ export function ObjectiveCard({
                   key={kr.id}
                   keyResult={kr}
                   onUpdate={onUpdateKeyResult}
+                  orgId={orgId}
+                  projectId={projectId}
+                  onCheckedIn={onCheckedIn}
                 />
               ))}
           </div>
