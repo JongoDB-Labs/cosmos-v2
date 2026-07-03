@@ -3,9 +3,29 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { notifyError } from "@/lib/errors/notify";
 import type { KeyResult } from "@/types/models";
+import { krProgressPercent } from "@/lib/okr/progress";
 import { KeyResultCheckinDialog, RAG_META } from "./key-result-checkin-dialog";
+import { KeyResultEditDialog } from "./key-result-edit-dialog";
 
 interface KeyResultRowProps {
   keyResult: KeyResult;
@@ -33,10 +53,7 @@ const statusVariants: Record<KeyResult["status"], "neutral" | "progress" | "crit
 };
 
 function getProgressPercent(kr: KeyResult): number {
-  if (kr.targetValue === kr.startValue) return 100;
-  const range = kr.targetValue - kr.startValue;
-  const progress = kr.currentValue - kr.startValue;
-  return Math.min(100, Math.max(0, Math.round((progress / range) * 100)));
+  return krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter);
 }
 
 function getProgressColor(percent: number): string {
@@ -55,8 +72,29 @@ export function KeyResultRow({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(String(keyResult.currentValue));
   const [checkinOpen, setCheckinOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const progress = getProgressPercent(keyResult);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/key-results/${keyResult.id}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error("Failed to delete key result");
+      setDeleteOpen(false);
+      onCheckedIn();
+    } catch (err) {
+      console.error("Failed to delete key result:", err);
+      notifyError(err, "Couldn't delete the key result.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function handleSave() {
     const num = parseFloat(editValue);
@@ -66,7 +104,7 @@ export function KeyResultRow({
       const wasComplete = getProgressPercent(keyResult) >= 100;
       const willBeComplete =
         keyResult.targetValue === keyResult.startValue ||
-        num >= keyResult.targetValue;
+        (keyResult.lowerIsBetter ? num <= keyResult.targetValue : num >= keyResult.targetValue);
       onUpdate(keyResult.id, num);
       if (!wasComplete && willBeComplete) {
         void import("@/lib/confetti").then(({ celebrate }) => celebrate());
@@ -150,6 +188,25 @@ export function KeyResultRow({
         <Badge variant={statusVariants[keyResult.status]}>
           {statusLabels[keyResult.status]}
         </Badge>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon-xs" />}
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <KeyResultCheckinDialog
@@ -160,6 +217,42 @@ export function KeyResultRow({
         onOpenChange={setCheckinOpen}
         onDone={onCheckedIn}
       />
+
+      {editOpen && (
+        <KeyResultEditDialog
+          orgId={orgId}
+          projectId={projectId}
+          keyResult={keyResult}
+          open
+          onOpenChange={setEditOpen}
+          onSaved={onCheckedIn}
+        />
+      )}
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(o) => {
+          if (!deleting) setDeleteOpen(o);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete key result?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes &ldquo;{keyResult.title}&rdquo; and its check-in
+              history. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

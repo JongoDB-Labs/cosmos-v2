@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, created, handleApiError } from "@/lib/api-helpers";
+import { krFraction } from "@/lib/okr/progress";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
@@ -17,12 +18,6 @@ const checkinSchema = z.object({
   note: z.string().max(2000).nullish(),
   blockers: z.string().max(2000).nullish(),
 });
-
-/** progress% for one key result, clamped 0-1. */
-function krFraction(start: number, current: number, target: number): number {
-  if (target === start) return current >= target ? 1 : 0;
-  return Math.max(0, Math.min(1, (current - start) / (target - start)));
-}
 
 // The stoplight is the primary health signal; keep the legacy KeyResultStatus in
 // step so existing views/filters stay meaningful (no BEHIND value — RED maps to
@@ -113,14 +108,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const siblings = await prisma.keyResult.findMany({
       where: { objectiveId: kr.objectiveId },
-      select: { startValue: true, currentValue: true, targetValue: true },
+      select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
     });
     const progress =
       siblings.length === 0
         ? 0
         : Math.round(
             (siblings.reduce(
-              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue),
+              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
               0,
             ) /
               siblings.length) *

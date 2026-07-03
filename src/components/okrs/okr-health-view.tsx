@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Activity, AlertTriangle, TrendingDown, TrendingUp, Ban } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import { RAG_META } from "./key-result-checkin-dialog";
+import { krProgressPercent } from "@/lib/okr/progress";
 import type { Objective, OrgMember } from "@/types/models";
 
 type Rag = "GREEN" | "YELLOW" | "RED";
@@ -130,12 +131,6 @@ export function OkrHealthView({
     }[] = [];
     for (const o of objectives) {
       for (const kr of o.keyResults ?? []) {
-        const frac =
-          kr.targetValue === kr.startValue
-            ? kr.currentValue >= kr.targetValue
-              ? 1
-              : 0
-            : Math.max(0, Math.min(1, (kr.currentValue - kr.startValue) / (kr.targetValue - kr.startValue)));
         rows.push({
           krId: kr.id,
           title: kr.title,
@@ -144,7 +139,7 @@ export function OkrHealthView({
           ownerId: kr.ownerId ?? o.ownerId ?? null,
           rag: (kr.rag as Rag | null) ?? null,
           confidence: kr.confidence,
-          progress: Math.round(frac * 100),
+          progress: krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
         });
       }
     }
@@ -230,6 +225,15 @@ export function OkrHealthView({
     for (const r of krRows) {
       const list = checkinsByKr.get(r.krId);
       if (!list || list.length === 0) continue;
+      // A RED key result is behind by definition — it must never surface in a
+      // positive quadrant ("Leading"/"Coasting"), no matter how its raw
+      // start→target percentage happens to land. This is what made a red latency
+      // KR read as "Leading": the map keyed only off progress + confidence and
+      // ignored the officer-set health. RED short-circuits to At-risk.
+      if (r.rag === "RED") {
+        q.atRisk.push(r);
+        continue;
+      }
       const rising =
         list.length >= 2 ? list[list.length - 1].confidence >= list[list.length - 2].confidence : true;
       const high = r.progress >= 50;

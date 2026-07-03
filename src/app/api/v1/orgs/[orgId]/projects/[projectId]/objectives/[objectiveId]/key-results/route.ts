@@ -16,6 +16,7 @@ const createSchema = z.object({
   currentValue: z.number().default(0),
   targetValue: z.number().default(100),
   unit: z.string().max(40).optional(),
+  lowerIsBetter: z.boolean().default(false),
   status: z.nativeEnum(KeyResultStatus).default(KeyResultStatus.IN_PROGRESS),
 });
 
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         currentValue: data.currentValue,
         targetValue: data.targetValue,
         unit: data.unit ?? "",
+        lowerIsBetter: data.lowerIsBetter,
         status: data.status,
         sortOrder,
       },

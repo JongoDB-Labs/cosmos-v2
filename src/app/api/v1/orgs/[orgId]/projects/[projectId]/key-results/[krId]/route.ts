@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { krFraction } from "@/lib/okr/progress";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; krId: string }>;
@@ -16,15 +17,9 @@ const updateSchema = z.object({
   startValue: z.number().optional(),
   title: z.string().min(1).max(200).optional(),
   unit: z.string().max(40).optional(),
+  lowerIsBetter: z.boolean().optional(),
   status: z.nativeEnum(KeyResultStatus).optional(),
 });
-
-/** progress% for one key result, clamped to 0-100. */
-function krFraction(start: number, current: number, target: number): number {
-  if (target === start) return current >= target ? 1 : 0;
-  const f = (current - start) / (target - start);
-  return Math.max(0, Math.min(1, f));
-}
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
@@ -61,6 +56,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.startValue !== undefined && { startValue: data.startValue }),
         ...(data.title !== undefined && { title: data.title }),
         ...(data.unit !== undefined && { unit: data.unit }),
+        ...(data.lowerIsBetter !== undefined && { lowerIsBetter: data.lowerIsBetter }),
         ...(data.status !== undefined && { status: data.status }),
       },
     });
@@ -68,14 +64,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Recompute the parent objective's progress from all its key results.
     const siblings = await prisma.keyResult.findMany({
       where: { objectiveId: kr.objectiveId },
-      select: { startValue: true, currentValue: true, targetValue: true },
+      select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true },
     });
     const progress =
       siblings.length === 0
         ? 0
         : Math.round(
             (siblings.reduce(
-              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue),
+              (sum, s) => sum + krFraction(s.startValue, s.currentValue, s.targetValue, s.lowerIsBetter),
               0,
             ) /
               siblings.length) *

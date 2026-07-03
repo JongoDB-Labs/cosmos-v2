@@ -188,6 +188,8 @@ export interface KeyResult {
   currentValue: number;
   targetValue: number;
   unit: string;
+  /** true = metric improves going down (latency/cost); progress runs start→target descending. */
+  lowerIsBetter: boolean;
   status: "NOT_STARTED" | "IN_PROGRESS" | "AT_RISK" | "ON_TRACK" | "DONE";
   ownerId: string | null;
   sortOrder: number;

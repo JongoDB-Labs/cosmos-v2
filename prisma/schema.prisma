@@ -2153,6 +2153,9 @@ model KeyResult {
   currentValue Float           @default(0) @map("current_value")
   targetValue  Float           @default(100) @map("target_value")
   unit         String          @default("")
+  // When true the metric improves as it goes DOWN (latency, cost, defects), so
+  // progress is measured start→target descending. Default false = higher is better.
+  lowerIsBetter Boolean        @default(false) @map("lower_is_better")
   status       KeyResultStatus @default(NOT_STARTED)
   ownerId      String?         @map("owner_id") @db.Uuid
   sortOrder    Int             @default(0) @map("sort_order")
