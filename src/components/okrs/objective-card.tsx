@@ -27,6 +27,8 @@ interface ObjectiveCardProps {
   orgId: string;
   projectId: string;
   onCheckedIn: () => void;
+  /** Drag handle (dnd-kit) shown at the left of the header when reordering is on. */
+  dragHandle?: React.ReactNode;
 }
 
 function computeProgress(keyResults: KeyResult[]): number {
@@ -67,6 +69,7 @@ export function ObjectiveCard({
   orgId,
   projectId,
   onCheckedIn,
+  dragHandle,
 }: ObjectiveCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showAddKr, setShowAddKr] = useState(false);
@@ -157,6 +160,7 @@ export function ObjectiveCard({
         className="flex items-center gap-3 p-4 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
+        {dragHandle}
         <button className="shrink-0 text-muted-foreground">
           {expanded ? (
             <ChevronDown className="h-4 w-4" />
