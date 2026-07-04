@@ -15,7 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Plus, Target } from "lucide-react";
-import { ObjectiveCard } from "./objective-card";
+import { arrayMove } from "@dnd-kit/sortable";
+import { OkrObjectivesView } from "./okr-objectives-view";
 import { OkrHealthView } from "./okr-health-view";
 import { OkrAlignmentView } from "./okr-alignment-view";
 import { notifyError } from "@/lib/errors/notify";
@@ -151,6 +152,24 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     }
   }
 
+  async function handleReorderObjectives(oldIndex: number, newIndex: number) {
+    const previous = objectives;
+    const next = arrayMove(objectives, oldIndex, newIndex);
+    setObjectives(next); // optimistic
+    try {
+      const res = await fetch(`${basePath}/objectives`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: next.map((o) => o.id) }),
+      });
+      if (!res.ok) throw new Error("Failed to reorder objectives");
+    } catch (err) {
+      setObjectives(previous); // rollback on failure
+      console.error("Failed to reorder objectives:", err);
+      notifyError(err, "Couldn't save the new order.");
+    }
+  }
+
   function handleEdit(objective: Objective) {
     setEditObjective(objective);
     setEditTitle(objective.title);
@@ -274,21 +293,21 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         </div>
       )}
 
-      {objectives.map((objective) => (
-        <ObjectiveCard
-          key={objective.id}
-          objective={objective}
+      {objectives.length > 0 && (
+        <OkrObjectivesView
+          orgId={orgId}
+          projectId={projectId}
+          objectives={objectives}
           onUpdateKeyResult={handleUpdateKeyResult}
           onAddKeyResult={handleAddKeyResult}
           onEdit={handleEdit}
           onDelete={(id: string) =>
             setDeleteTarget(objectives.find((o) => o.id === id) ?? null)
           }
-          orgId={orgId}
-          projectId={projectId}
           onCheckedIn={reload}
+          onReorder={handleReorderObjectives}
         />
-      ))}
+      )}
 
       {showAddForm ? (
         <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed">

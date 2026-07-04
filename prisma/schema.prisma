@@ -2127,6 +2127,8 @@ model Objective {
   period      String?
   status      ObjectiveStatus @default(ACTIVE)
   progress    Int             @default(0) // 0-100, derived from key results
+  // Manual display order within a project (drag-to-reorder on the Objectives tab).
+  sortOrder   Int             @default(0) @map("sort_order")
   // Alignment: this objective ladders up to a parent objective (org→team→…).
   // SetNull on parent delete so a child is orphaned, never cascade-deleted.
   parentId    String?         @map("parent_objective_id") @db.Uuid

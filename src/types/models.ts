@@ -170,6 +170,8 @@ export interface Objective {
   period: string | null;
   status: "DRAFT" | "ACTIVE" | "COMPLETED" | "CANCELLED";
   progress: number;
+  /** Manual display order within the project (drag-to-reorder). */
+  sortOrder: number;
   /** Alignment: the objective this one ladders up to (null = top-level). */
   parentId: string | null;
   createdAt: string;

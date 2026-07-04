@@ -27,7 +27,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const objectives = await prisma.objective.findMany({
       where: { orgId, projectId },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
     return success(objectives);
@@ -61,6 +61,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const data = createSchema.parse(await request.json());
 
+    // Append to the end of the project's manual order.
+    const last = await prisma.objective.findFirst({
+      where: { orgId, projectId },
+      orderBy: { sortOrder: "desc" },
+      select: { sortOrder: true },
+    });
+    const sortOrder = last ? last.sortOrder + 1 : 0;
+
     const created = await prisma.objective.create({
       data: {
         orgId,
@@ -71,11 +79,57 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         status: data.status,
         parentId: data.parentId ?? null,
         progress: 0,
+        sortOrder,
       },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
 
     return success(created);
+  } catch (e) {
+    return handleApiError(e);
+  }
+}
+
+// Persist a manual reorder of the project's objectives. Body: an ordered list of
+// objective IDs; each one's sort_order is set to its index. Scoped to this
+// org+project so a stray/foreign id can't be renumbered.
+const reorderSchema = z.object({
+  orderedIds: z.array(z.string().uuid()).min(1),
+});
+
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { orgId, projectId } = await params;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return new Response("Not found", { status: 404 });
+
+    const ctx = await getAuthContext(org.slug);
+    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    requirePermission(ctx, Permission.OKR_UPDATE);
+
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, orgId },
+    });
+    if (!project) return new Response("Not found", { status: 404 });
+
+    const { orderedIds } = reorderSchema.parse(await request.json());
+
+    // Only renumber ids that genuinely belong to this project.
+    const owned = await prisma.objective.findMany({
+      where: { orgId, projectId, id: { in: orderedIds } },
+      select: { id: true },
+    });
+    const ownedSet = new Set(owned.map((o) => o.id));
+
+    await prisma.$transaction(
+      orderedIds
+        .filter((id) => ownedSet.has(id))
+        .map((id, index) =>
+          prisma.objective.update({ where: { id }, data: { sortOrder: index } }),
+        ),
+    );
+
+    return success({ reordered: ownedSet.size });
   } catch (e) {
     return handleApiError(e);
   }
