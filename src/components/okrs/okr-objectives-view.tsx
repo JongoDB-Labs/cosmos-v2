@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -18,11 +18,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Search } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, GripVertical, Layers, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ObjectiveCard } from "./objective-card";
-import type { Objective } from "@/types/models";
+import type { Objective, OrgMember } from "@/types/models";
 
 type StatusFilter = "all" | Objective["status"];
 type SortBy = "manual" | "progress-desc" | "progress-asc" | "az" | "health";
@@ -85,7 +85,10 @@ export function OkrObjectivesView({
 }: OkrObjectivesViewProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [ownerFilter, setOwnerFilter] = useState<string>("all"); // "all" | "none" | ownerId
   const [sortBy, setSortBy] = useState<SortBy>("manual");
+  const [groupByPeriod, setGroupByPeriod] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -95,9 +98,55 @@ export function OkrObjectivesView({
 
   const query = search.trim().toLowerCase();
 
+  // Owner display names. Objective.ownerId holds a USER id; the members list is
+  // the name source (same pattern as the Health view).
+  const [memberNames, setMemberNames] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/members`);
+        if (!res.ok) return;
+        const mem: OrgMember[] = await res.json();
+        if (!cancelled) {
+          setMemberNames(new Map(mem.map((m) => [m.userId, m.user?.displayName ?? "Unknown"])));
+        }
+      } catch {
+        // Name lookup is cosmetic — the filter still works with ids.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  // Owners present among this project's objectives (for the owner filter).
+  const ownerOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    let hasUnassigned = false;
+    for (const o of objectives) {
+      if (!o.ownerId) {
+        hasUnassigned = true;
+        continue;
+      }
+      if (!seen.has(o.ownerId)) {
+        seen.set(o.ownerId, memberNames.get(o.ownerId) ?? "Unknown");
+      }
+    }
+    const opts = [...seen.entries()]
+      .map(([id, name]) => ({ value: id, label: name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return { opts, hasUnassigned };
+  }, [objectives, memberNames]);
+
   const displayed = useMemo(() => {
     let list = objectives;
     if (statusFilter !== "all") list = list.filter((o) => o.status === statusFilter);
+    if (ownerFilter !== "all") {
+      list = list.filter((o) =>
+        ownerFilter === "none" ? !o.ownerId : o.ownerId === ownerFilter,
+      );
+    }
     if (query) {
       list = list.filter(
         (o) =>
@@ -127,11 +176,38 @@ export function OkrObjectivesView({
       // "manual" keeps the filtered order (which follows objectives' sortOrder).
     }
     return sorted;
-  }, [objectives, statusFilter, query, sortBy]);
+  }, [objectives, statusFilter, ownerFilter, query, sortBy]);
 
   // Drag-to-reorder is only coherent when the on-screen order IS the manual order:
-  // no search, no status filter, sort = manual. Otherwise the handles are hidden.
-  const canReorder = sortBy === "manual" && !query && statusFilter === "all";
+  // no search, no filters, no grouping, sort = manual. Otherwise handles are hidden.
+  const canReorder =
+    sortBy === "manual" &&
+    !query &&
+    statusFilter === "all" &&
+    ownerFilter === "all" &&
+    !groupByPeriod;
+
+  // Period sections (in displayed order) when grouping is on.
+  const periodGroups = useMemo(() => {
+    if (!groupByPeriod) return null;
+    const groups = new Map<string, Objective[]>();
+    for (const o of displayed) {
+      const key = o.period?.trim() || "No period";
+      const arr = groups.get(key) ?? [];
+      arr.push(o);
+      groups.set(key, arr);
+    }
+    return [...groups.entries()];
+  }, [groupByPeriod, displayed]);
+
+  function setCardExpanded(id: string, expanded: boolean) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (expanded) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
   const summary = useMemo(() => {
     const counts = { red: 0, yellow: 0, green: 0, none: 0 };
@@ -167,6 +243,11 @@ export function OkrObjectivesView({
     onCheckedIn,
   };
 
+  const expansionProps = (o: Objective) => ({
+    expanded: expandedIds.has(o.id),
+    onExpandedChange: (v: boolean) => setCardExpanded(o.id, v),
+  });
+
   return (
     <div className="space-y-3">
       {/* toolbar */}
@@ -192,6 +273,22 @@ export function OkrObjectivesView({
             </option>
           ))}
         </select>
+        {ownerOptions.opts.length > 0 && (
+          <select
+            value={ownerFilter}
+            onChange={(e) => setOwnerFilter(e.target.value)}
+            className={selectCls}
+            aria-label="Filter by owner"
+          >
+            <option value="all">All owners</option>
+            {ownerOptions.opts.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+            {ownerOptions.hasUnassigned && <option value="none">Unassigned</option>}
+          </select>
+        )}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortBy)}
@@ -204,6 +301,40 @@ export function OkrObjectivesView({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={() => setGroupByPeriod((v) => !v)}
+          aria-pressed={groupByPeriod}
+          title="Group objectives by period"
+          className={cn(
+            "flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+            groupByPeriod
+              ? "border-transparent bg-[var(--primary)] text-white"
+              : "border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]",
+          )}
+        >
+          <Layers className="size-4" /> Period
+        </button>
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => setExpandedIds(new Set(displayed.map((o) => o.id)))}
+            title="Expand all"
+            aria-label="Expand all objectives"
+            className="flex h-9 items-center rounded-l-md border border-[var(--border)] px-2 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+          >
+            <ChevronsUpDown className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedIds(new Set())}
+            title="Collapse all"
+            aria-label="Collapse all objectives"
+            className="flex h-9 items-center rounded-r-md border border-l-0 border-[var(--border)] px-2 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+          >
+            <ChevronsDownUp className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* summary */}
@@ -228,6 +359,25 @@ export function OkrObjectivesView({
         <p className="py-10 text-center text-sm text-[var(--text-muted)]">
           No objectives match your search or filter.
         </p>
+      ) : periodGroups ? (
+        <div className="space-y-5">
+          {periodGroups.map(([period, objs]) => (
+            <div key={period} className="space-y-3">
+              <h4 className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                {period}
+                <span className="ml-1.5 font-normal normal-case">· {objs.length}</span>
+              </h4>
+              {objs.map((objective) => (
+                <ObjectiveCard
+                  key={objective.id}
+                  objective={objective}
+                  {...cardProps}
+                  {...expansionProps(objective)}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       ) : canReorder ? (
         <DndContext
           sensors={sensors}
@@ -240,7 +390,12 @@ export function OkrObjectivesView({
           >
             <div className="space-y-3">
               {displayed.map((objective) => (
-                <SortableObjective key={objective.id} objective={objective} {...cardProps} />
+                <SortableObjective
+                  key={objective.id}
+                  objective={objective}
+                  {...cardProps}
+                  {...expansionProps(objective)}
+                />
               ))}
             </div>
           </SortableContext>
@@ -248,7 +403,12 @@ export function OkrObjectivesView({
       ) : (
         <div className="space-y-3">
           {displayed.map((objective) => (
-            <ObjectiveCard key={objective.id} objective={objective} {...cardProps} />
+            <ObjectiveCard
+              key={objective.id}
+              objective={objective}
+              {...cardProps}
+              {...expansionProps(objective)}
+            />
           ))}
         </div>
       )}
