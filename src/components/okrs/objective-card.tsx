@@ -29,6 +29,9 @@ interface ObjectiveCardProps {
   onCheckedIn: () => void;
   /** Drag handle (dnd-kit) shown at the left of the header when reordering is on. */
   dragHandle?: React.ReactNode;
+  /** Controlled expansion (expand/collapse-all). Omit to keep internal state. */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 function computeProgress(keyResults: KeyResult[]): number {
@@ -70,8 +73,12 @@ export function ObjectiveCard({
   projectId,
   onCheckedIn,
   dragHandle,
+  expanded: expandedProp,
+  onExpandedChange,
 }: ObjectiveCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [internalExpanded, setInternalExpanded] = useState(false);
+  const expanded = expandedProp ?? internalExpanded;
+  const setExpanded = onExpandedChange ?? setInternalExpanded;
   const [showAddKr, setShowAddKr] = useState(false);
   const [newKrTitle, setNewKrTitle] = useState("");
   const [addingKr, setAddingKr] = useState(false);
