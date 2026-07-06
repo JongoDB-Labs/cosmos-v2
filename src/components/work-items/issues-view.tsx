@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
@@ -311,11 +311,51 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
   const selectedCount = selectedIds.length;
 
+  // Cross-page "select all matching" (BR f6b52435): the table is server-
+  // paginated, so the page checkbox can only reach the loaded rows. This
+  // walks the same search query page-by-page collecting id→projectId for
+  // EVERY match, so bulk ops can fan out beyond the visible page.
+  const [selectingAll, setSelectingAll] = useState(false);
+  const allMatchesRef = useRef<Map<string, string> | null>(null);
+  const SELECT_ALL_CAP = 2500;
+  // Mirrors the search API's MAX_PAGE_SIZE (lib/work-items/query/filter.ts).
+  const MAX_SEARCH_PAGE = 100;
+
+  async function selectAllMatching() {
+    if (selectingAll) return;
+    setSelectingAll(true);
+    try {
+      const map = new Map<string, string>();
+      const pages = Math.ceil(total / MAX_SEARCH_PAGE);
+      const cappedPages = Math.min(pages, SELECT_ALL_CAP / MAX_SEARCH_PAGE);
+      for (let p = 1; p <= cappedPages; p++) {
+        const res = await jsonFetch<SearchResponse>(
+          `/api/v1/orgs/${orgId}/work-items/search?${toQueryString(filters, p, MAX_SEARCH_PAGE)}`,
+        );
+        for (const r of res.data) map.set(r.id, r.project.id);
+      }
+      allMatchesRef.current = map;
+      const next: RowSelectionState = {};
+      for (const id of map.keys()) next[id] = true;
+      setRowSelection(next);
+      if (total > SELECT_ALL_CAP) {
+        toast.info(`Selected the first ${SELECT_ALL_CAP.toLocaleString()} matching issues.`);
+      }
+    } catch (err) {
+      notifyError(err, "Couldn't select all matching issues.");
+    } finally {
+      setSelectingAll(false);
+    }
+  }
+
   function bucketByProject(ids: string[]): Map<string, string[]> {
     const projectOf = new Map(rows.map((r) => [r.id, r.project.id]));
+    // Off-page selections (from "select all matching") aren't in `rows` —
+    // resolve their project from the captured match map instead of dropping them.
+    const offPage = allMatchesRef.current;
     const buckets = new Map<string, string[]>();
     for (const id of ids) {
-      const pid = projectOf.get(id);
+      const pid = projectOf.get(id) ?? offPage?.get(id);
       if (!pid) continue;
       const arr = buckets.get(pid);
       if (arr) arr.push(id);
@@ -809,6 +849,18 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             <span className="text-xs font-medium text-[var(--text)]">
               {selectedCount} selected
             </span>
+            {selectedCount < total && (
+              <button
+                type="button"
+                disabled={selectingAll}
+                onClick={() => void selectAllMatching()}
+                className="text-xs font-medium text-[var(--primary)] hover:underline disabled:opacity-60"
+              >
+                {selectingAll
+                  ? "Selecting…"
+                  : `Select all ${Math.min(total, SELECT_ALL_CAP).toLocaleString()} matching`}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setRowSelection({})}
