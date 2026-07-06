@@ -7,7 +7,7 @@ import {
 } from "@/lib/auth/provider-config";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 
-const PROVIDERS: AuthProvider[] = ["microsoft"];
+const PROVIDERS: AuthProvider[] = ["microsoft", "google"];
 
 export async function GET() {
   const me = await requireSystemAdmin();
@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 const putSchema = z.object({
-  provider: z.enum(["microsoft"]),
+  provider: z.enum(["microsoft", "google"]),
   clientId: z.string().min(1).max(200),
   // Optional: blank means "keep the existing secret" (so you can edit clientId
   // or toggle enabled without re-typing it).

@@ -23,6 +23,11 @@ const { prisma, getUserCredential, setCredential, oauthSetCredentials } = vi.hoi
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/integrations/credentials", () => ({ getUserCredential, setCredential }));
+// The OAuth app id/secret now resolve via the sealed AuthProviderConfig store
+// (FR 8a162fe7); stub it so this test stays focused on the refresh-token read.
+vi.mock("@/lib/auth/google-oauth", () => ({
+  resolveGoogleLoginCreds: vi.fn().mockResolvedValue({ clientId: "cid", clientSecret: "sec" }),
+}));
 vi.mock("googleapis", () => ({
   google: {
     auth: {

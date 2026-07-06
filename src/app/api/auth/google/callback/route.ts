@@ -5,8 +5,8 @@ import {
   OAUTH_STATE_COOKIE,
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
-  googleClient,
 } from "@/lib/auth/client";
+import { getGoogleLoginClient, resolveGoogleLoginCreds } from "@/lib/auth/google-oauth";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
@@ -50,6 +50,8 @@ export async function GET(request: NextRequest) {
   let refreshToken: string | null = null;
 
   try {
+    const { clientId: googleClientId } = await resolveGoogleLoginCreds();
+    const googleClient = await getGoogleLoginClient();
     const { tokens } = await googleClient.getToken(code);
     if (!tokens.id_token) {
       const res = redirectToLogin(origin, "auth_failed");
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
     }
     const ticket = await googleClient.verifyIdToken({
       idToken: tokens.id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: googleClientId,
     });
     const payload = ticket.getPayload();
     if (!payload?.email || !payload.sub) {

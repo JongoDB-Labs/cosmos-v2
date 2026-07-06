@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import crypto from "node:crypto";
-import { OAUTH_STATE_COOKIE, googleClient } from "@/lib/auth/client";
+import { OAUTH_STATE_COOKIE } from "@/lib/auth/client";
+import { getGoogleLoginClient } from "@/lib/auth/google-oauth";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
 
   const state = crypto.randomBytes(16).toString("hex");
 
+  const googleClient = await getGoogleLoginClient();
   const authUrl = googleClient.generateAuthUrl({
     scope: [
       "openid",

@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { prisma } from "@/lib/db/client";
 import { getUserCredential, setCredential } from "@/lib/integrations/credentials";
+import { resolveGoogleLoginCreds } from "@/lib/auth/google-oauth";
 
 const GOOGLE_PROVIDER = "google";
 
@@ -65,9 +66,12 @@ export async function getGoogleClientForUser(userId: string, _orgId?: string) {
     throw new Error("Google not connected (no refresh token on user record)");
   }
 
+  // Client id/secret: sealed AuthProviderConfig store first (UI-managed), env
+  // fallback (FR 8a162fe7). Same Google app as login, so one place to configure.
+  const { clientId, clientSecret } = await resolveGoogleLoginCreds();
   const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
+    clientId,
+    clientSecret,
     process.env.GOOGLE_REDIRECT_URI,
   );
   oauth2Client.setCredentials({ refresh_token: refreshToken });
