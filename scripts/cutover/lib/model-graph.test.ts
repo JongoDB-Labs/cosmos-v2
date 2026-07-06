@@ -45,8 +45,10 @@ describe("buildModelPlans — classification", () => {
     // 20260607030000); ChatAlertKeyword is user-scoped so it's not a plan here.
     // Bumped from <95 when the PM Dashboard added 4 org-scoped govcon models
     // (risks, deliverables, blockers, change_requests — migration 20260627000000).
+    // Bumped from <105 when multi-assign added work_item_assignees (migration
+    // 20260706070000) — plans hit exactly 105.
     expect(plans.length).toBeGreaterThan(50);
-    expect(plans.length).toBeLessThan(105);
+    expect(plans.length).toBeLessThan(110);
   });
 
   it("excludes the 5 v2-only models (no v1 source)", () => {

@@ -316,7 +316,12 @@ function KanbanBoardInner({
     ) {
       return false;
     }
-    if (filters.assigneeId && item.assigneeId !== filters.assigneeId) {
+    // Multi-assign: match the primary OR any member of the assignee set.
+    if (
+      filters.assigneeId &&
+      item.assigneeId !== filters.assigneeId &&
+      !item.assignees?.some((a) => a.userId === filters.assigneeId)
+    ) {
       return false;
     }
     if (filters.cycleId && item.cycleId !== filters.cycleId) {

@@ -18,6 +18,9 @@ const createItemSchema = z.object({
   description: z.string().nullish(),
   columnKey: z.string(),
   assigneeId: z.string().uuid().nullable().optional(),
+  // Multi-assign (FR 1d38496a): full assignee set; first entry becomes the
+  // primary `assigneeId`. When present it wins over the legacy single field.
+  assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   cycleId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
@@ -71,6 +74,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
         children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
+        assignees: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            userId: true,
+            user: { select: { id: true, displayName: true, avatarUrl: true } },
+          },
+        },
         // (No `_count` of comments/activities — the list is fetched on every board
         // load and nothing on a card renders those counts, so the two per-row
         // subqueries were pure cost. Add back a scoped count if a badge needs it.)
@@ -161,6 +171,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
       const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
+      // Full assignee set: explicit list wins; a legacy single assigneeId
+      // becomes a one-member set. First member is the primary.
+      const assigneeIds =
+        data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
+
       const created = await tx.workItem.create({
         data: {
           orgId,
@@ -169,7 +184,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           title: data.title,
           description: data.description ?? "",
           columnKey: data.columnKey,
-          assigneeId: data.assigneeId ?? null,
+          assigneeId: assigneeIds[0] ?? null,
+          assignees: {
+            create: assigneeIds.map((userId, i) => ({ userId, sortOrder: i })),
+          },
           priority: data.priority,
           cycleId: data.cycleId ?? null,
           parentId: data.parentId ?? null,
@@ -186,6 +204,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         include: {
           children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
+          assignees: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              userId: true,
+              user: { select: { id: true, displayName: true, avatarUrl: true } },
+            },
+          },
           _count: { select: { comments: true, activities: true } },
         },
       });

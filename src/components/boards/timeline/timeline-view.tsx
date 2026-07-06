@@ -101,7 +101,13 @@ function matchesFilters(item: WorkItem, f: BoardFilters): boolean {
   if (f.types.length > 0 && !f.types.includes(bareTypeKey(item.workItemType?.key)))
     return false;
   if (f.priorities.length > 0 && !f.priorities.includes(item.priority)) return false;
-  if (f.assigneeId && item.assigneeId !== f.assigneeId) return false;
+  // Multi-assign: match the primary OR any member of the assignee set.
+  if (
+    f.assigneeId &&
+    item.assigneeId !== f.assigneeId &&
+    !item.assignees?.some((a) => a.userId === f.assigneeId)
+  )
+    return false;
   if (f.cycleId && item.cycleId !== f.cycleId) return false;
   return true;
 }

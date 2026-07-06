@@ -257,14 +257,28 @@ export function KanbanCard({
           </div>
 
           {assignee && (
-            <Avatar size="sm">
-              {assignee.user?.avatarUrl && (
-                <AvatarImage src={assignee.user.avatarUrl} />
+            <div className="flex items-center -space-x-1.5">
+              <Avatar size="sm" title={assignee.user?.displayName}>
+                {assignee.user?.avatarUrl && (
+                  <AvatarImage src={assignee.user.avatarUrl} />
+                )}
+                <AvatarFallback>
+                  {(assignee.user?.displayName ?? "?").charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              {/* Multi-assign: surface extra assignees as a +N chip. */}
+              {(item.assignees?.length ?? 0) > 1 && (
+                <span
+                  className="z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground ring-1 ring-[var(--surface)]"
+                  title={item.assignees
+                    ?.filter((a) => a.userId !== item.assigneeId)
+                    .map((a) => a.user?.displayName ?? "?")
+                    .join(", ")}
+                >
+                  +{(item.assignees?.length ?? 1) - 1}
+                </span>
               )}
-              <AvatarFallback>
-                {(assignee.user?.displayName ?? "?").charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            </div>
           )}
         </div>
       </div>

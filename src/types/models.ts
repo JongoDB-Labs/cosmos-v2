@@ -84,6 +84,15 @@ export interface WorkItem {
   /** Populated by routes that `include` the hierarchy (detail + list GET). */
   parent?: WorkItemRef | null;
   children?: WorkItemRef[];
+  /** Multi-assign (FR 1d38496a): the FULL assignee set, primary first.
+   *  `assigneeId` stays the primary/owner. */
+  assignees?: WorkItemAssigneeRef[];
+}
+
+/** One member of a work item's assignee set. */
+export interface WorkItemAssigneeRef {
+  userId: string;
+  user?: { id: string; displayName: string; avatarUrl: string | null };
 }
 
 /** Lightweight work-item reference used for parent/children links. */

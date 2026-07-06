@@ -76,10 +76,17 @@ describe("buildWorkItemWhere — simple field filters (AND across)", () => {
 });
 
 describe("buildWorkItemWhere — assignee (incl. unassigned sentinel)", () => {
-  it("single real assignee → equality-ish IN", () => {
+  it("single real assignee → primary OR set membership (multi-assign)", () => {
     const w = build({ assigneeIds: ["u1"] });
-    expect(w.assigneeId).toEqual({ in: ["u1"] });
-    expect(w.AND).toBeUndefined();
+    expect(w.assigneeId).toBeUndefined();
+    expect(w.AND).toEqual([
+      {
+        OR: [
+          { assigneeId: { in: ["u1"] } },
+          { assignees: { some: { userId: { in: ["u1"] } } } },
+        ],
+      },
+    ]);
   });
 
   it("only unassigned → assigneeId null", () => {
@@ -91,7 +98,13 @@ describe("buildWorkItemWhere — assignee (incl. unassigned sentinel)", () => {
     const w = build({ assigneeIds: ["u1", "u2", UNASSIGNED] });
     expect(w.assigneeId).toBeUndefined();
     expect(w.AND).toEqual([
-      { OR: [{ assigneeId: { in: ["u1", "u2"] } }, { assigneeId: null }] },
+      {
+        OR: [
+          { assigneeId: { in: ["u1", "u2"] } },
+          { assignees: { some: { userId: { in: ["u1", "u2"] } } } },
+          { assigneeId: null, assignees: { none: {} } },
+        ],
+      },
     ]);
   });
 });

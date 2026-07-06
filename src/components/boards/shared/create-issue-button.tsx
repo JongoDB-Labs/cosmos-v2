@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -78,7 +84,8 @@ export function CreateIssueButton({
   // FR fc20e6da: every core detail settable at creation time, not just
   // title/type/status. All optional — the fast path stays two clicks.
   const [priority, setPriority] = useState<string>("MEDIUM");
-  const [assigneeId, setAssigneeId] = useState<string | null>(null);
+  // Multi-assign (FR 1d38496a): full set; the first pick becomes the primary.
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -158,7 +165,7 @@ export function CreateIssueButton({
             ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
             columnKey,
             priority,
-            ...(assigneeId ? { assigneeId } : {}),
+            ...(assigneeIds.length > 0 ? { assigneeIds } : {}),
             ...(cycleId ? { cycleId } : {}),
             ...(startDate
               ? { startDate: new Date(startDate + "T00:00:00Z").toISOString() }
@@ -176,7 +183,7 @@ export function CreateIssueButton({
       setTitle("");
       setWorkItemTypeId(defaultTypeId(workItemTypes));
       setPriority("MEDIUM");
-      setAssigneeId(null);
+      setAssigneeIds([]);
       setCycleId(null);
       setStartDate("");
       setDueDate("");
@@ -281,33 +288,47 @@ export function CreateIssueButton({
               </Select>
             </div>
 
-            {/* Optional details (FR fc20e6da) — assignee/cycle/dates at creation. */}
+            {/* Optional details (FR fc20e6da) — assignees/cycle/dates at creation.
+                Assignees is a MULTI-select (FR 1d38496a): first pick = primary. */}
             <div className="flex flex-wrap items-center gap-2">
-              <Select
-                items={{
-                  __none__: "Unassigned",
-                  ...Object.fromEntries(
-                    members.map((m) => [m.userId, m.user?.displayName ?? m.userId]),
-                  ),
-                }}
-                value={assigneeId ?? "__none__"}
-                onValueChange={(v) =>
-                  setAssigneeId(v === "__none__" ? null : (v as string))
-                }
-                disabled={members.length === 0}
-              >
-                <SelectTrigger size="sm" aria-label="Assignee" className="w-40 text-xs">
-                  <SelectValue placeholder="Assignee" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Unassigned</SelectItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label="Assignees"
+                  className="inline-flex h-8 w-44 items-center justify-between rounded-lg border border-input px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40 disabled:opacity-50"
+                  disabled={members.length === 0}
+                >
+                  <span className="truncate">
+                    {assigneeIds.length === 0
+                      ? "Assignees"
+                      : assigneeIds
+                          .map(
+                            (id) =>
+                              members.find((m) => m.userId === id)?.user
+                                ?.displayName ?? "Unknown",
+                          )
+                          .slice(0, 2)
+                          .join(", ") +
+                        (assigneeIds.length > 2 ? ` +${assigneeIds.length - 2}` : "")}
+                  </span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 min-w-52 overflow-y-auto">
                   {members.map((m) => (
-                    <SelectItem key={m.userId} value={m.userId}>
+                    <DropdownMenuCheckboxItem
+                      key={m.userId}
+                      checked={assigneeIds.includes(m.userId)}
+                      onCheckedChange={(c) =>
+                        setAssigneeIds((prev) =>
+                          c
+                            ? [...prev, m.userId]
+                            : prev.filter((id) => id !== m.userId),
+                        )
+                      }
+                    >
                       {m.user?.displayName ?? m.userId}
-                    </SelectItem>
+                    </DropdownMenuCheckboxItem>
                   ))}
-                </SelectContent>
-              </Select>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {cycles.length > 0 && (
                 <Select

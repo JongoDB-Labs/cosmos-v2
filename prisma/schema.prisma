@@ -279,6 +279,7 @@ model User {
   chatThreadFollows   ChatThreadFollower[]
   chatAlertKeywords   ChatAlertKeyword[]
   apiKeys             ApiKey[]             @relation("ApiKeyCreatedBy")
+  workItemAssignments WorkItemAssignee[]
 
   @@map("users")
 }
@@ -715,6 +716,7 @@ model WorkItem {
   outgoingLinks WorkItemLink[]       @relation("WorkItemLinkSource")
   incomingLinks WorkItemLink[]       @relation("WorkItemLinkTarget")
   attachments   WorkItemAttachment[]
+  assignees     WorkItemAssignee[]
 
   @@unique([orgId, projectId, ticketNumber])
   // Idempotent re-import key (prod-parity): one imported record per source per org.
@@ -722,6 +724,27 @@ model WorkItem {
   @@index([orgId, columnKey])
   @@index([orgId, assigneeId])
   @@map("work_items")
+}
+
+// Multi-assignee (FR 1d38496a). Holds the item's FULL assignee set, including
+// the primary — `WorkItem.assigneeId` stays the primary/owner so every
+// single-assignee surface (capacity, my-work, bulk assign, boards) keeps
+// working. Sync rules live in the work-items routes: setting `assigneeIds`
+// replaces the set and makes its first entry the primary; setting the legacy
+// single `assigneeId` promotes it into the set (or clears the set on null).
+model WorkItemAssignee {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workItemId String   @map("work_item_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workItemId, userId])
+  @@index([userId])
+  @@map("work_item_assignees")
 }
 
 model Activity {

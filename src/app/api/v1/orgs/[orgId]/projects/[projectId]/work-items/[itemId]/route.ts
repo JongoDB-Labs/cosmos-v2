@@ -18,6 +18,9 @@ const updateItemSchema = z.object({
   workItemTypeId: z.string().uuid().nullish(),
   columnKey: z.string().nullish(),
   assigneeId: z.string().uuid().nullable().optional(),
+  // Multi-assign (FR 1d38496a): replaces the WHOLE set; first entry becomes the
+  // primary assigneeId. When present it wins over the legacy single field.
+  assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).optional(),
   cycleId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
@@ -50,6 +53,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         activities: { orderBy: { createdAt: "desc" }, take: 50 },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
         cycle: { select: { id: true, name: true, number: true, status: true } },
+        assignees: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            userId: true,
+            user: { select: { id: true, displayName: true, avatarUrl: true } },
+          },
+        },
       },
     });
 
@@ -100,6 +110,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.assigneeId !== undefined && data.assigneeId !== existing.assigneeId) {
         trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: data.assigneeId });
       }
+      // Multi-assign: the set's first member becomes the primary — track that
+      // change under the same field name the activity feed already renders.
+      const primaryFromSet =
+        data.assigneeIds !== undefined ? (data.assigneeIds[0] ?? null) : undefined;
+      if (primaryFromSet !== undefined && primaryFromSet !== existing.assigneeId) {
+        trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: primaryFromSet });
+      }
       if (data.cycleId !== undefined && data.cycleId !== existing.cycleId) {
         trackFields.push({ field: "cycleId", oldVal: existing.cycleId, newVal: data.cycleId });
       }
@@ -118,6 +135,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         if (columnChanged) updateData.columnEnteredAt = new Date();
       }
       if (data.assigneeId !== undefined) updateData.assigneeId = data.assigneeId;
+      if (data.assigneeIds !== undefined) updateData.assigneeId = data.assigneeIds[0] ?? null;
       if (data.priority !== undefined) updateData.priority = data.priority;
       if (data.cycleId !== undefined) updateData.cycleId = data.cycleId;
       if (data.parentId !== undefined) updateData.parentId = data.parentId;
@@ -150,12 +168,48 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         updateData.completedAt = null;
       }
 
+      // Sync the assignee SET before the row update reads it back:
+      // - assigneeIds present → the set is replaced wholesale (order = payload).
+      // - legacy single assigneeId → promote it into the set as the new front
+      //   (extras are preserved); null clears the whole set — "Unassigned"
+      //   from any surface means nobody.
+      if (data.assigneeIds !== undefined) {
+        await tx.workItemAssignee.deleteMany({ where: { workItemId: itemId } });
+        if (data.assigneeIds.length > 0) {
+          await tx.workItemAssignee.createMany({
+            data: data.assigneeIds.map((userId, i) => ({
+              workItemId: itemId,
+              userId,
+              sortOrder: i,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      } else if (data.assigneeId !== undefined) {
+        if (data.assigneeId === null) {
+          await tx.workItemAssignee.deleteMany({ where: { workItemId: itemId } });
+        } else {
+          await tx.workItemAssignee.upsert({
+            where: { workItemId_userId: { workItemId: itemId, userId: data.assigneeId } },
+            create: { workItemId: itemId, userId: data.assigneeId, sortOrder: -1 },
+            update: { sortOrder: -1 },
+          });
+        }
+      }
+
       const updated = await tx.workItem.update({
         where: { id: itemId },
         data: updateData,
         include: {
           children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true, celebrateOnComplete: true } },
+          assignees: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              userId: true,
+              user: { select: { id: true, displayName: true, avatarUrl: true } },
+            },
+          },
           _count: { select: { comments: true, activities: true } },
         },
       });

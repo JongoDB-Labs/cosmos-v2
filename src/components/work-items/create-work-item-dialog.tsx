@@ -78,7 +78,8 @@ export function CreateWorkItemDialog({
   const [projectId, setProjectId] = useState(prefilledProjectId ?? "");
   const [workItemTypeId, setWorkItemTypeId] = useState("");
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("MEDIUM");
-  const [assigneeId, setAssigneeId] = useState("");
+  // Multi-assign (FR 1d38496a): full set; first pick becomes the primary.
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [storyPoints, setStoryPoints] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
@@ -103,7 +104,7 @@ export function CreateWorkItemDialog({
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitle("");
       setPriority("MEDIUM");
-      setAssigneeId("");
+      setAssigneeIds([]);
       setStoryPoints("");
       setDueDate("");
       setDescription("");
@@ -195,7 +196,7 @@ export function CreateWorkItemDialog({
           ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
           columnKey,
           priority,
-          assigneeId: assigneeId || null,
+          ...(assigneeIds.length ? { assigneeIds } : {}),
           description: description.trim() || null,
           dueDate: dueDate ? new Date(dueDate).toISOString() : null,
           tags: tags.length ? tags : undefined,
@@ -297,20 +298,32 @@ export function CreateWorkItemDialog({
               </select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Assignee</Label>
-              <select
-                value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
-                className={fieldClass}
-                disabled={submitting}
-              >
-                <option value="">Unassigned</option>
+              <Label className="text-xs">Assignees</Label>
+              {/* Multi-assign (FR 1d38496a): check any number; first checked
+                  becomes the primary assignee. */}
+              <div className="max-h-28 overflow-y-auto rounded-md border border-[var(--border)] p-1.5">
                 {members.map((m) => (
-                  <option key={m.userId} value={m.userId}>
+                  <label
+                    key={m.userId}
+                    className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted/40"
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-[var(--primary)]"
+                      checked={assigneeIds.includes(m.userId)}
+                      disabled={submitting}
+                      onChange={(e) =>
+                        setAssigneeIds((prev) =>
+                          e.target.checked
+                            ? [...prev, m.userId]
+                            : prev.filter((id) => id !== m.userId),
+                        )
+                      }
+                    />
                     {m.user?.displayName ?? m.user?.email ?? m.userId}
-                  </option>
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Story points</Label>
