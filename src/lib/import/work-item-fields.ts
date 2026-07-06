@@ -16,10 +16,13 @@ export type TargetFieldId =
   | "status" // → board columnKey (value-mapped)
   | "priority" // → Priority enum (value-mapped)
   | "assignee" // → org member (value-mapped, by email/name)
+  | "assignees" // → full assignee set — emails/names split on , or ; (server-resolved)
+  | "cycle" // → project cycle/sprint, matched by name or number (server-resolved)
   | "tags" // split on , or ;
   | "storyPoints"
   | "dueDate"
   | "startDate"
+  | "completedAt"
   | "externalKey" // source key e.g. PROJ-123 (also the parent-link key)
   | "externalId" // source id — idempotency key
   | "parentKey" // parent's source key → linked in pass 2
@@ -50,13 +53,16 @@ export const TARGET_FIELDS: TargetField[] = [
   { id: "status", label: "Status", hint: "Maps to a board column.", valueMapped: "status", unique: true },
   { id: "priority", label: "Priority", hint: "Maps to Critical/High/Medium/Low.", valueMapped: "priority", unique: true },
   { id: "assignee", label: "Assignee", hint: "Matched to a member by email or name.", valueMapped: "assignee", unique: true },
+  { id: "assignees", label: "Assignees (multiple)", hint: "Emails or names split on comma/semicolon; the first becomes the primary.", unique: true },
+  { id: "cycle", label: "Sprint / Cycle", hint: "Matched to a project cycle by name or number.", unique: true },
   { id: "tags", label: "Labels / Tags", hint: "Split on comma or semicolon.", unique: true },
   { id: "storyPoints", label: "Story Points", hint: "Whole number.", unique: true },
   { id: "dueDate", label: "Due Date", hint: "Any parseable date.", unique: true },
   { id: "startDate", label: "Start Date", hint: "Any parseable date.", unique: true },
+  { id: "completedAt", label: "Completed / Resolved Date", hint: "Any parseable date.", unique: true },
   { id: "externalKey", label: "Issue Key", hint: "e.g. PROJ-123. Used to link sub-tasks.", unique: true },
   { id: "externalId", label: "Issue ID", hint: "Stable source id — enables idempotent re-import.", unique: true },
-  { id: "parentKey", label: "Parent / Epic Link", hint: "The parent's Issue Key.", unique: true },
+  { id: "parentKey", label: "Parent Link", hint: "Any parent (epic/feature/story/task): its source Issue Key, a Cosmos key like VITL-123, or an exact title.", unique: true },
   { id: "originalEstimate", label: "Original Estimate", hint: 'Seconds or "2h 30m".', unique: true },
   { id: "remainingEstimate", label: "Remaining Estimate", hint: 'Seconds or "2h 30m".', unique: true },
   { id: "timeSpent", label: "Time Spent", hint: 'Seconds or "2h 30m".', unique: true },
@@ -82,6 +88,15 @@ const HEADER_SYNONYMS: Record<string, TargetFieldId> = {
   assignee: "assignee",
   "assigned to": "assignee",
   owner: "assignee",
+  assignees: "assignees",
+  sprint: "cycle",
+  cycle: "cycle",
+  iteration: "cycle",
+  resolved: "completedAt",
+  "resolved date": "completedAt",
+  "done date": "completedAt",
+  completed: "completedAt",
+  "completed date": "completedAt",
   labels: "tags",
   label: "tags",
   tags: "tags",
