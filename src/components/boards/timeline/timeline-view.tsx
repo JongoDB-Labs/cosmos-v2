@@ -3,7 +3,16 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Route, Minimize2, Maximize2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import {
+  Route,
+  Minimize2,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Loader2,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -180,6 +189,54 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     () => items.filter((it) => matchesFilters(it, filters)),
     [items, filters],
   );
+
+  // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
+  // Depth-first parent→children row order with per-parent collapse. Collapsing a
+  // parent hides its whole subtree (rows, bars, and arrows all key off the row
+  // list). A child whose parent is filtered out surfaces as a root so a filter
+  // can never hide items silently.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  const { treeRows, parentIds } = useMemo(() => {
+    const byId = new Map(filteredItems.map((i) => [i.id, i]));
+    const kids = new Map<string, WorkItem[]>();
+    const roots: WorkItem[] = [];
+    for (const it of filteredItems) {
+      if (it.parentId && byId.has(it.parentId)) {
+        const arr = kids.get(it.parentId) ?? [];
+        arr.push(it);
+        kids.set(it.parentId, arr);
+      } else {
+        roots.push(it);
+      }
+    }
+    const byStart = (a: WorkItem, b: WorkItem) =>
+      new Date(a.startDate ?? a.createdAt).getTime() -
+      new Date(b.startDate ?? b.createdAt).getTime();
+    roots.sort(byStart);
+    for (const arr of kids.values()) arr.sort(byStart);
+
+    const rows: { item: WorkItem; depth: number }[] = [];
+    const seen = new Set<string>(); // cycle guard (bad parentId data can't hang us)
+    const walk = (it: WorkItem, depth: number) => {
+      if (seen.has(it.id)) return;
+      seen.add(it.id);
+      rows.push({ item: it, depth });
+      if (collapsedIds.has(it.id)) return;
+      for (const k of kids.get(it.id) ?? []) walk(k, depth + 1);
+    };
+    for (const r of roots) walk(r, 0);
+    return { treeRows: rows, parentIds: new Set(kids.keys()) };
+  }, [filteredItems, collapsedIds]);
+
+  const toggleCollapse = useCallback((id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const doneKeys = useMemo(
     () => new Set(columns.filter((c) => c.category === "DONE").map((c) => c.key)),
     [columns],
@@ -209,16 +266,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return map;
   }, [members]);
 
-  // Compute timeline range
-  const { timelineStart, totalDays, sortedItems } = useMemo(() => {
+  // Compute timeline range. The range spans ALL filtered items (collapsed
+  // subtrees included) so collapsing never reflows the axis; row ORDER comes
+  // from the hierarchy walk above.
+  const { timelineStart, totalDays } = useMemo(() => {
     if (filteredItems.length === 0) {
       const now = startOfDay(new Date());
-      return {
-        timelineStart: addDays(now, -7),
-        timelineEnd: addDays(now, 30),
-        totalDays: 37,
-        sortedItems: [],
-      };
+      return { timelineStart: addDays(now, -7), totalDays: 37 };
     }
 
     let minDate = new Date();
@@ -237,19 +291,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     const padEnd = addDays(startOfDay(maxDate), 7);
     const days = Math.max(diffDays(padStart, padEnd), 30);
 
-    const sorted = [...filteredItems].sort((a, b) => {
-      const aStart = a.startDate ?? a.createdAt;
-      const bStart = b.startDate ?? b.createdAt;
-      return new Date(aStart).getTime() - new Date(bStart).getTime();
-    });
-
-    return {
-      timelineStart: padStart,
-      timelineEnd: padEnd,
-      totalDays: days,
-      sortedItems: sorted,
-    };
+    return { timelineStart: padStart, totalDays: days };
   }, [filteredItems]);
+
+  const sortedItems = useMemo(() => treeRows.map((r) => r.item), [treeRows]);
 
   // Generate date headers
   const dateHeaders = useMemo(() => {
@@ -317,7 +362,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       const duration = Math.max(diffDays(start, end), 1);
       map.set(item.id, {
         x: startOffset * DAY_WIDTH,
-        y: HEADER_HEIGHT + i * ROW_HEIGHT + 8,
+        // Body-SVG coordinates: the date header lives in its own sticky SVG, so
+        // rows start at y=0 here.
+        y: i * ROW_HEIGHT + 8,
         w: Math.max(duration * DAY_WIDTH, DAY_WIDTH),
         h: ROW_HEIGHT - 16,
       });
@@ -574,7 +621,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const todayOffset = diffDays(timelineStart, today);
 
   const svgWidth = totalDays * DAY_WIDTH;
-  const svgHeight = HEADER_HEIGHT + sortedItems.length * ROW_HEIGHT + 20;
+  // The date header renders in its own sticky SVG; the body SVG holds only rows.
+  const bodyHeight = sortedItems.length * ROW_HEIGHT + 20;
 
   if (loading) return <TimelineSkeleton />;
 
@@ -625,6 +673,29 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           >
             <Route className="size-3.5" /> Critical path
           </button>
+          {parentIds.size > 0 && (
+            <button
+              onClick={() =>
+                setCollapsedIds((prev) => (prev.size > 0 ? new Set() : new Set(parentIds)))
+              }
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              title={
+                collapsedIds.size > 0
+                  ? "Expand every parent item"
+                  : "Collapse every parent item to a single row"
+              }
+            >
+              {collapsedIds.size > 0 ? (
+                <>
+                  <ChevronsUpDown className="size-3.5" /> Expand all
+                </>
+              ) : (
+                <>
+                  <ChevronsDownUp className="size-3.5" /> Collapse all
+                </>
+              )}
+            </button>
+          )}
           {canEdit && (
             <>
               <div className="mx-1 h-5 w-px bg-border" />
@@ -688,38 +759,60 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         <div
           ref={leftRef}
           onScroll={() => syncScroll("left")}
+          data-testid="gantt-left"
           className="shrink-0 border-r bg-background overflow-y-auto w-[140px] sm:w-[260px]"
         >
           <div
-            className="border-b bg-muted/50 flex items-center px-3 text-xs font-medium text-muted-foreground"
+            className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
             style={{ height: HEADER_HEIGHT }}
           >
             Work Items
           </div>
-          {sortedItems.map((item) => {
+          {treeRows.map(({ item, depth }) => {
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
+            const isParent = parentIds.has(item.id);
+            const isCollapsed = collapsedIds.has(item.id);
             return (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={() => setDetailId(item.id)}
-                title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
-                className="flex w-full items-center gap-2 px-3 text-left border-b border-border/30 hover:bg-muted/30 transition-colors"
-                style={{ height: ROW_HEIGHT }}
+                className="flex w-full items-center border-b border-border/30 hover:bg-muted/30 transition-colors"
+                style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 14 }}
               >
-                <div
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: colors.fill }}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs truncate">
-                    <span className="text-muted-foreground mr-1">
-                      {projectKey}-{item.ticketNumber}
-                    </span>
-                    {item.title}
-                  </p>
-                </div>
-              </button>
+                {isParent ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapse(item.id)}
+                    aria-label={isCollapsed ? "Expand children" : "Collapse children"}
+                    aria-expanded={!isCollapsed}
+                    className="mr-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronRight
+                      className={cn("size-3.5 transition-transform", !isCollapsed && "rotate-90")}
+                    />
+                  </button>
+                ) : (
+                  <span className="w-[22px] shrink-0" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDetailId(item.id)}
+                  title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 pr-3 text-left"
+                >
+                  <div
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: colors.fill }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs truncate">
+                      <span className="text-muted-foreground mr-1">
+                        {projectKey}-{item.ticketNumber}
+                      </span>
+                      {item.title}
+                    </p>
+                  </div>
+                </button>
+              </div>
             );
           })}
         </div>
@@ -728,13 +821,77 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         <div
           ref={scrollRef}
           onScroll={() => syncScroll("right")}
+          data-testid="gantt-right"
           className="flex-1 overflow-auto relative"
         >
-          <svg
-            width={svgWidth}
-            height={svgHeight}
-            className="block"
-          >
+          <div style={{ width: svgWidth }}>
+            {/* Sticky date header (FR e4d1732e): pinned while scrolling down,
+                but scrolls horizontally with the chart because it sits inside
+                the svgWidth wrapper — sticky only pins the vertical axis. */}
+            <div
+              className="sticky top-0 z-10 border-b border-border bg-[var(--surface)]"
+              style={{ height: HEADER_HEIGHT }}
+            >
+              <svg width={svgWidth} height={HEADER_HEIGHT} className="block">
+                {monthLabels.map((m, i) => (
+                  <g key={i}>
+                    <rect
+                      x={m.startX}
+                      y={0}
+                      width={m.width}
+                      height={24}
+                      className="fill-muted/50"
+                    />
+                    <text
+                      x={m.startX + m.width / 2}
+                      y={16}
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[10px]"
+                      style={{ fontSize: 10 }}
+                    >
+                      {m.month}
+                    </text>
+                  </g>
+                ))}
+                {dateHeaders.map((h, i) => {
+                  const x = i * DAY_WIDTH;
+                  const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
+                  return (
+                    <g key={i}>
+                      {isWeekend && (
+                        <rect
+                          x={x}
+                          y={24}
+                          width={DAY_WIDTH}
+                          height={HEADER_HEIGHT - 24}
+                          className="fill-muted/20"
+                        />
+                      )}
+                      <text
+                        x={x + DAY_WIDTH / 2}
+                        y={40}
+                        textAnchor="middle"
+                        className="fill-muted-foreground text-[9px]"
+                        style={{ fontSize: 9 }}
+                      >
+                        {h.label}
+                      </text>
+                    </g>
+                  );
+                })}
+                {/* Today dot — the dashed line itself lives in the body SVG. */}
+                {todayOffset >= 0 && todayOffset < totalDays && (
+                  <circle
+                    cx={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                    cy={HEADER_HEIGHT - 5}
+                    r={4}
+                    fill="var(--status-critical)"
+                  />
+                )}
+              </svg>
+            </div>
+
+            <svg width={svgWidth} height={bodyHeight} className="block">
             <defs>
               {/* Arrowhead for dependency links. */}
               <marker
@@ -761,84 +918,44 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </marker>
             </defs>
 
-            {/* Month headers */}
-            {monthLabels.map((m, i) => (
-              <g key={i}>
-                <rect
-                  x={m.startX}
-                  y={0}
-                  width={m.width}
-                  height={24}
-                  className="fill-muted/50"
-                />
-                <text
-                  x={m.startX + m.width / 2}
-                  y={16}
-                  textAnchor="middle"
-                  className="fill-muted-foreground text-[10px]"
-                  style={{ fontSize: 10 }}
-                >
-                  {m.month}
-                </text>
-              </g>
-            ))}
-
-            {/* Day columns */}
+            {/* Weekend shading + week gridlines */}
             {dateHeaders.map((h, i) => {
               const x = i * DAY_WIDTH;
               const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
+              if (!isWeekend && !h.isWeekStart) return null;
               return (
                 <g key={i}>
                   {isWeekend && (
                     <rect
                       x={x}
-                      y={24}
+                      y={0}
                       width={DAY_WIDTH}
-                      height={svgHeight - 24}
+                      height={bodyHeight}
                       className="fill-muted/20"
                     />
                   )}
                   {h.isWeekStart && (
                     <line
                       x1={x}
-                      y1={24}
+                      y1={0}
                       x2={x}
-                      y2={svgHeight}
+                      y2={bodyHeight}
                       className="stroke-border/50"
                       strokeWidth={0.5}
                     />
                   )}
-                  <text
-                    x={x + DAY_WIDTH / 2}
-                    y={40}
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-[9px]"
-                    style={{ fontSize: 9 }}
-                  >
-                    {h.label}
-                  </text>
                 </g>
               );
             })}
-
-            {/* Header separator */}
-            <line
-              x1={0}
-              y1={HEADER_HEIGHT}
-              x2={svgWidth}
-              y2={HEADER_HEIGHT}
-              className="stroke-border"
-              strokeWidth={1}
-            />
 
             {/* Row separators */}
             {sortedItems.map((_, i) => (
               <line
                 key={i}
                 x1={0}
-                y1={HEADER_HEIGHT + (i + 1) * ROW_HEIGHT}
+                y1={(i + 1) * ROW_HEIGHT}
                 x2={svgWidth}
-                y2={HEADER_HEIGHT + (i + 1) * ROW_HEIGHT}
+                y2={(i + 1) * ROW_HEIGHT}
                 className="stroke-border/30"
                 strokeWidth={0.5}
               />
@@ -892,7 +1009,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const duration = Math.max(diffDays(start, end), 1);
 
               const baseX = startOffset * DAY_WIDTH;
-              const y = HEADER_HEIGHT + i * ROW_HEIGHT + 8;
+              const y = i * ROW_HEIGHT + 8;
               const baseW = Math.max(duration * DAY_WIDTH, DAY_WIDTH);
               const h = ROW_HEIGHT - 16;
 
@@ -1058,27 +1175,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               );
             })}
 
-            {/* Today marker */}
+            {/* Today marker — the dot sits in the sticky header SVG above. */}
             {todayOffset >= 0 && todayOffset < totalDays && (
-              <>
-                <line
-                  x1={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
-                  y1={HEADER_HEIGHT}
-                  x2={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
-                  y2={svgHeight}
-                  stroke="var(--status-critical)"
-                  strokeWidth={2}
-                  strokeDasharray="4 2"
-                />
-                <circle
-                  cx={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
-                  cy={HEADER_HEIGHT}
-                  r={4}
-                  fill="var(--status-critical)"
-                />
-              </>
+              <line
+                x1={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                y1={0}
+                x2={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                y2={bodyHeight}
+                stroke="var(--status-critical)"
+                strokeWidth={2}
+                strokeDasharray="4 2"
+              />
             )}
-          </svg>
+            </svg>
+          </div>
 
           {/* Hover tooltip */}
           {hoveredItem && (
