@@ -370,6 +370,20 @@ export function WorkItemImportWizard(props: WizardProps) {
               </ul>
             </div>
           )}
+          {(report.warnings?.length ?? 0) > 0 && (
+            <div className="rounded-lg border border-amber-500/40">
+              <div className="border-b border-amber-500/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                {report.warnings!.length} warnings — these rows still import, but a value was dropped
+              </div>
+              <ul className="max-h-48 overflow-y-auto p-2 text-sm">
+                {report.warnings!.map((w, i) => (
+                  <li key={i} className="px-2 py-1 text-[var(--text-muted)]">
+                    Row {w.row}: {w.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="flex justify-between">
             <Button variant="ghost" onClick={() => setStep(hasAnyValueMap ? "values" : "fields")}>
               <ArrowLeft className="h-4 w-4" /> Back
