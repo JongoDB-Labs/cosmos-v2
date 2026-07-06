@@ -2,6 +2,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/client";
 import { ApiKeysManager } from "@/components/settings/api-keys-manager";
+import { ApiReference } from "@/components/settings/api-reference";
 import { PageShell } from "@/components/ui/page-shell";
 import {
   makeServerQueryClient,
@@ -61,6 +62,7 @@ export default async function ApiKeysPage({ params }: PageParams) {
       <HydrationBoundary state={dehydrate(qc)}>
         <ApiKeysManager orgId={ctx.orgId} />
       </HydrationBoundary>
+      <ApiReference orgId={ctx.orgId} />
     </PageShell>
   );
 }
