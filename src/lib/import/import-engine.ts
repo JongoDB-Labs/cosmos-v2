@@ -122,6 +122,8 @@ interface NormalizedRow {
   customFields: Record<string, string>;
   sourceRecord: Record<string, string>;
   error: string | null;
+  /** Non-blocking issues (dropped assignee tokens, unmatched sprint). */
+  warnings: string[];
 }
 
 /** Strict integer parse — rejects hex/exponent/blank (Number() is too lenient). */
@@ -200,16 +202,22 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
     let assigneeId =
       mappedAssignee && sets.memberUserIds.has(mappedAssignee) ? mappedAssignee : null;
 
+    const warnings: string[] = [];
+
     // Multi-assignee (only when the column is mapped): split on ,/; and resolve
     // each token by member email or display name, case-insensitive. Unresolved
-    // tokens are dropped. The first resolved member becomes the primary when no
-    // single-assignee column set one.
+    // tokens are DROPPED — surfaced as a warning so nothing vanishes silently
+    // (imports never create or invite users). The first resolved member becomes
+    // the primary when no single-assignee column set one.
     let assigneeIds: string[] | null = null;
     if (first.assignees !== undefined) {
       const tokens = splitTags(get(row, "assignees"));
-      const resolved = tokens
-        .map((t) => sets.memberByToken.get(t.toLowerCase()))
-        .filter((x): x is string => !!x);
+      const resolved: string[] = [];
+      for (const t of tokens) {
+        const userId = sets.memberByToken.get(t.toLowerCase());
+        if (userId) resolved.push(userId);
+        else warnings.push(`Assignee "${t}" matched no org member — dropped`);
+      }
       assigneeIds = [...new Set(resolved)];
       if (!assigneeId && assigneeIds.length > 0) assigneeId = assigneeIds[0];
       // Keep the set consistent with the primary (the routes' invariant).
@@ -219,6 +227,9 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
     // Sprint/Cycle: resolve by name, bare number, or "sprint N" (case-insensitive).
     const cycleRaw = get(row, "cycle");
     const cycleId = cycleRaw ? (sets.cycleByToken.get(cycleRaw.toLowerCase()) ?? null) : null;
+    if (cycleRaw && !cycleId) {
+      warnings.push(`Sprint/Cycle "${cycleRaw}" matched no project cycle — left unset`);
+    }
 
     const customFields: Record<string, string> = {};
     for (const h of customHeaders) {
@@ -258,6 +269,7 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       customFields,
       sourceRecord: { ...row },
       error,
+      warnings,
     };
   });
 }
@@ -310,12 +322,20 @@ export async function runImport(
     }
   }
 
+  // Non-blocking warnings (dropped assignees, unmatched sprints) — one entry
+  // per issue, row-tagged, capped like errors.
+  const warnings: ImportRowError[] = [];
+  for (const n of normalized) {
+    for (const w of n.warnings) warnings.push({ row: n.rowNum, message: w });
+  }
+
   const report: ImportReport = {
     total: normalized.length,
     willCreate,
     willUpdate,
     skipped: errors.length,
     errors: errors.slice(0, 200),
+    warnings: warnings.slice(0, 200),
   };
 
   if (req.mode === "validate") return report;

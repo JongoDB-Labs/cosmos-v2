@@ -216,6 +216,10 @@ export interface ImportReport {
   willUpdate: number; // matched an existing externalId
   skipped: number; // rows with blocking errors
   errors: ImportRowError[];
+  /** Non-blocking issues the row imports DESPITE — e.g. an assignee token that
+   *  matched no org member (dropped), or a Sprint that matched no cycle.
+   *  Surfaced at validate time so nothing disappears silently. */
+  warnings?: ImportRowError[];
   /** committed only */
   created?: number;
   updated?: number;
