@@ -32,6 +32,7 @@ import {
 import type { CustomField, CustomFieldType } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 import { LoadError } from "@/components/ui/load-error";
+import { SectorFieldSets } from "./sector-field-sets";
 
 const fieldTypeOptions: { value: CustomFieldType; label: string }[] = [
   { value: "TEXT", label: "Text" },
@@ -215,6 +216,9 @@ export function CustomFieldsManager({ orgId }: CustomFieldsManagerProps) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Sector field sets (FR 454637a9) — curated per-industry field packs. */}
+      <SectorFieldSets orgId={orgId} onApplied={() => void fetchFields()} />
+
       <div className="flex justify-end">
         <Button onClick={openCreateDialog}>
           <Plus className="h-4 w-4 mr-1" />
