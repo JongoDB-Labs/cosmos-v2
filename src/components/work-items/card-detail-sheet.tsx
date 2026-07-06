@@ -247,6 +247,40 @@ export function CardDetailSheet({
         const updated: WorkItem = await res.json();
         onUpdate(updated);
 
+        // Re-parenting also changes BOTH parents' `children` arrays, but the PUT
+        // response only carries the child — without this the new parent's
+        // Sub-items list stays stale until a full refetch (BR 7d1ae4d2). Patch
+        // the old parent (drop the child) and the new parent (append a ref)
+        // through the same map-replace onUpdate path the child uses.
+        if (field === "parentId") {
+          const oldParent = projectItems?.find((p) => p.id === item.parentId);
+          if (oldParent) {
+            onUpdate({
+              ...oldParent,
+              children: (oldParent.children ?? []).filter((c) => c.id !== item.id),
+            });
+          }
+          const newParent =
+            typeof value === "string"
+              ? projectItems?.find((p) => p.id === value)
+              : undefined;
+          if (newParent && !(newParent.children ?? []).some((c) => c.id === item.id)) {
+            onUpdate({
+              ...newParent,
+              children: [
+                ...(newParent.children ?? []),
+                {
+                  id: updated.id,
+                  title: updated.title,
+                  ticketNumber: updated.ticketNumber,
+                  workItemTypeId: updated.workItemTypeId,
+                  columnKey: updated.columnKey,
+                },
+              ],
+            });
+          }
+        }
+
         // Fire confetti when item moves into a DONE column
         if (field === "columnKey" && typeof value === "string") {
           const isDoneColumn = (key: string) =>
@@ -293,7 +327,7 @@ export function CardDetailSheet({
         notifyError(err, "Couldn't save the change.");
       }
     },
-    [item, basePath, onUpdate]
+    [item, basePath, onUpdate, projectItems]
   );
 
   // Persist a single custom-field value. The PUT route MERGES the customFields
@@ -368,17 +402,19 @@ export function CardDetailSheet({
       });
       if (!res.ok) throw new Error(`Failed to add sub-item (HTTP ${res.status})`);
       const child: WorkItem = await res.json();
-      setChildren((prev) => [
-        ...prev,
-        {
-          id: child.id,
-          title: child.title,
-          ticketNumber: child.ticketNumber,
-          workItemTypeId: child.workItemTypeId,
-          columnKey: child.columnKey,
-        },
-      ]);
+      const childRef = {
+        id: child.id,
+        title: child.title,
+        ticketNumber: child.ticketNumber,
+        workItemTypeId: child.workItemTypeId,
+        columnKey: child.columnKey,
+      };
+      setChildren((prev) => [...prev, childRef]);
       setChildTitle("");
+      // Keep the CACHED parent's children in sync too (same staleness class as
+      // BR 7d1ae4d2) — otherwise reopening this parent reads the stale cache
+      // and the new sub-item vanishes from the list until a refetch.
+      onUpdate({ ...item, children: [...(item.children ?? []), childRef] });
       onItemCreated?.(child);
     } catch (err) {
       notifyError(err, "Couldn't add the sub-item.");
@@ -399,6 +435,13 @@ export function CardDetailSheet({
         body: JSON.stringify({ parentId: null }),
       });
       if (!res.ok) throw new Error(`Failed to remove sub-item (HTTP ${res.status})`);
+      // Sync the cached parent's children (same staleness class as BR 7d1ae4d2).
+      if (item) {
+        onUpdate({
+          ...item,
+          children: (item.children ?? []).filter((c) => c.id !== childId),
+        });
+      }
     } catch (err) {
       setChildren(prev);
       notifyError(err, "Couldn't remove the sub-item.");
