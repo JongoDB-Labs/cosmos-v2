@@ -1,0 +1,58 @@
+name: feedback-remediation
+
+# Auto-remediation loop (FR 695aa097) — the scheduled poller. Calls the org's
+# remediation trigger endpoint, which delivers OPEN, not-yet-delivered feedback
+# into the work backlog (AI-triaged). Idempotent: each item is delivered once.
+#
+# Activation (maintainer): set repo/environment
+#   - Variable  COSMOS_BASE_URL   e.g. https://defcon.fightingsmartcyber.com
+#   - Variable  COSMOS_ORG_ID     the target org's UUID
+#   - Secret    COSMOS_API_KEY    an org API key (cosmos_… , scope items:write)
+# Until these exist the job no-ops (guards below), so the workflow is inert by
+# default. It NEVER merges or deploys — it only asks the app to file work items.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max feedback items to deliver this run (1-50)"
+        required: false
+        default: "10"
+
+concurrency:
+  group: feedback-remediation
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger remediation pass
+        env:
+          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
+          API_KEY: ${{ secrets.COSMOS_API_KEY }}
+          LIMIT: ${{ github.event.inputs.limit || '10' }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$ORG_ID" ] || [ -z "$API_KEY" ]; then
+            echo "::notice::feedback-remediation not configured (COSMOS_BASE_URL / COSMOS_ORG_ID / COSMOS_API_KEY unset) — skipping."
+            exit 0
+          fi
+          echo "Triggering remediation for org $ORG_ID (limit $LIMIT)…"
+          code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+            -X POST "$BASE_URL/api/v1/orgs/$ORG_ID/feedback/remediate" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"limit\": $LIMIT}")
+          echo "HTTP $code"
+          cat /tmp/resp.json
+          echo
+          if [ "$code" -ge 300 ]; then
+            echo "::error::remediation trigger failed (HTTP $code)"
+            exit 1
+          fi
