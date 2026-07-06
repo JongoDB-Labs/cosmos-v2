@@ -89,7 +89,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           createdById: ctx.userId,
         },
         include: {
-          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
+          children: { select: { id: true, title: true, ticketNumber: true, columnKey: true, workItemTypeId: true } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
           _count: { select: { comments: true, activities: true } },
         },
@@ -147,6 +147,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
       }
 
+      // The dupe's `children` include was captured BEFORE the clone loop above,
+      // so it's always empty — re-read so the response reflects the cloned
+      // sub-items. Without this the detail sheet (which switches to the copy)
+      // thinks the copy is childless and skips the sub-items prompt on the next
+      // duplicate (BR c7b77295).
+      if (withChildren) {
+        return tx.workItem.findUniqueOrThrow({
+          where: { id: dupe.id },
+          include: {
+            children: { select: { id: true, title: true, ticketNumber: true, columnKey: true, workItemTypeId: true } },
+            workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
+            _count: { select: { comments: true, activities: true } },
+          },
+        });
+      }
       return dupe;
     });
 
