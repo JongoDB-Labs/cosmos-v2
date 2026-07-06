@@ -25,6 +25,8 @@ export interface IssueRow {
   type: { id: string; key: string; name: string; icon: string | null; color: string | null };
   project: { id: string; key: string; name: string };
   assignee: { id: string; displayName: string; avatarUrl: string | null } | null;
+  /** Full assignee set (multi-assign), primary first. */
+  assignees: { id: string; displayName: string; avatarUrl: string | null }[];
   parent: { id: string; ticketKey: string; title: string } | null;
   cycleId: string | null;
   storyPoints: number | null;
@@ -89,6 +91,15 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
         projectId: true,
         workItemType: {
           select: { id: true, key: true, name: true, icon: true, color: true },
+        },
+        // Multi-assign: the full set rides along so registers can render a
+        // stacked-avatar cell without a second query.
+        assignees: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            userId: true,
+            user: { select: { id: true, displayName: true, avatarUrl: true } },
+          },
         },
       },
     }),
@@ -166,6 +177,11 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
       assignee: assignee
         ? { id: assignee.id, displayName: assignee.displayName, avatarUrl: assignee.avatarUrl }
         : null,
+      assignees: (item.assignees ?? []).map((a) => ({
+        id: a.userId,
+        displayName: a.user.displayName,
+        avatarUrl: a.user.avatarUrl,
+      })),
       parent: parentRow
         ? {
             id: parentRow.id,
