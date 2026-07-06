@@ -28,9 +28,11 @@ import {
   AlertTriangle,
   Clock,
   ExternalLink,
+  Plug,
 } from "lucide-react";
 import type { Integration } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
+import { toast } from "sonner";
 import { BrandIcon } from "@/components/integrations/brand-icon";
 import {
   CATEGORY_META,
@@ -269,6 +271,38 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
   const configFieldsForProvider = (slug: string) =>
     available.find((p) => p.slug === slug)?.configFields ?? [];
 
+  // Test the Microsoft Teams connection (FR 8a162fe7) — mints a Graph token and,
+  // when a default channel is set, posts a visible test message.
+  const [testingId, setTestingId] = useState<string | null>(null);
+  async function handleTestTeams(integration: Integration) {
+    setTestingId(integration.id);
+    try {
+      const res = await fetch(`${apiBase}/teams/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ post: true }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        posted?: boolean;
+        error?: string;
+      };
+      if (data.ok) {
+        toast.success(
+          data.posted
+            ? "Connected — a test message was posted to the channel."
+            : "Connected. Set a default Team + Channel ID to post messages.",
+        );
+      } else {
+        toast.error(data.error ?? "Couldn't reach Microsoft Teams with these credentials.");
+      }
+    } catch (err) {
+      notifyError(err, "Couldn't test the Teams connection.");
+    } finally {
+      setTestingId(null);
+    }
+  }
+
   // True when any required config field is still blank — blocks submit so the
   // user can't install/configure an integration with missing credentials and
   // get a silent failure (the `*` markers now actually gate the button).
@@ -394,6 +428,17 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
                       <Power className="mr-1 h-3.5 w-3.5" />
                       {integration.status === "ACTIVE" ? "Disable" : "Enable"}
                     </Button>
+                    {integration.provider === "microsoft-teams-messaging" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={testingId === integration.id}
+                        onClick={() => handleTestTeams(integration)}
+                      >
+                        <Plug className="mr-1 h-3.5 w-3.5" />
+                        {testingId === integration.id ? "Testing…" : "Test"}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
