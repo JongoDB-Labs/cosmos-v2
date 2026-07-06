@@ -53,6 +53,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { filter, sort, page, pageSize } = parseSearchParams(
       request.nextUrl.searchParams,
     );
+    // "Watching" filter (FR 8702c9b8) — resolve the sentinel to the caller's id
+    // here so the where-builder stays pure.
+    if (request.nextUrl.searchParams.get("watchedByMe")) {
+      filter.watchedByUserId = ctx.userId;
+    }
 
     const result = await runWorkItemQuery({
       orgId,

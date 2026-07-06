@@ -104,6 +104,11 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
   const labels = clean(filter.labels);
   if (labels.length > 0) where.tags = { hasSome: labels };
 
+  // ── Watched-by-me (FR 8702c9b8) ──────────────────────────────────────
+  if (filter.watchedByUserId) {
+    where.watchers = { some: { userId: filter.watchedByUserId } };
+  }
+
   // ── Cycle / sprint (supports the "none" sentinel, OR-combined) ───────
   const cycleIds = clean(filter.cycleIds);
   if (cycleIds.length > 0) {

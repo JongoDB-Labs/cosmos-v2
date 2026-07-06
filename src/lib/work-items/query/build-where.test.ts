@@ -57,6 +57,15 @@ describe("buildWorkItemWhere — simple field filters (AND across)", () => {
     expect(w.tags).toEqual({ hasSome: ["backend", "urgent"] });
   });
 
+  it("watchedByUserId restricts to items the user watches", () => {
+    const w = build({ watchedByUserId: "user-9" });
+    expect(w.watchers).toEqual({ some: { userId: "user-9" } });
+  });
+
+  it("no watchers clause when watchedByUserId is unset", () => {
+    expect(build({}).watchers).toBeUndefined();
+  });
+
   it("omitted fields are inert", () => {
     const w = build({});
     expect(w.workItemTypeId).toBeUndefined();
