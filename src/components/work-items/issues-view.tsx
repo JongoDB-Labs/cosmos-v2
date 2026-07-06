@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog";
+import { SavedViewsPicker } from "@/components/work-items/saved-views-picker";
 import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
@@ -190,6 +191,36 @@ function toWorkItemFilter(f: FilterState): WorkItemFilter {
     filter.updatedAt = { from: f.updatedFrom || undefined, to: f.updatedTo || undefined };
   }
   return filter;
+}
+
+/** Map the filter bar into a saved-view filter (FR 2b36c2b8). Unlike
+ *  toWorkItemFilter (board-oriented), this PRESERVES the project pin — a saved
+ *  view like "my project-X bugs" should re-select the project on apply. */
+function filterStateToSavedFilter(f: FilterState): WorkItemFilter {
+  const filter = toWorkItemFilter(f);
+  if (f.project !== ANY) filter.projectIds = [f.project];
+  return filter;
+}
+
+/** Inverse of filterStateToSavedFilter — apply a stored view to the filter bar.
+ *  Single-select fields take the first array member; unknowns fall back to ANY
+ *  so a stale/partial saved filter can't wedge the UI. */
+function savedFilterToFilterState(wf: WorkItemFilter): FilterState {
+  const first = (arr?: string[]) => (arr && arr.length > 0 ? arr[0] : ANY);
+  return {
+    ...EMPTY_FILTERS,
+    project: first(wf.projectIds),
+    type: first(wf.typeIds),
+    status: first(wf.columnKeys),
+    priority: first(wf.priorities as string[] | undefined),
+    assignee: first(wf.assigneeIds),
+    label: first(wf.labels),
+    text: wf.text ?? "",
+    createdFrom: wf.createdAt?.from ?? "",
+    createdTo: wf.createdAt?.to ?? "",
+    updatedFrom: wf.updatedAt?.from ?? "",
+    updatedTo: wf.updatedAt?.to ?? "",
+  };
 }
 
 const PAGE_SIZE = 25;
@@ -715,6 +746,16 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        {/* Saved views (FR 2b36c2b8) — named, reusable filters. */}
+        <SavedViewsPicker
+          orgId={orgId}
+          currentFilter={filterStateToSavedFilter(filters)}
+          onApply={(wf) => {
+            setFilters(savedFilterToFilterState(wf));
+            setTextDraft(wf.text ?? "");
+            setPage(1);
+          }}
+        />
         {/* Watching quick-filter (FR 8702c9b8) — restricts to items the current
             user follows (the ★ on a ticket's detail panel). */}
         <button

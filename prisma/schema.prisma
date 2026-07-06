@@ -226,6 +226,7 @@ model Organization {
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   meetingTypeOptions     MeetingTypeOption[]
+  savedViews             SavedView[]
 
   @@map("organizations")
 }
@@ -281,6 +282,7 @@ model User {
   apiKeys             ApiKey[]             @relation("ApiKeyCreatedBy")
   workItemAssignments WorkItemAssignee[]
   workItemWatches     WorkItemWatcher[]
+  savedViews          SavedView[]
 
   @@map("users")
 }
@@ -766,6 +768,29 @@ model WorkItemWatcher {
   @@unique([workItemId, userId])
   @@index([orgId, userId])
   @@map("work_item_watchers")
+}
+
+// Saved views (FR 2b36c2b8): a named, reusable work-item filter for the org-wide
+// Issues view — like a Jira saved filter. `filter` holds a serialized
+// WorkItemFilter (lib/work-items/query/filter.ts). `shared` = visible to the
+// whole org (personal otherwise); only the owner (or an org admin) may edit or
+// delete. Names are unique per owner so "my Bugs" can't collide with itself.
+model SavedView {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  ownerId   String   @map("owner_id") @db.Uuid
+  name      String
+  filter    Json     @default("{}")
+  shared    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, name])
+  @@index([orgId])
+  @@map("saved_views")
 }
 
 model Activity {
