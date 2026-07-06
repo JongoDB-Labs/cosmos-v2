@@ -7,6 +7,7 @@ import {
   Briefcase,
   FolderKanban,
   ListChecks,
+  Activity,
   Handshake,
   Package,
   FileSignature,
@@ -84,6 +85,14 @@ export const SIDEBAR_NAV: NavEntry[] = [
     icon: ListChecks,
     label: "Issues",
     href: "/issues",
+    anyOf: [Permission.ITEM_READ],
+  },
+  {
+    type: "leaf",
+    id: "updates",
+    icon: Activity,
+    label: "Updates",
+    href: "/updates",
     anyOf: [Permission.ITEM_READ],
   },
   {
