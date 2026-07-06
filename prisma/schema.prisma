@@ -2479,6 +2479,15 @@ model FeedbackItem {
   // Auto-captured client context on BUG reports (route, userAgent, stack,
   // componentStack, digest, errorSignature). Append-only sightings; {} for FRs.
   telemetry   Json           @default("{}")
+  // Auto-remediation loop (FR 695aa097): when the scheduled triage delivers this
+  // item into the work backlog, `deliveredAt` is stamped (idempotency key — the
+  // poller only ever picks up rows where it's null), `workItemId` links the
+  // created triage ticket, and `triage` holds the AI classification
+  // (classification/severity/effort/rationale/acceptanceCriteria). All nullable
+  // — an un-delivered item has all three null.
+  deliveredAt DateTime?      @map("delivered_at")
+  workItemId  String?        @map("work_item_id") @db.Uuid
+  triage      Json?
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
@@ -2487,6 +2496,8 @@ model FeedbackItem {
   attachments FeedbackAttachment[]
 
   @@index([orgId, status])
+  // Backs the poller's "OPEN + not yet delivered" scan.
+  @@index([orgId, deliveredAt])
   @@map("feedback_items")
 }
 

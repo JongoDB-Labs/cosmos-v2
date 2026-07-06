@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   User, SlidersHorizontal, KeyRound, Building2, UserCog,
   Sparkles, Bot, Gavel, Server, Cpu, Puzzle, Webhook, ShieldEllipsis,
-  LayoutGrid, ListFilter, Tag, Shield, ShieldCheck, ScrollText,
+  LayoutGrid, ListFilter, Tag, Shield, ShieldCheck, ScrollText, Wand2,
 } from "lucide-react";
 import { Permission, hasPermission } from "./permissions";
 import type { AuthContext } from "./check";
@@ -23,6 +23,7 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
   "/settings/organization": { view: [Permission.ORG_UPDATE, Permission.THEME_MANAGE, Permission.ORG_DELETE] },
   "/settings/roles": { view: Permission.ORG_MANAGE_MEMBERS },
   "/settings/ai": { view: Permission.ORG_MANAGE_SETTINGS },
+  "/settings/feedback-automation": { view: Permission.ORG_UPDATE },
   "/settings/agent-policy": { view: Permission.AGENT_POLICY_MANAGE },
   "/settings/agent-governance": { view: Permission.SECURITY_MANAGE },
   "/settings/mcp-servers": { view: Permission.MCP_MANAGE },
@@ -72,6 +73,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
     { icon: Gavel, label: "Agent Governance", href: "/settings/agent-governance" },
     { icon: Server, label: "MCP Servers", href: "/settings/mcp-servers" },
     { icon: Cpu, label: "Runtime Config", href: "/settings/runtime-config" },
+    { icon: Wand2, label: "Feedback Automation", href: "/settings/feedback-automation" },
     { icon: Puzzle, label: "Integrations", href: "/settings/integrations" },
     { icon: Webhook, label: "Webhooks", href: "/settings/webhooks" },
     { icon: ShieldEllipsis, label: "API Keys", href: "/settings/api-keys" },
