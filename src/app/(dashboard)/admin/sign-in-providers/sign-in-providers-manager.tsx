@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Building2, CheckCircle2, Copy } from "lucide-react";
+import { CheckCircle2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MicrosoftLogo } from "@/components/brand/provider-logos";
+import { MicrosoftLogo, GoogleLogo } from "@/components/brand/provider-logos";
 import { notifyError } from "@/lib/errors/notify";
 
 interface ProviderStatus {
@@ -16,6 +16,7 @@ interface ProviderStatus {
 
 const CARD = "rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5";
 const REDIRECT_HINT = "/api/auth/microsoft/callback";
+const GOOGLE_REDIRECT_HINT = "/api/auth/google/callback";
 
 export function SignInProvidersManager() {
   const [status, setStatus] = useState<Record<string, ProviderStatus>>({});
@@ -29,6 +30,13 @@ export function SignInProvidersManager() {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Google form (FR 8a162fe7)
+  const [gClientId, setGClientId] = useState("");
+  const [gClientSecret, setGClientSecret] = useState("");
+  const [gEnabled, setGEnabled] = useState(true);
+  const [gSaving, setGSaving] = useState(false);
+  const [gCopied, setGCopied] = useState(false);
+
   async function load() {
     try {
       const r = await fetch("/api/admin/auth-providers");
@@ -39,9 +47,38 @@ export function SignInProvidersManager() {
         // stored value.
         const m = j.providers?.microsoft;
         setEnabled(m?.configured ? (m.enabled ?? true) : true);
+        const g = j.providers?.google;
+        setGEnabled(g?.configured ? (g.enabled ?? true) : true);
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveGoogle() {
+    setGSaving(true);
+    try {
+      const r = await fetch("/api/admin/auth-providers", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "google",
+          clientId: gClientId.trim(),
+          clientSecret: gClientSecret.trim() || undefined,
+          enabled: gEnabled,
+        }),
+      });
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Couldn't save the provider.");
+      }
+      toast.success("Google sign-in saved.");
+      setGClientSecret("");
+      await load();
+    } catch (err) {
+      notifyError(err, "Couldn't save the provider.");
+    } finally {
+      setGSaving(false);
     }
   }
   useEffect(() => {
@@ -206,10 +243,96 @@ export function SignInProvidersManager() {
       </section>
 
       <section className={CARD}>
-        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-          <Building2 className="h-4 w-4" />
-          Google sign-in is currently configured at the platform level. Moving it
-          here is planned — until then it keeps working as-is.
+        <div className="mb-3 flex items-center gap-2">
+          <GoogleLogo className="h-4 w-4" />
+          <h3 className="text-sm font-semibold">Google</h3>
+          {status.google?.configured && (
+            <span
+              className={`ml-auto inline-flex items-center gap-1 text-xs ${status.google.enabled ? "text-[var(--status-success-text,green)]" : "text-[var(--text-muted)]"}`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {status.google.enabled ? "Configured · enabled" : "Configured · disabled"}
+            </span>
+          )}
+        </div>
+
+        <div className="grid max-w-lg gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="g-client-id">OAuth client ID</Label>
+            <Input
+              id="g-client-id"
+              value={gClientId}
+              onChange={(e) => setGClientId(e.target.value)}
+              placeholder="000000000000-xxxx.apps.googleusercontent.com"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="g-secret">Client secret</Label>
+            <Input
+              id="g-secret"
+              type="password"
+              autoComplete="off"
+              value={gClientSecret}
+              onChange={(e) => setGClientSecret(e.target.value)}
+              placeholder={
+                status.google?.configured
+                  ? "•••••••• (leave blank to keep current)"
+                  : "Client secret from the Google Cloud OAuth client"
+              }
+            />
+            <p className="text-[11px] text-[var(--text-muted)]">
+              From the OAuth 2.0 Client (Google Cloud → APIs &amp; Services →
+              Credentials). Stored encrypted; never shown again. This same client
+              powers Google sign-in and the Gmail/Calendar/Drive integrations.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={gEnabled}
+              onChange={(e) => setGEnabled(e.target.checked)}
+            />
+            Show the &ldquo;Sign in with Google&rdquo; button
+          </label>
+
+          <div>
+            <Button
+              onClick={saveGoogle}
+              disabled={gSaving || gClientId.trim().length === 0 || (!status.google?.configured && gClientSecret.trim().length === 0)}
+              className="w-fit"
+            >
+              {gSaving ? "Saving…" : "Save Google sign-in"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--text-muted)]">
+          In the Google Cloud OAuth client, add this <b>Authorized redirect URI</b>:
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                void navigator.clipboard?.writeText(
+                  `${window.location.origin}${GOOGLE_REDIRECT_HINT}`,
+                );
+                setGCopied(true);
+                setTimeout(() => setGCopied(false), 1500);
+              } catch {
+                /* clipboard unavailable */
+              }
+            }}
+            className="mt-1 flex items-center gap-1.5 font-mono text-[var(--text)] hover:text-[var(--primary)]"
+          >
+            {typeof window !== "undefined" ? window.location.origin : ""}
+            {GOOGLE_REDIRECT_HINT}
+            {gCopied ? (
+              <CheckCircle2 className="h-3 w-3 text-[var(--status-success-text,green)]" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+          </button>
         </div>
       </section>
     </div>
