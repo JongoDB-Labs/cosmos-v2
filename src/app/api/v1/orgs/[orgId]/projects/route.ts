@@ -7,6 +7,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
+import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
 import { z } from "zod";
 
 const createProjectSchema = z.object({
@@ -81,6 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       id: string;
       isBuiltIn: boolean;
       orgId: string | null;
+      sector: string;
       defaultConfig: unknown;
       boardTemplates: { id: string; name: string; boardType: string; sortOrder: number; defaultConfig: unknown }[];
     };
@@ -229,6 +231,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: { name: data.name, key: data.key } as Record<string, string>,
       ipAddress: getIpAddress(request),
     }).catch(() => {});
+
+    // Sector field set (FR 454637a9): creating from a sector template seeds
+    // that sector's curated custom fields (org-scoped, idempotent by key — a
+    // second project of the same sector is a no-op). Best-effort: a seeding
+    // hiccup must never fail project creation.
+    if (template?.sector) {
+      await seedSectorFields(orgId, template.sector).catch(() => {});
+    }
 
     revalidateOrgProjects(orgId);
 
