@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Star } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -84,6 +84,53 @@ export function IssueDetailSheet({
 }) {
   const [description, setDescription] = useState<string | null>(null);
   const [loadingDesc, setLoadingDesc] = useState(false);
+  // Watch state (FR 8702c9b8).
+  const [watching, setWatching] = useState(false);
+  const [watchPending, setWatchPending] = useState(false);
+  // Once the user toggles, ignore a late in-flight on-open GET so it can't
+  // clobber their action.
+  const watchTouched = useRef(false);
+
+  useEffect(() => {
+    if (!open || !row) return;
+    watchTouched.current = false;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/projects/${row.project.id}/work-items/${row.id}/watch`,
+        );
+        if (!cancelled && !watchTouched.current && res.ok) {
+          const d = (await res.json()) as { watching: boolean };
+          setWatching(d.watching);
+        }
+      } catch {
+        /* non-critical */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, row, orgId]);
+
+  async function toggleWatch() {
+    if (!row || watchPending) return;
+    watchTouched.current = true;
+    const next = !watching;
+    setWatching(next);
+    setWatchPending(true);
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/projects/${row.project.id}/work-items/${row.id}/watch`,
+        { method: next ? "POST" : "DELETE" },
+      );
+      if (!res.ok) throw new Error("failed");
+    } catch {
+      setWatching(!next);
+    } finally {
+      setWatchPending(false);
+    }
+  }
 
   // Fetch the description (not carried in the lightweight search row) on open.
   useEffect(() => {
@@ -136,6 +183,21 @@ export function IssueDetailSheet({
               {row.title}
             </h2>
           </div>
+          <button
+            type="button"
+            onClick={() => void toggleWatch()}
+            disabled={watchPending}
+            aria-pressed={watching}
+            aria-label={watching ? "Unwatch this item" : "Watch this item"}
+            title={watching ? "You're watching this item" : "Watch this item to track it"}
+            className={cn(
+              // mr-7 clears the Sheet's absolute close (X) button in the corner.
+              "mr-7 shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--muted)]/50",
+              watching ? "text-amber-500" : "text-[var(--text-muted)]",
+            )}
+          >
+            <Star className={cn("h-4 w-4", watching && "fill-current")} />
+          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
