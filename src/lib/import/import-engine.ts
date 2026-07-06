@@ -24,8 +24,14 @@ interface EngineCtx {
  */
 interface ValidSets {
   memberUserIds: Set<string>;
+  /** Lowercased member email AND display name → userId, for server-side
+   *  resolution of the multi-assignee column. */
+  memberByToken: Map<string, string>;
   typeIds: Set<string>;
   columnKeys: Set<string>;
+  /** Lowercased cycle name, its bare number ("3"), and "sprint 3" → cycle id,
+   *  for the Sprint/Cycle column. */
+  cycleByToken: Map<string, string>;
   /**
    * Provenance + idempotency source, scoped PER PROJECT. The DB unique is
    * org-scoped (orgId, externalSource, externalId); encoding the projectId here
@@ -36,10 +42,13 @@ interface ValidSets {
 }
 
 async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
-  const [members, types, project] = await Promise.all([
+  const [members, types, project, cycles] = await Promise.all([
     prisma.orgMember.findMany({
       where: { orgId: ctx.orgId },
-      select: { userId: true },
+      select: {
+        userId: true,
+        user: { select: { email: true, displayName: true } },
+      },
     }),
     prisma.workItemType.findMany({
       where: { OR: [{ orgId: ctx.orgId }, { orgId: null, isBuiltIn: true }] },
@@ -49,13 +58,38 @@ async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
       where: { id: ctx.projectId },
       select: { boards: { select: { columns: { select: { key: true } } } } },
     }),
+    prisma.cycle.findMany({
+      where: { projectId: ctx.projectId },
+      select: { id: true, name: true, number: true },
+    }),
   ]);
   const columnKeys = new Set<string>();
   for (const b of project?.boards ?? []) for (const c of b.columns) columnKeys.add(c.key);
+
+  const memberByToken = new Map<string, string>();
+  for (const m of members) {
+    const email = m.user?.email?.trim().toLowerCase();
+    const name = m.user?.displayName?.trim().toLowerCase();
+    if (email && !memberByToken.has(email)) memberByToken.set(email, m.userId);
+    if (name && !memberByToken.has(name)) memberByToken.set(name, m.userId);
+  }
+
+  const cycleByToken = new Map<string, string>();
+  for (const c of cycles) {
+    const name = c.name.trim().toLowerCase();
+    if (name && !cycleByToken.has(name)) cycleByToken.set(name, c.id);
+    const num = String(c.number);
+    if (!cycleByToken.has(num)) cycleByToken.set(num, c.id);
+    const sprintN = `sprint ${c.number}`;
+    if (!cycleByToken.has(sprintN)) cycleByToken.set(sprintN, c.id);
+  }
+
   return {
     memberUserIds: new Set(members.map((m) => m.userId)),
+    memberByToken,
     typeIds: new Set(types.map((t) => t.id)),
     columnKeys,
+    cycleByToken,
     source: `import:${ctx.projectId}`,
   };
 }
@@ -69,10 +103,15 @@ interface NormalizedRow {
   sourceStatus: string | null;
   priority: PriorityValue;
   assigneeId: string | null;
+  /** Resolved multi-assignee set (null when the column wasn't mapped — a
+   *  re-import without the column must never clobber an existing set). */
+  assigneeIds: string[] | null;
+  cycleId: string | null;
   tags: string[];
   storyPoints: number | null;
   dueDate: Date | null;
   startDate: Date | null;
+  completedAt: Date | null;
   externalKey: string | null;
   externalId: string | null;
   parentKey: string | null;
@@ -158,8 +197,28 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
 
     const assigneeRaw = get(row, "assignee");
     const mappedAssignee = assigneeRaw ? vm.assignee?.[assigneeRaw] : undefined;
-    const assigneeId =
+    let assigneeId =
       mappedAssignee && sets.memberUserIds.has(mappedAssignee) ? mappedAssignee : null;
+
+    // Multi-assignee (only when the column is mapped): split on ,/; and resolve
+    // each token by member email or display name, case-insensitive. Unresolved
+    // tokens are dropped. The first resolved member becomes the primary when no
+    // single-assignee column set one.
+    let assigneeIds: string[] | null = null;
+    if (first.assignees !== undefined) {
+      const tokens = splitTags(get(row, "assignees"));
+      const resolved = tokens
+        .map((t) => sets.memberByToken.get(t.toLowerCase()))
+        .filter((x): x is string => !!x);
+      assigneeIds = [...new Set(resolved)];
+      if (!assigneeId && assigneeIds.length > 0) assigneeId = assigneeIds[0];
+      // Keep the set consistent with the primary (the routes' invariant).
+      if (assigneeId && !assigneeIds.includes(assigneeId)) assigneeIds.unshift(assigneeId);
+    }
+
+    // Sprint/Cycle: resolve by name, bare number, or "sprint N" (case-insensitive).
+    const cycleRaw = get(row, "cycle");
+    const cycleId = cycleRaw ? (sets.cycleByToken.get(cycleRaw.toLowerCase()) ?? null) : null;
 
     const customFields: Record<string, string> = {};
     for (const h of customHeaders) {
@@ -182,10 +241,13 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       sourceStatus: statusRaw || null,
       priority,
       assigneeId,
+      assigneeIds,
+      cycleId,
       tags: splitTags(get(row, "tags")),
       storyPoints: num(get(row, "storyPoints")),
       dueDate: date(get(row, "dueDate")),
       startDate: date(get(row, "startDate")),
+      completedAt: date(get(row, "completedAt")),
       externalKey: get(row, "externalKey") || null,
       externalId: get(row, "externalId") || null,
       parentKey: get(row, "parentKey") || null,
@@ -267,6 +329,8 @@ export async function runImport(
 
   const done = new Set(existing); // externalIds already materialized (DB + this run)
   const keyToId = new Map<string, string>(); // externalKey → item id (this run)
+  const idByRow = new Map<number, string>(); // rowNum → item id (this run) — lets a
+  // row WITHOUT an Issue Key still receive a parent link in pass 2.
   let created = 0;
   let updated = 0;
   const commitErrors: ImportRowError[] = [];
@@ -279,10 +343,12 @@ export async function runImport(
       workItemTypeId: n.workItemTypeId!,
       priority: n.priority,
       assigneeId: n.assigneeId,
+      cycleId: n.cycleId,
       tags: n.tags,
       storyPoints: n.storyPoints,
       dueDate: n.dueDate,
       startDate: n.startDate,
+      completedAt: n.completedAt,
       customFields: n.customFields,
       externalSource: sets.source,
       externalId: n.externalId,
@@ -328,6 +394,24 @@ export async function runImport(
         if (n.externalId) done.add(n.externalId);
       }
       if (n.externalKey) keyToId.set(n.externalKey, id);
+      idByRow.set(n.rowNum, id);
+
+      // Multi-assignee sync (only when the Assignees column was mapped):
+      // replace-the-set semantics, matching the work-items routes' invariant —
+      // the set holds everyone incl. the primary, primary first.
+      if (n.assigneeIds !== null) {
+        await prisma.workItemAssignee.deleteMany({ where: { workItemId: id } });
+        if (n.assigneeIds.length > 0) {
+          await prisma.workItemAssignee.createMany({
+            data: n.assigneeIds.map((userId, i) => ({
+              workItemId: id,
+              userId,
+              sortOrder: i,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
     } catch (e) {
       commitErrors.push({
         row: n.rowNum,
@@ -337,8 +421,10 @@ export async function runImport(
   }
 
   // ── Pass 2: hierarchy. Resolve parentKey → id from this run, falling back to
-  // a DB lookup (parents imported in a PRIOR run), with a batch cycle guard. ──
-  const linkRows = valid.filter((n) => n.parentKey && n.externalKey);
+  // a DB lookup (parents imported in a PRIOR run), then to a cosmos ticket key
+  // or unique title (native items). The child no longer needs its own Issue Key
+  // — its id is tracked per row. ──
+  const linkRows = valid.filter((n) => n.parentKey);
   if (linkRows.length > 0) {
     // DB fallback for parent keys not created/updated in this run.
     const unresolved = Array.from(
@@ -361,9 +447,56 @@ export async function runImport(
       for (const p of dbParents) if (p.externalKey) keyToId.set(p.externalKey, p.id);
     }
 
-    // Batch parentKey graph for cycle detection (childKey → parentKey).
+    // Generalized parent resolution (user report): a parent link can also be a
+    // COSMOS ticket key ("VITL-123" → ticketNumber 123) or an exact title —
+    // reaching NATIVE items, not just previously-imported ones (the lookups
+    // above are scoped to this importer's provenance). Any item type can be a
+    // parent (epic/feature/story/task). Ticket keys resolve in one batch;
+    // titles resolve per-distinct-key (capped) and only on a UNIQUE match.
+    const stillUnresolved = Array.from(
+      new Set(linkRows.map((n) => n.parentKey!).filter((k) => !keyToId.has(k))),
+    );
+    if (stillUnresolved.length > 0) {
+      const numOf = (k: string): number | null => {
+        const m = /-(\d+)\s*$/.exec(k.trim());
+        return m ? parseInt(m[1], 10) : null;
+      };
+      const ticketNums = [
+        ...new Set(stillUnresolved.map(numOf).filter((x): x is number => x !== null)),
+      ];
+      if (ticketNums.length > 0) {
+        const byTicket = await prisma.workItem.findMany({
+          where: { orgId: ctx.orgId, projectId: ctx.projectId, ticketNumber: { in: ticketNums } },
+          select: { id: true, ticketNumber: true },
+        });
+        const ticketToId = new Map(byTicket.map((p) => [p.ticketNumber, p.id]));
+        for (const k of stillUnresolved) {
+          const num = numOf(k);
+          if (num !== null && ticketToId.has(num)) keyToId.set(k, ticketToId.get(num)!);
+        }
+      }
+      // Title fallback — unique, case-insensitive exact match (capped at 50
+      // distinct keys so a pathological file can't fan out unbounded queries).
+      const titleKeys = stillUnresolved.filter((k) => !keyToId.has(k)).slice(0, 50);
+      for (const k of titleKeys) {
+        const matches = await prisma.workItem.findMany({
+          where: {
+            orgId: ctx.orgId,
+            projectId: ctx.projectId,
+            title: { equals: k.trim(), mode: "insensitive" },
+          },
+          select: { id: true },
+          take: 2,
+        });
+        if (matches.length === 1) keyToId.set(k, matches[0].id);
+      }
+    }
+
+    // Batch parentKey graph for cycle detection (childKey → parentKey). Only
+    // keyed rows can participate in an in-batch cycle — a keyless row can't be
+    // referenced as a parent within the file, so it can't close a loop.
     const parentOf = new Map<string, string>();
-    for (const n of linkRows) parentOf.set(n.externalKey!, n.parentKey!);
+    for (const n of linkRows) if (n.externalKey) parentOf.set(n.externalKey, n.parentKey!);
     const createsCycle = (childKey: string, parentKey: string): boolean => {
       let cur: string | undefined = parentKey;
       const guard = new Set<string>();
@@ -377,10 +510,10 @@ export async function runImport(
     };
 
     for (const n of linkRows) {
-      const childId = keyToId.get(n.externalKey!);
+      const childId = idByRow.get(n.rowNum);
       const parentId = keyToId.get(n.parentKey!);
       if (!childId || !parentId || childId === parentId) continue;
-      if (createsCycle(n.externalKey!, n.parentKey!)) continue;
+      if (n.externalKey && createsCycle(n.externalKey, n.parentKey!)) continue;
       try {
         await prisma.workItem.update({ where: { id: childId }, data: { parentId } });
       } catch {
