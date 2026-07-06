@@ -81,13 +81,18 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
   }
 
   // ── Assignee (supports the "unassigned" sentinel, OR-combined) ───────
+  // Multi-assign: a user filter matches items where they're the primary OR any
+  // member of the assignee set; "unassigned" means no primary AND an empty set.
   const assigneeIds = clean(filter.assigneeIds);
   if (assigneeIds.length > 0) {
     const wantsUnassigned = assigneeIds.includes(UNASSIGNED);
     const realIds = assigneeIds.filter((id) => id !== UNASSIGNED);
     const or: Prisma.WorkItemWhereInput[] = [];
-    if (realIds.length > 0) or.push({ assigneeId: { in: realIds } });
-    if (wantsUnassigned) or.push({ assigneeId: null });
+    if (realIds.length > 0) {
+      or.push({ assigneeId: { in: realIds } });
+      or.push({ assignees: { some: { userId: { in: realIds } } } });
+    }
+    if (wantsUnassigned) or.push({ assigneeId: null, assignees: { none: {} } });
     if (or.length === 1) {
       Object.assign(where, or[0]);
     } else if (or.length > 1) {

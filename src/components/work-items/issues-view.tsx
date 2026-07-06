@@ -59,6 +59,8 @@ interface IssueRow {
   type: { id: string; key: string; name: string; icon: string | null; color: string | null };
   project: { id: string; key: string; name: string };
   assignee: { id: string; displayName: string; avatarUrl: string | null } | null;
+  /** Full assignee set (multi-assign), primary first. */
+  assignees?: { id: string; displayName: string; avatarUrl: string | null }[];
   parent: { id: string; ticketKey: string; title: string } | null;
   cycleId: string | null;
   storyPoints: number | null;
@@ -529,15 +531,28 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         header: "Assignee",
         cell: ({ row }) => {
           const a = row.original.assignee;
+          // Multi-assign: stack up to three avatars, then a +N chip. The
+          // primary keeps its name; extras surface via tooltips.
+          const set = row.original.assignees ?? [];
+          const extras = set.filter((x) => x.id !== a?.id);
           const display = a ? (
             <div className="flex items-center gap-2">
-              <Avatar className="h-6 w-6">
-                <AvatarImage src={a.avatarUrl ?? undefined} />
-                <AvatarFallback className="text-[10px]">
-                  {a.displayName.charAt(0)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="text-sm">{a.displayName}</span>
+              <div className="flex -space-x-1.5">
+                {[a, ...extras].slice(0, 3).map((u) => (
+                  <Avatar key={u.id} className="h-6 w-6 ring-1 ring-[var(--surface)]" title={u.displayName}>
+                    <AvatarImage src={u.avatarUrl ?? undefined} />
+                    <AvatarFallback className="text-[10px]">
+                      {u.displayName.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                ))}
+              </div>
+              <span className="text-sm">
+                {a.displayName}
+                {extras.length > 0 && (
+                  <span className="ml-1 text-xs text-[var(--text-muted)]">+{extras.length}</span>
+                )}
+              </span>
             </div>
           ) : (
             <span className="text-sm text-[var(--text-muted)]">Unassigned</span>
