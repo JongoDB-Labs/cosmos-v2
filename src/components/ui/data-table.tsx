@@ -168,14 +168,32 @@ export function DataTable<T>({
         size: 36,
         enableSorting: false,
         enableGrouping: false,
-        header: ({ table }) => (
-          <Checkbox
-            checked={table.getIsAllPageRowsSelected()}
-            indeterminate={table.getIsSomePageRowsSelected()}
-            onChange={(e) => table.toggleAllPageRowsSelected(e.target.checked)}
-            aria-label="Select all"
-          />
-        ),
+        header: ({ table }) => {
+          // Select-all spans the WHOLE filtered result set, not just the visible
+          // page (BR f6b52435: bulk delete was silently missing rows on other
+          // pages). Built from the filtered row model explicitly so the scope is
+          // unambiguous: everything matching the current search/filters.
+          const selectable = table
+            .getFilteredRowModel()
+            .rows.filter((r) => r.getCanSelect());
+          const allSelected =
+            selectable.length > 0 && selectable.every((r) => r.getIsSelected());
+          const someSelected = selectable.some((r) => r.getIsSelected());
+          return (
+            <Checkbox
+              checked={allSelected}
+              indeterminate={!allSelected && someSelected}
+              onChange={(e) => {
+                const next: RowSelectionState = {};
+                if (e.target.checked) {
+                  for (const r of selectable) next[r.id] = true;
+                }
+                table.setRowSelection(next);
+              }}
+              aria-label={`Select all ${selectable.length} rows`}
+            />
+          );
+        },
         cell: ({ row, table }) => (
           // Stop the click bubbling to the row's onClick — otherwise ticking a
           // checkbox to bulk-select also opens the detail drawer (FR/BR).
