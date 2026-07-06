@@ -18,10 +18,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
-import type { WorkItem, BoardColumn } from "@/types/models";
+import { useOrgQueryKey } from "@/lib/query/keys";
+import { jsonFetch } from "@/lib/query/json-fetcher";
+import { DatePicker } from "@/components/ui/date-picker";
+import type { WorkItem, BoardColumn, OrgMember, Cycle } from "@/types/models";
+
+const PRIORITIES = [
+  { value: "CRITICAL", label: "Critical" },
+  { value: "HIGH", label: "High" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "LOW", label: "Low" },
+] as const;
 
 /**
  * Pick the default type to preselect: the project's "task" type if present
@@ -64,6 +75,29 @@ export function CreateIssueButton({
   const [columnKey, setColumnKey] = useState("");
   const [pending, setPending] = useState(false);
   const [loadingCols, setLoadingCols] = useState(false);
+  // FR fc20e6da: every core detail settable at creation time, not just
+  // title/type/status. All optional — the fast path stays two clicks.
+  const [priority, setPriority] = useState<string>("MEDIUM");
+  const [assigneeId, setAssigneeId] = useState<string | null>(null);
+  const [cycleId, setCycleId] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [dueDate, setDueDate] = useState("");
+
+  const membersKey = useOrgQueryKey("members");
+  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const { data: members = [] } = useQuery({
+    queryKey: membersKey,
+    queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const { data: cycles = [] } = useQuery({
+    queryKey: cyclesKey,
+    queryFn: () =>
+      jsonFetch<Cycle[]>(`/api/v1/orgs/${orgId}/projects/${projectId}/cycles`),
+    enabled: open,
+    staleTime: 60_000,
+  });
   // The org's ACTUAL types (built-ins + custom). We submit the selected type's
   // id so a custom type (bare key like "feature") resolves — sending the bare
   // `type` string would make the server build a sector-prefixed key that misses.
@@ -119,7 +153,20 @@ export function CreateIssueButton({
           headers: { "Content-Type": "application/json" },
           // Fall back to the bare "TASK" type if the async types fetch hasn't
           // resolved yet, so creation never silently no-ops.
-          body: JSON.stringify({ title: title.trim(), ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }), columnKey }),
+          body: JSON.stringify({
+            title: title.trim(),
+            ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
+            columnKey,
+            priority,
+            ...(assigneeId ? { assigneeId } : {}),
+            ...(cycleId ? { cycleId } : {}),
+            ...(startDate
+              ? { startDate: new Date(startDate + "T00:00:00Z").toISOString() }
+              : {}),
+            ...(dueDate
+              ? { dueDate: new Date(dueDate + "T00:00:00Z").toISOString() }
+              : {}),
+          }),
         },
       );
       if (!res.ok) throw new Error(`Failed to create issue (HTTP ${res.status})`);
@@ -128,6 +175,11 @@ export function CreateIssueButton({
       onCreated(item);
       setTitle("");
       setWorkItemTypeId(defaultTypeId(workItemTypes));
+      setPriority("MEDIUM");
+      setAssigneeId(null);
+      setCycleId(null);
+      setStartDate("");
+      setDueDate("");
       setOpen(false);
     } catch (err) {
       notifyError(err, "Couldn't create the issue.");
@@ -210,6 +262,94 @@ export function CreateIssueButton({
                   ))}
                 </SelectContent>
               </Select>
+
+              <Select
+                items={Object.fromEntries(PRIORITIES.map((p) => [p.value, p.label]))}
+                value={priority}
+                onValueChange={(v) => v && setPriority(v as string)}
+              >
+                <SelectTrigger size="sm" aria-label="Priority" className="w-28 text-xs">
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITIES.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Optional details (FR fc20e6da) — assignee/cycle/dates at creation. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                items={{
+                  __none__: "Unassigned",
+                  ...Object.fromEntries(
+                    members.map((m) => [m.userId, m.user?.displayName ?? m.userId]),
+                  ),
+                }}
+                value={assigneeId ?? "__none__"}
+                onValueChange={(v) =>
+                  setAssigneeId(v === "__none__" ? null : (v as string))
+                }
+                disabled={members.length === 0}
+              >
+                <SelectTrigger size="sm" aria-label="Assignee" className="w-40 text-xs">
+                  <SelectValue placeholder="Assignee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Unassigned</SelectItem>
+                  {members.map((m) => (
+                    <SelectItem key={m.userId} value={m.userId}>
+                      {m.user?.displayName ?? m.userId}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {cycles.length > 0 && (
+                <Select
+                  items={{
+                    __none__: "No cycle",
+                    ...Object.fromEntries(cycles.map((c) => [c.id, c.name])),
+                  }}
+                  value={cycleId ?? "__none__"}
+                  onValueChange={(v) =>
+                    setCycleId(v === "__none__" ? null : (v as string))
+                  }
+                >
+                  <SelectTrigger size="sm" aria-label="Cycle" className="w-36 text-xs">
+                    <SelectValue placeholder="Cycle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No cycle</SelectItem>
+                    {cycles.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <DatePicker
+                value={startDate}
+                onValueChange={setStartDate}
+                aria-label="Start date"
+                placeholder="Start date"
+                className="h-8 w-36 text-xs"
+              />
+              <DatePicker
+                value={dueDate}
+                onValueChange={setDueDate}
+                aria-label="Due date"
+                placeholder="Due date"
+                className="h-8 w-36 text-xs"
+              />
             </div>
           </div>
           <DialogFooter>

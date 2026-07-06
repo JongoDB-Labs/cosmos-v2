@@ -8,6 +8,14 @@ import { EmojiPicker } from "./emoji-picker";
 import { AttachmentTile } from "./attachment-tile";
 import type { ChatMessageDto } from "@/hooks/use-chat-messages";
 
+/** Chat timestamps read to the minute (FR 78b5b1bd) — seconds are noise. */
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function MessageItem({
   message,
   author,
@@ -15,6 +23,7 @@ export function MessageItem({
   currentUserId,
   refMap,
   isPinned,
+  grouped = false,
   onEdit,
   onDelete,
   onReact,
@@ -27,6 +36,9 @@ export function MessageItem({
   currentUserId: string;
   refMap: RefMap;
   isPinned: boolean;
+  /** Compact run-on rendering: same author within a few minutes of the message
+   *  above — avatar and name/time header are suppressed (time shows on hover). */
+  grouped?: boolean;
   onEdit: (nextContent: string) => void;
   onDelete: () => void;
   onReact: (emoji: string, isOwn: boolean) => void;
@@ -85,29 +97,40 @@ export function MessageItem({
   return (
     <li
       className={cn(
-        "group flex gap-2.5 px-4 py-1.5",
+        "group flex gap-2.5 px-4",
+        grouped ? "py-0.5" : "py-1.5",
         alignRight && "flex-row-reverse",
       )}
       id={`msg-${message.id}`}
     >
-      <div className="h-8 w-8 rounded-full bg-muted overflow-hidden shrink-0">
-        {author.avatarUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={author.avatarUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        )}
-      </div>
+      {grouped ? (
+        // Run-on message: no avatar repeat — the slot shows the time on hover.
+        <div className="flex h-5 w-8 shrink-0 items-center justify-center">
+          <span className="text-[9px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+            {formatTime(message.createdAt)}
+          </span>
+        </div>
+      ) : (
+        <div className="h-8 w-8 rounded-full bg-muted overflow-hidden shrink-0">
+          {author.avatarUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={author.avatarUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          )}
+        </div>
+      )}
       <div className={cn("flex min-w-0 flex-col", alignRight ? "items-end" : "items-start", "max-w-[85%]")}>
+        {!grouped && (
         <div className={cn("flex items-baseline gap-2", alignRight && "flex-row-reverse")}>
           {message.kind === "ASSISTANT" ? (
             <>
               <span className="font-medium text-sm">🤖 Assistant</span>
               <span className="text-[10px] text-muted-foreground">· asked by {author.displayName}</span>
               <span className="text-[10px] text-muted-foreground">
-                {new Date(message.createdAt).toLocaleTimeString()}
+                {formatTime(message.createdAt)}
               </span>
               {message.editedAt && (
                 <span className="text-[10px] text-muted-foreground">(edited)</span>
@@ -117,7 +140,7 @@ export function MessageItem({
             <>
               <span className="font-medium text-sm">{author.displayName}</span>
               <span className="text-[10px] text-muted-foreground">
-                {new Date(message.createdAt).toLocaleTimeString()}
+                {formatTime(message.createdAt)}
               </span>
               {message.editedAt && (
                 <span className="text-[10px] text-muted-foreground">(edited)</span>
@@ -125,6 +148,7 @@ export function MessageItem({
             </>
           )}
         </div>
+        )}
         <div className="mt-0.5 text-sm">
           {message.kind === "ACTION" ? (
             <div className="italic text-muted-foreground">* {author.displayName} {message.content}</div>

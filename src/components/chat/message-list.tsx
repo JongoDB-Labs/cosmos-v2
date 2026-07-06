@@ -49,15 +49,27 @@ export function MessageList({
 
   return (
     <div role="log" className="flex-1 overflow-y-auto">
-      {messages.map((m) => {
+      {messages.map((m, i) => {
         const readers = [...readState.entries()]
           .filter(([, lastReadId]) => lastReadId === m.id)
           .map(([uid]) => usersById.get(uid))
           .filter((u): u is { displayName: string; avatarUrl: string | null } => !!u);
+        // FR 78b5b1bd: run-on messages from the same author within 5 minutes
+        // render compact (no avatar/name repeat) — plain messages only, so
+        // SYSTEM/ASSISTANT/ACTION rows always keep their full header.
+        const prev = i > 0 ? messages[i - 1] : null;
+        const grouped =
+          !!prev &&
+          prev.authorId === m.authorId &&
+          m.kind === "USER" &&
+          prev.kind === "USER" &&
+          new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() <
+            5 * 60_000;
         return (
           <Fragment key={m.id}>
             <MessageItem
               message={m}
+              grouped={grouped}
               author={
                 usersById.get(m.authorId) ?? {
                   displayName: "User",

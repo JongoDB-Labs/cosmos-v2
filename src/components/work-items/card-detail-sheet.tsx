@@ -136,6 +136,7 @@ export function CardDetailSheet({
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState<string>("");
   const [dueDate, setDueDate] = useState<string>("");
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
@@ -188,6 +189,7 @@ export function CardDetailSheet({
       setCycleId(item.cycleId);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
+      setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
       setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
       setParentId(item.parentId);
       setChildren(item.children ?? []);
@@ -317,6 +319,9 @@ export function CardDetailSheet({
           case "storyPoints":
             setStoryPoints(item.storyPoints);
             break;
+          case "startDate":
+            setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
+            break;
           case "dueDate":
             setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
             break;
@@ -395,7 +400,10 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: trimmed,
-          type: "TASK",
+          // FR 3fd0e9bd: default the sub-item's type one level down the
+          // hierarchy from its parent (epic→story, story→task, task/bug→subtask)
+          // instead of always TASK.
+          type: childTypeFor(item.workItemType?.key),
           columnKey: item.columnKey,
           parentId: item.id,
         }),
@@ -835,6 +843,21 @@ export function CardDetailSheet({
                 }}
                 className="h-7 text-xs"
                 placeholder="-"
+              />
+            </MetadataField>
+
+            <MetadataField icon={Calendar} label="Start date">
+              <DatePicker
+                value={startDate}
+                onValueChange={(val) => {
+                  setStartDate(val);
+                  const isoVal = val
+                    ? new Date(val + "T00:00:00Z").toISOString()
+                    : null;
+                  void patchField("startDate", isoVal);
+                }}
+                aria-label="Start date"
+                className="h-7 text-xs"
               />
             </MetadataField>
 
@@ -1345,6 +1368,24 @@ export function CardDetailSheet({
       </Dialog>
     </Sheet>
   );
+}
+
+/** Default type for a new sub-item: one hierarchy level below its parent
+ *  (epic→story, story→task, task/bug→subtask). Keys are sector-prefixed
+ *  (e.g. "software.epic"), so match on the bare suffix. */
+function childTypeFor(parentTypeKey: string | undefined): string {
+  const bare = parentTypeKey?.split(".").pop()?.toUpperCase();
+  switch (bare) {
+    case "EPIC":
+      return "STORY";
+    case "STORY":
+      return "TASK";
+    case "TASK":
+    case "BUG":
+      return "SUBTASK";
+    default:
+      return "TASK";
+  }
 }
 
 function MetadataField({
