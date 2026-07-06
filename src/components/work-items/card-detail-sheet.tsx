@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -67,6 +66,7 @@ import {
   Hash,
   Check,
   Copy,
+  Star,
   Trash2,
   GitBranch,
   CornerDownRight,
@@ -131,6 +131,9 @@ export function CardDetailSheet({
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
   const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  // Watch state (FR 8702c9b8) — fetched per item when the sheet opens.
+  const [watching, setWatching] = useState(false);
+  const [watchPending, setWatchPending] = useState(false);
   const [parentId, setParentId] = useState<string | null>(null);
   const [children, setChildren] = useState<WorkItemRef[]>([]);
   const [childTitle, setChildTitle] = useState("");
@@ -246,6 +249,48 @@ export function CardDetailSheet({
       cancelled = true;
     };
   }, [item, open, basePath]);
+
+  // Watch state (FR 8702c9b8) — read whether the current user follows this item.
+  // `watchTouched` guards against a late on-open GET clobbering a fast toggle.
+  const watchTouched = useRef(false);
+  useEffect(() => {
+    if (!item || !open) return;
+    watchTouched.current = false;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${basePath}/${item.id}/watch`);
+        if (!cancelled && !watchTouched.current && res.ok) {
+          const data = (await res.json()) as { watching: boolean };
+          setWatching(data.watching);
+        }
+      } catch {
+        /* watch state is non-critical */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item, open, basePath]);
+
+  const toggleWatch = useCallback(async () => {
+    if (!item || watchPending) return;
+    watchTouched.current = true;
+    const next = !watching;
+    setWatching(next); // optimistic
+    setWatchPending(true);
+    try {
+      const res = await fetch(`${basePath}/${item.id}/watch`, {
+        method: next ? "POST" : "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed");
+    } catch (err) {
+      setWatching(!next); // revert
+      notifyError(err, "Couldn't update watch state.");
+    } finally {
+      setWatchPending(false);
+    }
+  }, [item, watching, watchPending, basePath]);
 
   // Immediately persist a single field change via PUT and update parent cache.
   const patchField = useCallback(
@@ -722,8 +767,23 @@ export function CardDetailSheet({
                 </span>
               )}
             </SheetTitle>
-            {(canDuplicate || canDelete) && (
-              <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "gap-1.5",
+                  watching ? "text-amber-500 hover:text-amber-500" : "text-muted-foreground",
+                )}
+                onClick={() => void toggleWatch()}
+                disabled={watchPending}
+                aria-pressed={watching}
+                aria-label={watching ? "Unwatch this item" : "Watch this item"}
+                title={watching ? "You're watching this item" : "Watch this item to track it"}
+              >
+                <Star className={cn("h-3.5 w-3.5", watching && "fill-current")} />
+                {watching ? "Watching" : "Watch"}
+              </Button>
                 {canDuplicate && (
                   <Button
                     variant="ghost"
@@ -754,8 +814,7 @@ export function CardDetailSheet({
                     Delete
                   </Button>
                 )}
-              </div>
-            )}
+            </div>
           </div>
         </SheetHeader>
 

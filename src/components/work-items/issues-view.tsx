@@ -35,7 +35,7 @@ import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-d
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -118,6 +118,8 @@ interface FilterState {
   createdTo: string;
   updatedFrom: string;
   updatedTo: string;
+  /** FR 8702c9b8 — restrict to items the current user watches. */
+  watchedByMe: boolean;
 }
 
 /** Filter keys whose "inactive" value is an empty string (not the ANY
@@ -142,6 +144,7 @@ const EMPTY_FILTERS: FilterState = {
   createdTo: "",
   updatedFrom: "",
   updatedTo: "",
+  watchedByMe: false,
 };
 
 /** Build the search query string from the active filters + page. */
@@ -159,6 +162,7 @@ function toQueryString(f: FilterState, page: number, pageSize: number): string {
   if (f.createdTo) p.set("createdTo", f.createdTo);
   if (f.updatedFrom) p.set("updatedFrom", f.updatedFrom);
   if (f.updatedTo) p.set("updatedTo", f.updatedTo);
+  if (f.watchedByMe) p.set("watchedByMe", "1");
   p.set("page", String(page));
   p.set("pageSize", String(pageSize));
   return p.toString();
@@ -215,6 +219,19 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Deep-link: `/issues?watching=1` pre-applies the Watching filter (the "My
+  // watched items" widget's "View all"). One-time init, then strip the param.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!searchParams.get("watching")) return;
+    setFilters((prev) => (prev.watchedByMe ? prev : { ...prev, watchedByMe: true }));
+    const url = new URL(window.location.href);
+    url.searchParams.delete("watching");
+    router.replace(url.pathname + url.search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   // Deep-link: `/issues?item=<id>` opens that work item's detail sheet even when
   // it isn't on the current page (mention chips / "Mentioned in" backlinks link
   // here). Fetch the single row (RBAC-scoped), open the sheet, then strip the
@@ -245,11 +262,12 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   const activeCount = useMemo(
     () =>
-      (Object.keys(filters) as (keyof FilterState)[]).filter((k) =>
-        (STRING_FILTER_KEYS as readonly string[]).includes(k)
+      (Object.keys(filters) as (keyof FilterState)[]).filter((k) => {
+        if (k === "watchedByMe") return filters.watchedByMe;
+        return (STRING_FILTER_KEYS as readonly string[]).includes(k)
           ? (filters[k] as string).trim() !== ""
-          : filters[k] !== ANY,
-      ).length,
+          : filters[k] !== ANY;
+      }).length,
     [filters],
   );
 
@@ -696,7 +714,21 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {/* Watching quick-filter (FR 8702c9b8) — restricts to items the current
+            user follows (the ★ on a ticket's detail panel). */}
+        <button
+          type="button"
+          onClick={() => set("watchedByMe", !filters.watchedByMe)}
+          aria-pressed={filters.watchedByMe}
+          className={cn(
+            buttonVariants({ variant: filters.watchedByMe ? "default" : "outline", size: "sm" }),
+            "gap-1.5",
+          )}
+          title="Show only the items you're watching"
+        >
+          <Star className={cn("h-4 w-4", filters.watchedByMe && "fill-current")} /> Watching
+        </button>
         {/* Plain <a> (not Link): the route returns a Content-Disposition
             attachment, so this downloads the CSV without navigating away.
             `qs` carries the active filters → "export what you see". */}

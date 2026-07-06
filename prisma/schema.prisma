@@ -280,6 +280,7 @@ model User {
   chatAlertKeywords   ChatAlertKeyword[]
   apiKeys             ApiKey[]             @relation("ApiKeyCreatedBy")
   workItemAssignments WorkItemAssignee[]
+  workItemWatches     WorkItemWatcher[]
 
   @@map("users")
 }
@@ -717,6 +718,7 @@ model WorkItem {
   incomingLinks WorkItemLink[]       @relation("WorkItemLinkTarget")
   attachments   WorkItemAttachment[]
   assignees     WorkItemAssignee[]
+  watchers      WorkItemWatcher[]
 
   @@unique([orgId, projectId, ticketNumber])
   // Idempotent re-import key (prod-parity): one imported record per source per org.
@@ -745,6 +747,25 @@ model WorkItemAssignee {
   @@unique([workItemId, userId])
   @@index([userId])
   @@map("work_item_assignees")
+}
+
+// Watchers (FR 8702c9b8): a user follows a work item to keep it on their radar
+// (the "watched tickets" dashboard + the Watching filter). Explicit opt-in — a
+// star toggle, not auto-follow. `orgId` denormalized so "my watched across the
+// org" is one indexed scan.
+model WorkItemWatcher {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  workItemId String   @map("work_item_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workItemId, userId])
+  @@index([orgId, userId])
+  @@map("work_item_watchers")
 }
 
 model Activity {
