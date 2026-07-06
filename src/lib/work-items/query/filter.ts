@@ -79,6 +79,9 @@ export interface WorkItemFilter {
    * filterable here yet.
    */
   customFields?: CustomFieldFilter[];
+  /** When set, restrict to items this User.id watches (FR 8702c9b8). The route
+   *  resolves `?watchedByMe=1` to the caller's id so build-where stays pure. */
+  watchedByUserId?: string;
 }
 
 /** The custom-field kinds we support filtering on. */

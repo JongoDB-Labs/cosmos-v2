@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useParams } from "next/navigation";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -14,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Plus, X, LayoutDashboard } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   usePermissions,
   Permission,
@@ -22,7 +24,9 @@ import {
   HOME_WIDGET_TYPES,
   HOME_WIDGET_LABELS,
   HOME_WIDGET_SOURCE,
+  LIST_WIDGET_TYPES,
 } from "@/lib/home/widgets";
+import { HomeListWidget } from "./list-widget";
 
 interface HomeWidget {
   id: string;
@@ -38,6 +42,8 @@ interface PortfolioProject {
 
 export function HomeDashboard({ orgId }: { orgId: string }) {
   const { can } = usePermissions();
+  const params = useParams<{ orgSlug: string }>();
+  const orgSlug = params.orgSlug;
   // Portfolio-backed widgets read /analytics/portfolio (ANALYTICS_READ);
   // without it that fetch 403s, so don't offer those widgets and show "—"
   // rather than a misleading 0 if one already exists.
@@ -162,22 +168,34 @@ export function HomeDashboard({ orgId }: { orgId: string }) {
       </div>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {widgets.map((w) => {
+          const isList = LIST_WIDGET_TYPES.has(w.type);
           const source = HOME_WIDGET_SOURCE[w.type];
           const sourceErrored =
-            source === "portfolio" ? portfolioQ.isError : membersQ.isError;
+            source === "portfolio" ? portfolioQ.isError : source === "members" ? membersQ.isError : false;
           return (
-            <div key={w.id} className="group/widget relative">
-              <StatCard label={HOME_WIDGET_LABELS[w.type] ?? w.type}>
-                {metricsLoading ? (
-                  <Skeleton className="h-8 w-16" />
-                ) : sourceErrored ? (
-                  // Don't show a misleading 0 when the metric source is
-                  // unavailable (e.g. no ANALYTICS_READ).
-                  <StatCard.Number>—</StatCard.Number>
-                ) : (
-                  <StatCard.Number>{metricFor(w.type)}</StatCard.Number>
-                )}
-              </StatCard>
+            <div
+              key={w.id}
+              className={cn("group/widget relative", isList && "sm:col-span-2 lg:col-span-1")}
+            >
+              {isList ? (
+                <HomeListWidget
+                  orgId={orgId}
+                  orgSlug={orgSlug}
+                  type={w.type as "recent_activity" | "my_watched"}
+                />
+              ) : (
+                <StatCard label={HOME_WIDGET_LABELS[w.type] ?? w.type}>
+                  {metricsLoading ? (
+                    <Skeleton className="h-8 w-16" />
+                  ) : sourceErrored ? (
+                    // Don't show a misleading 0 when the metric source is
+                    // unavailable (e.g. no ANALYTICS_READ).
+                    <StatCard.Number>—</StatCard.Number>
+                  ) : (
+                    <StatCard.Number>{metricFor(w.type)}</StatCard.Number>
+                  )}
+                </StatCard>
+              )}
               <button
                 type="button"
                 aria-label={`Remove ${HOME_WIDGET_LABELS[w.type] ?? w.type} widget`}
