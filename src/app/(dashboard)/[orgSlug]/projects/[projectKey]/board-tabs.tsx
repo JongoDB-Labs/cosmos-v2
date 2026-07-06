@@ -233,6 +233,14 @@ export function ProjectBoardTabs({
     });
   }
 
+  if (enabledFeatures.includes("dependencies")) {
+    featureTabs.push({
+      feature: "dependencies",
+      label: "Dependencies",
+      href: `/${orgSlug}/projects/${projectKey}/dependencies`,
+    });
+  }
+
   if (enabledFeatures.includes("files")) {
     featureTabs.push({
       feature: "files",
