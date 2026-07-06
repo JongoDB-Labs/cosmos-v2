@@ -19,6 +19,12 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -133,6 +139,9 @@ export function CardDetailSheet({
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
+  // Multi-assign (FR 1d38496a): the full set, primary first. assigneeId above
+  // mirrors the set's head so single-assignee displays stay consistent.
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
@@ -186,6 +195,10 @@ export function CardDetailSheet({
       setDescription(item.description);
       setPriority(item.priority);
       setAssigneeId(item.assigneeId);
+      setAssigneeIds(
+        item.assignees?.map((a) => a.userId) ??
+          (item.assigneeId ? [item.assigneeId] : []),
+      );
       setCycleId(item.cycleId);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
@@ -333,6 +346,33 @@ export function CardDetailSheet({
       }
     },
     [item, basePath, onUpdate, projectItems]
+  );
+
+  // Replace the assignee set (multi-assign). Optimistic; the first member
+  // becomes the primary assigneeId server-side, mirrored locally.
+  const patchAssignees = useCallback(
+    async (next: string[]) => {
+      if (!item) return;
+      const prevSet = assigneeIds;
+      const prevPrimary = assigneeId;
+      setAssigneeIds(next);
+      setAssigneeId(next[0] ?? null);
+      try {
+        const res = await fetch(`${basePath}/${item.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assigneeIds: next }),
+        });
+        if (!res.ok) throw new Error("Failed to update");
+        const updated: WorkItem = await res.json();
+        onUpdate(updated);
+      } catch (err) {
+        setAssigneeIds(prevSet);
+        setAssigneeId(prevPrimary);
+        notifyError(err, "Couldn't update assignees.");
+      }
+    },
+    [item, basePath, onUpdate, assigneeIds, assigneeId],
   );
 
   // Persist a single custom-field value. The PUT route MERGES the customFields
@@ -806,28 +846,48 @@ export function CardDetailSheet({
               </Select>
             </MetadataField>
 
-            <MetadataField icon={User} label="Assignee">
-              <SearchableSelect
-                size="sm"
-                aria-label="Assignee"
-                className="w-full text-xs"
-                searchPlaceholder="Search people…"
-                emptyText="No matching people"
-                value={assigneeId ?? "__unassigned__"}
-                onValueChange={(v) =>
-                  handleFieldChange(
-                    "assigneeId",
-                    (v === "__unassigned__" || v == null ? null : v) as string | null
-                  )
-                }
-                options={[
-                  { value: "__unassigned__", label: "Unassigned" },
-                  ...members.map((m) => ({
-                    value: m.userId,
-                    label: m.user?.displayName ?? m.userId,
-                  })),
-                ]}
-              />
+            <MetadataField icon={User} label="Assignees">
+              {/* Multi-assign (FR 1d38496a): checkbox list; first-checked stays
+                  the primary. Falls back to "Unassigned" when the set is empty. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label="Assignees"
+                  className="flex h-7 w-full items-center justify-between rounded-lg border border-input px-2 text-left text-xs transition-colors hover:bg-muted/40"
+                >
+                  <span className="truncate">
+                    {assigneeIds.length === 0
+                      ? "Unassigned"
+                      : assigneeIds
+                          .map(
+                            (id) =>
+                              members.find((m) => m.userId === id)?.user
+                                ?.displayName ?? "Unknown",
+                          )
+                          .slice(0, 2)
+                          .join(", ") +
+                        (assigneeIds.length > 2
+                          ? ` +${assigneeIds.length - 2}`
+                          : "")}
+                  </span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 min-w-52 overflow-y-auto">
+                  {members.map((m) => (
+                    <DropdownMenuCheckboxItem
+                      key={m.userId}
+                      checked={assigneeIds.includes(m.userId)}
+                      onCheckedChange={(c) =>
+                        void patchAssignees(
+                          c
+                            ? [...assigneeIds, m.userId]
+                            : assigneeIds.filter((id) => id !== m.userId),
+                        )
+                      }
+                    >
+                      {m.user?.displayName ?? m.userId}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">
