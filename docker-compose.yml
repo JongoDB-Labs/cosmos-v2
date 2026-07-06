@@ -1,6 +1,8 @@
 name: cosmos-v2
 services:
   cosmos-postgres:
+    # Survive host reboots — the 2026-07-04 reboot left the whole stack Exited for ~19h.
+    restart: unless-stopped
     # pgvector + pgBackRest Postgres. The base pgvector image satisfies the
     # 20260606040000_add_pgvector migration (`CREATE EXTENSION vector` + vector(384)
     # columns + HNSW indexes); the local compose/postgres/Dockerfile layers pgBackRest
@@ -85,6 +87,8 @@ services:
   # 9001 for operator inspection (v1 holds 8080; v2 caddy holds 8090; 9000/9001 free).
   # Serves HTTPS using the cert in /root/.minio/certs (from the certs volume).
   cosmos-minio:
+    # Survive host reboots — the 2026-07-04 reboot left the whole stack Exited for ~19h.
+    restart: unless-stopped
     image: minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     command: server /data --console-address ":9001"
     environment:
@@ -138,6 +142,8 @@ services:
         condition: service_healthy
 
   cosmos:
+    # Survive host reboots — the 2026-07-04 reboot left the whole stack Exited for ~19h.
+    restart: unless-stopped
     image: cosmos-v2:dev
     # env_file supplies SSO_VAULT_KEY (the OIDC client-secret vault master key) +
     # INTERNAL_ADMINS (break-glass allowlist) to the app. In PROD inject
@@ -189,6 +195,8 @@ services:
       retries: 3
 
   reverse-proxy:
+    # Survive host reboots — the 2026-07-04 reboot left the whole stack Exited for ~19h.
+    restart: unless-stopped
     image: caddy@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
     ports:
       # host 8080 is taken by the v1 stack; expose v2's proxy on 8090.
