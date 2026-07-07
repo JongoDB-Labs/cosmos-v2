@@ -288,7 +288,7 @@ export function ContactDetailSheet({
                   // userId, so an owner field MUST be a User.id to ever match.
                   ...members.map((m) => ({
                     value: m.userId,
-                    label: m.user?.displayName ?? m.userId,
+                    label: m.user?.displayName ?? m.user?.email ?? "Unknown",
                   })),
                 ]}
               />

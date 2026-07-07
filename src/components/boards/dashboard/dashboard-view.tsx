@@ -126,7 +126,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of members) {
-      map.set(m.userId, m.user?.displayName ?? m.userId);
+      map.set(m.userId, m.user?.displayName ?? m.user?.email ?? "Unknown");
     }
     return map;
   }, [members]);

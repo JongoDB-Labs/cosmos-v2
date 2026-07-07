@@ -107,7 +107,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of members) {
-      map.set(m.userId, m.user?.displayName ?? m.userId);
+      map.set(m.userId, m.user?.displayName ?? m.user?.email ?? "Unknown");
     }
     return map;
   }, [members]);

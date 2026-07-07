@@ -324,7 +324,7 @@ export function CreateIssueButton({
                         )
                       }
                     >
-                      {m.user?.displayName ?? m.userId}
+                      {m.user?.displayName ?? m.user?.email ?? "Unknown"}
                     </DropdownMenuCheckboxItem>
                   ))}
                 </DropdownMenuContent>
