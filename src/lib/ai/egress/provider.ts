@@ -53,7 +53,7 @@ const OAUTH_BETA = "oauth-2025-04-20";
 // A value that's already a full id passes through unchanged.
 const MODEL_ALIASES: Record<string, string> = {
   sonnet: "claude-sonnet-4-6",
-  opus: "claude-opus-4-1",
+  opus: "claude-opus-4-8",
   haiku: "claude-haiku-4-5-20251001",
 };
 function resolveModel(model: string): string {

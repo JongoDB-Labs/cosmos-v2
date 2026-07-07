@@ -149,8 +149,11 @@ async function triageOne(
         },
       ],
       tools: [CLASSIFY_TOOL],
-      model: "sonnet",
-      maxTokens: 1024,
+      // Opus 4.8 for triage quality (per maintainer directive) — the alias
+      // resolves to claude-opus-4-8 at the egress. Triage is a single
+      // classify tool call, so a modest token budget is ample.
+      model: "opus",
+      maxTokens: 2048,
     });
 
     const input = result.toolUses.find((t) => t.name === "classify_feedback")?.input as
