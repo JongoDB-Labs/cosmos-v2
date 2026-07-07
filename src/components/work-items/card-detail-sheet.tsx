@@ -64,6 +64,7 @@ import {
   Layers,
   Target,
   Hash,
+  Wrench,
   Check,
   Copy,
   Star,
@@ -145,6 +146,8 @@ export function CardDetailSheet({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
+  // SAFe classification (FR gantt-enh): business value vs. enabler work.
+  const [workCategory, setWorkCategory] = useState<WorkItem["workCategory"]>("BUSINESS");
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
   // Multi-assign (FR 1d38496a): the full set, primary first. assigneeId above
   // mirrors the set's head so single-assignee displays stay consistent.
@@ -211,6 +214,7 @@ export function CardDetailSheet({
       setTitle(item.title);
       setDescription(item.description);
       setPriority(item.priority);
+      setWorkCategory(item.workCategory ?? "BUSINESS");
       setAssigneeId(item.assigneeId);
       setAssigneeIds(
         item.assignees?.map((a) => a.userId) ??
@@ -379,6 +383,9 @@ export function CardDetailSheet({
           case "priority":
             setPriority(item.priority);
             break;
+          case "workCategory":
+            setWorkCategory(item.workCategory ?? "BUSINESS");
+            break;
           case "assigneeId":
             setAssigneeId(item.assigneeId);
             break;
@@ -465,6 +472,9 @@ export function CardDetailSheet({
     switch (field) {
       case "priority":
         setPriority(value as WorkItem["priority"]);
+        break;
+      case "workCategory":
+        setWorkCategory(value as WorkItem["workCategory"]);
         break;
       case "assigneeId":
         setAssigneeId(value as string | null);
@@ -915,6 +925,28 @@ export function CardDetailSheet({
                       {p.charAt(0) + p.slice(1).toLowerCase()}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </MetadataField>
+
+            <MetadataField icon={Wrench} label="Classification">
+              <Select
+                items={{ BUSINESS: "Business", ENABLER: "Enabler" }}
+                value={workCategory}
+                onValueChange={(v) =>
+                  handleFieldChange("workCategory", v as WorkItem["workCategory"])
+                }
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Classification"
+                  className="w-full text-xs"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BUSINESS">Business</SelectItem>
+                  <SelectItem value="ENABLER">Enabler</SelectItem>
                 </SelectContent>
               </Select>
             </MetadataField>

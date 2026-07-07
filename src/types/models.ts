@@ -74,7 +74,12 @@ export interface WorkItem {
   sortOrder: number;
   dueDate: string | null;
   startDate: string | null;
+  /** Gantt baseline (frozen planned dates); the ghost bar draws from these. */
+  baselineStart: string | null;
+  baselineEnd: string | null;
   completedAt: string | null;
+  /** SAFe classification: main-effort value vs enabling work. */
+  workCategory: "BUSINESS" | "ENABLER";
   tags: string[];
   customFields: Record<string, unknown>;
   createdById: string;
