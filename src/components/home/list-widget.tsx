@@ -46,7 +46,7 @@ function RecentActivity({ orgId, orgSlug }: { orgId: string; orgSlug: string }) 
   const rows = data?.data ?? [];
 
   return (
-    <WidgetShell title="Recent activity" icon={<ActivityIcon className="size-3.5" />} moreHref={`/${orgSlug}/updates`}>
+    <WidgetShell title="Recent activity" icon={<ActivityIcon className="size-3.5" />} moreHref={`/${orgSlug}/activity`}>
       {isLoading ? (
         <Skeletons />
       ) : isError || rows.length === 0 ? (

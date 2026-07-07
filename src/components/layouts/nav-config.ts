@@ -89,10 +89,10 @@ export const SIDEBAR_NAV: NavEntry[] = [
   },
   {
     type: "leaf",
-    id: "updates",
+    id: "activity",
     icon: Activity,
-    label: "Updates",
-    href: "/updates",
+    label: "Activity",
+    href: "/activity",
     anyOf: [Permission.ITEM_READ],
   },
   {
