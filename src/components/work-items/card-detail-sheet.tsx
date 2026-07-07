@@ -84,6 +84,10 @@ import type {
   Activity,
   BoardColumn,
 } from "@/types/models";
+import {
+  activityFieldLabel,
+  activityValueLabel,
+} from "@/lib/work-items/activity-label";
 
 interface CardDetailSheetProps {
   item: WorkItem | null;
@@ -177,6 +181,16 @@ export function CardDetailSheet({
     orgId,
     comments.map((c) => c.content),
     commentUserSeed,
+  );
+  // Resolve id-valued activity fields (assignee/cycle/status) to names so the
+  // Activity tab never shows a raw GUID (FR 545f81b1).
+  const activityResolvers = useMemo(
+    () => ({
+      user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
+      cycle: (id: string) => cycles.find((c) => c.id === id)?.name,
+      column: (key: string) => columns.find((c) => c.key === key)?.name,
+    }),
+    [members, cycles, columns],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -1393,19 +1407,26 @@ export function CardDetailSheet({
                     {a.field && (
                       <>
                         {" "}
-                        changed <span className="font-medium">{a.field}</span>
-                        {a.oldValue && (
+                        changed{" "}
+                        <span className="font-medium">
+                          {activityFieldLabel(a.field)}
+                        </span>
+                        {activityValueLabel(a.field, a.oldValue, activityResolvers) && (
                           <>
                             {" "}
                             from{" "}
-                            <span className="line-through">{a.oldValue}</span>
+                            <span className="line-through">
+                              {activityValueLabel(a.field, a.oldValue, activityResolvers)}
+                            </span>
                           </>
                         )}
-                        {a.newValue && (
+                        {activityValueLabel(a.field, a.newValue, activityResolvers) && (
                           <>
                             {" "}
                             to{" "}
-                            <span className="font-medium">{a.newValue}</span>
+                            <span className="font-medium">
+                              {activityValueLabel(a.field, a.newValue, activityResolvers)}
+                            </span>
                           </>
                         )}
                       </>
