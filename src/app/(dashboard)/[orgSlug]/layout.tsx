@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { prisma } from "@/lib/db/client";
 import { orgThemeCss } from "@/lib/theme/server-styles";
+import { WhatsNew } from "@/components/whats-new/whats-new-modal";
 
 type LayoutParams = { params: Promise<{ orgSlug: string }> };
 
@@ -23,6 +24,10 @@ export default function OrgScopedLayout({
         <OrgThemeStyle params={params} />
       </Suspense>
       {children}
+      {/* "What's new" changelog — a fully-client island (reads the inlined app
+          version + localStorage), so it's safe outside a Suspense boundary and
+          renders nothing until it has an unseen release to show. */}
+      <WhatsNew />
     </>
   );
 }
