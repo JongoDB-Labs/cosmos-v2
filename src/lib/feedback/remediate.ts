@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { runModelTurn } from "@/lib/ai/egress";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
+import { teamsNotify } from "@/lib/integrations/teams-notify";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -400,6 +401,19 @@ export async function runFeedbackRemediation(
       // for the next pass and continue.
       continue;
     }
+  }
+
+  // Teams notification (FR 8a162fe7): one summary post per run, gated on the
+  // feedbackDelivered toggle. Fire-and-forget.
+  if (delivered.length > 0) {
+    const lines = delivered
+      .map((d) => `<b>${d.ticketKey}</b> — ${d.triage.classification} · ${d.triage.severity}`)
+      .join("<br/>");
+    void teamsNotify(
+      orgId,
+      "feedbackDelivered",
+      `🛠️ <b>${delivered.length} feedback item${delivered.length === 1 ? "" : "s"}</b> triaged into the backlog:<br/>${lines}`,
+    );
   }
 
   return { delivered: delivered.length, scanned: pending.length, items: delivered };

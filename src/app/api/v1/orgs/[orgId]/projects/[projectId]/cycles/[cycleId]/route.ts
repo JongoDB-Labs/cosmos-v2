@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { SprintStatus } from "@prisma/client";
+import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 
 const updateCycleSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -88,6 +89,23 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       },
       include: { _count: { select: { workItems: true } } },
     });
+
+    // Teams notification (FR 8a162fe7): sprint lifecycle transitions.
+    if (data.status !== undefined && data.status !== existing.status) {
+      if (data.status === "ACTIVE") {
+        void teamsNotify(
+          orgId,
+          "sprintStartEnd",
+          `\u{1F3C1} Sprint <b>${escapeHtmlBasic(updated.name)}</b> started (${updated._count.workItems} item${updated._count.workItems === 1 ? "" : "s"})`,
+        );
+      } else if (data.status === "COMPLETED") {
+        void teamsNotify(
+          orgId,
+          "sprintStartEnd",
+          `\u2705 Sprint <b>${escapeHtmlBasic(updated.name)}</b> completed`,
+        );
+      }
+    }
 
     await logAudit({
       orgId,

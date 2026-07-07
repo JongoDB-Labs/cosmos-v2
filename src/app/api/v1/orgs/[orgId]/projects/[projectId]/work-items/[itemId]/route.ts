@@ -8,6 +8,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/create";
 import { publishToOrg } from "@/lib/realtime/broker";
+import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
@@ -292,6 +293,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }).catch(() => {
         /* swallow — notification is convenience, not load-bearing */
       });
+    }
+
+    // Teams notification (FR 8a162fe7): item newly COMPLETED (moved into a done
+    // column without a prior completedAt). Gated + best-effort inside teamsNotify.
+    if (item.completedAt && !existing.completedAt) {
+      void (async () => {
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { key: true },
+        });
+        await teamsNotify(
+          orgId,
+          "itemCompleted",
+          `✅ <b>${project?.key ?? ""}-${item.ticketNumber}</b> ${escapeHtmlBasic(item.title)} completed`,
+        );
+      })().catch(() => {});
     }
 
     return success(item);
