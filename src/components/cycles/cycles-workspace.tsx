@@ -59,9 +59,13 @@ interface Cycle {
   endDate: string;
   status: "PLANNED" | "ACTIVE" | "COMPLETED";
   cycleKind: string;
+  /** Program Increment this cycle is nested under (a PI cycle id), or null. */
+  parentId: string | null;
   report: CycleReport | null;
   _count?: { workItems: number };
 }
+
+const PI_KIND = "PROGRAM_INCREMENT";
 
 const KIND_LABELS: Record<string, string> = {
   SPRINT: "Sprint",
@@ -71,6 +75,7 @@ const KIND_LABELS: Record<string, string> = {
   EVENT_DAY: "Event Day",
   RELEASE: "Release",
   ITERATION: "Iteration",
+  PROGRAM_INCREMENT: "Program Increment",
 };
 
 // Sentinel for the "Backlog (no cycle)" option — base-ui Select treats an empty
@@ -130,6 +135,29 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   const [addIssuesTarget, setAddIssuesTarget] = useState<Cycle | null>(null);
   // cycleId → name, for the "currently in X" badge in the picker.
   const cycleNames = Object.fromEntries(cycles.map((c) => [c.id, c.name]));
+
+  // Program Increments (top-level PI cycles) — used both to render the PI
+  // grouping and to populate each sprint's "Move to PI" selector.
+  const pis = cycles.filter((c) => c.cycleKind === PI_KIND);
+  // Shared CycleCard wiring so the PI section and the status groups render
+  // identical cards (a sprint may appear in either place).
+  const cardProps = (cycle: Cycle): CycleCardProps => ({
+    cycle,
+    busy: busyId === cycle.id,
+    canUpdate,
+    canComplete,
+    pis,
+    onStart: () => activateCycle(cycle.id),
+    onComplete: () => {
+      setMoveToCycleId(BACKLOG_OPTION);
+      setCompleteTarget(cycle);
+    },
+    onEdit: () => openEdit(cycle),
+    onDelete: () => setDeleteTarget(cycle),
+    onCapacity: () => setCapacityTarget(cycle),
+    onAddIssues: () => setAddIssuesTarget(cycle),
+    onAssignPI: (parentId: string | null) => assignToPI(cycle.id, parentId),
+  });
 
   // Sprint-review / completion dialog: which cycle is being completed, and where
   // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
@@ -248,6 +276,25 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     }
   }
 
+  // Nest a sprint under a Program Increment (parentId = PI id), or detach it
+  // (parentId = null) back to the top level.
+  async function assignToPI(id: string, parentId: string | null) {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${basePath}/cycles/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId }),
+      });
+      if (!res.ok) throw new Error("Failed to update the Program Increment");
+      await fetchCycles();
+    } catch (err) {
+      notifyError(err, "Couldn't move the sprint to that Program Increment.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   // moveIncompleteToCycleId: null → incomplete items return to the backlog;
   // a cycle id → they roll over into that (planned) cycle.
   async function completeCycle(id: string, moveIncompleteToCycleId: string | null) {
@@ -341,8 +388,43 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         />
       ) : (
         <div className="space-y-8">
+          {/* Program Increments (SAFe): each PI groups its child sprints. */}
+          {pis.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Program Increments ({pis.length})
+              </h3>
+              <div className="space-y-4">
+                {pis.map((pi) => {
+                  const children = cycles.filter((c) => c.parentId === pi.id);
+                  return (
+                    <div
+                      key={pi.id}
+                      className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
+                    >
+                      <CycleCard {...cardProps(pi)} />
+                      <div className="ml-3 space-y-2 border-l-2 border-primary/20 pl-3">
+                        {children.length === 0 ? (
+                          <p className="py-1 text-xs text-muted-foreground">
+                            No sprints in this PI yet — use “Move to PI” on a sprint below.
+                          </p>
+                        ) : (
+                          children.map((child) => <CycleCard key={child.id} {...cardProps(child)} />)
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {STATUS_GROUPS.map(({ status, label }) => {
-            const group = cycles.filter((c) => c.status === status);
+            // Sprints nested in a PI show under that PI above; here we list the
+            // top-level cycles (not PIs, not already grouped under a PI).
+            const group = cycles.filter(
+              (c) => c.status === status && c.cycleKind !== PI_KIND && c.parentId == null,
+            );
             if (group.length === 0) return null;
             return (
               <section key={status} className="space-y-3">
@@ -351,22 +433,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
                 </h3>
                 <div className="space-y-3">
                   {group.map((cycle) => (
-                    <CycleCard
-                      key={cycle.id}
-                      cycle={cycle}
-                      busy={busyId === cycle.id}
-                      canUpdate={canUpdate}
-                      canComplete={canComplete}
-                      onStart={() => activateCycle(cycle.id)}
-                      onComplete={() => {
-                        setMoveToCycleId(BACKLOG_OPTION);
-                        setCompleteTarget(cycle);
-                      }}
-                      onEdit={() => openEdit(cycle)}
-                      onDelete={() => setDeleteTarget(cycle)}
-                      onCapacity={() => setCapacityTarget(cycle)}
-                      onAddIssues={() => setAddIssuesTarget(cycle)}
-                    />
+                    <CycleCard key={cycle.id} {...cardProps(cycle)} />
                   ))}
                 </div>
               </section>
@@ -608,28 +675,40 @@ interface CycleCardProps {
   busy: boolean;
   canUpdate: boolean;
   canComplete: boolean;
+  /** Available Program Increments, for the "Move to PI" selector. */
+  pis: Cycle[];
   onStart: () => void;
   onComplete: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onCapacity: () => void;
   onAddIssues: () => void;
+  onAssignPI: (parentId: string | null) => void;
 }
+
+// Select sentinel for "not in any PI" (base-ui Select can't use "").
+const NO_PI = "__no_pi__";
 
 function CycleCard({
   cycle,
   busy,
   canUpdate,
   canComplete,
+  pis,
   onStart,
   onComplete,
   onEdit,
   onDelete,
   onCapacity,
   onAddIssues,
+  onAssignPI,
 }: CycleCardProps) {
   const itemCount = cycle._count?.workItems ?? 0;
   const report = cycle.report;
+  const isPI = cycle.cycleKind === PI_KIND;
+  // A sprint (non-PI, non-completed) can be nested under a PI, if any exist.
+  const showPISelect =
+    !isPI && canUpdate && cycle.status !== "COMPLETED" && pis.length > 0;
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -652,6 +731,27 @@ function CycleCard({
             {fmtDate(cycle.startDate)} – {fmtDate(cycle.endDate)} · {itemCount}{" "}
             {itemCount === 1 ? "item" : "items"}
           </p>
+          {showPISelect && (
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">PI:</span>
+              <Select
+                value={cycle.parentId ?? NO_PI}
+                onValueChange={(v) => onAssignPI(v === NO_PI ? null : (v as string))}
+              >
+                <SelectTrigger size="sm" className="h-6 w-auto min-w-[8rem] text-xs" disabled={busy}>
+                  <SelectValue placeholder="No PI" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PI}>No PI</SelectItem>
+                  {pis.map((pi) => (
+                    <SelectItem key={pi.id} value={pi.id}>
+                      {pi.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {cycle.goal && (
             <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1">
               <Target className="h-3.5 w-3.5 shrink-0 mt-px" />
