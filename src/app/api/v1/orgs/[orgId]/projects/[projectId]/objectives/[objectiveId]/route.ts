@@ -47,6 +47,8 @@ const updateSchema = z.object({
   status: z.nativeEnum(ObjectiveStatus).optional(),
   // Alignment parent; null unsets it. Guarded against self/cycles below.
   parentId: z.string().uuid().nullable().optional(),
+  // Target/end date for health (FR a94ff583); null clears it.
+  targetDate: z.string().datetime().nullable().optional(),
 });
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
@@ -103,6 +105,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.period !== undefined && { period: data.period }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.parentId !== undefined && { parentId: data.parentId }),
+        ...(data.targetDate !== undefined && {
+          targetDate: data.targetDate ? new Date(data.targetDate) : null,
+        }),
       },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });

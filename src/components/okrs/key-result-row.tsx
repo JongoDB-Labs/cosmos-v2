@@ -20,12 +20,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Link2 } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import type { KeyResult } from "@/types/models";
 import { krProgressPercent } from "@/lib/okr/progress";
 import { KeyResultCheckinDialog, RAG_META } from "./key-result-checkin-dialog";
 import { KeyResultEditDialog } from "./key-result-edit-dialog";
+import { KeyResultLinksDialog } from "./key-result-links-dialog";
 
 interface KeyResultRowProps {
   keyResult: KeyResult;
@@ -75,8 +76,12 @@ export function KeyResultRow({
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(false);
 
   const progress = getProgressPercent(keyResult);
+  const autoTracked = !!keyResult.autoTracked;
+  const linkedTotal = keyResult.linkedTotal ?? 0;
+  const linkedDone = keyResult.linkedDone ?? 0;
 
   async function handleDelete() {
     setDeleting(true);
@@ -136,10 +141,31 @@ export function KeyResultRow({
             {progress}%
           </span>
         </div>
+        {autoTracked && (
+          <button
+            type="button"
+            onClick={() => setLinksOpen(true)}
+            className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--primary)] hover:underline"
+            title="Auto-tracked from linked tickets"
+          >
+            <Link2 className="h-3 w-3" />
+            {linkedDone} of {linkedTotal} linked tickets done
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        {editing ? (
+        {autoTracked ? (
+          // Value comes from the linked tickets — read-only to avoid a manual
+          // edit that the next refetch would silently overwrite.
+          <span
+            className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+            title="Auto-tracked from linked tickets"
+          >
+            {keyResult.currentValue} / {keyResult.targetValue}
+            {keyResult.unit ? ` ${keyResult.unit}` : ""}
+          </span>
+        ) : editing ? (
           <Input
             className="w-20 h-6 text-xs"
             value={editValue}
@@ -200,6 +226,10 @@ export function KeyResultRow({
               <Pencil className="mr-2 h-4 w-4" />
               Edit
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLinksOpen(true)}>
+              <Link2 className="mr-2 h-4 w-4" />
+              Link tickets…
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
               <Trash2 className="mr-2 h-4 w-4" />
@@ -208,6 +238,17 @@ export function KeyResultRow({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <KeyResultLinksDialog
+        orgId={orgId}
+        projectId={projectId}
+        keyResultId={keyResult.id}
+        keyResultTitle={keyResult.title}
+        linkedItems={keyResult.linkedItems ?? []}
+        open={linksOpen}
+        onOpenChange={setLinksOpen}
+        onChanged={onCheckedIn}
+      />
 
       <KeyResultCheckinDialog
         orgId={orgId}

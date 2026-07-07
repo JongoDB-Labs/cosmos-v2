@@ -179,6 +179,10 @@ export interface Objective {
   period: string | null;
   status: "DRAFT" | "ACTIVE" | "COMPLETED" | "CANCELLED";
   progress: number;
+  /** Target/end date for health (FR a94ff583); null = no dated signal. */
+  targetDate?: string | null;
+  /** Server-derived stoplight: progress vs. time toward targetDate. */
+  health?: "done" | "on_track" | "at_risk" | "behind" | "no_date";
   /** Manual display order within the project (drag-to-reorder). */
   sortOrder: number;
   /** Alignment: the objective this one ladders up to (null = top-level). */
@@ -187,6 +191,15 @@ export interface Objective {
   updatedAt: string;
   keyResults?: KeyResult[];
   owner?: OrgMember;
+}
+
+/** A ticket linked to a Key Result (as returned in the objectives payload). */
+export interface KeyResultLinkedItem {
+  id: string;
+  ticketNumber: number;
+  title: string;
+  columnKey: string;
+  completedAt: string | null;
 }
 
 /** @deprecated Key results are now managed as WorkItems. */
@@ -210,6 +223,12 @@ export interface KeyResult {
   createdAt: string;
   updatedAt: string;
   owner?: OrgMember;
+  /** OKR→tickets (FR a94ff583): when the KR has linked tickets it AUTO-tracks —
+   *  currentValue = linkedDone. These are populated by the objectives GET. */
+  autoTracked?: boolean;
+  linkedTotal?: number;
+  linkedDone?: number;
+  linkedItems?: KeyResultLinkedItem[];
 }
 
 /** A point-in-time key-result check-in (OKR health over time). */
