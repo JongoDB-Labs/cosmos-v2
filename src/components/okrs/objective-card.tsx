@@ -16,6 +16,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { KeyResultRow } from "./key-result-row";
 import { krProgressPercent } from "@/lib/okr/progress";
+import { HEALTH_LABEL, type ObjectiveHealth } from "@/lib/okr/health";
+import type { BadgeVariant } from "@/components/ui/badge";
+
+const HEALTH_VARIANT: Record<ObjectiveHealth, BadgeVariant> = {
+  done: "done",
+  on_track: "done",
+  at_risk: "review",
+  behind: "critical",
+  no_date: "neutral",
+};
 import type { Objective, KeyResult } from "@/types/models";
 
 interface ObjectiveCardProps {
@@ -180,6 +190,16 @@ export function ObjectiveCard({
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-sm truncate">{objective.title}</h3>
             <Badge variant="neutral">{statusLabels[objective.status]}</Badge>
+            {objective.health && objective.health !== "no_date" && (
+              <Badge variant={HEALTH_VARIANT[objective.health]} className="shrink-0">
+                {HEALTH_LABEL[objective.health]}
+              </Badge>
+            )}
+            {objective.targetDate && (
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                due {new Date(objective.targetDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-1.5">
             <div className="flex-1 max-w-xs h-1.5 bg-muted rounded-full overflow-hidden">
