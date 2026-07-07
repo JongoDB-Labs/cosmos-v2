@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { createNotification } from "@/lib/notifications/create";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
+import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 
 export interface FanOutInput {
   /** Org id of the channel (used by createNotification + audit). */
@@ -45,6 +46,23 @@ export async function fanOutChatMessage(input: FanOutInput): Promise<void> {
   const url = `/${input.orgSlug}/chat/${input.channelId}#msg-${input.messageId}`;
   const snippet = input.content.replace(/<@[0-9a-f-]{36}>/gi, "@user").slice(0, 200);
   const mentions = new Set(input.mentionedUserIds.map((id) => id.toLowerCase()));
+
+  // Teams notification (FR 8a162fe7): one channel post per message that carries
+  // @mentions — OFF by default (chat noise); gated + best-effort in teamsNotify.
+  if (input.mentionedUserIds.length > 0) {
+    void (async () => {
+      const users = await prisma.user.findMany({
+        where: { id: { in: input.mentionedUserIds } },
+        select: { displayName: true },
+      });
+      const names = users.map((u) => escapeHtmlBasic(u.displayName)).join(", ");
+      await teamsNotify(
+        input.orgId,
+        "mentions",
+        `\u{1F4AC} <b>${escapeHtmlBasic(input.authorDisplayName)}</b> mentioned ${names} in chat: \u201C${escapeHtmlBasic(snippet)}\u201D`,
+      );
+    })().catch(() => {});
+  }
 
   for (const m of members) {
     if (m.userId === input.authorId) continue;
