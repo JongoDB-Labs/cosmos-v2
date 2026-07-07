@@ -929,27 +929,32 @@ export function CardDetailSheet({
               </Select>
             </MetadataField>
 
-            <MetadataField icon={Wrench} label="Classification">
-              <Select
-                items={{ BUSINESS: "Business", ENABLER: "Enabler" }}
-                value={workCategory}
-                onValueChange={(v) =>
-                  handleFieldChange("workCategory", v as WorkItem["workCategory"])
-                }
-              >
-                <SelectTrigger
-                  size="sm"
-                  aria-label="Classification"
-                  className="w-full text-xs"
+            {/* SAFe epic classification (business vs enabler epic). Only epics
+                carry it — hidden for features/stories/tasks. */}
+            {(item?.workItemType?.key ?? "").split(".").pop()?.toLowerCase() ===
+              "epic" && (
+              <MetadataField icon={Wrench} label="Epic Type">
+                <Select
+                  items={{ BUSINESS: "Business", ENABLER: "Enabler" }}
+                  value={workCategory}
+                  onValueChange={(v) =>
+                    handleFieldChange("workCategory", v as WorkItem["workCategory"])
+                  }
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="BUSINESS">Business</SelectItem>
-                  <SelectItem value="ENABLER">Enabler</SelectItem>
-                </SelectContent>
-              </Select>
-            </MetadataField>
+                  <SelectTrigger
+                    size="sm"
+                    aria-label="Epic Type"
+                    className="w-full text-xs"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BUSINESS">Business</SelectItem>
+                    <SelectItem value="ENABLER">Enabler</SelectItem>
+                  </SelectContent>
+                </Select>
+              </MetadataField>
+            )}
 
             <MetadataField icon={User} label="Assignees">
               {/* Multi-assign (FR 1d38496a): checkbox list; first-checked stays
