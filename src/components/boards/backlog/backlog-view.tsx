@@ -4,12 +4,13 @@ import { useMemo, useState, useCallback } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
-  closestCenter,
+  closestCorners,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
@@ -30,6 +31,11 @@ import {
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import {
+  resolveDrag,
+  BACKLOG_CONTAINER,
+  type Containers,
+} from "@/lib/boards/backlog-dnd";
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -291,37 +297,37 @@ export function BacklogView({
       });
   }, [visibleItems, cycleMap, byRank]);
 
+  // Container model for cross-section drag: the backlog plus one bucket per
+  // sprint, each an ordered list of item ids.
+  const containers: Containers = useMemo(() => {
+    const c: Containers = { [BACKLOG_CONTAINER]: backlogItems.map((i) => i.id) };
+    for (const s of cycleSections) c[s.cycleId] = s.items.map((i) => i.id);
+    return c;
+  }, [backlogItems, cycleSections]);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
+      const move = resolveDrag(String(active.id), over ? String(over.id) : null, containers);
+      if (!move) return;
 
-      const ordered = backlogItems;
-      const oldIndex = ordered.findIndex((i) => i.id === active.id);
-      const newIndex = ordered.findIndex((i) => i.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      // Compute the post-move array and renumber sequentially.
-      const next = ordered.slice();
-      const [moved] = next.splice(oldIndex, 1);
-      next.splice(newIndex, 0, moved);
-
-      const movedIds = new Set(next.map((i) => i.id));
-      const updates = next.map((i, idx) => ({ id: i.id, sortOrder: idx }));
-
-      // Optimistically write the new sortOrders into the cache so the list
-      // settles instantly; the mutation persists + invalidates.
-      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-        (prev ?? []).map((i) =>
-          movedIds.has(i.id)
-            ? { ...i, sortOrder: next.findIndex((n) => n.id === i.id) }
-            : i,
-        ),
-      );
-
-      reorderMutation.mutate(updates);
+      if (move.kind === "reorder") {
+        // Renumber the affected container in place and persist the new ranks.
+        const list = containers[move.container].slice();
+        const [moved] = list.splice(move.fromIndex, 1);
+        list.splice(move.toIndex, 0, moved);
+        const rank = new Map(list.map((id, idx) => [id, idx]));
+        qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+          (prev ?? []).map((i) => (rank.has(i.id) ? { ...i, sortOrder: rank.get(i.id)! } : i)),
+        );
+        reorderMutation.mutate(list.map((id, idx) => ({ id, sortOrder: idx })));
+      } else {
+        // Moved to a different section → change its cycle (null = back to
+        // backlog). assignMutation applies the optimistic cache update.
+        assignMutation.mutate({ id: move.itemId, cycleId: move.toCycleId });
+      }
     },
-    [backlogItems, qc, itemsKey, reorderMutation],
+    [containers, qc, itemsKey, reorderMutation, assignMutation],
   );
 
   const openDetail = useCallback((item: WorkItem) => {
@@ -450,27 +456,28 @@ export function BacklogView({
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
-          {/* Backlog section — drag to re-rank */}
-          <BacklogSection
-            sectionKey="__backlog__"
-            title="Backlog"
-            subtitle={null}
-            count={backlogItems.length}
-            collapsed={!!collapsed["__backlog__"]}
-            onToggle={() => toggleCollapsed("__backlog__")}
+          {/* One DndContext spans the whole planner so a row can be dragged
+              between the backlog and any sprint (cross-container reassign) as
+              well as reordered within a section. */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragEnd={handleDragEnd}
           >
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
+            {/* Backlog section — drag to re-rank or out into a sprint */}
+            <BacklogSection
+              sectionKey="__backlog__"
+              title="Backlog"
+              subtitle={null}
+              count={backlogItems.length}
+              points={sumPoints(backlogItems)}
+              collapsed={!!collapsed["__backlog__"]}
+              onToggle={() => toggleCollapsed("__backlog__")}
             >
-              <SortableContext
-                items={backlogItems.map((i) => i.id)}
-                strategy={verticalListSortingStrategy}
-              >
+              <DroppableList id={BACKLOG_CONTAINER} itemIds={backlogItems.map((i) => i.id)}>
                 {backlogItems.length === 0 ? (
                   <p className="px-4 py-3 text-xs text-[var(--text-muted)]">
-                    No backlog items.
+                    Drop items here to move them out of a sprint.
                   </p>
                 ) : (
                   backlogItems.map((item) => (
@@ -490,44 +497,53 @@ export function BacklogView({
                     />
                   ))
                 )}
-              </SortableContext>
-            </DndContext>
-          </BacklogSection>
+              </DroppableList>
+            </BacklogSection>
 
-          {/* One section per cycle/sprint */}
-          {cycleSections.map((section) => {
-            const key = `cycle:${section.cycleId}`;
-            const cycle = section.cycle;
-            const subtitle = cycle ? formatCycleRange(cycle) : null;
-            return (
-              <BacklogSection
-                key={key}
-                sectionKey={key}
-                title={cycle?.name ?? "Unknown sprint"}
-                subtitle={subtitle}
-                statusBadge={cycle?.status}
-                count={section.items.length}
-                collapsed={!!collapsed[key]}
-                onToggle={() => toggleCollapsed(key)}
-              >
-                {section.items.map((item) => (
-                  <BacklogRow
-                    key={item.id}
-                    item={item}
-                    projectKey={projectKey}
-                    member={item.assigneeId ? memberById.get(item.assigneeId) : undefined}
-                    statusLabel={
-                      columnMap.get(item.columnKey)?.name ?? prettifyKey(item.columnKey)
-                    }
-                    cycleName={cycle?.name ?? null}
-                    done={isDone(item)}
-                    menuGroups={buildMenuGroups(item)}
-                    onOpen={() => openDetail(item)}
-                  />
-                ))}
-              </BacklogSection>
-            );
-          })}
+            {/* One section per cycle/sprint */}
+            {cycleSections.map((section) => {
+              const key = `cycle:${section.cycleId}`;
+              const cycle = section.cycle;
+              const subtitle = cycle ? formatCycleRange(cycle) : null;
+              return (
+                <BacklogSection
+                  key={key}
+                  sectionKey={key}
+                  title={cycle?.name ?? "Unknown sprint"}
+                  subtitle={subtitle}
+                  statusBadge={cycle?.status}
+                  count={section.items.length}
+                  points={sumPoints(section.items)}
+                  collapsed={!!collapsed[key]}
+                  onToggle={() => toggleCollapsed(key)}
+                >
+                  <DroppableList id={section.cycleId} itemIds={section.items.map((i) => i.id)}>
+                    {section.items.length === 0 ? (
+                      <p className="px-4 py-3 text-xs text-[var(--text-muted)]">
+                        Drag items here to plan this sprint.
+                      </p>
+                    ) : (
+                      section.items.map((item) => (
+                        <SortableRow
+                          key={item.id}
+                          item={item}
+                          projectKey={projectKey}
+                          member={item.assigneeId ? memberById.get(item.assigneeId) : undefined}
+                          statusLabel={
+                            columnMap.get(item.columnKey)?.name ?? prettifyKey(item.columnKey)
+                          }
+                          cycleName={cycle?.name ?? null}
+                          done={isDone(item)}
+                          menuGroups={buildMenuGroups(item)}
+                          onOpen={() => openDetail(item)}
+                        />
+                      ))
+                    )}
+                  </DroppableList>
+                </BacklogSection>
+              );
+            })}
+          </DndContext>
         </div>
       )}
 
@@ -567,11 +583,41 @@ const CYCLE_STATUS_VARIANT: Record<Cycle["status"], BadgeVariant> = {
   COMPLETED: "done",
 };
 
+/** Sum of story points across a set of items (0 when none are pointed). */
+function sumPoints(items: WorkItem[]): number {
+  return items.reduce((n, i) => n + (i.storyPoints ?? 0), 0);
+}
+
+/** A section body that is itself a drop target — so a row can be dropped onto an
+ *  empty sprint (or anywhere in the section), not just onto another row. */
+function DroppableList({
+  id,
+  itemIds,
+  children,
+}: {
+  id: string;
+  itemIds: string[];
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+      <div
+        ref={setNodeRef}
+        className={cn("min-h-[16px] transition-colors", isOver && "bg-[var(--primary)]/5")}
+      >
+        {children}
+      </div>
+    </SortableContext>
+  );
+}
+
 function BacklogSection({
   title,
   subtitle,
   statusBadge,
   count,
+  points,
   collapsed,
   onToggle,
   children,
@@ -581,6 +627,7 @@ function BacklogSection({
   subtitle: string | null;
   statusBadge?: Cycle["status"];
   count: number;
+  points?: number;
   collapsed: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -607,8 +654,18 @@ function BacklogSection({
         {subtitle && (
           <span className="text-xs text-[var(--text-muted)]">{subtitle}</span>
         )}
-        <span className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--border)] px-1.5 text-[11px] font-medium text-[var(--text-muted)]">
-          {count}
+        <span className="ml-auto flex items-center gap-2">
+          {points != null && points > 0 && (
+            <span
+              className="inline-flex h-5 items-center justify-center rounded-full bg-[var(--primary)]/15 px-2 text-[11px] font-medium text-[var(--primary)]"
+              title={`${points} story points`}
+            >
+              {points} pts
+            </span>
+          )}
+          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--border)] px-1.5 text-[11px] font-medium text-[var(--text-muted)]">
+            {count}
+          </span>
         </span>
       </button>
       {!collapsed && <div>{children}</div>}
@@ -709,10 +766,6 @@ function RowContent({
 }
 
 /** Cycle-section row — no drag handle (re-rank lives in the Backlog section). */
-function BacklogRow(props: Omit<Parameters<typeof RowContent>[0], "dragHandle">) {
-  return <RowContent {...props} />;
-}
-
 /** Backlog-section row — draggable via dnd-kit sortable. */
 function SortableRow(props: Omit<Parameters<typeof RowContent>[0], "dragHandle">) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
