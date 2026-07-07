@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -39,10 +40,20 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       orderBy: { key: "asc" },
     });
 
+    // AI-connection gate (per maintainer directive): the loop only runs with a
+    // connected model provider. Surface it so the form can point the admin at
+    // Settings → AI instead of silently no-op'ing on the heuristic.
+    const ai = await getAiProviderStatus(orgId);
+    const aiConnected =
+      ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
+
     return success({
       enabled: cfg.enabled === true,
       targetProjectId: cfg.targetProjectId ?? null,
       projects,
+      aiConnected,
+      aiProvider: ai.provider,
+      claudeSubscription: ai.claudeOAuth,
     });
   } catch (error) {
     return handleApiError(error);

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { runModelTurn } from "@/lib/ai/egress";
+import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
@@ -33,7 +34,12 @@ export interface Triage {
 }
 
 export interface RemediationSummary {
-  skipped?: "not-enabled" | "no-target-project" | "no-column" | "no-type";
+  skipped?:
+    | "not-enabled"
+    | "no-ai-credential"
+    | "no-target-project"
+    | "no-column"
+    | "no-type";
   delivered: number;
   scanned: number;
   items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
@@ -279,6 +285,16 @@ export async function runFeedbackRemediation(
   const cfg = ((org.settings as Record<string, unknown>)?.autoRemediation ??
     {}) as AutoRemediationConfig;
   if (!cfg.enabled || !cfg.targetProjectId) return empty("not-enabled");
+
+  // Gate on a connected model provider (per maintainer directive): the loop must
+  // NOT deliver on the heuristic fallback — that produced low-signal tickets when
+  // no real model was reachable. Require a Claude subscription (OAuth) or a model
+  // key connected via Settings → AI, so every delivery reflects actual AI triage.
+  // The heuristic remains only as a per-item safety net for a transient model error.
+  const ai = await getAiProviderStatus(orgId);
+  const hasAi =
+    ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
+  if (!hasAi) return empty("no-ai-credential");
 
   const project = await prisma.project.findFirst({
     where: { id: cfg.targetProjectId, orgId, archived: false },

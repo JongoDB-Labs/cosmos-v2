@@ -22,6 +22,9 @@ interface Config {
   enabled: boolean;
   targetProjectId: string | null;
   projects: { id: string; key: string; name: string }[];
+  aiConnected: boolean;
+  aiProvider: string;
+  claudeSubscription: { connected: boolean; email?: string | null };
 }
 
 const NONE = "__none__";
@@ -55,6 +58,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const projects = data?.projects ?? [];
+  const aiConnected = data?.aiConnected ?? false;
 
   async function save() {
     if (enabled && targetProjectId === NONE) {
@@ -90,7 +94,9 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           description:
             res.skipped === "not-enabled"
               ? "Enable automation and choose a target project first."
-              : `Skipped: ${res.skipped}`,
+              : res.skipped === "no-ai-credential"
+                ? "Connect a Claude subscription in Settings → AI first — triage won't run on a heuristic guess."
+                : `Skipped: ${res.skipped}`,
         });
       } else {
         toast.success(`Delivered ${res.delivered} of ${res.scanned} scanned feedback item(s)`);
@@ -113,6 +119,27 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
 
   return (
     <div className="max-w-2xl space-y-6">
+      {/* AI-connection gate: the loop only runs with a connected model provider,
+          so triage is real AI (Opus 4.8 via a Claude subscription), never a
+          low-signal heuristic guess. */}
+      {!aiConnected && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+          <Info className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="space-y-1">
+            <p className="font-medium text-amber-700 dark:text-amber-300">
+              Connect a Claude subscription to activate auto-triage
+            </p>
+            <p className="text-[var(--text-muted)]">
+              This runs on your own Claude account. Until a Claude subscription (or
+              model key) is connected in{" "}
+              <a href="../ai" className="underline">
+                Settings → AI
+              </a>
+              , the automation stays inert — it won&apos;t deliver on a heuristic guess.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -155,7 +182,13 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           <Button onClick={save} disabled={saving} size="sm">
             {saving ? "Saving…" : "Save"}
           </Button>
-          <Button onClick={runNow} disabled={running} variant="outline" size="sm">
+          <Button
+            onClick={runNow}
+            disabled={running || !aiConnected}
+            variant="outline"
+            size="sm"
+            title={aiConnected ? undefined : "Connect a Claude subscription in Settings → AI first"}
+          >
             {running ? "Running…" : "Run now"}
           </Button>
         </div>

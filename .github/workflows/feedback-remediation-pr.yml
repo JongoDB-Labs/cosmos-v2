@@ -6,7 +6,10 @@
 # It NEVER marks a PR ready, NEVER merges, and NEVER deploys — a human approves.
 #
 # ── Activation (maintainer) — all three are REQUIRED before this does anything ──
-#   1. Secret  ANTHROPIC_API_KEY   — the agent's model credential.
+#   1. Secret  CLAUDE_CODE_OAUTH_TOKEN — a Claude SUBSCRIPTION token (same backend
+#      as the maintainer box). Generate it with `claude setup-token` and paste:
+#        gh secret set CLAUDE_CODE_OAUTH_TOKEN
+#      (Claude Code reads this env var for OAuth/subscription auth — no API key.)
 #   2. Variable FEEDBACK_PR_ENABLED = "1"  — the scheduled path is INERT until set
 #      (manual workflow_dispatch always works). This is the deliberate review gate:
 #      enable it only once you've watched a few dispatch runs and trust the output.
@@ -123,27 +126,42 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Draft the fix (Claude Code headless, Opus 4.8 max effort)
+      - name: Draft the fix (Claude Code headless, Opus 4.8 on the Claude subscription)
         if: steps.guard.outputs.skip != '1'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Claude Code authenticates via the subscription OAuth token — the same
+          # backend the maintainer uses interactively. No ANTHROPIC_API_KEY.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           TICKET: ${{ matrix.item.ticketKey }}
           BRIEF: ${{ matrix.item.brief }}
         run: |
           set -euo pipefail
           npm ci
           npm install -g @anthropic-ai/claude-code
-          claude -p "You are implementing a fix for ticket ${TICKET} in this repository.
-          Context / acceptance criteria:
+          # System context for FR/BR execution. AGENTS.md/CLAUDE.md carry the repo's
+          # hard rules (this is NOT stock Next.js; Cache Components; versioning; the
+          # authoring/attribution policy). The agent reads them, implements a focused
+          # change for the ticket, proves it with the repo's own checks, and stops at
+          # a committed branch — a human reviews + merges the draft PR.
+          claude -p "You are an autonomous engineer drafting a fix for ticket ${TICKET} in this repository (cosmos-v2, a Next.js project-management platform).
+
+          ## Ticket brief / acceptance criteria
           ${BRIEF}
 
-          Read AGENTS.md first. Implement a focused, minimal change that satisfies the
-          criteria. Run \`npm run typecheck\`, \`npm run lint\`, and \`npm test\` and make
-          them pass. Bump package.json version per SemVer. Commit your work to the CURRENT
-          branch only. Do NOT push to main, open a PR, merge, or deploy — that is handled
-          outside the agent. Do NOT add any Claude/AI/assistant attribution to commits." \
+          ## How to work
+          1. FIRST read AGENTS.md and CLAUDE.md end-to-end and obey them — this repo has breaking Next.js differences (Cache Components is ON), a strict versioning policy, and an authoring/attribution policy. Read the relevant node_modules/next/dist/docs guide before writing framework code.
+          2. Explore the codebase to locate the exact surface the ticket concerns. Reproduce the bug or pin down the feature's integration points before editing.
+          3. Implement the SMALLEST correct change that satisfies the acceptance criteria. Match surrounding conventions (base-ui not Radix, useOrgQueryKey for client queries, explicit Prisma selects that exclude OrgMember.permissions, getPublicOrigin for redirects — see CLAUDE.md).
+          4. Prove it: run 'npm run typecheck', 'npm run lint', and 'npm test' and make them pass. Add or update a test that would have caught the issue.
+          5. Bump package.json version per SemVer (patch for a fix, minor for a feature).
+          6. Commit to the CURRENT branch only, with a clear conventional-commit message.
+
+          ## Hard limits
+          - Do NOT push to main, open/merge a PR, or deploy — that happens outside you.
+          - Do NOT add any Claude/Anthropic/AI/assistant attribution to commits, code, or messages. Commit under the existing git identity only.
+          - If you cannot make the checks pass or the ticket is under-specified, stop and leave a commit documenting what you found rather than guessing." \
             --model claude-opus-4-8 \
-            --max-turns 60 \
+            --max-turns 80 \
             --permission-mode acceptEdits \
             --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
 
