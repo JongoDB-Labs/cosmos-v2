@@ -97,7 +97,7 @@ jobs:
       # (mode=max) keeps the large MiniLM + node_modules layers warm across runs.
       - name: Build + push runtime (by digest)
         id: build
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: linux/${{ matrix.arch }}
@@ -112,7 +112,7 @@ jobs:
       # Migrate image (the `migrate` Dockerfile target) — likewise by digest.
       - name: Build + push migrate (by digest)
         id: build-migrate
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           target: migrate
@@ -130,7 +130,7 @@ jobs:
       # (enables a fully pull-only deployment; app + migrate are already pulled).
       - name: Build + push postgres (by digest)
         id: build-postgres
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: compose/postgres/Dockerfile
