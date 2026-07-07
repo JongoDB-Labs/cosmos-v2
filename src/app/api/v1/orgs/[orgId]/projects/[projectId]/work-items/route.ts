@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
+import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
@@ -260,6 +261,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     } catch {
       /* never let a broker error break the create response */
     }
+
+    // Teams notification (FR 8a162fe7): new item — OFF by default (noisy);
+    // gated + best-effort inside teamsNotify.
+    void teamsNotify(
+      orgId,
+      "itemCreated",
+      `\u{1F195} <b>${project.key}-${item.ticketNumber}</b> ${escapeHtmlBasic(item.title)} created (${item.priority})`,
+    );
 
     return created(item);
   } catch (error) {
