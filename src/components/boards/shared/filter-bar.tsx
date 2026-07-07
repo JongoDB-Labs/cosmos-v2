@@ -390,7 +390,7 @@ export function FilterBar({
             { value: "__all__", label: "All" },
             ...members.map((m) => ({
               value: m.userId,
-              label: m.user?.displayName ?? m.userId,
+              label: m.user?.displayName ?? m.user?.email ?? "Unknown",
             })),
           ]}
         />
