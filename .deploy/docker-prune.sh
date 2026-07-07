@@ -23,9 +23,10 @@ set -uo pipefail
 
 RETENTION="${COSMOS_PRUNE_RETENTION:-48h}"   # keep unused images newer than this
 LOG="${COSMOS_PRUNE_LOG:-/var/log/cosmos-docker-prune.log}"
-# Free-space floor: if the root FS is already above this %, prune ALL unused
-# images (ignore the retention window) to recover fast.
-EMERGENCY_PCT="${COSMOS_PRUNE_EMERGENCY_PCT:-90}"
+# Free-space floor: if the root FS has fewer than this many GB free, prune ALL
+# unused images (ignore the retention window) to recover fast. Size-independent
+# — behaves the same whether the disk is 100 GB or 200 GB — unlike a percentage.
+MIN_FREE_GB="${COSMOS_PRUNE_MIN_FREE_GB:-20}"
 
 # Prefer sudo only when not already root (cron runs as root; manual runs may not).
 DOCKER="docker"
@@ -34,12 +35,14 @@ DOCKER="docker"
 {
   echo "=== $(date -u +%FT%TZ) docker prune (retention=$RETENTION) ==="
 
+  avail_kib="$(df --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9')"
   used_pct="$(df --output=pcent / 2>/dev/null | tail -1 | tr -dc '0-9')"
-  echo "-- before -- disk ${used_pct:-?}% used"
+  free_gb=$(( ${avail_kib:-0} / 1048576 ))   # KiB → whole GiB
+  echo "-- before -- disk ${used_pct:-?}% used, ${free_gb}G free"
   $DOCKER system df 2>/dev/null | sed 's/^/   /'
 
-  if [ -n "${used_pct:-}" ] && [ "$used_pct" -ge "$EMERGENCY_PCT" ]; then
-    echo "!! disk ${used_pct}% >= ${EMERGENCY_PCT}% — emergency: pruning ALL unused images"
+  if [ -n "${avail_kib:-}" ] && [ "$free_gb" -lt "$MIN_FREE_GB" ]; then
+    echo "!! only ${free_gb}G free (< ${MIN_FREE_GB}G) — emergency: pruning ALL unused images"
     $DOCKER image prune -a -f 2>&1 | tail -2 | sed 's/^/   /'
   else
     $DOCKER image prune -a -f --filter "until=${RETENTION}" 2>&1 | tail -2 | sed 's/^/   /'
@@ -47,7 +50,7 @@ DOCKER="docker"
   # Build cache is normally empty on a pull-only host, but clear any stragglers.
   $DOCKER builder prune -f --filter "until=${RETENTION}" 2>&1 | tail -1 | sed 's/^/   /'
 
-  echo "-- after  -- disk $(df --output=pcent / 2>/dev/null | tail -1 | tr -dc '0-9')% used"
+  echo "-- after  -- disk $(df --output=pcent / 2>/dev/null | tail -1 | tr -dc '0-9')% used, $(( $(df --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9') / 1048576 ))G free"
 } >> "$LOG" 2>&1
 
 # Keep the log itself bounded.
