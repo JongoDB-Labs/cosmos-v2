@@ -39,6 +39,12 @@ import {
   usePermissions,
   Permission,
 } from "@/components/providers/permissions-provider";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   Check,
@@ -52,6 +58,8 @@ import {
   UserCog,
   CalendarClock,
   Copy,
+  ListFilter,
+  ChevronDown,
 } from "lucide-react";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { WorkItem, Board, BoardColumn, OrgMember, Cycle } from "@/types/models";
@@ -143,9 +151,54 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     () => (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [board],
   );
-  const items: WorkItem[] = itemsQ.data ?? [];
+  const allItems: WorkItem[] = itemsQ.data ?? [];
   const members: OrgMember[] = membersQ.data ?? [];
   const cycles: Cycle[] = cyclesQ.data ?? [];
+
+  // Type filter (FR debd4e39): a TABLE board can be scoped to specific work-item
+  // types — e.g. a "Bug Tracker" that shows only bugs instead of every ticket.
+  // The choice lives in board.config.typeKeys (persisted), so it's the single
+  // source of truth; an empty/absent list means "show all types".
+  const typeKeys: string[] = useMemo(() => {
+    const raw = (board?.config as { typeKeys?: unknown } | undefined)?.typeKeys;
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === "string") : [];
+  }, [board]);
+
+  // Distinct types present in the board's items, for the filter menu options.
+  const typeOptions = useMemo(() => {
+    const seen = new Map<string, { key: string; name: string }>();
+    for (const it of allItems) {
+      const t = it.workItemType;
+      if (t?.key && !seen.has(t.key)) seen.set(t.key, { key: t.key, name: t.name });
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [allItems]);
+
+  const items: WorkItem[] = useMemo(
+    () =>
+      typeKeys.length === 0
+        ? allItems
+        : allItems.filter((i) => i.workItemType?.key && typeKeys.includes(i.workItemType.key)),
+    [allItems, typeKeys],
+  );
+
+  // Persist a change to the board's type filter (optimistic: patch the board
+  // cache so the table re-filters immediately, then PUT the merged config).
+  const setTypeKeys = useCallback(
+    (next: string[]) => {
+      qc.setQueryData<Board>(boardKey, (prev) =>
+        prev ? { ...prev, config: { ...prev.config, typeKeys: next } } : prev,
+      );
+      void jsonFetch(`${basePath}/boards/${boardId}`, {
+        method: "PUT",
+        body: JSON.stringify({ config: { ...(board?.config ?? {}), typeKeys: next } }),
+      }).catch((err) => {
+        notifyError(err, "Couldn't save the type filter.");
+        void qc.invalidateQueries({ queryKey: boardKey });
+      });
+    },
+    [qc, boardKey, basePath, boardId, board],
+  );
 
   const loading =
     boardQ.isLoading ||
@@ -820,8 +873,46 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           </select>
         </div>
 
+        {/* Type filter (FR debd4e39): scope the board to specific item types. */}
+        {typeOptions.length > 1 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+                typeKeys.length > 0
+                  ? "border-primary/50 text-foreground"
+                  : "border-input text-muted-foreground hover:bg-muted",
+              )}
+            >
+              <ListFilter className="h-3.5 w-3.5" />
+              {typeKeys.length === 0
+                ? "All types"
+                : typeKeys.length === 1
+                  ? (typeOptions.find((t) => t.key === typeKeys[0])?.name ?? "1 type")
+                  : `${typeKeys.length} types`}
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-44">
+              {typeOptions.map((t) => (
+                <DropdownMenuCheckboxItem
+                  key={t.key}
+                  checked={typeKeys.includes(t.key)}
+                  onCheckedChange={(c) =>
+                    setTypeKeys(
+                      c ? [...typeKeys, t.key] : typeKeys.filter((k) => k !== t.key),
+                    )
+                  }
+                >
+                  {t.name}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         <span className="text-xs text-muted-foreground">
-          {items.length} items
+          {items.length}
+          {typeKeys.length > 0 ? ` of ${allItems.length}` : ""} items
         </span>
 
         {selectedCount > 0 && (
