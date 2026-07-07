@@ -14,7 +14,28 @@ const createCycleSchema = z.object({
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
   cycleKind: z.nativeEnum(CycleKind).default(CycleKind.SPRINT),
+  // Program Increment this cycle belongs to (a PI cycle id). Only meaningful for
+  // sprints; a PI is top-level so it never carries a parent.
+  parentId: z.string().uuid().nullish(),
 });
+
+/** Validate a parentId points at a PROGRAM_INCREMENT cycle in the same project.
+ *  Returns an error message, or null when it's a valid PI (or no parent). */
+async function validateParentPI(
+  parentId: string | null | undefined,
+  projectId: string,
+): Promise<string | null> {
+  if (!parentId) return null;
+  const parent = await prisma.cycle.findFirst({
+    where: { id: parentId, projectId },
+    select: { cycleKind: true },
+  });
+  if (!parent) return "Program Increment not found in this project";
+  if (parent.cycleKind !== CycleKind.PROGRAM_INCREMENT) {
+    return "A sprint can only be nested under a Program Increment";
+  }
+  return null;
+}
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -67,6 +88,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = createCycleSchema.parse(body);
 
+    // A PI is top-level; a sprint may nest under a PI (validated same-project).
+    const parentId =
+      data.cycleKind === CycleKind.PROGRAM_INCREMENT ? null : (data.parentId ?? null);
+    const parentErr = await validateParentPI(parentId, projectId);
+    if (parentErr) {
+      return new Response(JSON.stringify({ error: parentErr }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const maxNumber = await prisma.cycle.aggregate({
       where: { projectId },
       _max: { number: true },
@@ -83,6 +115,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         startDate: new Date(data.startDate),
         endDate: new Date(data.endDate),
         cycleKind: data.cycleKind,
+        parentId,
       },
       include: {
         _count: { select: { workItems: true } },

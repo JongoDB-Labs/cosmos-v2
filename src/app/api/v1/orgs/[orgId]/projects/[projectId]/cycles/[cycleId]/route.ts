@@ -15,6 +15,9 @@ const updateCycleSchema = z.object({
   startDate: z.string().datetime().nullish(),
   endDate: z.string().datetime().nullish(),
   status: z.nativeEnum(SprintStatus).optional(),
+  // Program Increment to nest this sprint under (a PI cycle id), or null to
+  // detach it back to top level. Validated same-project + must be a PI.
+  parentId: z.string().uuid().nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; cycleId: string }> };
@@ -66,6 +69,27 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateCycleSchema.parse(body);
 
+    // Validate a PI re-parent: target must be a PROGRAM_INCREMENT in this
+    // project, and a cycle can't be its own parent (no 1-level self-nesting).
+    if (data.parentId !== undefined && data.parentId !== null) {
+      if (data.parentId === cycleId) {
+        return new Response(JSON.stringify({ error: "A cycle can't be its own Program Increment" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const parent = await prisma.cycle.findFirst({
+        where: { id: data.parentId, projectId },
+        select: { cycleKind: true },
+      });
+      if (!parent || parent.cycleKind !== "PROGRAM_INCREMENT") {
+        return new Response(
+          JSON.stringify({ error: "A sprint can only be nested under a Program Increment" }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     if (data.status === "ACTIVE") {
       const activeCycle = await prisma.cycle.findFirst({
         where: { projectId, status: "ACTIVE", id: { not: cycleId } },
@@ -86,6 +110,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.startDate !== undefined && data.startDate !== null && { startDate: new Date(data.startDate) }),
         ...(data.endDate !== undefined && data.endDate !== null && { endDate: new Date(data.endDate) }),
         ...(data.status !== undefined && { status: data.status }),
+        ...(data.parentId !== undefined && { parentId: data.parentId }),
       },
       include: { _count: { select: { workItems: true } } },
     });
