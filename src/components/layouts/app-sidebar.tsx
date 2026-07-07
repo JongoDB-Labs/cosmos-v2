@@ -11,6 +11,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  Sparkles,
   ChevronsUpDown,
   Mic,
   MessageSquarePlus,
@@ -505,6 +506,18 @@ function UserCard({
             </DropdownMenuItem>
           </>
         )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent("cosmos:open-whats-new"))
+          }
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          <span className="flex-1">What&apos;s new</span>
+          <span className="ml-2 text-[10px] text-[var(--text-muted)]">
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+          </span>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => setTheme("light")}>
           <Sun className="mr-2 h-4 w-4" /> Light mode
