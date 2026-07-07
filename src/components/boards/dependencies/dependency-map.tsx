@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
-import { GitFork, AlertTriangle, Ban, Zap } from "lucide-react";
+import { GitFork, AlertTriangle, Ban, Zap, X, ExternalLink } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +12,39 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { cn } from "@/lib/utils";
 import type { WorkItem } from "@/types/models";
+
+/** The up+downstream dependency chain of a node — itself + everything it
+ *  (transitively) depends on + everything that (transitively) depends on it. */
+function computeChain(
+  id: string,
+  preds: Map<string, string[]>,
+  succs: Map<string, string[]>,
+): Set<string> {
+  const chain = new Set<string>([id]);
+  const walk = (adj: Map<string, string[]>) => {
+    const stack = [id];
+    while (stack.length) {
+      const n = stack.pop()!;
+      for (const m of adj.get(n) ?? []) {
+        if (!chain.has(m)) {
+          chain.add(m);
+          stack.push(m);
+        }
+      }
+    }
+  };
+  walk(preds);
+  walk(succs);
+  return chain;
+}
+
+/** Dependency STATE color for a node — done / overdue / open, from the fields a
+ *  work item always carries (no board columns needed here). */
+function statusColor(item: WorkItem): { color: string; label: string } {
+  if (item.completedAt) return { color: "#22c55e", label: "Done" };
+  if (item.dueDate && new Date(item.dueDate) < new Date()) return { color: "#ef4444", label: "Overdue" };
+  return { color: "#f59e0b", label: "Open" };
+}
 
 interface DependencyMapProps {
   orgId: string;
@@ -65,10 +99,12 @@ function directedEdge(l: WorkItemLink): { from: string; to: string } | null {
  * that item via the canonical /issues?item deep-link.
  */
 export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapProps) {
-  const router = useRouter();
   const params = useParams<{ orgSlug: string }>();
   const orgSlug = params.orgSlug;
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+  // Focused node: clicking a node selects it (highlights its chain + opens the
+  // dependency panel) instead of navigating away (FR 5dab88f8).
+  const [selected, setSelected] = useState<string | null>(null);
 
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const linksKey = useOrgQueryKey("work-item-links", projectId);
@@ -178,6 +214,21 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
     const blockedCount = preds.size; // items depending on ≥1 other
     const blockerCount = succs.size; // items others depend on
 
+    // Soft (relates/duplicates) adjacency, undirected, for the detail panel.
+    const softAdj = new Map<string, Set<string>>();
+    const linkSoft = (a: string, b: string) => {
+      let set = softAdj.get(a);
+      if (!set) {
+        set = new Set<string>();
+        softAdj.set(a, set);
+      }
+      set.add(b);
+    };
+    for (const l of soft) {
+      linkSoft(l.sourceItemId, l.targetItemId);
+      linkSoft(l.targetItemId, l.sourceItemId);
+    }
+
     return {
       directed,
       soft,
@@ -185,6 +236,9 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
       width,
       height,
       cycleNodes,
+      preds,
+      succs,
+      softAdj,
       connectedCount: connected.size,
       blockedCount,
       blockerCount,
@@ -214,27 +268,34 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
     );
   }
 
+  const chainSet = selected ? computeChain(selected, graph.preds, graph.succs) : null;
+
   const drawNode = (id: string) => {
     const p = graph.pos.get(id);
     const item = itemById.get(id);
     if (!p || !item) return null;
     const color = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
     const inCycle = graph.cycleNodes.has(id);
+    const status = statusColor(item);
+    const isSelected = selected === id;
+    // When a node is focused, fade everything outside its chain.
+    const dimmed = chainSet ? !chainSet.has(id) : false;
     const label = item.title.length > 24 ? item.title.slice(0, 23) + "…" : item.title;
     return (
       <g
         key={id}
         transform={`translate(${p.x}, ${p.y})`}
         className="cursor-pointer"
-        onClick={() => router.push(`/${orgSlug}/issues?item=${id}`)}
+        opacity={dimmed ? 0.28 : 1}
+        onClick={() => setSelected(id)}
       >
         <rect
           width={NODE_W}
           height={NODE_H}
           rx={8}
           className="fill-[var(--surface)]"
-          stroke={inCycle ? "var(--status-critical)" : "var(--border)"}
-          strokeWidth={inCycle ? 2 : 1}
+          stroke={isSelected ? "var(--primary)" : inCycle ? "var(--status-critical)" : "var(--border)"}
+          strokeWidth={isSelected || inCycle ? 2 : 1}
         />
         <rect width={4} height={NODE_H} rx={2} fill={color} />
         <text x={14} y={19} className="fill-[var(--text-muted)] text-[10px]" style={{ fontSize: 10 }}>
@@ -243,8 +304,12 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
         <text x={14} y={34} className="fill-[var(--text)] text-xs font-medium" style={{ fontSize: 12 }}>
           {label}
         </text>
+        {/* Dependency-state dot (done / overdue / open). */}
+        <circle cx={NODE_W - 12} cy={12} r={4} fill={status.color}>
+          <title>{status.label}</title>
+        </circle>
         {inCycle && (
-          <text x={NODE_W - 16} y={19} style={{ fontSize: 11 }} fill="var(--status-critical)">
+          <text x={NODE_W - 26} y={NODE_H - 8} style={{ fontSize: 11 }} fill="var(--status-critical)">
             ⟳
           </text>
         )}
@@ -281,8 +346,26 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
         )}
       </div>
 
-      {/* Graph */}
-      <div className="flex-1 overflow-auto p-2">
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[var(--border)] px-4 py-1.5 text-[11px] text-[var(--text-muted)]">
+        <span className="flex items-center gap-1">
+          <svg width="26" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="var(--text-muted)" strokeWidth="1.5" markerEnd="url(#dep-arrow)" /></svg>
+          depends on →
+        </span>
+        <span className="flex items-center gap-1">
+          <svg width="26" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="var(--border)" strokeWidth="1" strokeDasharray="4 3" /></svg>
+          related
+        </span>
+        <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#22c55e" }} /> done</span>
+        <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#f59e0b" }} /> open</span>
+        <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: "#ef4444" }} /> overdue</span>
+        <span className="flex items-center gap-1 text-[var(--status-critical)]">⟳ cycle</span>
+        <span className="ml-auto">Click a node to trace its chain</span>
+      </div>
+
+      {/* Graph + detail panel */}
+      <div className="relative flex-1 overflow-hidden">
+      <div className="h-full overflow-auto p-2">
         <svg data-testid="dep-graph" width={graph.width} height={graph.height} className="block">
           <defs>
             <marker id="dep-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -293,21 +376,32 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
           {/* soft (relates/duplicates) — dashed, under everything */}
           {graph.soft.map((l) => {
             const d = edgePath(l.sourceItemId, l.targetItemId);
+            const dim = chainSet ? !(chainSet.has(l.sourceItemId) && chainSet.has(l.targetItemId)) : false;
             return d ? (
-              <path key={l.id} d={d} className="stroke-[var(--border)]" strokeWidth={1} strokeDasharray="4 3" fill="none" />
+              <path
+                key={l.id}
+                d={d}
+                className="stroke-[var(--border)]"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+                fill="none"
+                opacity={dim ? 0.2 : 1}
+              />
             ) : null;
           })}
           {/* directed dependency edges */}
           {graph.directed.map((e, i) => {
             const d = edgePath(e.from, e.to);
             const crit = graph.cycleNodes.has(e.from) && graph.cycleNodes.has(e.to);
+            const onChain = chainSet ? chainSet.has(e.from) && chainSet.has(e.to) : false;
+            const dim = chainSet ? !onChain : false;
             return d ? (
               <path
                 key={i}
                 d={d}
-                stroke={crit ? "var(--status-critical)" : "var(--text-muted)"}
-                strokeOpacity={crit ? 0.9 : 0.5}
-                strokeWidth={crit ? 2 : 1.5}
+                stroke={crit ? "var(--status-critical)" : onChain ? "var(--primary)" : "var(--text-muted)"}
+                strokeOpacity={dim ? 0.18 : crit || onChain ? 0.9 : 0.5}
+                strokeWidth={crit || onChain ? 2 : 1.5}
                 fill="none"
                 markerEnd="url(#dep-arrow)"
               />
@@ -317,6 +411,104 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
           {[...graph.pos.keys()].map(drawNode)}
         </svg>
       </div>
+
+      {/* In-place dependency panel for the focused node. */}
+      {selected && itemById.get(selected) && (
+        <div className="absolute right-0 top-0 flex h-full w-80 flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-xl">
+          {(() => {
+            const item = itemById.get(selected)!;
+            const st = statusColor(item);
+            const toItems = (ids: Iterable<string>) =>
+              [...new Set(ids)].map((id) => itemById.get(id)).filter((x): x is WorkItem => !!x);
+            const dependsOn = toItems(graph.preds.get(selected) ?? []);
+            const blocks = toItems(graph.succs.get(selected) ?? []);
+            const related = toItems(graph.softAdj.get(selected) ?? []);
+            return (
+              <>
+                <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                      <span className="font-mono">{projectKey}-{item.ticketNumber}</span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-block size-2 rounded-full" style={{ background: st.color }} /> {st.label}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-sm font-medium text-[var(--text)]">{item.title}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(null)}
+                    aria-label="Close"
+                    className="shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--border)]"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3 text-sm">
+                  <DepList title="Depends on" hint="must finish first" items={dependsOn} projectKey={projectKey} onPick={setSelected} />
+                  <DepList title="Blocks" hint="waiting on this" items={blocks} projectKey={projectKey} onPick={setSelected} />
+                  <DepList title="Related" hint="soft link" items={related} projectKey={projectKey} onPick={setSelected} />
+                </div>
+                <div className="border-t border-[var(--border)] px-3 py-2">
+                  <Link
+                    href={`/${orgSlug}/issues?item=${selected}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline"
+                  >
+                    <ExternalLink className="size-3.5" /> Open full ticket
+                  </Link>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+      </div>
+    </div>
+  );
+}
+
+function DepList({
+  title,
+  hint,
+  items,
+  projectKey,
+  onPick,
+}: {
+  title: string;
+  hint: string;
+  items: WorkItem[];
+  projectKey: string;
+  onPick: (id: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline gap-1.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{title}</span>
+        <span className="text-[10px] text-[var(--text-muted)]">· {hint}</span>
+        <span className="ml-auto text-[10px] text-[var(--text-muted)]">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-[var(--text-muted)]">None</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((i) => {
+            const st = statusColor(i);
+            return (
+              <li key={i.id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(i.id)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-[var(--border)]/40"
+                >
+                  <span className="inline-block size-2 shrink-0 rounded-full" style={{ background: st.color }} title={st.label} />
+                  <span className="shrink-0 font-mono text-[11px] text-[var(--text-muted)]">{projectKey}-{i.ticketNumber}</span>
+                  <span className="truncate text-xs text-[var(--text)]">{i.title}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
