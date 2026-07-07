@@ -17,6 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Activity as ActivityIcon } from "lucide-react";
+import {
+  activityFieldLabel,
+  activityValueLabel,
+  type ActivityValueResolvers,
+} from "@/lib/work-items/activity-label";
 
 interface FeedItem {
   id: string;
@@ -52,22 +57,26 @@ const ANY = "__any__";
 const ACTIONS = ["created", "updated", "commented", "deleted"];
 
 /** Human-readable phrasing for an activity row. */
-function phrase(a: FeedItem): React.ReactNode {
+function phrase(a: FeedItem, resolvers: ActivityValueResolvers): React.ReactNode {
   if (a.action === "created") return "created this item";
   if (a.action === "commented") return "commented";
   if (a.action === "deleted") return "deleted this item";
   if (a.action === "updated" && a.field) {
+    // Resolve id-valued fields (assignee/type/…) so we never show a raw GUID.
+    const oldLabel = activityValueLabel(a.field, a.oldValue, resolvers);
+    const newLabel = activityValueLabel(a.field, a.newValue, resolvers);
     return (
       <>
-        changed <span className="font-medium text-[var(--text)]">{a.field}</span>
-        {a.oldValue && (
+        changed{" "}
+        <span className="font-medium text-[var(--text)]">{activityFieldLabel(a.field)}</span>
+        {oldLabel && (
           <>
-            {" "}from <span className="text-[var(--text-muted)] line-through">{a.oldValue}</span>
+            {" "}from <span className="text-[var(--text-muted)] line-through">{oldLabel}</span>
           </>
         )}
-        {a.newValue && (
+        {newLabel && (
           <>
-            {" "}to <span className="font-medium text-[var(--text)]">{a.newValue}</span>
+            {" "}to <span className="font-medium text-[var(--text)]">{newLabel}</span>
           </>
         )}
       </>
@@ -137,6 +146,15 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
     });
 
   const items = useMemo(() => data?.pages.flatMap((p) => p.data) ?? [], [data]);
+
+  // Resolve id-valued activity fields to names (facets carry members + types).
+  const activityResolvers = useMemo(
+    () => ({
+      user: (id: string) => facets?.members.find((m) => m.id === id)?.displayName,
+      type: (id: string) => facets?.types.find((t) => t.id === id)?.name,
+    }),
+    [facets],
+  );
 
   // Group consecutive items under their day header.
   const groups = useMemo(() => {
@@ -227,7 +245,7 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
                       <span className="font-medium text-[var(--text)]">
                         {a.actor.displayName}
                       </span>{" "}
-                      <span className="text-[var(--text-muted)]">{phrase(a)}</span>
+                      <span className="text-[var(--text-muted)]">{phrase(a, activityResolvers)}</span>
                       {a.item && (
                         <>
                           {" "}on{" "}
