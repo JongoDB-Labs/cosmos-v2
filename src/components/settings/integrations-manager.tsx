@@ -29,10 +29,18 @@ import {
   Clock,
   ExternalLink,
   Plug,
+  Bell,
 } from "lucide-react";
 import type { Integration } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import {
+  TEAMS_EVENTS,
+  TEAMS_EVENT_LABELS,
+  TEAMS_NOTIFY_DEFAULTS,
+  type TeamsEvent,
+} from "@/lib/integrations/teams-notify-config";
 import { BrandIcon } from "@/components/integrations/brand-icon";
 import {
   CATEGORY_META,
@@ -271,6 +279,43 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
   const configFieldsForProvider = (slug: string) =>
     available.find((p) => p.slug === slug)?.configFields ?? [];
 
+  // Teams notification toggles (FR 8a162fe7): per-event on/off stored in the
+  // integration's config.notify; absent keys fall back to the defaults.
+  const [notifyFor, setNotifyFor] = useState<Integration | null>(null);
+  const [notifyDraft, setNotifyDraft] = useState<Record<TeamsEvent, boolean>>(TEAMS_NOTIFY_DEFAULTS);
+  const [notifySaving, setNotifySaving] = useState(false);
+
+  function openNotifyDialog(integration: Integration) {
+    const stored = ((integration.config?.notify ?? {}) as Partial<Record<TeamsEvent, boolean>>);
+    setNotifyDraft(
+      Object.fromEntries(
+        TEAMS_EVENTS.map((e) => [e, stored[e] ?? TEAMS_NOTIFY_DEFAULTS[e]]),
+      ) as Record<TeamsEvent, boolean>,
+    );
+    setNotifyFor(integration);
+  }
+
+  async function saveNotify() {
+    if (!notifyFor) return;
+    setNotifySaving(true);
+    try {
+      const res = await fetch(`${apiBase}/${notifyFor.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // PUT replaces config — send the merged object so other keys survive.
+        body: JSON.stringify({ config: { ...notifyFor.config, notify: notifyDraft } }),
+      });
+      if (!res.ok) throw new Error("Couldn't save notification settings.");
+      toast.success("Teams notifications saved");
+      setNotifyFor(null);
+      refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't save notification settings.");
+    } finally {
+      setNotifySaving(false);
+    }
+  }
+
   // Test the Microsoft Teams connection (FR 8a162fe7) — mints a Graph token and,
   // when a default channel is set, posts a visible test message.
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -429,15 +474,25 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
                       {integration.status === "ACTIVE" ? "Disable" : "Enable"}
                     </Button>
                     {integration.provider === "microsoft-teams-messaging" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={testingId === integration.id}
-                        onClick={() => handleTestTeams(integration)}
-                      >
-                        <Plug className="mr-1 h-3.5 w-3.5" />
-                        {testingId === integration.id ? "Testing…" : "Test"}
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={testingId === integration.id}
+                          onClick={() => handleTestTeams(integration)}
+                        >
+                          <Plug className="mr-1 h-3.5 w-3.5" />
+                          {testingId === integration.id ? "Testing…" : "Test"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openNotifyDialog(integration)}
+                        >
+                          <Bell className="mr-1 h-3.5 w-3.5" />
+                          Notifications
+                        </Button>
+                      </>
                     )}
                     <Button
                       variant="ghost"
@@ -727,6 +782,38 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
             <Button variant="destructive" onClick={handleUninstall} disabled={submitting}>
               {submitting && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               Uninstall
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Teams notification toggles (FR 8a162fe7) */}
+      <Dialog open={notifyFor !== null} onOpenChange={(o) => !o && setNotifyFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Teams notifications</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Choose which Cosmos events post to the configured Teams channel.
+          </p>
+          <div className="space-y-3 py-2">
+            {TEAMS_EVENTS.map((e) => (
+              <label key={e} className="flex items-center justify-between gap-3 text-sm">
+                <span>{TEAMS_EVENT_LABELS[e]}</span>
+                <ToggleSwitch
+                  checked={notifyDraft[e]}
+                  onCheckedChange={(v) => setNotifyDraft((prev) => ({ ...prev, [e]: v }))}
+                  aria-label={TEAMS_EVENT_LABELS[e]}
+                />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNotifyFor(null)} disabled={notifySaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveNotify()} disabled={notifySaving}>
+              {notifySaving ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

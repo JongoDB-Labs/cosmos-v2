@@ -1,0 +1,42 @@
+name: teams-digest
+
+# Daily Teams digest (FR 8a162fe7). Posts a one-message 24h summary to the
+# org's Teams channel — only when the org has the Teams integration active AND
+# the dailyDigest toggle on (the endpoint short-circuits otherwise, so this
+# workflow is safe to leave scheduled). Inert until the same variables/secret
+# as feedback-remediation are configured.
+
+on:
+  schedule:
+    - cron: "0 13 * * 1-5" # 13:00 UTC, weekdays
+  workflow_dispatch: {}
+
+concurrency:
+  group: teams-digest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the digest
+        env:
+          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
+          API_KEY: ${{ secrets.COSMOS_API_KEY }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$ORG_ID" ] || [ -z "$API_KEY" ]; then
+            echo "::notice::teams-digest not configured (COSMOS_BASE_URL / COSMOS_ORG_ID / COSMOS_API_KEY unset) — skipping."
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+            -X POST "$BASE_URL/api/v1/orgs/$ORG_ID/integrations/teams/digest" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" -d '{}')
+          echo "HTTP $code"; cat /tmp/resp.json; echo
+          if [ "$code" -ge 300 ]; then
+            echo "::error::teams digest failed (HTTP $code)"; exit 1
+          fi
