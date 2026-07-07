@@ -12,6 +12,9 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Loader2,
+  GitCompareArrows,
+  Wrench,
+  Flag,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -124,6 +127,51 @@ function progressOf(item: WorkItem, doneKeys: Set<string>): number {
   return doneKeys.has(item.columnKey) ? 1 : 0;
 }
 
+/** A single Gantt analysis-lens toggle chip. Off = muted outline; on = tinted
+ *  in the lens's accent color so several active lenses stay visually distinct. */
+function LensToggle({
+  active,
+  onClick,
+  icon,
+  label,
+  title,
+  accent,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  accent: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors",
+        !active && "border-border hover:text-foreground",
+      )}
+      style={
+        active
+          ? { borderColor: accent, color: accent, backgroundColor: `color-mix(in srgb, ${accent} 12%, transparent)` }
+          : undefined
+      }
+      data-active={active}
+    >
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5",
+          !active && "text-muted-foreground",
+        )}
+      >
+        {icon} {label}
+      </span>
+    </button>
+  );
+}
+
 export function TimelineView({ orgId, projectId, projectKey, boardId }: TimelineViewProps) {
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
@@ -188,12 +236,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // FilterBar filters (search/type/priority/assignee/cycle), a critical-path
   // highlight toggle, and a busy flag while a bulk shift/compress is in flight.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
+  // flips to read the schedule a particular way, replacing the lone Critical
+  // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
   const [showCritical, setShowCritical] = useState(false);
+  const [showBaseline, setShowBaseline] = useState(true);
+  const [showEnablers, setShowEnablers] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
     () => items.filter((it) => matchesFilters(it, filters)),
     [items, filters],
+  );
+  const hasEnablers = useMemo(
+    () => filteredItems.some((it) => it.workCategory === "ENABLER"),
+    [filteredItems],
   );
 
   // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
@@ -623,6 +680,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       return { start: newStart, end: newEnd };
     });
 
+  // Freeze the current schedule as the baseline (FR gantt-enh). Every dated
+  // item's start/due is snapshotted server-side; the timeline then draws a ghost
+  // track behind each bar so any later slip reads at a glance. Auto-enables the
+  // baseline lens so the snapshot is immediately visible.
+  const setBaseline = useCallback(async () => {
+    if (!canEdit || busy) return;
+    setBusy(true);
+    try {
+      const res = await jsonFetch<{ baselined: number }>(`${basePath}/timeline/baseline`, {
+        method: "POST",
+      });
+      setShowBaseline(true);
+      toast.success(`Baseline set on ${res.baselined} item${res.baselined === 1 ? "" : "s"}`);
+      qc.invalidateQueries({ queryKey: itemsKey });
+    } catch (e) {
+      notifyError(e, "Couldn't set the baseline");
+    } finally {
+      setBusy(false);
+    }
+  }, [canEdit, busy, basePath, qc, itemsKey]);
+
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
@@ -667,18 +745,46 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          <button
+          {/* Analysis lenses — overlay toggles that recolor/annotate the chart
+              rather than change data. Grouped under one label so the toolbar
+              reads as "ways to look at the schedule," not scattered buttons. */}
+          <span className="text-xs font-medium text-muted-foreground">Lenses</span>
+          <LensToggle
+            active={showCritical}
             onClick={() => setShowCritical((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors",
-              showCritical
-                ? "border-[var(--status-critical)] bg-[var(--status-critical)]/10 text-[var(--status-critical)]"
-                : "border-border text-muted-foreground hover:text-foreground",
-            )}
-            title="Highlight the longest dependency chain"
-          >
-            <Route className="size-3.5" /> Critical path
-          </button>
+            icon={<Route className="size-3.5" />}
+            label="Critical path"
+            title="Highlight the longest chain of dependencies driving the end date"
+            accent="var(--status-critical)"
+          />
+          <LensToggle
+            active={showBaseline}
+            onClick={() => setShowBaseline((v) => !v)}
+            icon={<GitCompareArrows className="size-3.5" />}
+            label="Baselines"
+            title="Show the planned schedule as a ghost track behind each bar, with slippage in red"
+            accent="var(--status-blocked)"
+          />
+          <LensToggle
+            active={showEnablers}
+            onClick={() => setShowEnablers((v) => !v)}
+            icon={<Wrench className="size-3.5" />}
+            label="Enablers"
+            title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
+            accent="var(--type-enabler, #0891b2)"
+          />
+          {canEdit && (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={busy}
+              onClick={() => void setBaseline()}
+              title="Freeze the current start/due dates as the baseline to measure slippage against"
+            >
+              <Flag className="size-3" /> Set baseline
+            </Button>
+          )}
+          <div className="mx-1 h-5 w-px bg-border" />
           {parentIds.size > 0 && (
             <button
               onClick={() =>
@@ -759,6 +865,38 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           />
         </div>
       </div>
+      {/* Contextual legend — only the keys for what's actually on screen. */}
+      {(showBaseline || hasEnablers) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
+          {showBaseline && (
+            <>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-1 w-5 rounded-sm bg-muted-foreground/40" />
+                Planned baseline
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="inline-block h-1 w-5 rounded-sm"
+                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
+                />
+                Slipped past plan
+              </span>
+            </>
+          )}
+          {hasEnablers && (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-2.5 w-5 rounded-sm bg-muted-foreground/30"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 2px, transparent 2px 5px)",
+                }}
+              />
+              Enabler work
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex-1 flex overflow-hidden">
         {/* Left panel - item labels. Narrower on phones so the chart isn't
             crowded off-screen; the SVG rows align by height, not this width. */}
@@ -922,6 +1060,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--status-critical)" />
               </marker>
+              {/* Diagonal hatch overlay marking ENABLER work (architecture,
+                  infra, compliance) — a texture that reads regardless of the
+                  bar's type color. */}
+              <pattern
+                id="timeline-enabler-hatch"
+                width="6"
+                height="6"
+                patternTransform="rotate(45)"
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width="6" height="6" fill="transparent" />
+                <line x1="0" y1="0" x2="0" y2="6" stroke="white" strokeWidth="2" opacity="0.55" />
+              </pattern>
             </defs>
 
             {/* Weekend shading + week gridlines */}
@@ -1039,6 +1190,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
               const prog = progressOf(item, doneKeys);
               const isCrit = showCritical && criticalSet.has(item.id);
+              const isEnabler = item.workCategory === "ENABLER";
+              // Business items dim slightly while the Enabler lens is on so the
+              // hatched enablers pop; enablers keep full opacity.
+              const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
+
+              // Baseline (planned) track: a thin sub-bar beneath the live bar
+              // drawn from the snapshotted dates. If the actual end runs past the
+              // planned end, a red slip segment extends to it — the delay, at a
+              // glance. Positioned from un-dragged geometry so it stays put while
+              // the live bar is dragged, widening the visible gap.
+              const bStart = item.baselineStart ? startOfDay(new Date(item.baselineStart)) : null;
+              const bEnd = item.baselineEnd ? startOfDay(new Date(item.baselineEnd)) : null;
+              let ghost: { x: number; w: number; slipX: number; slipW: number } | null = null;
+              if (showBaseline && bStart && bEnd) {
+                const gx = diffDays(timelineStart, bStart) * DAY_WIDTH;
+                const gw = Math.max(diffDays(bStart, bEnd) * DAY_WIDTH, 2);
+                const plannedEndX = gx + gw;
+                const actualEndX = baseX + baseW;
+                ghost = {
+                  x: gx,
+                  w: gw,
+                  slipX: plannedEndX,
+                  slipW: actualEndX > plannedEndX + 0.5 ? actualEndX - plannedEndX : 0,
+                };
+              }
+              const ghostY = y + h + 2;
+              const ghostH = 4;
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -1095,6 +1273,32 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
+                  {/* Baseline (planned) track + red slip segment, drawn first so
+                      the live bar sits above it. Non-interactive. */}
+                  {ghost && (
+                    <g style={{ pointerEvents: "none" }}>
+                      <rect
+                        x={ghost.x}
+                        y={ghostY}
+                        width={ghost.w}
+                        height={ghostH}
+                        rx={2}
+                        className="fill-muted-foreground"
+                        opacity={0.4}
+                      />
+                      {ghost.slipW > 0 && (
+                        <rect
+                          x={ghost.slipX}
+                          y={ghostY}
+                          width={ghost.slipW}
+                          height={ghostH}
+                          rx={2}
+                          fill="var(--status-critical)"
+                          opacity={0.8}
+                        />
+                      )}
+                    </g>
+                  )}
                   <rect
                     x={x}
                     y={y}
@@ -1102,9 +1306,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     height={h}
                     rx={4}
                     fill={colors.fill}
-                    stroke={isCrit ? "var(--status-critical)" : colors.stroke}
-                    strokeWidth={isCrit ? 2.5 : 1}
-                    opacity={preview ? 1 : 0.85}
+                    stroke={
+                      isCrit
+                        ? "var(--status-critical)"
+                        : isEnabler && showEnablers
+                          ? "var(--type-enabler, #0891b2)"
+                          : colors.stroke
+                    }
+                    strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                    strokeDasharray={isEnabler ? "5 3" : undefined}
+                    opacity={(preview ? 1 : 0.85) * dimForEnablerLens}
                     onPointerDown={(e) => beginDrag(item, "move", e)}
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
@@ -1130,6 +1341,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       rx={4}
                       fill={colors.stroke}
                       opacity={preview ? 0.65 : 0.5}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  )}
+                  {/* Enabler texture — diagonal hatch marking this as enabler
+                      work regardless of type color. Always on so classification
+                      is legible; the Enabler lens dims business bars around it. */}
+                  {isEnabler && (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={w}
+                      height={h}
+                      rx={4}
+                      fill="url(#timeline-enabler-hatch)"
+                      opacity={showEnablers ? 1 : 0.6}
                       style={{ pointerEvents: "none" }}
                     />
                   )}
@@ -1209,7 +1435,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {projectKey}-{hoveredItem.ticketNumber}: {hoveredItem.title}
               </p>
               <div className="text-xs text-muted-foreground space-y-0.5">
-                <p>Type: {hoveredItem.workItemType?.name ?? "Unknown"}</p>
+                <p>
+                  Type: {hoveredItem.workItemType?.name ?? "Unknown"}
+                  {hoveredItem.workCategory === "ENABLER" && (
+                    <span className="ml-1 rounded-sm bg-[var(--type-enabler)]/15 px-1 text-[var(--type-enabler)]">
+                      Enabler
+                    </span>
+                  )}
+                </p>
                 <p>Priority: {hoveredItem.priority}</p>
                 {hoveredItem.assigneeId && (
                   <p>Assignee: {memberMap.get(hoveredItem.assigneeId) ?? "Unknown"}</p>
@@ -1220,6 +1453,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {hoveredItem.dueDate && (
                   <p>Due: {new Date(hoveredItem.dueDate).toLocaleDateString()}</p>
                 )}
+                {/* Slippage vs. baseline — the delay this bar's red tail shows. */}
+                {hoveredItem.baselineEnd &&
+                  hoveredItem.dueDate &&
+                  (() => {
+                    const slip = diffDays(
+                      startOfDay(new Date(hoveredItem.baselineEnd)),
+                      startOfDay(new Date(hoveredItem.dueDate)),
+                    );
+                    if (slip === 0) return <p>On baseline</p>;
+                    return (
+                      <p className={slip > 0 ? "text-[var(--status-critical)]" : "text-[var(--status-done)]"}>
+                        {slip > 0 ? `Slipped ${slip}d late` : `${-slip}d ahead of baseline`}
+                      </p>
+                    );
+                  })()}
                 {hoveredItem.storyPoints != null && (
                   <p>Points: {hoveredItem.storyPoints}</p>
                 )}
