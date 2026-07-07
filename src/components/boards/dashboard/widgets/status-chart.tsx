@@ -4,9 +4,11 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "@/com
 
 interface StatusChartProps {
   data: Array<{ name: string; value: number; color: string }>;
+  /** Drill-down: fired with the segment's `name` when a slice is clicked. */
+  onSliceClick?: (name: string) => void;
 }
 
-export function StatusChart({ data }: StatusChartProps) {
+export function StatusChart({ data, onSliceClick }: StatusChartProps) {
   if (data.length === 0 || data.every((d) => d.value === 0)) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -27,6 +29,8 @@ export function StatusChart({ data }: StatusChartProps) {
           paddingAngle={2}
           dataKey="value"
           nameKey="name"
+          onClick={onSliceClick ? (d: { name?: string }) => d?.name && onSliceClick(d.name) : undefined}
+          className={onSliceClick ? "cursor-pointer" : undefined}
         >
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.color} />

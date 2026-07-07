@@ -1,11 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MetricCard } from "./widgets/metric-card";
 import { StatusChart } from "./widgets/status-chart";
 import { PriorityChart } from "./widgets/priority-chart";
@@ -177,6 +185,15 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     }));
   }, [items]);
 
+  // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
+  // of the matching tickets, each deep-linking to its detail on the Issues page.
+  const params = useParams();
+  const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
+  const [drill, setDrill] = useState<{ title: string; rows: WorkItem[] } | null>(null);
+  const openDrill = (title: string, filter: (i: WorkItem) => boolean) =>
+    setDrill({ title, rows: items.filter(filter) });
+  const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
+
   // Workload data
   const workloadData = useMemo(() => {
     const counts = new Map<string, number>();
@@ -266,16 +283,22 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       title: "Overview",
       body: (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard label="Total Items" value={metrics.total} />
+          <MetricCard
+            label="Total Items"
+            value={metrics.total}
+            onClick={() => openDrill("All items", () => true)}
+          />
           <MetricCard
             label="Completed"
             value={metrics.completed}
             color="text-green-500"
+            onClick={() => openDrill("Completed", (i) => catOf(i) === "DONE")}
           />
           <MetricCard
             label="In Progress"
             value={metrics.inProgress}
             color="text-blue-500"
+            onClick={() => openDrill("In Progress", (i) => catOf(i) === "IN_PROGRESS")}
           />
           <MetricCard
             label="Overdue"
@@ -283,6 +306,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
             color="text-red-500"
             trend={metrics.overdue > 0 ? "down" : "flat"}
             trendValue={metrics.overdue > 0 ? "Action needed" : "On track"}
+            onClick={() =>
+              openDrill(
+                "Overdue",
+                (i) => !!i.dueDate && !i.completedAt && new Date(i.dueDate) < new Date(),
+              )
+            }
           />
         </div>
       ),
@@ -290,12 +319,26 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     {
       key: "status",
       title: "Status Distribution",
-      body: <StatusChart data={statusData} />,
+      body: (
+        <StatusChart
+          data={statusData}
+          onSliceClick={(name) =>
+            openDrill(name, (i) => catOf(i).replace("_", " ") === name)
+          }
+        />
+      ),
     },
     {
       key: "priority",
       title: "Priority Distribution",
-      body: <PriorityChart data={priorityData} />,
+      body: (
+        <PriorityChart
+          data={priorityData}
+          onSliceClick={(name) =>
+            openDrill(`${name} priority`, (i) => i.priority === name.toUpperCase())
+          }
+        />
+      ),
     },
     {
       key: "workload",
@@ -365,6 +408,39 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           ))}
         </GridLayout>
       </div>
+
+      {/* Drill-down: the tickets behind a clicked metric / chart segment. */}
+      <Dialog open={drill !== null} onOpenChange={(o) => !o && setDrill(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {drill?.title} · {drill?.rows.length ?? 0} item{drill?.rows.length === 1 ? "" : "s"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-96 divide-y overflow-y-auto rounded-md border">
+            {drill && drill.rows.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">No matching items.</p>
+            ) : (
+              drill?.rows.map((i) => (
+                <Link
+                  key={i.id}
+                  href={`/${orgSlug}/issues?item=${i.id}`}
+                  className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
+                  onClick={() => setDrill(null)}
+                >
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                    {projectKey}-{i.ticketNumber}
+                  </span>
+                  <span className="flex-1 truncate">{i.title}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {(columnCategoryMap.get(i.columnKey) ?? "TODO").replace("_", " ").toLowerCase()}
+                  </span>
+                </Link>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

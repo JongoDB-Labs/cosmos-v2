@@ -9,11 +9,24 @@ interface MetricCardProps {
   trend?: "up" | "down" | "flat";
   trendValue?: string;
   color?: string;
+  /** When set, the card becomes a button that drills into its items. */
+  onClick?: () => void;
 }
 
-export function MetricCard({ label, value, trend, trendValue, color }: MetricCardProps) {
+export function MetricCard({ label, value, trend, trendValue, color, onClick }: MetricCardProps) {
+  const interactive = !!onClick;
   return (
-    <div className="flex flex-col gap-1">
+    <div
+      className={cn(
+        "flex flex-col gap-1",
+        interactive &&
+          "cursor-pointer rounded-md p-1 -m-1 transition-colors hover:bg-[var(--muted,rgba(0,0,0,0.04))]",
+      )}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={interactive ? (e) => (e.key === "Enter" || e.key === " ") && onClick!() : undefined}
+    >
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex items-end gap-2">
         <span className={cn("text-2xl font-bold", color)}>{value}</span>
