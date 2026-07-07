@@ -9,8 +9,25 @@ import { createNotification } from "@/lib/notifications/create";
 import { z } from "zod";
 import { Priority } from "@prisma/client";
 
+// Bulk ops accept a large selection: "select all N matching" (v2.128.0) spans
+// the ENTIRE result set, not just the visible page, so a project with hundreds
+// or thousands of items must still delete/edit them in one action. The old
+// `.max(100)` cap rejected exactly that selection with a 400 ("Too big"), which
+// surfaced to the user as "Couldn't delete the selected items." The cap here is
+// only a sanity/DoS bound — the DB writes below chunk the ids so a large IN list
+// stays cheap and never becomes one giant statement.
+const BULK_MAX = 10_000;
+const BULK_CHUNK = 500;
+
+/** Split ids into fixed-size batches (keeps each deleteMany/updateMany small). */
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 const bulkUpdateSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(100),
+  ids: z.array(z.string().uuid()).min(1).max(BULK_MAX),
   update: z.object({
     columnKey: z.string().nullish(),
     assigneeId: z.string().uuid().nullable().optional(),
@@ -21,7 +38,7 @@ const bulkUpdateSchema = z.object({
 });
 
 const bulkDeleteSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(100),
+  ids: z.array(z.string().uuid()).min(1).max(BULK_MAX),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -51,24 +68,29 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // Snapshot previous state so we can fan out per-item assignee-change
     // notifications after the bulk update succeeds.
-    const previousItems = await prisma.workItem.findMany({
-      where: { id: { in: ids }, orgId, projectId },
-      select: {
-        id: true,
-        title: true,
-        assigneeId: true,
-        projectId: true,
-      },
-    });
+    const previousItems: { id: string; title: string; assigneeId: string | null; projectId: string }[] = [];
+    for (const batch of chunk(ids, BULK_CHUNK)) {
+      previousItems.push(
+        ...(await prisma.workItem.findMany({
+          where: { id: { in: batch }, orgId, projectId },
+          select: { id: true, title: true, assigneeId: true, projectId: true },
+        })),
+      );
+    }
     const projectKey = await prisma.project
       .findUnique({ where: { id: projectId }, select: { key: true } })
       .then((p) => p?.key ?? projectId)
       .catch(() => projectId);
 
-    const result = await prisma.workItem.updateMany({
-      where: { id: { in: ids }, orgId, projectId },
-      data: updateData,
-    });
+    let updatedCount = 0;
+    for (const batch of chunk(ids, BULK_CHUNK)) {
+      const r = await prisma.workItem.updateMany({
+        where: { id: { in: batch }, orgId, projectId },
+        data: updateData,
+      });
+      updatedCount += r.count;
+    }
+    const result = { count: updatedCount };
 
     await logAudit({
       orgId,
@@ -125,9 +147,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const { ids } = bulkDeleteSchema.parse(body);
 
-    const result = await prisma.workItem.deleteMany({
-      where: { id: { in: ids }, orgId, projectId },
-    });
+    let deletedCount = 0;
+    for (const batch of chunk(ids, BULK_CHUNK)) {
+      const r = await prisma.workItem.deleteMany({
+        where: { id: { in: batch }, orgId, projectId },
+      });
+      deletedCount += r.count;
+    }
+    const result = { count: deletedCount };
 
     await logAudit({
       orgId,
