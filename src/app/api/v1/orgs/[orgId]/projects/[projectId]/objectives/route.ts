@@ -6,6 +6,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { krProgressPercent } from "@/lib/okr/progress";
+import { objectiveHealth } from "@/lib/okr/health";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -26,11 +28,62 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const objectives = await prisma.objective.findMany({
       where: { orgId, projectId },
-      include: { keyResults: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        keyResults: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            links: {
+              select: {
+                workItem: {
+                  select: { id: true, ticketNumber: true, title: true, columnKey: true, completedAt: true },
+                },
+              },
+            },
+          },
+        },
+      },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
-    return success(objectives);
+    // FR a94ff583: a Key Result with linked tickets AUTO-tracks — its current
+    // value becomes the count of its linked tickets that are done. The objective
+    // progress rolls up from the (possibly auto-derived) KR values, and health
+    // is derived from that progress vs. the objective's target date.
+    const shaped = objectives.map((o) => {
+      const keyResults = o.keyResults.map((kr) => {
+        const linkedItems = kr.links.map((l) => l.workItem);
+        const linkedTotal = linkedItems.length;
+        const linkedDone = linkedItems.filter((w) => w.completedAt != null).length;
+        const currentValue = linkedTotal > 0 ? linkedDone : kr.currentValue;
+        return {
+          ...kr,
+          links: undefined,
+          currentValue,
+          autoTracked: linkedTotal > 0,
+          linkedTotal,
+          linkedDone,
+          linkedItems,
+        };
+      });
+      const progress =
+        keyResults.length === 0
+          ? 0
+          : Math.round(
+              keyResults.reduce(
+                (sum, kr) =>
+                  sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
+                0,
+              ) / keyResults.length,
+            );
+      return {
+        ...o,
+        keyResults,
+        progress,
+        health: objectiveHealth(progress, o.targetDate, o.status, o.createdAt),
+      };
+    });
+
+    return success(shaped);
   } catch (e) {
     return handleApiError(e);
   }

@@ -721,9 +721,10 @@ model WorkItem {
   // Prod-parity back-relations (dependency links + attachments).
   outgoingLinks WorkItemLink[]       @relation("WorkItemLinkSource")
   incomingLinks WorkItemLink[]       @relation("WorkItemLinkTarget")
-  attachments   WorkItemAttachment[]
-  assignees     WorkItemAssignee[]
-  watchers      WorkItemWatcher[]
+  attachments    WorkItemAttachment[]
+  assignees      WorkItemAssignee[]
+  watchers       WorkItemWatcher[]
+  keyResultLinks KeyResultLink[]
 
   @@unique([orgId, projectId, ticketNumber])
   // Idempotent re-import key (prod-parity): one imported record per source per org.
@@ -2207,6 +2208,9 @@ model Objective {
   period      String?
   status      ObjectiveStatus @default(ACTIVE)
   progress    Int             @default(0) // 0-100, derived from key results
+  // Target/end date used for health (on-track / at-risk / behind = progress vs
+  // time elapsed toward this date). Null = no dated health signal.
+  targetDate  DateTime?       @map("target_date")
   // Manual display order within a project (drag-to-reorder on the Objectives tab).
   sortOrder   Int             @default(0) @map("sort_order")
   // Alignment: this objective ladders up to a parent objective (org→team→…).
@@ -2250,9 +2254,29 @@ model KeyResult {
 
   objective Objective          @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
   checkins  KeyResultCheckin[]
+  links     KeyResultLink[]
 
   @@index([objectiveId])
   @@map("key_results")
+}
+
+// Links a work item to a Key Result (FR a94ff583): the tickets that deliver a
+// measurable outcome. When a KR has ≥1 link, its progress AUTO-derives from how
+// many of its linked items are done (see the OKR read path). Both ends cascade.
+model KeyResultLink {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  keyResultId String   @map("key_result_id") @db.Uuid
+  workItemId  String   @map("work_item_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  workItem  WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+
+  @@unique([keyResultId, workItemId])
+  @@index([workItemId])
+  @@index([orgId])
+  @@map("key_result_links")
 }
 
 // A point-in-time check-in on a key result: the value + confidence + stoplight at
