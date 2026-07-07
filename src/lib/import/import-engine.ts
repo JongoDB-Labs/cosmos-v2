@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { CycleKind, SprintStatus } from "@prisma/client";
 import {
   IGNORE,
   parseDurationSeconds,
@@ -107,6 +108,9 @@ interface NormalizedRow {
    *  re-import without the column must never clobber an existing set). */
   assigneeIds: string[] | null;
   cycleId: string | null;
+  /** Raw Sprint/Cycle value that matched no existing cycle — auto-created at
+   *  commit (FR 1fe31122). null when the cycle already resolved or none given. */
+  cycleToken: string | null;
   tags: string[];
   storyPoints: number | null;
   dueDate: Date | null;
@@ -225,11 +229,12 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
     }
 
     // Sprint/Cycle: resolve by name, bare number, or "sprint N" (case-insensitive).
-    const cycleRaw = get(row, "cycle");
+    // An unmatched value is NOT dropped — it's carried as `cycleToken` and the
+    // sprint is auto-created at commit (FR 1fe31122), so importing tickets can
+    // stand up sprints that don't exist yet without pre-creating them.
+    const cycleRaw = get(row, "cycle").trim();
     const cycleId = cycleRaw ? (sets.cycleByToken.get(cycleRaw.toLowerCase()) ?? null) : null;
-    if (cycleRaw && !cycleId) {
-      warnings.push(`Sprint/Cycle "${cycleRaw}" matched no project cycle — left unset`);
-    }
+    const cycleToken = cycleRaw && !cycleId ? cycleRaw : null;
 
     const customFields: Record<string, string> = {};
     for (const h of customHeaders) {
@@ -254,6 +259,7 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       assigneeId,
       assigneeIds,
       cycleId,
+      cycleToken,
       tags: splitTags(get(row, "tags")),
       storyPoints: num(get(row, "storyPoints")),
       dueDate: date(get(row, "dueDate")),
@@ -329,6 +335,20 @@ export async function runImport(
     for (const w of n.warnings) warnings.push({ row: n.rowNum, message: w });
   }
 
+  // Sprints referenced by the import that don't exist yet (FR 1fe31122): dedupe
+  // the unmatched Sprint tokens case-insensitively (keeping first-seen casing
+  // for the new cycle's name). Reported at validate time, created at commit.
+  const missingCycles = new Map<string, string>();
+  for (const n of valid) {
+    if (n.cycleId === null && n.cycleToken) {
+      const k = n.cycleToken.toLowerCase();
+      if (!missingCycles.has(k)) missingCycles.set(k, n.cycleToken);
+    }
+  }
+  for (const name of missingCycles.values()) {
+    warnings.push({ row: 0, message: `Sprint "${name}" will be created` });
+  }
+
   const report: ImportReport = {
     total: normalized.length,
     willCreate,
@@ -339,6 +359,42 @@ export async function runImport(
   };
 
   if (req.mode === "validate") return report;
+
+  // Auto-create the missing sprints, then link every row that referenced one.
+  // Dates default to a two-week window from today — they're editable on the
+  // sprint/dashboards afterward, so the import never has to supply them.
+  let createdCycles = 0;
+  if (missingCycles.size > 0) {
+    const maxCycle = await prisma.cycle.aggregate({
+      where: { orgId: ctx.orgId, projectId: ctx.projectId },
+      _max: { number: true },
+    });
+    let nextNum = (maxCycle._max.number ?? 0) + 1;
+    const start = new Date();
+    const end = new Date(start.getTime() + 14 * 24 * 3600 * 1000);
+    const tokenToId = new Map<string, string>();
+    for (const [key, name] of missingCycles) {
+      const c = await prisma.cycle.create({
+        data: {
+          orgId: ctx.orgId,
+          projectId: ctx.projectId,
+          name,
+          number: nextNum++,
+          cycleKind: CycleKind.SPRINT,
+          status: SprintStatus.PLANNED,
+          startDate: start,
+          endDate: end,
+        },
+      });
+      tokenToId.set(key, c.id);
+      createdCycles++;
+    }
+    for (const n of valid) {
+      if (n.cycleId === null && n.cycleToken) {
+        n.cycleId = tokenToId.get(n.cycleToken.toLowerCase()) ?? null;
+      }
+    }
+  }
 
   // ── commit ──
   const maxTicket = await prisma.workItem.aggregate({
@@ -544,6 +600,7 @@ export async function runImport(
 
   report.created = created;
   report.updated = updated;
+  if (createdCycles > 0) report.createdCycles = createdCycles;
   if (commitErrors.length) {
     report.errors = [...report.errors, ...commitErrors].slice(0, 200);
     report.skipped += commitErrors.length;

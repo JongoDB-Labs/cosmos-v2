@@ -223,4 +223,6 @@ export interface ImportReport {
   /** committed only */
   created?: number;
   updated?: number;
+  /** Sprints/cycles auto-created from unmatched Sprint columns (FR 1fe31122). */
+  createdCycles?: number;
 }
