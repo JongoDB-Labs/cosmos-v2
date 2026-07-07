@@ -11,7 +11,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { z } from "zod";
-import { Priority, Prisma } from "@prisma/client";
+import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
 const updateItemSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -29,6 +29,7 @@ const updateItemSchema = z.object({
   sortOrder: z.number().int().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
+  workCategory: z.nativeEnum(WorkCategory).optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
 });
@@ -144,6 +145,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
       if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
       if (data.startDate !== undefined) updateData.startDate = data.startDate ? new Date(data.startDate) : null;
+      if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
       if (data.tags !== undefined) updateData.tags = data.tags;
       if (data.customFields !== undefined) {
         // MERGE partial custom-field updates into the existing JSON so a PUT

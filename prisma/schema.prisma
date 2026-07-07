@@ -71,6 +71,14 @@ enum ColumnCategory {
   CANCELLED
 }
 
+// SAFe work classification (FR gantt-enh). BUSINESS = main-effort work that
+// delivers user/customer value; ENABLER = work that clears the way for it
+// (architecture, infrastructure, compliance, exploration).
+enum WorkCategory {
+  BUSINESS
+  ENABLER
+}
+
 enum SprintStatus {
   PLANNED
   ACTIVE
@@ -676,8 +684,16 @@ model WorkItem {
   sortOrder       Int                         @default(0) @map("sort_order")
   dueDate         DateTime?                   @map("due_date")
   startDate       DateTime?                   @map("start_date")
+  // Gantt baseline (FR gantt-enh): the PLANNED start/end frozen by a "Set
+  // baseline" snapshot. The Gantt draws a ghost bar from these behind the real
+  // start/due so schedule slippage is visible. Null until a baseline is set.
+  baselineStart   DateTime?                   @map("baseline_start")
+  baselineEnd     DateTime?                   @map("baseline_end")
   completedAt     DateTime?                   @map("completed_at")
   columnEnteredAt DateTime?                   @map("column_entered_at")
+  // SAFe classification: BUSINESS = main-effort value; ENABLER = architecture /
+  // infrastructure / compliance / exploration work that clears the way for it.
+  workCategory    WorkCategory                @default(BUSINESS) @map("work_category")
   tags            String[]                    @default([])
   customFields    Json                        @default("{}") @map("custom_fields")
   createdById     String                      @map("created_by_id") @db.Uuid

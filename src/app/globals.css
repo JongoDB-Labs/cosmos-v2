@@ -80,6 +80,9 @@
   --status-critical: #EF4444;
   --status-strategic: #EC4899;
   --status-discovery: #A78BFA;
+  /* SAFe work classification — enabler (architecture/infra/compliance) work,
+   * distinct from business value. Used by the Gantt enabler lens. */
+  --type-enabler: #0891B2;
 
   /* WCAG-AA-safe text variants for use as foreground on the light surface.
    * Pick these for badge labels and any other status text on a near-white
