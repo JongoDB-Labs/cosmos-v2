@@ -162,7 +162,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of members) {
-      map.set(m.userId, m.user?.displayName ?? m.userId);
+      map.set(m.userId, m.user?.displayName ?? m.user?.email ?? "Unknown");
     }
     return map;
   }, [members]);
@@ -613,7 +613,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 <option value="">Unassigned</option>
                 {members.map((m) => (
                   <option key={m.userId} value={m.userId}>
-                    {m.user?.displayName ?? m.userId}
+                    {m.user?.displayName ?? m.user?.email ?? "Unknown"}
                   </option>
                 ))}
               </select>
@@ -913,7 +913,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                     { value: "__none", label: "Unassigned" },
                     ...members.map((m) => ({
                       value: m.userId,
-                      label: m.user?.displayName ?? m.userId,
+                      label: m.user?.displayName ?? m.user?.email ?? "Unknown",
                     })),
                   ]}
                 />

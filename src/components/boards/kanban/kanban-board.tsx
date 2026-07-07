@@ -366,7 +366,7 @@ function KanbanBoardInner({
   const memberName = (userId: string | null) => {
     if (!userId) return null;
     const m = members.find((mem) => mem.userId === userId);
-    return m?.user?.displayName ?? userId;
+    return m?.user?.displayName ?? m?.user?.email ?? "Unknown";
   };
 
   // (laneId, laneLabel) for an item under the active axis. laneId === "" is the
