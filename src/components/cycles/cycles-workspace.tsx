@@ -36,8 +36,10 @@ import {
   Pencil,
   Target,
   Users,
+  ListPlus,
 } from "lucide-react";
 import { CapacityDialog } from "./capacity-dialog";
+import { AddIssuesDialog } from "./add-issues-dialog";
 
 interface CycleReport {
   velocity?: number;
@@ -92,9 +94,10 @@ function fmtDate(iso: string) {
 interface CyclesWorkspaceProps {
   orgId: string;
   projectId: string;
+  projectKey: string;
 }
 
-export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
+export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspaceProps) {
   const { can } = usePermissions();
   const canCreate = can(Permission.SPRINT_CREATE);
   const canUpdate = can(Permission.SPRINT_UPDATE);
@@ -122,6 +125,11 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
 
   // Capacity planning dialog.
   const [capacityTarget, setCapacityTarget] = useState<Cycle | null>(null);
+
+  // "Add issues to this cycle" picker (FR 0e31d1ef).
+  const [addIssuesTarget, setAddIssuesTarget] = useState<Cycle | null>(null);
+  // cycleId → name, for the "currently in X" badge in the picker.
+  const cycleNames = Object.fromEntries(cycles.map((c) => [c.id, c.name]));
 
   // Sprint-review / completion dialog: which cycle is being completed, and where
   // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
@@ -357,6 +365,7 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
                       onEdit={() => openEdit(cycle)}
                       onDelete={() => setDeleteTarget(cycle)}
                       onCapacity={() => setCapacityTarget(cycle)}
+                      onAddIssues={() => setAddIssuesTarget(cycle)}
                     />
                   ))}
                 </div>
@@ -504,6 +513,18 @@ export function CyclesWorkspace({ orgId, projectId }: CyclesWorkspaceProps) {
         />
       )}
 
+      {/* Add issues to a cycle (FR 0e31d1ef) — bulk-move project issues in. */}
+      <AddIssuesDialog
+        orgId={orgId}
+        projectId={projectId}
+        projectKey={projectKey}
+        cycle={addIssuesTarget}
+        open={addIssuesTarget !== null}
+        onOpenChange={(o) => !o && setAddIssuesTarget(null)}
+        onAdded={fetchCycles}
+        cycleNames={cycleNames}
+      />
+
       {/* Sprint review / completion — choose where incomplete items go. */}
       <Dialog
         open={completeTarget !== null}
@@ -592,6 +613,7 @@ interface CycleCardProps {
   onEdit: () => void;
   onDelete: () => void;
   onCapacity: () => void;
+  onAddIssues: () => void;
 }
 
 function CycleCard({
@@ -604,6 +626,7 @@ function CycleCard({
   onEdit,
   onDelete,
   onCapacity,
+  onAddIssues,
 }: CycleCardProps) {
   const itemCount = cycle._count?.workItems ?? 0;
   const report = cycle.report;
@@ -674,6 +697,17 @@ function CycleCard({
             <Button size="sm" disabled={busy} onClick={onComplete}>
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Complete
+            </Button>
+          )}
+          {cycle.status !== "COMPLETED" && canUpdate && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={onAddIssues}
+            >
+              <ListPlus className="h-3.5 w-3.5 mr-1" />
+              Add issues
             </Button>
           )}
           {cycle.status !== "COMPLETED" && (
