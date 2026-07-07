@@ -1,11 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
+import {
+  DndContext,
+  closestCorners,
+  PointerSensor,
+  TouchSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import {
   ShieldAlert,
   Check,
   Tag as TagIcon,
+  GripVertical,
   type LucideIcon,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -193,6 +206,35 @@ export function RaidView({
     invalidate: [["work-items", projectId]],
   });
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  // Drag a card onto a column → re-tag it into that RAID category (drop on
+  // "Unclassified" clears the RAID tag). Fixes "can't drag and drop" and makes
+  // classifying an Unclassified item a one-gesture move.
+  const handleDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      const { active, over } = e;
+      if (!over) return;
+      const item = items.find((i) => i.id === String(active.id));
+      if (!item) return;
+      const target = String(over.id); // a category key, or "__none__"
+      const nextCat: RaidKey | null =
+        target === "__none__" ? null : RAID_TAGS.has(target) ? (target as RaidKey) : null;
+      if (categorize(item) === nextCat) return;
+      const nextTags = retag(item.tags, nextCat);
+      // Optimistic: the card hops columns instantly; the PUT persists + reconciles.
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        (prev ?? []).map((i) => (i.id === item.id ? { ...i, tags: nextTags } : i)),
+      );
+      retagMutation.mutate({ itemId: item.id, tags: nextTags });
+    },
+    [items, qc, itemsKey, retagMutation],
+  );
+
   // Bucket every (filtered) item into its RAID column. `null` key ⇒ Unclassified.
   const grouped = useMemo(() => {
     const map = new Map<RaidKey | "__none__", WorkItem[]>();
@@ -269,7 +311,8 @@ export function RaidView({
         </div>
       </div>
 
-      {/* Columns */}
+      {/* Columns — drag a card between them to (re)classify it. */}
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
       <div className="flex gap-3 overflow-x-auto scrollbar-x flex-1 p-4">
         {RAID_CATEGORIES.map((cat) => (
           <RaidColumn
@@ -305,6 +348,7 @@ export function RaidView({
           isPending={retagMutation.isPending}
         />
       </div>
+      </DndContext>
     </div>
   );
 }
@@ -331,8 +375,16 @@ function RaidColumn({
   onRecategorize,
   isPending,
 }: RaidColumnProps) {
+  // Each column is a drop target keyed by its RAID category ("__none__" for
+  // Unclassified) — dropping a card here re-tags it into this category.
+  const { setNodeRef, isOver } = useDroppable({ id: categoryKey ?? "__none__" });
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)]">
+    <div
+      className={cn(
+        "flex w-72 shrink-0 flex-col rounded-[var(--radius)] border bg-[var(--surface)] transition-colors",
+        isOver ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]",
+      )}
+    >
       {/* Color accent bar */}
       <div
         className="h-1 rounded-t-[var(--radius)]"
@@ -360,8 +412,8 @@ function RaidColumn({
         </span>
       </div>
 
-      {/* Cards */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2 min-h-[60px]">
+      {/* Cards — this area is the column's drop zone. */}
+      <div ref={setNodeRef} className="flex-1 overflow-y-auto px-2 pb-2 space-y-2 min-h-[60px]">
         {items.map((item) => (
           <RaidCard
             key={item.id}
@@ -378,7 +430,7 @@ function RaidColumn({
 
         {items.length === 0 && (
           <div className="py-8 text-center text-xs text-[var(--text-muted)]">
-            No items
+            Drop items here
           </div>
         )}
       </div>
@@ -403,6 +455,12 @@ function RaidCard({
   onRecategorize,
   isPending,
 }: RaidCardProps) {
+  const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
+    id: item.id,
+  });
+  const dragStyle = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
   const ticketLabel = projectKey
     ? `${projectKey}-${item.ticketNumber}`
     : `#${item.ticketNumber}`;
@@ -435,8 +493,25 @@ function RaidCard({
 
   return (
     <ActionMenu groups={menuGroups}>
-      <div className="group/action relative rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--primary)]/50">
+      <div
+        ref={setNodeRef}
+        style={dragStyle}
+        className={cn(
+          "group/action relative rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--primary)]/50",
+          isDragging && "z-20 opacity-80 shadow-lg",
+        )}
+      >
         <div className="flex items-start gap-2 mb-2">
+          {/* Drag handle — grab to move the card into another RAID column. */}
+          <button
+            type="button"
+            aria-label="Drag to reclassify"
+            className="mt-0.5 shrink-0 cursor-grab touch-none text-[var(--text-muted)] opacity-0 transition-opacity group-hover/action:opacity-100 active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
           <span className="text-[11px] font-mono text-[var(--text-muted)] shrink-0">
             {ticketLabel}
           </span>
