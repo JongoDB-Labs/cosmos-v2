@@ -13,7 +13,7 @@ name: feedback-remediation
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # every 6 hours
+    - cron: "0 * * * *" # hourly
   workflow_dispatch:
     inputs:
       limit:
