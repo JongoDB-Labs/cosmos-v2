@@ -4,9 +4,11 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 interface PriorityChartProps {
   data: Array<{ name: string; value: number; color: string }>;
+  /** Drill-down: fired with the bar's `name` when clicked. */
+  onSliceClick?: (name: string) => void;
 }
 
-export function PriorityChart({ data }: PriorityChartProps) {
+export function PriorityChart({ data, onSliceClick }: PriorityChartProps) {
   if (data.length === 0 || data.every((d) => d.value === 0)) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -38,7 +40,12 @@ export function PriorityChart({ data }: PriorityChartProps) {
             fontSize: "12px",
           }}
         />
-        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+        <Bar
+          dataKey="value"
+          radius={[4, 4, 0, 0]}
+          onClick={onSliceClick ? (d: { name?: string }) => d?.name && onSliceClick(d.name) : undefined}
+          className={onSliceClick ? "cursor-pointer" : undefined}
+        >
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.color} />
           ))}
