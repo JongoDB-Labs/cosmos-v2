@@ -17,12 +17,14 @@ export default async function CyclesPage({ params }: PageParams) {
       key: { equals: projectKey, mode: "insensitive" },
       archived: false,
     },
-    select: { id: true },
+    select: { id: true, key: true },
   });
 
   if (!project) notFound();
 
   // The project layout already owns the page's single <h1> (the project name);
   // CyclesWorkspace renders its own section heading + client-side data.
-  return <CyclesWorkspace orgId={ctx.orgId} projectId={project.id} />;
+  return (
+    <CyclesWorkspace orgId={ctx.orgId} projectId={project.id} projectKey={project.key} />
+  );
 }
