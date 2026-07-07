@@ -20,15 +20,15 @@ type PageParams = { params: Promise<{ orgSlug: string }> };
  * the Issues page: `await params` + cookie-reading `getAuthContext` live inside
  * the <Suspense> boundary; the data load itself is client-side (React Query).
  */
-export default function UpdatesPage({ params }: PageParams) {
+export default function ActivityPage({ params }: PageParams) {
   return (
-    <Suspense fallback={<UpdatesSkeleton />}>
-      <UpdatesPageContent params={params} />
+    <Suspense fallback={<ActivitySkeleton />}>
+      <ActivityPageContent params={params} />
     </Suspense>
   );
 }
 
-async function UpdatesPageContent({ params }: PageParams) {
+async function ActivityPageContent({ params }: PageParams) {
   const { orgSlug } = await params;
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
@@ -40,7 +40,7 @@ async function UpdatesPageContent({ params }: PageParams) {
 
   return (
     <PageShell
-      title="Updates"
+      title="Activity"
       description={`The latest work-item activity across every project in ${org.name}`}
     >
       {canRead ? (
@@ -48,7 +48,7 @@ async function UpdatesPageContent({ params }: PageParams) {
       ) : (
         <EmptyState
           illustration={<Lock className="mx-auto h-12 w-12 text-[var(--text-muted)]" strokeWidth={1.5} aria-hidden />}
-          title="No access to updates"
+          title="No access to activity"
           description="You don't have permission to read work items in this organization."
         />
       )}
@@ -56,7 +56,7 @@ async function UpdatesPageContent({ params }: PageParams) {
   );
 }
 
-function UpdatesSkeleton() {
+function ActivitySkeleton() {
   return (
     <div className="mx-auto max-w-4xl p-8">
       <div className="mb-6">
