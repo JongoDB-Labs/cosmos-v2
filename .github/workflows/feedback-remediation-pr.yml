@@ -1,0 +1,167 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# feedback-remediation-pr — PR-DRAFTING BRIDGE (draft PRs; human always merges)
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs an autonomous coding agent (Claude Code, headless) that DRAFTS a fix for a
+# feedback-derived backlog ticket and opens a **draft** pull request for review.
+# It NEVER marks a PR ready, NEVER merges, and NEVER deploys — a human approves.
+#
+# ── Activation (maintainer) — all three are REQUIRED before this does anything ──
+#   1. Secret  ANTHROPIC_API_KEY   — the agent's model credential.
+#   2. Variable FEEDBACK_PR_ENABLED = "1"  — the scheduled path is INERT until set
+#      (manual workflow_dispatch always works). This is the deliberate review gate:
+#      enable it only once you've watched a few dispatch runs and trust the output.
+#   3. (For the scheduled path) the same COSMOS_BASE_URL / COSMOS_ORG_ID / COSMOS_API_KEY
+#      the triage poller uses — it reads the auto-fix queue from the app.
+#
+# Cost/safety: caps tickets per scheduled run, skips any ticket that already has an
+# `auto-fix/<ticket>` branch, and runs the repo's own checks before committing.
+# Review this file end-to-end before enabling — you are letting an agent write code
+# in CI. Pin the checkout/setup actions to SHAs you have vetted if your policy needs it.
+
+name: feedback-remediation-pr
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticket:
+        description: "Work-item ticket key to draft a fix for (e.g. VITL-123)"
+        required: true
+      brief:
+        description: "Optional extra context / acceptance criteria"
+        required: false
+  schedule:
+    - cron: "30 * * * *" # hourly, offset from the :00 triage pass so tickets exist first
+
+concurrency:
+  group: feedback-remediation-pr
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  MAX_TICKETS_PER_RUN: "3"
+
+jobs:
+  # ── Build the list of tickets to draft fixes for ─────────────────────────────
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      tickets: ${{ steps.pick.outputs.tickets }}
+    steps:
+      - id: pick
+        env:
+          BASE_URL: ${{ vars.COSMOS_BASE_URL }}
+          ORG_ID: ${{ vars.COSMOS_ORG_ID }}
+          API_KEY: ${{ secrets.COSMOS_API_KEY }}
+          ENABLED: ${{ vars.FEEDBACK_PR_ENABLED }}
+          DISPATCH_TICKET: ${{ github.event.inputs.ticket }}
+          DISPATCH_BRIEF: ${{ github.event.inputs.brief }}
+        run: |
+          set -euo pipefail
+          # Manual dispatch: draft exactly the one requested ticket.
+          if [ -n "$DISPATCH_TICKET" ]; then
+            jq -cn --arg t "$DISPATCH_TICKET" --arg b "${DISPATCH_BRIEF:-}" \
+              '[{ticketKey:$t, brief:$b}]' > tickets.json
+            echo "tickets=$(cat tickets.json)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Scheduled: inert unless explicitly enabled + configured.
+          if [ "${ENABLED:-}" != "1" ] || [ -z "${BASE_URL:-}" ] || [ -z "${ORG_ID:-}" ] || [ -z "${API_KEY:-}" ]; then
+            echo "::notice::scheduled PR-drafting disabled (set FEEDBACK_PR_ENABLED=1 + the COSMOS_* config) — skipping."
+            echo "tickets=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=$(curl -sS -o queue.json -w '%{http_code}' \
+            "$BASE_URL/api/v1/orgs/$ORG_ID/feedback/remediation-queue?limit=${MAX_TICKETS_PER_RUN}" \
+            -H "Authorization: Bearer $API_KEY")
+          if [ "$code" -ge 300 ]; then echo "::error::queue fetch failed (HTTP $code)"; cat queue.json; exit 1; fi
+          jq -c '[.data.items[] | {ticketKey, brief: ((.classification+" · "+.severity+"\n") + ((.acceptanceCriteria // []) | join("\n")))}]' queue.json > tickets.json
+          echo "tickets=$(cat tickets.json)" >> "$GITHUB_OUTPUT"
+
+  # ── Draft one fix per ticket → one DRAFT PR each ─────────────────────────────
+  draft:
+    needs: plan
+    if: ${{ needs.plan.outputs.tickets != '[]' && needs.plan.outputs.tickets != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        item: ${{ fromJson(needs.plan.outputs.tickets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Skip if a fix branch already exists
+        id: guard
+        env:
+          TICKET: ${{ matrix.item.ticketKey }}
+        run: |
+          branch="auto-fix/${TICKET}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::notice::$branch already exists — skipping."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure git identity (maintainer only — no assistant attribution)
+        if: steps.guard.outputs.skip != '1'
+        env:
+          TICKET: ${{ matrix.item.ticketKey }}
+        run: |
+          git config user.name  "JongoDB"
+          git config user.email "198221045+JongoDB@users.noreply.github.com"
+          git checkout -b "auto-fix/${TICKET}"
+
+      - name: Set up Node
+        if: steps.guard.outputs.skip != '1'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Draft the fix (Claude Code headless, Opus 4.8 max effort)
+        if: steps.guard.outputs.skip != '1'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TICKET: ${{ matrix.item.ticketKey }}
+          BRIEF: ${{ matrix.item.brief }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install -g @anthropic-ai/claude-code
+          claude -p "You are implementing a fix for ticket ${TICKET} in this repository.
+          Context / acceptance criteria:
+          ${BRIEF}
+
+          Read AGENTS.md first. Implement a focused, minimal change that satisfies the
+          criteria. Run \`npm run typecheck\`, \`npm run lint\`, and \`npm test\` and make
+          them pass. Bump package.json version per SemVer. Commit your work to the CURRENT
+          branch only. Do NOT push to main, open a PR, merge, or deploy — that is handled
+          outside the agent. Do NOT add any Claude/AI/assistant attribution to commits." \
+            --model claude-opus-4-8 \
+            --max-turns 60 \
+            --permission-mode acceptEdits \
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
+
+      - name: Open a DRAFT pull request
+        if: steps.guard.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TICKET: ${{ matrix.item.ticketKey }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet origin/main -- .; then
+            echo "::notice::No changes were produced for $TICKET — nothing to open."
+            exit 0
+          fi
+          git push -u origin "auto-fix/${TICKET}"
+          gh pr create \
+            --draft \
+            --base main \
+            --head "auto-fix/${TICKET}" \
+            --title "auto-fix: ${TICKET} (draft — review before merge)" \
+            --body "Draft fix for **${TICKET}**, produced by the feedback-remediation coding agent (Claude Code, Opus 4.8). **Review required** — this PR is intentionally a draft and must never be auto-merged or deployed. Checks (typecheck/lint/test) were run by the agent; re-verify before marking ready."
