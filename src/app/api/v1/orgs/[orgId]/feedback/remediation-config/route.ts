@@ -12,6 +12,7 @@ type RouteParams = { params: Promise<{ orgId: string }> };
 const configSchema = z.object({
   enabled: z.boolean(),
   targetProjectId: z.string().uuid().nullable(),
+  autonomousDelivery: z.boolean().optional(),
 });
 
 /** Read the org's auto-remediation config + the projects available as the
@@ -47,6 +48,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const aiConnected =
       ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
 
+    // Autonomous-delivery flag: read by the Foreman worker (db.autonomyEnabled())
+    // each loop to decide whether to run. Lives in its own settings key,
+    // independent of the auto-triage enabled/targetProjectId pairing above.
+    const autonomousDelivery =
+      ((org.settings as Record<string, unknown>)?.autonomousDelivery as
+        | { enabled?: boolean }
+        | undefined)?.enabled === true;
+
     return success({
       enabled: cfg.enabled === true,
       targetProjectId: cfg.targetProjectId ?? null,
@@ -54,6 +63,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       aiConnected,
       aiProvider: ai.provider,
       claudeSubscription: ai.claudeOAuth,
+      autonomousDelivery,
     });
   } catch (error) {
     return handleApiError(error);
@@ -99,13 +109,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     const existing = (org.settings as Record<string, unknown>) ?? {};
-    const nextSettings = {
+    const nextSettings: Record<string, unknown> = {
       ...existing,
       autoRemediation: {
         enabled: data.enabled,
         targetProjectId: data.targetProjectId,
       },
     };
+    // Autonomous delivery lives in its own settings key, independent of the
+    // auto-triage enabled/targetProjectId pairing above — only touch it when
+    // the caller actually sent a value.
+    if (typeof data.autonomousDelivery === "boolean") {
+      nextSettings.autonomousDelivery = { enabled: data.autonomousDelivery };
+    }
     await prisma.organization.update({
       where: { id: orgId },
       data: { settings: nextSettings as never },
