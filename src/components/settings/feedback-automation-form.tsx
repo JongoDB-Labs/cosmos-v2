@@ -224,10 +224,12 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
               <Wand2 className="size-4 text-[var(--primary)]" /> Auto-triage feedback
             </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              When on, new feature requests and bug reports are AI-classified
-              (type, severity, effort, acceptance criteria) and delivered into
-              the checked projects&apos; backlogs as work items — so nothing
-              sits in the inbox waiting to be actioned.
+              When on, every feature request and bug report in this org — wherever
+              in the app it was reported — is AI-classified (type, severity, effort,
+              acceptance criteria) and filed as a work item into the board it belongs
+              to. Pick the board(s) that should receive triaged feedback, plus a
+              default board for anything unmatched — point both at a single board to
+              funnel all of this org&apos;s feedback there.
             </p>
           </div>
           <ToggleSwitch
@@ -296,11 +298,16 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           <div>
             <div className="flex items-center gap-2 font-medium text-[var(--text)]">
               <Bot className="size-4 text-[var(--primary)]" /> Autonomous delivery
+              <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Owner
+              </span>
             </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
-              When on, a worker implements, tests, and ships backlog tickets
-              automatically — safe changes deploy; risky ones wait for your
-              approval.
+              Owner capability — a worker implements, tests, and ships the
+              product&apos;s own code from the selected backlog(s); safe changes
+              deploy, risky ones wait for your approval. This isn&apos;t a per-team
+              setting — it&apos;s scoped per org here for now, and moves to a
+              platform-admin control as multi-tenant support matures.
             </p>
           </div>
           <ToggleSwitch
