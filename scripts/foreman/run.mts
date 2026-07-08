@@ -1,6 +1,7 @@
 // Foreman orchestrator: the control loop that wires the ten foreman modules into
-// one autonomous-delivery daemon. It reads the COSMOS backlog and, for each ready
-// ticket, runs the pipeline — dedup gate -> clarity gate -> coding agent -> checks
+// one autonomous-delivery daemon. It reads the pooled backlog (every project any
+// org has opted into autonomous delivery for) and, for each ready ticket, runs
+// the pipeline — dedup gate -> clarity gate -> coding agent -> checks
 // -> risk classification -> ship-or-gate — then loops. Every model call goes
 // through runAgent (subscription-enforced), and the only writes to prod
 // (merge/tag/deploy) live behind BOTH the org autonomy toggle and the armed
@@ -23,6 +24,7 @@ import { foremanPrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
+import { buildRef, parseRef } from "@/lib/foreman/ref";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
@@ -81,9 +83,16 @@ async function judge(
   let verdict: { dupOf: string | null; reason: string } = { dupOf: null, reason: "unique" };
   for (const raw of r.log.split("\n")) {
     const line = raw.trim();
-    const dup = line.match(/^DUP\s+(COSMOS-\d+)\s*:\s*(.*)$/);
+    // Match any <KEY>-<n> ref (not just COSMOS — the pool spans every project any
+    // org has opted in), then confirm it actually parses as a ref before trusting
+    // it as a duplicate target; a shape match that still fails to parse (shouldn't
+    // happen given the regex, but keeps this in lockstep with parseRef) is ignored
+    // rather than treated as a verdict.
+    const dup = line.match(/^DUP\s+(\S+-\d+)\s*:\s*(.*)$/);
     if (dup) {
-      verdict = { dupOf: dup[1], reason: dup[2].trim() || "duplicate" };
+      if (parseRef(dup[1]) !== null) {
+        verdict = { dupOf: dup[1], reason: dup[2].trim() || "duplicate" };
+      }
       continue;
     }
     if (/^UNIQUE\b/.test(line)) verdict = { dupOf: null, reason: line.replace(/^UNIQUE\s*:?\s*/, "").trim() || "unique" };
@@ -110,7 +119,7 @@ function briefFrom(t: Awaited<ReturnType<typeof db.getBacklog>>[number]): Ticket
   const classification: "BUG" | "FEATURE" = tri.classification === "FEATURE" ? "FEATURE" : "BUG";
   const rawCriteria = tri.acceptanceCriteria;
   return {
-    key: `COSMOS-${t.ticketNumber}`,
+    key: buildRef(t.projectKey, t.ticketNumber),
     title: t.title,
     description: t.description,
     classification,
@@ -331,7 +340,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
 }
 
 /** Reconcile approved (merged) gated tickets. When Foreman gates a risky change it
- *  opens a DRAFT PR on `auto/COSMOS-<n>` and parks the ticket in `review`; a human
+ *  opens a DRAFT PR on `auto/<KEY>-<n>` and parks the ticket in `review`; a human
  *  then reviews + merges it to main. This step closes that loop: detect the merged
  *  PR, deploy main, and move the ticket to `done` — or, if the merge is already
  *  live, just close it.
@@ -372,7 +381,11 @@ async function reconcileGated(): Promise<void> {
 
   for (const ref of pending) {
     try {
-      const n = parseInt(ref.replace("COSMOS-", ""), 10);
+      // Refs are per-project (<KEY>-<n>) — parse both halves; an unparseable ref
+      // (shouldn't happen, ledger entries are always written via buildRef) is
+      // skipped rather than crashing reconcile for every other pending ref.
+      const parsed = parseRef(ref);
+      if (!parsed) continue;
       // Is the draft PR now merged? A gh error / not-found (no PR on that branch,
       // or a transient failure) → treat as not-yet-merged and skip this ref.
       let merged = false;
@@ -384,7 +397,7 @@ async function reconcileGated(): Promise<void> {
       }
       if (!merged) continue;
 
-      const item = await db.resolveTicket(n);
+      const item = await db.resolveTicket(parsed.key, parsed.number);
       if (!item) continue;
 
       const prior = lastByRef.get(ref);
