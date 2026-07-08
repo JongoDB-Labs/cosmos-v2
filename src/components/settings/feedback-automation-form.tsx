@@ -89,6 +89,9 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   // Flips independently of the Save button above — it's its own settings key
   // (settings.autonomousDelivery.enabled), not part of the auto-triage
   // enabled/targetProjectId pairing, so it persists the instant it's toggled.
+  // Round-trip the LAST-SAVED auto-triage values (from `data`), NOT the live
+  // form state — otherwise flipping this toggle would silently persist an
+  // unsaved target-project edit (or 400 on the "target required" check).
   async function toggleAutonomousDelivery(next: boolean) {
     const previous = autonomousDelivery;
     setAutonomousDelivery(next);
@@ -97,8 +100,8 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
       await jsonFetch(`/api/v1/orgs/${orgId}/feedback/remediation-config`, {
         method: "PUT",
         body: JSON.stringify({
-          enabled,
-          targetProjectId: targetProjectId === NONE ? null : targetProjectId,
+          enabled: data?.enabled ?? false,
+          targetProjectId: data?.targetProjectId ?? null,
           autonomousDelivery: next,
         }),
       });
