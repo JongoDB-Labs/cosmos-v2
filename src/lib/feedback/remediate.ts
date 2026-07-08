@@ -4,6 +4,7 @@ import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
+import { readAutomationConfig } from "@/lib/feedback/automation-config";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -11,16 +12,18 @@ import type { Prisma } from "@prisma/client";
  *
  * A scheduled poller (see .github/workflows/feedback-remediation.yml) calls the
  * trigger endpoint, which invokes `runFeedbackRemediation`. For each OPEN,
- * not-yet-delivered feedback item it: runs a best-effort AI triage, creates a
- * linked work item in the org's configured triage project (so the item enters
- * the normal board → scheduling → fix workflow), and stamps the feedback
- * delivered. It NEVER merges, deploys, or edits code — delivery into the backlog
- * is the whole job; the actual fix stays a human/agent step downstream (the
- * optional PR-drafting bridge is a separate, opt-in workflow).
+ * not-yet-delivered feedback item it: routes to a target project (the item's
+ * own project if that's in scope, else the org's default — see
+ * `resolveDeliveryTarget`), runs a best-effort AI triage, creates a linked work
+ * item there (so the item enters the normal board → scheduling → fix
+ * workflow), and stamps the feedback delivered. It NEVER merges, deploys, or
+ * edits code — delivery into the backlog is the whole job; the actual fix
+ * stays a human/agent step downstream (the optional PR-drafting bridge is a
+ * separate, opt-in workflow).
  *
- * Guardrails: opt-in per org (settings.autoRemediation.enabled + targetProjectId),
- * idempotent (only picks up deliveredAt IS NULL, stamps it on success), and
- * per-run capped.
+ * Guardrails: opt-in per org (settings.autoRemediation.enabled + a non-empty
+ * projectIds scope — see `@/lib/feedback/automation-config`), idempotent (only
+ * picks up deliveredAt IS NULL, stamps it on success), and per-run capped.
  */
 
 export interface Triage {
@@ -42,12 +45,33 @@ export interface RemediationSummary {
     | "no-type";
   delivered: number;
   scanned: number;
+  // Items whose per-item routing (own project / org default) landed outside the
+  // scoped + resolvable project set, so they were left undelivered for a later
+  // run to retry (e.g. once the org adds that project to scope, or gives it a
+  // TODO column). Distinct from a plain no-type skip, which stays uncounted.
+  skippedNoTarget: number;
   items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
 }
 
-interface AutoRemediationConfig {
-  enabled?: boolean;
-  targetProjectId?: string;
+/** A project resolved as a valid delivery destination this run: it's in scope,
+ *  not archived, and has a usable (TODO, or first-fallback) board column. */
+interface DeliveryTarget {
+  id: string;
+  key: string;
+  projectTemplateId: string | null;
+  columnKey: string;
+}
+
+/** Which project a feedback item is delivered into: its own project if that's in
+ *  scope, else the org default if that's in scope, else null (skip — leave undelivered). */
+export function resolveDeliveryTarget(
+  itemProjectId: string | null,
+  projectIds: string[],
+  defaultProjectId: string | null,
+): string | null {
+  if (itemProjectId && projectIds.includes(itemProjectId)) return itemProjectId;
+  if (defaultProjectId && projectIds.includes(defaultProjectId)) return defaultProjectId;
+  return null;
 }
 
 const SEVERITY_TO_PRIORITY: Record<Triage["severity"], string> = {
@@ -273,6 +297,7 @@ export async function runFeedbackRemediation(
     skipped,
     delivered: 0,
     scanned: 0,
+    skippedNoTarget: 0,
     items: [],
   });
 
@@ -282,9 +307,8 @@ export async function runFeedbackRemediation(
   });
   if (!org) return empty("not-enabled");
 
-  const cfg = ((org.settings as Record<string, unknown>)?.autoRemediation ??
-    {}) as AutoRemediationConfig;
-  if (!cfg.enabled || !cfg.targetProjectId) return empty("not-enabled");
+  const { autoRemediation } = readAutomationConfig(org.settings);
+  if (!autoRemediation.enabled || autoRemediation.projectIds.length === 0) return empty("not-enabled");
 
   // Gate on a connected model provider (per maintainer directive): the loop must
   // NOT deliver on the heuristic fallback — that produced low-signal tickets when
@@ -296,8 +320,13 @@ export async function runFeedbackRemediation(
     ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
   if (!hasAi) return empty("no-ai-credential");
 
-  const project = await prisma.project.findFirst({
-    where: { id: cfg.targetProjectId, orgId, archived: false },
+  // Resolve every project in scope ONCE (not just one hardcoded target): each
+  // becomes a delivery target if it's live in this org and has a usable board
+  // column. A project in scope but missing either is simply absent from the
+  // map — its items fall through to the org default (or are skipped) below,
+  // rather than aborting the whole run.
+  const projects = await prisma.project.findMany({
+    where: { id: { in: autoRemediation.projectIds }, orgId, archived: false },
     select: {
       id: true,
       key: true,
@@ -309,14 +338,18 @@ export async function runFeedbackRemediation(
       },
     },
   });
-  if (!project) return empty("no-target-project");
 
-  // Land new items in the first board's leftmost TODO column (fallback: its
-  // first column outright).
-  const columns = project.boards[0]?.columns ?? [];
-  const sorted = [...columns].sort((a, b) => a.sortOrder - b.sortOrder);
-  const columnKey = (sorted.find((c) => c.category === "TODO") ?? sorted[0])?.key;
-  if (!columnKey) return empty("no-column");
+  const targets = new Map<string, DeliveryTarget>();
+  for (const project of projects) {
+    // Land new items in the first board's leftmost TODO column (fallback: its
+    // first column outright).
+    const columns = project.boards[0]?.columns ?? [];
+    const sorted = [...columns].sort((a, b) => a.sortOrder - b.sortOrder);
+    const columnKey = (sorted.find((c) => c.category === "TODO") ?? sorted[0])?.key;
+    if (!columnKey) continue; // no usable column — this project's items skip below
+    targets.set(project.id, { id: project.id, key: project.key, projectTemplateId: project.projectTemplateId, columnKey });
+  }
+  if (targets.size === 0) return empty("no-target-project");
 
   const tenantClass = org.tenantClass === "COMMERCIAL" ? "commercial" : "gov";
 
@@ -324,14 +357,25 @@ export async function runFeedbackRemediation(
     where: { orgId, status: "OPEN", deliveredAt: null },
     orderBy: [{ voteCount: "desc" }, { createdAt: "asc" }],
     take: limit,
-    select: { id: true, title: true, description: true, type: true, telemetry: true, voteCount: true },
+    select: { id: true, title: true, description: true, type: true, telemetry: true, voteCount: true, projectId: true },
   });
 
   const delivered: RemediationSummary["items"] = [];
+  const byProject = new Map<string, { key: string; count: number }>();
+  let skippedNoTarget = 0;
 
   for (const item of pending) {
+    // Route BEFORE triaging: an item with no resolvable target never needs an
+    // (expensive) AI call — it's left undelivered for a later run either way.
+    const targetId = resolveDeliveryTarget(item.projectId, autoRemediation.projectIds, autoRemediation.defaultProjectId);
+    const target = targetId ? targets.get(targetId) : undefined;
+    if (!target) {
+      skippedNoTarget++;
+      continue;
+    }
+
     const triage = await triageOne(orgId, tenantClass, item);
-    const typeId = await resolveTypeId(project.projectTemplateId, triage.classification);
+    const typeId = await resolveTypeId(target.projectTemplateId, triage.classification);
     if (!typeId) {
       // No matching built-in type in this sector — skip this item (leave it
       // un-delivered so a later run can retry once types are seeded).
@@ -341,12 +385,12 @@ export async function runFeedbackRemediation(
     try {
       const created = await prisma.$transaction(async (tx) => {
         const maxTicket = await tx.workItem.aggregate({
-          where: { orgId, projectId: project.id },
+          where: { orgId, projectId: target.id },
           _max: { ticketNumber: true },
         });
         const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
         const maxSort = await tx.workItem.aggregate({
-          where: { orgId, projectId: project.id, columnKey },
+          where: { orgId, projectId: target.id, columnKey: target.columnKey },
           _max: { sortOrder: true },
         });
         const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
@@ -354,11 +398,11 @@ export async function runFeedbackRemediation(
         const workItem = await tx.workItem.create({
           data: {
             orgId,
-            projectId: project.id,
+            projectId: target.id,
             workItemTypeId: typeId,
             title: item.title,
             description: buildDescription(item, triage),
-            columnKey,
+            columnKey: target.columnKey,
             priority: SEVERITY_TO_PRIORITY[triage.severity] as never,
             ticketNumber,
             sortOrder,
@@ -389,8 +433,11 @@ export async function runFeedbackRemediation(
         return workItem;
       });
 
-      const ticketKey = `${project.key}-${created.ticketNumber}`;
+      const ticketKey = `${target.key}-${created.ticketNumber}`;
       delivered.push({ feedbackId: item.id, workItemId: created.id, ticketKey, triage });
+      const bucket = byProject.get(target.id) ?? { key: target.key, count: 0 };
+      bucket.count += 1;
+      byProject.set(target.id, bucket);
 
       await logAudit({
         orgId,
@@ -423,17 +470,21 @@ export async function runFeedbackRemediation(
   }
 
   // Teams notification (FR 8a162fe7): one summary post per run, gated on the
-  // feedbackDelivered toggle. Fire-and-forget.
+  // feedbackDelivered toggle. Fire-and-forget. Grouped by target project so a
+  // multi-project run reads as "3 items — TEST: 2, OPS: 1" rather than a flat
+  // count; a project with zero delivered items just never appears (no divide,
+  // no empty-bucket rendering to guard against).
   if (delivered.length > 0) {
     const lines = delivered
       .map((d) => `<b>${d.ticketKey}</b> — ${d.triage.classification} · ${d.triage.severity}`)
       .join("<br/>");
+    const perProject = [...byProject.values()].map((p) => `${p.key}: ${p.count}`).join(", ");
     void teamsNotify(
       orgId,
       "feedbackDelivered",
-      `🛠️ <b>${delivered.length} feedback item${delivered.length === 1 ? "" : "s"}</b> triaged into the backlog:<br/>${lines}`,
+      `🛠️ <b>${delivered.length} feedback item${delivered.length === 1 ? "" : "s"}</b> triaged into the backlog (${perProject}):<br/>${lines}`,
     );
   }
 
-  return { delivered: delivered.length, scanned: pending.length, items: delivered };
+  return { delivered: delivered.length, scanned: pending.length, skippedNoTarget, items: delivered };
 }
