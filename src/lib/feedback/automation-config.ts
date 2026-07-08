@@ -1,0 +1,99 @@
+/**
+ * The single place that normalizes an org's `Organization.settings` JSON
+ * (an untrusted, unknown shape) into the automation config the feedback
+ * pipeline runs on, and gates "enabled without a valid project scope."
+ *
+ * Pure — no DB, no imports. Shared by the config route, triage, and Foreman,
+ * so every consumer reads/validates the same normalized shape rather than
+ * re-deriving it (and re-diverging) per call site.
+ */
+
+export interface AutoRemediationCfg {
+  enabled: boolean;
+  projectIds: string[];
+  defaultProjectId: string | null;
+}
+
+export interface AutonomousDeliveryCfg {
+  enabled: boolean;
+  projectIds: string[];
+}
+
+export interface AutomationConfig {
+  autoRemediation: AutoRemediationCfg;
+  autonomousDelivery: AutonomousDeliveryCfg;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** `null` when `value` isn't an array at all; otherwise the array with any
+ *  non-string entries dropped (defensive against untrusted JSON). */
+function toStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function readAutoRemediation(raw: unknown): AutoRemediationCfg {
+  const cfg = isRecord(raw) ? raw : {};
+  const enabled = cfg.enabled === true;
+
+  const projectIds = toStringArray(cfg.projectIds);
+  if (projectIds !== null) {
+    return {
+      enabled,
+      projectIds,
+      defaultProjectId: typeof cfg.defaultProjectId === "string" ? cfg.defaultProjectId : null,
+    };
+  }
+
+  // Legacy back-compat: pre-multi-project configs stored a single
+  // `targetProjectId` instead of `projectIds` + `defaultProjectId`.
+  if (typeof cfg.targetProjectId === "string") {
+    return { enabled, projectIds: [cfg.targetProjectId], defaultProjectId: cfg.targetProjectId };
+  }
+
+  return { enabled, projectIds: [], defaultProjectId: null };
+}
+
+function readAutonomousDelivery(raw: unknown): AutonomousDeliveryCfg {
+  const cfg = isRecord(raw) ? raw : {};
+  return {
+    enabled: cfg.enabled === true,
+    projectIds: toStringArray(cfg.projectIds) ?? [],
+  };
+}
+
+/** Normalize an org's `settings` JSON (unknown shape) into AutomationConfig, with
+ *  back-compat for the legacy single-project auto-remediation config. */
+export function readAutomationConfig(settings: unknown): AutomationConfig {
+  const root = isRecord(settings) ? settings : {};
+  return {
+    autoRemediation: readAutoRemediation(root.autoRemediation),
+    autonomousDelivery: readAutonomousDelivery(root.autonomousDelivery),
+  };
+}
+
+/** Returns a human-readable reason a config CANNOT be saved as-is, or null if OK.
+ *  Enforces: you can't enable an automation without a valid project scope. */
+export function validateEnableGate(cfg: AutomationConfig): string | null {
+  const { autoRemediation, autonomousDelivery } = cfg;
+
+  if (autoRemediation.enabled && autoRemediation.projectIds.length === 0) {
+    return "Select at least one project to receive triaged feedback before enabling auto-triage.";
+  }
+
+  if (
+    autoRemediation.enabled &&
+    (autoRemediation.defaultProjectId === null || !autoRemediation.projectIds.includes(autoRemediation.defaultProjectId))
+  ) {
+    return "Choose a default project (one of the selected projects) before enabling auto-triage.";
+  }
+
+  if (autonomousDelivery.enabled && autonomousDelivery.projectIds.length === 0) {
+    return "Select at least one project before enabling autonomous delivery.";
+  }
+
+  return null;
+}
