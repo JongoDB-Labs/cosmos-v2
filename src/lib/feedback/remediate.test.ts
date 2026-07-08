@@ -96,12 +96,24 @@ describe("resolveDeliveryTarget — per-item routing (pure)", () => {
  * other project in this org that this automation run doesn't cover"). Both
  * are torn down in `afterAll`; every feedback/work item a test creates is
  * torn down in that test's own `finally` so a failed assertion never leaves
- * the shared e2e DB dirty for the next run.
+ * the shared e2e DB dirty for the next run. A third, per-test project keyed
+ * `RTNOCOL` (no `boards` at all, so no board column ever resolves for it) is
+ * created and torn down inside the one test that needs it, below.
+ *
+ * Because the triage scan is org-wide (`orgId, status: "OPEN", deliveredAt:
+ * null`), tests do NOT assert whole-run aggregates like `summary.delivered`
+ * or `summary.skippedNoTarget` — a stray OPEN feedback item left behind by
+ * another test or a manual session would perturb those counts. Instead each
+ * test scopes its proof to the feedback item(s) IT created: found (with the
+ * expected target) in `summary.items` for a delivery, or re-queried straight
+ * from the DB (`deliveredAt`/`workItemId` still null, `status` still `OPEN`)
+ * for a skip.
  */
 describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () => {
   const TITLE_PREFIX = "[routing-test]";
   const SCOPE_KEY = "RTSCOPE";
   const OUTSIDE_KEY = "RTOUT";
+  const NO_COLUMN_KEY = "RTNOCOL";
 
   let orgId: string;
   let userId: string;
@@ -114,7 +126,7 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
 
   async function purgeStaleFixtures(id: string) {
     const stale = await prisma.project.findMany({
-      where: { orgId: id, key: { in: [SCOPE_KEY, OUTSIDE_KEY] } },
+      where: { orgId: id, key: { in: [SCOPE_KEY, OUTSIDE_KEY, NO_COLUMN_KEY] } },
       select: { id: true },
     });
     for (const p of stale) {
@@ -228,9 +240,8 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
     try {
       const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
 
-      expect(summary.delivered).toBe(2);
-      expect(summary.skippedNoTarget).toBe(0);
-
+      // Scoped to this test's own items (see the describe-block doc comment
+      // above) — not a blind `summary.delivered`/`skippedNoTarget` total.
       const deliveredA = summary.items.find((i) => i.feedbackId === itemA.id);
       const deliveredB = summary.items.find((i) => i.feedbackId === itemB.id);
       expect(deliveredA).toBeDefined();
@@ -269,7 +280,6 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
     try {
       const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
 
-      expect(summary.delivered).toBe(1);
       const delivered = summary.items.find((i) => i.feedbackId === item.id);
       expect(delivered).toBeDefined();
       expect(delivered!.ticketKey.startsWith(`${mainProjectKey}-`)).toBe(true);
@@ -300,8 +310,6 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
     try {
       const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
 
-      expect(summary.delivered).toBe(1);
-      expect(summary.skippedNoTarget).toBe(0);
       const delivered = summary.items.find((i) => i.feedbackId === item.id);
       expect(delivered).toBeDefined();
 
@@ -332,8 +340,6 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
       const callsBefore = runModelTurn.mock.calls.length;
       const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
 
-      expect(summary.delivered).toBe(0);
-      expect(summary.skippedNoTarget).toBe(1);
       expect(summary.items.find((i) => i.feedbackId === item.id)).toBeUndefined();
       // Routing is resolved BEFORE triage — a skipped item must never reach the
       // (expensive) AI call.
@@ -365,12 +371,10 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
 
     try {
       const first = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
-      expect(first.delivered).toBe(1);
       const delivered = first.items.find((i) => i.feedbackId === item.id);
       expect(delivered).toBeDefined();
 
       const second = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
-      expect(second.delivered).toBe(0);
       expect(second.items.find((i) => i.feedbackId === item.id)).toBeUndefined();
 
       const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
@@ -384,6 +388,56 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
     } finally {
       await prisma.workItem.deleteMany({ where: { orgId, title } });
       await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+
+  it("skips (and counts) an in-scope target project that has no usable board column", async () => {
+    // In scope, but created with no `boards` at all (same bare `project.create`
+    // shape as `outsideProjectId` above) — so it never gets an entry in
+    // remediate.ts's per-run `targets` map, even though `resolveDeliveryTarget`
+    // resolves the item's own project id (it's in `projectIds`). `mainProjectId`
+    // stays in scope alongside it so the run's `targets` map is non-empty and
+    // actually reaches the per-item loop, instead of short-circuiting via the
+    // whole-run `no-target-project` skip.
+    const noColumnProject = await prisma.project.create({
+      data: { orgId, key: NO_COLUMN_KEY, name: "Routing test — no board column" },
+      select: { id: true },
+    });
+    const noColumnProjectId = noColumnProject.id;
+
+    await setAutoRemediationConfig({
+      enabled: true,
+      projectIds: [mainProjectId, noColumnProjectId],
+      defaultProjectId: mainProjectId,
+    });
+    const title = `${TITLE_PREFIX} in-scope-no-column`;
+    const item = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "BUG", title, projectId: noColumnProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      expect(summary.items.find((i) => i.feedbackId === item.id)).toBeUndefined();
+      // Not a blind whole-run count (see the describe-block doc comment above) —
+      // just a floor proving the run's skip counter did register at least this
+      // item's skip.
+      expect(summary.skippedNoTarget).toBeGreaterThanOrEqual(1);
+
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: item.id },
+        select: { deliveredAt: true, workItemId: true, status: true },
+      });
+      expect(refreshed.deliveredAt).toBeNull();
+      expect(refreshed.workItemId).toBeNull();
+      expect(refreshed.status).toBe("OPEN");
+
+      const wiCount = await prisma.workItem.count({ where: { orgId, title } });
+      expect(wiCount).toBe(0);
+    } finally {
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+      await prisma.project.delete({ where: { id: noColumnProjectId } });
     }
   });
 });
