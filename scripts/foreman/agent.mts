@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { testDatabaseUrl } from "@/lib/foreman/test-db";
 
 /** Shape of ~/.claude/.credentials.json we care about. `expiresAt` is a Unix
  *  epoch in MILLISECONDS (confirmed against a live credentials file — it lines
@@ -93,6 +94,13 @@ export function runAgent(
   for (const [key, value] of Object.entries(src)) {
     if (key.startsWith("LC_") && value !== undefined) env[key] = value;
   }
+  // Give the agent the e2e TEST database (seeded fixtures) so its own
+  // `npm test` self-verification exercises the same DB-integration tests
+  // Foreman's checks do — otherwise the agent sees spurious failures and can't
+  // tell its change is green. This is the TEST db, NEVER prod: the daemon's live
+  // DATABASE_URL was excluded by the allowlist above, and testDatabaseUrl()
+  // throws if the test URL ever equals it.
+  env.DATABASE_URL = testDatabaseUrl(src.DATABASE_URL);
   assertSubscription(env);
 
   const args = [

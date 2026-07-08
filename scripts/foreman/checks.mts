@@ -5,12 +5,22 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { promisify } from "node:util";
 import type { DiffSummary } from "@/lib/foreman/risk";
+import { testDatabaseUrl } from "@/lib/foreman/test-db";
 
 const exec = promisify(execFile);
 
-async function run(cmd: string, args: string[], cwd: string): Promise<{ ok: boolean; out: string }> {
+async function run(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  extraEnv?: Record<string, string>,
+): Promise<{ ok: boolean; out: string }> {
   try {
-    const { stdout, stderr } = await exec(cmd, args, { cwd, maxBuffer: 32 * 1024 * 1024 });
+    const { stdout, stderr } = await exec(cmd, args, {
+      cwd,
+      maxBuffer: 32 * 1024 * 1024,
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+    });
     return { ok: true, out: stdout + stderr };
   } catch (e) {
     const err = e as ExecFileException;
@@ -27,7 +37,12 @@ export async function runChecks(dir: string): Promise<{ ok: boolean; log: string
     .split("\n")
     .filter((f) => /\.(ts|tsx|mts|cts)$/.test(f));
   const lint = changed.length ? await run("npx", ["eslint", ...changed], dir) : { ok: true, out: "" };
-  const vitest = await run("npx", ["vitest", "run"], dir);
+  // The default vitest suite includes DB-integration tests (ingest/files/…) that
+  // read seeded fixtures. Point them at the e2e TEST database, never the daemon's
+  // live DATABASE_URL — otherwise every ticket gates on `test-org`-not-found and,
+  // worse, the integration tests would run against prod. testDatabaseUrl() throws
+  // if the test URL ever resolves to the live one.
+  const vitest = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: testDatabaseUrl() });
   const ok = tsc.ok && lint.ok && vitest.ok;
   return { ok, log: [tsc, lint, vitest].map((r) => r.out).join("\n---\n") };
 }
