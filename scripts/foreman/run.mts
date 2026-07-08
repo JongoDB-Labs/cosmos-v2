@@ -12,7 +12,7 @@
 // repo's tsconfig (`moduleResolution: bundler`, no `allowImportingTsExtensions`)
 // a `.mts` import path fails typecheck with TS5097, while `.mjs` resolves to the
 // `.mts` source for BOTH `tsc --noEmit` and `tsx` at runtime.
-import { existsSync, writeFileSync, rmSync, appendFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync, appendFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
@@ -182,6 +182,19 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
   const wt = `/tmp/foreman/${key}`;
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
   await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, "origin/main"]);
+  // A worktree checks out only tracked files — node_modules is gitignored, so it's
+  // absent, and `npx tsc/eslint/vitest` in checks.mts (and the agent's own
+  // self-verification) would resolve to a stray global stub and fail EVERY ticket,
+  // gating everything. Symlink the shared install so checks run against the real
+  // dependency tree (incl. the generated .prisma client). It's gitignored so it
+  // never rides into a commit or the changed-files diff; worktree remove/prune only
+  // unlink the symlink, never its target. A ticket that changes package.json deps
+  // would fail against this stale tree → gates for review, the safe direction.
+  try {
+    symlinkSync(join(REPO, "node_modules"), join(wt, "node_modules"), "dir");
+  } catch (e) {
+    log(`${key} node_modules symlink failed (checks may gate): ${String(e)}`);
+  }
   // Kill-switch checkpoints: once the branch/worktree exists, a `touch FOREMAN_STOP`
   // mid-build must NOT merge+deploy. At each checkpoint below, if killed we abandon
   // WITHOUT shipping — leave the ticket in-progress with a note, restore the shared
