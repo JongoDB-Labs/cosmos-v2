@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { projectKeyFromRoute } from "@/lib/feedback/route-project";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -114,6 +115,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return { id: existing.id, title, deduped: true };
       }
 
+      // Tag the new item with the project its route belongs to (org-scoped,
+      // live projects only) so triage (A5) routes it there instead of falling
+      // back to the org default. A route that matches no project in this org
+      // is app-level, not an error — projectId just stays null.
+      const projectKey = projectKeyFromRoute(data.route);
+      const routedProject = projectKey
+        ? await tx.project.findFirst({ where: { orgId, key: projectKey, archived: false }, select: { id: true } })
+        : null;
+
       const description = [
         data.route ? `**Where:** \`${data.route}\`` : null,
         data.appVersion ? `**Version:** \`${data.appVersion}\`${data.viewport ? ` · **Viewport:** \`${data.viewport}\`` : ""}` : null,
@@ -139,6 +149,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           type: FeedbackType.BUG,
           title,
           description,
+          projectId: routedProject?.id ?? null,
           telemetry: {
             errorSignature: sig,
             hits: 1,
