@@ -63,8 +63,21 @@ async function judge(
   const list = shortlist.map((c) => `${c.ref}: ${c.title}`).join("\n");
   const prompt = `Ticket: "${title}". Already-known items:\n${list}\nIs the ticket the SAME underlying request as one of them? Reply exactly "DUP <ref>: <reason>" or "UNIQUE: <reason>".`;
   const r = await runAgent(REPO, prompt, { maxTurns: 2, timeoutMs: 120_000 });
-  const m = r.log.match(/DUP\s+(COSMOS-\d+)\s*:\s*(.*)/);
-  return m ? { dupOf: m[1], reason: m[2].trim() } : { dupOf: null, reason: "unique" };
+  // Honor the LAST verdict line, anchored to the line start: a hedged mid-sentence
+  // "... this is NOT a DUP COSMOS-1 ..." can't register as a duplicate (it doesn't
+  // start with "DUP "), and a trailing "UNIQUE:" overrides an earlier "DUP".
+  // Parse failure (no verdict line at all) defaults to unique. (M1)
+  let verdict: { dupOf: string | null; reason: string } = { dupOf: null, reason: "unique" };
+  for (const raw of r.log.split("\n")) {
+    const line = raw.trim();
+    const dup = line.match(/^DUP\s+(COSMOS-\d+)\s*:\s*(.*)$/);
+    if (dup) {
+      verdict = { dupOf: dup[1], reason: dup[2].trim() || "duplicate" };
+      continue;
+    }
+    if (/^UNIQUE\b/.test(line)) verdict = { dupOf: null, reason: line.replace(/^UNIQUE\s*:?\s*/, "").trim() || "unique" };
+  }
+  return verdict;
 }
 
 /** Clarity gate (§5.6): can this be built correctly without a product/scope
@@ -147,12 +160,26 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
   await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, "origin/main"]);
   try {
     const agent = await runAgent(wt, foremanPrompt(brief));
-    const checks = agent.ok ? await runChecks(wt) : { ok: false, log: agent.log };
-    const diff = await diffSummary(wt);
-    const risk = classifyRisk(diff);
 
-    if (!checks.ok && diff.files.length === 0) {
-      // empty diff → the ticket was already implemented; nothing to ship
+    // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
+    //     false, usually with no commit). Gate for review — NEVER conflate this
+    //     with "already done" and auto-close a build that actually failed. (I2)
+    if (!agent.ok) {
+      log(`${key} GATED (agent did not complete) → In Review`);
+      if (!DRY) {
+        await db.moveColumn(item.id, "review");
+        await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
+      }
+      record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+      return;
+    }
+
+    // (b) Agent completed. A truly empty diff means it was already implemented —
+    //     regardless of checks — so there's nothing to build OR ship. This also
+    //     stops an empty diff from falling through to mergeBranch's
+    //     `commit --no-edit`, which would fail on nothing-to-commit. (I2)
+    const diff = await diffSummary(wt);
+    if (diff.files.length === 0) {
       log(`${key} already implemented (empty diff)`);
       if (!DRY) {
         await db.moveColumn(item.id, "done");
@@ -163,6 +190,9 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       return;
     }
 
+    // (c) Real change → run checks + classify risk → gate-or-ship.
+    const checks = await runChecks(wt);
+    const risk = classifyRisk(diff);
     if (!checks.ok || risk.gated) {
       const reason = !checks.ok ? "checks failed" : risk.reasons.join("; ");
       log(`${key} GATED (${reason}) → In Review`);
@@ -213,11 +243,19 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
       log(`${key} DONE v${version}`);
     } else {
-      const prev = readLedger(LEDGER).filter((e) => e.version).pop()?.version;
-      if (prev) await ship.rollback(prev);
-      await db.moveColumn(item.id, "review");
-      await db.comment(item.id, `Deploy health-gate failed; rolled back. Parked for review.`);
-      record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+      // Deploy health-gate failed. Roll back + park for review as best-effort, but
+      // guarantee the circuit-breaker signal fires REGARDLESS: a DB blip in the
+      // cleanup below must not swallow a real deploy failure and leave it
+      // uncounted (which would keep an unhealthy release armed). (M4)
+      try {
+        const prev = readLedger(LEDGER).filter((e) => e.version).pop()?.version;
+        if (prev) await ship.rollback(prev);
+        await db.moveColumn(item.id, "review");
+        await db.comment(item.id, `Deploy health-gate failed; rolled back. Parked for review.`);
+        record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+      } catch (e) {
+        log(`${key} deploy-gate cleanup error (continuing to circuit breaker): ${String(e)}`);
+      }
       // Signal the circuit breaker in main(): repeated deploy-gate failures disarm.
       throw new Error("deploy gate failed (rolled back)");
     }
@@ -238,7 +276,20 @@ async function main(): Promise<void> {
   }
   writeFileSync(LOCK, String(process.pid));
   log(`foreman started (pid ${process.pid})${DRY ? " — DRY RUN (no merge/deploy/DB-writes)" : ""}`);
+  // M3: reclaim anything a prior crash left behind — a leftover staging dir plus
+  // the worktree registration that points at it — so the per-ticket `worktree add`
+  // below can't be blocked by a stale entry.
+  try {
+    rmSync("/tmp/foreman", { recursive: true, force: true });
+  } catch {
+    /* best-effort: leftover staging dirs are the only thing blocked, and rare */
+  }
+  await exec("git", ["-C", REPO, "worktree", "prune", "--expire", "now"]).catch(() => undefined);
   let consecutiveDeployFails = 0;
+  // DRY surveys each backlog ticket exactly once: terminal column moves are
+  // skipped in DRY, so without this the picked ticket stays in `backlog` and the
+  // loop would re-process the same top-priority one forever. (I1)
+  const processed = new Set<string>();
   try {
     while (!killed()) {
       try {
@@ -248,7 +299,8 @@ async function main(): Promise<void> {
           continue;
         }
         const backlog = await db.getBacklog();
-        const next = pickNext(backlog);
+        const pool = DRY ? backlog.filter((b) => !processed.has(b.id)) : backlog;
+        const next = pickNext(pool);
         if (!next) {
           await idleSleep(60_000);
           continue;
@@ -267,6 +319,9 @@ async function main(): Promise<void> {
             }
           }
         }
+        // Advance the DRY survey regardless of outcome so it walks the whole
+        // backlog once, then idles (armed runs advance via real column moves).
+        if (DRY) processed.add(item.id);
       } catch (e) {
         // Control-plane hiccup (e.g. a transient DB error in autonomyEnabled /
         // getBacklog): log and idle rather than tearing the daemon down.
