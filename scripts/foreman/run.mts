@@ -12,8 +12,9 @@
 // repo's tsconfig (`moduleResolution: bundler`, no `allowImportingTsExtensions`)
 // a `.mts` import path fails typecheck with TS5097, while `.mjs` resolves to the
 // `.mts` source for BOTH `tsc --noEmit` and `tsx` at runtime.
-import { existsSync, writeFileSync, rmSync, appendFileSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pickNext } from "@/lib/foreman/queue";
@@ -31,6 +32,12 @@ const exec = promisify(execFile);
 
 const REPO = "/home/defcon/cosmos-v2";
 const LEDGER = join(REPO, ".deploy/foreman-ledger.jsonl");
+// DRY runs write here instead of the real ledger, so a dry preview never seeds an
+// armed run's dedup/history. Reads in DRY consult BOTH (real + dry) — see processOne.
+const LEDGER_DRY = join(REPO, ".deploy/foreman-ledger.dry.jsonl");
+// Scratch cwd for the read-only dedup/clarity judges — NOT the live REPO, so a
+// prompt-injected ticket routed through them can't touch the working checkout.
+const SCRATCH = join(tmpdir(), "foreman-judge");
 const STOP = join(REPO, ".deploy/FOREMAN_STOP");
 const LOCK = join(REPO, ".deploy/FOREMAN_LOCK");
 const LOG = "/var/log/cosmos-foreman.log";
@@ -62,7 +69,9 @@ async function judge(
 ): Promise<{ dupOf: string | null; reason: string }> {
   const list = shortlist.map((c) => `${c.ref}: ${c.title}`).join("\n");
   const prompt = `Ticket: "${title}". Already-known items:\n${list}\nIs the ticket the SAME underlying request as one of them? Reply exactly "DUP <ref>: <reason>" or "UNIQUE: <reason>".`;
-  const r = await runAgent(REPO, prompt, { maxTurns: 2, timeoutMs: 120_000 });
+  // Read-only tools + scratch cwd (not REPO): this judge reasons over untrusted
+  // ticket/feedback text, so it must not be able to shell out or edit the repo. (I3)
+  const r = await runAgent(SCRATCH, prompt, { maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
   // Honor the LAST verdict line, anchored to the line start: a hedged mid-sentence
   // "... this is NOT a DUP COSMOS-1 ..." can't register as a duplicate (it doesn't
   // start with "DUP "), and a trailing "UNIQUE:" overrides an earlier "DUP".
@@ -87,7 +96,9 @@ async function clarityCheck(brief: TicketBrief): Promise<{ needsInput: boolean; 
     ? brief.acceptanceCriteria.map((c) => "- " + c).join("\n")
     : "(none)";
   const prompt = `A ticket to implement:\nTitle: ${brief.title}\nDescription: ${brief.description || "(none)"}\nAcceptance criteria:\n${criteria}\n\nCan a competent engineer implement this CORRECTLY from what's written, WITHOUT a product/scope/UX/business decision that only the author can make (e.g. which metrics, what layout, a business rule, a missing credential, an ambiguous "which one")? Reply exactly "OK" if yes, or "NEEDS_INPUT: <the single most important question to unblock it>" if not.`;
-  const r = await runAgent(REPO, prompt, { maxTurns: 2, timeoutMs: 120_000 });
+  // Read-only tools + scratch cwd (not REPO): same untrusted-input reasoning as the
+  // dedup judge — no shell, no repo writes. (I3)
+  const r = await runAgent(SCRATCH, prompt, { maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
   const m = r.log.match(/NEEDS_INPUT:\s*(.+)/);
   return m ? { needsInput: true, question: m[1].trim() } : { needsInput: false, question: "" };
 }
@@ -123,11 +134,22 @@ async function restoreMain(): Promise<void> {
 async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number]): Promise<void> {
   const brief = briefFrom(item);
   const key = brief.key;
+  // DRY records to the .dry ledger so a preview never pollutes the real history
+  // (which would seed the next armed run's dedup). (I5)
   const record = (e: Omit<LedgerEntry, "ts">): void =>
-    appendLedger(LEDGER, { ...e, ts: new Date().toISOString() });
+    appendLedger(DRY ? LEDGER_DRY : LEDGER, { ...e, ts: new Date().toISOString() });
 
-  // Dedup gate FIRST — don't spin a worktree for something already known.
-  const candidates = [...ledgerCandidates(readLedger(LEDGER)), ...(await db.historyCandidates())];
+  // Dedup gate FIRST — don't spin a worktree for something already known. In DRY,
+  // read the real ledger AND the .dry ledger (so a preview dedups against real
+  // ships plus its own earlier same-survey "would-ship" entries). Exclude this
+  // ticket's OWN ref from every candidate source — a ticket must never dedup
+  // against itself. (I5 + self-dedup)
+  const ledgerEntries = readLedger(LEDGER);
+  if (DRY) ledgerEntries.push(...readLedger(LEDGER_DRY));
+  const candidates = [
+    ...ledgerCandidates(ledgerEntries),
+    ...(await db.historyCandidates()),
+  ].filter((c) => c.ref !== key);
   const dup = await dedupGate({ title: brief.title, candidates }, judge);
   if (dup.dupOf) {
     log(`${key} duplicate of ${dup.dupOf} — ${dup.reason}`);
@@ -158,8 +180,25 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
   const wt = `/tmp/foreman/${key}`;
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
   await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, "origin/main"]);
+  // Kill-switch checkpoints: once the branch/worktree exists, a `touch FOREMAN_STOP`
+  // mid-build must NOT merge+deploy. At each checkpoint below, if killed we abandon
+  // WITHOUT shipping — leave the ticket in-progress with a note, restore the shared
+  // checkout to main, and let the `finally` prune the worktree. `killed()` is the
+  // same module-scope check main()'s loop uses, so processOne sees it directly. (I1)
+  const haltIfKilled = async (): Promise<boolean> => {
+    if (!killed()) return false;
+    log(`${key} halted by kill switch — left in progress`);
+    if (!DRY) {
+      await db
+        .comment(item.id, "Halted by kill switch mid-build; left in progress. Move the card back to Backlog to retry.")
+        .catch(() => undefined);
+      await restoreMain();
+    }
+    return true;
+  };
   try {
     const agent = await runAgent(wt, foremanPrompt(brief));
+    if (await haltIfKilled()) return; // checkpoint 1: right after the agent returns
 
     // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
     //     false, usually with no commit). Gate for review — NEVER conflate this
@@ -218,6 +257,8 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       return;
     }
 
+    if (await haltIfKilled()) return; // checkpoint 2: before the irreversible merge
+
     // Merge -> tag -> wait for the signed image. Any throw here — a squash-merge
     // CONFLICT because main moved under us, a tag/push race, or a failed image
     // build — must NOT crash the daemon or leave the shared checkout mid-merge.
@@ -235,6 +276,8 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       return;
     }
 
+    if (await haltIfKilled()) return; // checkpoint 3: before pushing the deploy to prod
+
     // Image built → deploy. deploy() never throws; its boolean IS the health gate.
     const ok = await ship.deploy(version, diff.files.some((f) => f.startsWith("prisma/migrations/")));
     if (ok) {
@@ -248,8 +291,11 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       // cleanup below must not swallow a real deploy failure and leave it
       // uncounted (which would keep an unhealthy release armed). (M4)
       try {
-        const prev = readLedger(LEDGER).filter((e) => e.version).pop()?.version;
-        if (prev) await ship.rollback(prev);
+        // Roll back the version we JUST deployed by restoring its pre-deploy
+        // `.bak-<version>` override — NOT a prevVersion from the ledger (empty on
+        // the first ship, and stale otherwise). rollback() no-ops if the snapshot
+        // is missing; the breaker still fires via the throw below. (C1)
+        await ship.rollback(version);
         await db.moveColumn(item.id, "review");
         await db.comment(item.id, `Deploy health-gate failed; rolled back. Parked for review.`);
         record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
@@ -285,11 +331,20 @@ async function main(): Promise<void> {
     /* best-effort: leftover staging dirs are the only thing blocked, and rare */
   }
   await exec("git", ["-C", REPO, "worktree", "prune", "--expire", "now"]).catch(() => undefined);
+  // Empty scratch cwd for the read-only judges (I3) — created once, reused.
+  mkdirSync(SCRATCH, { recursive: true });
   let consecutiveDeployFails = 0;
   // DRY surveys each backlog ticket exactly once: terminal column moves are
   // skipped in DRY, so without this the picked ticket stays in `backlog` and the
   // loop would re-process the same top-priority one forever. (I1)
   const processed = new Set<string>();
+  // Per-ticket failure counter: a ticket that throws EARLY in processOne (before
+  // the in-progress move — e.g. an expired token or a DB blip in historyCandidates)
+  // stays in `backlog` and would be re-picked immediately, hot-looping the CPU. We
+  // back off after every failure and, after too many on the same id, park it so the
+  // loop makes progress. (I4)
+  const attempts = new Map<string, number>();
+  const MAX_ATTEMPTS = 3;
   try {
     while (!killed()) {
       try {
@@ -310,6 +365,7 @@ async function main(): Promise<void> {
         try {
           await processOne(item);
           consecutiveDeployFails = 0;
+          attempts.delete(item.id);
         } catch (e) {
           log(`${next.id} error: ${String(e)}`);
           if (String(e).includes("deploy gate")) {
@@ -318,6 +374,21 @@ async function main(): Promise<void> {
               writeFileSync(STOP, "circuit-breaker");
             }
           }
+          const n = (attempts.get(item.id) ?? 0) + 1;
+          attempts.set(item.id, n);
+          if (n >= MAX_ATTEMPTS && !DRY) {
+            // Repeatedly failing on the SAME ticket → stop retrying it. Park it out
+            // of `backlog` (into review) so pickNext moves on and the daemon makes
+            // progress instead of hot-looping this one id. (I4)
+            log(`${next.id} failed ${n}× — parking for review so the loop can progress`);
+            await db.moveColumn(item.id, "review").catch(() => undefined);
+            await db
+              .comment(item.id, `Repeatedly failed to process (${n} attempts) — needs a human. Last error: ${String(e)}`)
+              .catch(() => undefined);
+          }
+          // Bounded, kill-responsive backoff so an early-throwing ticket can't peg
+          // the CPU or balloon the log; `touch FOREMAN_STOP` still exits promptly. (I4)
+          await idleSleep(30_000);
         }
         // Advance the DRY survey regardless of outcome so it walks the whole
         // backlog once, then idles (armed runs advance via real column moves).

@@ -7,7 +7,7 @@
 // Task 12's orchestrator gates when these run for real.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const exec = promisify(execFile);
@@ -95,17 +95,25 @@ export async function deploy(version: string, hasMigration: boolean): Promise<bo
   }
 }
 
-/** Re-pin the prior release: the deploy scripts snapshot
- *  `docker-compose.override.yml` to `.bak-<version>` (bare SemVer, no `v`
- *  prefix — matches `readVersion`'s output) before each deploy, so rolling
- *  back is copying that snapshot back over the live override and re-upping
- *  the two services whose images/digests it pins. */
-export async function rollback(prevVersion: string): Promise<void> {
-  await exec(
-    "cp",
-    [join(REPO, `docker-compose.override.yml.bak-${prevVersion}`), join(REPO, "docker-compose.override.yml")],
-    { cwd: REPO },
-  );
+/** Roll back the release we JUST deployed — takes the version just shipped, NOT a
+ *  `prevVersion` derived from Foreman's ledger (which is empty on the very first
+ *  ship and can carry a stale digest). The deploy scripts snapshot
+ *  `docker-compose.override.yml` to `.bak-<version>` (bare SemVer, no `v` prefix —
+ *  matches `readVersion`'s output) at the START of deploying `<version>`, so
+ *  `.bak-<version>` IS the exact pre-deploy override — the state to roll back TO.
+ *  Copy it back over the live override and re-up the two services whose
+ *  images/digests it pins. If the snapshot is missing (e.g. the deploy died before
+ *  taking it), log and skip rather than throw — the caller still gates the ticket
+ *  and counts the circuit breaker regardless. */
+export async function rollback(version: string): Promise<void> {
+  const bak = join(REPO, `docker-compose.override.yml.bak-${version}`);
+  if (!existsSync(bak)) {
+    process.stdout.write(
+      `${new Date().toISOString()} rollback: no ${bak} snapshot — cannot restore pre-deploy override; skipping\n`,
+    );
+    return;
+  }
+  await exec("cp", [bak, join(REPO, "docker-compose.override.yml")], { cwd: REPO });
   await exec("sudo", ["docker", "compose", "up", "-d", "cosmos", "reverse-proxy"], {
     cwd: REPO,
     maxBuffer: 32 * 1024 * 1024,

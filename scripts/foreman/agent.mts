@@ -58,40 +58,93 @@ export function assertSubscription(env: NodeJS.ProcessEnv): void {
  *  (never rejects) `ok:false` on non-zero exit, a timeout kill, or a spawn
  *  error — the orchestrator treats any of those as "gate to review", not a
  *  crash. `--max-turns` is a real, working flag on the root `-p` command even
- *  though it's absent from `claude --help`'s listed options (verified live). */
+ *  though it's absent from `claude --help`'s listed options (verified live).
+ *
+ *  `opts.allowedTools` / `opts.permissionMode` let a caller narrow the agent's
+ *  powers: the build agent keeps the full toolset in its own worktree, but the
+ *  dedup/clarity judges pass a read-only `"Read,Grep,Glob"` (no Edit/Write/Bash)
+ *  so a prompt-injected ticket can't get a shell or write the repo. */
 export function runAgent(
   worktreeDir: string,
   prompt: string,
-  opts: { maxTurns?: number; timeoutMs?: number } = {},
+  opts: {
+    maxTurns?: number;
+    timeoutMs?: number;
+    allowedTools?: string;
+    permissionMode?: string;
+  } = {},
 ): Promise<{ ok: boolean; log: string }> {
-  const env = { ...process.env };
-  // belt-and-suspenders: strip every metered/cloud-billing path from the child's
-  // env, even if the caller's env had one, then assert the copy is clean.
-  for (const v of METERED_ENV) delete env[v];
+  // ALLOWLIST the child's env — never inherit the daemon's full `process.env`.
+  // Foreman runs with DATABASE_URL (prod) and may carry GH_TOKEN/GITHUB_TOKEN;
+  // handing those to the agent's Bash would let a build (or a prompt-injected
+  // judge) psql prod or `git push` directly, bypassing every gate — and it would
+  // fire in DRY too. Forward ONLY what `claude` needs to run on the subscription:
+  // PATH (find node/binaries), HOME (reach the ~/.claude subscription creds), TERM,
+  // and locale (LANG/LC_*). NODE_ENV is also forwarded — the repo augments
+  // NodeJS.ProcessEnv to REQUIRE it (an empty object won't typecheck) and it's a
+  // non-secret build-mode hint, not a credential. DATABASE_URL, GH_TOKEN,
+  // GITHUB_TOKEN and the metered/cloud-billing vars are excluded by construction;
+  // assertSubscription re-checks.
+  const src = process.env;
+  const env: NodeJS.ProcessEnv = { NODE_ENV: src.NODE_ENV };
+  for (const key of ["PATH", "HOME", "TERM", "LANG"]) {
+    if (src[key] !== undefined) env[key] = src[key];
+  }
+  for (const [key, value] of Object.entries(src)) {
+    if (key.startsWith("LC_") && value !== undefined) env[key] = value;
+  }
   assertSubscription(env);
 
   const args = [
     "-p", prompt,
     "--model", "opus",
-    "--permission-mode", "acceptEdits",
-    "--allowedTools", "Read,Grep,Glob,Edit,Write,Bash",
+    "--permission-mode", opts.permissionMode ?? "acceptEdits",
+    "--allowedTools", opts.allowedTools ?? "Read,Grep,Glob,Edit,Write,Bash",
     "--max-turns", String(opts.maxTurns ?? 80),
   ];
 
   return new Promise((resolve) => {
-    const child = spawn("claude", args, { cwd: worktreeDir, env });
+    // detached:true makes the child its own process-group leader (pgid === pid),
+    // so a timeout can signal the WHOLE group via `-pid` — a `claude` that traps
+    // SIGTERM, or any grandchild it spawned, can't survive and wedge the daemon
+    // while it still holds the lock.
+    const child = spawn("claude", args, { cwd: worktreeDir, env, detached: true });
     let log = "";
+    let killTimer: NodeJS.Timeout | undefined;
+    const signalGroup = (signal: NodeJS.Signals): void => {
+      const pid = child.pid;
+      if (pid) {
+        try {
+          process.kill(-pid, signal); // negative pid → whole process group
+          return;
+        } catch {
+          /* group already gone (or unsupported) — fall back to the child alone */
+        }
+      }
+      try {
+        child.kill(signal);
+      } catch {
+        /* already dead */
+      }
+    };
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      // Graceful first, then hard-kill the group after a short grace so a trapping
+      // `claude` still dies and 'close' fires — the promise always resolves.
+      signalGroup("SIGTERM");
+      killTimer = setTimeout(() => signalGroup("SIGKILL"), 10_000);
     }, opts.timeoutMs ?? 45 * 60_000);
+    const clearTimers = (): void => {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    };
     child.stdout.on("data", (d) => (log += d));
     child.stderr.on("data", (d) => (log += d));
     child.on("close", (code) => {
-      clearTimeout(timer);
+      clearTimers();
       resolve({ ok: code === 0, log });
     });
     child.on("error", (e) => {
-      clearTimeout(timer);
+      clearTimers();
       resolve({ ok: false, log: log + "\n" + String(e) });
     });
   });
