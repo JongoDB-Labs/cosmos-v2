@@ -156,10 +156,12 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   async function runNow() {
     setRunning(true);
     try {
-      const res = await jsonFetch<{ delivered: number; scanned: number; skipped?: string }>(
-        `/api/v1/orgs/${orgId}/feedback/remediate`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
+      const res = await jsonFetch<{
+        delivered: number;
+        scanned: number;
+        skipped?: string;
+        skippedNoTarget: number;
+      }>(`/api/v1/orgs/${orgId}/feedback/remediate`, { method: "POST", body: JSON.stringify({}) });
       if (res.skipped) {
         toast.message("Nothing delivered", {
           description:
@@ -170,7 +172,11 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
                 : `Skipped: ${res.skipped}`,
         });
       } else {
-        toast.success(`Delivered ${res.delivered} of ${res.scanned} scanned feedback item(s)`);
+        toast.success(
+          res.skippedNoTarget > 0
+            ? `Delivered ${res.delivered} of ${res.scanned} scanned (${res.skippedNoTarget} skipped — no target project)`
+            : `Delivered ${res.delivered} of ${res.scanned} scanned feedback item(s)`,
+        );
       }
     } catch (err) {
       notifyError(err, "Couldn't run the remediation pass.");

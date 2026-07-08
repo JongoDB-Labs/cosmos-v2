@@ -37,12 +37,7 @@ export interface Triage {
 }
 
 export interface RemediationSummary {
-  skipped?:
-    | "not-enabled"
-    | "no-ai-credential"
-    | "no-target-project"
-    | "no-column"
-    | "no-type";
+  skipped?: "not-enabled" | "no-ai-credential" | "no-target-project";
   delivered: number;
   scanned: number;
   // Items whose per-item routing (own project / org default) landed outside the
