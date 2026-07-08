@@ -25,9 +25,20 @@ interface ClaudeCredentials {
  *  (not a subscription login); or the token is expired with no refresh token to
  *  renew it (the CLI refreshes a live token on use, so an expired-but-refreshable
  *  token is fine — only a dead end is fatal). */
+/** Env vars that route `claude` to a METERED or cloud-billed path instead of the
+ *  flat subscription — any of them present is a hard refuse. */
+const METERED_ENV = [
+  "ANTHROPIC_API_KEY", // pay-per-token API key
+  "ANTHROPIC_AUTH_TOKEN", // bearer token → non-subscription API path
+  "CLAUDE_CODE_USE_BEDROCK", // routes to AWS Bedrock (metered)
+  "CLAUDE_CODE_USE_VERTEX", // routes to GCP Vertex (metered)
+] as const;
+
 export function assertSubscription(env: NodeJS.ProcessEnv): void {
-  if (env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is set — refusing (would meter). Unset it.");
+  for (const v of METERED_ENV) {
+    if (env[v]) {
+      throw new Error(`${v} is set — refusing (routes to metered/cloud billing). Unset it.`);
+    }
   }
   const credPath = join(homedir(), ".claude", ".credentials.json");
   if (!existsSync(credPath)) {
@@ -54,7 +65,9 @@ export function runAgent(
   opts: { maxTurns?: number; timeoutMs?: number } = {},
 ): Promise<{ ok: boolean; log: string }> {
   const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY; // belt-and-suspenders: never meter, even if the caller's env had one
+  // belt-and-suspenders: strip every metered/cloud-billing path from the child's
+  // env, even if the caller's env had one, then assert the copy is clean.
+  for (const v of METERED_ENV) delete env[v];
   assertSubscription(env);
 
   const args = [

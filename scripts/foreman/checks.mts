@@ -25,7 +25,7 @@ export async function runChecks(dir: string): Promise<{ ok: boolean; log: string
   const tsc = await run("npx", ["tsc", "--noEmit"], dir);
   const changed = (await exec("git", ["diff", "--name-only", "origin/main...HEAD"], { cwd: dir })).stdout
     .split("\n")
-    .filter((f) => /\.(ts|tsx)$/.test(f));
+    .filter((f) => /\.(ts|tsx|mts|cts)$/.test(f));
   const lint = changed.length ? await run("npx", ["eslint", ...changed], dir) : { ok: true, out: "" };
   const vitest = await run("npx", ["vitest", "run"], dir);
   const ok = tsc.ok && lint.ok && vitest.ok;
