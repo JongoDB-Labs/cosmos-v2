@@ -84,3 +84,8 @@ ui-sweep.mjs
 roadmap_nodes.json
 poam_tasks.json
 prisma/seed/real/
+
+# Foreman/host deploy scripts — local-only (resolve prod digests at runtime)
+.deploy/deploy-apponly.sh
+.deploy/deploy-migrate.sh
+.deploy/backups/

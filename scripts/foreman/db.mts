@@ -68,6 +68,19 @@ export async function getBacklog(): Promise<
   }));
 }
 
+/** Resolve a COSMOS ticket number to its work-item id + current column, or null.
+ *  Scoped to the COSMOS project (ticket numbers are per-project), so a bare number
+ *  from a `COSMOS-<n>` ref lands on exactly one item — or none, if it was deleted. */
+export async function resolveTicket(
+  ticketNumber: number,
+): Promise<{ id: string; columnKey: string } | null> {
+  const row = await prisma.workItem.findFirst({
+    where: { projectId: COSMOS, ticketNumber },
+    select: { id: true, columnKey: true },
+  });
+  return row ? { id: row.id, columnKey: row.columnKey } : null;
+}
+
 /** Move a ticket to a new column, stamping the column-entry clock the same way every
  *  other column change in the app does (drives WIP/aging displays). */
 export async function moveColumn(itemId: string, columnKey: string): Promise<void> {
