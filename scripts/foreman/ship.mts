@@ -67,7 +67,13 @@ export async function waitForImage(version: string, timeoutMs = 25 * 60_000): Pr
       conclusion: string | null;
       displayTitle: string;
     }>;
-    const mine = runs.find((r) => r.headBranch === `v${version}` || r.displayTitle.includes(version));
+    // Primary: the exact tag ref (untruncated, unambiguous). Only if no run
+    // carries it do we fall back to the (truncatable, substring-collidable)
+    // displayTitle — a true primary→fallback, not an OR that could return a
+    // newer unrelated run whose title merely contains the version.
+    const mine =
+      runs.find((r) => r.headBranch === `v${version}`) ??
+      runs.find((r) => r.displayTitle.includes(version));
     if (mine?.status === "completed") return mine.conclusion === "success";
     await new Promise((r) => setTimeout(r, 20_000));
   }
