@@ -60,6 +60,10 @@ const createSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(5000).default(""),
   attachmentIds: z.array(z.string().uuid()).max(10).optional(),
+  // Which project this feedback is about (app-level, optional — the portal is
+  // an org-level surface with no implicit "current project"). Validated below
+  // against THIS org's live projects; null/omitted stays app-wide.
+  projectId: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -82,6 +86,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const data = createSchema.parse(await request.json());
 
+    // A provided projectId must belong to THIS org and be a live (non-archived)
+    // project — cross-org / archived / bogus ids are a 400, not a silent drop.
+    if (data.projectId) {
+      const project = await prisma.project.findFirst({
+        where: { id: data.projectId, orgId, archived: false },
+        select: { id: true },
+      });
+      if (!project) return new Response("Invalid project", { status: 400 });
+    }
+
     const created = await prisma.feedbackItem.create({
       data: {
         orgId,
@@ -89,6 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         type: data.type,
         title: data.title,
         description: data.description,
+        projectId: data.projectId ?? null,
       },
     });
 
