@@ -6,9 +6,11 @@ import { toast } from "sonner";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
+import { type AutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
 import { Button } from "@/components/ui/button";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -18,22 +20,28 @@ import {
 } from "@/components/ui/select";
 import { Wand2, Info, Bot } from "lucide-react";
 
-interface Config {
-  enabled: boolean;
-  targetProjectId: string | null;
-  projects: { id: string; key: string; name: string }[];
+interface ProjectOption {
+  id: string;
+  key: string;
+  name: string;
+}
+
+interface Config extends AutomationConfig {
+  projects: ProjectOption[];
   aiConnected: boolean;
   aiProvider: string;
   claudeSubscription: { connected: boolean; email?: string | null };
-  autonomousDelivery: boolean;
 }
 
 const NONE = "__none__";
 
 /**
- * Configure the auto-remediation loop (FR 695aa097): a toggle + a target-project
- * picker, plus a "Run now" that triggers a delivery pass immediately. Reads/writes
- * Organization.settings.autoRemediation via the config endpoint.
+ * Configure the org's feedback-automation loops (FR 695aa097): auto-triage
+ * (multi-project, with a default project for unrouted feedback) and
+ * autonomous delivery (multi-project). Reads/writes
+ * Organization.settings.{autoRemediation,autonomousDelivery} via the config
+ * endpoint — every save/toggle round-trips BOTH blocks in one PUT, so the
+ * two cards below never drift into inconsistent partial state.
  */
 export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   const cfgKey = useOrgQueryKey("feedback-remediation-config");
@@ -42,41 +50,67 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     queryFn: () => jsonFetch<Config>(`/api/v1/orgs/${orgId}/feedback/remediation-config`),
   });
 
-  const [enabled, setEnabled] = useState(false);
-  const [targetProjectId, setTargetProjectId] = useState<string>(NONE);
+  const [triageEnabled, setTriageEnabled] = useState(false);
+  const [triageProjectIds, setTriageProjectIds] = useState<string[]>([]);
+  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false);
+  const [deliveryProjectIds, setDeliveryProjectIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
-  const [autonomousDelivery, setAutonomousDelivery] = useState(false);
-  const [savingAutonomousDelivery, setSavingAutonomousDelivery] = useState(false);
+  const [savingDelivery, setSavingDelivery] = useState(false);
 
   // Seed the form once the config loads. Idiomatic "hydrate local state from a
   // fetched value" — the effect fires only when `data` changes.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (data) {
-      setEnabled(data.enabled);
-      setTargetProjectId(data.targetProjectId ?? NONE);
-      setAutonomousDelivery(data.autonomousDelivery);
+      setTriageEnabled(data.autoRemediation.enabled);
+      setTriageProjectIds(data.autoRemediation.projectIds);
+      setDefaultProjectId(data.autoRemediation.defaultProjectId);
+      setDeliveryEnabled(data.autonomousDelivery.enabled);
+      setDeliveryProjectIds(data.autonomousDelivery.projectIds);
     }
   }, [data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const projects = data?.projects ?? [];
   const aiConnected = data?.aiConnected ?? false;
+  const defaultProjectOptions = projects.filter((p) => triageProjectIds.includes(p.id));
+
+  function toggleTriageProject(id: string) {
+    const next = triageProjectIds.includes(id)
+      ? triageProjectIds.filter((p) => p !== id)
+      : [...triageProjectIds, id];
+    setTriageProjectIds(next);
+    // The default must always be one of the checked projects — if unchecking
+    // just dropped it out of scope, clear it rather than leave a dangling
+    // reference the enable-gate would otherwise reject on save.
+    if (defaultProjectId && !next.includes(defaultProjectId)) {
+      setDefaultProjectId(null);
+    }
+  }
+
+  function toggleDeliveryProject(id: string) {
+    setDeliveryProjectIds((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
+    );
+  }
 
   async function save() {
-    if (enabled && targetProjectId === NONE) {
-      toast.error("Pick a target project before enabling.");
+    const config: AutomationConfig = {
+      autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
+      autonomousDelivery: { enabled: deliveryEnabled, projectIds: deliveryProjectIds },
+    };
+    const gateReason = validateEnableGate(config);
+    if (gateReason) {
+      toast.error(gateReason);
       return;
     }
     setSaving(true);
     try {
       await jsonFetch(`/api/v1/orgs/${orgId}/feedback/remediation-config`, {
         method: "PUT",
-        body: JSON.stringify({
-          enabled,
-          targetProjectId: targetProjectId === NONE ? null : targetProjectId,
-        }),
+        body: JSON.stringify(config),
       });
       toast.success("Feedback automation saved");
     } catch (err) {
@@ -86,52 +120,63 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     }
   }
 
-  // Flips independently of the Save button above — it's its own settings key
-  // (settings.autonomousDelivery.enabled), not part of the auto-triage
-  // enabled/targetProjectId pairing, so it persists the instant it's toggled.
-  // Round-trip the LAST-SAVED auto-triage values (from `data`), NOT the live
-  // form state — otherwise flipping this toggle would silently persist an
-  // unsaved target-project edit (or 400 on the "target required" check).
-  async function toggleAutonomousDelivery(next: boolean) {
-    const previous = autonomousDelivery;
-    setAutonomousDelivery(next);
-    setSavingAutonomousDelivery(true);
+  // The delivery master switch has no separate Save button — it persists the
+  // instant it's flipped, same UX as before. It round-trips the CURRENT live
+  // form state for BOTH blocks (not the last-saved `data`), so an in-progress
+  // edit to the triage card isn't silently discarded by flipping this toggle.
+  // Gate-checked BEFORE the flip lands, so a blocked toggle never visually
+  // moves (no flip-then-revert flicker for a purely local validation error).
+  async function toggleDelivery(next: boolean) {
+    const previous = deliveryEnabled;
+    const config: AutomationConfig = {
+      autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
+      autonomousDelivery: { enabled: next, projectIds: deliveryProjectIds },
+    };
+    const gateReason = validateEnableGate(config);
+    if (gateReason) {
+      toast.error(gateReason);
+      return;
+    }
+    setDeliveryEnabled(next);
+    setSavingDelivery(true);
     try {
       await jsonFetch(`/api/v1/orgs/${orgId}/feedback/remediation-config`, {
         method: "PUT",
-        body: JSON.stringify({
-          enabled: data?.enabled ?? false,
-          targetProjectId: data?.targetProjectId ?? null,
-          autonomousDelivery: next,
-        }),
+        body: JSON.stringify(config),
       });
       toast.success(next ? "Autonomous delivery enabled" : "Autonomous delivery disabled");
     } catch (err) {
-      setAutonomousDelivery(previous);
+      setDeliveryEnabled(previous);
       notifyError(err, "Couldn't update autonomous delivery.");
     } finally {
-      setSavingAutonomousDelivery(false);
+      setSavingDelivery(false);
     }
   }
 
   async function runNow() {
     setRunning(true);
     try {
-      const res = await jsonFetch<{ delivered: number; scanned: number; skipped?: string }>(
-        `/api/v1/orgs/${orgId}/feedback/remediate`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
+      const res = await jsonFetch<{
+        delivered: number;
+        scanned: number;
+        skipped?: string;
+        skippedNoTarget: number;
+      }>(`/api/v1/orgs/${orgId}/feedback/remediate`, { method: "POST", body: JSON.stringify({}) });
       if (res.skipped) {
         toast.message("Nothing delivered", {
           description:
             res.skipped === "not-enabled"
-              ? "Enable automation and choose a target project first."
+              ? "Enable auto-triage and select at least one project first."
               : res.skipped === "no-ai-credential"
                 ? "Connect a Claude subscription in Settings → AI first — triage won't run on a heuristic guess."
                 : `Skipped: ${res.skipped}`,
         });
       } else {
-        toast.success(`Delivered ${res.delivered} of ${res.scanned} scanned feedback item(s)`);
+        toast.success(
+          res.skippedNoTarget > 0
+            ? `Delivered ${res.delivered} of ${res.scanned} scanned (${res.skippedNoTarget} skipped — no target project)`
+            : `Delivered ${res.delivered} of ${res.scanned} scanned feedback item(s)`,
+        );
       }
     } catch (err) {
       notifyError(err, "Couldn't run the remediation pass.");
@@ -180,28 +225,48 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             </div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               When on, new feature requests and bug reports are AI-classified
-              (type, severity, effort, acceptance criteria) and delivered into the
-              target project&apos;s backlog as work items — so nothing sits in the
-              inbox waiting to be actioned.
+              (type, severity, effort, acceptance criteria) and delivered into
+              the checked projects&apos; backlogs as work items — so nothing
+              sits in the inbox waiting to be actioned.
             </p>
           </div>
-          <ToggleSwitch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable auto-triage" />
+          <ToggleSwitch
+            checked={triageEnabled}
+            onCheckedChange={setTriageEnabled}
+            aria-label="Enable auto-triage"
+          />
         </div>
 
         <div className="mt-4">
           <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
-            Target project
+            Projects
+          </label>
+          <ProjectChecklist
+            projects={projects}
+            selectedIds={triageProjectIds}
+            onToggle={toggleTriageProject}
+            ariaLabel="Projects to receive triaged feedback"
+          />
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+            Default project for unrouted feedback
           </label>
           <Select
-            value={targetProjectId}
-            onValueChange={(v) => v && setTargetProjectId(v as string)}
+            value={defaultProjectId ?? NONE}
+            onValueChange={(v) => setDefaultProjectId(v === NONE ? null : v)}
           >
-            <SelectTrigger size="sm" aria-label="Target project" className="w-full max-w-sm text-sm">
-              <SelectValue placeholder="Choose a project" />
+            <SelectTrigger
+              size="sm"
+              aria-label="Default project for unrouted feedback"
+              className="w-full max-w-sm text-sm"
+            >
+              <SelectValue placeholder="Choose a default project" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>— none —</SelectItem>
-              {projects.map((p) => (
+              {defaultProjectOptions.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.key} · {p.name}
                 </SelectItem>
@@ -239,11 +304,26 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             </p>
           </div>
           <ToggleSwitch
-            checked={autonomousDelivery}
-            onCheckedChange={toggleAutonomousDelivery}
-            disabled={savingAutonomousDelivery || !aiConnected}
+            checked={deliveryEnabled}
+            onCheckedChange={toggleDelivery}
+            disabled={savingDelivery || !aiConnected}
             aria-label="Enable autonomous delivery"
           />
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+            Projects
+          </label>
+          <ProjectChecklist
+            projects={projects}
+            selectedIds={deliveryProjectIds}
+            onToggle={toggleDeliveryProject}
+            ariaLabel="Projects for autonomous delivery"
+          />
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            These projects&apos; backlogs are implemented &amp; shipped as cosmos-v2 code changes.
+          </p>
         </div>
       </div>
 
@@ -263,6 +343,47 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Shared checklist body for both cards' project multi-selects — one row per
+ *  org project, `{key} · {name}`, backed by the existing Checkbox primitive. */
+function ProjectChecklist({
+  projects,
+  selectedIds,
+  onToggle,
+  ariaLabel,
+}: {
+  projects: ProjectOption[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  ariaLabel: string;
+}) {
+  if (projects.length === 0) {
+    return (
+      <p className="rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)]">
+        No projects yet.
+      </p>
+    );
+  }
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className="max-h-48 divide-y divide-[var(--border)] overflow-y-auto rounded-md border border-[var(--border)]"
+    >
+      {projects.map((p) => (
+        <label
+          key={p.id}
+          className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--muted)]/30"
+        >
+          <Checkbox checked={selectedIds.includes(p.id)} onChange={() => onToggle(p.id)} />
+          <span>
+            {p.key} · {p.name}
+          </span>
+        </label>
+      ))}
     </div>
   );
 }

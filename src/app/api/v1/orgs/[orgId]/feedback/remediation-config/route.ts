@@ -6,18 +6,32 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 const configSchema = z.object({
-  enabled: z.boolean(),
-  targetProjectId: z.string().uuid().nullable(),
-  autonomousDelivery: z.boolean().optional(),
+  autoRemediation: z.object({
+    enabled: z.boolean(),
+    projectIds: z.array(z.string().uuid()),
+    defaultProjectId: z.string().uuid().nullable(),
+  }),
+  autonomousDelivery: z.object({
+    enabled: z.boolean(),
+    projectIds: z.array(z.string().uuid()),
+  }),
 });
 
-/** Read the org's auto-remediation config + the projects available as the
- *  delivery target (for the settings picker). Gated on ORG_UPDATE (this is org
- *  admin surface). */
+function badRequest(error: string) {
+  return new Response(JSON.stringify({ error }), {
+    status: 400,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** Read the org's feedback-automation config (auto-triage + autonomous delivery,
+ *  both now multi-project) + the projects available for the pickers. Gated on
+ *  ORG_UPDATE (this is org admin surface). */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
@@ -31,10 +45,6 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
-    const cfg = ((org.settings as Record<string, unknown>)?.autoRemediation ?? {}) as {
-      enabled?: boolean;
-      targetProjectId?: string;
-    };
     const projects = await prisma.project.findMany({
       where: { orgId, archived: false },
       select: { id: true, key: true, name: true },
@@ -48,30 +58,20 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const aiConnected =
       ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
 
-    // Autonomous-delivery flag: read by the Foreman worker (db.autonomyEnabled())
-    // each loop to decide whether to run. Lives in its own settings key,
-    // independent of the auto-triage enabled/targetProjectId pairing above.
-    const autonomousDelivery =
-      ((org.settings as Record<string, unknown>)?.autonomousDelivery as
-        | { enabled?: boolean }
-        | undefined)?.enabled === true;
-
     return success({
-      enabled: cfg.enabled === true,
-      targetProjectId: cfg.targetProjectId ?? null,
+      ...readAutomationConfig(org.settings),
       projects,
       aiConnected,
       aiProvider: ai.provider,
       claudeSubscription: ai.claudeOAuth,
-      autonomousDelivery,
     });
   } catch (error) {
     return handleApiError(error);
   }
 }
 
-/** Update the config — merges `autoRemediation` into `Organization.settings`
- *  without touching other settings keys. */
+/** Update the config — merges `autoRemediation` + `autonomousDelivery` into
+ *  `Organization.settings` without touching other settings keys. */
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
@@ -87,47 +87,47 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const data = configSchema.parse(await request.json());
 
-    // Can't enable without a target, and the target must be a live project in
-    // this org — never deliver into a project that doesn't exist / is archived.
-    if (data.enabled) {
-      if (!data.targetProjectId) {
-        return new Response(
-          JSON.stringify({ error: "A target project is required to enable auto-remediation." }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      const target = await prisma.project.findFirst({
-        where: { id: data.targetProjectId, orgId, archived: false },
+    // Can't enable an automation without a valid project scope (and, for
+    // auto-triage, a default project drawn from that scope).
+    const gateReason = validateEnableGate(data);
+    if (gateReason) return badRequest(gateReason);
+
+    // Every referenced project id must be a live project in THIS org — never
+    // triage/deliver into a project that doesn't exist, is archived, or
+    // belongs to someone else's org. Single query, reused across all three
+    // fields.
+    const referencedIds = [
+      ...data.autoRemediation.projectIds,
+      ...data.autonomousDelivery.projectIds,
+      ...(data.autoRemediation.defaultProjectId ? [data.autoRemediation.defaultProjectId] : []),
+    ];
+    if (referencedIds.length > 0) {
+      const orgProjects = await prisma.project.findMany({
+        where: { orgId, archived: false },
         select: { id: true },
       });
-      if (!target) {
-        return new Response(
-          JSON.stringify({ error: "Target project not found in this organization." }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        );
+      const orgProjectIds = new Set(orgProjects.map((p) => p.id));
+      const unknownId = referencedIds.find((id) => !orgProjectIds.has(id));
+      if (unknownId) {
+        return badRequest("One or more selected projects were not found in this organization.");
       }
     }
 
     const existing = (org.settings as Record<string, unknown>) ?? {};
     const nextSettings: Record<string, unknown> = {
       ...existing,
-      autoRemediation: {
-        enabled: data.enabled,
-        targetProjectId: data.targetProjectId,
-      },
+      autoRemediation: data.autoRemediation,
+      autonomousDelivery: data.autonomousDelivery,
     };
-    // Autonomous delivery lives in its own settings key, independent of the
-    // auto-triage enabled/targetProjectId pairing above — only touch it when
-    // the caller actually sent a value.
-    if (typeof data.autonomousDelivery === "boolean") {
-      nextSettings.autonomousDelivery = { enabled: data.autonomousDelivery };
-    }
     await prisma.organization.update({
       where: { id: orgId },
       data: { settings: nextSettings as never },
     });
 
-    return success({ enabled: data.enabled, targetProjectId: data.targetProjectId });
+    return success({
+      autoRemediation: data.autoRemediation,
+      autonomousDelivery: data.autonomousDelivery,
+    });
   } catch (error) {
     return handleApiError(error);
   }
