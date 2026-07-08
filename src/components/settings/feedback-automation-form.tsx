@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Wand2, Info } from "lucide-react";
+import { Wand2, Info, Bot } from "lucide-react";
 
 interface Config {
   enabled: boolean;
@@ -25,6 +25,7 @@ interface Config {
   aiConnected: boolean;
   aiProvider: string;
   claudeSubscription: { connected: boolean; email?: string | null };
+  autonomousDelivery: boolean;
 }
 
 const NONE = "__none__";
@@ -45,6 +46,8 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   const [targetProjectId, setTargetProjectId] = useState<string>(NONE);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [autonomousDelivery, setAutonomousDelivery] = useState(false);
+  const [savingAutonomousDelivery, setSavingAutonomousDelivery] = useState(false);
 
   // Seed the form once the config loads. Idiomatic "hydrate local state from a
   // fetched value" — the effect fires only when `data` changes.
@@ -53,6 +56,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     if (data) {
       setEnabled(data.enabled);
       setTargetProjectId(data.targetProjectId ?? NONE);
+      setAutonomousDelivery(data.autonomousDelivery);
     }
   }, [data]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -79,6 +83,31 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
       notifyError(err, "Couldn't save the configuration.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Flips independently of the Save button above — it's its own settings key
+  // (settings.autonomousDelivery.enabled), not part of the auto-triage
+  // enabled/targetProjectId pairing, so it persists the instant it's toggled.
+  async function toggleAutonomousDelivery(next: boolean) {
+    const previous = autonomousDelivery;
+    setAutonomousDelivery(next);
+    setSavingAutonomousDelivery(true);
+    try {
+      await jsonFetch(`/api/v1/orgs/${orgId}/feedback/remediation-config`, {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled,
+          targetProjectId: targetProjectId === NONE ? null : targetProjectId,
+          autonomousDelivery: next,
+        }),
+      });
+      toast.success(next ? "Autonomous delivery enabled" : "Autonomous delivery disabled");
+    } catch (err) {
+      setAutonomousDelivery(previous);
+      notifyError(err, "Couldn't update autonomous delivery.");
+    } finally {
+      setSavingAutonomousDelivery(false);
     }
   }
 
@@ -191,6 +220,27 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           >
             {running ? "Running…" : "Run now"}
           </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 font-medium text-[var(--text)]">
+              <Bot className="size-4 text-[var(--primary)]" /> Autonomous delivery
+            </div>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              When on, a worker implements, tests, and ships backlog tickets
+              automatically — safe changes deploy; risky ones wait for your
+              approval.
+            </p>
+          </div>
+          <ToggleSwitch
+            checked={autonomousDelivery}
+            onCheckedChange={toggleAutonomousDelivery}
+            disabled={savingAutonomousDelivery || !aiConnected}
+            aria-label="Enable autonomous delivery"
+          />
         </div>
       </div>
 
