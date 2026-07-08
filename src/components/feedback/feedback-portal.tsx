@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useOrgQueryKey } from "@/lib/query/keys";
+import { jsonFetch } from "@/lib/query/json-fetcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,7 +55,16 @@ interface FeedbackItem {
   hasVoted: boolean;
   createdAt: string;
   attachments?: FeedbackAttachment[];
+  projectId?: string | null;
 }
+
+// Shape of /api/v1/orgs/[orgId]/projects — `success(projects)` returns a bare
+// array (jsonFetch unwraps the `{ data }` envelope), so this is one element.
+type OrgProject = { id: string; key: string; name: string };
+
+// Sentinel for the project picker's "no project" option — the portal is an
+// org-level surface with no implicit "current project" to default to.
+const NO_PROJECT = "__none__";
 
 const STATUS_LABELS: Record<FStatus, string> = {
   OPEN: "Open",
@@ -74,6 +86,18 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const { can } = usePermissions();
   const canManage = can(Permission.ORG_UPDATE);
   const basePath = `/api/v1/orgs/${orgId}/feedback`;
+
+  // Org's live projects, for the submit dialog's project picker. Member-
+  // accessible (PROJECT_READ, which every org role down to MEMBER has) —
+  // NOT the ORG_UPDATE-gated remediation-config endpoint. Shares the
+  // "projects" cache key with the sidebar/chat dialogs, so this is typically
+  // served from an already-warm cache entry rather than a fresh fetch.
+  const projectsKey = useOrgQueryKey("projects");
+  const { data: projects } = useQuery({
+    queryKey: projectsKey,
+    queryFn: () => jsonFetch<OrgProject[]>(`/api/v1/orgs/${orgId}/projects`),
+    staleTime: 60_000,
+  });
 
   const [items, setItems] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +126,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   // Submit dialog.
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<FType>("FEATURE");
+  const [newProjectId, setNewProjectId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -173,11 +198,13 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
           title: title.trim(),
           description: description.trim(),
           attachmentIds: pending.map((a) => a.id),
+          projectId: newProjectId,
         }),
       });
       if (!res.ok) throw new Error("Failed to submit");
       setOpen(false);
       setType("FEATURE");
+      setNewProjectId(null);
       setTitle("");
       setDescription("");
       setPending([]);
@@ -514,6 +541,25 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                 <SelectContent>
                   <SelectItem value="FEATURE">Feature request</SelectItem>
                   <SelectItem value="BUG">Bug report</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fb-project">Project</Label>
+              <Select
+                value={newProjectId ?? NO_PROJECT}
+                onValueChange={(v) => setNewProjectId(v === NO_PROJECT ? null : v)}
+              >
+                <SelectTrigger id="fb-project">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROJECT}>App-wide / unassigned</SelectItem>
+                  {(projects ?? []).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.key} · {p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

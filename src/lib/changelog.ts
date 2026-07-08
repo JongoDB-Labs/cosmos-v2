@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.160.0",
+    date: "2026-07-08",
+    title: "Feedback automation, per project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Auto-triage now delivers feedback into whichever project it's about — pick one or more target projects, plus a default for anything unrouted, in Settings → Feedback automation.",
+      },
+      {
+        kind: "feature",
+        text: "Feature requests and bug reports are now tagged with their project as they come in, so each lands in the right backlog instead of one shared inbox.",
+      },
+    ],
+  },
+  {
     version: "2.158.0",
     date: "2026-07-07",
     title: "What's new, in-app",

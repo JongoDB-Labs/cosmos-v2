@@ -605,6 +605,7 @@ model Project {
   deliverables        Deliverable[]
   blockers            Blocker[]
   changeRequests      ChangeRequest[]
+  feedbackItems       FeedbackItem[]
 
   @@unique([orgId, key])
   @@map("projects")
@@ -2585,16 +2586,19 @@ model FeedbackItem {
   deliveredAt DateTime?      @map("delivered_at")
   workItemId  String?        @map("work_item_id") @db.Uuid
   triage      Json?
+  projectId   String?        @map("project_id") @db.Uuid
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
   org         Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
   votes       FeedbackVote[]
   attachments FeedbackAttachment[]
 
   @@index([orgId, status])
   // Backs the poller's "OPEN + not yet delivered" scan.
   @@index([orgId, deliveredAt])
+  @@index([orgId, projectId])
   @@map("feedback_items")
 }
 
