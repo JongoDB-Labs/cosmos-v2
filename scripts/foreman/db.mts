@@ -44,6 +44,24 @@ export async function deliveryProjects(): Promise<
     });
     for (const p of projects) pool.push({ projectId: p.id, projectKey: p.key, orgId: org.id });
   }
+
+  // Ticket refs are `<projectKey>-<n>`, and project keys are only unique PER ORG
+  // (`@@unique([orgId, key])`). If two pooled projects across different orgs share a
+  // key, that ref is ambiguous — reconcileGated's `resolveTicket(key, n)` could land
+  // on the wrong org's item and move/comment on it. Until refs carry the org, keep
+  // the pool's keys globally unique: drop every entry for any colliding key and log
+  // it, so an ambiguous ref can never resolve. (No effect in the common single-org /
+  // distinct-key case.)
+  const keyCounts = new Map<string, number>();
+  for (const p of pool) keyCounts.set(p.projectKey, (keyCounts.get(p.projectKey) ?? 0) + 1);
+  const ambiguous = new Set([...keyCounts].filter(([, n]) => n > 1).map(([k]) => k));
+  if (ambiguous.size > 0) {
+    console.warn(
+      `[foreman] delivery pool has projects sharing a key across orgs (${[...ambiguous].join(", ")}) — ` +
+        `excluding them until keys are globally unique (rename or unscope one).`,
+    );
+    return pool.filter((p) => !ambiguous.has(p.projectKey));
+  }
   return pool;
 }
 
