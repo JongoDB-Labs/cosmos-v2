@@ -332,6 +332,15 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
  *  circuit breaker. */
 async function reconcileGated(): Promise<void> {
   if (DRY) return; // deploys to prod — never in a dry preview
+
+  // Compute pending-gated BEFORE any git op. REPO is the shared, interactively-used
+  // checkout and can hold uncommitted work; an idle pass (nothing pending) must NOT
+  // `git checkout/fetch/reset --hard` it and silently discard that work. Only refresh
+  // main when there is at least one pending gated ref to actually deploy.
+  const entries = readLedger(LEDGER);
+  const pending = pendingGated(entries);
+  if (pending.length === 0) return;
+
   // reconcile is non-DRY, so its outcomes always land in the real LEDGER.
   const record = (e: Omit<LedgerEntry, "ts">): void =>
     appendLedger(LEDGER, { ...e, ts: new Date().toISOString() });
@@ -343,20 +352,19 @@ async function reconcileGated(): Promise<void> {
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]).catch(() => undefined);
   await exec("git", ["-C", REPO, "reset", "--hard", "origin/main"]).catch(() => undefined);
 
-  const entries = readLedger(LEDGER);
   // Reuse each ref's most-recent (gated) entry for the title/classification we
   // record back, so a reconcile outcome line stays consistent with its history.
   const lastByRef = new Map<string, LedgerEntry>();
   for (const e of entries) lastByRef.set(e.ticket, e);
 
-  for (const ref of pendingGated(entries)) {
+  for (const ref of pending) {
     try {
       const n = parseInt(ref.replace("COSMOS-", ""), 10);
       // Is the draft PR now merged? A gh error / not-found (no PR on that branch,
       // or a transient failure) → treat as not-yet-merged and skip this ref.
       let merged = false;
       try {
-        const { stdout } = await exec("gh", ["pr", "view", `auto/${ref}`, "--json", "state,mergedAt"], { cwd: REPO });
+        const { stdout } = await exec("gh", ["pr", "view", `auto/${ref}`, "--json", "state"], { cwd: REPO });
         merged = (JSON.parse(stdout) as { state?: string }).state === "MERGED";
       } catch {
         continue;
@@ -382,7 +390,9 @@ async function reconcileGated(): Promise<void> {
         /* health unreachable — treat as not-yet-live and deploy below */
       }
       if (compareVersions(prodVersion, version) >= 0) {
-        await db.moveColumn(item.id, "done");
+        // Already `done` (e.g. a human moved it) → skip the redundant column write
+        // (uses resolveTicket's columnKey); still record shipped to clear the gate.
+        if (item.columnKey !== "done") await db.moveColumn(item.id, "done");
         await db.comment(item.id, `Approved + already live in v${version}.`);
         record({ ticket: ref, title, classification, resolution: "shipped", version });
         log(`${ref} approved + already live v${version} → done`);
@@ -409,16 +419,25 @@ async function reconcileGated(): Promise<void> {
       // deploy-migrate is the safe superset: applies any pending migration, else no-op.
       const ok = await ship.deploy(version, true);
       if (ok) {
-        await db.moveColumn(item.id, "done");
+        if (item.columnKey !== "done") await db.moveColumn(item.id, "done");
         await db.comment(item.id, `Shipped approved change in v${version}.`);
         record({ ticket: ref, title, classification, resolution: "shipped", version });
         log(`${ref} shipped approved change v${version} → done`);
       } else {
-        await ship.rollback(version);
-        await db.moveColumn(item.id, "review");
-        await db.comment(item.id, "Approved but deploy health-gate failed; rolled back. Still parked.");
-        record({ ticket: ref, title, classification, resolution: "gated" });
-        log(`${ref} approved deploy health-gate failed — rolled back, still parked`);
+        // Deploy health-gate failed. Roll back + re-park as best-effort, but
+        // guarantee the circuit-breaker signal fires REGARDLESS: a DB/gh blip in
+        // the cleanup below must not swallow a real deploy failure and leave it
+        // uncounted (mirrors processOne's M4). The breaker-feeding throw after this
+        // try/catch is UNCONDITIONAL.
+        try {
+          await ship.rollback(version);
+          await db.moveColumn(item.id, "review");
+          await db.comment(item.id, "Approved but deploy health-gate failed; rolled back. Still parked.");
+          record({ ticket: ref, title, classification, resolution: "gated" });
+          log(`${ref} approved deploy health-gate failed — rolled back, still parked`);
+        } catch (cleanupErr) {
+          log(`${ref} reconcile deploy-gate cleanup error (continuing to circuit breaker): ${String(cleanupErr)}`);
+        }
         // Feed main()'s circuit breaker (repeated deploy-gate failures disarm).
         throw new Error("deploy gate failed (approved reconcile rolled back)");
       }
@@ -452,6 +471,13 @@ async function main(): Promise<void> {
   // Empty scratch cwd for the read-only judges (I3) — created once, reused.
   mkdirSync(SCRATCH, { recursive: true });
   let consecutiveDeployFails = 0;
+  // Reconcile gets its OWN deploy-failure breaker, independent of the shared
+  // consecutiveDeployFails above: otherwise an unrelated backlog ticket shipping
+  // between two reconcile attempts would reset that shared counter, so a
+  // persistently-broken approved deploy would retry (real deploy+rollback churn)
+  // forever without ever tripping. Same threshold + halt action. (I3)
+  let reconcileDeployFails = 0;
+  const BREAKER = 2;
   // DRY surveys each backlog ticket exactly once: terminal column moves are
   // skipped in DRY, so without this the picked ticket stays in `backlog` and the
   // loop would re-process the same top-priority one forever. (I1)
@@ -474,14 +500,21 @@ async function main(): Promise<void> {
         // Reconcile FIRST: deploy anything a human merged since last pass (an
         // approved gated PR) before spending a build slot on new backlog work.
         // No-op in DRY and when nothing is pending-gated. A deploy-gate failure
-        // here feeds the SAME circuit breaker as a ship failure in processOne.
+        // here trips reconcile's OWN circuit breaker (reconcileDeployFails),
+        // independent of processOne's consecutiveDeployFails. (I3)
         try {
           await reconcileGated();
+          reconcileDeployFails = 0; // a clean / no-op / idempotent pass clears it
         } catch (e) {
-          log(`reconcile error: ${String(e)}`);
-          if (String(e).includes("deploy gate") && ++consecutiveDeployFails >= 2) {
-            log("circuit breaker: 2 deploy failures — disabling");
-            writeFileSync(STOP, "circuit-breaker");
+          if (String(e).includes("deploy gate")) {
+            reconcileDeployFails++;
+            log(`reconcile deploy failed (${reconcileDeployFails}/${BREAKER})`);
+            if (reconcileDeployFails >= BREAKER) {
+              log("circuit breaker: 2 deploy failures — disabling");
+              writeFileSync(STOP, "circuit-breaker");
+            }
+          } else {
+            log(`reconcile skipped: ${String(e)}`); // transient gh/git/db — not a deploy failure
           }
         }
         if (killed()) continue; // breaker may have just fired — don't start a build

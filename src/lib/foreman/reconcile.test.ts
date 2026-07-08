@@ -37,6 +37,14 @@ describe("pendingGated", () => {
     expect(pendingGated(entries)).toEqual([]);
   });
 
+  it("treats a later needs-input as clearing the gate — needs-input-last is not pending", () => {
+    const entries: LedgerEntry[] = [
+      entry("COSMOS-8", "gated", "2026-07-01T00:00:00Z"),
+      entry("COSMOS-8", "needs-input", "2026-07-02T00:00:00Z"),
+    ];
+    expect(pendingGated(entries)).toEqual([]);
+  });
+
   it("preserves first-appearance order across interleaved tickets", () => {
     const entries: LedgerEntry[] = [
       entry("COSMOS-9", "gated", "2026-07-01T00:00:00Z"),
