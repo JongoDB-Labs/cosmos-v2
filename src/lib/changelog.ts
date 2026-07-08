@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.160.1",
+    date: "2026-07-08",
+    title: "Feedback automation, clarified",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Feedback automation settings now spell out what they do: auto-triage routes this org's feedback into the board(s) you choose (set a default to funnel everything to one board), and autonomous delivery is marked as an owner-level capability.",
+      },
+    ],
+  },
+  {
     version: "2.160.0",
     date: "2026-07-08",
     title: "Feedback automation, per project",
