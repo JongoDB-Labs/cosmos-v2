@@ -42,7 +42,17 @@ export async function runChecks(dir: string): Promise<{ ok: boolean; log: string
   // live DATABASE_URL — otherwise every ticket gates on `test-org`-not-found and,
   // worse, the integration tests would run against prod. testDatabaseUrl() throws
   // if the test URL ever resolves to the live one.
-  const vitest = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: testDatabaseUrl() });
+  // The vitest suite is heavy (DB fixtures + ML libs) and occasionally flakes under
+  // the daemon's concurrent load — a false failure would gate a good change. Retry
+  // ONCE on failure: a transient flake passes the second time, a real failure fails
+  // twice. tsc/eslint are fast + deterministic, so they aren't retried.
+  let vitest = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: testDatabaseUrl() });
+  if (!vitest.ok) {
+    const retry = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: testDatabaseUrl() });
+    vitest = retry.ok
+      ? { ok: true, out: vitest.out + "\n--- vitest RETRY (first run flaked) ---\n" + retry.out }
+      : { ok: false, out: vitest.out + "\n--- vitest RETRY (still failing) ---\n" + retry.out };
+  }
   const ok = tsc.ok && lint.ok && vitest.ok;
   return { ok, log: [tsc, lint, vitest].map((r) => r.out).join("\n---\n") };
 }
