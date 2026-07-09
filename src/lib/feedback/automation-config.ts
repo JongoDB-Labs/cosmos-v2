@@ -78,7 +78,10 @@ export function readAutomationConfig(settings: unknown): AutomationConfig {
 
 /** Drop any project id no longer present in the org (moved/deleted), so a stale
  *  config never wedges the settings form. defaultProjectId is cleared if it's not
- *  in the pruned projectIds. */
+ *  in the pruned projectIds. If pruning empties a block's scope, that block is also
+ *  DISABLED — an automation with no projects can't run, and leaving it `enabled`
+ *  but empty is an invalid state that fails the enable-gate and blocks every save
+ *  (including edits to the OTHER card, which share one PUT). */
 export function pruneToProjects(config: AutomationConfig, validProjectIds: Set<string>): AutomationConfig {
   const autoRemediationProjectIds = config.autoRemediation.projectIds.filter((id) => validProjectIds.has(id));
   const defaultProjectId =
@@ -86,16 +89,19 @@ export function pruneToProjects(config: AutomationConfig, validProjectIds: Set<s
     autoRemediationProjectIds.includes(config.autoRemediation.defaultProjectId)
       ? config.autoRemediation.defaultProjectId
       : null;
+  const autonomousDeliveryProjectIds = config.autonomousDelivery.projectIds.filter((id) =>
+    validProjectIds.has(id),
+  );
 
   return {
     autoRemediation: {
-      ...config.autoRemediation,
+      enabled: config.autoRemediation.enabled && autoRemediationProjectIds.length > 0,
       projectIds: autoRemediationProjectIds,
       defaultProjectId,
     },
     autonomousDelivery: {
-      ...config.autonomousDelivery,
-      projectIds: config.autonomousDelivery.projectIds.filter((id) => validProjectIds.has(id)),
+      enabled: config.autonomousDelivery.enabled && autonomousDeliveryProjectIds.length > 0,
+      projectIds: autonomousDeliveryProjectIds,
     },
   };
 }

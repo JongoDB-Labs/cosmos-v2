@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.160.3",
+    date: "2026-07-08",
+    title: "Feedback automation settings unblocked",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When every project an automation targeted has left the org, it's now shown as off (instead of on-but-empty) — which was quietly blocking all edits on that settings page, including the other card's checkboxes.",
+      },
+    ],
+  },
+  {
     version: "2.160.2",
     date: "2026-07-08",
     title: "Feedback automation settings fixes",
