@@ -23,8 +23,12 @@ export const CHANGELOG: Release[] = [
   {
     version: "2.160.2",
     date: "2026-07-08",
-    title: "Feedback automation settings fix",
+    title: "Feedback automation settings fixes",
     highlights: [
+      {
+        kind: "fix",
+        text: "Autonomous delivery project checkboxes now save immediately — checking or unchecking a project sticks, instead of quietly reverting.",
+      },
       {
         kind: "fix",
         text: "Feedback automation settings no longer get stuck when a project referenced by the config leaves the org (moved or deleted) — the stale reference is dropped automatically instead of blocking every save.",

@@ -90,10 +90,49 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     }
   }
 
-  function toggleDeliveryProject(id: string) {
-    setDeliveryProjectIds((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
-    );
+  // Build the full config payload (both blocks) from live form state — every
+  // delivery write also carries the current triage state, so an unsaved triage
+  // edit isn't clobbered by a delivery-side save.
+  function deliveryConfig(enabled: boolean, projectIds: string[]): AutomationConfig {
+    return {
+      autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
+      autonomousDelivery: { enabled, projectIds },
+    };
+  }
+  async function persistDelivery(config: AutomationConfig): Promise<boolean> {
+    setSavingDelivery(true);
+    try {
+      await jsonFetch(`/api/v1/orgs/${orgId}/feedback/remediation-config`, {
+        method: "PUT",
+        body: JSON.stringify(config),
+      });
+      return true;
+    } catch (err) {
+      notifyError(err, "Couldn't update autonomous delivery.");
+      return false;
+    } finally {
+      setSavingDelivery(false);
+    }
+  }
+
+  // The delivery card persists immediately — same UX as its master switch — so
+  // checking/unchecking a project STICKS without a separate Save button (the bug
+  // was that this only mutated local state, which a refetch then reverted).
+  // Gate-checked first (no flicker on a blocked change), optimistic, reverted on
+  // a network failure.
+  async function toggleDeliveryProject(id: string) {
+    const nextIds = deliveryProjectIds.includes(id)
+      ? deliveryProjectIds.filter((p) => p !== id)
+      : [...deliveryProjectIds, id];
+    const config = deliveryConfig(deliveryEnabled, nextIds);
+    const gateReason = validateEnableGate(config);
+    if (gateReason) {
+      toast.error(gateReason);
+      return;
+    }
+    const previous = deliveryProjectIds;
+    setDeliveryProjectIds(nextIds);
+    if (!(await persistDelivery(config))) setDeliveryProjectIds(previous);
   }
 
   async function save() {
@@ -120,36 +159,22 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     }
   }
 
-  // The delivery master switch has no separate Save button — it persists the
-  // instant it's flipped, same UX as before. It round-trips the CURRENT live
-  // form state for BOTH blocks (not the last-saved `data`), so an in-progress
-  // edit to the triage card isn't silently discarded by flipping this toggle.
-  // Gate-checked BEFORE the flip lands, so a blocked toggle never visually
-  // moves (no flip-then-revert flicker for a purely local validation error).
+  // Master switch persists the instant it's flipped (same helper as the project
+  // checklist above). Gate-checked BEFORE the flip lands, so a blocked toggle
+  // never visually moves; reverted on a network failure.
   async function toggleDelivery(next: boolean) {
-    const previous = deliveryEnabled;
-    const config: AutomationConfig = {
-      autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
-      autonomousDelivery: { enabled: next, projectIds: deliveryProjectIds },
-    };
+    const config = deliveryConfig(next, deliveryProjectIds);
     const gateReason = validateEnableGate(config);
     if (gateReason) {
       toast.error(gateReason);
       return;
     }
+    const previous = deliveryEnabled;
     setDeliveryEnabled(next);
-    setSavingDelivery(true);
-    try {
-      await jsonFetch(`/api/v1/orgs/${orgId}/feedback/remediation-config`, {
-        method: "PUT",
-        body: JSON.stringify(config),
-      });
+    if (await persistDelivery(config)) {
       toast.success(next ? "Autonomous delivery enabled" : "Autonomous delivery disabled");
-    } catch (err) {
+    } else {
       setDeliveryEnabled(previous);
-      notifyError(err, "Couldn't update autonomous delivery.");
-    } finally {
-      setSavingDelivery(false);
     }
   }
 
