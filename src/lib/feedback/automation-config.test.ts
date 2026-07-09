@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readAutomationConfig, validateEnableGate, type AutomationConfig } from "./automation-config";
+import { pruneToProjects, readAutomationConfig, validateEnableGate, type AutomationConfig } from "./automation-config";
 
 /**
  * automation-config is the single place that turns an org's untrusted
@@ -168,5 +168,64 @@ describe("validateEnableGate", () => {
     expect(validateEnableGate(cfg)).toBe(
       "Select at least one project to receive triaged feedback before enabling auto-triage."
     );
+  });
+});
+
+describe("pruneToProjects", () => {
+  it("drops a stale id from both autoRemediation.projectIds and autonomousDelivery.projectIds", () => {
+    const cfg: AutomationConfig = {
+      autoRemediation: { enabled: true, projectIds: ["a", "stale"], defaultProjectId: "a" },
+      autonomousDelivery: { enabled: true, projectIds: ["b", "stale"] },
+    };
+    const pruned = pruneToProjects(cfg, new Set(["a", "b"]));
+    expect(pruned.autoRemediation.projectIds).toEqual(["a"]);
+    expect(pruned.autonomousDelivery.projectIds).toEqual(["b"]);
+  });
+
+  it("clears defaultProjectId to null when it pointed at a dropped id", () => {
+    const cfg: AutomationConfig = {
+      autoRemediation: { enabled: true, projectIds: ["a", "stale"], defaultProjectId: "stale" },
+      autonomousDelivery: { enabled: false, projectIds: [] },
+    };
+    const pruned = pruneToProjects(cfg, new Set(["a"]));
+    expect(pruned.autoRemediation.defaultProjectId).toBeNull();
+  });
+
+  it("keeps defaultProjectId when it's still among the pruned projectIds", () => {
+    const cfg: AutomationConfig = {
+      autoRemediation: { enabled: true, projectIds: ["a", "b"], defaultProjectId: "b" },
+      autonomousDelivery: { enabled: false, projectIds: [] },
+    };
+    const pruned = pruneToProjects(cfg, new Set(["a", "b", "c"]));
+    expect(pruned.autoRemediation.projectIds).toEqual(["a", "b"]);
+    expect(pruned.autoRemediation.defaultProjectId).toBe("b");
+  });
+
+  it("drops nothing when every referenced id is valid", () => {
+    const cfg: AutomationConfig = {
+      autoRemediation: { enabled: true, projectIds: ["a", "b"], defaultProjectId: "a" },
+      autonomousDelivery: { enabled: true, projectIds: ["b"] },
+    };
+    expect(pruneToProjects(cfg, new Set(["a", "b"]))).toEqual(cfg);
+  });
+
+  it("prunes to empty arrays and a null default when every id is stale", () => {
+    const cfg: AutomationConfig = {
+      autoRemediation: { enabled: true, projectIds: ["stale1", "stale2"], defaultProjectId: "stale1" },
+      autonomousDelivery: { enabled: true, projectIds: ["stale3"] },
+    };
+    const pruned = pruneToProjects(cfg, new Set());
+    expect(pruned.autoRemediation).toEqual({ enabled: true, projectIds: [], defaultProjectId: null });
+    expect(pruned.autonomousDelivery).toEqual({ enabled: true, projectIds: [] });
+  });
+
+  it("leaves `enabled` untouched on both blocks even when pruning empties the project scope", () => {
+    const cfg: AutomationConfig = {
+      autoRemediation: { enabled: true, projectIds: ["stale"], defaultProjectId: "stale" },
+      autonomousDelivery: { enabled: true, projectIds: ["stale"] },
+    };
+    const pruned = pruneToProjects(cfg, new Set());
+    expect(pruned.autoRemediation.enabled).toBe(true);
+    expect(pruned.autonomousDelivery.enabled).toBe(true);
   });
 });

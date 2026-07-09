@@ -1,7 +1,8 @@
 /**
  * The single place that normalizes an org's `Organization.settings` JSON
  * (an untrusted, unknown shape) into the automation config the feedback
- * pipeline runs on, and gates "enabled without a valid project scope."
+ * pipeline runs on, prunes project ids that no longer belong to the org
+ * (moved/deleted), and gates "enabled without a valid project scope."
  *
  * Pure — no DB, no imports. Shared by the config route, triage, and Foreman,
  * so every consumer reads/validates the same normalized shape rather than
@@ -72,6 +73,30 @@ export function readAutomationConfig(settings: unknown): AutomationConfig {
   return {
     autoRemediation: readAutoRemediation(root.autoRemediation),
     autonomousDelivery: readAutonomousDelivery(root.autonomousDelivery),
+  };
+}
+
+/** Drop any project id no longer present in the org (moved/deleted), so a stale
+ *  config never wedges the settings form. defaultProjectId is cleared if it's not
+ *  in the pruned projectIds. */
+export function pruneToProjects(config: AutomationConfig, validProjectIds: Set<string>): AutomationConfig {
+  const autoRemediationProjectIds = config.autoRemediation.projectIds.filter((id) => validProjectIds.has(id));
+  const defaultProjectId =
+    config.autoRemediation.defaultProjectId !== null &&
+    autoRemediationProjectIds.includes(config.autoRemediation.defaultProjectId)
+      ? config.autoRemediation.defaultProjectId
+      : null;
+
+  return {
+    autoRemediation: {
+      ...config.autoRemediation,
+      projectIds: autoRemediationProjectIds,
+      defaultProjectId,
+    },
+    autonomousDelivery: {
+      ...config.autonomousDelivery,
+      projectIds: config.autonomousDelivery.projectIds.filter((id) => validProjectIds.has(id)),
+    },
   };
 }
 
