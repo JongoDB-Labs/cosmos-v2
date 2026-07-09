@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -49,6 +49,18 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     queryKey: cfgKey,
     queryFn: () => jsonFetch<Config>(`/api/v1/orgs/${orgId}/feedback/remediation-config`),
   });
+  const qc = useQueryClient();
+  // After a successful save, write the saved config back into the React Query
+  // cache. Raw jsonFetch (unlike useOrgMutation) doesn't invalidate on its own, so
+  // without this the 30s staleTime meant navigating back to this page re-seeded the
+  // form from the STALE pre-edit snapshot — which reverted just-saved checkboxes.
+  const syncCache = (config: AutomationConfig) => {
+    qc.setQueryData<Config>(cfgKey, (old) =>
+      old
+        ? { ...old, autoRemediation: config.autoRemediation, autonomousDelivery: config.autonomousDelivery }
+        : old,
+    );
+  };
 
   const [triageEnabled, setTriageEnabled] = useState(false);
   const [triageProjectIds, setTriageProjectIds] = useState<string[]>([]);
@@ -106,6 +118,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
         method: "PUT",
         body: JSON.stringify(config),
       });
+      syncCache(config);
       return true;
     } catch (err) {
       notifyError(err, "Couldn't update autonomous delivery.");
@@ -151,6 +164,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
         method: "PUT",
         body: JSON.stringify(config),
       });
+      syncCache(config);
       toast.success("Feedback automation saved");
     } catch (err) {
       notifyError(err, "Couldn't save the configuration.");
