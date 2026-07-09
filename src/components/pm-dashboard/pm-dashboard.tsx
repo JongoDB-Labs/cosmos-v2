@@ -990,8 +990,11 @@ function milestoneVariance(m: MilestoneLite): number | null {
   );
 }
 
-function formatMoney(n: number): string {
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+// Pin locale (and, for dates, timezone) so server-render and client-hydration
+// produce identical text — an unpinned toLocale* drifts between the server (UTC
+// / en-US) and the visitor's browser, throwing React #418 on hydration.
+export function formatMoney(n: number): string {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,8 +1039,9 @@ function formatNumber(n: number): string {
   return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    timeZone: "UTC",
     month: "short",
     day: "numeric",
     year: "numeric",
