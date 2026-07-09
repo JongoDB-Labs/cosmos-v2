@@ -209,23 +209,23 @@ describe("pruneToProjects", () => {
     expect(pruneToProjects(cfg, new Set(["a", "b"]))).toEqual(cfg);
   });
 
-  it("prunes to empty arrays and a null default when every id is stale", () => {
+  it("disables a block (and clears the default) when pruning empties its scope — an automation with no projects can't run, and enabled-but-empty wedges the form", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["stale1", "stale2"], defaultProjectId: "stale1" },
       autonomousDelivery: { enabled: true, projectIds: ["stale3"] },
     };
     const pruned = pruneToProjects(cfg, new Set());
-    expect(pruned.autoRemediation).toEqual({ enabled: true, projectIds: [], defaultProjectId: null });
-    expect(pruned.autonomousDelivery).toEqual({ enabled: true, projectIds: [] });
+    expect(pruned.autoRemediation).toEqual({ enabled: false, projectIds: [], defaultProjectId: null });
+    expect(pruned.autonomousDelivery).toEqual({ enabled: false, projectIds: [] });
   });
 
-  it("leaves `enabled` untouched on both blocks even when pruning empties the project scope", () => {
+  it("keeps `enabled` when at least one project survives the prune", () => {
     const cfg: AutomationConfig = {
-      autoRemediation: { enabled: true, projectIds: ["stale"], defaultProjectId: "stale" },
-      autonomousDelivery: { enabled: true, projectIds: ["stale"] },
+      autoRemediation: { enabled: true, projectIds: ["a", "stale"], defaultProjectId: "a" },
+      autonomousDelivery: { enabled: true, projectIds: ["a", "stale"] },
     };
-    const pruned = pruneToProjects(cfg, new Set());
-    expect(pruned.autoRemediation.enabled).toBe(true);
-    expect(pruned.autonomousDelivery.enabled).toBe(true);
+    const pruned = pruneToProjects(cfg, new Set(["a"]));
+    expect(pruned.autoRemediation).toEqual({ enabled: true, projectIds: ["a"], defaultProjectId: "a" });
+    expect(pruned.autonomousDelivery).toEqual({ enabled: true, projectIds: ["a"] });
   });
 });
