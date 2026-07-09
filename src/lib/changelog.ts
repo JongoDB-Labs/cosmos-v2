@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.160.4",
+    date: "2026-07-09",
+    title: "Feedback automation checkboxes stick",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Autonomous-delivery project selections now survive navigating away and back — the save is reflected in the page immediately instead of briefly reverting to the previous selection.",
+      },
+    ],
+  },
+  {
     version: "2.160.3",
     date: "2026-07-08",
     title: "Feedback automation settings unblocked",
