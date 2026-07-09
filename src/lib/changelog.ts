@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.160.5",
+    date: "2026-07-09",
+    title: "PM Dashboard crash fixed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The project PM Dashboard no longer crashes on load for people outside the UTC timezone — milestone and deliverable dates now show the same calendar day everywhere.",
+      },
+    ],
+  },
+  {
     version: "2.160.4",
     date: "2026-07-09",
     title: "Feedback automation checkboxes stick",
