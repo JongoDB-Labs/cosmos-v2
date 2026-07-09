@@ -6,7 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
+import { pruneToProjects, readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -59,7 +59,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
 
     return success({
-      ...readAutomationConfig(org.settings),
+      ...pruneToProjects(readAutomationConfig(org.settings), new Set(projects.map((p) => p.id))),
       projects,
       aiConnected,
       aiProvider: ai.provider,
