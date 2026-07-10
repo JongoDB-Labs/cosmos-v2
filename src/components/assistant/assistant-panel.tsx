@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { CosmoAvatar } from "./cosmo-avatar";
 import { notifyError } from "@/lib/errors/notify";
 import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
@@ -25,7 +26,6 @@ import {
   Square,
   Archive,
   Trash2,
-  Bot,
   MessageCircle,
   ChevronRight,
   ChevronLeft,
@@ -1100,9 +1100,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
         >
           {!activeId ? (
             <div className="flex flex-col items-center justify-center h-full gap-4">
-              <div className="flex items-center justify-center size-16 rounded-2xl bg-primary/10">
-                <Bot className="size-8 text-primary" />
-              </div>
+              <CosmoAvatar size={64} />
               <div className="text-center">
                 <h3 className="text-lg font-semibold">Cosmo — your agentic AI chat assistant</h3>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1135,7 +1133,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
-              <Bot className="size-10 text-muted-foreground" />
+              <CosmoAvatar size={40} />
               <p className="text-sm text-muted-foreground">
                 Send a message to start the conversation.
               </p>
@@ -1345,9 +1343,7 @@ function MessageBubble({
 
   return (
     <div className="flex items-start gap-2">
-      <div className="flex items-center justify-center size-6 rounded-full bg-muted shrink-0 mt-0.5">
-        <Bot className="size-3.5 text-muted-foreground" />
-      </div>
+      <CosmoAvatar size={24} className="mt-0.5" />
       <div className="rounded-xl bg-muted px-4 py-2.5 max-w-[80%] min-w-0">
         {toolCalls.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">

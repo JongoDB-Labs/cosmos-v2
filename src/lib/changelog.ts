@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.168.1",
+    date: "2026-07-10",
+    title: "Cosmo gets a face",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Cosmo — your agentic AI chat assistant — now has its own avatar: a little astronaut waving from a starfield that re-tints live with your theme and accent color. The chat launcher gets a quieter matching helmet mark.",
+      },
+    ],
+  },
+  {
     version: "2.168.0",
     date: "2026-07-10",
     title: "Filter feedback by several statuses at once",
