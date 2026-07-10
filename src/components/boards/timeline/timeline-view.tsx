@@ -175,18 +175,6 @@ function LensToggle({
 export function TimelineView({ orgId, projectId, projectKey, boardId }: TimelineViewProps) {
   const [hoveredItem, setHoveredItem] = useState<WorkItem | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const leftRef = useRef<HTMLDivElement>(null);
-
-  // Keep the left item-list and the right Gantt chart vertically in lockstep —
-  // their rows share ROW_HEIGHT, so mirroring scrollTop keeps each label aligned
-  // with its bar. Only the vertical axis syncs (the chart also scrolls
-  // horizontally). The equality guard stops the mirrored set from looping.
-  const syncScroll = useCallback((from: "left" | "right") => {
-    const src = from === "left" ? leftRef.current : scrollRef.current;
-    const dst = from === "left" ? scrollRef.current : leftRef.current;
-    if (src && dst && dst.scrollTop !== src.scrollTop) dst.scrollTop = src.scrollTop;
-  }, []);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -897,14 +885,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           )}
         </div>
       )}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left panel - item labels. Narrower on phones so the chart isn't
+      {/* ONE scroll container holds both the item labels and the chart, so
+          vertical scroll is structurally locked: every label shares the same
+          scroll flow as its bar. (The old design gave each pane its own scroller
+          and mirrored scrollTop in JS — but the chart pane is taller and its
+          viewport is shortened by the horizontal scrollbar, so it could scroll
+          while the label pane had nothing to scroll: the tickets "didn't move.")
+          The label column pins with `sticky left-0` during horizontal scroll;
+          both headers pin with `sticky top-0`. */}
+      <div data-testid="gantt-scroll" className="relative flex flex-1 overflow-auto">
+        {/* Left column - item labels. Narrower on phones so the chart isn't
             crowded off-screen; the SVG rows align by height, not this width. */}
         <div
-          ref={leftRef}
-          onScroll={() => syncScroll("left")}
           data-testid="gantt-left"
-          className="shrink-0 border-r bg-background overflow-y-auto w-[140px] sm:w-[260px]"
+          className="sticky left-0 z-20 shrink-0 border-r bg-background w-[140px] sm:w-[260px]"
         >
           <div
             className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
@@ -961,17 +955,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           })}
         </div>
 
-        {/* Right panel - timeline SVG */}
-        <div
-          ref={scrollRef}
-          onScroll={() => syncScroll("right")}
-          data-testid="gantt-right"
-          className="flex-1 overflow-auto relative"
-        >
-          <div style={{ width: svgWidth }}>
-            {/* Sticky date header (FR e4d1732e): pinned while scrolling down,
-                but scrolls horizontally with the chart because it sits inside
-                the svgWidth wrapper — sticky only pins the vertical axis. */}
+        {/* Right column - the chart. Sized to its full content; the shared outer
+            container does the scrolling for both panes. */}
+        <div data-testid="gantt-chart" className="shrink-0" style={{ width: svgWidth }}>
+            {/* Sticky date header (FR e4d1732e): pinned to the outer scroller
+                while scrolling down, but scrolls horizontally with the chart
+                because it sits inside the svgWidth chart column — `sticky top-0`
+                only pins the vertical axis. */}
             <div
               className="sticky top-0 z-10 border-b border-border bg-[var(--surface)]"
               style={{ height: HEADER_HEIGHT }}
@@ -1474,7 +1464,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </div>
             </div>
           )}
-        </div>
       </div>
 
       {/* Shared work-item detail — same sheet the Kanban/Table views use, so a
