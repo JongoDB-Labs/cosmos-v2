@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.0",
+    date: "2026-07-09",
+    title: "Who reported it, and autonomous delivery goes continuous",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every feedback item now shows who reported it, and that reporter is carried onto the work item it's triaged into — so you can see the source of a request right on the issue.",
+      },
+      {
+        kind: "improvement",
+        text: "Autonomous delivery now opens a pull request for every change it makes — auto-merging safe ones and leaving risky ones for review — and links that PR on the ticket, so there's a full trail of what shipped and why.",
+      },
+    ],
+  },
+  {
     version: "2.160.5",
     date: "2026-07-09",
     title: "PM Dashboard crash fixed",

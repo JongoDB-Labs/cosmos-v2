@@ -49,7 +49,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       : [];
     const voted = new Set(myVotes.map((v) => v.feedbackItemId));
 
-    return success(items.map((i) => ({ ...i, hasVoted: voted.has(i.id) })));
+    // Resolve submitter display names (FeedbackItem has no User relation — same
+    // migration-free side-query pattern as work-item comments) so the portal can
+    // show "Reported by <name>", falling back to email. A lean select — never
+    // touches OrgMember.permissions (BigInt).
+    const authorIds = [...new Set(items.map((i) => i.authorId))];
+    const authors = authorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: { id: true, displayName: true, email: true },
+        })
+      : [];
+    const authorById = new Map(authors.map((u) => [u.id, u]));
+
+    return success(
+      items.map((i) => ({
+        ...i,
+        hasVoted: voted.has(i.id),
+        authorName: authorById.get(i.authorId)?.displayName ?? null,
+        authorEmail: authorById.get(i.authorId)?.email ?? null,
+      })),
+    );
   } catch (e) {
     return handleApiError(e);
   }

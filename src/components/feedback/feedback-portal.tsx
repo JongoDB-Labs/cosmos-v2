@@ -56,6 +56,18 @@ interface FeedbackItem {
   createdAt: string;
   attachments?: FeedbackAttachment[];
   projectId?: string | null;
+  // Submitter identity (resolved server-side — FeedbackItem has no User
+  // relation). Prefer the display name, falling back to email; either can be
+  // null if the author's User row no longer exists.
+  authorName?: string | null;
+  authorEmail?: string | null;
+}
+
+/** "Reported by <name>", preferring display name and falling back to email.
+ *  Returns null when neither resolved (e.g. the author's User row is gone). */
+function reporterLabel(item: Pick<FeedbackItem, "authorName" | "authorEmail">): string | null {
+  const who = item.authorName || item.authorEmail;
+  return who ? `Reported by ${who}` : null;
 }
 
 // Shape of /api/v1/orgs/[orgId]/projects — `success(projects)` returns a bare
@@ -456,6 +468,11 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     <h3 className="font-medium text-sm truncate group-hover/fb:underline">
                       {item.title}
                     </h3>
+                    {reporterLabel(item) && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {reporterLabel(item)}
+                      </span>
+                    )}
                   </div>
                   {item.description && (
                     <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
@@ -683,6 +700,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     month: "short",
                     day: "numeric",
                   })}
+                  {reporterLabel(detailItem) && ` · ${reporterLabel(detailItem)}`}
                 </DialogDescription>
               </DialogHeader>
 
