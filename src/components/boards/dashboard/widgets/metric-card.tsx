@@ -19,8 +19,12 @@ export function MetricCard({ label, value, trend, trendValue, color, onClick }: 
     <div
       className={cn(
         "flex flex-col gap-1",
+        // Theme-aware hover: `bg-muted` maps to --surface (defined in both
+        // light and dark). The previous `var(--muted, rgba(0,0,0,0.04))` fell
+        // back to a hardcoded black tint on every theme (--muted is undefined),
+        // so on the dark dashboard the metric cards had no visible hover state.
         interactive &&
-          "cursor-pointer rounded-md p-1 -m-1 transition-colors hover:bg-[var(--muted,rgba(0,0,0,0.04))]",
+          "cursor-pointer rounded-md p-1 -m-1 transition-colors hover:bg-muted/50",
       )}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}

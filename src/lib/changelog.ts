@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.164.1",
+    date: "2026-07-10",
+    title: "Dashboard metric cards look right in dark mode",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the project Dashboard, hovering the Overview metric cards (Total, Completed, In Progress, Overdue) now shows a clear highlight in dark mode, matching how it already looked in light mode.",
+      },
+    ],
+  },
+  {
     version: "2.164.0",
     date: "2026-07-10",
     title: "Set a default view for everyone on a project",
