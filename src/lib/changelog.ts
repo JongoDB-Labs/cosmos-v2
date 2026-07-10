@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.164.3",
+    date: "2026-07-10",
+    title: "Feedback status follows delivery",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Feedback items now track the work item they became: when the ticket moves to in-progress, review, or done on the board, the feedback's status updates with it — no more shipped requests stuck at \"Planned\". Existing feedback has been brought current.",
+      },
+    ],
+  },
+  {
     version: "2.164.2",
     date: "2026-07-10",
     title: "Wide issue details no longer get cut off",

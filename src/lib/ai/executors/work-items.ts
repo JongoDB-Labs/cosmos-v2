@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { Prisma, Priority } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
@@ -257,6 +258,9 @@ export async function updateWorkItem(
     where: { id: data.itemId },
     data: update,
   });
+
+  // Column moves carry any linked feedback item along (best-effort inside).
+  if (columnChanged) await syncFeedbackForWorkItems([item.id]);
 
   if (data.title !== undefined || data.description !== undefined) {
     await storeEmbedding("work_items", item.id, `${item.title}\n${item.description}`).catch(() => {
