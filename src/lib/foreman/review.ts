@@ -9,11 +9,17 @@ export interface ReviewVerdict {
   reason: string;
 }
 
+/** How the diff reaches the reviewer. `inline` is the normal case — SAFE diffs
+ *  are ≤400 changed lines by the risk budget, so the full diff fits in the
+ *  prompt and needs no file access at all. `file` is the oversized fallback;
+ *  the path must be OUTSIDE the working tree (the resolved git dir) so it can
+ *  never appear in the change under review. */
+export type ReviewDiff = { kind: "inline"; text: string } | { kind: "file"; path: string };
+
 /** The reviewer's instruction. It runs read-only (Read/Grep/Glob — no Bash, no
  *  edits) in the ticket's worktree, so a prompt-injected ticket can at worst sway
- *  a verdict, never touch the repo. The diff is pre-written to `diffPath` (inside
- *  .git/, so it can never appear in the change itself). */
-export function reviewerPrompt(t: TicketBrief, diffPath: string): string {
+ *  a verdict, never touch the repo. */
+export function reviewerPrompt(t: TicketBrief, diff: ReviewDiff): string {
   const criteria = t.acceptanceCriteria.length
     ? t.acceptanceCriteria.map((c) => `- ${c}`).join("\n")
     : "- (none given — judge against the title/description)";
@@ -26,8 +32,18 @@ ${t.description || "(no description)"}
 ## Acceptance criteria
 ${criteria}
 
+${
+  diff.kind === "inline"
+    ? `## The diff (git diff origin/main...HEAD for this build)
+\`\`\`diff
+${diff.text}
+\`\`\`
+
 ## How to review
-1. Read the full diff at ${diffPath} (it is git diff origin/main...HEAD for this build).
+1. Study the diff above.`
+    : `## How to review
+1. Read the full diff at ${diff.path} (it is git diff origin/main...HEAD for this build).`
+}
 2. Read the touched files for surrounding context. You are read-only — do not attempt edits or shell commands.
 3. Judge, adversarially:
    - Does the change actually satisfy the ticket + criteria, or merely appear to?

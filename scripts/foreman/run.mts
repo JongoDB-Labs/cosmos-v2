@@ -22,7 +22,7 @@ import { pickNext } from "@/lib/foreman/queue";
 import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, type TicketBrief } from "@/lib/foreman/prompt";
-import { reviewerPrompt, parseReviewVerdict } from "@/lib/foreman/review";
+import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
@@ -346,14 +346,26 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     // path). The diff is written inside .git/ so it can never enter the change
     // itself. Fail-closed: an unreadable/failed reviewer parks the ticket — a
     // ship gate that can't run must not open. One retry absorbs infra flakes.
-    const diffFile = join(wt, ".git", "FOREMAN_REVIEW.diff");
     const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
       maxBuffer: 32 * 1024 * 1024,
     });
-    writeFileSync(diffFile, diffText);
+    // Inline the diff for the normal case (SAFE ⇒ ≤400 changed lines, fits the
+    // prompt; zero file access needed). The oversized fallback writes into the
+    // REAL git dir — resolved via rev-parse, because in a linked worktree `.git`
+    // is a FILE pointing at <repo>/.git/worktrees/<KEY>, so joining ".git/x"
+    // throws ENOTDIR (this exact bug crashed the first three reviews live).
+    let reviewDiff: ReviewDiff;
+    if (diffText.length <= 200_000) {
+      reviewDiff = { kind: "inline", text: diffText };
+    } else {
+      const { stdout: gitDir } = await exec("git", ["-C", wt, "rev-parse", "--absolute-git-dir"]);
+      const diffFile = join(gitDir.trim(), "FOREMAN_REVIEW.diff");
+      writeFileSync(diffFile, diffText);
+      reviewDiff = { kind: "file", path: diffFile };
+    }
     const reviewOpts = { allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
-    let review = await runAgent(wt, reviewerPrompt(brief, diffFile), reviewOpts);
-    if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, diffFile), reviewOpts);
+    let review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
+    if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
     const verdict = review.ok
       ? parseReviewVerdict(review.log)
       : { approve: false, reason: "reviewer agent failed twice (infra)" };
