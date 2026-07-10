@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.7",
+    date: "2026-07-10",
+    title: "Edit a feature request or bug report after you've filed it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "You can now edit the title and details of a feature request or bug report you submitted — open it from the feedback board and use the pencil to update or the trash to remove it. Editing your own item no longer needs admin rights, and admins keep control of triage (status changes) without being able to rewrite someone else's words.",
+      },
+    ],
+  },
+  {
     version: "2.161.6",
     date: "2026-07-10",
     title: "New RAID log entries start in a real category instead of 'Unclassified'",
