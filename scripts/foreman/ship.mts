@@ -29,6 +29,36 @@ export async function mergeBranch(branch: string): Promise<void> {
   await exec("git", ["-C", REPO, "push", "origin", "main"]);
 }
 
+/** Push the built branch to origin so a PR can open against it. `--force` because
+ *  `auto/<KEY>` is reused across attempts (worktree `add -B` resets it), and Foreman
+ *  is the only writer of `auto/*` branches. */
+export async function pushBranch(branch: string): Promise<void> {
+  await exec("git", ["-C", REPO, "push", "--force", "origin", branch]);
+}
+
+/** Open a PR for the built branch; returns its URL. `draft=true` leaves it for a
+ *  human to review + merge (the risky path); `draft=false` is a PR Foreman will
+ *  immediately auto-merge (the safe/delivery path) — so EVERY change gets a PR trail. */
+export async function openPr(branch: string, title: string, body: string, draft: boolean): Promise<string> {
+  const args = ["pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", body];
+  if (draft) args.push("--draft");
+  const { stdout } = await exec("gh", args, { cwd: REPO });
+  // gh prints the created PR's URL on its own line.
+  const url = stdout.trim().split(/\s+/).filter((t) => t.startsWith("https://")).pop();
+  return url ?? stdout.trim();
+}
+
+/** Squash-merge an open (non-draft) PR into main, delete its branch, and hard-sync
+ *  the local checkout to the merged commit so a subsequent `tagAndPush` tags exactly
+ *  the shipped commit. Admin-merge bypasses required reviews (Foreman is the approver
+ *  for its own auto-shipped, checks-passed changes). */
+export async function mergePr(branch: string): Promise<void> {
+  await exec("gh", ["pr", "merge", branch, "--squash", "--admin", "--delete-branch"], { cwd: REPO });
+  await exec("git", ["-C", REPO, "checkout", "main"]);
+  await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
+  await exec("git", ["-C", REPO, "reset", "--hard", "origin/main"]);
+}
+
 /** Tag the just-merged main at `vVERSION` and push the tag — this is what
  *  triggers release.yml's `push: tags: ["v*"]` build. */
 export async function tagAndPush(version: string): Promise<void> {
