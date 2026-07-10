@@ -36,3 +36,20 @@ ${criteria}
 - Do NOT add any Claude/Anthropic/AI/assistant attribution to commits, code, or messages. Commit under the existing git identity only.
 - If you cannot make the checks pass or the ticket is under-specified, stop and leave a commit documenting what you found rather than guessing.`;
 }
+
+/** The repair-round instruction: the SAME agent session (resumed, full context of
+ *  what it built and why) is told exactly what failed and to fix forward. Pure so
+ *  the wording is tested; the orchestrator bounds the number of rounds. */
+export function repairPrompt(key: string, checkLogTail: string): string {
+  return `Your change for ${key} FAILS the pre-ship checks. Fix it in this same worktree — do not start over, do not revert unrelated work.
+
+## Failing check output (tail)
+${checkLogTail}
+
+## How to repair
+1. Diagnose from the output above; reproduce locally (\`npm run typecheck && npm run lint && npm test\` — the e2e test database is already wired).
+2. Make the SMALLEST fix that turns the checks green. If the failure is in a test you added, fix the test to genuinely assert the behavior — never weaken or delete an existing test to force a pass.
+3. Do NOT bump the version again: package.json must stay exactly ONE bump ahead of main from your original change.
+4. Re-run the checks yourself until green, then commit the fix to the CURRENT branch (a new commit is fine).
+5. The hard limits from your original instructions still apply (no push/PR/deploy/tag, no attribution, current branch only).`;
+}

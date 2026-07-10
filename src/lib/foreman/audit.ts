@@ -22,6 +22,7 @@ export interface AuditRecord {
   commit?: string; // short SHA of the built HEAD
   reason?: string; // why it parked/failed (gate reason or error text)
   checkLog?: string; // tail of the failing check output, for a "checks failed" park
+  process?: string; // how the build got here, e.g. "1 repair round · reviewer approved"
 }
 
 const LABEL: Record<AuditOutcome, string> = {
@@ -88,6 +89,7 @@ export function formatAudit(r: AuditRecord): string {
   if (r.summary) lines.push(`- **Change:** ${r.summary}`);
   if (r.reason) lines.push(`- **Reason:** ${r.reason}`);
   if (r.version) lines.push(`- **Version:** \`${r.version}\` (${r.outcome === "shipped" ? "shipped" : "proposed"})`);
+  if (r.process) lines.push(`- **Process:** ${r.process}`);
 
   const id: string[] = [];
   if (r.prUrl) id.push(`**PR:** ${r.prUrl}${prSuffix(r.outcome)}`);

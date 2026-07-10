@@ -20,8 +20,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pickNext } from "@/lib/foreman/queue";
 import { classifyRisk } from "@/lib/foreman/risk";
-import { formatAudit } from "@/lib/foreman/audit";
-import { foremanPrompt, type TicketBrief } from "@/lib/foreman/prompt";
+import { formatAudit, tailLog } from "@/lib/foreman/audit";
+import { foremanPrompt, repairPrompt, type TicketBrief } from "@/lib/foreman/prompt";
+import { reviewerPrompt, parseReviewVerdict } from "@/lib/foreman/review";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
@@ -47,6 +48,9 @@ const STOP = join(REPO, ".deploy/FOREMAN_STOP");
 const LOCK = join(REPO, ".deploy/FOREMAN_LOCK");
 const LOG = "/var/log/cosmos-foreman.log";
 const DRY = process.env.FOREMAN_DRY_RUN === "1";
+// Bounded fix-forward: how many times a failing build is handed back to the SAME
+// agent session (with the check output) before the ticket gates for a human.
+const MAX_REPAIRS = 2;
 
 function log(msg: string): void {
   const line = `${new Date().toISOString()} ${msg}\n`;
@@ -246,7 +250,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     //     regardless of checks — so there's nothing to build OR ship. This also
     //     stops an empty diff from falling through to mergeBranch's
     //     `commit --no-edit`, which would fail on nothing-to-commit. (I2)
-    const diff = await diffSummary(wt);
+    let diff = await diffSummary(wt);
     if (diff.files.length === 0) {
       log(`${key} already implemented (empty diff)`);
       if (!DRY) {
@@ -258,13 +262,34 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       return;
     }
 
-    // (c) Real change → run checks + classify risk → gate-or-ship. Capture the
-    // build's audit identity — the version the agent bumped to, plus the HEAD
-    // commit + its subject — up front, so BOTH the gate and the ship path record
-    // it on the ticket (the trail a human/Claude uses to rework or roll back).
-    // readVersion JSON-parses package.json; a build that corrupted it should still
-    // gate on the checks below (which will fail), not crash the loop here — so
-    // tolerate a parse failure and leave version "" (omitted from the audit).
+    // (c) Real change → checks with a bounded REPAIR LOOP. A first-pass check
+    // failure no longer parks the ticket outright: the SAME agent session is
+    // resumed (full context of what it built) with the failing output and told to
+    // fix forward — up to MAX_REPAIRS rounds, then gate. This targets the observed
+    // failure mode where a good change's own new test needed one more iteration.
+    let checks = await runChecks(wt);
+    let repairs = 0;
+    while (!checks.ok && repairs < MAX_REPAIRS) {
+      if (await haltIfKilled()) return; // never keep building past a kill
+      repairs++;
+      log(`${key} checks failed — repair round ${repairs}/${MAX_REPAIRS}`);
+      const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
+        resume: agent.sessionId ?? undefined,
+        timeoutMs: 25 * 60_000,
+      });
+      if (!rep.ok) {
+        log(`${key} repair agent did not complete — gating with the last check output`);
+        break;
+      }
+      checks = await runChecks(wt);
+    }
+    // Recompute the diff after repairs (rounds may add/change files) — the risk
+    // classifier and the migration flag must see the FINAL change, not round 0's.
+    diff = await diffSummary(wt);
+    // Capture the build's audit identity AFTER repairs — version the agent bumped
+    // to, HEAD commit + subject — so gate and ship paths record what will actually
+    // merge. readVersion JSON-parses package.json; a build that corrupted it should
+    // still gate on checks, not crash the loop — tolerate and leave version "".
     let version = "";
     try {
       version = ship.readVersion(wt);
@@ -272,10 +297,13 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       /* corrupt package.json → checks fail → gate */
     }
     const { commit, subject } = await ship.headInfo(wt);
-    const checks = await runChecks(wt);
     const risk = classifyRisk(diff);
-    if (!checks.ok || risk.gated) {
-      const reason = !checks.ok ? "checks failed" : risk.reasons.join("; ");
+    const processParts: string[] = [];
+    if (repairs > 0) processParts.push(`${repairs} repair round${repairs > 1 ? "s" : ""}`);
+
+    /** Park the built branch for human review as a draft PR + audit comment —
+     *  shared by the checks/risk gate and the reviewer gate below. */
+    const parkForReview = async (reason: string, checkLog?: string): Promise<void> => {
       log(`${key} GATED (${reason}) → In Review`);
       if (!DRY) {
         await ship.pushBranch(branch);
@@ -286,16 +314,55 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
           true,
         );
         await db.moveColumn(item.id, "review");
-        // Include the failing check output only when checks are the reason — a
-        // risk-gate (checks green, touched a sensitive path / too big) has none.
         await db.comment(
           item.id,
-          formatAudit({ key, outcome: "review", summary: subject, reason, version, branch, prUrl, commit, checkLog: checks.ok ? undefined : checks.log }),
+          formatAudit({
+            key,
+            outcome: "review",
+            summary: subject,
+            reason,
+            version,
+            branch,
+            prUrl,
+            commit,
+            checkLog,
+            process: processParts.length ? processParts.join(" · ") : undefined,
+          }),
         );
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+    };
+
+    if (!checks.ok || risk.gated) {
+      // Include the failing check output only when checks are the reason — a
+      // risk-gate (checks green, touched a sensitive path / too big) has none.
+      await parkForReview(!checks.ok ? "checks failed" : risk.reasons.join("; "), checks.ok ? undefined : checks.log);
       return;
     }
+
+    // (d) Pre-ship REVIEW: checks are green and risk says safe, so this change
+    // would auto-merge to prod — an adversarial, READ-ONLY second agent judges the
+    // final diff first (risky changes already get a human; this covers the safe
+    // path). The diff is written inside .git/ so it can never enter the change
+    // itself. Fail-closed: an unreadable/failed reviewer parks the ticket — a
+    // ship gate that can't run must not open. One retry absorbs infra flakes.
+    const diffFile = join(wt, ".git", "FOREMAN_REVIEW.diff");
+    const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    writeFileSync(diffFile, diffText);
+    const reviewOpts = { allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
+    let review = await runAgent(wt, reviewerPrompt(brief, diffFile), reviewOpts);
+    if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, diffFile), reviewOpts);
+    const verdict = review.ok
+      ? parseReviewVerdict(review.log)
+      : { approve: false, reason: "reviewer agent failed twice (infra)" };
+    if (!verdict.approve) {
+      await parkForReview(`reviewer rejected — ${verdict.reason}`);
+      return;
+    }
+    processParts.push(`reviewer approved — ${verdict.reason}`);
+    const processNote = processParts.join(" · ");
 
     // SAFE → ship. The agent already bumped package.json per the SemVer rule.
     log(`${key} SAFE → shipping v${version}${DRY ? " (DRY)" : ""}`);
@@ -343,8 +410,8 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       await db.comment(
         item.id,
         merged
-          ? formatAudit({ key, outcome: "merged-undeployed", summary: subject, reason: String(e), version, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit })
-          : formatAudit({ key, outcome: "ship-failed", summary: subject, reason: `${String(e)}; restored main`, version, branch, prUrl: prUrl || undefined, commit }),
+          ? formatAudit({ key, outcome: "merged-undeployed", summary: subject, process: processNote, reason: String(e), version, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit })
+          : formatAudit({ key, outcome: "ship-failed", summary: subject, process: processNote, reason: `${String(e)}; restored main`, version, branch, prUrl: prUrl || undefined, commit }),
       );
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return;
@@ -361,7 +428,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       await db.moveColumn(item.id, "done");
       await db.comment(
         item.id,
-        formatAudit({ key, outcome: "shipped", summary: subject, version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
+        formatAudit({ key, outcome: "shipped", summary: subject, process: processNote, version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
       );
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
       log(`${key} DONE v${version}`);
@@ -379,7 +446,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         await db.moveColumn(item.id, "review");
         await db.comment(
           item.id,
-          formatAudit({ key, outcome: "rolled-back", summary: subject, reason: "deploy health-gate failed", version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
+          formatAudit({ key, outcome: "rolled-back", summary: subject, process: processNote, reason: "deploy health-gate failed", version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
         );
         record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       } catch (e) {

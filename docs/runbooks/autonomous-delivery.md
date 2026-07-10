@@ -21,12 +21,20 @@ Each pass:
    any org has enabled autonomous delivery for).
 4. **Gate** — dedup (semantic duplicate of a known item?) and clarity (buildable
    without a product decision?). A dup closes; an unclear ticket asks for input.
-5. **Implement** — the coding agent runs headless in an isolated worktree
-   (`/tmp/foreman/<KEY>`, branch `auto/<KEY>`).
-6. **Check** — typecheck + lint(changed) + the full test suite, under
-   `NODE_ENV=test` against the e2e database.
-7. **Classify & resolve** — small + safe + green → **ship**; risky, oversized, or
-   failing → **park** as a draft PR.
+5. **Implement** — the coding agent runs on the Claude Agent SDK (subscription
+   auth, allowlisted env) in an isolated worktree (`/tmp/foreman/<KEY>`, branch
+   `auto/<KEY>`).
+6. **Check & repair** — typecheck + lint(changed) + the full test suite, under
+   `NODE_ENV=test` against the e2e database. A failing build is handed back to
+   the SAME agent session with the failing output for up to 2 bounded repair
+   rounds before it parks.
+7. **Review** — before any safe auto-ship, an adversarial **read-only** reviewer
+   agent judges the final diff against the ticket (correctness, test honesty,
+   tenancy/security, regressions). A reject — or an unreadable verdict
+   (fail-closed) — parks the change as a draft PR with the reviewer's reason.
+8. **Classify & resolve** — small + safe + green + approved → **ship**; risky,
+   oversized, failing, or rejected → **park** as a draft PR. The ticket's audit
+   comment records the process (repair rounds · reviewer verdict) either way.
 
 ## Controls
 

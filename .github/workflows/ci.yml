@@ -60,42 +60,39 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Prepare test DB
+        # BEFORE the unit run, so any DB-touching spec just works — the exclude
+        # list below is no longer a hand-maintained registry of every DB spec
+        # (that registry silently rotted three times as autonomous ships added
+        # specs). compose/init/01-app-role.sh creates the cosmos/cosmos_app roles
+        # for the compose stack; a services: Postgres doesn't run init scripts, so
+        # create them here — the 20260606050000_audit_immutability migration
+        # GRANTs against them. Then apply the schema + seed test-org/alice/bob.
+        run: |
+          npx prisma db execute --file prisma/sql/ci-roles.sql
+          npx prisma migrate deploy
+          npx tsx prisma/seed/test-fixtures.ts
+
       - name: Test (unit)
-        # Parallel, no DB. Excludes the DB-integration specs run separately below
-        # (they need Postgres + the seeded fixtures and must run serially).
+        # Parallel, against the migrated+seeded DB (mirrors how the suite runs in
+        # development and in Foreman's checks). Excludes ONLY the specs that must
+        # run serially — they share the test-org/TEST project and parallel workers
+        # race the per-project ticketNumber allocation.
         run: >-
           npm test --
           --exclude src/lib/files/__tests__/convert.test.ts
           --exclude src/lib/files/__tests__/ingest.test.ts
           --exclude src/lib/files/__tests__/propose.test.ts
           --exclude src/lib/ingest/__tests__/items.test.ts
-          --exclude src/lib/feedback/remediate.test.ts
-          --exclude '**/feedback/route.test.ts'
-          --exclude '**/report-bug/route.test.ts'
 
-      - name: Prepare integration test DB
-        # compose/init/01-app-role.sh creates the cosmos/cosmos_app roles for the
-        # compose stack; a services: Postgres doesn't run init scripts, so create
-        # them here — the 20260606050000_audit_immutability migration GRANTs
-        # against them. Then apply the schema + seed test-org/alice/bob fixtures.
-        run: |
-          npx prisma db execute --file prisma/sql/ci-roles.sql
-          npx prisma migrate deploy
-          npx tsx prisma/seed/test-fixtures.ts
-
-      - name: Test (DB integration)
-        # A few Prisma specs hit the real Postgres against the seeded fixtures. Run
-        # SERIALLY (--no-file-parallelism): they share the test-org/TEST project,
-        # and parallel workers race the per-project ticketNumber allocation.
+      - name: Test (DB integration, serial)
+        # The serialization-sensitive specs from the exclude list above.
         run: >-
           npx vitest run --no-file-parallelism
           src/lib/files/__tests__/convert.test.ts
           src/lib/files/__tests__/ingest.test.ts
           src/lib/files/__tests__/propose.test.ts
           src/lib/ingest/__tests__/items.test.ts
-          src/lib/feedback/remediate.test.ts
-          'src/app/api/v1/orgs/[orgId]/feedback/route.test.ts'
-          'src/app/api/v1/orgs/[orgId]/feedback/report-bug/route.test.ts'
 
       - name: Examples gate
         run: npm run check:examples

@@ -81,6 +81,12 @@ describe("formatAudit", () => {
     expect(c).toContain("git revert aaa1111");
   });
 
+  it("renders the process line (repair rounds + reviewer) when present, omits it otherwise", () => {
+    const withProcess = formatAudit({ ...shipped, process: "1 repair round · reviewer approved — solid test" });
+    expect(withProcess).toContain("**Process:** 1 repair round · reviewer approved — solid test");
+    expect(formatAudit(shipped)).not.toContain("**Process:**");
+  });
+
   it("never leaks 'undefined' for absent fields", () => {
     const c = formatAudit({ key: "COSMOS-3", outcome: "agent-failed", reason: "agent did not complete" });
     expect(c).not.toContain("undefined");
