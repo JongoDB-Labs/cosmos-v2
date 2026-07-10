@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.11",
+    date: "2026-07-10",
+    title: "Your name shows up right away on comments you post",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you commented on an issue, the comment briefly showed \"Unknown\" as the author until the page was reloaded. Your name and avatar now appear immediately on comments you post.",
+      },
+    ],
+  },
+  {
     version: "2.161.10",
     date: "2026-07-10",
     title: "Clearer message when a feedback edit can't be saved",
