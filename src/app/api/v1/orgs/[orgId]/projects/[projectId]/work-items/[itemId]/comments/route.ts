@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
@@ -189,7 +189,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       createdById: ctx.userId,
     }).catch(() => {});
 
-    return created(comment);
+    // Enrich the response so the client can render the author immediately —
+    // mirrors the GET shape. Without this the freshly-posted comment has no
+    // resolved name and the UI falls back to "Unknown" until a refetch. The
+    // actor IS the author, so name/avatar come from the (memoized) current user
+    // and the per-actor CRUD flags are always true for them.
+    const author = await getCurrentUser();
+    return created({
+      ...comment,
+      authorName: author?.displayName ?? null,
+      authorAvatarUrl: author?.avatarUrl ?? null,
+      canEdit: true,
+      canDelete: true,
+    });
   } catch (error) {
     return handleApiError(error);
   }
