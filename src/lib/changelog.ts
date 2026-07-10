@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.165.0",
+    date: "2026-07-10",
+    title: "Get notified when autonomous delivery needs you — or ships",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Autonomous delivery can now notify you (in-app + push): when a change parks for your review — failed checks, a risky change, a reviewer rejection, or a question — and, optionally, whenever a version ships to production. Toggle each in Settings → Feedback automation.",
+      },
+    ],
+  },
+  {
     version: "2.164.5",
     date: "2026-07-10",
     title: "Sub-tasks stay under their parent",

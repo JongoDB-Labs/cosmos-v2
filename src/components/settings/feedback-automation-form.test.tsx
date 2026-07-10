@@ -17,7 +17,7 @@ const PI = "pi-id";
 const ACME = "vitl-id";
 const initial = {
   autoRemediation: { enabled: true, projectIds: [COSMOS], defaultProjectId: COSMOS },
-  autonomousDelivery: { enabled: true, projectIds: [PI, ACME, COSMOS] },
+  autonomousDelivery: { enabled: true, projectIds: [PI, ACME, COSMOS], notify: { parked: true, shipped: true } },
   projects: [
     { id: COSMOS, key: "COSMOS", name: "Cosmos" },
     { id: PI, key: "PI000", name: "PI" },

@@ -186,6 +186,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       await db.moveColumn(item.id, "review");
       await db.addTag(item.id, "needs-input");
       await db.comment(item.id, `❓ Needs your input before I can build this: ${clar.question}\n\nAnswer in the description/comments and move the card back to Backlog to re-queue.`);
+      await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: `needs input — ${clar.question}` });
     }
     record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "needs-input" });
     return;
@@ -241,6 +242,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       if (!DRY) {
         await db.moveColumn(item.id, "review");
         await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
+        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return;
@@ -331,6 +333,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         );
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+      if (!DRY) await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason, version });
     };
 
     if (!checks.ok || risk.gated) {
@@ -426,6 +429,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
           : formatAudit({ key, outcome: "ship-failed", summary: subject, process: processNote, reason: `${String(e)}; restored main`, version, branch, prUrl: prUrl || undefined, commit }),
       );
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+      await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: merged ? "merged but not deployed" : "ship failed before merge", version, prUrl: prUrl || undefined });
       return;
     }
 
@@ -443,6 +447,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         formatAudit({ key, outcome: "shipped", summary: subject, process: processNote, version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
       );
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
+      await db.notifyDelivery(item.id, "shipped", { key, title: brief.title, version, prUrl: prUrl || undefined });
       log(`${key} DONE v${version}`);
     } else {
       // Deploy health-gate failed. Roll back + park for review as best-effort, but
@@ -461,6 +466,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
           formatAudit({ key, outcome: "rolled-back", summary: subject, process: processNote, reason: "deploy health-gate failed", version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
         );
         record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
+        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined });
       } catch (e) {
         log(`${key} deploy-gate cleanup error (continuing to circuit breaker): ${String(e)}`);
       }

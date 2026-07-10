@@ -17,6 +17,9 @@ const configSchema = z.object({
     defaultProjectId: z.string().uuid().nullable(),
   }),
   autonomousDelivery: z.object({
+    notify: z
+      .object({ parked: z.boolean(), shipped: z.boolean() })
+      .default({ parked: true, shipped: true }),
     enabled: z.boolean(),
     projectIds: z.array(z.string().uuid()),
   }),

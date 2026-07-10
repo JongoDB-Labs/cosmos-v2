@@ -18,6 +18,9 @@ export interface AutoRemediationCfg {
 export interface AutonomousDeliveryCfg {
   enabled: boolean;
   projectIds: string[];
+  /** Owner notifications for delivery outcomes. Absent (legacy configs) = both
+   *  ON — the loop acting silently is the surprising behavior, not the ping. */
+  notify: { parked: boolean; shipped: boolean };
 }
 
 export interface AutomationConfig {
@@ -60,9 +63,12 @@ function readAutoRemediation(raw: unknown): AutoRemediationCfg {
 
 function readAutonomousDelivery(raw: unknown): AutonomousDeliveryCfg {
   const cfg = isRecord(raw) ? raw : {};
+  const notify = isRecord(cfg.notify) ? cfg.notify : {};
   return {
     enabled: cfg.enabled === true,
     projectIds: toStringArray(cfg.projectIds) ?? [],
+    // Default ON: only an explicit `false` silences an event.
+    notify: { parked: notify.parked !== false, shipped: notify.shipped !== false },
   };
 }
 
@@ -102,6 +108,7 @@ export function pruneToProjects(config: AutomationConfig, validProjectIds: Set<s
     autonomousDelivery: {
       enabled: config.autonomousDelivery.enabled && autonomousDeliveryProjectIds.length > 0,
       projectIds: autonomousDeliveryProjectIds,
+      notify: config.autonomousDelivery.notify,
     },
   };
 }

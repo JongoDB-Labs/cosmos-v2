@@ -67,6 +67,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [deliveryProjectIds, setDeliveryProjectIds] = useState<string[]>([]);
+  const [deliveryNotify, setDeliveryNotify] = useState<{ parked: boolean; shipped: boolean }>({ parked: true, shipped: true });
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [savingDelivery, setSavingDelivery] = useState(false);
@@ -81,6 +82,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
       setDefaultProjectId(data.autoRemediation.defaultProjectId);
       setDeliveryEnabled(data.autonomousDelivery.enabled);
       setDeliveryProjectIds(data.autonomousDelivery.projectIds);
+      setDeliveryNotify(data.autonomousDelivery.notify ?? { parked: true, shipped: true });
     }
   }, [data]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -105,10 +107,14 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   // Build the full config payload (both blocks) from live form state — every
   // delivery write also carries the current triage state, so an unsaved triage
   // edit isn't clobbered by a delivery-side save.
-  function deliveryConfig(enabled: boolean, projectIds: string[]): AutomationConfig {
+  function deliveryConfig(
+    enabled: boolean,
+    projectIds: string[],
+    notify: { parked: boolean; shipped: boolean } = deliveryNotify,
+  ): AutomationConfig {
     return {
       autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
-      autonomousDelivery: { enabled, projectIds },
+      autonomousDelivery: { enabled, projectIds, notify },
     };
   }
   async function persistDelivery(config: AutomationConfig): Promise<boolean> {
@@ -151,7 +157,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   async function save() {
     const config: AutomationConfig = {
       autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
-      autonomousDelivery: { enabled: deliveryEnabled, projectIds: deliveryProjectIds },
+      autonomousDelivery: { enabled: deliveryEnabled, projectIds: deliveryProjectIds, notify: deliveryNotify },
     };
     const gateReason = validateEnableGate(config);
     if (gateReason) {
@@ -189,6 +195,17 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
       toast.success(next ? "Autonomous delivery enabled" : "Autonomous delivery disabled");
     } else {
       setDeliveryEnabled(previous);
+    }
+  }
+
+  // Notify toggles persist the instant they're flipped — same immediate-save UX
+  // as the master switch and project checklist; optimistic, reverted on failure.
+  async function toggleNotify(event: "parked" | "shipped", next: boolean) {
+    const nextNotify = { ...deliveryNotify, [event]: next };
+    const previous = deliveryNotify;
+    setDeliveryNotify(nextNotify);
+    if (!(await persistDelivery(deliveryConfig(deliveryEnabled, deliveryProjectIds, nextNotify)))) {
+      setDeliveryNotify(previous);
     }
   }
 
@@ -370,6 +387,42 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           <p className="mt-1 text-xs text-[var(--text-muted)]">
             These projects&apos; backlogs are implemented &amp; shipped as cosmos-v2 code changes.
           </p>
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+            Notifications
+          </label>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-[var(--text)]">
+                Notify me when a change is parked for review
+                <span className="block text-xs text-[var(--text-muted)]">
+                  Action needed — failed checks, risky change, reviewer rejection, or a question for you. In-app + push.
+                </span>
+              </p>
+              <ToggleSwitch
+                checked={deliveryNotify.parked}
+                onCheckedChange={(v) => toggleNotify("parked", v)}
+                disabled={savingDelivery}
+                aria-label="Notify when parked for review"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-[var(--text)]">
+                Notify me when a change ships
+                <span className="block text-xs text-[var(--text-muted)]">
+                  A heads-up whenever a version auto-deploys to production. In-app + push.
+                </span>
+              </p>
+              <ToggleSwitch
+                checked={deliveryNotify.shipped}
+                onCheckedChange={(v) => toggleNotify("shipped", v)}
+                disabled={savingDelivery}
+                aria-label="Notify when shipped"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
