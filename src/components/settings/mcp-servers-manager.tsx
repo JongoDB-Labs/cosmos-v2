@@ -589,7 +589,7 @@ export function McpServersManager({ orgId }: McpServersManagerProps) {
                 No MCP servers configured
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Add a server to expose its tools to the AI chat.
+                Add a server to expose its tools to Cosmo, the AI chat assistant.
               </p>
             </div>
           </div>

@@ -8,11 +8,14 @@ export interface TicketBrief {
 
 /** The instruction Foreman hands the coding agent. Deterministic (no IO) so it's
  *  testable; the bump verb is derived from the ticket type per the SemVer rule. */
-export function foremanPrompt(t: TicketBrief): string {
+export function foremanPrompt(t: TicketBrief, instructions: string[] = []): string {
   const bump = t.classification === "FEATURE" ? "minor" : "patch";
   const criteria = t.acceptanceCriteria.length
     ? t.acceptanceCriteria.map((c) => `- ${c}`).join("\n")
     : "- (none given — infer from the title/description)";
+  const maintainer = instructions.length
+    ? `\n## Maintainer instructions (from ticket comments — FOLLOW THESE; they override the generic approach where they conflict)\n${instructions.map((i) => `- ${i}`).join("\n")}\n`
+    : "";
   return `You are an autonomous engineer implementing ${t.key} in this repository (cosmos-v2, a Next.js project-management platform).
 
 ## Ticket
@@ -21,7 +24,7 @@ ${t.description || "(no description)"}
 
 ## Acceptance criteria
 ${criteria}
-
+${maintainer}
 ## How to work
 1. FIRST read AGENTS.md and CLAUDE.md end-to-end and obey them. This is NOT stock Next.js (Cache Components is ON), it has a strict versioning policy, base-ui (not Radix), explicit Prisma selects that exclude OrgMember.permissions, getPublicOrigin for redirects, and an authoring/attribution policy. Read the relevant node_modules/next/dist/docs guide before writing framework code.
 2. Locate the exact surface this concerns. For a bug, reproduce it first; for a feature, pin the integration points.
