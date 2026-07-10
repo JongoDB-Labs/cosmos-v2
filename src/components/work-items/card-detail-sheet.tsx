@@ -109,6 +109,9 @@ interface CardDetailSheetProps {
   projectItems?: WorkItem[];
   /** Add a newly-created sub-item to the parent's local state (no auto-open). */
   onItemCreated?: (created: WorkItem) => void;
+  /** Sub-items were drag-reordered (their sortOrder changed). Lets a parent view
+   *  refresh so date-independent order surfaces (e.g. the Timeline/Gantt). */
+  onChildrenReordered?: () => void;
   /** Open another work item (sub-item or linked item) in this same sheet. */
   onOpenItem?: (id: string) => void;
 }
@@ -129,6 +132,7 @@ export function CardDetailSheet({
   onDuplicate,
   projectItems,
   onItemCreated,
+  onChildrenReordered,
   onOpenItem,
 }: CardDetailSheetProps) {
   const { can } = usePermissions();
@@ -567,7 +571,9 @@ export function CardDetailSheet({
 
   // Drag-reorder sub-items (FR). Reorders the list optimistically, then persists
   // each item's new sortOrder (parallel PUTs); the server orders children by
-  // sortOrder so the new order survives a reload.
+  // sortOrder so the new order survives a reload. On success we also notify the
+  // parent view so date-ordered surfaces (the Timeline/Gantt) can refresh to the
+  // chosen order instead of waiting for the next refetch (FR COSMOS-5).
   async function reorderChildren(from: number, to: number) {
     if (from === to || from < 0 || to < 0) return;
     const prev = children;
@@ -586,6 +592,7 @@ export function CardDetailSheet({
         ),
       );
       if (results.some((r) => !r.ok)) throw new Error("Failed to reorder");
+      onChildrenReordered?.();
     } catch (err) {
       setChildren(prev);
       notifyError(err, "Couldn't reorder the sub-items.");
