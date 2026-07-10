@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.6",
+    date: "2026-07-10",
+    title: "New RAID log entries start in a real category instead of 'Unclassified'",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Creating an issue from the RAID log now lets you pick its category — Risk, Assumption, Issue, or Dependency — right in the New issue dialog, defaulting to Risk, so a new entry lands in the right column instead of piling up under 'Unclassified'. Reclassifying existing entries by dragging a card between columns (or via the card's 'Categorize' menu) continues to work and persists.",
+      },
+    ],
+  },
+  {
     version: "2.161.5",
     date: "2026-07-10",
     title: "Deleting several issues at once is reliable and tells you if anything is left behind",

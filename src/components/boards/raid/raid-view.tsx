@@ -128,7 +128,7 @@ function prettifyStatus(key: string): string {
  * The RAID category an item currently belongs to, by the FIRST of its tags
  * (case-insensitive) that matches a RAID tag. `null` ⇒ Unclassified.
  */
-function categorize(item: WorkItem): RaidKey | null {
+export function categorize(item: Pick<WorkItem, "tags">): RaidKey | null {
   for (const t of item.tags) {
     const lower = t.toLowerCase();
     if (RAID_TAGS.has(lower)) return lower as RaidKey;
@@ -142,7 +142,7 @@ function categorize(item: WorkItem): RaidKey | null {
  * values of all non-RAID tags. Comparison is case-insensitive so a stray
  * `Risk` is removed too.
  */
-function retag(existing: string[], next: RaidKey | null): string[] {
+export function retag(existing: string[], next: RaidKey | null): string[] {
   const kept = existing.filter((t) => !RAID_TAGS.has(t.toLowerCase()));
   return next ? [...kept, next] : kept;
 }
@@ -297,6 +297,15 @@ export function RaidView({
             orgId={orgId}
             projectId={projectId}
             boardId={boardId}
+            // Seed a RAID category so a new entry defaults to a real column
+            // instead of "Unclassified" (COSMOS-80); the user can change it.
+            categoryPreset={{
+              options: RAID_CATEGORIES.map((c) => ({
+                value: c.tag,
+                label: c.label,
+              })),
+              defaultValue: RAID_CATEGORIES[0].tag,
+            }}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-muted)]">
@@ -380,6 +389,7 @@ function RaidColumn({
   const { setNodeRef, isOver } = useDroppable({ id: categoryKey ?? "__none__" });
   return (
     <div
+      data-testid={`raid-col-${categoryKey ?? "none"}`}
       className={cn(
         "flex w-72 shrink-0 flex-col rounded-[var(--radius)] border bg-[var(--surface)] transition-colors",
         isOver ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]",
