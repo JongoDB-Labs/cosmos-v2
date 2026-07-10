@@ -539,10 +539,23 @@ export function DataTable<T>({
                     const rawHeader = cell.column.columnDef.header;
                     const headerText =
                       typeof rawHeader === "string" ? rawHeader : "";
+                    // Control columns (selection checkbox, ⋯ actions) must never
+                    // open the row's detail drawer. Their inner controls already
+                    // stopPropagation, but the cell padding around a small control
+                    // is a dead zone that would otherwise bubble a click up to the
+                    // row's onClick — so swallow clicks for the WHOLE cell.
+                    // (COSMOS-26: ticking a bulk-select checkbox popped the drawer,
+                    // because the click landed in that padding, not on the input.)
+                    const isControlCell =
+                      cell.column.id === "__select" ||
+                      cell.column.id === "__actions";
                     return (
                       <td
                         key={cell.id}
                         data-label={headerText}
+                        onClick={
+                          isControlCell ? (e) => e.stopPropagation() : undefined
+                        }
                         className="block px-0 py-1 before:mb-0.5 before:block before:text-xs before:font-semibold before:uppercase before:tracking-wider before:text-[var(--text-muted)] before:content-[attr(data-label)] first:group-hover:md:pl-[14px] group-hover:md:border-l-2 group-hover:md:border-l-[var(--primary)] md:table-cell md:px-4 md:py-3 md:before:hidden"
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

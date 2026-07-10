@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.165.1",
+    date: "2026-07-10",
+    title: "Bulk-select checkboxes no longer pop the detail drawer",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Ticking an issue's checkbox to bulk-edit now just selects it — it no longer opens the single-item side drawer, so you can check several issues in a row without the drawer interrupting you. Clicking an issue's row or title still opens its details as before.",
+      },
+    ],
+  },
+  {
     version: "2.165.0",
     date: "2026-07-10",
     title: "Get notified when autonomous delivery needs you — or ships",
