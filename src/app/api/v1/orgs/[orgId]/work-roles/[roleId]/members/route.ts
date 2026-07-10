@@ -53,7 +53,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // ORG_MANAGE_BILLING / ORG_DELETE) to themselves or anyone and escalate.
     // Ceiling is basePermissions (excludes the actor's own work-role grants) so
     // a self-assigned grant can't be re-laundered. OWNER's base holds all bits.
-    if (!isPermissionSubset(r.role.grants ?? 0n, r.ctx.basePermissions)) {
+    if (!isPermissionSubset(BigInt(r.role.grants), r.ctx.basePermissions)) {
       return new Response(
         JSON.stringify({
           error: "You can't assign a role that grants permissions you don't have",

@@ -2676,10 +2676,14 @@ model WorkRole {
   key         String
   name        String
   description String?
-  // Extra Permission bits this role GRANTS on top of the org role (BigInt). The
-  // grant layer only ever WIDENS the bitfield — never serialize this raw to
-  // JSON (toString it in API responses).
-  grants      BigInt   @default(0)
+  // Extra Permission bits this role GRANTS on top of the org role, as the
+  // DECIMAL STRING of the bitmask. Stored as text (not int8/BigInt) because the
+  // Permission space spans bits 0..116 (see src/lib/rbac/permissions.ts) — a
+  // 64-bit column overflows on any grant at bit >= 63 (CRM/NOTE/TIME/THEME/…),
+  // which is exactly the "failed to save work role" 500. The app treats it as a
+  // JS bigint (BigInt(grants) on read, mask.toString() on write). The grant
+  // layer only ever WIDENS the bitfield.
+  grants      String   @default("0")
   // AbacRule[] (see src/lib/abac/engine.ts) that NARROW access for members of
   // this role. Stored as a JSON array.
   policies    Json     @default("[]")

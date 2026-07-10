@@ -61,7 +61,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const data = workRoleUpdateSchema.parse(await request.json());
 
-    let grantsUpdate: { grants?: bigint } = {};
+    let grantsUpdate: { grants?: string } = {};
     if (data.grants !== undefined) {
       const mask = permissionMaskFromKeys(data.grants);
       // Ceiling is basePermissions (excludes the actor's own work-role grants)
@@ -74,7 +74,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           { status: 403, headers: { "Content-Type": "application/json" } },
         );
       }
-      grantsUpdate = { grants: mask };
+      grantsUpdate = { grants: mask.toString() };
     }
 
     await prisma.workRole.update({

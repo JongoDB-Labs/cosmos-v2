@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.11",
+    date: "2026-07-10",
+    title: "Fixed \"failed to save\" when creating a work role",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Creating or editing a work role could fail with a server error when it granted certain permissions (such as CRM, Notes, Time, Themes, or Compliance access). Work roles now save correctly with any combination of permissions.",
+      },
+    ],
+  },
+  {
     version: "2.161.10",
     date: "2026-07-10",
     title: "Clearer message when a feedback edit can't be saved",

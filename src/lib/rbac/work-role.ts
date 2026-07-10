@@ -7,7 +7,7 @@ type WorkRoleRow = {
   key: string;
   name: string;
   description: string | null;
-  grants: bigint;
+  grants: string; // decimal string of the permission bitmask (see schema)
   policies: unknown;
   isBuiltIn: boolean;
   createdAt: Date;
@@ -27,7 +27,7 @@ export function toWorkRoleDto(r: WorkRoleRow) {
     key: r.key,
     name: r.name,
     description: r.description,
-    grants: permissionNames(r.grants),
+    grants: permissionNames(BigInt(r.grants)),
     policies: Array.isArray(r.policies) ? r.policies : [],
     isBuiltIn: r.isBuiltIn,
     memberCount: r._count?.members ?? 0,

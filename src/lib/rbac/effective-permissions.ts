@@ -50,7 +50,7 @@ export async function loadEffectivePermissions(
   let grants = 0n;
   const workRolePolicies: AbacRule[] = [];
   for (const assignment of member.workRoles) {
-    grants |= assignment.workRole.grants ?? 0n;
+    grants |= BigInt(assignment.workRole.grants);
     workRolePolicies.push(...coerceRules(assignment.workRole.policies));
   }
 

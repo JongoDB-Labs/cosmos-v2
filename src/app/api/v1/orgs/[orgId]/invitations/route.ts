@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
       const overreach = roles.find(
-        (r) => !isPermissionSubset(r.grants ?? 0n, ctx.basePermissions),
+        (r) => !isPermissionSubset(BigInt(r.grants), ctx.basePermissions),
       );
       if (overreach) {
         return new Response(

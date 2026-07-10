@@ -70,7 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           key: data.key,
           name: data.name,
           description: data.description ?? null,
-          grants: mask,
+          grants: mask.toString(),
           policies: (data.policies ?? []) as Prisma.InputJsonValue,
         },
         include: { _count: { select: { members: true } } },

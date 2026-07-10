@@ -62,8 +62,9 @@ const shaBytes = (s: string): Buffer<ArrayBuffer> =>
   createHash("sha256").update(s).digest() as Buffer<ArrayBuffer>;
 
 // RBAC permission bits (from src/lib/rbac/permissions.ts) for WorkRole.grants.
-// NOTE: work_roles.grants is a Postgres int8 (64-bit), so only bits 0..62 fit.
-// We grant from this low-bit subset; the page renders these as permission names.
+// work_roles.grants is stored as the decimal STRING of the bitmask (text, not
+// int8), so bits at any position are safe; the page renders these as permission
+// names.
 const P: Record<string, bigint> = {
   ORG_READ: 1n << 0n,
   PROJECT_READ: 1n << 11n,
@@ -381,7 +382,7 @@ async function main() {
       { key: "compliance-analyst", name: "Compliance Analyst", desc: "Read-mostly compliance and audit support.", grants: grant("ORG_READ", "PROJECT_READ", "BOARD_READ", "ITEM_READ", "COMMENT_READ", "OKR_READ", "FINANCE_READ"), assign: tom },
     ];
     for (const r of roles) {
-      const wr = await prisma.workRole.create({ data: { orgId, key: r.key, name: r.name, description: r.desc, grants: r.grants, policies: [], isBuiltIn: false } });
+      const wr = await prisma.workRole.create({ data: { orgId, key: r.key, name: r.name, description: r.desc, grants: r.grants.toString(), policies: [], isBuiltIn: false } });
       const mid = memberIdByUser.get(r.assign);
       if (mid) await prisma.orgMemberWorkRole.upsert({ where: { orgMemberId_workRoleId: { orgMemberId: mid, workRoleId: wr.id } }, update: {}, create: { orgMemberId: mid, workRoleId: wr.id } });
     }
