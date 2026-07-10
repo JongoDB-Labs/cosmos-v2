@@ -268,16 +268,17 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     }
   }
 
-  // FR "edit/delete FRs/BRs in the feedback section" (managers, ORG_UPDATE).
+  // Author edits the title/description of their own FR/BR. Uses jsonFetch so a
+  // rejected save surfaces the API's specific reason (e.g. a 403 "Only the
+  // author can edit…" or a validation message) via notifyError, instead of a
+  // generic fallback — the "clear message" the acceptance criteria call for.
   async function saveEdit(item: FeedbackItem, title: string, description: string) {
     setBusyId(item.id);
     try {
-      const res = await fetch(`${basePath}/${item.id}`, {
+      await jsonFetch(`${basePath}/${item.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title.trim(), description }),
       });
-      if (!res.ok) throw new Error("Failed to save");
       setItems((prev) =>
         prev.map((i) =>
           i.id === item.id ? { ...i, title: title.trim(), description } : i,
