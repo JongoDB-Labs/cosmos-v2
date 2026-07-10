@@ -17,6 +17,37 @@ export function readVersion(dir: string): string {
   return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
 }
 
+/** The audit identity of a built branch's HEAD: its short commit SHA and subject
+ *  line. Recorded on the ticket so a human (or Claude) can `git checkout` exactly
+ *  what was built to rework it, and read a one-line summary of the change without
+ *  opening the diff. Best-effort — a git hiccup yields empty strings, never throws. */
+export async function headInfo(dir: string): Promise<{ commit: string; subject: string }> {
+  try {
+    const commit = (await exec("git", ["-C", dir, "rev-parse", "--short", "HEAD"])).stdout.trim();
+    const subject = (await exec("git", ["-C", dir, "log", "-1", "--format=%s"])).stdout.trim();
+    return { commit, subject };
+  } catch {
+    return { commit: "", subject: "" };
+  }
+}
+
+/** The version prod is serving RIGHT NOW, read from the internal health endpoint —
+ *  captured just before a deploy so the audit trail can name the exact rollback
+ *  target (`deploy-apponly.sh <thisVersion>` restores it). Null if unreachable, in
+ *  which case the audit falls back to "the prior release". */
+export async function currentProdVersion(): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch("http://127.0.0.1:8090/api/health", { signal: ctrl.signal });
+    clearTimeout(t);
+    const body = (await res.json()) as { version?: string };
+    return typeof body.version === "string" ? body.version : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Squash-merge a fully-built branch into main and push. `git merge --squash`
  *  applies the diff and stages it into the index by itself — no working
  *  commit is created — so `commit --no-edit` commits exactly what the squash

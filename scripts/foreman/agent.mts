@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { testDatabaseUrl } from "@/lib/foreman/test-db";
+import { buildAgentEnv } from "@/lib/foreman/env";
 
 /** Shape of ~/.claude/.credentials.json we care about. `expiresAt` is a Unix
  *  epoch in MILLISECONDS (confirmed against a live credentials file — it lines
@@ -75,32 +75,7 @@ export function runAgent(
     permissionMode?: string;
   } = {},
 ): Promise<{ ok: boolean; log: string }> {
-  // ALLOWLIST the child's env — never inherit the daemon's full `process.env`.
-  // Foreman runs with DATABASE_URL (prod) and may carry GH_TOKEN/GITHUB_TOKEN;
-  // handing those to the agent's Bash would let a build (or a prompt-injected
-  // judge) psql prod or `git push` directly, bypassing every gate — and it would
-  // fire in DRY too. Forward ONLY what `claude` needs to run on the subscription:
-  // PATH (find node/binaries), HOME (reach the ~/.claude subscription creds), TERM,
-  // and locale (LANG/LC_*). NODE_ENV is also forwarded — the repo augments
-  // NodeJS.ProcessEnv to REQUIRE it (an empty object won't typecheck) and it's a
-  // non-secret build-mode hint, not a credential. DATABASE_URL, GH_TOKEN,
-  // GITHUB_TOKEN and the metered/cloud-billing vars are excluded by construction;
-  // assertSubscription re-checks.
-  const src = process.env;
-  const env: NodeJS.ProcessEnv = { NODE_ENV: src.NODE_ENV };
-  for (const key of ["PATH", "HOME", "TERM", "LANG"]) {
-    if (src[key] !== undefined) env[key] = src[key];
-  }
-  for (const [key, value] of Object.entries(src)) {
-    if (key.startsWith("LC_") && value !== undefined) env[key] = value;
-  }
-  // Give the agent the e2e TEST database (seeded fixtures) so its own
-  // `npm test` self-verification exercises the same DB-integration tests
-  // Foreman's checks do — otherwise the agent sees spurious failures and can't
-  // tell its change is green. This is the TEST db, NEVER prod: the daemon's live
-  // DATABASE_URL was excluded by the allowlist above, and testDatabaseUrl()
-  // throws if the test URL ever equals it.
-  env.DATABASE_URL = testDatabaseUrl(src.DATABASE_URL);
+  const env = buildAgentEnv(process.env);
   assertSubscription(env);
 
   const args = [
