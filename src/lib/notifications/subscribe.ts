@@ -33,12 +33,21 @@ export async function enablePushNotifications(): Promise<PushEnableResult> {
     const res = await fetch("/api/v1/me/push/subscribe", { method: "GET" });
     if (res.status === 503) return { ok: false, reason: "not_configured" };
     if (!res.ok) return { ok: false, reason: "error" };
-    const { data } = (await res.json()) as { data: { publicKey: string } };
-    if (!data?.publicKey) return { ok: false, reason: "not_configured" };
+    // `success()` returns the bare payload (`{ publicKey }`); other routes wrap
+    // it as `{ data: { publicKey } }`. Accept BOTH shapes — reading only the
+    // wrapped `.data.publicKey` here was the bug that made every enable attempt
+    // fail with a misleading "not configured" error even right after the user
+    // clicked "Allow", because the real body has no `data` key.
+    const body = (await res.json()) as {
+      publicKey?: string;
+      data?: { publicKey?: string };
+    };
+    const publicKey = body.publicKey ?? body.data?.publicKey;
+    if (!publicKey) return { ok: false, reason: "not_configured" };
 
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(data.publicKey) as BufferSource,
+      applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
     });
 
     // Persist to server
