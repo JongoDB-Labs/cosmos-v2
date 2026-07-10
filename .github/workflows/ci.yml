@@ -76,14 +76,15 @@ jobs:
       - name: Test (unit)
         # Parallel, against the migrated+seeded DB (mirrors how the suite runs in
         # development and in Foreman's checks). Excludes ONLY the specs that must
-        # run serially — they share the test-org/TEST project and parallel workers
-        # race the per-project ticketNumber allocation.
+        # run serially — files/ingest race the per-project ticketNumber allocation,
+        # and remediate mutates the shared test-org's settings (observed flake).
         run: >-
           npm test --
           --exclude src/lib/files/__tests__/convert.test.ts
           --exclude src/lib/files/__tests__/ingest.test.ts
           --exclude src/lib/files/__tests__/propose.test.ts
           --exclude src/lib/ingest/__tests__/items.test.ts
+          --exclude src/lib/feedback/remediate.test.ts
 
       - name: Test (DB integration, serial)
         # The serialization-sensitive specs from the exclude list above.
@@ -93,6 +94,7 @@ jobs:
           src/lib/files/__tests__/ingest.test.ts
           src/lib/files/__tests__/propose.test.ts
           src/lib/ingest/__tests__/items.test.ts
+          src/lib/feedback/remediate.test.ts
 
       - name: Examples gate
         run: npm run check:examples
