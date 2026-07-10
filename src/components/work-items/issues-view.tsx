@@ -36,6 +36,7 @@ import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-d
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
 import {
   Dialog,
@@ -367,7 +368,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // walks the same search query page-by-page collecting id→projectId for
   // EVERY match, so bulk ops can fan out beyond the visible page.
   const [selectingAll, setSelectingAll] = useState(false);
-  const allMatchesRef = useRef<Map<string, string> | null>(null);
+  // id → { projectId, tags } for EVERY match captured by "select all matching".
+  // projectId lets bulk ops fan out per project beyond the visible page; tags
+  // let bulkAddTag append to off-page items (the bulk PUT replaces the array).
+  const allMatchesRef = useRef<Map<string, TagRowInfo> | null>(null);
   const SELECT_ALL_CAP = 2500;
   // Mirrors the search API's MAX_PAGE_SIZE (lib/work-items/query/filter.ts).
   const MAX_SEARCH_PAGE = 100;
@@ -376,14 +380,14 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     if (selectingAll) return;
     setSelectingAll(true);
     try {
-      const map = new Map<string, string>();
+      const map = new Map<string, TagRowInfo>();
       const pages = Math.ceil(total / MAX_SEARCH_PAGE);
       const cappedPages = Math.min(pages, SELECT_ALL_CAP / MAX_SEARCH_PAGE);
       for (let p = 1; p <= cappedPages; p++) {
         const res = await jsonFetch<SearchResponse>(
           `/api/v1/orgs/${orgId}/work-items/search?${toQueryString(filters, p, MAX_SEARCH_PAGE)}`,
         );
-        for (const r of res.data) map.set(r.id, r.project.id);
+        for (const r of res.data) map.set(r.id, { projectId: r.project.id, tags: r.tags });
       }
       allMatchesRef.current = map;
       const next: RowSelectionState = {};
@@ -406,7 +410,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     const offPage = allMatchesRef.current;
     const buckets = new Map<string, string[]>();
     for (const id of ids) {
-      const pid = projectOf.get(id) ?? offPage?.get(id);
+      const pid = projectOf.get(id) ?? offPage?.get(id)?.projectId;
       if (!pid) continue;
       const arr = buckets.get(pid);
       if (arr) arr.push(id);
@@ -438,26 +442,21 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
   // Tag add appends to each item's EXISTING tags, so bucket by project + the
   // current tag-set so every group's update carries the right resulting array.
+  // Off-page selections (from "select all matching") aren't in `rows`, so their
+  // tags come from the captured snapshot — otherwise a cross-page tag would
+  // silently skip every item beyond the visible page (BR f6b52435).
   async function bulkAddTag(raw: string) {
     const tag = raw.trim();
     if (!tag || selectedCount === 0) return;
     setBulkPending(true);
     try {
-      const sel = new Set(selectedIds);
-      const groups = new Map<string, { projectId: string; ids: string[]; tags: string[] }>();
-      for (const r of rows) {
-        if (!sel.has(r.id) || r.tags.includes(tag)) continue;
-        const key = `${r.project.id}::${[...r.tags].sort().join(",")}`;
-        const g = groups.get(key);
-        if (g) g.ids.push(r.id);
-        else groups.set(key, { projectId: r.project.id, ids: [r.id], tags: [...r.tags, tag] });
-      }
-      if (groups.size === 0) {
-        setBulkPending(false);
-        return;
-      }
+      const currentPage = new Map(
+        rows.map((r) => [r.id, { projectId: r.project.id, tags: r.tags }]),
+      );
+      const groups = planTagAddition(selectedIds, currentPage, allMatchesRef.current, tag);
+      if (groups.length === 0) return;
       await Promise.all(
-        [...groups.values()].map((g) =>
+        groups.map((g) =>
           jsonFetch(
             `/api/v1/orgs/${orgId}/projects/${g.projectId}/work-items/bulk`,
             { method: "PUT", body: JSON.stringify({ ids: g.ids, update: { tags: g.tags } }) },
