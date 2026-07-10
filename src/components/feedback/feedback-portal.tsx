@@ -53,6 +53,9 @@ interface FeedbackItem {
   status: FStatus;
   voteCount: number;
   hasVoted: boolean;
+  // True when the current user authored this item — they own its title/
+  // description and may delete it, regardless of ORG_UPDATE.
+  isMine: boolean;
   createdAt: string;
   attachments?: FeedbackAttachment[];
   projectId?: string | null;
@@ -789,7 +792,10 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                   <ChevronUp className="h-4 w-4" />
                   {detailItem.hasVoted ? "Voted" : "Upvote"} · {detailItem.voteCount}
                 </button>
-                {canManage &&
+                {/* Author owns title/description edits + delete; a manager owns
+                    status triage + delete. Each control shows only for the
+                    authority that backs it, mirroring the API. */}
+                {(canManage || detailItem.isMine) &&
                   (editing ? (
                     <div className="flex items-center gap-2">
                       <Button
@@ -810,19 +816,21 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Edit"
-                        title="Edit"
-                        onClick={() => {
-                          setEditTitle(detailItem.title);
-                          setEditDesc(detailItem.description ?? "");
-                          setEditing(true);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      {detailItem.isMine && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Edit"
+                          title="Edit"
+                          onClick={() => {
+                            setEditTitle(detailItem.title);
+                            setEditDesc(detailItem.description ?? "");
+                            setEditing(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -832,21 +840,23 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
-                      <Select
-                        value={detailItem.status}
-                        onValueChange={(v) => v && changeStatus(detailItem, v as FStatus)}
-                      >
-                        <SelectTrigger size="sm" className="h-8 w-32 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_ORDER.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {STATUS_LABELS[s]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {canManage && (
+                        <Select
+                          value={detailItem.status}
+                          onValueChange={(v) => v && changeStatus(detailItem, v as FStatus)}
+                        >
+                          <SelectTrigger size="sm" className="h-8 w-32 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUS_ORDER.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {STATUS_LABELS[s]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   ))}
               </DialogFooter>
