@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.3",
+    date: "2026-07-10",
+    title: "Bulk-tagging respects a 'select all matching' selection across pages",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Issues list, adding a tag to a cross-page 'Select all N matching' selection now tags every matching issue — not just the ones on the current page. Bulk assign, priority, and delete already spanned the whole selection; tagging now does too.",
+      },
+    ],
+  },
+  {
     version: "2.161.2",
     date: "2026-07-10",
     title: "Release Timeline keeps tickets aligned with their bars while scrolling",
