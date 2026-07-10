@@ -24,7 +24,7 @@ export default async function McpServersSettingsPage({ params }: PageParams) {
     return (
       <PageShell
         title="MCP Servers"
-        description="Register Model Context Protocol servers (Slack, Notion, etc.) so the AI chat can call their tools."
+        description="Register Model Context Protocol servers (Slack, Notion, etc.) so Cosmo — the AI chat assistant — can call their tools."
       >
         <NoAccess what="MCP servers" />
       </PageShell>
@@ -46,7 +46,7 @@ export default async function McpServersSettingsPage({ params }: PageParams) {
   return (
     <PageShell
       title="MCP Servers"
-      description="Register Model Context Protocol servers (Slack, Notion, etc.) so the AI chat can call their tools."
+      description="Register Model Context Protocol servers (Slack, Notion, etc.) so Cosmo — the AI chat assistant — can call their tools."
     >
       <HydrationBoundary state={dehydrate(qc)}>
         <McpServersManager orgId={ctx.orgId} />

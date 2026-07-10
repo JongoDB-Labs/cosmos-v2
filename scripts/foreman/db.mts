@@ -10,9 +10,24 @@ import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
+import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
+import { createNotification } from "@/lib/notifications/create";
 
-/** jon@ (OWNER) — actor of record for every comment/edit Foreman makes. */
-const FOREMAN_USER = "f1244511-9f53-4a78-b4d0-91851b50de2e";
+/** The Foreman BOT user — the agent's own identity: its comments, board moves,
+ *  and notifications are attributed to it, and @-mentioning it in a ticket
+ *  comment (tag-any-entity token `<@id>`) is the instruction channel. Resolved
+ *  by email at first use and cached; falls back to the maintainer's id (the
+ *  pre-bot actor of record) if the bot row doesn't exist yet, so the daemon
+ *  never crashes on a fresh environment. */
+const FOREMAN_BOT_EMAIL = "foreman@cosmos.internal";
+const FALLBACK_ACTOR = "f1244511-9f53-4a78-b4d0-91851b50de2e"; // jon@ (OWNER)
+let botUserIdCache: string | null = null;
+export async function botUserId(): Promise<string> {
+  if (botUserIdCache) return botUserIdCache;
+  const bot = await prisma.user.findFirst({ where: { email: FOREMAN_BOT_EMAIL }, select: { id: true } });
+  botUserIdCache = bot?.id ?? FALLBACK_ACTOR;
+  return botUserIdCache;
+}
 
 /** Columns that count as "ready to build" — mirrors TODO_KEYS in src/lib/foreman/queue.ts. */
 const TODO_COLUMNS = ["backlog", "todo"];
@@ -211,7 +226,7 @@ export async function comment(itemId: string, body: string): Promise<void> {
   const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { orgId: true } });
   if (!item) throw new Error(`comment: work item ${itemId} not found`);
   await prisma.comment.create({
-    data: { orgId: item.orgId, workItemId: itemId, authorId: FOREMAN_USER, content: body },
+    data: { orgId: item.orgId, workItemId: itemId, authorId: await botUserId(), content: body },
   });
 }
 
@@ -267,4 +282,165 @@ export async function historyCandidates(): Promise<Candidate[]> {
     if (!p) return [];
     return [{ ref: buildRef(p.projectKey, r.ticketNumber), title: r.title }];
   });
+}
+
+// ---------------------------------------------------------------------------
+// @Foreman mention channel (instructions / requeue / replies)
+// ---------------------------------------------------------------------------
+
+/** OWNER/ADMIN member user-ids for an org — the only authors whose @Foreman
+ *  mentions carry authority (see src/lib/foreman/mention.ts SECURITY note). */
+export async function privilegedUserIds(orgId: string): Promise<Set<string>> {
+  const rows = await prisma.orgMember.findMany({
+    where: { orgId, role: { in: ["OWNER", "ADMIN"] } },
+    select: { userId: true },
+  });
+  return new Set(rows.map((r) => r.userId));
+}
+
+/** All privileged @Foreman instructions on a ticket, oldest first — the build
+ *  and clarity prompts consume the FULL history (every instruction shapes the
+ *  next build, whether it arrived before the first pick or on a requeue). */
+export async function instructionsFor(itemId: string): Promise<string[]> {
+  const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { orgId: true } });
+  if (!item) return [];
+  const [bot, privileged, comments] = await Promise.all([
+    botUserId(),
+    privilegedUserIds(item.orgId),
+    prisma.comment.findMany({
+      where: { workItemId: itemId },
+      select: { authorId: true, content: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+  return extractInstructions(comments as TicketComment[], bot, privileged).map((i) => i.text);
+}
+
+export interface FreshMention {
+  itemId: string;
+  orgId: string;
+  key: string; // <PROJECTKEY>-<n>
+  title: string;
+  description: string;
+  columnKey: string;
+  askerUserId: string;
+  question: string;
+  thread: { author: string; text: string }[];
+}
+
+/** Pool tickets with a privileged @Foreman mention that hasn't been consumed:
+ *  - a ticket in `review` whose mention is newer than it ENTERED review
+ *    (columnEnteredAt) → the caller requeues it (requeue resets the watermark);
+ *  - any other ticket whose mention is newer than the bot's own last comment
+ *    on it → the caller replies (the reply becomes the new watermark).
+ *  Scans the last 14 days of pool comments — the loop runs every few minutes,
+ *  so the window is purely a query bound, not a semantic one. */
+export async function freshMentions(): Promise<FreshMention[]> {
+  const pool = await deliveryProjects();
+  if (pool.length === 0) return [];
+  const bot = await botUserId();
+  const token = mentionToken(bot);
+  const since = new Date(Date.now() - 14 * 24 * 3600_000);
+  const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
+  const mentions = await prisma.comment.findMany({
+    where: {
+      createdAt: { gt: since },
+      content: { contains: token },
+      authorId: { not: bot },
+      workItem: { projectId: { in: pool.map((p) => p.projectId) } },
+    },
+    select: {
+      workItemId: true,
+      authorId: true,
+      content: true,
+      createdAt: true,
+      workItem: {
+        select: {
+          id: true,
+          orgId: true,
+          projectId: true,
+          title: true,
+          description: true,
+          columnKey: true,
+          columnEnteredAt: true,
+          ticketNumber: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  const out: FreshMention[] = [];
+  const seenItems = new Set<string>();
+  const privCache = new Map<string, Set<string>>();
+  for (const m of mentions) {
+    const wi = m.workItem;
+    if (!wi || !m.workItemId || seenItems.has(m.workItemId)) continue;
+    let priv = privCache.get(wi.orgId);
+    if (!priv) {
+      priv = await privilegedUserIds(wi.orgId);
+      privCache.set(wi.orgId, priv);
+    }
+    if (!priv.has(m.authorId)) continue;
+    // Watermark: review-column tickets consume on requeue (columnEnteredAt);
+    // everything else consumes on the bot's last comment.
+    if (wi.columnKey === "review") {
+      if (wi.columnEnteredAt && m.createdAt.getTime() <= wi.columnEnteredAt.getTime()) continue;
+    } else {
+      const lastBot = await prisma.comment.findFirst({
+        where: { workItemId: m.workItemId, authorId: bot },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      if (lastBot && m.createdAt.getTime() <= lastBot.createdAt.getTime()) continue;
+    }
+    // Thread context (last 12 comments) with display names, token left intact.
+    const thread = await prisma.comment.findMany({
+      where: { workItemId: m.workItemId },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { content: true, createdAt: true, authorId: true },
+    });
+    const authors = await prisma.user.findMany({
+      where: { id: { in: [...new Set(thread.map((t) => t.authorId))] } },
+      select: { id: true, displayName: true },
+    });
+    const nameOf = new Map(authors.map((a) => [a.id, a.displayName] as const));
+    out.push({
+      itemId: m.workItemId,
+      orgId: wi.orgId,
+      key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
+      title: wi.title,
+      description: wi.description,
+      columnKey: wi.columnKey,
+      askerUserId: m.authorId,
+      question: m.content.split(token).join("").trim(),
+      thread: thread
+        .reverse()
+        .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+    });
+    seenItems.add(m.workItemId);
+  }
+  return out;
+}
+
+/** Ping the asker that Foreman replied on the ticket (bell + push). */
+export async function notifyReply(itemId: string, userId: string, key: string, preview: string): Promise<void> {
+  try {
+    const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { orgId: true } });
+    if (!item) return;
+    const org = await prisma.organization.findUnique({ where: { id: item.orgId }, select: { slug: true } });
+    if (!org) return;
+    await createNotification({
+      orgId: item.orgId,
+      userId,
+      type: "delivery.reply",
+      title: `Foreman replied on ${key}`,
+      message: preview.slice(0, 180),
+      relatedId: itemId,
+      relatedType: "work_item",
+      url: `/${org.slug}/issues?item=${itemId}`,
+    });
+  } catch {
+    /* best-effort */
+  }
 }
