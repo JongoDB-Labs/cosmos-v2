@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.170.0",
+    date: "2026-07-10",
+    title: "The assistant bubble gets out of the way on mobile",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On phones, the floating assistant bubble now steps aside when it would cover other tappable controls in the bottom-right corner — like the Save/Discard bar in Settings or the bulk-action pill on boards and tables. It lifts just far enough to keep every button reachable, and re-checks as you scroll or rotate the screen.",
+      },
+    ],
+  },
+  {
     version: "2.169.0",
     date: "2026-07-10",
     title: "⌘K searches everything now",
