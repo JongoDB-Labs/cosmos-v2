@@ -20,6 +20,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pickNext } from "@/lib/foreman/queue";
 import { classifyRisk } from "@/lib/foreman/risk";
+import { formatAudit } from "@/lib/foreman/audit";
 import { foremanPrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
@@ -257,7 +258,20 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       return;
     }
 
-    // (c) Real change → run checks + classify risk → gate-or-ship.
+    // (c) Real change → run checks + classify risk → gate-or-ship. Capture the
+    // build's audit identity — the version the agent bumped to, plus the HEAD
+    // commit + its subject — up front, so BOTH the gate and the ship path record
+    // it on the ticket (the trail a human/Claude uses to rework or roll back).
+    // readVersion JSON-parses package.json; a build that corrupted it should still
+    // gate on the checks below (which will fail), not crash the loop here — so
+    // tolerate a parse failure and leave version "" (omitted from the audit).
+    let version = "";
+    try {
+      version = ship.readVersion(wt);
+    } catch {
+      /* corrupt package.json → checks fail → gate */
+    }
+    const { commit, subject } = await ship.headInfo(wt);
     const checks = await runChecks(wt);
     const risk = classifyRisk(diff);
     if (!checks.ok || risk.gated) {
@@ -272,14 +286,18 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
           true,
         );
         await db.moveColumn(item.id, "review");
-        await db.comment(item.id, `Needs review — ${reason}. Draft PR: ${prUrl}`);
+        // Include the failing check output only when checks are the reason — a
+        // risk-gate (checks green, touched a sensitive path / too big) has none.
+        await db.comment(
+          item.id,
+          formatAudit({ key, outcome: "review", summary: subject, reason, version, branch, prUrl, commit, checkLog: checks.ok ? undefined : checks.log }),
+        );
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return;
     }
 
     // SAFE → ship. The agent already bumped package.json per the SemVer rule.
-    const version = ship.readVersion(wt);
     log(`${key} SAFE → shipping v${version}${DRY ? " (DRY)" : ""}`);
     if (DRY) {
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
@@ -295,6 +313,13 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     // — must NOT crash the daemon or leave the shared checkout mid-merge. Restore
     // main to origin, gate the ticket for review, and move on. (plan §13)
     let prUrl = "";
+    // `mergePr` squash-merges and DELETES the branch, so once it succeeds the
+    // worktree tip (`commit`) is no longer on main and the branch is gone. Track
+    // whether we crossed that line, and capture the squash commit that actually
+    // landed on main, so a post-merge failure reports the right state + a `git
+    // revert`-able SHA rather than telling a human to check out a deleted branch.
+    let merged = false;
+    let mergedCommit = "";
     try {
       await ship.pushBranch(branch);
       prUrl = await ship.openPr(
@@ -304,24 +329,40 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         false,
       );
       await ship.mergePr(branch);
+      merged = true;
+      mergedCommit = (await ship.headInfo(REPO)).commit;
       await ship.tagAndPush(version);
       if (!(await ship.waitForImage(version))) throw new Error("image build failed");
     } catch (e) {
-      log(`${key} ship failed before deploy (${String(e)}) → In Review`);
+      // Pre-merge failure → the branch is still open (rework it, approve to ship).
+      // Post-merge failure → the change is on main but was never deployed (finish
+      // the release or revert the merge) — a materially different remediation.
+      log(`${key} ship failed ${merged ? "after merge (merged, undeployed)" : "before merge"} (${String(e)}) → In Review`);
       await restoreMain();
       await db.moveColumn(item.id, "review");
-      await db.comment(item.id, `Ship failed before deploy: ${String(e)}. Restored main and parked for review.`);
+      await db.comment(
+        item.id,
+        merged
+          ? formatAudit({ key, outcome: "merged-undeployed", summary: subject, reason: String(e), version, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit })
+          : formatAudit({ key, outcome: "ship-failed", summary: subject, reason: `${String(e)}; restored main`, version, branch, prUrl: prUrl || undefined, commit }),
+      );
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return;
     }
 
     if (await haltIfKilled()) return; // checkpoint 3: before pushing the deploy to prod
 
+    // The version prod serves right now — captured pre-deploy so the audit trail
+    // names the exact rollback target if this release (or a later one) must be undone.
+    const rollbackTo = await ship.currentProdVersion();
     // Image built → deploy. deploy() never throws; its boolean IS the health gate.
     const ok = await ship.deploy(version, diff.files.some((f) => f.startsWith("prisma/migrations/")));
     if (ok) {
       await db.moveColumn(item.id, "done");
-      await db.comment(item.id, `Shipped v${version}${prUrl ? ` — merged PR ${prUrl}` : ""}.`);
+      await db.comment(
+        item.id,
+        formatAudit({ key, outcome: "shipped", summary: subject, version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
+      );
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
       log(`${key} DONE v${version}`);
     } else {
@@ -336,7 +377,10 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         // is missing; the breaker still fires via the throw below. (C1)
         await ship.rollback(version);
         await db.moveColumn(item.id, "review");
-        await db.comment(item.id, `Deploy health-gate failed; rolled back. Parked for review.`);
+        await db.comment(
+          item.id,
+          formatAudit({ key, outcome: "rolled-back", summary: subject, reason: "deploy health-gate failed", version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
+        );
         record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       } catch (e) {
         log(`${key} deploy-gate cleanup error (continuing to circuit breaker): ${String(e)}`);

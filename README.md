@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cosmos
 
-## Getting Started
+A multi-tenant project- and program-management platform: boards (Kanban, Scrum,
+Backlog, Roadmap, Release Timeline, Gantt), OKRs, dependency mapping, RAID logs,
+SAFe program increments, document ingestion, and an in-app feedback portal — all
+org-scoped with role- and attribute-based access control.
 
-First, run the development server:
+Built on Next.js 16 (App Router, **Cache Components** on), Prisma 7 / PostgreSQL,
+and `@base-ui/react`. The running version is surfaced in the sidebar from
+`package.json` — see [`AGENTS.md`](AGENTS.md) for the conventions this codebase
+follows (they differ from stock Next.js; read it before contributing).
+
+## Feedback → backlog → delivery, automatically
+
+Cosmos turns product feedback into shipped software with as much or as little
+automation as each org opts into. Configure it under **Settings → Feedback
+automation**.
+
+1. **Capture.** Users file feature requests and bug reports in the in-app
+   feedback portal. Each item records who reported it — that reporter is shown on
+   the item and carried onto any work item it becomes.
+2. **Auto-triage.** On a connected Claude subscription, new feedback is
+   classified (type, severity, effort, acceptance criteria) and delivered into
+   the target project's backlog — hourly, so nothing sits in the inbox. Pick one
+   or more target projects, plus a default for anything unrouted.
+3. **Autonomous delivery (opt-in, owner-level).** A host daemon ("Foreman") works
+   the backlog of the projects you enable: for each ticket it implements the
+   change on an isolated branch, runs the full checks (typecheck, lint, tests),
+   and then either
+   - **ships it** — opens a PR, auto-merges, tags a SemVer release, builds the
+     signed image, deploys, and health-gates — for small, safe changes; or
+   - **parks it for review** — as a draft PR — for anything risky (touches
+     auth/RBAC, the schema, CI, the Dockerfile, or Foreman's own code), oversized,
+     or failing checks.
+
+   Every ticket gets an **audit trail** comment recording the outcome, version,
+   PR, branch, commit, and — for a shipped change — the exact command to roll it
+   back. Autonomous delivery runs only on a connected Claude **subscription**
+   (never metered API billing) and is gated behind an org toggle and a kill
+   switch. See [`docs/runbooks/autonomous-delivery.md`](docs/runbooks/autonomous-delivery.md).
+
+The difference between auto-triage and autonomous delivery is only where a ticket
+lands: triage puts it in the backlog; delivery takes it to **Done** (a merged,
+versioned, deployed change) or **In Review** (a draft PR).
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # Turbopack dev server
+npm run typecheck  # tsc --noEmit
+npm run lint
+npm test           # vitest (against a seeded e2e database)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Tests run under `NODE_ENV=test` against a local e2e Postgres — the suite is not
+designed to pass under `NODE_ENV=production`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build & deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The app ships as a signed container image published to
+`ghcr.io/jongodb-labs/cosmos-v2`. Releases are cut by pushing a `vX.Y.Z` tag,
+which triggers the release workflow to build and sign the image; the host then
+pulls and health-gates it. Treat the image filesystem as world-readable — secrets
+are runtime-only and never baked into a layer (see `AGENTS.md`).
