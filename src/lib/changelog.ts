@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.166.0",
+    date: "2026-07-10",
+    title: "Change an issue's status right from the list",
+    highlights: [
+      {
+        kind: "feature",
+        text: "On the Issues list you can now change a ticket's status inline — click its status and pick a new one (To Do → In Progress, etc.) without opening the board. The choices are scoped to that issue's own project, so you only ever see valid statuses, and the change saves instantly. Priority and assignee are click-to-edit here too.",
+      },
+    ],
+  },
+  {
     version: "2.165.1",
     date: "2026-07-10",
     title: "Bulk-select checkboxes no longer pop the detail drawer",

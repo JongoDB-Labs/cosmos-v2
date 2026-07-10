@@ -87,6 +87,9 @@ interface Facets {
   projects: { id: string; key: string; name: string; archived: boolean }[];
   types: { id: string; key: string; name: string; icon: string | null; color: string | null }[];
   statuses: { key: string; name: string; category: string }[];
+  /** Lane options keyed by project id — the valid statuses for each project's
+   *  board, so inline status edits stay scoped to the item's own project. */
+  statusesByProject: Record<string, { key: string; name: string; category: string }[]>;
   members: { id: string; displayName: string; avatarUrl: string | null }[];
   labels: string[];
   cycles: { id: string; name: string; number: number; projectId: string; status: string }[];
@@ -589,9 +592,33 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         accessorKey: "columnKey",
         header: "Status",
         cell: ({ row }) => {
-          const status = facets?.statuses.find((s) => s.key === row.original.columnKey);
+          // Scope the lane options to the item's OWN project — a global union
+          // would let a user pick a status the item's board doesn't have, an
+          // invalid transition the PUT can't reject (COSMOS-30).
+          const projectStatuses = facets?.statusesByProject?.[row.original.project.id] ?? [];
+          const status =
+            projectStatuses.find((s) => s.key === row.original.columnKey) ??
+            facets?.statuses.find((s) => s.key === row.original.columnKey);
           const variant = status ? STATUS_VARIANT[status.category] ?? "neutral" : "neutral";
-          return <Badge variant={variant}>{status?.name ?? row.original.columnKey}</Badge>;
+          const display = (
+            <Badge variant={variant}>{status?.name ?? row.original.columnKey}</Badge>
+          );
+          return (
+            <InlineEditCell
+              editable={canUpdateItem && projectStatuses.length > 0}
+              label="status"
+              value={row.original.columnKey}
+              display={display}
+              options={projectStatuses.map((s) => ({ value: s.key, label: s.name }))}
+              onSelect={(v) =>
+                void quickUpdate(
+                  row.original,
+                  { columnKey: v },
+                  `status ${projectStatuses.find((s) => s.key === v)?.name ?? v}`,
+                )
+              }
+            />
+          );
         },
       },
       {
