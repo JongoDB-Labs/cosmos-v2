@@ -22,7 +22,7 @@ const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 
 import { prisma } from "@/lib/db/client";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const TITLE_PREFIX = "[A7-route-test]";
 const OTHER_ORG_SLUG = "a7-route-test-other-org";
@@ -45,6 +45,10 @@ function post(body: unknown) {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+function get() {
+  return new NextRequest(`http://localhost/api/v1/orgs/${orgId}/feedback`);
 }
 
 async function purgeFixtures() {
@@ -213,5 +217,36 @@ describe("POST /feedback — projectId (e2e)", () => {
       where: { orgId, title: `${TITLE_PREFIX} bogus project` },
     });
     expect(row).toBeNull();
+  });
+});
+
+describe("GET /feedback — submitter identity (e2e)", () => {
+  it("includes the author's display name and email on each item", async () => {
+    const created = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title: `${TITLE_PREFIX} author visibility`,
+      },
+      select: { id: true },
+    });
+
+    try {
+      const res = await GET(get(), { params: params() });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        id: string;
+        authorName: string | null;
+        authorEmail: string | null;
+      }[];
+
+      const item = json.find((i) => i.id === created.id);
+      expect(item).toBeDefined();
+      expect(item!.authorName).toBe("Alice");
+      expect(item!.authorEmail).toBe("alice@test.local");
+    } finally {
+      await prisma.feedbackItem.deleteMany({ where: { id: created.id } });
+    }
   });
 });

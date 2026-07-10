@@ -117,6 +117,7 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
 
   let orgId: string;
   let userId: string;
+  let authorDisplayName: string;
   let mainProjectId: string;
   let mainProjectKey: string;
   let secondProjectId: string;
@@ -197,8 +198,11 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
     mainProjectId = mainProject.id;
     mainProjectKey = mainProject.key;
 
-    const user = await prisma.user.findFirstOrThrow({ select: { id: true } });
+    const user = await prisma.user.findFirstOrThrow({
+      select: { id: true, displayName: true, email: true },
+    });
     userId = user.id;
+    authorDisplayName = user.displayName || user.email;
 
     const second = await createProjectWithBoard(orgId, SCOPE_KEY);
     secondProjectId = second.id;
@@ -438,6 +442,35 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
     } finally {
       await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
       await prisma.project.delete({ where: { id: noColumnProjectId } });
+    }
+  });
+
+  it("annotates the delivered work item's description with the submitter's name", async () => {
+    await setAutoRemediationConfig({
+      enabled: true,
+      projectIds: [mainProjectId],
+      defaultProjectId: mainProjectId,
+    });
+    const title = `${TITLE_PREFIX} reporter annotation`;
+    const item = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "FEATURE", title, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      const delivered = summary.items.find((i) => i.feedbackId === item.id);
+      expect(delivered).toBeDefined();
+
+      const wi = await prisma.workItem.findUniqueOrThrow({
+        where: { id: delivered!.workItemId },
+        select: { description: true },
+      });
+      expect(wi.description).toContain(`_Reported by ${authorDisplayName}_`);
+    } finally {
+      await prisma.workItem.deleteMany({ where: { orgId, title } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
     }
   });
 });

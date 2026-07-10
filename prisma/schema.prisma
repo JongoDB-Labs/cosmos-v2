@@ -2568,6 +2568,10 @@ enum FeedbackStatus {
 model FeedbackItem {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String         @map("org_id") @db.Uuid
+  // No `author User @relation` — same migration-free convention as
+  // Comment.authorId / Note.authorId / ChatMessage.authorId elsewhere in this
+  // file. Resolve the submitter's name/email via a side `user.findMany` query
+  // (see GET /feedback and runFeedbackRemediation in src/lib/feedback/remediate.ts).
   authorId    String         @map("author_id") @db.Uuid
   type        FeedbackType   @default(FEATURE)
   title       String
