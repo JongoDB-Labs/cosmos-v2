@@ -189,6 +189,10 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
   if (!DRY) await db.moveColumn(item.id, "in-progress");
   const branch = `auto/${key}`;
   const wt = `/tmp/foreman/${key}`;
+  // Force-clean any leftover worktree dir from a prior crashed/raced pass — `worktree
+  // add` fails hard on "'<dir>' already exists", which strands the ticket in-progress.
+  rmSync(wt, { recursive: true, force: true });
+  await exec("git", ["-C", REPO, "worktree", "prune"]).catch(() => undefined);
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
   await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, "origin/main"]);
   // A worktree checks out only tracked files — node_modules is gitignored, so it's
@@ -260,14 +264,15 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       const reason = !checks.ok ? "checks failed" : risk.reasons.join("; ");
       log(`${key} GATED (${reason}) → In Review`);
       if (!DRY) {
-        await exec("git", ["-C", wt, "push", "-u", "origin", branch]);
-        await exec(
-          "gh",
-          ["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", `auto: ${key} (review — ${reason})`, "--body", `Automated draft for ${key}. Reason parked: ${reason}. Approve = merge; Foreman deploys on its next pass.`],
-          { cwd: REPO },
+        await ship.pushBranch(branch);
+        const prUrl = await ship.openPr(
+          branch,
+          `auto: ${key} (review — ${reason})`.slice(0, 250),
+          `Automated draft for ${key}. Reason parked: ${reason}. Approve = merge; Foreman deploys it on its next pass.`,
+          true,
         );
         await db.moveColumn(item.id, "review");
-        await db.comment(item.id, `Needs review — ${reason}. Draft PR opened.`);
+        await db.comment(item.id, `Needs review — ${reason}. Draft PR: ${prUrl}`);
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return;
@@ -283,12 +288,22 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
 
     if (await haltIfKilled()) return; // checkpoint 2: before the irreversible merge
 
-    // Merge -> tag -> wait for the signed image. Any throw here — a squash-merge
-    // CONFLICT because main moved under us, a tag/push race, or a failed image
-    // build — must NOT crash the daemon or leave the shared checkout mid-merge.
-    // Restore main to origin, gate the ticket for review, and move on. (plan §13)
+    // Every safe change ships through a real PR — opened, then auto-merged — so
+    // there's a full PR trail (not a silent direct push to main). Push -> open PR ->
+    // auto-merge -> tag -> wait for the signed image. Any throw here — a merge
+    // CONFLICT because main moved under us, a tag/push race, or a failed image build
+    // — must NOT crash the daemon or leave the shared checkout mid-merge. Restore
+    // main to origin, gate the ticket for review, and move on. (plan §13)
+    let prUrl = "";
     try {
-      await ship.mergeBranch(branch);
+      await ship.pushBranch(branch);
+      prUrl = await ship.openPr(
+        branch,
+        `auto: ${key} — ${brief.title}`.slice(0, 250),
+        `Automated fix for ${key} (v${version}). Auto-merged by Foreman after green checks.`,
+        false,
+      );
+      await ship.mergePr(branch);
       await ship.tagAndPush(version);
       if (!(await ship.waitForImage(version))) throw new Error("image build failed");
     } catch (e) {
@@ -306,7 +321,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     const ok = await ship.deploy(version, diff.files.some((f) => f.startsWith("prisma/migrations/")));
     if (ok) {
       await db.moveColumn(item.id, "done");
-      await db.comment(item.id, `Shipped v${version}.`);
+      await db.comment(item.id, `Shipped v${version}${prUrl ? ` — merged PR ${prUrl}` : ""}.`);
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
       log(`${key} DONE v${version}`);
     } else {
@@ -496,6 +511,12 @@ async function main(): Promise<void> {
   await exec("git", ["-C", REPO, "worktree", "prune", "--expire", "now"]).catch(() => undefined);
   // Empty scratch cwd for the read-only judges (I3) — created once, reused.
   mkdirSync(SCRATCH, { recursive: true });
+  // Reclaim any ticket a prior crashed/killed run left stuck in `in-progress`
+  // (nothing is working it under this single-daemon lock) back to the pickable pool.
+  if (!DRY) {
+    const reclaimed = await db.reclaimStranded();
+    if (reclaimed.length > 0) log(`reclaimed ${reclaimed.length} stranded in-progress → backlog: ${reclaimed.join(", ")}`);
+  }
   let consecutiveDeployFails = 0;
   // Reconcile gets its OWN deploy-failure breaker, independent of the shared
   // consecutiveDeployFails above: otherwise an unrelated backlog ticket shipping
