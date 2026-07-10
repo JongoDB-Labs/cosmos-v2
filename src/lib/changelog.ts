@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.162.0",
+    date: "2026-07-10",
+    title: "Your sub-item order now carries over to the Timeline",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When you drag to reorder the sub-items under an epic, story, or task, that order now shows up on the Timeline (Gantt) too — sub-items line up in the sequence you chose instead of by start date. The order is saved and looks the same for everyone on your team. Sub-items you haven't reordered still fall back to start date as before.",
+      },
+    ],
+  },
+  {
     version: "2.161.11",
     date: "2026-07-10",
     title: "Your name shows up right away on comments you post",

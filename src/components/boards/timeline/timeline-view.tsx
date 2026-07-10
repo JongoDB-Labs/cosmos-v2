@@ -23,6 +23,7 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
+import { buildTimelineTree } from "@/lib/boards/timeline-tree";
 import type { WorkItem, OrgMember, Cycle, Board, BoardColumn } from "@/types/models";
 import {
   bareTypeKey,
@@ -245,40 +246,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // Depth-first parent→children row order with per-parent collapse. Collapsing a
   // parent hides its whole subtree (rows, bars, and arrows all key off the row
   // list). A child whose parent is filtered out surfaces as a root so a filter
-  // can never hide items silently.
+  // can never hide items silently. Ordering (roots by start date, sub-items by
+  // their manual sortOrder — FR COSMOS-5) lives in `buildTimelineTree`.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
-  const { treeRows, parentIds } = useMemo(() => {
-    const byId = new Map(filteredItems.map((i) => [i.id, i]));
-    const kids = new Map<string, WorkItem[]>();
-    const roots: WorkItem[] = [];
-    for (const it of filteredItems) {
-      if (it.parentId && byId.has(it.parentId)) {
-        const arr = kids.get(it.parentId) ?? [];
-        arr.push(it);
-        kids.set(it.parentId, arr);
-      } else {
-        roots.push(it);
-      }
-    }
-    const byStart = (a: WorkItem, b: WorkItem) =>
-      new Date(a.startDate ?? a.createdAt).getTime() -
-      new Date(b.startDate ?? b.createdAt).getTime();
-    roots.sort(byStart);
-    for (const arr of kids.values()) arr.sort(byStart);
-
-    const rows: { item: WorkItem; depth: number }[] = [];
-    const seen = new Set<string>(); // cycle guard (bad parentId data can't hang us)
-    const walk = (it: WorkItem, depth: number) => {
-      if (seen.has(it.id)) return;
-      seen.add(it.id);
-      rows.push({ item: it, depth });
-      if (collapsedIds.has(it.id)) return;
-      for (const k of kids.get(it.id) ?? []) walk(k, depth + 1);
-    };
-    for (const r of roots) walk(r, 0);
-    return { treeRows: rows, parentIds: new Set(kids.keys()) };
-  }, [filteredItems, collapsedIds]);
+  const { treeRows, parentIds } = useMemo(
+    () => buildTimelineTree(filteredItems, collapsedIds),
+    [filteredItems, collapsedIds],
+  );
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsedIds((prev) => {
@@ -1490,6 +1465,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           setDetailId(null);
         }}
         onItemCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+        onChildrenReordered={() => qc.invalidateQueries({ queryKey: itemsKey })}
         onOpenItem={(id) => setDetailId(id)}
       />
     </div>
