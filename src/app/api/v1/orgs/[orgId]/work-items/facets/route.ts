@@ -5,6 +5,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getReadableProjectIds } from "@/lib/work-items/query";
 import { getManagedProjectIds } from "@/lib/rbac/scope";
+import { groupStatusesByProject } from "@/lib/work-items/status-facets";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -34,7 +35,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const allowedProjectIds = await getReadableProjectIds(ctx);
 
     if (allowedProjectIds.length === 0) {
-      return success({ projects: [], types: [], statuses: [], members: [], labels: [], cycles: [], managedProjectIds: [] });
+      return success({ projects: [], types: [], statuses: [], statusesByProject: {}, members: [], labels: [], cycles: [], managedProjectIds: [] });
     }
 
     // Projects the actor can administer (org PROJECT_MANAGE, or project MANAGER
@@ -55,9 +56,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         orderBy: [{ isBuiltIn: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
       }),
       // Distinct status lanes available across the actor's projects' boards.
+      // `board.projectId` lets us key the lanes per project so the Issues view
+      // can offer a VALID inline status change scoped to each item's own board.
       prisma.boardColumn.findMany({
         where: { board: { projectId: { in: allowedProjectIds } } },
-        select: { key: true, name: true, category: true, sortOrder: true },
+        select: { key: true, name: true, category: true, sortOrder: true, board: { select: { projectId: true } } },
         orderBy: { sortOrder: "asc" },
       }),
       prisma.orgMember.findMany({
@@ -99,6 +102,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       projects,
       types,
       statuses: [...statusByKey.values()],
+      // Per-project lane options for scoped inline status editing (COSMOS-30).
+      statusesByProject: groupStatusesByProject(columns),
       members: members
         .filter((m) => m.user)
         .map((m) => ({
