@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.168.0",
+    date: "2026-07-10",
+    title: "Filter feedback by several statuses at once",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Feedback list's status filter is now multi-select: tap the status chips to show, say, Open and In-progress together instead of one at a time. It combines with the Feature/Bug type filter, and a Clear button (or unticking every chip) brings back the full list.",
+      },
+    ],
+  },
+  {
     version: "2.167.0",
     date: "2026-07-10",
     title: "Meet Foreman — @-mention the delivery agent on any ticket",

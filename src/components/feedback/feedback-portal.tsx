@@ -133,10 +133,25 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Filter + sort (FR: organize/filter FRs & BRs by status and type).
+  // Status is a multi-select: the set holds every status to show, and an empty
+  // set means "no status filter" (the full, unfiltered list). Type stays a
+  // single choice (All / Features / Bugs) since an item is one or the other.
   const [filterType, setFilterType] = useState<"ALL" | FType>("ALL");
-  const [filterStatus, setFilterStatus] = useState<"ALL" | FStatus>("ALL");
+  const [statusFilter, setStatusFilter] = useState<Set<FStatus>>(
+    () => new Set(),
+  );
   const [sortBy, setSortBy] = useState<"votes" | "newest">("votes");
   const [search, setSearch] = useState("");
+
+  // Toggle one status in/out of the multi-select filter.
+  function toggleStatus(s: FStatus) {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  }
 
   // Submit dialog.
   const [open, setOpen] = useState(false);
@@ -331,7 +346,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   const q = search.trim().toLowerCase();
   const visibleItems = items
     .filter((i) => filterType === "ALL" || i.type === filterType)
-    .filter((i) => filterStatus === "ALL" || i.status === filterStatus)
+    .filter((i) => statusFilter.size === 0 || statusFilter.has(i.status))
     .filter(
       (i) =>
         q === "" ||
@@ -375,22 +390,40 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
               <option value="BUG">Bugs</option>
             </select>
           </label>
-          <label className="flex items-center gap-1">
-            Status
-            <select
-              aria-label="Filter by status"
-              className={selectCls}
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as "ALL" | FStatus)}
-            >
-              <option value="ALL">All</option>
-              {STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
+          <div
+            className="flex flex-wrap items-center gap-1"
+            role="group"
+            aria-label="Filter by status"
+          >
+            <span className="mr-0.5">Status</span>
+            {STATUS_ORDER.map((s) => {
+              const active = statusFilter.has(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleStatus(s)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                    active
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-[var(--border)] text-muted-foreground hover:bg-muted"
+                  }`}
+                >
                   {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </label>
+                </button>
+              );
+            })}
+            {statusFilter.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setStatusFilter(new Set())}
+                className="ml-0.5 underline underline-offset-2 hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
           <label className="flex items-center gap-1">
             Sort
             <select
@@ -419,7 +452,12 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       ) : visibleItems.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           No {filterType === "ALL" ? "feedback" : filterType === "BUG" ? "bugs" : "features"}
-          {filterStatus !== "ALL" ? ` that are ${STATUS_LABELS[filterStatus].toLowerCase()}` : ""}.
+          {statusFilter.size > 0
+            ? ` that are ${STATUS_ORDER.filter((s) => statusFilter.has(s))
+                .map((s) => STATUS_LABELS[s].toLowerCase())
+                .join(" or ")}`
+            : ""}
+          .
         </div>
       ) : (
         <div className="space-y-2">

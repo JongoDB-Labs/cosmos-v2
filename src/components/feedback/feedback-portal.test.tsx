@@ -138,3 +138,77 @@ describe("FeedbackPortal — FR detail modal (COSMOS-6)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
+
+// COSMOS-31 — organize & filter FRs and BRs by status and type. Filtering by a
+// *single* status already worked; the acceptance criteria call for filtering by
+// "one or more statuses" (a union), combinable with the type filter, and an
+// empty/cleared state that returns the full unfiltered list. These lock that in.
+describe("FeedbackPortal — status + type filtering (COSMOS-31)", () => {
+  const ITEMS = [
+    { ...FR, id: "a", title: "Alpha open feature", type: "FEATURE", status: "OPEN" },
+    { ...FR, id: "b", title: "Bravo in-progress bug", type: "BUG", status: "IN_PROGRESS" },
+    { ...FR, id: "c", title: "Charlie done feature", type: "FEATURE", status: "DONE" },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", stubFetch(ITEMS));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  // Titles of the currently-listed items, read from their detail triggers.
+  const listedTitles = () =>
+    screen
+      .queryAllByRole("button", { name: /^view details for /i })
+      .map((b) => b.getAttribute("aria-label")?.replace(/^view details for "(.*)"$/i, "$1"));
+
+  it("filters by one or more statuses (a union) and clearing restores the full list", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    // Full list to start (empty filter = everything).
+    await screen.findByRole("button", { name: /view details for "Alpha open feature"/i });
+    expect(listedTitles()).toEqual([
+      "Alpha open feature",
+      "Bravo in-progress bug",
+      "Charlie done feature",
+    ]);
+
+    // Pick one status → only that status shows.
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    expect(listedTitles()).toEqual(["Alpha open feature"]);
+
+    // Add a second status → the union of both shows.
+    await user.click(screen.getByRole("button", { name: "In progress" }));
+    expect(listedTitles()).toEqual(["Alpha open feature", "Bravo in-progress bug"]);
+
+    // Toggling a status back off removes it from the union.
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    expect(listedTitles()).toEqual(["Bravo in-progress bug"]);
+
+    // Clearing returns the full, unfiltered list.
+    await user.click(screen.getByRole("button", { name: /clear/i }));
+    expect(listedTitles()).toEqual([
+      "Alpha open feature",
+      "Bravo in-progress bug",
+      "Charlie done feature",
+    ]);
+  });
+
+  it("combines a status filter with the type filter (status AND type)", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    await screen.findByRole("button", { name: /view details for "Alpha open feature"/i });
+
+    // Only Features…
+    await user.selectOptions(screen.getByLabelText("Filter by type"), "FEATURE");
+    expect(listedTitles()).toEqual(["Alpha open feature", "Charlie done feature"]);
+
+    // …that are also Done → the two filters intersect.
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(listedTitles()).toEqual(["Charlie done feature"]);
+  });
+});
