@@ -71,6 +71,7 @@ jobs:
           --exclude src/lib/ingest/__tests__/items.test.ts
           --exclude src/lib/feedback/remediate.test.ts
           --exclude '**/feedback/route.test.ts'
+          --exclude '**/report-bug/route.test.ts'
 
       - name: Prepare integration test DB
         # compose/init/01-app-role.sh creates the cosmos/cosmos_app roles for the
@@ -94,6 +95,7 @@ jobs:
           src/lib/ingest/__tests__/items.test.ts
           src/lib/feedback/remediate.test.ts
           'src/app/api/v1/orgs/[orgId]/feedback/route.test.ts'
+          'src/app/api/v1/orgs/[orgId]/feedback/report-bug/route.test.ts'
 
       - name: Examples gate
         run: npm run check:examples
