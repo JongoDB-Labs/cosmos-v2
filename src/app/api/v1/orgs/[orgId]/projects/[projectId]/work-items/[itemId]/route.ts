@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
@@ -10,6 +10,7 @@ import { createNotification } from "@/lib/notifications/create";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { validateParentAssignment } from "@/lib/work-items/hierarchy";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
@@ -96,6 +97,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const body = await request.json();
     const data = updateItemSchema.parse(body);
+
+    // Hierarchy integrity: when re-parenting to a non-null parent, reject a
+    // cross-project parent, a circular reference (parent already a descendant of
+    // this item), or an incompatible type pairing. Removing a parent (null) is
+    // always allowed.
+    if (data.parentId) {
+      const invalid = await validateParentAssignment({
+        db: prisma,
+        orgId,
+        projectId,
+        parentId: data.parentId,
+        childId: itemId,
+        childTypeId: data.workItemTypeId ?? existing.workItemTypeId,
+      });
+      if (invalid) {
+        return NextResponse.json({ error: invalid.error }, { status: invalid.status });
+      }
+    }
 
     const item = await prisma.$transaction(async (tx) => {
       const trackFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];

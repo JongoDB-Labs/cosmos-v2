@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { validateParentAssignment } from "@/lib/work-items/hierarchy";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
 
@@ -156,6 +157,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         resolvedTypeId = fallback.id;
       } else {
         resolvedTypeId = wit.id;
+      }
+    }
+
+    // Hierarchy integrity: reject a parent that lives in another project, would
+    // create a circular reference, or is an incompatible type (e.g. a Task under
+    // a Subtask). A brand-new item has no descendants, so childId is null.
+    if (data.parentId) {
+      const invalid = await validateParentAssignment({
+        db: prisma,
+        orgId,
+        projectId,
+        parentId: data.parentId,
+        childId: null,
+        childTypeId: resolvedTypeId!,
+      });
+      if (invalid) {
+        return NextResponse.json({ error: invalid.error }, { status: invalid.status });
       }
     }
 

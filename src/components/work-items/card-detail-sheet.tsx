@@ -36,6 +36,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { useOrgMembers } from "@/components/chat/mention-typeahead";
@@ -321,7 +322,21 @@ export function CardDetailSheet({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ [field]: value }),
         });
-        if (!res.ok) throw new Error("Failed to update");
+        if (!res.ok) {
+          // Surface the server's reason verbatim (e.g. rejecting an invalid
+          // parent/child relationship — a circular ref or an incompatible type
+          // pairing). notifyError renders a FetchError's message directly.
+          let msg = "Failed to update";
+          try {
+            const body = await res.json();
+            if (body && typeof body === "object" && "error" in body) {
+              msg = String((body as { error: unknown }).error);
+            }
+          } catch {
+            /* non-JSON body — keep the generic message */
+          }
+          throw new FetchError(res.status, null, msg);
+        }
         const updated: WorkItem = await res.json();
         onUpdate(updated);
 

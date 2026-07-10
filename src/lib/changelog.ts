@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.162.0",
+    date: "2026-07-09",
+    title: "Safer story/task hierarchies",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Nesting work items now guards against broken hierarchies: you can't make an item its own parent, link it to a parent in another project, create a circular parent/child loop, or nest an item under an incompatible type (like a story under a task). When a link is rejected, the parent picker tells you exactly why.",
+      },
+    ],
+  },
+  {
     version: "2.161.0",
     date: "2026-07-09",
     title: "Who reported it, and autonomous delivery goes continuous",
