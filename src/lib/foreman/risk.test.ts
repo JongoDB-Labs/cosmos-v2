@@ -16,7 +16,7 @@ describe("classifyRisk", () => {
     expect(classifyRisk({ files: ["prisma/schema.prisma"], additions: 2, deletions: 0 }).gated).toBe(true);
   });
   it("gates sensitive paths (auth, rbac, egress, deploy, workflows, Dockerfile, next.config)", () => {
-    for (const f of ["src/lib/auth/session.ts", "src/lib/rbac/check.ts", "src/lib/abac/rule.ts", "src/lib/ai/egress/provider.ts", "Dockerfile", "next.config.ts", ".deploy/x.sh", ".github/workflows/y.yml"]) {
+    for (const f of ["src/lib/auth/session.ts", "src/lib/rbac/check.ts", "src/lib/abac/rule.ts", "src/lib/ai/egress/provider.ts", "Dockerfile", "next.config.ts", ".deploy/x.sh", ".github/workflows/y.yml", "scripts/foreman/run.mts", "src/lib/foreman/risk.ts"]) {
       expect(classifyRisk({ files: [f], additions: 1, deletions: 0 }).gated).toBe(true);
     }
   });
