@@ -6,6 +6,7 @@ import { execFile, type ExecFileException } from "node:child_process";
 import { promisify } from "node:util";
 import type { DiffSummary } from "@/lib/foreman/risk";
 import { testDatabaseUrl } from "@/lib/foreman/test-db";
+import { checkEnv } from "@/lib/foreman/env";
 
 const exec = promisify(execFile);
 
@@ -19,7 +20,7 @@ async function run(
     const { stdout, stderr } = await exec(cmd, args, {
       cwd,
       maxBuffer: 32 * 1024 * 1024,
-      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+      env: checkEnv(extraEnv),
     });
     return { ok: true, out: stdout + stderr };
   } catch (e) {
