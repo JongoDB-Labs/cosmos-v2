@@ -10,6 +10,7 @@ import { createNotification } from "@/lib/notifications/create";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
@@ -265,6 +266,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
     } catch {
       /* never let a broker error break the update response */
+    }
+
+    // Reflect a column move onto any feedback item this work item was delivered
+    // from (PLANNED → IN_PROGRESS → DONE follow the board). Best-effort inside.
+    if (data.columnKey !== undefined && data.columnKey !== existing.columnKey) {
+      await syncFeedbackForWorkItems([itemId]);
     }
 
     // Notify the new assignee when assignee changes to a non-null user

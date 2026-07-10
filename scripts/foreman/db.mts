@@ -4,6 +4,7 @@
 // project any org has opted into autonomous delivery for (see deliveryProjects
 // below), not a single hardcoded project/org.
 import { prisma } from "@/lib/db/client";
+import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
@@ -168,6 +169,10 @@ export async function moveColumn(itemId: string, columnKey: string): Promise<voi
     where: { id: itemId },
     data: { columnKey, columnEnteredAt: new Date() },
   });
+  // The daemon's board moves must carry the source feedback item's status with
+  // them — reporters watch feedback (PLANNED/IN_PROGRESS/DONE), not the board.
+  // Best-effort inside; a sync hiccup never fails the move.
+  await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
 }
 
 /** Add a tag if not already present. `tags` is a plain text[] column (no set

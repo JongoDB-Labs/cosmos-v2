@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/create";
+import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { z } from "zod";
 import { Priority } from "@prisma/client";
 
@@ -91,6 +92,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       updatedCount += r.count;
     }
     const result = { count: updatedCount };
+
+    // A bulk column move must carry linked feedback items with it (best-effort inside).
+    if (updateData.columnKey !== undefined) {
+      await syncFeedbackForWorkItems(ids);
+    }
 
     await logAudit({
       orgId,
