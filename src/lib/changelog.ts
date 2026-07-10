@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.169.0",
+    date: "2026-07-10",
+    title: "⌘K searches everything now",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The ⌘K / Ctrl-K command palette is now a true global search: alongside projects, work items, contacts and notes, it finds documents, OKRs, goals, KPIs, boards, milestones, meetings, people, partners, products and every PM register item (risks, deliverables, blockers, change requests, CLINs) — grouped by type, keyboard-navigable, and jumping straight to whatever you pick. Type “>” for the full list of actions and quick-jumps.",
+      },
+    ],
+  },
+  {
     version: "2.168.2",
     date: "2026-07-10",
     title: "Chat opens in the slide-over, everywhere",

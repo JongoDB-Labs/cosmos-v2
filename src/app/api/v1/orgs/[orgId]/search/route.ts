@@ -5,20 +5,17 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { searchEntities } from "@/lib/mentions/registry.server";
-import type { EntityType } from "@/lib/mentions/refs";
+import { ENTITY_ORDER } from "@/lib/mentions/refs";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
-// The ⌘K palette groups by these legacy type strings; map the registry's
-// canonical types onto them so the palette keeps working while both the palette
-// and the @-mention typeahead now draw from ONE index (`searchEntities`).
-const PALETTE_TYPES: EntityType[] = ["project", "workItem", "crmContact", "note"];
-const LEGACY_TYPE: Partial<Record<EntityType, string>> = {
-  project: "project",
-  workItem: "work_item",
-  crmContact: "contact",
-  note: "note",
-};
+// ⌘K is now a GLOBAL search: it queries EVERY entity class the shared registry
+// indexes (projects, work items, docs, OKRs, PM registers, CRM, …) rather than
+// the original four. The palette consumes the registry's canonical `EntityType`
+// directly, so no legacy string remapping is needed. Keep `perType` modest — a
+// wide fan-out over many types must stay within the palette's latency budget.
+const PALETTE_TYPES = ENTITY_ORDER;
+const PER_TYPE = 6;
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -44,16 +41,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       userId: ctx.userId,
       query: q,
       types: PALETTE_TYPES,
-      perType: 10,
+      perType: PER_TYPE,
     });
 
     // Flatten to the shape the command palette consumes: { id, type, name, url }.
-    const results = hits.map((h) => ({
-      id: h.id,
-      type: LEGACY_TYPE[h.type] ?? h.type,
-      name: h.label,
-      url: h.url ?? "#",
-    }));
+    // People have no profile page (`entityUrl` → null) but are still a useful
+    // search target, so fall back to the org's Team roster. Any other hit with
+    // no deep-link (e.g. its owning project was deleted) is unnavigable → drop.
+    const results = hits
+      .map((h) => ({
+        id: h.id,
+        type: h.type,
+        name: h.label,
+        url: h.url ?? (h.type === "user" ? `/${org.slug}/team` : null),
+      }))
+      .filter((r): r is typeof r & { url: string } => r.url != null);
     return success(results);
   } catch (error) {
     return handleApiError(error);

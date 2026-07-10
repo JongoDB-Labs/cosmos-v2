@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   FolderKanban,
   Target,
-  Briefcase,
   FileText,
   LayoutList,
   Plus,
@@ -34,6 +33,18 @@ import {
   MessageSquarePlus,
   Settings,
   Sparkles,
+  Milestone,
+  Goal,
+  Gauge,
+  File,
+  TriangleAlert,
+  Package,
+  OctagonX,
+  GitPullRequestArrow,
+  Hash,
+  Contact,
+  Handshake,
+  Boxes,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import {
@@ -41,41 +52,54 @@ import {
   type DrawerTool,
 } from "@/components/drawers/drawer-provider";
 import {
+  ENTITY_ORDER,
+  ENTITY_LABEL,
+  ENTITY_LABEL_PLURAL,
+  type EntityType,
+} from "@/lib/mentions/refs";
+import {
   QuickCreateWorkItem,
   type PaletteProject,
 } from "./quick-create-work-item";
 
+// ⌘K is a GLOBAL search: the route returns the shared registry's canonical
+// `EntityType`, so the palette groups/labels every entity class the platform
+// indexes — not just the original four.
 interface SearchResult {
   id: string;
-  type: "project" | "work_item" | "objective" | "contact" | "note";
+  type: EntityType;
   name: string;
   description?: string;
   url: string;
 }
 
-const typeIcons: Record<SearchResult["type"], React.ReactNode> = {
-  project: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />,
-  work_item: <LayoutList className="h-4 w-4 shrink-0 text-muted-foreground" />,
-  objective: <Target className="h-4 w-4 shrink-0 text-muted-foreground" />,
-  contact: <Briefcase className="h-4 w-4 shrink-0 text-muted-foreground" />,
-  note: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />,
+const iconCls = "h-4 w-4 shrink-0 text-muted-foreground";
+const typeIcons: Record<EntityType, React.ReactNode> = {
+  user: <Users className={iconCls} />,
+  project: <FolderKanban className={iconCls} />,
+  workItem: <LayoutList className={iconCls} />,
+  note: <FileText className={iconCls} />,
+  meeting: <Video className={iconCls} />,
+  board: <Columns3 className={iconCls} />,
+  milestone: <Milestone className={iconCls} />,
+  objective: <Target className={iconCls} />,
+  goal: <Goal className={iconCls} />,
+  kpi: <Gauge className={iconCls} />,
+  document: <File className={iconCls} />,
+  risk: <TriangleAlert className={iconCls} />,
+  deliverable: <Package className={iconCls} />,
+  blocker: <OctagonX className={iconCls} />,
+  changeRequest: <GitPullRequestArrow className={iconCls} />,
+  clin: <Hash className={iconCls} />,
+  crmContact: <Contact className={iconCls} />,
+  partner: <Handshake className={iconCls} />,
+  product: <Boxes className={iconCls} />,
 };
 
-const typeLabels: Record<SearchResult["type"], string> = {
-  project: "Project",
-  work_item: "Work Item",
-  objective: "OKR",
-  contact: "CRM",
-  note: "Note",
-};
-
-const groupLabels: Record<SearchResult["type"], string> = {
-  project: "Projects",
-  work_item: "Work Items",
-  objective: "OKRs",
-  contact: "CRM",
-  note: "Notes",
-};
+// Singular badge + plural group heading come straight from the shared registry
+// so the palette, @-mention picker and chips all read the same names.
+const typeLabels = ENTITY_LABEL;
+const groupLabels = ENTITY_LABEL_PLURAL;
 
 interface CommandPaletteProps {
   orgs: { id: string; slug: string }[];
@@ -285,20 +309,15 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
 
   const grouped = results.reduce(
     (acc, result) => {
-      if (!acc[result.type]) acc[result.type] = [];
-      acc[result.type].push(result);
+      (acc[result.type] ??= []).push(result);
       return acc;
     },
-    {} as Record<string, SearchResult[]>,
+    {} as Partial<Record<EntityType, SearchResult[]>>,
   );
 
-  const groupOrder: SearchResult["type"][] = [
-    "project",
-    "work_item",
-    "objective",
-    "contact",
-    "note",
-  ];
+  // Render groups in the registry's canonical order (people, work items,
+  // projects first — the most-searched classes — then the rest).
+  const groupOrder: EntityType[] = ENTITY_ORDER;
 
   // The verb-stripped query (after a leading ">") used for action display.
   const actionQuery = query.trimStart().replace(/^>\s*/, "");
@@ -327,7 +346,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
       ? "Work item title…"
       : mode === "projects"
         ? "Filter projects…"
-        : "Search projects, items, OKRs… or “>” for actions";
+        : "Search everything — projects, items, docs, people… or “>” for actions";
 
   // shouldFilter={false}: results are filtered server-side; cmdk's client filter
   // would otherwise re-hide rows (it matches the query against the item value, a
