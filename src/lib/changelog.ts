@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.5",
+    date: "2026-07-10",
+    title: "Deleting several issues at once is reliable and tells you if anything is left behind",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Bulk-deleting issues no longer stops at a dead-end 'Couldn't delete the selected items.' On the Issues list, a delete that spans several projects now removes every item it can and, if one project can't be deleted, tells you how many were left and why instead of failing the whole batch. On boards, a failed delete now shows the real reason rather than a generic error.",
+      },
+    ],
+  },
+  {
     version: "2.161.4",
     date: "2026-07-10",
     title: "Assigning a parent no longer jumps you away from the issue you're editing",

@@ -715,12 +715,14 @@ function KanbanBoardInner({
     if (ids.length === 0) return;
     setBulkPending(true);
     try {
-      const res = await fetch(`${basePath}/work-items/bulk`, {
+      // Go through jsonFetch so a non-2xx surfaces the server's real reason via
+      // its FetchError — the old raw fetch threw a generic Error, so any failure
+      // showed only an undiagnosable "Couldn't delete the selected items."
+      // (COSMOS-76).
+      await jsonFetch(`${basePath}/work-items/bulk`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
-      if (!res.ok) throw new Error("bulk delete failed");
       toast.success(`Deleted ${ids.length} item${ids.length === 1 ? "" : "s"}`);
       applyItems((prev) => prev.filter((i) => !ids.includes(i.id)));
       setSelectedIds(new Set());
