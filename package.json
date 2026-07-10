@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.169.0",
+  "version": "2.170.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,6 +19,7 @@
     "seed:demo": "tsx prisma/seed/demo-defense.ts && tsx prisma/seed/demo-defense-extra.ts && tsx prisma/seed/demo-defense-fill.ts && tsx prisma/seed/demo-defense-pm.ts",
     "seed:demo:teardown": "tsx prisma/seed/demo-defense-teardown.ts",
     "seed:roadmap": "tsx prisma/seed/roadmap-import.ts",
+    "backfill:roadmap-descriptions": "tsx scripts/roadmap/backfill-descriptions.ts",
     "test:arch": "vitest run arch.test.ts",
     "cutover:acceptance": "bash scripts/cutover/acceptance/run-acceptance.sh",
     "cutover:parity-acceptance": "bash scripts/cutover/acceptance/run-parity-acceptance.sh",
