@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { computeSprintMetrics, isDoneColumn } from "@/lib/cycles/sprint-metrics";
 import { z } from "zod";
 
 const completeSchema = z.object({
@@ -42,28 +43,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const completed = await prisma.$transaction(async (tx) => {
       const items = cycle.workItems;
-      const doneItems = items.filter((i) =>
-        ["done", "completed", "closed"].some((k) => i.columnKey.toLowerCase().includes(k))
-      );
-      const incompleteItems = items.filter((i) =>
-        !["done", "completed", "closed"].some((k) => i.columnKey.toLowerCase().includes(k))
-      );
+      const incompleteItems = items.filter((i) => !isDoneColumn(i.columnKey));
 
-      const totalPoints = items.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
-      const completedPoints = doneItems.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
+      // Retrospective metrics — burn rate, pacing, efficiency — computed with the
+      // same shared helper the client review dialog previews before finalizing,
+      // so what the user reviews matches what we persist.
+      const metrics = computeSprintMetrics({
+        items,
+        startDate: cycle.startDate,
+        endDate: cycle.endDate,
+      });
+
+      // Preserve any planning snapshot captured when the sprint was started.
+      const prevReport =
+        cycle.report && typeof cycle.report === "object" && !Array.isArray(cycle.report)
+          ? (cycle.report as Record<string, unknown>)
+          : {};
 
       const report = {
+        ...metrics,
         completedAt: new Date().toISOString(),
-        totalItems: items.length,
-        completedItems: doneItems.length,
-        incompleteItems: incompleteItems.length,
-        totalStoryPoints: totalPoints,
-        completedStoryPoints: completedPoints,
-        velocity: completedPoints,
-        itemsByPriority: items.reduce((acc, i) => {
-          acc[i.priority] = (acc[i.priority] ?? 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
+        ...(prevReport.plan !== undefined && { plan: prevReport.plan }),
       };
 
       if (incompleteItems.length > 0 && data.moveIncompleteToCycleId) {

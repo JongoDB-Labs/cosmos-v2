@@ -27,6 +27,7 @@ import {
   Permission,
 } from "@/components/providers/permissions-provider";
 import { notifyError } from "@/lib/errors/notify";
+import { cn } from "@/lib/utils";
 import {
   IterationCcw,
   Plus,
@@ -37,9 +38,16 @@ import {
   Target,
   Users,
   ListPlus,
+  Gauge,
 } from "lucide-react";
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
+import { PlanSprintDialog } from "./plan-sprint-dialog";
+import {
+  computeSprintMetrics,
+  suggestNextSprint,
+  type SprintMetrics,
+} from "@/lib/cycles/sprint-metrics";
 
 interface CycleReport {
   velocity?: number;
@@ -131,6 +139,21 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   // Capacity planning dialog.
   const [capacityTarget, setCapacityTarget] = useState<Cycle | null>(null);
 
+  // Sprint-planning flow (opened when starting a planned sprint).
+  const [planTarget, setPlanTarget] = useState<Cycle | null>(null);
+
+  // Roll-over prompt shown after a sprint completes, pre-filled with the next
+  // iteration (incremented title + same duration). Dates are YYYY-MM-DD for the
+  // <input type=date> controls.
+  const [rollover, setRollover] = useState<{
+    name: string;
+    startDate: string;
+    endDate: string;
+    cycleKind: string;
+    parentId: string | null;
+  } | null>(null);
+  const [rolloverBusy, setRolloverBusy] = useState(false);
+
   // "Add issues to this cycle" picker (FR 0e31d1ef).
   const [addIssuesTarget, setAddIssuesTarget] = useState<Cycle | null>(null);
   // cycleId → name, for the "currently in X" badge in the picker.
@@ -147,7 +170,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     canUpdate,
     canComplete,
     pis,
-    onStart: () => activateCycle(cycle.id),
+    onStart: () => setPlanTarget(cycle),
     onComplete: () => {
       setMoveToCycleId(BACKLOG_OPTION);
       setCompleteTarget(cycle);
@@ -163,6 +186,48 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
   const [completeTarget, setCompleteTarget] = useState<Cycle | null>(null);
   const [moveToCycleId, setMoveToCycleId] = useState<string>(BACKLOG_OPTION);
+
+  // Live retrospective metrics for the sprint-review step of the complete dialog.
+  const [reviewMetrics, setReviewMetrics] = useState<SprintMetrics | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+
+  // When a cycle is queued for completion, fetch its items and compute the
+  // review metrics the user sees BEFORE finalizing (burn rate, pacing,
+  // efficiency). Uses the same shared helper the server persists on completion.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!completeTarget) {
+      setReviewMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    setReviewLoading(true);
+    setReviewMetrics(null);
+    (async () => {
+      try {
+        const res = await fetch(`${basePath}/cycles/${completeTarget.id}`);
+        if (!res.ok) throw new Error("Failed to load sprint review");
+        const data: {
+          workItems?: { storyPoints: number | null; columnKey: string; priority?: string | null }[];
+        } = await res.json();
+        const metrics = computeSprintMetrics({
+          items: data.workItems ?? [],
+          startDate: completeTarget.startDate,
+          endDate: completeTarget.endDate,
+        });
+        if (!cancelled) setReviewMetrics(metrics);
+      } catch {
+        // Non-fatal — the dialog still lets the user complete without metrics.
+        if (!cancelled) setReviewMetrics(null);
+      } finally {
+        if (!cancelled) setReviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [completeTarget, basePath]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const fetchCycles = useCallback(async () => {
     setLoading(true);
@@ -254,28 +319,6 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     }
   }
 
-  async function activateCycle(id: string) {
-    setBusyId(id);
-    try {
-      const res = await fetch(`${basePath}/cycles/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "ACTIVE" }),
-      });
-      if (res.status === 409)
-        throw new Error("Another cycle is already active — complete it first.");
-      if (!res.ok) throw new Error("Failed to start cycle");
-      await fetchCycles();
-    } catch (err) {
-      notifyError(
-        err,
-        err instanceof Error ? err.message : "Couldn't start the cycle.",
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   // Nest a sprint under a Program Increment (parentId = PI id), or detach it
   // (parentId = null) back to the top level.
   async function assignToPI(id: string, parentId: string | null) {
@@ -297,10 +340,10 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
 
   // moveIncompleteToCycleId: null → incomplete items return to the backlog;
   // a cycle id → they roll over into that (planned) cycle.
-  async function completeCycle(id: string, moveIncompleteToCycleId: string | null) {
-    setBusyId(id);
+  async function completeCycle(cycle: Cycle, moveIncompleteToCycleId: string | null) {
+    setBusyId(cycle.id);
     try {
-      const res = await fetch(`${basePath}/cycles/${id}/complete`, {
+      const res = await fetch(`${basePath}/cycles/${cycle.id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ moveIncompleteToCycleId }),
@@ -308,10 +351,60 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
       if (!res.ok) throw new Error("Failed to complete cycle");
       setCompleteTarget(null);
       await fetchCycles();
+      // Prompt to auto-start the next iteration, pre-filled with an incremented
+      // title + the same duration (only for time-boxed cycles, not PIs).
+      if (cycle.cycleKind !== PI_KIND) {
+        const next = suggestNextSprint(cycle);
+        setRollover({
+          name: next.name,
+          startDate: next.startDate.slice(0, 10),
+          endDate: next.endDate.slice(0, 10),
+          cycleKind: next.cycleKind,
+          parentId: next.parentId,
+        });
+      }
     } catch (err) {
       notifyError(err, "Couldn't complete the cycle.");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  // Create the pre-filled next sprint from the roll-over prompt, then hand off to
+  // the planning flow so the user can review capacity and start it.
+  async function createNextSprint() {
+    if (!rollover) return;
+    if (!rollover.name.trim() || !rollover.startDate || !rollover.endDate) return;
+    if (new Date(rollover.endDate) < new Date(rollover.startDate)) {
+      notifyError(
+        new Error("End before start"),
+        "End date must be on or after the start date.",
+      );
+      return;
+    }
+    setRolloverBusy(true);
+    try {
+      const res = await fetch(`${basePath}/cycles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: rollover.name.trim(),
+          startDate: new Date(rollover.startDate).toISOString(),
+          endDate: new Date(rollover.endDate).toISOString(),
+          cycleKind: rollover.cycleKind,
+          parentId: rollover.parentId,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create the next sprint");
+      const createdCycle: Cycle = await res.json();
+      setRollover(null);
+      await fetchCycles();
+      // Chain into the planning flow for the freshly created sprint.
+      setPlanTarget(createdCycle);
+    } catch (err) {
+      notifyError(err, "Couldn't create the next sprint.");
+    } finally {
+      setRolloverBusy(false);
     }
   }
 
@@ -580,6 +673,88 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         />
       )}
 
+      {/* Sprint-planning flow — opened when starting a planned sprint. */}
+      {planTarget && (
+        <PlanSprintDialog
+          orgId={orgId}
+          projectId={projectId}
+          cycle={planTarget}
+          onClose={() => setPlanTarget(null)}
+          onStarted={fetchCycles}
+        />
+      )}
+
+      {/* Roll-over prompt: auto-start the next sprint after one completes. */}
+      <Dialog open={rollover !== null} onOpenChange={(o) => !o && setRollover(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start the next sprint?</DialogTitle>
+            <DialogDescription>
+              Sprint complete 🎉 We&apos;ve pre-filled the next iteration with the
+              same duration. Adjust it, then plan &amp; start.
+            </DialogDescription>
+          </DialogHeader>
+          {rollover && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="rollover-name">Name</Label>
+                <Input
+                  id="rollover-name"
+                  value={rollover.name}
+                  onChange={(e) =>
+                    setRollover((r) => (r ? { ...r, name: e.target.value } : r))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="rollover-start">Start date</Label>
+                  <Input
+                    id="rollover-start"
+                    type="date"
+                    value={rollover.startDate}
+                    onChange={(e) =>
+                      setRollover((r) => (r ? { ...r, startDate: e.target.value } : r))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="rollover-end">End date</Label>
+                  <Input
+                    id="rollover-end"
+                    type="date"
+                    value={rollover.endDate}
+                    onChange={(e) =>
+                      setRollover((r) => (r ? { ...r, endDate: e.target.value } : r))
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRollover(null)}
+              disabled={rolloverBusy}
+            >
+              Not now
+            </Button>
+            <Button
+              onClick={createNextSprint}
+              disabled={
+                rolloverBusy ||
+                !rollover?.name.trim() ||
+                !rollover?.startDate ||
+                !rollover?.endDate
+              }
+            >
+              {rolloverBusy ? "Creating…" : "Plan next sprint"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add issues to a cycle (FR 0e31d1ef) — bulk-move project issues in. */}
       <AddIssuesDialog
         orgId={orgId}
@@ -603,11 +778,13 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               Complete {completeTarget ? completeTarget.name : "cycle"}
             </DialogTitle>
             <DialogDescription>
-              Completing locks the cycle and records its velocity. Any unfinished
-              work items need a new home — choose where they go.
+              Review the sprint&apos;s retrospective metrics, then choose where
+              any unfinished work goes. Completing locks the sprint and records
+              its report.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <SprintReviewPanel metrics={reviewMetrics} loading={reviewLoading} />
             {completeTarget?._count?.workItems != null && (
               <p className="text-sm text-muted-foreground">
                 This cycle has{" "}
@@ -655,7 +832,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               onClick={() =>
                 completeTarget &&
                 completeCycle(
-                  completeTarget.id,
+                  completeTarget,
                   moveToCycleId === BACKLOG_OPTION ? null : moveToCycleId,
                 )
               }
@@ -845,6 +1022,79 @@ function CycleCard({
             </Button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface StatProps {
+  label: string;
+  value: string;
+  sub?: string;
+  valueClass?: string;
+}
+
+function Stat({ label, value, sub, valueClass }: StatProps) {
+  return (
+    <div>
+      <p className={cn("text-sm font-semibold text-foreground", valueClass)}>{value}</p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+/**
+ * Retrospective metrics shown in the sprint-review step before a sprint is
+ * finalized (AC: "burn rate, pacing, and efficiency before finalization").
+ * Computed live from the sprint's items via the shared metrics helper.
+ */
+function SprintReviewPanel({
+  metrics,
+  loading,
+}: {
+  metrics: SprintMetrics | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return <Skeleton className="h-28 w-full" />;
+  }
+  if (!metrics) return null;
+
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  const pacingLabel =
+    metrics.pacing === "ahead"
+      ? "Ahead"
+      : metrics.pacing === "behind"
+        ? "Behind"
+        : "On track";
+  const pacingClass =
+    metrics.pacing === "ahead"
+      ? "text-emerald-600 dark:text-emerald-500"
+      : metrics.pacing === "behind"
+        ? "text-amber-600 dark:text-amber-500"
+        : "text-foreground";
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
+      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <Gauge className="h-3.5 w-3.5" /> Sprint review
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <Stat label="Velocity" value={`${metrics.velocity} pts`} />
+        <Stat
+          label="Efficiency"
+          value={pct(metrics.pointCompletionRate)}
+          sub={`${metrics.completedStoryPoints}/${metrics.totalStoryPoints} pts`}
+        />
+        <Stat
+          label="Items done"
+          value={`${metrics.completedItems}/${metrics.totalItems}`}
+          sub={pct(metrics.itemCompletionRate)}
+        />
+        <Stat label="Burn rate" value={`${metrics.burnRate}`} sub="pts / day" />
+        <Stat label="Pacing" value={pacingLabel} valueClass={pacingClass} />
+        <Stat label="Carrying over" value={`${metrics.incompleteItems}`} sub="items" />
       </div>
     </div>
   );

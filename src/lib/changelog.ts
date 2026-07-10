@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.165.0",
+    date: "2026-07-10",
+    title: "Sprint planning, reviews, and one-click roll-over",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Starting a sprint now opens a planning flow instead of flipping it straight to active. You'll see the committed scope (items + story points), set a goal and a commitment, and fill in each member's capacity — all in one place — before the sprint kicks off.",
+      },
+      {
+        kind: "feature",
+        text: "Completing a sprint now shows a review first: velocity, efficiency (points delivered vs. planned), burn rate, pacing (ahead / on track / behind), and how many items are carrying over — so you can reflect before finalizing.",
+      },
+      {
+        kind: "feature",
+        text: "After you complete a sprint, we offer to start the next one for you — pre-filled with an incremented title and the same duration (e.g. a two-week \"Sprint 1\" rolls into a two-week \"Sprint 2\"). Tweak the dates and you're straight into planning it.",
+      },
+      {
+        kind: "improvement",
+        text: "You can still edit or delete a planned sprint at any time before it starts — no need to run it first.",
+      },
+    ],
+  },
+  {
     version: "2.164.0",
     date: "2026-07-10",
     title: "Set a default view for everyone on a project",

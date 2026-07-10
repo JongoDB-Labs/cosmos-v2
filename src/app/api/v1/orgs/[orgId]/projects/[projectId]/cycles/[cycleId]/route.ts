@@ -6,7 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
-import { SprintStatus } from "@prisma/client";
+import { SprintStatus, Prisma } from "@prisma/client";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 
 const updateCycleSchema = z.object({
@@ -18,6 +18,16 @@ const updateCycleSchema = z.object({
   // Program Increment to nest this sprint under (a PI cycle id), or null to
   // detach it back to top level. Validated same-project + must be a PI.
   parentId: z.string().uuid().nullable().optional(),
+  // Planning snapshot captured when a sprint is started (sprint-planning flow):
+  // the team's commitment + capacity at kickoff, stashed in `report.plan` so the
+  // end-of-sprint review can show committed-vs-delivered. Non-completion writes.
+  plan: z
+    .object({
+      committedPoints: z.number().nonnegative().max(100_000),
+      capacityHours: z.number().nonnegative().max(1_000_000),
+      plannedAt: z.string().datetime().optional(),
+    })
+    .nullish(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; cycleId: string }> };
@@ -102,6 +112,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Merge a planning snapshot into `report.plan` without clobbering any
+    // existing completion metrics stored there.
+    let reportUpdate: Record<string, unknown> | undefined;
+    if (data.plan !== undefined) {
+      const prevReport =
+        existing.report && typeof existing.report === "object" && !Array.isArray(existing.report)
+          ? (existing.report as Record<string, unknown>)
+          : {};
+      reportUpdate =
+        data.plan === null
+          ? (() => {
+              const { plan: _drop, ...rest } = prevReport;
+              void _drop;
+              return rest;
+            })()
+          : { ...prevReport, plan: { ...data.plan, plannedAt: data.plan.plannedAt ?? new Date().toISOString() } };
+    }
+
     const updated = await prisma.cycle.update({
       where: { id: cycleId },
       data: {
@@ -111,6 +139,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.endDate !== undefined && data.endDate !== null && { endDate: new Date(data.endDate) }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.parentId !== undefined && { parentId: data.parentId }),
+        ...(reportUpdate !== undefined && { report: reportUpdate as Prisma.InputJsonValue }),
       },
       include: { _count: { select: { workItems: true } } },
     });
