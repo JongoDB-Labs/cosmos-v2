@@ -53,6 +53,11 @@ export default async function ProjectLayout({
     hasPermission(ctx.permissions, Permission.BOARD_DELETE) || isProjectManager;
   const canCreateBoards =
     hasPermission(ctx.permissions, Permission.BOARD_CREATE) || isProjectManager;
+  // Who may set the PROJECT-WIDE default view (the tab everyone without a
+  // personal override lands on). Mirrors the PUT …/projects/[projectId] gate
+  // exactly: an org-wide PROJECT_UPDATE holder OR a MANAGER of this project.
+  const canSetProjectDefault =
+    hasPermission(ctx.permissions, Permission.PROJECT_UPDATE) || isProjectManager;
 
   // Per-user tab tailoring. Order / hidden / default / feature-labels are now
   // PER USER (each member tailors their own strip). The effective value for
@@ -97,6 +102,10 @@ export default async function ProjectLayout({
     strArr(tp.hiddenFeatureTabs) ?? strArr(projectSettings.hiddenFeatureTabs) ?? [];
   // defaultBoardId stays a project-level baseline (legacy back-compat token).
   const defaultBoardId = str(projectSettings.defaultBoardId) ?? null;
+  // The PROJECT-WIDE default token (manager baseline) on its own — NOT the
+  // user-override blend above. Lets the tabs mark which tab is already the team
+  // default so the "Set as default for everyone" action can hide on it.
+  const projectDefaultTab = str(projectSettings.defaultTab) ?? null;
 
   return (
     <div className="flex flex-col h-full">
@@ -139,8 +148,10 @@ export default async function ProjectLayout({
         enabledFeatures={project.enabledFeatures}
         canManageBoards={canManageBoards}
         canCreateBoards={canCreateBoards}
+        canSetProjectDefault={canSetProjectDefault}
         defaultBoardId={defaultBoardId}
         defaultTab={defaultTab}
+        projectDefaultTab={projectDefaultTab}
         tabOrder={tabOrder}
         featureTabLabels={featureTabLabels}
         hiddenBoardIds={hiddenBoardIds}

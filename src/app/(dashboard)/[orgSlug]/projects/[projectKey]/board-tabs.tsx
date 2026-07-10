@@ -51,6 +51,10 @@ interface ProjectBoardTabsProps {
   canManageBoards?: boolean;
   /** Whether the actor may create boards (org BOARD_CREATE or project MANAGER). */
   canCreateBoards?: boolean;
+  /** Whether the actor may set the PROJECT-WIDE default view — the tab everyone
+   *  without a personal override lands on (org PROJECT_UPDATE or project
+   *  MANAGER). Unlocks the "Set as default for everyone" tab action. */
+  canSetProjectDefault?: boolean;
   /** The project's current default board (baseline) — from
    *  Project.settings.defaultBoardId. Kept for back-compat; the effective
    *  `defaultTab` (a board:/feature: token, now per-user) supersedes it. */
@@ -59,6 +63,10 @@ interface ProjectBoardTabsProps {
    *  EFFECTIVE value composed in layout.tsx as user pref ?? project ?? null.
    *  Drives the ⭐ + the project page redirect. */
   defaultTab?: string | null;
+  /** The PROJECT-WIDE default token (`board:<id>` | `feature:<key>`) on its own
+   *  — the manager baseline BEFORE the per-user override blends in. Used to hide
+   *  "Set as default for everyone" on the tab that's already the team default. */
+  projectDefaultTab?: string | null;
   /** Board ids hidden from THIS user's strip — effective value (user tabPrefs ??
    *  project baseline). Anyone can hide/show from a tab's menu; the board row
    *  itself is untouched. */
@@ -108,8 +116,10 @@ export function ProjectBoardTabs({
   enabledFeatures = [],
   canManageBoards = false,
   canCreateBoards = false,
+  canSetProjectDefault = false,
   defaultBoardId = null,
   defaultTab = null,
+  projectDefaultTab = null,
   hiddenBoardIds = [],
   hiddenFeatureTabs = [],
   tabOrder = [],
@@ -156,6 +166,7 @@ export function ProjectBoardTabs({
   const [boardToDelete, setBoardToDelete] = useState<BoardTab | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
+  const [settingProjectDefault, setSettingProjectDefault] = useState(false);
   // Rename works for BOTH kinds: a board (PUT name — SHARED) or a feature tab
   // (patchTabPrefs featureTabLabels — PER USER). `tabToRename` holds whichever
   // the actor opened the dialog on.
@@ -315,6 +326,13 @@ export function ProjectBoardTabs({
   const effectiveDefaultToken =
     defaultTab ?? (defaultBoardId ? `board:${defaultBoardId}` : null);
 
+  // The PROJECT-WIDE default token (manager baseline) on its own — the raw
+  // project setting, NOT the per-user blend. `projectDefaultTab` (a board:/feature:
+  // token) wins, else the legacy project-level `defaultBoardId`. Used to hide the
+  // "Set as default for everyone" action on the tab that's already the team default.
+  const projectDefaultToken =
+    projectDefaultTab ?? (defaultBoardId ? `board:${defaultBoardId}` : null);
+
   // Drag reorder is available to EVERY authenticated member (it tailors their
   // OWN strip). A press-and-drag past the activation distance reorders; a plain
   // click (no movement) falls through to the tab's <Link> and navigates.
@@ -457,6 +475,30 @@ export function ProjectBoardTabs({
     }
   }
 
+  // FR "Default view" (manager side): set the PROJECT-WIDE default — the tab
+  // every member WITHOUT a personal override lands on when they open the project.
+  // Persisted as a token in Project.settings.defaultTab via the manager-gated
+  // project PUT (settings merge), and honored by the project page redirect (step
+  // 3, after per-user prefs). Manager-only — the button is hidden otherwise and
+  // the PUT would 403 anyway.
+  async function handleSetProjectDefault(tab: Tab) {
+    setSettingProjectDefault(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { defaultTab: tab.token } }),
+      });
+      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      toast.success(`"${tab.label}" is now the default tab for everyone.`);
+      router.refresh();
+    } catch (err) {
+      notifyError(err, "Couldn't set the default tab for everyone.");
+    } finally {
+      setSettingProjectDefault(false);
+    }
+  }
+
   // Rename a tab. Board → PUT board.name (SHARED — it's the board row, managers
   // only). Feature → write per-user featureTabLabels[key]. Opens via the tab ⋯
   // menu → shared dialog.
@@ -566,10 +608,22 @@ export function ProjectBoardTabs({
     }
     if (!isDefault) {
       renameItems.push({
-        label: "Set as default",
+        // Qualify the label as personal only when the team-default action is
+        // also visible (managers), so the two aren't ambiguous.
+        label: canSetProjectDefault ? "Set as my default" : "Set as default",
         icon: Star,
         disabled: settingDefault,
         onClick: () => handleSetDefault(tab),
+      });
+    }
+    // Managers/owners/admins can additionally set the PROJECT-WIDE default —
+    // hidden on the tab that's already the team default.
+    if (canSetProjectDefault && tab.token !== projectDefaultToken) {
+      renameItems.push({
+        label: "Set as default for everyone",
+        icon: Users,
+        disabled: settingProjectDefault,
+        onClick: () => handleSetProjectDefault(tab),
       });
     }
 

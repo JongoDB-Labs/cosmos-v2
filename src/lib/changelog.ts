@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.164.0",
+    date: "2026-07-10",
+    title: "Set a default view for everyone on a project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Project managers, owners, and admins can now pick the default tab a project opens to for the whole team. Open the ⋯ menu on any board or view tab and choose \"Set as default for everyone\" — members who haven't chosen their own default will land there when they open the project. Everyone can still set their own personal default (\"Set as my default\"), which always takes priority for them.",
+      },
+    ],
+  },
+  {
     version: "2.162.0",
     date: "2026-07-10",
     title: "Your sub-item order now carries over to the Timeline",
