@@ -11,9 +11,17 @@ const brief: TicketBrief = {
 };
 
 describe("reviewerPrompt", () => {
-  it("is adversarial, names the diff path, and demands the exact verdict format", () => {
-    const p = reviewerPrompt(brief, "/tmp/wt/.git/FOREMAN_REVIEW.diff");
-    expect(p).toContain("/tmp/wt/.git/FOREMAN_REVIEW.diff");
+  it("inline diff: embeds the fenced diff text in the prompt (no file access needed)", () => {
+    const p = reviewerPrompt(brief, { kind: "inline", text: "--- a/x.ts\n+++ b/x.ts\n+fixed()" });
+    expect(p).toContain("+fixed()");
+    expect(p).toContain("```diff");
+    expect(p).toContain("APPROVE:");
+    expect(p).not.toContain("Read the full diff at"); // no file instruction in inline mode
+  });
+
+  it("file diff (oversized fallback): is adversarial, names the diff path, and demands the exact verdict format", () => {
+    const p = reviewerPrompt(brief, { kind: "file", path: "/repo/.git/worktrees/K/FOREMAN_REVIEW.diff" });
+    expect(p).toContain("/repo/.git/worktrees/K/FOREMAN_REVIEW.diff");
     expect(p).toContain("APPROVE:");
     expect(p).toContain("REJECT:");
     expect(p).toMatch(/read-only/i);
@@ -24,7 +32,7 @@ describe("reviewerPrompt", () => {
   });
 
   it("handles empty acceptance criteria", () => {
-    const p = reviewerPrompt({ ...brief, acceptanceCriteria: [] }, "/d.diff");
+    const p = reviewerPrompt({ ...brief, acceptanceCriteria: [] }, { kind: "file", path: "/d.diff" });
     expect(p).toMatch(/judge against the title/i);
   });
 });
