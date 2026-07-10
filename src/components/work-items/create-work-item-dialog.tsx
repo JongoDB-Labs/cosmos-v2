@@ -164,11 +164,24 @@ export function CreateWorkItemDialog({
     setSubmitting(true);
     try {
       // The create API requires a columnKey — resolve the project's first board
-      // + first column (falls back to "backlog").
-      const boards = await jsonFetch<Board[]>(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/boards`,
-      );
-      const columnKey = boards[0]?.columns?.[0]?.key ?? "backlog";
+      // + first column (falls back to "backlog"). This lookup must NEVER abort
+      // the create: the board quick-create paths never make it and still create
+      // fine, so a failure here — the boards GET is BOARD_READ-gated, so a user
+      // with ITEM_CREATE but not BOARD_READ gets a non-2xx that `jsonFetch`
+      // throws, and any transient error does the same — must fall back to
+      // "backlog" instead of throwing, or the POST below is never sent and the
+      // issue silently fails to create while the Kanban board still works
+      // (COSMOS-86). The server stores columnKey verbatim, so the fallback is
+      // safe and the item appears in the Issues list.
+      let columnKey = "backlog";
+      try {
+        const boards = await jsonFetch<Board[]>(
+          `/api/v1/orgs/${orgId}/projects/${projectId}/boards`,
+        );
+        columnKey = boards[0]?.columns?.[0]?.key ?? "backlog";
+      } catch {
+        /* keep the "backlog" fallback — creation must not hinge on this GET */
+      }
       const tags = labels
         .split(",")
         .map((t) => t.trim())
@@ -418,7 +431,14 @@ export function CreateWorkItemDialog({
             </Button>
             <Button
               onClick={() => void handleSubmit()}
-              disabled={!title.trim() || !projectId || !workItemTypeId || submitting}
+              // Gate only on the truly-required fields (title + project), NOT on
+              // workItemTypeId: the board quick-create paths never block on the
+              // async types fetch and handleSubmit already falls back to the bare
+              // "TASK" type when none is chosen. Requiring a type here left the
+              // button permanently disabled whenever the org's types were slow /
+              // failed to load, so the user could fill the form but never create
+              // (COSMOS-86).
+              disabled={!title.trim() || !projectId || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create issue"}
             </Button>

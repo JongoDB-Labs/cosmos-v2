@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.164.4",
+    date: "2026-07-10",
+    title: "The New issue button reliably creates issues",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The \"New issue\" button now creates your item every time. Previously it could leave you filling in the form with no way to submit — or quietly fail after you clicked Create — even though adding a card straight on the Kanban board worked. It no longer waits on the type list to load before letting you create, and a hiccup loading the project's board can't stop the issue from being saved. Works for every item type (task, story, event day, and so on).",
+      },
+    ],
+  },
+  {
     version: "2.164.3",
     date: "2026-07-10",
     title: "Feedback status follows delivery",
