@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.10",
+    date: "2026-07-10",
+    title: "Clearer message when a feedback edit can't be saved",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If saving an edit to your feature request or bug report is rejected, the feedback board now shows the specific reason (for example, that only the author can edit an item) instead of a generic \"couldn't save\" error, so it's clear what went wrong.",
+      },
+    ],
+  },
+  {
     version: "2.161.9",
     date: "2026-07-10",
     title: "Analytics no longer crashes when a section has no data yet",
