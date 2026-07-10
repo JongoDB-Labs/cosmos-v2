@@ -49,7 +49,7 @@ export const CHANGELOG: Release[] = [
     highlights: [
       {
         kind: "improvement",
-        text: "Cosmo — your agentic AI chat assistant — now has its own avatar: a little astronaut waving from a starfield that re-tints live with your theme and accent color. The chat launcher gets a quieter matching helmet mark.",
+        text: "Cosmo — your agentic AI chat assistant — now has its own avatar: a little astronaut waving from a starfield that re-tints live with your theme and accent color.",
       },
     ],
   },
