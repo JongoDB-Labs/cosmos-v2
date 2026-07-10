@@ -110,6 +110,10 @@ describe("PUT /feedback/[feedbackId] — content edits are author-owned", () => 
 
       const res = await put(id, { title: `${TITLE_PREFIX} hijacked` });
       expect(res.status).toBe(403);
+      // The body carries a specific, user-facing reason (not a bare status) so
+      // the portal can surface it verbatim rather than a generic fallback.
+      const body = await res.json();
+      expect(body.error).toMatch(/only the author/i);
 
       const row = await prisma.feedbackItem.findUniqueOrThrow({
         where: { id },
