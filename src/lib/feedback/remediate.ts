@@ -262,6 +262,7 @@ async function resolveTypeId(
 function buildDescription(
   item: { title: string; description: string; id: string; voteCount: number },
   triage: Triage,
+  authorName: string | null,
 ): string {
   const lines = [
     item.description || "_(no description provided)_",
@@ -275,6 +276,10 @@ function buildDescription(
     for (const ac of triage.acceptanceCriteria) lines.push(`- [ ] ${ac}`);
   }
   lines.push("", `Source feedback: \`${item.id}\` (${item.voteCount} vote${item.voteCount === 1 ? "" : "s"})`);
+  // Surface the submitter on the delivered ticket so the origin is visible
+  // without cross-referencing the feedback board. Omitted when the author
+  // couldn't be resolved (e.g. their User row no longer exists).
+  if (authorName) lines.push("", `_Reported by ${authorName}_`);
   return lines.filter((l) => l !== undefined).join("\n");
 }
 
@@ -352,8 +357,31 @@ export async function runFeedbackRemediation(
     where: { orgId, status: "OPEN", deliveredAt: null },
     orderBy: [{ voteCount: "desc" }, { createdAt: "asc" }],
     take: limit,
-    select: { id: true, title: true, description: true, type: true, telemetry: true, voteCount: true, projectId: true },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      type: true,
+      telemetry: true,
+      voteCount: true,
+      projectId: true,
+      authorId: true,
+    },
   });
+
+  // Resolve submitter display names once for the whole batch (FeedbackItem has
+  // no User relation — same migration-free side-query pattern as GET /feedback
+  // and work-item comments), so each delivered ticket can carry "Reported by
+  // <name>". Falls back to email; a lean select never touches
+  // OrgMember.permissions (BigInt).
+  const authorIds = [...new Set(pending.map((i) => i.authorId))];
+  const authors = authorIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: authorIds } },
+        select: { id: true, displayName: true, email: true },
+      })
+    : [];
+  const authorNameById = new Map(authors.map((u) => [u.id, u.displayName || u.email]));
 
   const delivered: RemediationSummary["items"] = [];
   const byProject = new Map<string, { key: string; count: number }>();
@@ -396,7 +424,7 @@ export async function runFeedbackRemediation(
             projectId: target.id,
             workItemTypeId: typeId,
             title: item.title,
-            description: buildDescription(item, triage),
+            description: buildDescription(item, triage, authorNameById.get(item.authorId) ?? null),
             columnKey: target.columnKey,
             priority: SEVERITY_TO_PRIORITY[triage.severity] as never,
             ticketNumber,
