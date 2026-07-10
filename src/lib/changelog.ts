@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.9",
+    date: "2026-07-10",
+    title: "Analytics no longer crashes when a section has no data yet",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Analytics page could crash to a blank screen when the Feedback or Project Detail tab loaded a section with missing or not-yet-populated data. Those tabs now fall back to a clean empty state instead of erroring, so the page always renders.",
+      },
+    ],
+  },
+  {
     version: "2.161.7",
     date: "2026-07-10",
     title: "Edit a feature request or bug report after you've filed it",

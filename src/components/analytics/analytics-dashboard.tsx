@@ -201,7 +201,25 @@ function FeedbackTab({ orgId }: { orgId: string }) {
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/analytics/feedback`);
       if (!res.ok) throw new Error("failed");
-      setData(await res.json());
+      // Normalize on ingest: a partial/malformed 200 (stale cache, shape drift)
+      // that omits `trend`/`recent` would otherwise crash render with
+      // "Cannot read properties of undefined (reading 'length')". Coerce the
+      // nested arrays/objects to safe defaults so empty states render instead.
+      const raw = await res.json();
+      setData({
+        counts: raw?.counts ?? {},
+        totals: raw?.totals ?? {
+          total: 0,
+          bugs: 0,
+          features: 0,
+          open: 0,
+          resolved: 0,
+          openBugs: 0,
+          openFeatures: 0,
+        },
+        trend: Array.isArray(raw?.trend) ? raw.trend : [],
+        recent: Array.isArray(raw?.recent) ? raw.recent : [],
+      });
     } catch {
       setLoadError(true);
     } finally {
@@ -743,8 +761,20 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
         `/api/v1/orgs/${orgId}/analytics/projects/${selectedProjectId}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setDetail(data);
+      // Normalize on ingest: guard every array the charts read `.length`/`.map`
+      // on. A partial/malformed 200 that omits one of these fields would
+      // otherwise crash render with "Cannot read properties of undefined
+      // (reading 'length')" — coerce to [] so each chart shows its empty state.
+      const raw = await res.json();
+      setDetail({
+        byType: Array.isArray(raw?.byType) ? raw.byType : [],
+        byPriority: Array.isArray(raw?.byPriority) ? raw.byPriority : [],
+        byStatus: Array.isArray(raw?.byStatus) ? raw.byStatus : [],
+        completionTrend: Array.isArray(raw?.completionTrend)
+          ? raw.completionTrend
+          : [],
+        topAssignees: Array.isArray(raw?.topAssignees) ? raw.topAssignees : [],
+      });
     } catch {
       setLoadError(true);
     } finally {
