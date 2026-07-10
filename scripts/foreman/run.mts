@@ -23,6 +23,7 @@ import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
+import { replyPrompt } from "@/lib/foreman/mention";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
@@ -107,11 +108,14 @@ async function judge(
 
 /** Clarity gate (§5.6): can this be built correctly without a product/scope
  *  decision the author must make? A cheap subscription judgment — never guess & ship. */
-async function clarityCheck(brief: TicketBrief): Promise<{ needsInput: boolean; question: string }> {
+async function clarityCheck(brief: TicketBrief, instructions: string[] = []): Promise<{ needsInput: boolean; question: string }> {
   const criteria = brief.acceptanceCriteria[0]
     ? brief.acceptanceCriteria.map((c) => "- " + c).join("\n")
     : "(none)";
-  const prompt = `A ticket to implement:\nTitle: ${brief.title}\nDescription: ${brief.description || "(none)"}\nAcceptance criteria:\n${criteria}\n\nCan a competent engineer implement this CORRECTLY from what's written, WITHOUT a product/scope/UX/business decision that only the author can make (e.g. which metrics, what layout, a business rule, a missing credential, an ambiguous "which one")? Reply exactly "OK" if yes, or "NEEDS_INPUT: <the single most important question to unblock it>" if not.`;
+  const guidance = instructions.length
+    ? `\nMaintainer instructions already provided in the ticket's comments (treat these as authoritative answers):\n${instructions.map((i) => "- " + i).join("\n")}\n`
+    : "";
+  const prompt = `A ticket to implement:\nTitle: ${brief.title}\nDescription: ${brief.description || "(none)"}\nAcceptance criteria:\n${criteria}\n${guidance}\nCan a competent engineer implement this CORRECTLY from what's written, WITHOUT a product/scope/UX/business decision that only the author can make (e.g. which metrics, what layout, a business rule, a missing credential, an ambiguous "which one")? Reply exactly "OK" if yes, or "NEEDS_INPUT: <the single most important question to unblock it>" if not.`;
   // Read-only tools + scratch cwd (not REPO): same untrusted-input reasoning as the
   // dedup judge — no shell, no repo writes. (I3)
   const r = await runAgent(SCRATCH, prompt, { maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
@@ -179,7 +183,10 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
   }
 
   // Clarity gate — does this need a product/scope decision Foreman can't make? (§5.6)
-  const clar = await clarityCheck(brief);
+  // @Foreman instructions from privileged ticket comments — authoritative
+  // answers/steering for both the clarity gate and the build itself.
+  const instructions = await db.instructionsFor(item.id).catch(() => [] as string[]);
+  const clar = await clarityCheck(brief, instructions);
   if (clar.needsInput) {
     log(`${key} needs input — ${clar.question}`);
     if (!DRY) {
@@ -231,7 +238,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     return true;
   };
   try {
-    const agent = await runAgent(wt, foremanPrompt(brief));
+    const agent = await runAgent(wt, foremanPrompt(brief, instructions));
     if (await haltIfKilled()) return; // checkpoint 1: right after the agent returns
 
     // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
@@ -483,6 +490,63 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
   }
 }
 
+/** @Foreman mention processor — the ticket-comment channel (§ agent identity).
+ *  Each pass: find privileged mentions not yet consumed (db.freshMentions), then
+ *  - ticket in `review` (parked / needs-input): REQUEUE it to the backlog with an
+ *    ack comment — the instruction itself is picked up by instructionsFor() at
+ *    build time, so the rebuild follows it. moveColumn resets columnEnteredAt,
+ *    which is the watermark, so a mention is consumed exactly once.
+ *  - any other column: REPLY in-thread via a read-only agent (Read/Grep/Glob in
+ *    the repo — code-grounded answers, no shell, no edits) + ping the asker. The
+ *    bot's reply timestamp is that path's watermark.
+ *  Mentions by non-privileged members are filtered in db.freshMentions. Never
+ *  throws — a mention hiccup must not stall delivery. */
+async function processMentions(): Promise<void> {
+  let fresh: Awaited<ReturnType<typeof db.freshMentions>>;
+  try {
+    fresh = await db.freshMentions();
+  } catch (e) {
+    log(`mention scan failed (${String(e)}) — skipping this pass`);
+    return;
+  }
+  for (const m of fresh) {
+    try {
+      if (killed()) return;
+      if (m.columnKey === "review") {
+        log(`${m.key} @Foreman instruction on parked ticket — requeueing`);
+        await db.moveColumn(m.itemId, "backlog");
+        await db.comment(
+          m.itemId,
+          `Got it — requeued with your instructions. I'll rebuild ${m.key} accordingly on my next pass.`,
+        );
+      } else {
+        log(`${m.key} @Foreman question (${m.columnKey}) — drafting reply`);
+        const r = await runAgent(
+          REPO,
+          replyPrompt({
+            key: m.key,
+            title: m.title,
+            columnKey: m.columnKey,
+            description: m.description,
+            thread: m.thread,
+            question: m.question,
+          }),
+          { allowedTools: "Read,Grep,Glob", maxTurns: 15, timeoutMs: 5 * 60_000 },
+        );
+        const reply = r.ok && r.log.trim() ? r.log.trim().slice(-2000) : "";
+        if (!reply) {
+          log(`${m.key} reply agent failed — leaving the mention for the next pass`);
+          continue;
+        }
+        await db.comment(m.itemId, reply);
+        await db.notifyReply(m.itemId, m.askerUserId, m.key, reply);
+      }
+    } catch (e) {
+      log(`${m.key} mention handling failed (${String(e)}) — continuing`);
+    }
+  }
+}
+
 /** Reconcile approved (merged) gated tickets. When Foreman gates a risky change it
  *  opens a DRAFT PR on `auto/<KEY>-<n>` and parks the ticket in `review`; a human
  *  then reviews + merges it to main. This step closes that loop: detect the merged
@@ -694,6 +758,12 @@ async function main(): Promise<void> {
           }
         }
         if (killed()) continue; // breaker may have just fired — don't start a build
+
+        // @Foreman mentions: requeue instructed parked tickets + answer questions
+        // BEFORE picking new work — a maintainer's instruction outranks the queue.
+        // Never in DRY (it comments + moves cards on the live board).
+        if (!DRY) await processMentions();
+        if (killed()) continue;
         const backlog = await db.getBacklog();
         const pool = DRY ? backlog.filter((b) => !processed.has(b.id)) : backlog;
         const next = pickNext(pool);

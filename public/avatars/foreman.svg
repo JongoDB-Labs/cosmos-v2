@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Foreman — the autonomous delivery agent's avatar: hard hat on amber. -->
+  <circle cx="32" cy="32" r="32" fill="#f59e0b"/>
+  <!-- hard hat shell -->
+  <path d="M14 36c0-10 8-18 18-18s18 8 18 18v2H14v-2z" fill="#fff"/>
+  <!-- hat center rib -->
+  <rect x="29" y="14" width="6" height="10" rx="3" fill="#fff"/>
+  <!-- brim -->
+  <rect x="10" y="38" width="44" height="5" rx="2.5" fill="#fff"/>
+  <!-- eyes -->
+  <circle cx="24" cy="50" r="3" fill="#78350f"/>
+  <circle cx="40" cy="50" r="3" fill="#78350f"/>
+</svg>

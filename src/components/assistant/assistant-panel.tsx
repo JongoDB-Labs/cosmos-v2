@@ -1011,7 +1011,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
             {activeId
               ? conversations.find((c) => c.id === activeId)?.title ??
                 "Conversation"
-              : "AI Chat"}
+              : "Cosmo"}
           </h2>
           <Select value={model} onValueChange={handleModelChange}>
             <SelectTrigger
@@ -1104,9 +1104,9 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                 <Bot className="size-8 text-primary" />
               </div>
               <div className="text-center">
-                <h3 className="text-lg font-semibold">Start a new conversation</h3>
+                <h3 className="text-lg font-semibold">Cosmo — your agentic AI chat assistant</h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Ask questions about your projects, get insights, or automate tasks.
+                  Ask questions about your projects, get insights, or have Cosmo take actions for you.
                 </p>
               </div>
               <Button onClick={createConversation}>

@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.167.0",
+    date: "2026-07-10",
+    title: "Meet Foreman — @-mention the delivery agent on any ticket",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The autonomous delivery agent now has a face and a handle: Foreman comments on tickets as itself, and owners/admins can @-mention Foreman in a ticket's comments to steer it — give build instructions, answer its questions (it re-queues a parked ticket automatically), or just ask it something about the code and get a grounded reply.",
+      },
+      {
+        kind: "improvement",
+        text: "The chat assistant now introduces itself as Cosmo — your agentic AI chat assistant — replacing the generic \"AI Chat\" labels.",
+      },
+    ],
+  },
+  {
     version: "2.166.0",
     date: "2026-07-10",
     title: "Change an issue's status right from the list",
