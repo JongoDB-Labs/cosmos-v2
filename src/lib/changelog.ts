@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.164.2",
+    date: "2026-07-10",
+    title: "Wide issue details no longer get cut off",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you open an issue's details, content that's wider than the panel — a table, code block, or long link in the description — now scrolls sideways within that block instead of shoving the whole panel off-screen or getting clipped. Everything stays reachable, even on narrow and mobile screens.",
+      },
+    ],
+  },
+  {
     version: "2.164.1",
     date: "2026-07-10",
     title: "Dashboard metric cards look right in dark mode",

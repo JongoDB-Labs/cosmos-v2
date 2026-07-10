@@ -200,7 +200,13 @@ export function IssueDetailSheet({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {/* Vertical scroll only: without an explicit overflow-x, `overflow-y-auto`
+            promotes overflow-x to `auto` (CSS spec), so any wide descendant (a
+            markdown table, code block, or long unbreakable token in the
+            description) makes the WHOLE pane — metadata grid included — jerk
+            sideways. Pin overflow-x here and let wide content scroll inside its
+            own block below. */}
+        <div data-testid="issue-detail-body" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4">
           <div className="mb-4 flex flex-wrap gap-2">
             <Badge variant={statusVariant}>{status?.name ?? row.columnKey}</Badge>
             <Badge variant={PRIORITY_VARIANT[row.priority]}>{row.priority}</Badge>
@@ -259,7 +265,14 @@ export function IssueDetailSheet({
             {loadingDesc ? (
               <Skeleton className="h-16 w-full rounded-md" />
             ) : description ? (
-              <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+              // `overflow-x-auto` keeps wide markdown content reachable: prose
+              // text still wraps (break-words), but a GFM table or fenced code
+              // block that can't wrap gets a horizontal scrollbar WITHIN this
+              // block instead of being clipped by the pane.
+              <div
+                data-testid="issue-detail-description"
+                className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto break-words"
+              >
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{description}</ReactMarkdown>
               </div>
             ) : (
