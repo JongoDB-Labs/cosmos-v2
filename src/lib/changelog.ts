@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.4",
+    date: "2026-07-10",
+    title: "Assigning a parent no longer jumps you away from the issue you're editing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you set (or change) an issue's parent from its detail panel, the panel now stays on that issue instead of flipping over to the parent. The parent's sub-item list still picks up the child immediately — the relationship stays in sync both ways, with no refresh.",
+      },
+    ],
+  },
+  {
     version: "2.161.3",
     date: "2026-07-10",
     title: "Bulk-tagging respects a 'select all matching' selection across pages",

@@ -44,6 +44,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import type {
@@ -361,7 +362,10 @@ export function BacklogView({
     qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
       (prev ?? []).map((i) => (i.id === updated.id ? updated : i)),
     );
-    setDetailItem(updated);
+    // Only re-point the open sheet when the updated row IS the one on screen —
+    // re-parenting also patches the parent rows, and echoing those into the
+    // sheet would flip it away from the child being edited (COSMOS-67).
+    setDetailItem((cur) => syncOpenDetail(cur, updated));
   }, [qc, itemsKey]);
 
   const toggleCollapsed = useCallback((key: string) => {
