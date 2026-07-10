@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.1",
+    date: "2026-07-10",
+    title: "Push notifications enable correctly after you click 'Allow'",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Enabling push notifications now works: after you grant the browser permission, the app completes the subscription instead of wrongly reporting that notifications couldn't be enabled.",
+      },
+    ],
+  },
+  {
     version: "2.161.0",
     date: "2026-07-09",
     title: "Who reported it, and autonomous delivery goes continuous",
