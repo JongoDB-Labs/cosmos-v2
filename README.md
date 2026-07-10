@@ -26,7 +26,8 @@ automation**.
 3. **Autonomous delivery (opt-in, owner-level).** A host daemon ("Foreman") works
    the backlog of the projects you enable: for each ticket it implements the
    change on an isolated branch, runs the full checks (typecheck, lint, tests),
-   and then either
+   repairs a failing build in-session (bounded rounds), has an adversarial
+   read-only reviewer agent judge the final diff, and then either
    - **ships it** — opens a PR, auto-merges, tags a SemVer release, builds the
      signed image, deploys, and health-gates — for small, safe changes; or
    - **parks it for review** — as a draft PR — for anything risky (touches
