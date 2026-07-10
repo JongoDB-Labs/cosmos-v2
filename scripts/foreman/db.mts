@@ -5,6 +5,7 @@
 // below), not a single hardcoded project/org.
 import { prisma } from "@/lib/db/client";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
+import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery-notify";
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
@@ -164,6 +165,23 @@ export async function resolveTicket(
 
 /** Move a ticket to a new column, stamping the column-entry clock the same way every
  *  other column change in the app does (drives WIP/aging displays). */
+/** Owner notification for a delivery outcome (parked / shipped) — resolves the
+ *  ticket's org and delegates to the shared app helper (bell + web push, gated
+ *  by the org's Settings → Feedback automation toggles). Best-effort. */
+export async function notifyDelivery(
+  itemId: string,
+  event: DeliveryEvent,
+  info: { key: string; title: string; reason?: string; version?: string; prUrl?: string },
+): Promise<void> {
+  try {
+    const wi = await prisma.workItem.findUnique({ where: { id: itemId }, select: { orgId: true } });
+    if (!wi) return;
+    await notifyDeliveryEvent(wi.orgId, event, { ...info, workItemId: itemId });
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function moveColumn(itemId: string, columnKey: string): Promise<void> {
   await prisma.workItem.update({
     where: { id: itemId },

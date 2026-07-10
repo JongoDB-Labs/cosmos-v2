@@ -56,7 +56,7 @@ function put(body: unknown) {
 
 const VALID_BODY = {
   autoRemediation: { enabled: true, projectIds: [PROJECT_A], defaultProjectId: PROJECT_A },
-  autonomousDelivery: { enabled: false, projectIds: [] },
+  autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true } },
 };
 
 // Stateful settings store behind the mocked organization row, so a PUT
