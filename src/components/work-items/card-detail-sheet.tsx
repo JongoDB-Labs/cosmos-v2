@@ -147,6 +147,9 @@ export function CardDetailSheet({
   const [children, setChildren] = useState<WorkItemRef[]>([]);
   const [childTitle, setChildTitle] = useState("");
   const [addingChild, setAddingChild] = useState(false);
+  // Guards the on-open server reconcile (below) against clobbering a sub-item the
+  // user has just added / removed / reordered locally while the GET is in flight.
+  const childrenTouched = useRef(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
@@ -271,6 +274,41 @@ export function CardDetailSheet({
       cancelled = true;
     };
   }, [item, open, basePath]);
+
+  // Reconcile the Sub-items list against server-persisted state whenever the
+  // sheet opens an item (COSMOS-92). The `item.children` we're handed can be
+  // stale: different surfaces populate it from different reads (a list GET, a
+  // POST/PUT echo, a single-item GET), and a parent reopened after navigating
+  // into one of its sub-items can carry an out-of-date children array — so a
+  // subtask that still exists silently drops out of the parent's list until a
+  // manual page refresh. The single-item GET returns the authoritative children
+  // (id/title/ticketNumber/columnKey); apply them unless the user has already
+  // changed the list locally this session (childrenTouched), so an in-flight GET
+  // can't clobber a just-added/removed/reordered sub-item. Keyed on item.id (not
+  // the object) so an unrelated onUpdate re-render doesn't refire it.
+  useEffect(() => {
+    if (!item || !open) return;
+    childrenTouched.current = false;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${basePath}/${item.id}`);
+        if (!res.ok) return;
+        const full = await res.json();
+        const serverChildren = (full?.children ?? full?.data?.children) as
+          | WorkItemRef[]
+          | undefined;
+        if (cancelled || childrenTouched.current || !Array.isArray(serverChildren)) return;
+        setChildren(serverChildren);
+      } catch {
+        // Best-effort reconcile — the prop-derived list stays as the fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, open, basePath]);
 
   // Watch state (FR 8702c9b8) — read whether the current user follows this item.
   // `watchTouched` guards against a late on-open GET clobbering a fast toggle.
@@ -530,6 +568,7 @@ export function CardDetailSheet({
         workItemTypeId: child.workItemTypeId,
         columnKey: child.columnKey,
       };
+      childrenTouched.current = true;
       setChildren((prev) => [...prev, childRef]);
       setChildTitle("");
       // Keep the CACHED parent's children in sync too (same staleness class as
@@ -548,6 +587,7 @@ export function CardDetailSheet({
   // item itself is kept — it just stops being a child here. Optimistic.
   async function handleRemoveChild(childId: string) {
     const prev = children;
+    childrenTouched.current = true;
     setChildren((cs) => cs.filter((c) => c.id !== childId));
     try {
       const res = await fetch(`${basePath}/${childId}`, {
@@ -580,6 +620,7 @@ export function CardDetailSheet({
     const next = [...children];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
+    childrenTouched.current = true;
     setChildren(next);
     try {
       const results = await Promise.all(

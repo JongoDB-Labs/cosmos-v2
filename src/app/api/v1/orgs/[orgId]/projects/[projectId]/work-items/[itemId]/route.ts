@@ -205,7 +205,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         where: { id: itemId },
         data: updateData,
         include: {
-          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
+          // Keep the child-ref shape consistent with the GET routes (the detail
+          // sheet renders `#{ticketNumber}` for each sub-item) so a PUT echo of a
+          // parent doesn't strip ticket numbers off its cached sub-item list.
+          children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true, celebrateOnComplete: true } },
           assignees: {
             orderBy: { sortOrder: "asc" },
