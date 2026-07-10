@@ -26,6 +26,7 @@ import {
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
@@ -666,7 +667,10 @@ function KanbanBoardInner({
 
   function handleItemUpdate(updated: WorkItem) {
     applyItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-    setDetailItem(updated);
+    // Only re-point the open sheet when the updated row IS the one on screen —
+    // re-parenting also patches the parent rows, and echoing those into the
+    // sheet would flip it away from the child being edited (COSMOS-67).
+    setDetailItem((cur) => syncOpenDetail(cur, updated));
   }
 
   function handleItemDeleted(id: string) {
