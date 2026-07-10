@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.164.5",
+    date: "2026-07-10",
+    title: "Sub-tasks stay under their parent",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Add a sub-task to a task, open the sub-task, then go back to the parent — the sub-task stays listed under the parent instead of vanishing. The parent's sub-item list now reflects what's actually saved every time you open it, so a sub-task that still exists always shows up under the right parent without a manual page refresh.",
+      },
+    ],
+  },
+  {
     version: "2.164.4",
     date: "2026-07-10",
     title: "The New issue button reliably creates issues",
