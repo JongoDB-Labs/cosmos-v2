@@ -18,6 +18,11 @@ const SENSITIVE = [
   /^next\.config\.ts$/,
   /^\.deploy\//,
   /^\.github\/workflows\//,
+  // Foreman's own code + the risk/ship/agent logic: a self-modifying change must be
+  // human-reviewed before it lands (never auto-ship a change to the thing doing the
+  // auto-shipping, or it could silently weaken its own safety gates).
+  /^scripts\/foreman\//,
+  /^src\/lib\/foreman\//,
 ];
 
 /** Decide whether a change may auto-ship (safe) or must park for approval (gated).
