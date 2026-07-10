@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,18 @@ import { SavedViewsPicker } from "@/components/work-items/saved-views-picker";
 import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
-import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import {
+  ANY,
+  EMPTY_FILTERS,
+  STRING_FILTER_KEYS,
+  type FilterState,
+  toQueryString,
+  toWorkItemFilter,
+  filterStateToSavedFilter,
+  savedFilterToFilterState,
+  serializeIssueFilters,
+  parseIssueFilters,
+} from "@/lib/work-items/issues-filters";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
 import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
@@ -100,8 +111,6 @@ interface SearchResponse {
   total: number;
 }
 
-const ANY = "__any__";
-
 const PRIORITY_VARIANT: Record<IssueRow["priority"], BadgeVariant> = {
   CRITICAL: "critical",
   HIGH: "blocked",
@@ -115,124 +124,6 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   DONE: "done",
 };
 
-interface FilterState {
-  project: string;
-  type: string;
-  status: string;
-  priority: string;
-  assignee: string;
-  label: string;
-  text: string;
-  // Date-range bounds (YYYY-MM-DD; "" = unset). Active when non-empty, unlike
-  // the ANY-sentinel select fields above.
-  createdFrom: string;
-  createdTo: string;
-  updatedFrom: string;
-  updatedTo: string;
-  /** FR 8702c9b8 — restrict to items the current user watches. */
-  watchedByMe: boolean;
-}
-
-/** Filter keys whose "inactive" value is an empty string (not the ANY
- *  sentinel) — the free-text box and the four date-range bounds. */
-const STRING_FILTER_KEYS = [
-  "text",
-  "createdFrom",
-  "createdTo",
-  "updatedFrom",
-  "updatedTo",
-] as const satisfies readonly (keyof FilterState)[];
-
-const EMPTY_FILTERS: FilterState = {
-  project: ANY,
-  type: ANY,
-  status: ANY,
-  priority: ANY,
-  assignee: ANY,
-  label: ANY,
-  text: "",
-  createdFrom: "",
-  createdTo: "",
-  updatedFrom: "",
-  updatedTo: "",
-  watchedByMe: false,
-};
-
-/** Build the search query string from the active filters + page. */
-function toQueryString(f: FilterState, page: number, pageSize: number): string {
-  const p = new URLSearchParams();
-  if (f.project !== ANY) p.set("project", f.project);
-  if (f.type !== ANY) p.set("type", f.type);
-  if (f.status !== ANY) p.set("status", f.status);
-  if (f.priority !== ANY) p.set("priority", f.priority);
-  if (f.assignee !== ANY) p.set("assignee", f.assignee);
-  if (f.label !== ANY) p.set("label", f.label);
-  const text = f.text.trim();
-  if (text) p.set("text", text);
-  if (f.createdFrom) p.set("createdFrom", f.createdFrom);
-  if (f.createdTo) p.set("createdTo", f.createdTo);
-  if (f.updatedFrom) p.set("updatedFrom", f.updatedFrom);
-  if (f.updatedTo) p.set("updatedTo", f.updatedTo);
-  if (f.watchedByMe) p.set("watchedByMe", "1");
-  p.set("page", String(page));
-  p.set("pageSize", String(pageSize));
-  return p.toString();
-}
-
-/** Map the Issues filter-bar state into the query lib's WorkItemFilter (the
- *  shape persisted as a board's saved view). Mirrors toQueryString's mapping;
- *  the project pin is intentionally NOT included — a saved board carries its own
- *  project and the server re-pins scope on every read. */
-function toWorkItemFilter(f: FilterState): WorkItemFilter {
-  const filter: WorkItemFilter = {};
-  if (f.type !== ANY) filter.typeIds = [f.type];
-  if (f.status !== ANY) filter.columnKeys = [f.status];
-  if (f.priority !== ANY) {
-    filter.priorities = [f.priority] as WorkItemFilter["priorities"];
-  }
-  if (f.assignee !== ANY) filter.assigneeIds = [f.assignee];
-  if (f.label !== ANY) filter.labels = [f.label];
-  const text = f.text.trim();
-  if (text) filter.text = text;
-  if (f.createdFrom || f.createdTo) {
-    filter.createdAt = { from: f.createdFrom || undefined, to: f.createdTo || undefined };
-  }
-  if (f.updatedFrom || f.updatedTo) {
-    filter.updatedAt = { from: f.updatedFrom || undefined, to: f.updatedTo || undefined };
-  }
-  return filter;
-}
-
-/** Map the filter bar into a saved-view filter (FR 2b36c2b8). Unlike
- *  toWorkItemFilter (board-oriented), this PRESERVES the project pin — a saved
- *  view like "my project-X bugs" should re-select the project on apply. */
-function filterStateToSavedFilter(f: FilterState): WorkItemFilter {
-  const filter = toWorkItemFilter(f);
-  if (f.project !== ANY) filter.projectIds = [f.project];
-  return filter;
-}
-
-/** Inverse of filterStateToSavedFilter — apply a stored view to the filter bar.
- *  Single-select fields take the first array member; unknowns fall back to ANY
- *  so a stale/partial saved filter can't wedge the UI. */
-function savedFilterToFilterState(wf: WorkItemFilter): FilterState {
-  const first = (arr?: string[]) => (arr && arr.length > 0 ? arr[0] : ANY);
-  return {
-    ...EMPTY_FILTERS,
-    project: first(wf.projectIds),
-    type: first(wf.typeIds),
-    status: first(wf.columnKeys),
-    priority: first(wf.priorities as string[] | undefined),
-    assignee: first(wf.assigneeIds),
-    label: first(wf.labels),
-    text: wf.text ?? "",
-    createdFrom: wf.createdAt?.from ?? "",
-    createdTo: wf.createdAt?.to ?? "",
-    updatedFrom: wf.updatedAt?.from ?? "",
-    updatedTo: wf.updatedAt?.to ?? "",
-  };
-}
-
 const PAGE_SIZE = 25;
 
 export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
@@ -244,10 +135,22 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const canCreateItem = can(Permission.ITEM_CREATE);
   const canUpdateItem = can(Permission.ITEM_UPDATE);
-  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Initialize the filter bar FROM the URL so a shared / reloaded Issues link
+  // restores its filters — including the created/updated time ranges
+  // (COSMOS-16). Computed once on mount (searchParams is stable for the
+  // initializer); subsequent changes flow the other way, back into the URL.
+  const [filters, setFilters] = useState<FilterState>(() =>
+    parseIssueFilters(searchParams),
+  );
   // The text input is uncontrolled-ish: we commit it into `filters.text` on
-  // submit/enter so every keystroke doesn't refire the query.
-  const [textDraft, setTextDraft] = useState("");
+  // submit/enter so every keystroke doesn't refire the query. Seed the draft
+  // from the same URL so a shared link shows its search term in the box.
+  const [textDraft, setTextDraft] = useState(
+    () => parseIssueFilters(searchParams).text,
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
@@ -257,8 +160,6 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
   const [bulkPending, setBulkPending] = useState(false);
-  const router = useRouter();
-  const searchParams = useSearchParams();
 
   // Deep-link: `/issues?watching=1` pre-applies the Watching filter (the "My
   // watched items" widget's "View all"). One-time init, then strip the param.
@@ -295,6 +196,23 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       cancelled = true;
     };
   }, [searchParams, orgId, router]);
+
+  // Persist the active filters to the URL (debounced) so they survive a reload
+  // and travel through a copied/shared link (COSMOS-16 AC). `router.replace`
+  // (not push) keeps the back button sane; the 200ms debounce coalesces rapid
+  // changes (e.g. nudging a date input). This is a client-only searchParams
+  // write — it adds no server-side dynamic read. Mirrors the board's URL sync.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      const qs = serializeIssueFilters(filters);
+      const current = serializeIssueFilters(parseIssueFilters(searchParams));
+      // Skip a redundant replace (mount when the URL already matches, or right
+      // after our own write settles) — avoids an update loop.
+      if (qs === current) return;
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }, 200);
+    return () => clearTimeout(handle);
+  }, [filters, pathname, router, searchParams]);
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.165.0",
+    date: "2026-07-10",
+    title: "Issues filters — including Created/Updated dates — now stick",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the Issues page you can filter by when items were Created or last Updated (pick a start date, an end date, or both — for before / after / between). Those filters, together with the rest of your filter bar, now stay put when you reload the page and travel with the link — copy the URL and whoever opens it sees the exact same filtered list.",
+      },
+    ],
+  },
+  {
     version: "2.164.0",
     date: "2026-07-10",
     title: "Set a default view for everyone on a project",
