@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.168.2",
+    date: "2026-07-10",
+    title: "Chat opens in the slide-over, everywhere",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening Chat from the ⌘K command palette now docks the chat slide-over in place — keeping your current page in view — instead of jumping to the old standalone chat page. The topbar, mobile nav and sidebar already did this; the command palette now matches.",
+      },
+    ],
+  },
+  {
     version: "2.168.1",
     date: "2026-07-10",
     title: "Cosmo gets a face",

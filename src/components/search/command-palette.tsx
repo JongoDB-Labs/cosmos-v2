@@ -37,6 +37,10 @@ import {
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import {
+  useDrawers,
+  type DrawerTool,
+} from "@/components/drawers/drawer-provider";
+import {
   QuickCreateWorkItem,
   type PaletteProject,
 } from "./quick-create-work-item";
@@ -89,6 +93,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const { openDrawer } = useDrawers();
   const orgSlug = pathname.split("/")[1];
   const currentOrg = orgs.find((o) => o.slug === orgSlug);
 
@@ -248,13 +253,24 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     window.dispatchEvent(new CustomEvent("cosmos:agent:open"));
   }, []);
 
+  // Drawer-backed destinations (e.g. Chat) live in the docked slide drawer now —
+  // opening one must dock it in place, NOT navigate to the orphaned standalone
+  // page (mirrors the topbar/sidebar/mobile-nav, which all use openDrawer).
+  const openToolDrawer = useCallback(
+    (t: DrawerTool) => {
+      setOpen(false);
+      openDrawer(t);
+    },
+    [openDrawer],
+  );
+
   // Quick-jump destinations — the bulk of the "operations" expansion. Each is a
   // real workspace route; they're filtered live by whatever you type after ">".
-  const navItems: { id: string; label: string; suffix: string; icon: React.ReactNode }[] = [
+  const navItems: { id: string; label: string; suffix: string; drawer?: DrawerTool; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", suffix: "", icon: <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "projects", label: "Projects", suffix: "/projects", icon: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "issues", label: "Issues", suffix: "/issues", icon: <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "chat", label: "Chat", suffix: "/chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "chat", label: "Chat", suffix: "/chat", drawer: "chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "notes", label: "Notes", suffix: "/notes", icon: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "meetings", label: "Meetings", suffix: "/meetings", icon: <Video className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "team", label: "Team", suffix: "/team", icon: <Users className="h-4 w-4 shrink-0 text-muted-foreground" /> },
@@ -444,7 +460,9 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
                 <CommandItem
                   key={n.id}
                   value={`nav-${n.id}`}
-                  onSelect={() => goTo(n.suffix)}
+                  onSelect={() =>
+                    n.drawer ? openToolDrawer(n.drawer) : goTo(n.suffix)
+                  }
                 >
                   {n.icon}
                   <span className="flex-1 truncate">{n.label}</span>
