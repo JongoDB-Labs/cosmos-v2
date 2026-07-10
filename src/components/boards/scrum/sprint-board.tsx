@@ -42,6 +42,10 @@ export function SprintBoard({
   boardId,
 }: SprintBoardProps) {
   const [cycles, setCycles] = useState<CycleWithCount[] | null>(null);
+  // The sprint the board is currently scoped to. `null` means "follow the active
+  // sprint" (the default); clicking a sprint in the list pins it here so the board
+  // switches to that sprint. Cleared implicitly if the pinned sprint disappears.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailSprint, setDetailSprint] = useState<CycleWithCount | null>(null);
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
@@ -64,6 +68,18 @@ export function SprintBoard({
 
   const active = useMemo(() => pickActiveSprint(cycles ?? []), [cycles]);
 
+  // The sprint actually shown on the board: the one the user pinned (if it still
+  // exists), otherwise the active sprint. The header, the highlighted chip, and
+  // the board's cycle scope all derive from this single value so they can never
+  // disagree — the board shows exactly the sprint the header indicates.
+  const viewed = useMemo<CycleWithCount | null>(() => {
+    if (selectedId && cycles) {
+      const found = cycles.find((c) => c.id === selectedId);
+      if (found) return found;
+    }
+    return active;
+  }, [cycles, selectedId, active]);
+
   return (
     <div className="flex h-full flex-col">
       {cycles === null ? (
@@ -71,8 +87,11 @@ export function SprintBoard({
           <Skeleton className="h-5 w-48" />
           <Skeleton className="mt-2 h-3 w-72" />
         </div>
-      ) : active ? (
-        <SprintHeader sprint={active} />
+      ) : viewed ? (
+        <SprintHeader
+          sprint={viewed}
+          onShowDetails={() => setDetailSprint(viewed)}
+        />
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3">
           <p className="text-sm text-[var(--text-muted)]">
@@ -88,8 +107,10 @@ export function SprintBoard({
         </div>
       )}
 
-      {/* All sprints — click any to see its details (FR). The board itself stays
-          scoped to the active sprint; this is a quick read/jump-off. */}
+      {/* Sprint switcher — click any sprint to scope the board to it. The board,
+          the header, and the highlighted chip all track `viewed`, so switching a
+          sprint updates the board to show only that sprint's items. (Details for
+          the viewed sprint open from its name in the header above.) */}
       {cycles && cycles.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--border)] px-6 py-2">
           <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
@@ -105,14 +126,15 @@ export function SprintBoard({
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setDetailSprint(c)}
+                onClick={() => setSelectedId(c.id)}
+                aria-pressed={c.id === viewed?.id}
                 className={cn(
                   "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
-                  c.id === active?.id
+                  c.id === viewed?.id
                     ? "border-[var(--primary)] text-[var(--primary)]"
                     : "border-[var(--border)] text-[var(--text-muted)]",
                 )}
-                title={`${c.name || `Sprint ${c.number}`} — view details`}
+                title={`${c.name || `Sprint ${c.number}`} — show this sprint's board`}
               >
                 {c.name || `Sprint ${c.number}`}
               </button>
@@ -121,23 +143,24 @@ export function SprintBoard({
       )}
 
       <div className="min-h-0 flex-1">
-        {/* Gate the Kanban mount until cycles resolve. The board seeds its
-            sprint scope ONCE, from initialCycleId in a useState initializer
-            (kanban-board.tsx) — so mounting before the active sprint is known
-            would pass initialCycleId=undefined and the board would show every
-            item, never re-scoping when the sprint resolves a tick later. Waiting
-            for the fetch means a SCRUM board opens already focused on its active
+        {/* Gate the Kanban mount until cycles resolve. The board seeds its sprint
+            scope from initialCycleId in a useState initializer (kanban-board.tsx),
+            so mounting before the sprint is known would pass initialCycleId=undefined
+            and show every item. Waiting for the fetch means a SCRUM board opens
+            already focused on the viewed sprint. The `key` remounts the board when
+            the user switches sprints, re-seeding its scope to the newly selected
             sprint. (cycles===null only on the very first load; the fetch always
             resolves to an array, so this can't hang.) */}
         {cycles === null ? (
           <KanbanBoardMountSkeleton />
         ) : (
           <KanbanBoard
+            key={viewed?.id ?? "__all__"}
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
             boardId={boardId}
-            initialCycleId={active?.id}
+            initialCycleId={viewed?.id}
           />
         )}
       </div>
@@ -239,7 +262,13 @@ function KanbanBoardMountSkeleton() {
   );
 }
 
-function SprintHeader({ sprint }: { sprint: CycleWithCount }) {
+function SprintHeader({
+  sprint,
+  onShowDetails,
+}: {
+  sprint: CycleWithCount;
+  onShowDetails?: () => void;
+}) {
   const start = new Date(sprint.startDate);
   const end = new Date(sprint.endDate);
   const now = new Date();
@@ -265,7 +294,14 @@ function SprintHeader({ sprint }: { sprint: CycleWithCount }) {
     <div className="border-b border-[var(--border)] px-6 py-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 className="text-base font-semibold text-[var(--text)]">
-          {sprint.name || `Sprint ${sprint.number}`}
+          <button
+            type="button"
+            onClick={onShowDetails}
+            className="transition-colors hover:text-[var(--primary)]"
+            title="View sprint details"
+          >
+            {sprint.name || `Sprint ${sprint.number}`}
+          </button>
         </h2>
         <Badge variant={variant} showDot={false}>
           {statusLabel}

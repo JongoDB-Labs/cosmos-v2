@@ -186,6 +186,23 @@ type ReadonlyURLSearchParams = {
 };
 
 /**
+ * Initial board filters for a mount: the URL-encoded filters, but with the cycle
+ * scope forced to `initialCycleId` when the caller provides one. A parent that
+ * scopes the board to a specific cycle — the Sprint board passes the sprint being
+ * viewed — is AUTHORITATIVE: its scope wins over any `cycle` pinned in the URL, so
+ * the board always shows exactly the sprint indicated in the header and re-scopes
+ * cleanly when it's remounted for a different sprint. With no `initialCycleId` (a
+ * standalone Kanban) the URL wins as before, so shared/filtered links still restore.
+ */
+export function deriveInitialFilters(
+  params: URLSearchParams | ReadonlyURLSearchParams,
+  initialCycleId?: string,
+): BoardFilters {
+  const parsed = parseFilters(params);
+  return initialCycleId ? { ...parsed, cycleId: initialCycleId } : parsed;
+}
+
+/**
  * Compact multi-select filter — a dropdown with a count badge instead of a row
  * of inline chips (the chip row got unwieldy once custom types like Feature were
  * added). The menu stays open across toggles (base-ui CheckboxItem).

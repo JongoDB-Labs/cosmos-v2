@@ -20,6 +20,7 @@ import {
   FilterBar,
   parseFilters,
   serializeFilters,
+  deriveInitialFilters,
   bareTypeKey,
   matchesCustomFieldFilters,
   type BoardFilters,
@@ -119,16 +120,14 @@ function KanbanBoardInner({
   const [error, setError] = useState<string | null>(null);
   // Initialize filter state FROM the URL so a shared/reloaded link restores the
   // filtered + swim-laned view. Computed once on mount (searchParams is stable
-  // for the initializer); subsequent URL writes flow the other direction.
-  const [filters, setFilters] = useState<BoardFilters>(() => {
-    const parsed = parseFilters(searchParams);
-    // Seed the sprint scope from the caller (Sprint board) only when the URL
-    // doesn't already pin a cycle — so a shared/filtered link still wins.
-    if (initialCycleId && !parsed.cycleId) {
-      return { ...parsed, cycleId: initialCycleId };
-    }
-    return parsed;
-  });
+  // for the initializer); subsequent URL writes flow the other direction. When
+  // the caller scopes us to a cycle (the Sprint board passes the sprint being
+  // viewed), that scope is authoritative — it wins over any `cycle` in the URL,
+  // so the board matches the sprint shown in the header and re-scopes when it is
+  // remounted (via a new `key`) for a different sprint. See deriveInitialFilters.
+  const [filters, setFilters] = useState<BoardFilters>(() =>
+    deriveInitialFilters(searchParams, initialCycleId),
+  );
   // Snapshot of items at drag START (before handleDragOver mutates them for the
   // live preview), so a rejected move can be truly reverted.
   const beforeDragItemsRef = useRef<WorkItem[]>([]);

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.1",
+    date: "2026-07-09",
+    title: "Sprint board stays on its sprint",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The sprint board now shows only the work items in the sprint you're viewing — click any sprint in the list to switch the board to it. Items from other sprints, or with no sprint at all, no longer leak onto the board.",
+      },
+    ],
+  },
+  {
     version: "2.161.0",
     date: "2026-07-09",
     title: "Who reported it, and autonomous delivery goes continuous",
