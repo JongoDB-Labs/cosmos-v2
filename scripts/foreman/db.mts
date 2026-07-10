@@ -200,6 +200,30 @@ export async function autonomyEnabled(): Promise<boolean> {
   return (await deliveryProjects()).length > 0;
 }
 
+/** Move any delivery-pool ticket left in `in-progress` back to `backlog`. A single
+ *  daemon holds the LOCK, so at startup an in-progress ticket is a crashed/stranded
+ *  build that nothing is working — re-queue it instead of leaving it stuck out of the
+ *  pickable pool. Returns the reclaimed refs (for logging). */
+export async function reclaimStranded(): Promise<string[]> {
+  const pool = await deliveryProjects();
+  if (pool.length === 0) return [];
+  const poolByProjectId = new Map(pool.map((p) => [p.projectId, p]));
+  const rows = await prisma.workItem.findMany({
+    where: { projectId: { in: pool.map((p) => p.projectId) }, columnKey: "in-progress" },
+    select: { id: true, projectId: true, ticketNumber: true },
+  });
+  for (const r of rows) {
+    await prisma.workItem.update({
+      where: { id: r.id },
+      data: { columnKey: "backlog", columnEnteredAt: new Date() },
+    });
+  }
+  return rows.flatMap((r) => {
+    const p = poolByProjectId.get(r.projectId);
+    return p ? [buildRef(p.projectKey, r.ticketNumber)] : [];
+  });
+}
+
 /** Items already past TODO, across every project in the delivery pool — dedup
  *  candidates so Foreman doesn't re-file a ticket for something already in
  *  flight or shipped. Ref built per-item via buildRef(<that item's projectKey>,
