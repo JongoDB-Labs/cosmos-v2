@@ -79,15 +79,28 @@ export async function openPr(branch: string, title: string, body: string, draft:
   return url ?? stdout.trim();
 }
 
-/** Squash-merge an open (non-draft) PR into main, delete its branch, and hard-sync
- *  the local checkout to the merged commit so a subsequent `tagAndPush` tags exactly
- *  the shipped commit. Admin-merge bypasses required reviews (Foreman is the approver
- *  for its own auto-shipped, checks-passed changes). */
+/** Squash-merge an open (non-draft) PR into main and hard-sync the local checkout
+ *  to the merged commit so a subsequent `tagAndPush` tags exactly the shipped
+ *  commit. Admin-merge bypasses required reviews (Foreman is the approver for its
+ *  own auto-shipped, checks-passed changes).
+ *
+ *  NO `--delete-branch`: the local `auto/<KEY>` branch is checked out in the
+ *  ticket's live worktree, so gh's local-delete step fails ("cannot delete branch
+ *  … used by worktree") AFTER the GitHub merge succeeded — a non-zero exit that
+ *  made every safe ship look failed and detour through review→reconcile (observed
+ *  on COSMOS-23/62/65). Instead, delete only the REMOTE branch via the API
+ *  (best-effort — pure hygiene, and it can never touch the worktree); the local
+ *  branch is reset by the next `worktree add -B` anyway. */
 export async function mergePr(branch: string): Promise<void> {
-  await exec("gh", ["pr", "merge", branch, "--squash", "--admin", "--delete-branch"], { cwd: REPO });
+  await exec("gh", ["pr", "merge", branch, "--squash", "--admin"], { cwd: REPO });
   await exec("git", ["-C", REPO, "checkout", "main"]);
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
   await exec("git", ["-C", REPO, "reset", "--hard", "origin/main"]);
+  await exec(
+    "gh",
+    ["api", "-X", "DELETE", `repos/{owner}/{repo}/git/refs/heads/${branch}`],
+    { cwd: REPO },
+  ).catch(() => undefined);
 }
 
 /** Tag the just-merged main at `vVERSION` and push the tag — this is what
