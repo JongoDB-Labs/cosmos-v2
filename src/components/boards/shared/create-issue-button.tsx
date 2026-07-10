@@ -51,6 +51,46 @@ function defaultTypeId(types: { id: string; key: string }[]): string {
   return (task ?? types[0]).id;
 }
 
+/** Every optional/preset detail the create dialog can submit. */
+export interface CreateIssueFields {
+  title: string;
+  workItemTypeId: string;
+  columnKey: string;
+  priority: string;
+  assigneeIds: string[];
+  cycleId: string | null;
+  startDate: string; // yyyy-mm-dd (empty = unset)
+  dueDate: string; // yyyy-mm-dd (empty = unset)
+  /** Preset tags applied at creation — e.g. the RAID category (COSMOS-80). */
+  tags: string[];
+}
+
+/**
+ * Assemble the create-work-item POST body from the dialog's field values.
+ * Extracted (and exported) so the "which fields get submitted" logic — notably
+ * the RAID category preset that keeps a new RAID-log entry OUT of
+ * "Unclassified" (COSMOS-80) — is unit-testable without driving the base-ui
+ * dialog. Falls back to the bare "TASK" type when the async types fetch hasn't
+ * resolved, so creation never silently no-ops; omits every empty optional.
+ */
+export function buildCreateBody(f: CreateIssueFields): Record<string, unknown> {
+  return {
+    title: f.title.trim(),
+    ...(f.workItemTypeId ? { workItemTypeId: f.workItemTypeId } : { type: "TASK" }),
+    columnKey: f.columnKey,
+    priority: f.priority,
+    ...(f.assigneeIds.length > 0 ? { assigneeIds: f.assigneeIds } : {}),
+    ...(f.cycleId ? { cycleId: f.cycleId } : {}),
+    ...(f.startDate
+      ? { startDate: new Date(f.startDate + "T00:00:00Z").toISOString() }
+      : {}),
+    ...(f.dueDate
+      ? { dueDate: new Date(f.dueDate + "T00:00:00Z").toISOString() }
+      : {}),
+    ...(f.tags.length > 0 ? { tags: f.tags } : {}),
+  };
+}
+
 /**
  * A self-contained "+ New issue" affordance for the board views that lack
  * per-column quick-create (table, backlog, timeline, calendar, RAID) and the
@@ -66,6 +106,7 @@ export function CreateIssueButton({
   onCreated,
   label = "New issue",
   variant = "outline",
+  categoryPreset,
 }: {
   orgId: string;
   projectId: string;
@@ -73,6 +114,17 @@ export function CreateIssueButton({
   onCreated: (item: WorkItem) => void;
   label?: string;
   variant?: "outline" | "default" | "ghost";
+  /**
+   * Opt-in "category" selector (RAID log, COSMOS-80): when set, the dialog shows
+   * a Category <Select> seeded to `defaultValue`, and the chosen value is
+   * submitted as the new item's tag — so a RAID-log entry defaults to a real
+   * category instead of automatically landing "Unclassified". Views that omit
+   * this prop are unaffected (no selector, no tag).
+   */
+  categoryPreset?: {
+    options: { value: string; label: string }[];
+    defaultValue: string;
+  };
 }) {
   const [open, setOpen] = useState(false);
   const [columns, setColumns] = useState<BoardColumn[]>([]);
@@ -89,6 +141,9 @@ export function CreateIssueButton({
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
+  // RAID category preset (COSMOS-80): seeded to the caller's default so a new
+  // entry never lands "Unclassified"; the user can still change it.
+  const [presetTag, setPresetTag] = useState(categoryPreset?.defaultValue ?? "");
 
   const membersKey = useOrgQueryKey("members");
   const cyclesKey = useOrgQueryKey("cycles", projectId);
@@ -158,22 +213,20 @@ export function CreateIssueButton({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // Fall back to the bare "TASK" type if the async types fetch hasn't
-          // resolved yet, so creation never silently no-ops.
-          body: JSON.stringify({
-            title: title.trim(),
-            ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
-            columnKey,
-            priority,
-            ...(assigneeIds.length > 0 ? { assigneeIds } : {}),
-            ...(cycleId ? { cycleId } : {}),
-            ...(startDate
-              ? { startDate: new Date(startDate + "T00:00:00Z").toISOString() }
-              : {}),
-            ...(dueDate
-              ? { dueDate: new Date(dueDate + "T00:00:00Z").toISOString() }
-              : {}),
-          }),
+          body: JSON.stringify(
+            buildCreateBody({
+              title,
+              workItemTypeId,
+              columnKey,
+              priority,
+              assigneeIds,
+              cycleId,
+              startDate,
+              dueDate,
+              // Only tag when a preset is active (RAID log); other views send none.
+              tags: categoryPreset && presetTag ? [presetTag] : [],
+            }),
+          ),
         },
       );
       if (!res.ok) throw new Error(`Failed to create issue (HTTP ${res.status})`);
@@ -187,6 +240,7 @@ export function CreateIssueButton({
       setCycleId(null);
       setStartDate("");
       setDueDate("");
+      setPresetTag(categoryPreset?.defaultValue ?? "");
       setOpen(false);
     } catch (err) {
       notifyError(err, "Couldn't create the issue.");
@@ -286,6 +340,30 @@ export function CreateIssueButton({
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* RAID category (COSMOS-80): only when the caller opts in, so a
+                  new RAID-log entry defaults to a real category, not
+                  "Unclassified". */}
+              {categoryPreset && (
+                <Select
+                  items={Object.fromEntries(
+                    categoryPreset.options.map((o) => [o.value, o.label]),
+                  )}
+                  value={presetTag}
+                  onValueChange={(v) => v && setPresetTag(v as string)}
+                >
+                  <SelectTrigger size="sm" aria-label="Category" className="w-32 text-xs">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categoryPreset.options.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* Optional details (FR fc20e6da) — assignees/cycle/dates at creation.

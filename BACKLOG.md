@@ -139,6 +139,8 @@ Running list of items captured while walking through the dashboard. Newest items
 
 ## Features / Enhancements
 
+- ⬜ **[feature] Surface the RAID classification on each relevant ticket.** _(open — split out of COSMOS-80.)_ The RAID log classifies a work item via a `risk`/`assumption`/`issue`/`dependency` tag, but that classification isn't shown on the item itself elsewhere in the app (card, detail sheet, table/board rows). Surface the RAID category on each ticket it applies to (e.g. a badge on the card + detail sheet, and a column/filter in the Issues/table views) so a ticket's RAID status is visible without opening the RAID board. Originally reported alongside the RAID-log defect (feedback `341eca00-f0b6-4df6-acb6-ec655dcd0891`); the defect (edit / drag-and-drop / default-category) was fixed under COSMOS-80, this display request is the deferred enhancement.
+
 ## Polish / UX
 
 ## Tech debt
