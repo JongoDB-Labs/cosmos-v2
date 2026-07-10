@@ -131,31 +131,3 @@ export function CosmoAvatar({ size = 32, className }: { size?: number; className
     </svg>
   );
 }
-
-/**
- * CosmoGlyph — the RESERVED mark for chrome like the floating launcher: a
- * monochrome line-art astronaut bust (helmet + visor + shoulders) that inherits
- * `currentColor` and sizes like a lucide icon, so it brands the surface without
- * the full-color avatar's visual weight.
- */
-export function CosmoGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={cn("h-5 w-5", className)}
-    >
-      {/* helmet */}
-      <circle cx="12" cy="10.2" r="6.8" />
-      {/* visor */}
-      <path d="M8.6,9.4 a3.4,3.4 0 0 1 6.8,0 v1.1 a3.4,3.4 0 0 1 -6.8,0 z" />
-      {/* shoulders */}
-      <path d="M4.6,21.5 c0.9,-3.2 3.6,-4.8 7.4,-4.8 s6.5,1.6 7.4,4.8" />
-    </svg>
-  );
-}
