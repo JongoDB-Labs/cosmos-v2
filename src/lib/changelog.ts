@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.166.0",
+    date: "2026-07-10",
+    title: "Right-click actions on backlog items",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Backlog rows now have the same right-click / ⋯ menu as board cards: open or edit an item, move it to a sprint, duplicate it, or delete it — right from the list, with the backlog updating instantly. Actions you don't have permission for simply don't appear, and every action is re-checked on the server, so the menu can never let anyone do something their role doesn't allow.",
+      },
+    ],
+  },
+  {
     version: "2.165.1",
     date: "2026-07-10",
     title: "Bulk-select checkboxes no longer pop the detail drawer",

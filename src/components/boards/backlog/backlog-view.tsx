@@ -25,8 +25,6 @@ import {
   ChevronRight,
   GripVertical,
   ListChecks,
-  MoveRight,
-  Inbox,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -41,8 +39,19 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import { buildBacklogItemMenu } from "./item-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
@@ -111,12 +120,15 @@ export function BacklogView({
   boardId,
 }: BacklogViewProps) {
   const qc = useQueryClient();
+  const { can } = usePermissions();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
   const [hideDone, setHideDone] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  // The item pending a delete confirmation (null = dialog closed).
+  const [deleteTarget, setDeleteTarget] = useState<WorkItem | null>(null);
 
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
@@ -239,6 +251,30 @@ export function BacklogView({
       if (ctx?.previous) qc.setQueryData(itemsKey, ctx.previous);
       notifyError(err, "Couldn't move the item to that sprint.");
     },
+  });
+
+  // Duplicate an item (create a "Copy of …" sibling). The new row appears once
+  // the work-items query is invalidated — no manual refresh needed.
+  const duplicateMutation = useOrgMutation<unknown, Error, string>({
+    mutationFn: (id) =>
+      jsonFetch(`${basePath}/work-items/${id}/duplicate`, { method: "POST" }),
+    invalidate: [["work-items", projectId]],
+    onError: (err) => notifyError(err, "Couldn't duplicate the item."),
+  });
+
+  // Delete an item. Optimistically drop it from the cached list so the row
+  // disappears immediately, and close the confirm dialog on success.
+  const deleteMutation = useOrgMutation<unknown, Error, string>({
+    mutationFn: (id) =>
+      jsonFetch(`${basePath}/work-items/${id}`, { method: "DELETE" }),
+    invalidate: [["work-items", projectId]],
+    onSuccess: (_data, id) => {
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        (prev ?? []).filter((i) => i.id !== id),
+      );
+      setDeleteTarget(null);
+    },
+    onError: (err) => notifyError(err, "Couldn't delete the item."),
   });
 
   const sensors = useSensors(
@@ -372,33 +408,17 @@ export function BacklogView({
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  // Build the "Move to sprint" menu for a row. Excludes the item's current
-  // cycle and offers "Backlog" only when the item is in a cycle.
+  // Build the right-click / ⋯ menu for a row: RBAC-gated CRUD (edit/view,
+  // move-to-sprint, duplicate, delete). See buildBacklogItemMenu for the gating.
   const buildMenuGroups = useCallback(
-    (item: WorkItem): ActionMenuGroup[] => {
-      const targets = cycles
-        .filter((c) => c.id !== item.cycleId)
-        .map((c) => ({
-          label: c.name,
-          icon: MoveRight,
-          onClick: () => assignMutation.mutate({ id: item.id, cycleId: c.id }),
-        }));
-      const items = [
-        ...(item.cycleId != null
-          ? [
-              {
-                label: "Backlog",
-                icon: Inbox,
-                onClick: () =>
-                  assignMutation.mutate({ id: item.id, cycleId: null }),
-              },
-            ]
-          : []),
-        ...targets,
-      ];
-      return [{ label: "Move to sprint", items }];
-    },
-    [cycles, assignMutation],
+    (item: WorkItem): ActionMenuGroup[] =>
+      buildBacklogItemMenu(item, cycles, can, {
+        onOpen: () => openDetail(item),
+        onDuplicate: () => duplicateMutation.mutate(item.id),
+        onDelete: () => setDeleteTarget(item),
+        onMoveToCycle: (cycleId) => assignMutation.mutate({ id: item.id, cycleId }),
+      }),
+    [cycles, can, openDetail, duplicateMutation, assignMutation],
   );
 
   if (loading) return <BacklogSkeleton />;
@@ -577,6 +597,43 @@ export function BacklogView({
         }
         onOpenItem={openItemById}
       />
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete work item?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete {projectKey}-
+              {deleteTarget?.ticketNumber}
+              {deleteTarget?.title ? ` "${deleteTarget.title}"` : ""}. This action
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
