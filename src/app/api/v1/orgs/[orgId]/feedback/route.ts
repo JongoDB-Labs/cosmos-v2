@@ -66,6 +66,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       items.map((i) => ({
         ...i,
         hasVoted: voted.has(i.id),
+        // The author owns the item's title/description (and can delete it), so
+        // the portal shows those controls only on the current user's own items.
+        isMine: i.authorId === ctx.userId,
         authorName: authorById.get(i.authorId)?.displayName ?? null,
         authorEmail: authorById.get(i.authorId)?.email ?? null,
       })),

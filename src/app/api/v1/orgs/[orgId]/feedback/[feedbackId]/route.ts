@@ -28,23 +28,28 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    // Triaging (status changes) is an admin action. Resource-aware authz:
-    // ORG_UPDATE in the bitfield AND any deny policy referencing it. The
-    // feedback author is the owner, so map authorId→createdById for
-    // owns_resource narrowing. Identical to requirePermission until a policy
-    // exists.
-    await requireAccess(ctx, "ORG_UPDATE", {
-      createdById: existing.authorId,
-    });
-
     const data = updateSchema.parse(await request.json());
 
-    // ORG_UPDATE confers status triage. Editing the title/description is
-    // author-owned — an admin triaging shouldn't be able to rewrite a member's
-    // words.
+    const isAuthor = existing.authorId === ctx.userId;
     const wantsContentEdit =
       data.title !== undefined || data.description !== undefined;
-    if (wantsContentEdit && existing.authorId !== ctx.userId) {
+    const wantsStatusChange = data.status !== undefined;
+
+    // Two distinct authorities, gated independently so each applies only when
+    // the request actually exercises it:
+    //  - Status triage is an admin action. Resource-aware authz: ORG_UPDATE in
+    //    the bitfield AND any deny policy referencing it, with the author mapped
+    //    authorId→createdById for owns_resource narrowing. Identical to
+    //    requirePermission until a policy exists.
+    //  - Editing the title/description is author-owned: the author can edit
+    //    their own words WITHOUT ORG_UPDATE (so a member can update the FR/BR
+    //    they filed), and an admin triaging can't rewrite a member's words.
+    if (wantsStatusChange) {
+      await requireAccess(ctx, "ORG_UPDATE", {
+        createdById: existing.authorId,
+      });
+    }
+    if (wantsContentEdit && !isAuthor) {
       return new Response(
         JSON.stringify({
           error: "Only the author can edit the title or description",
