@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.161.2",
+    date: "2026-07-10",
+    title: "Release Timeline keeps tickets aligned with their bars while scrolling",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Release Timeline (Gantt), scrolling down now moves the ticket list and the timeline together, so each ticket stays lined up with its bar — the two panes can no longer drift apart, whatever you scroll with.",
+      },
+    ],
+  },
+  {
     version: "2.161.1",
     date: "2026-07-10",
     title: "Push notifications enable correctly after you click 'Allow'",
