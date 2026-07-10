@@ -37,6 +37,7 @@ import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
+import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
 import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
 import {
   Dialog,
@@ -48,6 +49,14 @@ import {
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+
+/** Best-effort human reason from a rejected bulk request — the server message
+ *  carried by a jsonFetch FetchError, or a network error's own message. */
+function reasonOf(err: unknown): string {
+  return err instanceof Error && err.message.trim()
+    ? err.message
+    : "an unexpected error";
+}
 
 /** Row shape returned by GET /api/v1/orgs/[orgId]/work-items/search. Mirrors
  *  IssueRow in @/lib/work-items/query (kept local to avoid a server import). */
@@ -477,17 +486,51 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     if (selectedCount === 0) return;
     setBulkPending(true);
     try {
-      await Promise.all(
-        [...bucketByProject(selectedIds).entries()].map(([projectId, ids]) =>
+      const buckets = [...bucketByProject(selectedIds).entries()];
+      // Fan out one request per project, but SETTLE all of them: one project
+      // failing must not abort the others — that left the reported "some items
+      // vanished, others didn't, and the error says nothing" partial delete
+      // (COSMOS-76). Every outcome is reconciled below.
+      const settled = await Promise.allSettled(
+        buckets.map(([projectId, ids]) =>
           jsonFetch(
             `/api/v1/orgs/${orgId}/projects/${projectId}/work-items/bulk`,
             { method: "DELETE", body: JSON.stringify({ ids }) },
           ),
         ),
       );
-      setRowSelection({});
-      setConfirmBulkDelete(false);
+      const labelOf = new Map(rows.map((r) => [r.project.id, r.project.key]));
+      const summary = summarizeBulkDelete(
+        buckets.map(([projectId, ids], i) => {
+          const outcome = settled[i];
+          return outcome.status === "fulfilled"
+            ? { projectId, ids, ok: true, projectLabel: labelOf.get(projectId) }
+            : {
+                projectId,
+                ids,
+                ok: false,
+                projectLabel: labelOf.get(projectId),
+                reason: reasonOf(outcome.reason),
+              };
+        }),
+      );
+      // Drop deleted rows from the selection but KEEP any that failed so the
+      // user can retry just those. Always refetch so the table reflects what
+      // actually got deleted, even on a partial failure.
+      const stillFailing = new Set(summary.failedIds);
+      setRowSelection((prev) => {
+        const next: RowSelectionState = {};
+        for (const id of Object.keys(prev)) {
+          if (prev[id] && stillFailing.has(id)) next[id] = true;
+        }
+        return next;
+      });
       await refetch();
+      if (summary.errorMessage) {
+        toast.error(summary.errorMessage);
+      } else {
+        setConfirmBulkDelete(false);
+      }
     } catch (err) {
       notifyError(err, "Couldn't delete the selected items.");
     } finally {
