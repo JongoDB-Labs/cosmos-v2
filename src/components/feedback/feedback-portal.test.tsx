@@ -43,6 +43,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
 }));
 
 import { FeedbackPortal } from "./feedback-portal";
+import { PermissionsProvider } from "@/components/providers/permissions-provider";
 
 const FR = {
   id: "fr-1",
@@ -327,5 +328,65 @@ describe("FeedbackPortal — keyword search (COSMOS-9)", () => {
     // …and the empty state names what was searched for.
     const emptyMsg = screen.getByText(/no feedback matching/i);
     expect(emptyMsg).toHaveTextContent(/zzz-nope/);
+  });
+});
+
+// COSMOS-49 — admins can edit/delete ANY FR/BR; members only their own. The
+// detail modal's Edit/Delete controls must reflect that: an admin sees them on
+// someone else's item, a plain member does not (but does on their own). The
+// server enforces the same split (see the route.test.ts) — this locks the UI
+// gate so it can't drift from the API.
+describe("FeedbackPortal — edit/delete permissions (COSMOS-49)", () => {
+  const OTHERS = { ...FR, id: "x", title: "Someone else's request", isMine: false };
+  const MINE = { ...FR, id: "y", title: "My own request", isMine: true };
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  // Render the portal with the current user in a given org role. A real
+  // PermissionsProvider (role → bitfield) drives `can(ORG_UPDATE)`; the pathname
+  // slug "test-org" is already mocked above so the provider resolves the org.
+  const renderWithRole = (role: string, items: unknown[]) => {
+    vi.stubGlobal("fetch", stubFetch(items));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <PermissionsProvider orgs={[{ id: "org-1", slug: "test-org", role }]}>
+        <QueryClientProvider client={qc}>
+          <FeedbackPortal orgId="org-1" />
+        </QueryClientProvider>
+      </PermissionsProvider>,
+    );
+  };
+
+  const openDetail = async (title: string) => {
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: new RegExp(`view details for "${title}"`, "i"),
+      }),
+    );
+    return within(await screen.findByRole("dialog"));
+  };
+
+  it("shows an admin the Edit + Delete controls on another member's item", async () => {
+    renderWithRole("ADMIN", [OTHERS]);
+    const dialog = await openDetail("Someone else's request");
+    expect(dialog.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("hides the Edit + Delete controls from a member on another member's item", async () => {
+    renderWithRole("MEMBER", [OTHERS]);
+    const dialog = await openDetail("Someone else's request");
+    expect(dialog.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("shows a member the Edit control on their own item", async () => {
+    renderWithRole("MEMBER", [MINE]);
+    const dialog = await openDetail("My own request");
+    expect(dialog.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 });
