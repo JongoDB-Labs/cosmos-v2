@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.176.0",
+    date: "2026-07-11",
+    title: "Classification banners follow real DoD marking policy",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Project classification banners now render dissemination controls in the official Department of War / DoD format — the classification and its controls are joined with \"//\" and no stray spaces (e.g. \"CUI//NOFORN\" instead of \"CUI // NOFORN\"), and the full marking is announced to screen readers. Banner colors are documented against authoritative sources (the SF 703/704/705 classified cover sheets and the CUI program under DoDI 5200.48 / 32 CFR 2002): UNCLASSIFIED is green, CUI is purple, and CONFIDENTIAL is blue — red stays reserved for SECRET. FOUO remains retired in favor of CUI.",
+      },
+    ],
+  },
+  {
     version: "2.175.0",
     date: "2026-07-11",
     title: "Manage project tabs right where you see them",
