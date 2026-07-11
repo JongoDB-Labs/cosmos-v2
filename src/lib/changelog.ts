@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.171.1",
+    date: "2026-07-11",
+    title: "\"Hey Cosmo\" hears you properly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The wake word now recognizes how speech-to-text actually hears you — \"Hey, Cosmo.\", \"hey cosmos\", even \"a cosmo\" all wake the assistant — and the chat reliably opens with the mic live, including the very first time the panel loads.",
+      },
+    ],
+  },
+  {
     version: "2.171.0",
     date: "2026-07-11",
     title: "Talk to Cosmo — hands-free",
