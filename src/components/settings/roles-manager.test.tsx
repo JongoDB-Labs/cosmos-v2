@@ -66,12 +66,15 @@ const ROLES = [
   },
 ];
 
-function mockFetch(postImpl?: (url: string, init?: RequestInit) => Promise<unknown>) {
+function mockFetch(
+  postImpl?: (url: string, init?: RequestInit) => Promise<unknown>,
+  rolesList: unknown[] = ROLES,
+) {
   vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
       return postImpl ? postImpl(url, init) : Promise.resolve({});
     }
-    if (String(url).endsWith("/work-roles")) return Promise.resolve(ROLES);
+    if (String(url).endsWith("/work-roles")) return Promise.resolve(rolesList);
     if (String(url).includes("/members")) return Promise.resolve({ orgMemberIds: [] });
     return Promise.resolve([]);
   }) as never);
@@ -140,6 +143,30 @@ describe("RolesManager — base + built-in + custom sections", () => {
     expect(
       document.querySelector('input[type="checkbox"][value="PROJECT_READ"]'),
     ).toBeChecked();
+  });
+
+  it("dedupes the prefilled name and key when a prior clone already took them", async () => {
+    mockFetch(undefined, [
+      ...ROLES,
+      {
+        id: "r-copy",
+        orgId: "o1",
+        key: "copy_of_analyst",
+        name: "Copy of Analyst",
+        description: "Read-only analyst access",
+        grants: ["PROJECT_READ", "ITEM_READ"],
+        policies: [],
+        isBuiltIn: false,
+        memberCount: 0,
+      },
+    ]);
+    const user = userEvent.setup();
+    renderManager();
+    await user.click(await screen.findByRole("button", { name: "Clone Analyst" }));
+
+    await screen.findByRole("dialog");
+    expect(screen.getByLabelText("Name")).toHaveValue("Copy of Analyst 2");
+    expect(screen.getByLabelText("Key")).not.toHaveValue("copy_of_analyst");
   });
 
   it("surfaces the server's 409 message inline when saving a clone whose name is taken", async () => {

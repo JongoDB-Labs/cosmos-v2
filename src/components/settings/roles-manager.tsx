@@ -92,6 +92,18 @@ function deriveKey(name: string): string {
   return safe.slice(0, 40) || "role";
 }
 
+/** Appends " 2", " 3", … (or "_2", "_3", … via `sep`) to `base` until the
+ *  result doesn't collide (case-insensitively) with anything in `taken`.
+ *  Used at clone-open so repeat-cloning the same source doesn't derive a
+ *  name/key that's already in use and hit the server's 409 on save. */
+function dedupe(base: string, taken: Iterable<string>, sep: string): string {
+  const seen = new Set(Array.from(taken, (s) => s.toLowerCase()));
+  if (!seen.has(base.toLowerCase())) return base;
+  let n = 2;
+  while (seen.has(`${base}${sep}${n}`.toLowerCase())) n += 1;
+  return `${base}${sep}${n}`;
+}
+
 export function RolesManager({ orgId }: { orgId: string }) {
   const rolesKey = useOrgQueryKey("work-roles");
   const base = `/api/v1/orgs/${orgId}/work-roles`;
@@ -122,8 +134,10 @@ export function RolesManager({ orgId }: { orgId: string }) {
     setEditing("new");
   }
   function openClone(name: string, description: string | null, grants: string[]) {
-    const cloneName = `Copy of ${name}`;
-    setPrefill({ name: cloneName, key: deriveKey(cloneName), description, grants });
+    const baseName = `Copy of ${name}`;
+    const cloneName = dedupe(baseName, roles.map((r) => r.name), " ");
+    const cloneKey = dedupe(deriveKey(baseName), roles.map((r) => r.key), "_");
+    setPrefill({ name: cloneName, key: cloneKey, description, grants });
     setEditing("new");
   }
   function closeEditor() {
@@ -342,9 +356,12 @@ function RoleEditor({
   const [policies, setPolicies] = useState<DenyPolicy[]>(
     Array.isArray(role?.policies) ? role!.policies : [],
   );
-  // A name clash (409) reads at the name field; anything else (e.g. the 403
-  // escalation guard) reads as a general error above the footer.
+  // A name clash (409) reads at the name field; a key clash (409 — only
+  // reachable on create, since edits never send `key`) reads at the key
+  // field; anything else (e.g. the 403 escalation guard) reads as a general
+  // error above the footer.
   const [nameError, setNameError] = useState<string | null>(null);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
 
   const save = useOrgMutation<unknown, Error, void>({
@@ -353,10 +370,16 @@ function RoleEditor({
     onError: (err) => {
       const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       if (err instanceof FetchError && err.status === 409) {
-        setNameError(msg);
+        // The route's key-clash message ("A work role with that key already
+        // exists") is the only 409 that mentions "key"; the name-clash
+        // message doesn't, so this routes each to its own field.
+        const isKeyClash = msg.toLowerCase().includes("key");
+        setNameError(isKeyClash ? null : msg);
+        setKeyError(isKeyClash ? msg : null);
         setGeneralError(null);
       } else {
         setNameError(null);
+        setKeyError(null);
         setGeneralError(msg);
       }
     },
@@ -441,7 +464,18 @@ function RoleEditor({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="role-key">Key</Label>
-              <Input id="role-key" value={key} disabled={!!role} onChange={(e) => setKey(e.target.value)} placeholder="finance_approver" />
+              <Input
+                id="role-key"
+                value={key}
+                disabled={!!role}
+                onChange={(e) => {
+                  setKey(e.target.value);
+                  if (keyError) setKeyError(null);
+                }}
+                placeholder="finance_approver"
+                aria-invalid={!!keyError}
+              />
+              {keyError && <p className="text-xs text-destructive">{keyError}</p>}
             </div>
           </div>
           <div className="space-y-1.5">
@@ -557,6 +591,7 @@ function RoleEditor({
             disabled={!canSave || save.isPending}
             onClick={() => {
               setNameError(null);
+              setKeyError(null);
               setGeneralError(null);
               save.mutate(undefined, { onSuccess: onClose });
             }}
