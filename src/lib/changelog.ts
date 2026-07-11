@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.172.0",
+    date: "2026-07-10",
+    title: "Filter the timeline by your custom fields",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Custom fields you've defined for a project now filter the Release Timeline / Gantt too — pick a value (or flip a checkbox field on) in the filter bar and the chart narrows to matching items, exactly like filtering by sprint or assignee on the board. Custom-field filtering already worked on the Kanban board; now every board view honors it.",
+      },
+    ],
+  },
+  {
     version: "2.171.1",
     date: "2026-07-11",
     title: "\"Hey Cosmo\" hears you properly",

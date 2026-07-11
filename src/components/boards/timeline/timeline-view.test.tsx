@@ -28,19 +28,14 @@ vi.mock("@/components/boards/shared/create-issue-button", () => ({
 vi.mock("@/components/work-items/card-detail-sheet", () => ({
   CardDetailSheet: () => null,
 }));
-vi.mock("@/components/boards/shared/filter-bar", () => ({
-  FilterBar: () => null,
-  bareTypeKey: (k?: string | null) => k ?? "TASK",
-  emptyFilters: {
-    search: "",
-    types: [],
-    priorities: [],
-    assigneeId: null,
-    cycleId: null,
-    swimlaneBy: "none",
-    customFields: {},
-  },
-}));
+// Use the REAL filter-bar module (so `matchesCustomFieldFilters`, `bareTypeKey`,
+// and `emptyFilters` are the genuine implementations the component ships with),
+// overriding only the heavy `FilterBar` component — it never renders here.
+vi.mock("@/components/boards/shared/filter-bar", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/components/boards/shared/filter-bar")>();
+  return { ...actual, FilterBar: () => null };
+});
 
 const item = (n: number, start: string, due: string) => ({
   id: `i${n}`,
@@ -87,7 +82,9 @@ vi.mock("@/lib/query/json-fetcher", () => ({
   }),
 }));
 
-import { TimelineView } from "./timeline-view";
+import { TimelineView, matchesFilters } from "./timeline-view";
+import { emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import type { CustomField, WorkItem } from "@/types/models";
 
 const renderTimeline = () => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -132,5 +129,89 @@ describe("TimelineView — labels and chart stay locked to one vertical scroll",
 
     // The chart's bars are present in the shared container.
     expect(chart.querySelector("svg")).toBeInTheDocument();
+  });
+});
+
+// The Gantt/timeline must honor admin-defined custom fields in its filter, the
+// same way the Kanban board does — otherwise "filter by a custom field like you
+// filter by sprint" silently didn't work on this view (COSMOS-40).
+describe("TimelineView.matchesFilters — custom-field filtering", () => {
+  const def = (
+    key: string,
+    fieldType: CustomField["fieldType"],
+    options: string[] = [],
+  ): CustomField => ({
+    id: `cf-${key}`,
+    orgId: "o1",
+    projectId: null,
+    name: key,
+    key,
+    fieldType,
+    options,
+    required: false,
+    sortOrder: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  const cfItem = (customFields: Record<string, unknown>): WorkItem =>
+    ({
+      id: "i1",
+      ticketNumber: 1,
+      title: "Item",
+      workItemType: { key: "TASK", name: "Task" },
+      priority: "MEDIUM",
+      assigneeId: null,
+      assignees: [],
+      cycleId: null,
+      customFields,
+    }) as unknown as WorkItem;
+
+  const withCustom = (customFields: BoardFilters["customFields"]): BoardFilters => ({
+    ...emptyFilters,
+    customFields,
+  });
+
+  it("is inert when no custom-field constraint is active", () => {
+    const item = cfItem({ goal: "Ship" });
+    const defs = [def("goal", "SELECT", ["Ship"])];
+    // emptyFilters has customFields: {} → the custom-field check must pass through.
+    expect(matchesFilters(item, emptyFilters, defs)).toBe(true);
+  });
+
+  it("keeps only items whose SELECT value matches the active constraint", () => {
+    const defs = [def("goal", "SELECT", ["Growth", "Retention"])];
+    const filter = withCustom({ goal: "Growth" });
+    expect(matchesFilters(cfItem({ goal: "Growth" }), filter, defs)).toBe(true);
+    expect(matchesFilters(cfItem({ goal: "Retention" }), filter, defs)).toBe(false);
+    expect(matchesFilters(cfItem({}), filter, defs)).toBe(false);
+  });
+
+  it("matches a MULTI_SELECT when the stored array contains the chosen option", () => {
+    const defs = [def("teams", "MULTI_SELECT", ["A", "B", "C"])];
+    const filter = withCustom({ teams: "B" });
+    expect(matchesFilters(cfItem({ teams: ["A", "B"] }), filter, defs)).toBe(true);
+    expect(matchesFilters(cfItem({ teams: ["A", "C"] }), filter, defs)).toBe(false);
+  });
+
+  it("treats a CHECKBOX constraint as 'only checked items'", () => {
+    const defs = [def("blocked", "CHECKBOX")];
+    const filter = withCustom({ blocked: "true" });
+    expect(matchesFilters(cfItem({ blocked: true }), filter, defs)).toBe(true);
+    expect(matchesFilters(cfItem({ blocked: false }), filter, defs)).toBe(false);
+    expect(matchesFilters(cfItem({}), filter, defs)).toBe(false);
+  });
+
+  it("does a case-insensitive contains match for TEXT fields", () => {
+    const defs = [def("owner", "TEXT")];
+    const filter = withCustom({ owner: "jane" });
+    expect(matchesFilters(cfItem({ owner: "Jane Doe" }), filter, defs)).toBe(true);
+    expect(matchesFilters(cfItem({ owner: "John" }), filter, defs)).toBe(false);
+  });
+
+  it("still applies the built-in filters alongside a custom-field constraint", () => {
+    const defs = [def("goal", "SELECT", ["Growth"])];
+    const filter: BoardFilters = { ...withCustom({ goal: "Growth" }), priorities: ["HIGH"] };
+    // Custom field matches but priority doesn't → excluded.
+    expect(matchesFilters(cfItem({ goal: "Growth" }), filter, defs)).toBe(false);
   });
 });
