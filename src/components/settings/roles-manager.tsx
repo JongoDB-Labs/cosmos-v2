@@ -4,8 +4,11 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { PERMISSION_GROUPS, labelOf } from "@/lib/rbac/permission-groups";
+import type { PermissionKey } from "@/lib/rbac/permissions";
+import { PermissionBreakdown } from "@/components/settings/permission-breakdown";
+import { OrgRoleReference, type CloneSource } from "@/components/settings/org-role-reference";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShieldCheck, Plus, Pencil, Trash2, Users } from "lucide-react";
+import { ShieldCheck, Plus, Pencil, Trash2, Users, Copy, ChevronDown, ChevronRight } from "lucide-react";
 
 // A deny rule NARROWS access for members holding the role (see
 // workRolePolicySchema server-side). v1 of this editor authors deny-only rules
@@ -59,12 +62,34 @@ interface WorkRole {
   description: string | null;
   grants: string[]; // permission keys
   policies: DenyPolicy[];
+  isBuiltIn: boolean;
   memberCount: number;
 }
 interface OrgMemberLite {
   id: string;
   user?: { displayName?: string; email?: string };
   displayName?: string;
+}
+
+// Seed values for the editor when opened in create mode via Clone. The editor
+// derives its own state from these; nothing here is a live WorkRole.
+interface RolePrefill {
+  name: string;
+  key: string;
+  description: string | null;
+  grants: string[];
+}
+
+/** A URL-safe, valid work-role key derived from a name — never a `builtin.`
+ *  prefix (dots collapse to underscores), so the server's reserved-prefix guard
+ *  can't trip. Matches the editor's key regex `^[a-z][a-z0-9_]*$`. */
+function deriveKey(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const safe = /^[a-z]/.test(slug) ? slug : `role_${slug}`;
+  return safe.slice(0, 40) || "role";
 }
 
 export function RolesManager({ orgId }: { orgId: string }) {
@@ -78,13 +103,36 @@ export function RolesManager({ orgId }: { orgId: string }) {
   const roles = rolesQ.data ?? [];
 
   const [editing, setEditing] = useState<WorkRole | "new" | null>(null);
+  // Consumed only when editing === "new" (Clone). Reset alongside `editing`.
+  const [prefill, setPrefill] = useState<RolePrefill | null>(null);
   const [assigning, setAssigning] = useState<WorkRole | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WorkRole | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const deleteRole = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${base}/${id}`, { method: "DELETE" }),
     invalidate: [["work-roles"]],
   });
+
+  const builtIns = roles.filter((r) => r.isBuiltIn);
+  const customs = roles.filter((r) => !r.isBuiltIn);
+
+  function newRole() {
+    setPrefill(null);
+    setEditing("new");
+  }
+  function openClone(name: string, description: string | null, grants: string[]) {
+    const cloneName = `Copy of ${name}`;
+    setPrefill({ name: cloneName, key: deriveKey(cloneName), description, grants });
+    setEditing("new");
+  }
+  function closeEditor() {
+    setEditing(null);
+    setPrefill(null);
+  }
+  function toggleExpanded(id: string) {
+    setExpandedId((cur) => (cur === id ? null : id));
+  }
 
   if (rolesQ.isLoading) {
     return (
@@ -105,13 +153,35 @@ export function RolesManager({ orgId }: { orgId: string }) {
     );
   }
 
+  const cloneFromOrgRole = (s: CloneSource) => openClone(s.name, s.description, s.grants);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex justify-end">
-        <Button size="sm" onClick={() => setEditing("new")}>
+        <Button size="sm" onClick={newRole}>
           <Plus className="h-4 w-4 mr-1" /> New role
         </Button>
       </div>
+
+      <OrgRoleReference onClone={cloneFromOrgRole} />
+
+      {builtIns.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">Built-in roles</h2>
+          <div className="space-y-2">
+            {builtIns.map((r) => (
+              <WorkRoleRow
+                key={r.id}
+                role={r}
+                expanded={expandedId === r.id}
+                onToggle={() => toggleExpanded(r.id)}
+                onAssign={() => setAssigning(r)}
+                onClone={() => openClone(r.name, r.description, r.grants)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {roles.length === 0 ? (
         <EmptyState
@@ -120,42 +190,34 @@ export function RolesManager({ orgId }: { orgId: string }) {
           description="Create job-function roles (e.g. Finance approver, Team lead) that grant extra permissions on top of the org role, and assign members to them."
         />
       ) : (
-        <div className="space-y-2">
-          {roles.map((r) => (
-            <div key={r.id} className="flex items-start justify-between gap-3 rounded-lg border bg-card p-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-medium text-sm">{r.name}</h3>
-                  <Badge variant="neutral" className="text-[10px]">{r.key}</Badge>
-                </div>
-                {r.description && (
-                  <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{r.description}</p>
-                )}
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {r.grants.length} permission{r.grants.length === 1 ? "" : "s"} · {r.memberCount} member{r.memberCount === 1 ? "" : "s"}
-                  {Array.isArray(r.policies) && r.policies.length > 0 && (
-                    <> · {r.policies.length} deny rule{r.policies.length === 1 ? "" : "s"}</>
-                  )}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button size="icon-sm" variant="ghost" aria-label="Assign members" title="Assign members" onClick={() => setAssigning(r)}>
-                  <Users className="h-3.5 w-3.5" />
-                </Button>
-                <Button size="icon-sm" variant="ghost" aria-label="Edit role" title="Edit" onClick={() => setEditing(r)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button size="icon-sm" variant="ghost" aria-label="Delete role" title="Delete" onClick={() => setDeleteTarget(r)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+        customs.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold">Custom roles</h2>
+            <div className="space-y-2">
+              {customs.map((r) => (
+                <WorkRoleRow
+                  key={r.id}
+                  role={r}
+                  expanded={expandedId === r.id}
+                  onToggle={() => toggleExpanded(r.id)}
+                  onAssign={() => setAssigning(r)}
+                  onEdit={() => setEditing(r)}
+                  onDelete={() => setDeleteTarget(r)}
+                  onClone={() => openClone(r.name, r.description, r.grants)}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </section>
+        )
       )}
 
       {editing && (
-        <RoleEditor base={base} role={editing === "new" ? null : editing} onClose={() => setEditing(null)} />
+        <RoleEditor
+          base={base}
+          role={editing === "new" ? null : editing}
+          prefill={editing === "new" ? prefill : null}
+          onClose={closeEditor}
+        />
       )}
       {assigning && (
         <MemberAssigner orgId={orgId} base={base} role={assigning} onClose={() => setAssigning(null)} />
@@ -186,16 +248,118 @@ export function RolesManager({ orgId }: { orgId: string }) {
   );
 }
 
-function RoleEditor({ base, role, onClose }: { base: string; role: WorkRole | null; onClose: () => void }) {
-  const [name, setName] = useState(role?.name ?? "");
-  const [key, setKey] = useState(role?.key ?? "");
-  const [description, setDescription] = useState(role?.description ?? "");
-  const [grants, setGrants] = useState<Set<string>>(new Set(role?.grants ?? []));
+function WorkRoleRow({
+  role,
+  expanded,
+  onToggle,
+  onAssign,
+  onClone,
+  onEdit,
+  onDelete,
+}: {
+  role: WorkRole;
+  expanded: boolean;
+  onToggle: () => void;
+  onAssign: () => void;
+  onClone: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="mt-0.5"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${role.name}`}
+            onClick={onToggle}
+          >
+            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </Button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium text-sm">{role.name}</h3>
+              <Badge variant="neutral" className="text-[10px]">{role.key}</Badge>
+              {role.isBuiltIn && (
+                <Badge variant="neutral" className="text-[10px]">Built-in</Badge>
+              )}
+            </div>
+            {role.description && (
+              <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{role.description}</p>
+            )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              {role.grants.length} permission{role.grants.length === 1 ? "" : "s"} · {role.memberCount} member{role.memberCount === 1 ? "" : "s"}
+              {Array.isArray(role.policies) && role.policies.length > 0 && (
+                <> · {role.policies.length} deny rule{role.policies.length === 1 ? "" : "s"}</>
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button size="icon-sm" variant="ghost" aria-label="Assign members" title="Assign members" onClick={onAssign}>
+            <Users className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon-sm" variant="ghost" aria-label={`Clone ${role.name}`} title="Clone" onClick={onClone}>
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+          {!role.isBuiltIn && onEdit && (
+            <Button size="icon-sm" variant="ghost" aria-label={`Edit ${role.name}`} title="Edit" onClick={onEdit}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {!role.isBuiltIn && onDelete && (
+            <Button size="icon-sm" variant="ghost" aria-label={`Delete ${role.name}`} title="Delete" onClick={onDelete}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <PermissionBreakdown permissions={role.grants as PermissionKey[]} className="mt-3" />
+      )}
+    </div>
+  );
+}
+
+function RoleEditor({
+  base,
+  role,
+  prefill,
+  onClose,
+}: {
+  base: string;
+  role: WorkRole | null;
+  prefill?: RolePrefill | null;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(role?.name ?? prefill?.name ?? "");
+  const [key, setKey] = useState(role?.key ?? prefill?.key ?? "");
+  const [description, setDescription] = useState(role?.description ?? prefill?.description ?? "");
+  const [grants, setGrants] = useState<Set<string>>(new Set(role?.grants ?? prefill?.grants ?? []));
   const [policies, setPolicies] = useState<DenyPolicy[]>(
     Array.isArray(role?.policies) ? role!.policies : [],
   );
+  // A name clash (409) reads at the name field; anything else (e.g. the 403
+  // escalation guard) reads as a general error above the footer.
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
 
   const save = useOrgMutation<unknown, Error, void>({
+    // Passing our own onError opts out of useOrgMutation's default error toast so
+    // the message lands inline instead.
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      if (err instanceof FetchError && err.status === 409) {
+        setNameError(msg);
+        setGeneralError(null);
+      } else {
+        setNameError(null);
+        setGeneralError(msg);
+      }
+    },
     mutationFn: () => {
       // Drop deny rules with no actions (they reference nothing) so the API
       // schema (min 1 action) doesn't reject the whole save.
@@ -263,7 +427,17 @@ function RoleEditor({ base, role, onClose }: { base: string; role: WorkRole | nu
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="role-name">Name</Label>
-              <Input id="role-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Finance approver" />
+              <Input
+                id="role-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
+                placeholder="Finance approver"
+                aria-invalid={!!nameError}
+              />
+              {nameError && <p className="text-xs text-destructive">{nameError}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="role-key">Key</Label>
@@ -283,7 +457,7 @@ function RoleEditor({ base, role, onClose }: { base: string; role: WorkRole | nu
                   <div className="grid grid-cols-2 gap-1">
                     {keys.map((k) => (
                       <label key={k} className="flex items-center gap-2 text-xs">
-                        <input type="checkbox" className="size-3.5 rounded border-border" checked={grants.has(k)} onChange={() => toggle(k)} />
+                        <input type="checkbox" value={k} className="size-3.5 rounded border-border" checked={grants.has(k)} onChange={() => toggle(k)} />
                         {labelOf(k)}
                       </label>
                     ))}
@@ -376,9 +550,17 @@ function RoleEditor({ base, role, onClose }: { base: string; role: WorkRole | nu
             )}
           </div>
         </div>
+        {generalError && <p className="text-xs text-destructive">{generalError}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={!canSave || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: onClose })}>
+          <Button
+            disabled={!canSave || save.isPending}
+            onClick={() => {
+              setNameError(null);
+              setGeneralError(null);
+              save.mutate(undefined, { onSuccess: onClose });
+            }}
+          >
             {save.isPending ? "Saving…" : "Save role"}
           </Button>
         </DialogFooter>
