@@ -156,6 +156,48 @@ describe("TimelineView — labels and chart stay locked to one vertical scroll",
   });
 });
 
+// COSMOS-68: the date header must stay pinned to the top of the timeline while
+// scrolling DOWN the chart (so the dates are always readable). The header is
+// `sticky top-0`, but that only works because the shared flex scroll container
+// uses `items-start`: with the default `align-items: stretch`, each pane is
+// stretched to the scroller's viewport height, collapsing the sticky containing
+// block so the header slides away after the first viewport of scroll (verified
+// in a real browser — jsdom has no layout, so we assert the structural
+// invariants that make the pin work instead of measuring offsets).
+describe("TimelineView — date header stays pinned while scrolling down (COSMOS-68)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("keeps both headers `sticky top-0` inside an `items-start` scroll container", async () => {
+    renderTimeline();
+    await screen.findByText("Work Items");
+
+    const scroll = screen.getByTestId("gantt-scroll");
+    // The fix: without `items-start`, `align-items: stretch` collapses the
+    // sticky containing block and the pinned header scrolls away. This is the
+    // exact class whose absence reproduced the reported bug.
+    expect(scroll.className).toMatch(/\bitems-start\b/);
+
+    // The date header pins to the top on vertical scroll...
+    const dateHeader = screen.getByTestId("gantt-date-header");
+    expect(dateHeader.className).toMatch(/\bsticky\b/);
+    expect(dateHeader.className).toMatch(/\btop-0\b/);
+    // ...and sits inside the (horizontally-scrolling) chart column, so it stays
+    // aligned with the day columns it labels during horizontal scroll.
+    expect(screen.getByTestId("gantt-chart").contains(dateHeader)).toBe(true);
+    // Layered above the scrolling chart body (z-index) so bars can't show through.
+    expect(dateHeader.className).toMatch(/\bz-10\b/);
+
+    // The left "Work Items" header pins on vertical scroll too, so the label
+    // column keeps its heading while you scroll down.
+    const leftHeader = screen.getByText("Work Items");
+    expect(leftHeader.className).toMatch(/\bsticky\b/);
+    expect(leftHeader.className).toMatch(/\btop-0\b/);
+  });
+});
+
 // The Gantt/timeline must honor admin-defined custom fields in its filter, the
 // same way the Kanban board does — otherwise "filter by a custom field like you
 // filter by sprint" silently didn't work on this view (COSMOS-40).

@@ -940,8 +940,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           viewport is shortened by the horizontal scrollbar, so it could scroll
           while the label pane had nothing to scroll: the tickets "didn't move.")
           The label column pins with `sticky left-0` during horizontal scroll;
-          both headers pin with `sticky top-0`. */}
-      <div data-testid="gantt-scroll" className="relative flex flex-1 overflow-auto">
+          both headers pin with `sticky top-0`.
+
+          `items-start` is REQUIRED for those `sticky top-0` headers to work
+          (COSMOS-68). This is a flex row; with the default `align-items:
+          stretch` each pane is stretched to the scroller's VIEWPORT height, which
+          collapses the sticky containing block — the date/label headers then only
+          pin for the first viewport-height of scroll and slide off after that
+          (browser-verified). `items-start` sizes each pane to its own content, so
+          the headers stay pinned the whole way down. */}
+      <div
+        data-testid="gantt-scroll"
+        className="relative flex flex-1 items-start overflow-auto"
+      >
         {/* Left column - item labels. Narrower on phones so the chart isn't
             crowded off-screen; the SVG rows align by height, not this width. */}
         <div
@@ -1006,11 +1017,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         {/* Right column - the chart. Sized to its full content; the shared outer
             container does the scrolling for both panes. */}
         <div data-testid="gantt-chart" className="shrink-0" style={{ width: svgWidth }}>
-            {/* Sticky date header (FR e4d1732e): pinned to the outer scroller
-                while scrolling down, but scrolls horizontally with the chart
-                because it sits inside the svgWidth chart column — `sticky top-0`
-                only pins the vertical axis. */}
+            {/* Sticky date header (FR e4d1732e / COSMOS-68): pinned to the outer
+                scroller while scrolling down (needs `items-start` on the scroller
+                — see the scroll container above), but scrolls horizontally with
+                the chart because it sits inside the svgWidth chart column —
+                `sticky top-0` only pins the vertical axis. */}
             <div
+              data-testid="gantt-date-header"
               className="sticky top-0 z-10 border-b border-border bg-[var(--surface)]"
               style={{ height: HEADER_HEIGHT }}
             >
