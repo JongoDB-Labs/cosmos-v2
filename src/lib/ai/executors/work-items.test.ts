@@ -67,6 +67,35 @@ describe("work-item link executors (e2e DB)", () => {
     });
   });
 
+  it("rejects a link that would create a circular dependency", async () => {
+    const { ctx, project, a, b } = await makeOrg();
+    // A blocks B (a → b, so b depends on a).
+    const first = (await linkItems(
+      { projectId: project.id, fromId: a.id, toId: b.id, type: "BLOCKS" },
+      ctx,
+    )) as { created: boolean };
+    expect(first.created).toBe(true);
+    // B blocks A would close the loop — reject it, and don't persist a 2nd link.
+    const loop = await linkItems(
+      { projectId: project.id, fromId: b.id, toId: a.id, type: "BLOCKS" },
+      ctx,
+    );
+    expect(loop).toEqual({
+      error:
+        "This link would create a circular dependency — the two items would each depend on the other.",
+    });
+    expect(await prisma.workItemLink.count({ where: { orgId: project.orgId } })).toBe(1);
+  });
+
+  it("rejects an exact-duplicate link", async () => {
+    const { ctx, project, a, b } = await makeOrg();
+    await linkItems({ projectId: project.id, fromId: a.id, toId: b.id, type: "RELATES" }, ctx);
+    expect(
+      await linkItems({ projectId: project.id, fromId: a.id, toId: b.id, type: "RELATES" }, ctx),
+    ).toEqual({ error: "These items are already linked with that relationship." });
+    expect(await prisma.workItemLink.count({ where: { orgId: project.orgId } })).toBe(1);
+  });
+
   it("denies a non-member (no ITEM_* permission)", async () => {
     const { denyCtx, project, a, b } = await makeOrg();
     expect(await listItemLinks({ projectId: project.id }, denyCtx)).toEqual({ error: "Insufficient permissions" });
