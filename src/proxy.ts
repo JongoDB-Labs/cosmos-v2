@@ -23,6 +23,11 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const CSRF_EXEMPT_PREFIXES = [
   // External IdP redirect lands here without an Origin header.
   "/api/auth/google/callback",
+  // Foreman watchdog down-alert: a host-side systemd curl with a dedicated
+  // bearer (FOREMAN_ALERT_TOKEN) — an explicit, non-ambient credential the
+  // route itself enforces (503 unset / 401 mismatch), so it cannot be
+  // CSRF-forged by a browser. Same rationale as the `cosmos_` bearer skip.
+  "/api/foreman/alert",
 ];
 // NOTE: "/api/v1/orgs/" was previously exempted wholesale ("sub-routes do their
 // own auth") — but auth is not CSRF defense, and that silently disabled the
@@ -72,6 +77,9 @@ const PUBLIC_PATH_PREFIXES = [
   "/api/health",
   "/api/theme",
   "/api/v1/metrics", // client telemetry sinks (errors, vitals)
+  // Watchdog down-alert — no browser session by definition (the daemon is
+  // down); the route enforces its own bearer token.
+  "/api/foreman/alert",
   "/manifest.webmanifest",
   // Test-only routes — only active when E2E_TEST_AUTH=1; session check is
   // moot because these routes create/look up sessions themselves.
