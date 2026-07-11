@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.186.0",
+    date: "2026-07-11",
+    title: "Select and move several cards at once",
+    highlights: [
+      {
+        kind: "feature",
+        text: "On a board you can now grab several cards at once and move, assign, re-prioritize, or delete them together. Cmd/Ctrl-click cards to pick them one by one, or click one card and Shift-click another to select the whole run in between — great for clearing out a long \"To do\" column. Selected cards are highlighted, and clicking an empty part of the board clears the selection.",
+      },
+    ],
+  },
+  {
     version: "2.185.1",
     date: "2026-07-11",
     title: "Steadier issues table on right-click",
