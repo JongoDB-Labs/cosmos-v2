@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.193.0",
+    date: "2026-07-11",
+    title: "Bigger profile pictures, clearer guidance",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "You can now upload a full-size profile photo — pick anything up to 25MB and we resize it for you automatically. The uploader used to say “up to 200KB”, which turned people away from photos that would actually have worked fine.",
+      },
+    ],
+  },
+  {
     version: "2.192.0",
     date: "2026-07-11",
     title: "Timeline dates stay put while you scroll",
