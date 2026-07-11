@@ -16,7 +16,8 @@ export function PermissionBreakdown({
   permissions: PermissionKey[];
   className?: string;
 }) {
-  const granted = new Set<string>(permissions);
+  const known = new Set<string>(ALL_PERMISSIONS);
+  const granted = new Set<string>(permissions.filter((p) => known.has(p)));
 
   return (
     <div className={cn("space-y-3", className)}>

@@ -47,6 +47,20 @@ describe("PermissionBreakdown", () => {
     expect(screen.queryByText("Finance")).not.toBeInTheDocument();
   });
 
+  it("ignores unrecognized permission keys and counts only known permissions", () => {
+    const withFakeKey = [
+      "ITEM_READ",
+      "NOT_A_REAL_KEY",
+    ] as unknown as PermissionKey[];
+    render(<PermissionBreakdown permissions={withFakeKey} />);
+    expect(
+      screen.getByText(`1 of ${ALL_PERMISSIONS.length} permissions`),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Item")).toBeInTheDocument();
+    // The fake key should not render as a badge
+    expect(screen.queryByText("NOT_A_REAL_KEY")).not.toBeInTheDocument();
+  });
+
   it("passes a custom className through to the root element", () => {
     const { container } = render(
       <PermissionBreakdown permissions={GRANTED} className="custom-class" />,
