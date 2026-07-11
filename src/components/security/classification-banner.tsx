@@ -43,21 +43,26 @@ export async function ClassificationBanner({
   const level = effective.level as ClassificationLevel;
   if (!isMarkingLevel(level)) return null;
 
+  // Real DoD/CUI banner lines join the classification and its dissemination
+  // controls with "//" and NO surrounding spaces (DoDM 5200.01, Vol. 2), e.g.
+  // "CUI//NOFORN" or "CONFIDENTIAL//NOFORN" — not "CUI // NOFORN".
+  const label = classificationLabel(level).toUpperCase();
+  const controls =
+    effective.markings.length > 0 ? `//${effective.markings.join("//")}` : "";
+
   return (
     <div
       role="note"
-      aria-label={`Data classification: ${classificationLabel(level)}`}
+      aria-label={`Data classification: ${label}${controls}`}
       className={cn(
-        "flex items-center justify-center gap-2 px-4 py-1 text-center text-xs font-semibold tracking-wide",
+        "flex items-center justify-center px-4 py-1 text-center text-xs font-semibold tracking-wide",
         CLASSIFICATION_BANNER_STYLES[level],
       )}
     >
-      <span>{classificationLabel(level).toUpperCase()}</span>
-      {effective.markings.length > 0 && (
-        <span className="font-normal opacity-90">
-          {`// ${effective.markings.join(" // ")}`}
-        </span>
-      )}
+      <span>
+        {label}
+        {controls && <span className="font-normal opacity-90">{controls}</span>}
+      </span>
     </div>
   );
 }
