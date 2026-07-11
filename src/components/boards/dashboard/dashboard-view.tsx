@@ -20,6 +20,7 @@ import { PriorityChart } from "./widgets/priority-chart";
 import { BurndownChart } from "./widgets/burndown-chart";
 import { WorkloadChart } from "./widgets/workload-chart";
 import { ActivityFeed } from "./widgets/activity-feed";
+import { assigneeLabel, workloadBuckets } from "./workload";
 import type { WorkItem, Board, BoardColumn, OrgMember, Cycle } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
@@ -194,19 +195,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     setDrill({ title, rows: items.filter(filter) });
   const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
 
-  // Workload data
-  const workloadData = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of items) {
-      if (!item.assigneeId) continue;
-      const name = memberMap.get(item.assigneeId) ?? "Unknown";
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    }
-    return Array.from(counts.entries())
-      .map(([name, items]) => ({ name, items }))
-      .sort((a, b) => b.items - a.items)
-      .slice(0, 10);
-  }, [items, memberMap]);
+  // Workload data (shares `assigneeLabel` with the drill-down below so the bar
+  // a user clicks and the tickets it lists always describe the same bucket).
+  const workloadData = useMemo(
+    () => workloadBuckets(items, memberMap),
+    [items, memberMap],
+  );
 
   // Burndown data for active cycle
   const burndownData = useMemo(() => {
@@ -343,7 +337,14 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     {
       key: "workload",
       title: "Assignee Workload",
-      body: <WorkloadChart data={workloadData} />,
+      body: (
+        <WorkloadChart
+          data={workloadData}
+          onSliceClick={(name) =>
+            openDrill(name, (i) => assigneeLabel(i, memberMap) === name)
+          }
+        />
+      ),
     },
     {
       key: "burndown",
