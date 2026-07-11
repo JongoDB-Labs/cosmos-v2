@@ -12,7 +12,7 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import type { ForemanStatusPayload } from "@/lib/foreman/status-read";
 import type { Pulse } from "@/lib/foreman/observe";
 import { cn } from "@/lib/utils";
-import { HardHat } from "lucide-react";
+import { ForemanMark } from "./foreman-mark";
 import { rel } from "./foreman-console";
 
 const PULSE_DOT_CLASSES: Record<Pulse, string> = {
@@ -68,7 +68,7 @@ export function ForemanPulseCard({ orgId }: { orgId: string }) {
       href={`/${orgSlug}/foreman`}
       className="mb-8 flex items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 text-sm transition-shadow hover:shadow-[var(--shadow-glow)]"
     >
-      <HardHat className="h-4 w-4 shrink-0 text-[var(--primary)]" aria-hidden />
+      <ForemanMark className="h-4 w-4 text-[var(--primary)]" />
       <span
         data-pulse={pulse}
         aria-hidden

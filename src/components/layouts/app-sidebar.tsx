@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion as fm, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { ForemanMark } from "@/components/foreman/foreman-mark";
 import {
   PanelLeftClose,
   PanelLeft,
@@ -17,7 +18,6 @@ import {
   MessageSquarePlus,
   KeyRound,
   MailCheck,
-  HardHat,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { useBrand } from "@/components/providers/brand-provider";
@@ -252,7 +252,7 @@ export function AppSidebar({
                 : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
             )}
           >
-            <HardHat className="h-4 w-4 shrink-0" />
+            <ForemanMark className="h-4 w-4" />
             {open && <span className="truncate">Foreman</span>}
           </Link>
         )}
