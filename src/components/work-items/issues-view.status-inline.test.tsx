@@ -89,7 +89,7 @@ const FACETS = {
     // A lane unique to the OTHER project — it must NOT appear for an ENG item.
     p2: [{ key: "triage", name: "Triage", category: "TODO" }],
   },
-  members: [],
+  members: [{ id: "u1", displayName: "Ada Lovelace", avatarUrl: null }],
   labels: [],
   cycles: [],
   managedProjectIds: [],
@@ -142,8 +142,8 @@ function renderView() {
   );
 }
 
-/** The parsed body of the inline status PUT for w1, or null if it never fired. */
-function statusPutBody() {
+/** The parsed body of the inline quick-edit PUT for w1, or null if it never fired. */
+function itemPutBody() {
   const call = vi
     .mocked(jsonFetch)
     .mock.calls.find(
@@ -184,7 +184,7 @@ describe("IssuesView — inline status edit (COSMOS-30)", () => {
     // Pick a new lane — it persists to the item's own project via columnKey.
     fireEvent.click(inProgress);
 
-    await waitFor(() => expect(statusPutBody()).toEqual({ columnKey: "in_progress" }));
+    await waitFor(() => expect(itemPutBody()).toEqual({ columnKey: "in_progress" }));
   });
 
   it("does not re-persist when the current status is re-selected", async () => {
@@ -197,6 +197,58 @@ describe("IssuesView — inline status edit (COSMOS-30)", () => {
 
     // No-op: the cell short-circuits when the value is unchanged.
     await new Promise((r) => setTimeout(r, 0));
-    expect(statusPutBody()).toBeNull();
+    expect(itemPutBody()).toBeNull();
+  });
+});
+
+// The same inline-edit pattern (AC: "extensible to other fields such as assignee
+// and priority") already applies to the Priority and Assignee cells. Status was
+// the only field locked by a test; these cover the other two so a regression of
+// either quick-edit is caught (COSMOS-30).
+describe("IssuesView — inline priority & assignee edit (COSMOS-30)", () => {
+  it("opens a priority picker and persists the pick", async () => {
+    renderView();
+    await screen.findByText("ENG-1");
+
+    // The Priority cell is an inline editor, not a plain badge.
+    fireEvent.click(screen.getByRole("button", { name: "Change priority" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "High" }));
+
+    await waitFor(() => expect(itemPutBody()).toEqual({ priority: "HIGH" }));
+  });
+
+  it("does not re-persist when the current priority is re-selected", async () => {
+    renderView();
+    await screen.findByText("ENG-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Change priority" }));
+    // The row is already MEDIUM — re-picking it must be a no-op.
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Medium" }));
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(itemPutBody()).toBeNull();
+  });
+
+  it("opens an assignee picker and persists the pick via assigneeId", async () => {
+    renderView();
+    await screen.findByText("ENG-1");
+
+    // The Assignee cell is editable once the org has members to pick from.
+    fireEvent.click(screen.getByRole("button", { name: "Change assignee" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Ada Lovelace" }));
+
+    await waitFor(() => expect(itemPutBody()).toEqual({ assigneeId: "u1" }));
+  });
+
+  it("does not re-persist when the item is already unassigned and Unassigned is re-selected", async () => {
+    renderView();
+    await screen.findByText("ENG-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Change assignee" }));
+    // The row starts unassigned — re-picking "Unassigned" must be a no-op.
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Unassigned" }));
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(itemPutBody()).toBeNull();
   });
 });
