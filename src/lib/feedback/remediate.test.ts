@@ -473,4 +473,40 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
       await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
     }
   });
+
+  it("notifies the reporter when their feedback is delivered into the backlog", async () => {
+    await setAutoRemediationConfig({
+      enabled: true,
+      projectIds: [mainProjectId],
+      defaultProjectId: mainProjectId,
+    });
+    const title = `${TITLE_PREFIX} reporter notification`;
+    const item = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "FEATURE", title, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      const delivered = summary.items.find((i) => i.feedbackId === item.id);
+      expect(delivered).toBeDefined();
+
+      // The reporter (feedback author) gets a bell/SSE/push notification the
+      // moment their request is picked up — deep-linked to the feedback board,
+      // and naming the ticket it was delivered as. Scoped to this item's refId so
+      // a concurrent run's notifications never perturb the assertion.
+      const note = await prisma.notification.findFirst({
+        where: { orgId, userId, type: "feedback.delivered", refId: item.id },
+        select: { title: true, body: true, url: true, refType: true },
+      });
+      expect(note).not.toBeNull();
+      expect(note!.body).toContain(delivered!.ticketKey);
+      expect(note!.refType).toBe("feedback_item");
+      expect(note!.url).toContain("/feedback");
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: item.id, type: "feedback.delivered" } });
+      await prisma.workItem.deleteMany({ where: { orgId, title } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
 });
