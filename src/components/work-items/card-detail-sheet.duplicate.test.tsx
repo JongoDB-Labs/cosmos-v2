@@ -36,6 +36,9 @@ vi.mock("@/hooks/use-custom-fields", () => ({
   useCustomFields: () => ({ fields: [] }),
   fieldAppliesToType: () => false,
 }));
+vi.mock("@/hooks/use-work-item-types", () => ({
+  useWorkItemTypes: () => ({ types: [] }),
+}));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
