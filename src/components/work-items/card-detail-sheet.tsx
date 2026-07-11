@@ -45,6 +45,8 @@ import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { deriveChildType, fallbackChildTypeKey } from "@/lib/work-items/child-type";
 import {
   CustomFieldInput,
   isRenderableCustomField,
@@ -150,6 +152,11 @@ export function CardDetailSheet({
   const [parentId, setParentId] = useState<string | null>(null);
   const [children, setChildren] = useState<WorkItemRef[]>([]);
   const [childTitle, setChildTitle] = useState("");
+  // The type a new sub-item will be created as. Defaults (below) to one level
+  // below the parent in the org's hierarchy (epic→story, story→task); a non-null
+  // value here is the user's explicit override, chosen before creating. Reset
+  // whenever the parent item changes.
+  const [childTypeOverride, setChildTypeOverride] = useState<string | null>(null);
   const [addingChild, setAddingChild] = useState(false);
   // Guards the on-open server reconcile (below) against clobbering a sub-item the
   // user has just added / removed / reordered locally while the GET is in flight.
@@ -215,6 +222,28 @@ export function CardDetailSheet({
       fieldAppliesToType(f, item?.workItemTypeId),
   );
 
+  // Org work-item types, so a new sub-item can default to the right hierarchy
+  // level (epic→story, story→task) and let the user override before creating
+  // (COSMOS-71). Cached/shared via react-query; empty while loading.
+  const { types: workItemTypes } = useWorkItemTypes(orgId);
+  // The hierarchy-derived default type for a new sub-item, resolved to a real
+  // type id once the types load: prefer the data-driven child (the type whose
+  // `defaultParentTypeKey` is this item's type), else the bare-key heuristic
+  // matched back to a concrete type. "" only while types are still loading.
+  const defaultChildTypeId = useMemo(() => {
+    const parentKey = item?.workItemType?.key;
+    const derived = deriveChildType(parentKey, workItemTypes);
+    if (derived) return derived.id;
+    const fallbackBare = fallbackChildTypeKey(parentKey).toLowerCase();
+    const match = workItemTypes.find(
+      (t) => (t.key.split(".").pop() ?? t.key).toLowerCase() === fallbackBare,
+    );
+    return match?.id ?? "";
+  }, [item?.workItemType?.key, workItemTypes]);
+  // The type the new sub-item will be created as: the user's override if set,
+  // else the hierarchy-derived default.
+  const childTypeId = childTypeOverride ?? defaultChildTypeId;
+
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/work-items`;
 
   // Sync form with item — this is an intentional "derive state from prop"
@@ -239,6 +268,7 @@ export function CardDetailSheet({
       setParentId(item.parentId);
       setChildren(item.children ?? []);
       setChildTitle("");
+      setChildTypeOverride(null);
       setDirty(false);
       setConfirmDelete(false);
       setActionPending(null);
@@ -555,10 +585,13 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: trimmed,
-          // FR 3fd0e9bd: default the sub-item's type one level down the
-          // hierarchy from its parent (epic→story, story→task, task/bug→subtask)
-          // instead of always TASK.
-          type: childTypeFor(item.workItemType?.key),
+          // COSMOS-71 / FR 3fd0e9bd: default the sub-item's type one level down
+          // the hierarchy from its parent (epic→story, story→task) instead of
+          // always TASK, and honor an explicit override. Send the resolved type
+          // id when known; otherwise fall back to the bare key the API resolves.
+          ...(childTypeId
+            ? { workItemTypeId: childTypeId }
+            : { type: fallbackChildTypeKey(item.workItemType?.key) }),
           columnKey: item.columnKey,
           parentId: item.id,
         }),
@@ -575,6 +608,8 @@ export function CardDetailSheet({
       childrenTouched.current = true;
       setChildren((prev) => [...prev, childRef]);
       setChildTitle("");
+      // Reset the type back to the hierarchy default for the next sub-item.
+      setChildTypeOverride(null);
       // Keep the CACHED parent's children in sync too (same staleness class as
       // BR 7d1ae4d2) — otherwise reopening this parent reads the stale cache
       // and the new sub-item vanishes from the list until a refetch.
@@ -1227,6 +1262,25 @@ export function CardDetailSheet({
                 ))}
                 {canDuplicate && (
                   <div className="flex gap-2">
+                    {/* Type picker, defaulted to one level below the parent
+                        (epic→story, story→task) and overridable before adding
+                        (COSMOS-71). Hidden until the org's types load — the POST
+                        then falls back to the bare hierarchy key. */}
+                    {workItemTypes.length > 0 && (
+                      <select
+                        aria-label="Sub-item type"
+                        value={childTypeId}
+                        onChange={(e) => setChildTypeOverride(e.target.value)}
+                        disabled={addingChild}
+                        className="h-7 shrink-0 rounded-md border border-input bg-transparent px-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        {workItemTypes.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <Input
                       value={childTitle}
                       onChange={(e) => setChildTitle(e.target.value)}
@@ -1574,24 +1628,6 @@ export function CardDetailSheet({
       </Dialog>
     </Sheet>
   );
-}
-
-/** Default type for a new sub-item: one hierarchy level below its parent
- *  (epic→story, story→task, task/bug→subtask). Keys are sector-prefixed
- *  (e.g. "software.epic"), so match on the bare suffix. */
-function childTypeFor(parentTypeKey: string | undefined): string {
-  const bare = parentTypeKey?.split(".").pop()?.toUpperCase();
-  switch (bare) {
-    case "EPIC":
-      return "STORY";
-    case "STORY":
-      return "TASK";
-    case "TASK":
-    case "BUG":
-      return "SUBTASK";
-    default:
-      return "TASK";
-  }
 }
 
 function MetadataField({

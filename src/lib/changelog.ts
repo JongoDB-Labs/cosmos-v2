@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.192.0",
+    date: "2026-07-11",
+    title: "Smarter sub-item types",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Adding a sub-item now defaults to the right level of your hierarchy — under an epic it starts as a story, under a story it starts as a task — so there's less re-typing. The default comes from your project's own type hierarchy, and a type dropdown sits right next to the sub-item field if you'd like to pick something else before creating it.",
+      },
+    ],
+  },
+  {
     version: "2.191.0",
     date: "2026-07-11",
     title: "Calmer chat timestamps",

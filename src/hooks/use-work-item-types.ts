@@ -20,6 +20,10 @@ export interface WorkItemTypeRow {
   color?: string | null;
   isBuiltIn: boolean;
   sortOrder: number;
+  /** Key of the type this one nests under by default (e.g. a Story's
+   *  `defaultParentTypeKey` is `software.epic`). Drives the default type of a
+   *  new sub-item — see `@/lib/work-items/child-type`. */
+  defaultParentTypeKey?: string | null;
 }
 
 /**
