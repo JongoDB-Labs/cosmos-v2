@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.177.0",
+    date: "2026-07-11",
+    title: "Set an issue's cycle right when you create it",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The \"New issue\" dialog now lets you drop a new item straight into a cycle (sprint or Program Increment) at creation time — no need to create the issue first and then move it. The cycle picker appears whenever the selected project has cycles and stays optional, so nothing changes for the quick title-only path. This brings the dialog in line with the other creation surfaces and with what you can already edit after an issue exists: cycle, priority, assignees, and due date are all settable up front.",
+      },
+    ],
+  },
+  {
     version: "2.176.0",
     date: "2026-07-11",
     title: "Classification banners follow real DoD marking policy",
