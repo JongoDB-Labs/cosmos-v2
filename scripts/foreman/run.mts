@@ -13,7 +13,7 @@
 // repo's tsconfig (`moduleResolution: bundler`, no `allowImportingTsExtensions`)
 // a `.mts` import path fails typecheck with TS5097, while `.mjs` resolves to the
 // `.mts` source for BOTH `tsc --noEmit` and `tsx` at runtime.
-import { existsSync, writeFileSync, rmSync, appendFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, rmSync, appendFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
@@ -23,6 +23,7 @@ import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
+import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
@@ -34,6 +35,7 @@ import * as db from "./db.mjs";
 import { runAgent } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
+import { ensureWorkerDbs } from "./worker-db.mjs";
 
 const exec = promisify(execFile);
 
@@ -52,6 +54,9 @@ const DRY = process.env.FOREMAN_DRY_RUN === "1";
 // Bounded fix-forward: how many times a failing build is handed back to the SAME
 // agent session (with the check output) before the ticket gates for a human.
 const MAX_REPAIRS = 2;
+// Parallel build workers (builds concurrent; SHIP stays strictly serialized).
+// DRY always runs single-worker. Clamped 1..4.
+const WORKERS = DRY ? 1 : Math.min(4, Math.max(1, parseInt(process.env.FOREMAN_WORKERS ?? "2", 10) || 1));
 
 function log(msg: string): void {
   const line = `${new Date().toISOString()} ${msg}\n`;
@@ -151,7 +156,24 @@ async function restoreMain(): Promise<void> {
   await exec("git", ["-C", REPO, "reset", "--hard", "origin/main"]).catch(() => undefined);
 }
 
-async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number]): Promise<void> {
+interface Built {
+  itemId: string;
+  key: string;
+  title: string;
+  classification: "BUG" | "FEATURE";
+  branch: string;
+  wt: string;
+  subject: string;
+  commit: string;
+  processNote: string;
+  changelogEntry: string | null;
+  bumpKind: BumpKind;
+}
+
+async function processOne(
+  item: Awaited<ReturnType<typeof db.getBacklog>>[number],
+  workerOpts: { testDbUrl?: string } = {},
+): Promise<{ ship?: Built }> {
   const brief = briefFrom(item);
   const key = brief.key;
   // DRY records to the .dry ledger so a preview never pollutes the real history
@@ -179,7 +201,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       await db.comment(item.id, `Resolved as duplicate of ${dup.dupOf}. ${dup.reason}`);
     }
     record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "duplicate", dupOf: dup.dupOf });
-    return;
+    return {};
   }
 
   // Clarity gate — does this need a product/scope decision Foreman can't make? (§5.6)
@@ -196,12 +218,13 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: `needs input — ${clar.question}` });
     }
     record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "needs-input" });
-    return;
+    return {};
   }
 
-  if (!DRY) await db.moveColumn(item.id, "in-progress");
+  // Claimed atomically by the coordinator (db.claimTicket) before dispatch.
   const branch = `auto/${key}`;
   const wt = `/tmp/foreman/${key}`;
+  let keepWorktree = false; // set when the build hands off to the ship worker
   // Force-clean any leftover worktree dir from a prior crashed/raced pass — `worktree
   // add` fails hard on "'<dir>' already exists", which strands the ticket in-progress.
   rmSync(wt, { recursive: true, force: true });
@@ -238,8 +261,8 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     return true;
   };
   try {
-    const agent = await runAgent(wt, foremanPrompt(brief, instructions));
-    if (await haltIfKilled()) return; // checkpoint 1: right after the agent returns
+    const agent = await runAgent(wt, foremanPrompt(brief, instructions), { testDbUrl: workerOpts.testDbUrl });
+    if (await haltIfKilled()) return {}; // checkpoint 1: right after the agent returns
 
     // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
     //     false, usually with no commit). Gate for review — NEVER conflate this
@@ -252,7 +275,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
-      return;
+      return {};
     }
 
     // (b) Agent completed. A truly empty diff means it was already implemented —
@@ -268,7 +291,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
         await db.comment(item.id, "Already implemented — no change produced.");
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "already-done" });
-      return;
+      return {};
     }
 
     // (c) Real change → checks with a bounded REPAIR LOOP. A first-pass check
@@ -276,21 +299,22 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
     // resumed (full context of what it built) with the failing output and told to
     // fix forward — up to MAX_REPAIRS rounds, then gate. This targets the observed
     // failure mode where a good change's own new test needed one more iteration.
-    let checks = await runChecks(wt);
+    let checks = await runChecks(wt, { testDbUrl: workerOpts.testDbUrl });
     let repairs = 0;
     while (!checks.ok && repairs < MAX_REPAIRS) {
-      if (await haltIfKilled()) return; // never keep building past a kill
+      if (await haltIfKilled()) return {}; // never keep building past a kill
       repairs++;
       log(`${key} checks failed — repair round ${repairs}/${MAX_REPAIRS}`);
       const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
         resume: agent.sessionId ?? undefined,
         timeoutMs: 25 * 60_000,
+        testDbUrl: workerOpts.testDbUrl,
       });
       if (!rep.ok) {
         log(`${key} repair agent did not complete — gating with the last check output`);
         break;
       }
-      checks = await runChecks(wt);
+      checks = await runChecks(wt, { testDbUrl: workerOpts.testDbUrl });
     }
     // Recompute the diff after repairs (rounds may add/change files) — the risk
     // classifier and the migration flag must see the FINAL change, not round 0's.
@@ -347,7 +371,7 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       // Include the failing check output only when checks are the reason — a
       // risk-gate (checks green, touched a sensitive path / too big) has none.
       await parkForReview(!checks.ok ? "checks failed" : risk.reasons.join("; "), checks.ok ? undefined : checks.log);
-      return;
+      return {};
     }
 
     // (d) Pre-ship REVIEW: checks are green and risk says safe, so this change
@@ -381,112 +405,221 @@ async function processOne(item: Awaited<ReturnType<typeof db.getBacklog>>[number
       : { approve: false, reason: "reviewer agent failed twice (infra)" };
     if (!verdict.approve) {
       await parkForReview(`reviewer rejected — ${verdict.reason}`);
-      return;
+      return {};
     }
     processParts.push(`reviewer approved — ${verdict.reason}`);
     const processNote = processParts.join(" · ");
 
-    // SAFE → ship. The agent already bumped package.json per the SemVer rule.
-    log(`${key} SAFE → shipping v${version}${DRY ? " (DRY)" : ""}`);
+    // SAFE → hand off to the serialized SHIP worker. The agent bumped from the
+    // main it branched off; ship re-bumps after rebasing onto CURRENT main.
+    log(`${key} SAFE → queued for ship (built v${version})${DRY ? " (DRY)" : ""}`);
     if (DRY) {
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
-      return;
+      return {};
     }
 
-    if (await haltIfKilled()) return; // checkpoint 2: before the irreversible merge
+    if (await haltIfKilled()) return {}; // checkpoint 2: before entering the ship queue
 
-    // Every safe change ships through a real PR — opened, then auto-merged — so
-    // there's a full PR trail (not a silent direct push to main). Push -> open PR ->
-    // auto-merge -> tag -> wait for the signed image. Any throw here — a merge
-    // CONFLICT because main moved under us, a tag/push race, or a failed image build
-    // — must NOT crash the daemon or leave the shared checkout mid-merge. Restore
-    // main to origin, gate the ticket for review, and move on. (plan §13)
-    let prUrl = "";
-    // `mergePr` squash-merges and DELETES the branch, so once it succeeds the
-    // worktree tip (`commit`) is no longer on main and the branch is gone. Track
-    // whether we crossed that line, and capture the squash commit that actually
-    // landed on main, so a post-merge failure reports the right state + a `git
-    // revert`-able SHA rather than telling a human to check out a deleted branch.
-    let merged = false;
-    let mergedCommit = "";
-    try {
-      await ship.pushBranch(branch);
-      prUrl = await ship.openPr(
-        branch,
-        `auto: ${key} — ${brief.title}`.slice(0, 250),
-        `Automated fix for ${key} (v${version}). Auto-merged by Foreman after green checks.`,
-        false,
-      );
-      await ship.mergePr(branch);
-      merged = true;
-      mergedCommit = (await ship.headInfo(REPO)).commit;
-      await ship.tagAndPush(version);
-      if (!(await ship.waitForImage(version))) throw new Error("image build failed");
-    } catch (e) {
-      // Pre-merge failure → the branch is still open (rework it, approve to ship).
-      // Post-merge failure → the change is on main but was never deployed (finish
-      // the release or revert the merge) — a materially different remediation.
-      log(`${key} ship failed ${merged ? "after merge (merged, undeployed)" : "before merge"} (${String(e)}) → In Review`);
-      await restoreMain();
-      await db.moveColumn(item.id, "review");
-      await db.comment(
-        item.id,
-        merged
-          ? formatAudit({ key, outcome: "merged-undeployed", summary: subject, process: processNote, reason: String(e), version, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit })
-          : formatAudit({ key, outcome: "ship-failed", summary: subject, process: processNote, reason: `${String(e)}; restored main`, version, branch, prUrl: prUrl || undefined, commit }),
-      );
-      record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
-      await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: merged ? "merged but not deployed" : "ship failed before merge", version, prUrl: prUrl || undefined });
-      return;
-    }
-
-    if (await haltIfKilled()) return; // checkpoint 3: before pushing the deploy to prod
-
-    // The version prod serves right now — captured pre-deploy so the audit trail
-    // names the exact rollback target if this release (or a later one) must be undone.
-    const rollbackTo = await ship.currentProdVersion();
-    // Image built → deploy. deploy() never throws; its boolean IS the health gate.
-    const ok = await ship.deploy(version, diff.files.some((f) => f.startsWith("prisma/migrations/")));
-    if (ok) {
-      await db.moveColumn(item.id, "done");
-      await db.comment(
-        item.id,
-        formatAudit({ key, outcome: "shipped", summary: subject, process: processNote, version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
-      );
-      record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
-      await db.notifyDelivery(item.id, "shipped", { key, title: brief.title, version, prUrl: prUrl || undefined });
-      log(`${key} DONE v${version}`);
-    } else {
-      // Deploy health-gate failed. Roll back + park for review as best-effort, but
-      // guarantee the circuit-breaker signal fires REGARDLESS: a DB blip in the
-      // cleanup below must not swallow a real deploy failure and leave it
-      // uncounted (which would keep an unhealthy release armed). (M4)
+    // Capture the build's changelog entry (if it added one) so the ship worker
+    // can re-prepend it with the corrected version after the rebase.
+    let changelogEntry: string | null = null;
+    if (diff.files.includes("src/lib/changelog.ts")) {
       try {
-        // Roll back the version we JUST deployed by restoring its pre-deploy
-        // `.bak-<version>` override — NOT a prevVersion from the ledger (empty on
-        // the first ship, and stale otherwise). rollback() no-ops if the snapshot
-        // is missing; the breaker still fires via the throw below. (C1)
-        await ship.rollback(version);
-        await db.moveColumn(item.id, "review");
-        await db.comment(
-          item.id,
-          formatAudit({ key, outcome: "rolled-back", summary: subject, process: processNote, reason: "deploy health-gate failed", version, rollbackTo, branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
-        );
-        record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
-        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined });
-      } catch (e) {
-        log(`${key} deploy-gate cleanup error (continuing to circuit breaker): ${String(e)}`);
+        const cl = readFileSync(join(wt, "src/lib/changelog.ts"), "utf8");
+        changelogEntry = extractTopChangelogEntry(cl)?.entry ?? null;
+      } catch {
+        /* unreadable changelog → ship without an entry rewrite */
       }
-      // Signal the circuit breaker in main(): repeated deploy-gate failures disarm.
-      throw new Error("deploy gate failed (rolled back)");
     }
+    keepWorktree = true; // the ship worker owns cleanup from here
+    return {
+      ship: {
+        itemId: item.id,
+        key,
+        title: brief.title,
+        classification: brief.classification,
+        branch,
+        wt,
+        subject,
+        commit,
+        processNote,
+        changelogEntry,
+        bumpKind: brief.classification === "FEATURE" ? "minor" : "patch",
+      },
+    };
+
   } finally {
-    await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
+    if (!keepWorktree) await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
     // Armed-only last-resort: never leave the shared checkout on a foreign or
     // dirty branch after a ship, whatever escaped above. DRY never moves REPO off
     // main (it returns before mergeBranch), so skip the force-checkout there to
     // keep dry-runs side-effect-free on the working checkout.
     if (!DRY) await exec("git", ["-C", REPO, "checkout", "-f", "main"]).catch(() => undefined);
+  }
+}
+
+/** SHIP worker — strictly serialized (one at a time via the coordinator's
+ *  promise chain). Takes a BUILT, checks-green, reviewer-approved branch and:
+ *  rebases it onto CURRENT main (mechanically resolving the version-race trio:
+ *  package.json / package-lock.json / changelog — re-bumping to the next
+ *  version after main and re-prepending the build's changelog entry), smoke
+ *  typechecks, then runs the PR→merge→tag→image→deploy pipeline with the tag
+ *  GUARDED (a pre-existing tag parks instead of deploying someone else's
+ *  image — the v2.174.0 lesson). Returns deployFailed for the breaker. */
+async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
+  const record = (e: Omit<LedgerEntry, "ts">): void =>
+    appendLedger(LEDGER, { ...e, ts: new Date().toISOString() });
+  const parkShip = async (reason: string): Promise<void> => {
+    log(`${b.key} SHIP PARKED (${reason}) → In Review`);
+    await ship.pushBranch(b.branch).catch(() => undefined);
+    let prUrl = "";
+    try {
+      prUrl = await ship.openPr(
+        b.branch,
+        `auto: ${b.key} (review — ${reason})`.slice(0, 250),
+        `Automated draft for ${b.key}. Reason parked: ${reason}. Approve = merge; Foreman deploys it on its next pass.`,
+        true,
+      );
+    } catch {
+      /* PR may already exist from the build phase */
+    }
+    await db.moveColumn(b.itemId, "review");
+    await db.comment(
+      b.itemId,
+      formatAudit({ key: b.key, outcome: "review", summary: b.subject, reason, branch: b.branch, commit: b.commit, prUrl: prUrl || undefined, process: b.processNote }),
+    );
+    record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
+    await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason, prUrl: prUrl || undefined });
+  };
+
+  try {
+    if (killed()) {
+      log(`${b.key} ship halted by kill switch — left in progress`);
+      await db.comment(b.itemId, "Halted by kill switch before ship; left in progress. Move the card back to Backlog to retry.").catch(() => undefined);
+      return { deployFailed: false };
+    }
+
+    // ── Rebase onto CURRENT main; resolve the version-race trio mechanically ──
+    await exec("git", ["-C", b.wt, "fetch", "origin", "main"]);
+    let rebased = true;
+    try {
+      await exec("git", ["-C", b.wt, "rebase", "origin/main"]);
+    } catch {
+      rebased = false;
+    }
+    if (!rebased) {
+      const { stdout } = await exec("git", ["-C", b.wt, "diff", "--name-only", "--diff-filter=U"]);
+      const conflicted = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (!conflictsAreMechanical(conflicted)) {
+        await exec("git", ["-C", b.wt, "rebase", "--abort"]).catch(() => undefined);
+        await parkShip(`rebase conflict with main (${conflicted.join(", ") || "unknown files"})`);
+        return { deployFailed: false };
+      }
+      // Take MAIN's copies ("ours" during a rebase), then re-apply the bump + entry.
+      await exec("git", ["-C", b.wt, "checkout", "--ours", "--", ...conflicted]);
+      const mainVersion = ship.readVersion(b.wt);
+      const newVersion = nextVersion(mainVersion, b.bumpKind);
+      await exec("npm", ["version", newVersion, "--no-git-tag-version"], { cwd: b.wt });
+      if (b.changelogEntry) {
+        const clPath = join(b.wt, "src/lib/changelog.ts");
+        const cl = readFileSync(clPath, "utf8");
+        writeFileSync(clPath, prependChangelogEntry(cl, b.changelogEntry, newVersion));
+      }
+      await exec("git", ["-C", b.wt, "add", "--", ...conflicted]);
+      await exec("git", ["-C", b.wt, "rebase", "--continue"], {
+        env: { ...process.env, GIT_EDITOR: "true" },
+      });
+    }
+
+    // Post-rebase sanity: fast typecheck (full checks already passed pre-rebase;
+    // mechanical version-file resolution can't change runtime semantics, but a
+    // REAL rebase onto moved code can — tsc is the cheap tripwire).
+    try {
+      await exec("npx", ["tsc", "--noEmit"], { cwd: b.wt, maxBuffer: 32 * 1024 * 1024 });
+    } catch {
+      await parkShip("post-rebase typecheck failed (main moved under the build)");
+      return { deployFailed: false };
+    }
+
+    const version = ship.readVersion(b.wt);
+    const { commit } = await ship.headInfo(b.wt);
+    const finalDiff = await diffSummary(b.wt);
+    log(`${b.key} SHIP → v${version}`);
+
+    let prUrl = "";
+    let merged = false;
+    let mergedCommit = "";
+    try {
+      await ship.pushBranch(b.branch);
+      prUrl = await ship.openPr(
+        b.branch,
+        `auto: ${b.key} — ${b.title}`.slice(0, 250),
+        `Automated fix for ${b.key} (v${version}). Auto-merged by Foreman after green checks.`,
+        false,
+      );
+      await ship.mergePr(b.branch);
+      merged = true;
+      mergedCommit = (await ship.headInfo(REPO)).commit;
+      // TAG GUARD: a pre-existing tag means someone else claimed this version —
+      // deploying it would ship THEIR image under our number (v2.174.0 lesson).
+      let tagExists = true;
+      try {
+        await exec("git", ["-C", REPO, "rev-parse", `v${version}`]);
+      } catch {
+        tagExists = false;
+      }
+      if (tagExists) throw new Error(`tag v${version} already exists — version collision`);
+      await ship.tagAndPush(version);
+      if (!(await ship.waitForImage(version))) throw new Error("image build failed");
+    } catch (e) {
+      log(`${b.key} ship failed ${merged ? "after merge (merged, undeployed)" : "before merge"} (${String(e)}) → In Review`);
+      await restoreMain();
+      await db.moveColumn(b.itemId, "review");
+      await db.comment(
+        b.itemId,
+        merged
+          ? formatAudit({ key: b.key, outcome: "merged-undeployed", summary: b.subject, process: b.processNote, reason: String(e), version, branch: b.branch, prUrl: prUrl || undefined, commit: mergedCommit || commit })
+          : formatAudit({ key: b.key, outcome: "ship-failed", summary: b.subject, process: b.processNote, reason: `${String(e)}; restored main`, version, branch: b.branch, prUrl: prUrl || undefined, commit }),
+      );
+      record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
+      await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: merged ? "merged but not deployed" : "ship failed before merge", version, prUrl: prUrl || undefined });
+      return { deployFailed: false };
+    }
+
+    if (killed()) {
+      log(`${b.key} halted by kill switch before deploy — merged, undeployed; reconcile finishes it`);
+      return { deployFailed: false };
+    }
+
+    const rollbackTo = await ship.currentProdVersion();
+    const ok = await ship.deploy(version, finalDiff.files.some((f) => f.startsWith("prisma/migrations/")));
+    if (ok) {
+      await db.moveColumn(b.itemId, "done");
+      await db.comment(
+        b.itemId,
+        formatAudit({ key: b.key, outcome: "shipped", summary: b.subject, process: b.processNote, version, rollbackTo, branch: b.branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
+      );
+      record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "shipped", version });
+      await db.notifyDelivery(b.itemId, "shipped", { key: b.key, title: b.title, version, prUrl: prUrl || undefined });
+      log(`${b.key} DONE v${version}`);
+      return { deployFailed: false };
+    }
+    try {
+      await ship.rollback(version);
+      await db.moveColumn(b.itemId, "review");
+      await db.comment(
+        b.itemId,
+        formatAudit({ key: b.key, outcome: "rolled-back", summary: b.subject, process: b.processNote, reason: "deploy health-gate failed", version, rollbackTo, branch: b.branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
+      );
+      record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
+      await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined });
+    } catch (cleanupErr) {
+      log(`${b.key} deploy-gate cleanup error (continuing to circuit breaker): ${String(cleanupErr)}`);
+    }
+    return { deployFailed: true };
+  } finally {
+    await exec("git", ["-C", REPO, "worktree", "remove", "--force", b.wt]).catch(() => undefined);
+    await exec("git", ["-C", REPO, "checkout", "-f", "main"]).catch(() => undefined);
   }
 }
 
@@ -733,6 +866,35 @@ async function main(): Promise<void> {
   // loop makes progress. (I4)
   const attempts = new Map<string, number>();
   const MAX_ATTEMPTS = 3;
+  // ── Parallel build pool ── builds run concurrently (per-worker test DBs so
+  // suites can't collide); SHIP is a strictly-serialized promise chain.
+  const inflight = new Map<string, Promise<void>>();
+  const freeSlots = [...Array(WORKERS).keys()];
+  let workerDbUrls: (string | undefined)[] = Array(WORKERS).fill(undefined);
+  if (WORKERS > 1) {
+    try {
+      workerDbUrls = await ensureWorkerDbs(WORKERS);
+      log(`provisioned ${WORKERS} worker test DBs`);
+    } catch (e) {
+      log(`worker DB provisioning failed (${String(e)}) — falling back to a single shared test DB`);
+    }
+  }
+  let shipChain: Promise<void> = Promise.resolve();
+  const enqueueShip = (b: Built): void => {
+    shipChain = shipChain
+      .then(() => shipBuilt(b))
+      .then((r) => {
+        if (r.deployFailed) {
+          if (++consecutiveDeployFails >= BREAKER) {
+            log("circuit breaker: 2 deploy failures — disabling");
+            writeFileSync(STOP, "circuit-breaker");
+          }
+        } else {
+          consecutiveDeployFails = 0;
+        }
+      })
+      .catch((e) => log(`${b.key} ship worker error: ${String(e)}`));
+  };
   try {
     while (!killed()) {
       try {
@@ -768,46 +930,58 @@ async function main(): Promise<void> {
         // Never in DRY (it comments + moves cards on the live board).
         if (!DRY) await processMentions();
         if (killed()) continue;
+        // ── fill build slots, then pump on any completion ──
         const backlog = await db.getBacklog();
         const pool = DRY ? backlog.filter((b) => !processed.has(b.id)) : backlog;
-        const next = pickNext(pool);
-        if (!next) {
+        while (inflight.size < WORKERS && freeSlots.length > 0 && !killed()) {
+          const candidates = pool.filter(
+            (c) => !inflight.has(c.id) && (attempts.get(c.id) ?? 0) < MAX_ATTEMPTS,
+          );
+          const next = pickNext(candidates);
+          if (!next) break;
+          const item = backlog.find((c) => c.id === next.id);
+          if (!item) break;
+          // Atomic claim: two coordinators-worth of races (or a human drag) can't
+          // double-build a ticket. A lost claim just drops it from this pass.
+          if (!DRY && !(await db.claimTicket(item.id))) {
+            pool.splice(pool.findIndex((c) => c.id === item.id), 1);
+            continue;
+          }
+          const slot = freeSlots.shift()!;
+          const task = (async () => {
+            try {
+              const out = await processOne(item, { testDbUrl: workerDbUrls[slot] });
+              attempts.delete(item.id);
+              if (out.ship) enqueueShip(out.ship);
+            } catch (e) {
+              log(`${item.id} error: ${String(e)}`);
+              const n = (attempts.get(item.id) ?? 0) + 1;
+              attempts.set(item.id, n);
+              if (n >= MAX_ATTEMPTS && !DRY) {
+                log(`${item.id} failed ${n}× — parking for review so the loop can progress`);
+                await db.moveColumn(item.id, "review").catch(() => undefined);
+                await db
+                  .comment(item.id, `Repeatedly failed to process (${n} attempts) — needs a human. Last error: ${String(e)}`)
+                  .catch(() => undefined);
+              }
+              await idleSleep(30_000); // bounded backoff without hot-looping the slot
+            } finally {
+              inflight.delete(item.id);
+              freeSlots.push(slot);
+            }
+          })();
+          inflight.set(item.id, task);
+          if (DRY) {
+            await task; // DRY stays strictly sequential (single survey pass)
+            processed.add(item.id);
+          }
+        }
+        if (inflight.size === 0) {
           await idleSleep(60_000);
           continue;
         }
-        const item = backlog.find((b) => b.id === next.id);
-        if (!item) continue;
-        try {
-          await processOne(item);
-          consecutiveDeployFails = 0;
-          attempts.delete(item.id);
-        } catch (e) {
-          log(`${next.id} error: ${String(e)}`);
-          if (String(e).includes("deploy gate")) {
-            if (++consecutiveDeployFails >= 2) {
-              log("circuit breaker: 2 deploy failures — disabling");
-              writeFileSync(STOP, "circuit-breaker");
-            }
-          }
-          const n = (attempts.get(item.id) ?? 0) + 1;
-          attempts.set(item.id, n);
-          if (n >= MAX_ATTEMPTS && !DRY) {
-            // Repeatedly failing on the SAME ticket → stop retrying it. Park it out
-            // of `backlog` (into review) so pickNext moves on and the daemon makes
-            // progress instead of hot-looping this one id. (I4)
-            log(`${next.id} failed ${n}× — parking for review so the loop can progress`);
-            await db.moveColumn(item.id, "review").catch(() => undefined);
-            await db
-              .comment(item.id, `Repeatedly failed to process (${n} attempts) — needs a human. Last error: ${String(e)}`)
-              .catch(() => undefined);
-          }
-          // Bounded, kill-responsive backoff so an early-throwing ticket can't peg
-          // the CPU or balloon the log; `touch FOREMAN_STOP` still exits promptly. (I4)
-          await idleSleep(30_000);
-        }
-        // Advance the DRY survey regardless of outcome so it walks the whole
-        // backlog once, then idles (armed runs advance via real column moves).
-        if (DRY) processed.add(item.id);
+        // Wake on ANY completion (or the tick) to refill slots / run housekeeping.
+        await Promise.race([...inflight.values(), idleSleep(20_000)]);
       } catch (e) {
         // Control-plane hiccup (e.g. a transient DB error in autonomyEnabled /
         // getBacklog): log and idle rather than tearing the daemon down.
@@ -816,6 +990,11 @@ async function main(): Promise<void> {
       }
       if (killed()) break;
     }
+    // Drain: let in-flight builds hit their kill checkpoints and the ship chain
+    // finish its current (serialized) step before releasing the lock.
+    if (inflight.size > 0) log(`draining ${inflight.size} in-flight build(s)…`);
+    await Promise.allSettled([...inflight.values()]);
+    await shipChain.catch(() => undefined);
   } finally {
     rmSync(LOCK, { force: true });
     log("foreman stopped");
