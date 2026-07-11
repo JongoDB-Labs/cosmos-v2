@@ -141,3 +141,16 @@ Detect silent foreman daemon (no heartbeat for 10+ minutes) and fire alerts to t
   echo "exit=$?"
   ```
   Must exit 0. Check `/var/tmp/foreman-watchdog.state` for the internal state file (should contain `0` or `1`).
+
+### Clean-stop semantics (added at v2.192.1)
+
+`systemctl stop foreman` delivers SIGTERM (tsx exits 143) after `ExecStop`
+touches the STOP file. Install the drop-in so systemd treats that as success —
+otherwise `OnFailure=` fires a spurious down-alert on every deliberate stop:
+
+    sudo mkdir -p /etc/systemd/system/foreman.service.d
+    printf '[Service]\nSuccessExitStatus=143\n' | sudo tee /etc/systemd/system/foreman.service.d/success-exit.conf
+    sudo systemctl daemon-reload
+
+The watchdog also skips its staleness alert while the unit is cleanly
+`inactive` (deliberate stop), still alerting on `failed` or active-but-stale.

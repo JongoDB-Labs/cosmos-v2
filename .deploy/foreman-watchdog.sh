@@ -5,6 +5,14 @@
 set -euo pipefail
 : "${DATABASE_URL:?}" "${FOREMAN_ALERT_TOKEN:?}" "${ALERT_URL:=http://127.0.0.1:8090/api/foreman/alert}"
 STATE=/var/tmp/foreman-watchdog.state
+# Deliberate stops are not incidents: if the unit is cleanly inactive (ship
+# pipelines stop the daemon for 15-25 min by design), skip the staleness alert
+# entirely. A crashed daemon reads "failed"; a wedged one reads "active" with a
+# stale heartbeat — both still alert.
+if [ "$(systemctl is-active foreman 2>/dev/null)" = "inactive" ]; then
+  echo 1 > "$STATE"
+  exit 0
+fi
 LAST=$(psql "$DATABASE_URL" -tAc "SELECT extract(epoch FROM last_pass_at) FROM foreman_state WHERE id='host'" 2>/dev/null || echo "")
 NOW=$(date +%s)
 FRESH=1
