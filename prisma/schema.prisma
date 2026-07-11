@@ -3636,3 +3636,40 @@ model Reference {
   @@index([sourceType, sourceId])
   @@map("entity_references")
 }
+
+/// Foreman daemon self-reported pulse — ONE row, id = "host". Upserted every
+/// coordinator pass (20–60s) so the app can answer "is Foreman alive and what
+/// is it doing right now". See docs spec 2026-07-11-foreman-observability.
+model ForemanState {
+  id            String   @id
+  startedAt     DateTime @map("started_at")
+  lastPassAt    DateTime @map("last_pass_at")
+  daemonVersion String   @map("daemon_version")
+  pid           Int
+  workerTarget  Int      @map("worker_target")
+  slotsBusy     Int      @map("slots_busy")
+  queueDepth    Int      @map("queue_depth")
+  inFlight      Json     @map("in_flight")
+  breaker       Json
+  stopFileSeen  Boolean  @map("stop_file_seen")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("foreman_state")
+}
+
+/// Foreman decision feed — append-only; the host ledger jsonl, but queryable
+/// and org-scoped. Terminal kinds mirror ledger Resolution 1:1.
+model ForemanEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ts         DateTime @default(now())
+  orgId      String?  @map("org_id") @db.Uuid
+  workItemId String?  @map("work_item_id") @db.Uuid
+  ticketKey  String?  @map("ticket_key")
+  kind       String
+  severity   String   @default("info")
+  message    String
+  data       Json?
+
+  @@index([orgId, ts(sort: Desc)])
+  @@map("foreman_events")
+}

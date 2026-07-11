@@ -87,3 +87,57 @@ Smoke test in a browser/curl: a finance/accounting page (Decimal money renders),
 - **Order rationale:** migrate-before-code is only safe for *additive* migrations; this one is breaking, so build first, then migrate+restart back-to-back to minimize the broken window. (A true zero-downtime path would be expand-contract — out of scope here.)
 - The duplicate timestamp `20260603120000` (`add_meeting_video_fields` vs `add_project_classification_relation`) is a non-issue: both are already recorded in the shared `_prisma_migrations` (Prisma matches by name).
 - Keep all output redacted of `postgres://…:password@…`.
+
+---
+
+## Foreman watchdog (daemon-down alerting)
+
+Detect silent foreman daemon (no heartbeat for 10+ minutes) and fire alerts to the app. Installed once, runs independently on the host.
+
+### Installation
+
+1. **Create the env file** (root-owned, 0600):
+   ```bash
+   sudo tee /etc/foreman-watchdog.env > /dev/null <<'EOF'
+   DATABASE_URL="postgresql://cosmos:password@127.0.0.1:5432/cosmos"
+   FOREMAN_ALERT_TOKEN="<generate: openssl rand -hex 32>"
+   ALERT_URL="http://127.0.0.1:8090/api/foreman/alert"
+   EOF
+   sudo chmod 0600 /etc/foreman-watchdog.env
+   ```
+   Replace `password` with the actual DB password, and generate a random token with `openssl rand -hex 32`.
+
+2. **Copy systemd units** to the system:
+   ```bash
+   sudo cp /home/defcon/cosmos-v2/.deploy/foreman-watchdog.{service,timer} /etc/systemd/system/
+   sudo cp /home/defcon/cosmos-v2/.deploy/foreman-alert.service /etc/systemd/system/
+   ```
+
+3. **Reload systemd and enable the timer**:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now foreman-watchdog.timer
+   ```
+
+4. **Wire up unit failure alerts** (edit the foreman.service drop-in):
+   ```bash
+   sudo systemctl edit foreman
+   ```
+   Add under `[Unit]`:
+   ```ini
+   OnFailure=foreman-alert.service
+   ```
+
+5. **Configure the app** to accept alerts (same token):
+   - Add `FOREMAN_ALERT_TOKEN=<the-same-32-char-hex-token>` to the app container env (e.g., `docker-compose.override.yml` or cloud secrets).
+   - The app endpoint `/api/foreman/alert` (bearer auth) dedupes alerts 6h server-side and writes alert rows.
+
+### Verification
+
+- Check timer status: `sudo systemctl status foreman-watchdog.timer`
+- Manual test (requires stale DB state):
+  ```bash
+  DATABASE_URL="postgresql://cosmos:…@host/cosmos" FOREMAN_ALERT_TOKEN=test ALERT_URL=http://127.0.0.1:8090/api/foreman/alert bash /home/defcon/cosmos-v2/.deploy/foreman-watchdog.sh
+  echo "exit=$?"
+  ```
+  Must exit 0. Check `/var/tmp/foreman-watchdog.state` for the internal state file (should contain `0` or `1`).

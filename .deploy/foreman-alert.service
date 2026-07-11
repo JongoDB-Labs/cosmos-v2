@@ -1,0 +1,8 @@
+[Unit]
+Description=Foreman unit failure alert
+
+[Service]
+Type=oneshot
+User=defcon
+EnvironmentFile=/etc/foreman-watchdog.env
+ExecStart=/bin/bash -c 'curl -fsS -m 10 -X POST ${ALERT_URL} -H "Authorization: Bearer ${FOREMAN_ALERT_TOKEN}" -H "Content-Type: application/json" -d '"'"'{"check":"unit-failure"}'"'"' || true'

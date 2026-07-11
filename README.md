@@ -40,6 +40,17 @@ automation**.
    (never metered API billing) and is gated behind an org toggle and a kill
    switch. See [`docs/runbooks/autonomous-delivery.md`](docs/runbooks/autonomous-delivery.md).
 
+**Observability & supervision.** Every org with autonomous delivery gets a
+dedicated `/[org]/foreman` console: live pulse (alive/idle/stale/paused/circuit-
+breaker), what's building right now, tickets parked awaiting a human decision
+(with one-click requeue), and a full decision-feed audit trail. A compact pulse
+card on the org dashboard mirrors the same at-a-glance status and links straight
+through. Pause and resume the daemon from either surface — in-flight work always
+finishes first, nothing is discarded. A host-side systemd timer watches the
+daemon's heartbeat and, if it goes quiet, POSTs to `/api/foreman/alert` (bearer-
+authenticated via the `FOREMAN_ALERT_TOKEN` env var) so a stuck or crashed
+daemon doesn't fail silently.
+
 The difference between auto-triage and autonomous delivery is only where a ticket
 lands: triage puts it in the backlog; delivery takes it to **Done** (a merged,
 versioned, deployed change) or **In Review** (a draft PR).
