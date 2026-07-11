@@ -46,12 +46,29 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
     : [];
   const events = parked.length
     ? await prisma.foremanEvent.findMany({
-        where: { workItemId: { in: parked.map((w) => w.id) }, kind: { in: ["parked", "gated", "needs-input"] } },
+        where: {
+          workItemId: { in: parked.map((w) => w.id) },
+          kind: { in: ["parked", "gated", "needs-input", "ship-failed", "merged-undeployed"] },
+        },
         orderBy: { ts: "desc" },
-        distinct: ["workItemId"],
       })
     : [];
-  const latestByItem = new Map(events.map((e) => [e.workItemId, e]));
+  // Pick, per item, the newest event that actually carries a reason (data.reason),
+  // falling back to the newest listed event of any kind. Blindly taking the latest
+  // (the old `distinct`) let a later reason-less `gated`/`ship-failed` blank the
+  // reason/prUrl a prior `parked` recorded. `events` is ts-desc, so the first hit
+  // per item is the newest of its category.
+  const newestByItem = new Map<string, (typeof events)[number]>();
+  const reasonedByItem = new Map<string, (typeof events)[number]>();
+  for (const e of events) {
+    if (!e.workItemId) continue;
+    if (!newestByItem.has(e.workItemId)) newestByItem.set(e.workItemId, e);
+    const hasReason = ((e.data ?? {}) as { reason?: unknown }).reason != null;
+    if (hasReason && !reasonedByItem.has(e.workItemId)) reasonedByItem.set(e.workItemId, e);
+  }
+  const latestByItem = new Map(
+    parked.map((w) => [w.id, reasonedByItem.get(w.id) ?? newestByItem.get(w.id)] as const),
+  );
   const awaitingApproval = parked.map((wi) => {
     const ev = latestByItem.get(wi.id);
     const data = (ev?.data ?? {}) as { reason?: string; prUrl?: string };

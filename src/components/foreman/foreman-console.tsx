@@ -121,7 +121,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         method: "POST",
         body: JSON.stringify({ workItemId }),
       }),
-    invalidate: [["foreman-status"]],
+    invalidate: [["foreman-status"], ["foreman-events"]],
     onSuccess: (_res, workItemId) => {
       qc.setQueryData<ForemanStatusPayload>(statusKey, (old) =>
         old

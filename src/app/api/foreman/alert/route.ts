@@ -8,7 +8,7 @@ import { notifyOrgOwners } from "@/lib/feedback/delivery-notify";
 
 const alertSchema = z.object({
   check: z.enum(["stale", "unit-failure"]),
-  lastPassAt: z.string().optional(),
+  lastPassAt: z.string().datetime({ offset: true }).optional(),
 });
 
 /** Same window the daemon's own dedup logic favors elsewhere — long enough that

@@ -676,7 +676,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       );
       record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
       await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined });
-      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "error", message: "deploy health-gate failed; rolled back", data: { reason: "deploy health-gate failed; rolled back", version } });
+      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "error", message: "deploy health-gate failed; rolled back", data: { reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined } });
     } catch (cleanupErr) {
       log(`${b.key} deploy-gate cleanup error (continuing to circuit breaker): ${String(cleanupErr)}`);
     }
@@ -911,9 +911,14 @@ async function main(): Promise<void> {
   if (!DRY) {
     const reclaimed = await db.reclaimStranded();
     if (reclaimed.length > 0) {
-      const msg = `reclaimed ${reclaimed.length} stranded in-progress → backlog: ${reclaimed.join(", ")}`;
+      const msg = `reclaimed ${reclaimed.length} stranded in-progress → backlog: ${reclaimed.map((r) => r.ref).join(", ")}`;
       log(msg);
-      await obs.track({ kind: "reclaimed", message: msg });
+      // F4: one org-scoped event PER reclaimed item (orgId auto-resolves from
+      // workItemId inside track()) instead of a single org-less aggregate that
+      // leaked every org's ticket refs into the org-less feed. Aggregate log() stays.
+      for (const r of reclaimed) {
+        await obs.track({ workItemId: r.id, ticketKey: r.ref, kind: "reclaimed", message: `${r.ref} reclaimed → backlog (stranded in-progress at startup)` });
+      }
     }
     // Snap every linked feedback status back to its ticket's actual column —
     // heals any drift from paths that bypassed the live sync (see db.mts).
@@ -1013,6 +1018,11 @@ async function main(): Promise<void> {
             if (reconcileDeployFails >= BREAKER) {
               log("circuit breaker: 2 deploy failures — disabling");
               writeFileSync(STOP, "circuit-breaker");
+              // F2: mirror the enqueueShip breaker site — surface the trip in-app so the
+              // console reads "Circuit breaker", not a silently-decaying "Stale". No item
+              // is in scope here (the failing ref lives inside reconcileGated), so the
+              // org-less breaker event is the whole fix (spec-sanctioned).
+              await obs.track({ kind: "breaker", severity: "error", message: "circuit breaker tripped — reconcile deploy failed twice; daemon stopping" });
             }
           } else {
             log(`reconcile skipped: ${String(e)}`); // transient gh/git/db — not a deploy failure
@@ -1118,6 +1128,22 @@ async function main(): Promise<void> {
     if (inflight.size > 0) log(`draining ${inflight.size} in-flight build(s)…`);
     await Promise.allSettled([...inflight.values()]);
     await shipChain.catch(() => undefined);
+    // Final truthful heartbeat (F1): the pump loop stops the instant `killed()` goes
+    // true, so a breaker trip / STOP file / `systemctl stop` would otherwise leave the
+    // last-written state reading healthy — the console pill then decays to "Stale"
+    // instead of "Circuit breaker". Write the real shutdown state once more so
+    // `breaker`/`stopFileSeen` surface truthfully. Best-effort: obs.heartbeat already
+    // swallows, and the extra `.catch` guarantees drain/lock-release still proceed.
+    await obs
+      .heartbeat({
+        workerTarget: 0,
+        slotsBusy: inflight.size,
+        queueDepth: 0,
+        inFlight: [...inFlightMeta.values()],
+        breaker: breakerSnapshot(),
+        stopFileSeen: killed(),
+      })
+      .catch(() => undefined);
   } finally {
     rmSync(LOCK, { force: true });
     log("foreman stopped");

@@ -36,7 +36,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         OR: enabled ? [{ orgId }, { orgId: null }] : [{ orgId }],
         ...(kind && (EVENT_KINDS as readonly string[]).includes(kind) ? { kind } : {}),
       },
-      orderBy: { ts: "desc" },
+      orderBy: [{ ts: "desc" }, { id: "desc" }],
       take: limit,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });

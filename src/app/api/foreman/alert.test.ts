@@ -83,6 +83,13 @@ describe("POST /api/foreman/alert", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400s on a non-ISO lastPassAt (attacker-influencable text is rejected)", async () => {
+    process.env.FOREMAN_ALERT_TOKEN = "secret-token";
+    const res = await postAlert(req({ check: "stale", lastPassAt: "not-a-date" }, "secret-token"));
+    expect(res.status).toBe(400);
+    expect(notifyOrgOwners).not.toHaveBeenCalled();
+  });
+
   it("processes the first call, then dedupes an identical check inside the window", async () => {
     process.env.FOREMAN_ALERT_TOKEN = "secret-token";
 
