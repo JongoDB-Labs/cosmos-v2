@@ -34,6 +34,9 @@ interface KanbanCardProps {
   /** Ctrl/Cmd-click a card (when NOT already in select mode) → enter select
    *  mode with this card selected (FR: "hold ctrl/cmd to select cards"). */
   onCtrlSelect?: (id: string) => void;
+  /** Shift-click a card → select the contiguous range from the anchor to this
+   *  card (enters select mode if needed). COSMOS-39. */
+  onRangeSelect?: (id: string) => void;
 }
 
 type Priority = WorkItem["priority"];
@@ -63,6 +66,7 @@ export function KanbanCard({
   selected = false,
   onToggleSelect,
   onCtrlSelect,
+  onRangeSelect,
 }: KanbanCardProps) {
   const {
     attributes,
@@ -189,6 +193,9 @@ export function KanbanCard({
         aria-describedby={undefined}
         aria-pressed={selectMode ? selected : undefined}
         onClick={(e) => {
+          // Shift-click always takes the range path (in or out of select mode)
+          // so it never falls through to opening the detail sheet.
+          if (e.shiftKey && onRangeSelect) return onRangeSelect(item.id);
           if (selectMode) return onToggleSelect?.(item.id);
           if ((e.metaKey || e.ctrlKey) && onCtrlSelect)
             return onCtrlSelect(item.id);

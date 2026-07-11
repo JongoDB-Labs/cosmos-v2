@@ -1,6 +1,14 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -27,6 +35,7 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
+import { selectRange } from "@/lib/boards/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
@@ -145,6 +154,11 @@ function KanbanBoardInner({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
+  // Selection anchor for shift-click range selection: the last card the user
+  // toggled with a plain / cmd-click. A shift-click selects the contiguous
+  // range from here to the clicked card. A ref (not state) — it never needs to
+  // re-render, it just seeds the next range calc.
+  const anchorIdRef = useRef<string | null>(null);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   // Custom-field defs for this project — drives the FilterBar's per-field
@@ -177,6 +191,8 @@ function KanbanBoardInner({
   );
 
   const toggleSelect = useCallback((id: string) => {
+    // A plain toggle re-anchors: the next shift-click ranges from this card.
+    anchorIdRef.current = id;
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -188,13 +204,35 @@ function KanbanBoardInner({
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);
     setSelectedIds(new Set());
+    anchorIdRef.current = null;
   }, []);
 
   // Ctrl/Cmd-click a card (outside select mode) → enter select mode with it
   // selected (FR: "hold ctrl/cmd to select multiple cards").
   const ctrlSelect = useCallback((id: string) => {
+    anchorIdRef.current = id;
     setSelectMode(true);
     setSelectedIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  // Shift-click a card → select the contiguous range between the anchor (last
+  // plainly-clicked card) and this one, in on-screen order. Takes priority over
+  // opening the detail sheet, so it works whether or not select mode is already
+  // on and never pops the (modal) sheet mid-selection. `ordered` is the visible
+  // card ids in display order, passed from the render body so it's never stale.
+  const rangeSelect = useCallback((id: string, ordered: readonly string[]) => {
+    setSelectMode(true);
+    setSelectedIds((prev) => selectRange(ordered, anchorIdRef.current, id, prev));
+    // Seed an anchor on the first-ever shift-click; keep it fixed afterwards so
+    // repeated shift-clicks extend from the same origin (file-manager behavior).
+    if (anchorIdRef.current == null) anchorIdRef.current = id;
+  }, []);
+
+  // Clicking empty board background clears the current multi-selection. Guarded
+  // by the caller to fire only on genuine background clicks (not card clicks).
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    anchorIdRef.current = null;
   }, []);
 
   // Monotonic request id: a realtime refetch may race the initial load (or
@@ -433,6 +471,27 @@ function KanbanBoardInner({
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
+  // Visible card ids in on-screen order (columns left-to-right, cards top-to-
+  // bottom within each; lanes stacked top-to-bottom in swimlane mode). This is
+  // the sequence a shift-click range walks — matching what the user sees.
+  const orderedVisibleIds: string[] = lanes
+    ? lanes.flatMap((lane) =>
+        columns.flatMap((col) =>
+          itemsForColumnInLane(col.key, lane.items).map((i) => i.id),
+        ),
+      )
+    : columns.flatMap((col) => itemsForColumn(col.key).map((i) => i.id));
+
+  // Bind the current visible order into the range handler so cards (which don't
+  // know the board order) can just pass their own id on shift-click.
+  const handleRangeSelect = (id: string) => rangeSelect(id, orderedVisibleIds);
+
+  // Empty-space click clears the selection — but only genuine background clicks
+  // (the board's own padding / gaps), never a click that bubbled from a card.
+  const handleBackgroundClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget && selectMode) clearSelection();
+  };
+
   // DnD sensors - hybrid touch-aware activation:
   //   mouse: PointerSensor with 5px drag distance (immediate)
   //   touch: TouchSensor with 250ms long-press + 5px tolerance (avoids
@@ -640,6 +699,10 @@ function KanbanBoardInner({
   }
 
   function handleCardClick(item: WorkItem) {
+    // Record the anchor even on a plain open, so the user's described flow —
+    // "click one card, then shift-click another" — selects the range between
+    // them (the ref persists across the detail sheet opening/closing).
+    anchorIdRef.current = item.id;
     setDetailItem(item);
     setDetailOpen(true);
   }
@@ -926,7 +989,10 @@ function KanbanBoardInner({
           // single DndContext above spans all of them so cards drag within and
           // across lanes (a drop changes columnKey/status; the lane it lands in
           // follows from the unchanged grouping attribute).
-          <div className="flex flex-col gap-4 overflow-auto flex-1 p-4">
+          <div
+            className="flex flex-col gap-4 overflow-auto flex-1 p-4"
+            onClick={handleBackgroundClick}
+          >
             {lanes.map((lane) => (
               <section key={lane.id || "__none__"} className="flex flex-col gap-2">
                 <div className="flex items-center gap-2 sticky left-0">
@@ -955,6 +1021,7 @@ function KanbanBoardInner({
                       selectedIds={selectedIds}
                       onToggleSelect={toggleSelect}
                       onCtrlSelect={ctrlSelect}
+                      onRangeSelect={handleRangeSelect}
                     />
                   ))}
                 </div>
@@ -967,7 +1034,10 @@ function KanbanBoardInner({
             )}
           </div>
         ) : (
-          <div className="flex gap-3 overflow-x-auto scrollbar-x flex-1 p-4">
+          <div
+            className="flex gap-3 overflow-x-auto scrollbar-x flex-1 p-4"
+            onClick={handleBackgroundClick}
+          >
             {columns.map((col) => (
               <KanbanColumn
                 key={col.id}
@@ -982,7 +1052,8 @@ function KanbanBoardInner({
                 selectMode={selectMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
-                      onCtrlSelect={ctrlSelect}
+                onCtrlSelect={ctrlSelect}
+                onRangeSelect={handleRangeSelect}
               />
             ))}
           </div>
