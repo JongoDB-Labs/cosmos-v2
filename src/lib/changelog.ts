@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.169.2",
+    date: "2026-07-10",
+    title: "Say \"Hey Cosmo\"",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Voice wake-up now answers to \"Hey Cosmo\" — matching your assistant's name — and the sidebar toggle and listening indicator say so. The old \"Hey COSMOS\" phrase still works.",
+      },
+    ],
+  },
+  {
     version: "2.169.0",
     date: "2026-07-10",
     title: "⌘K searches everything now",
