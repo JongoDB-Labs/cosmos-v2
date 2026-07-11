@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { History, Rocket, PauseCircle, AlertTriangle, HardHat, type LucideIcon } from "lucide-react";
+import { History, Rocket, PauseCircle, AlertTriangle, type LucideIcon } from "lucide-react";
+import { ForemanMark } from "./foreman-mark";
 import { rel } from "./foreman-console";
 
 // The events API returns full foreman_events rows (orgId, workItemId, data,
@@ -41,7 +42,7 @@ function iconForKind(kind: string): LucideIcon {
   if (kind === "shipped") return Rocket;
   if (kind === "parked" || kind === "gated") return PauseCircle;
   if (kind === "error" || kind === "ship-failed") return AlertTriangle;
-  return HardHat;
+  return ForemanMark as unknown as LucideIcon;
 }
 
 export function ForemanEventFeed({ orgId }: { orgId: string }) {

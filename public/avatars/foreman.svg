@@ -1,8 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Foreman">
   <title>Foreman</title>
-  <!-- Foreman: a plain hard hat — modern flat glyph, no character. Fixed colors
-       (no CSS vars) so it renders identically via <img src> on any theme. -->
   <circle cx="64" cy="64" r="64" fill="#242a33"/>
-  <path fill="#f6b90d" d="M52 30.5c1-4.3 23-4.3 24 0l1.6 7.4C90.4 42.6 100 54.6 100 69v6H28v-6c0-14.4 9.6-26.4 22.4-31.1Z"/>
-  <path fill="#d99a04" d="M56.6 27.4h14.8v35.2H56.6zM25 81h78c3.6 0 6.5 2.9 6.5 6.5S106.6 94 103 94H25c-3.6 0-6.5-2.9-6.5-6.5S21.4 81 25 81Z"/>
+  <g fill="#cfd6dd" transform="translate(12.8,12.8) scale(0.8)">
+    <!-- dome: left segment, center tab, right segment (slots = gaps) -->
+    <path d="M50 26.5 L50 62 L26 62 C26 44 35 31.5 50 26.5 Z"/>
+    <rect x="55" y="21" width="18" height="41" rx="4"/>
+    <path d="M78 26.5 C93 31.5 102 44 102 62 L78 62 Z"/>
+    <!-- brim -->
+    <rect x="16" y="66" width="96" height="11" rx="5.5"/>
+    <!-- sunglass-style goggles: wide lens bar, tapered rounded ends, nose notch from below -->
+    <path d="M31 82 L97 82 C103 82 106 85 106 90 C106 99 101 104 92 104 L74.5 104 C71.5 104 70.5 100.5 69.5 98.5 C68.5 96.5 66.5 95.5 64 95.5 C61.5 95.5 59.5 96.5 58.5 98.5 C57.5 100.5 56.5 104 53.5 104 L36 104 C27 104 22 99 22 90 C22 85 25 82 31 82 Z"/>
+  </g>
 </svg>
