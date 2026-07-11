@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
-import { CosmoAvatar, CosmoGlyph } from "./cosmo-avatar";
+import { CosmoAvatar } from "./cosmo-avatar";
 
 afterEach(cleanup);
 
@@ -29,15 +29,5 @@ describe("CosmoAvatar", () => {
     const ids = [...container.querySelectorAll("radialGradient, linearGradient, clipPath, filter")].map((el) => el.id);
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length); // all unique
-  });
-});
-
-describe("CosmoGlyph", () => {
-  it("is a reserved, currentColor line mark (no fills, no fixed colors)", () => {
-    const { container } = render(<CosmoGlyph />);
-    const svg = container.querySelector("svg")!;
-    expect(svg.getAttribute("stroke")).toBe("currentColor");
-    expect(svg.getAttribute("fill")).toBe("none");
-    expect(container.innerHTML).not.toMatch(/#[0-9a-f]{3,6}/i); // zero hardcoded colors
   });
 });
