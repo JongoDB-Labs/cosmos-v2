@@ -29,6 +29,7 @@ import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
+import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
@@ -36,6 +37,10 @@ import { runAgent } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
 import { ensureWorkerDbs } from "./worker-db.mjs";
+// Observability writers (Task 3). Imported with the `.mjs` specifier like every
+// sibling module — under this tsconfig (`moduleResolution: bundler`) a `.mts`
+// import path fails typecheck with TS5097; `.mjs` resolves to the `.mts` source.
+import * as obs from "./observe.mjs";
 
 const exec = promisify(execFile);
 
@@ -59,6 +64,25 @@ const MAX_REPAIRS = 2;
 // (Settings → Feedback automation → Parallel builds) via db.deliveryWorkerTarget,
 // re-read each pass so changes apply without a restart. DRY runs single-worker.
 const MAX_SLOTS = DRY ? 1 : 3;
+
+// Daemon's own package version, read once for the boot record. Best-effort: a
+// missing/corrupt package.json must never stop the daemon from booting (the
+// URL is anchored to this module, so it resolves regardless of cwd).
+let pkgVersion = "unknown";
+try {
+  pkgVersion = (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version?: string }).version ?? "unknown";
+} catch {
+  /* keep "unknown" — observability only, not load-bearing */
+}
+
+// Live registry of the builds worker slots are holding right now, mirrored into
+// foreman_state.inFlight on every heartbeat. setPhase advances an entry through
+// the pipeline; it's a no-op once the entry has been released (build finished).
+const inFlightMeta = new Map<string, InFlightBuild>();
+function setPhase(itemId: string, phase: InFlightBuild["phase"], extra?: { repairRound?: number }): void {
+  const cur = inFlightMeta.get(itemId);
+  if (cur) inFlightMeta.set(itemId, { ...cur, phase, ...(extra ?? {}) });
+}
 
 function log(msg: string): void {
   const line = `${new Date().toISOString()} ${msg}\n`;
@@ -180,8 +204,21 @@ async function processOne(
   const key = brief.key;
   // DRY records to the .dry ledger so a preview never pollutes the real history
   // (which would seed the next armed run's dedup). (I5)
-  const record = (e: Omit<LedgerEntry, "ts">): void =>
+  const record = (e: Omit<LedgerEntry, "ts">): void => {
     appendLedger(DRY ? LEDGER_DRY : LEDGER, { ...e, ts: new Date().toISOString() });
+    // Every durable outcome also lands in the live event feed (best-effort, never
+    // awaited — obs.track swallows its own errors). Suppressed in DRY, exactly
+    // like the terminal board writes, so a preview never seeds the real feed.
+    if (!DRY)
+      void obs.track({
+        workItemId: item.id,
+        ticketKey: e.ticket,
+        kind: LEDGER_KIND_MAP[e.resolution] ?? "error",
+        severity: e.resolution === "gated" ? "warn" : "info",
+        message: `${e.ticket} ${e.resolution}${e.version ? ` v${e.version}` : ""}${e.dupOf ? ` (dup of ${e.dupOf})` : ""}`,
+        data: { version: e.version, dupOf: e.dupOf },
+      });
+  };
 
   // Dedup gate FIRST — don't spin a worktree for something already known. In DRY,
   // read the real ledger AND the .dry ledger (so a preview dedups against real
@@ -218,6 +255,7 @@ async function processOne(
       await db.addTag(item.id, "needs-input");
       await db.comment(item.id, `❓ Needs your input before I can build this: ${clar.question}\n\nAnswer in the description/comments and move the card back to Backlog to re-queue.`);
       await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: `needs input — ${clar.question}` });
+      await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: `needs input — ${clar.question}`, data: { reason: clar.question } });
     }
     record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "needs-input" });
     return {};
@@ -275,6 +313,7 @@ async function processOne(
         await db.moveColumn(item.id, "review");
         await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
         await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
+        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete" } });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return {};
@@ -301,12 +340,14 @@ async function processOne(
     // resumed (full context of what it built) with the failing output and told to
     // fix forward — up to MAX_REPAIRS rounds, then gate. This targets the observed
     // failure mode where a good change's own new test needed one more iteration.
+    setPhase(item.id, "checks");
     let checks = await runChecks(wt, { testDbUrl: workerOpts.testDbUrl });
     let repairs = 0;
     while (!checks.ok && repairs < MAX_REPAIRS) {
       if (await haltIfKilled()) return {}; // never keep building past a kill
       repairs++;
       log(`${key} checks failed — repair round ${repairs}/${MAX_REPAIRS}`);
+      setPhase(item.id, "repair", { repairRound: repairs });
       const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
         resume: agent.sessionId ?? undefined,
         timeoutMs: 25 * 60_000,
@@ -367,6 +408,7 @@ async function processOne(
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       if (!DRY) await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason, version });
+      if (!DRY) await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: reason, data: { reason, version } });
     };
 
     if (!checks.ok || risk.gated) {
@@ -400,6 +442,7 @@ async function processOne(
       reviewDiff = { kind: "file", path: diffFile };
     }
     const reviewOpts = { allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
+    setPhase(item.id, "review");
     let review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
     if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
     const verdict = review.ok
@@ -415,6 +458,10 @@ async function processOne(
     // SAFE → hand off to the serialized SHIP worker. The agent bumped from the
     // main it branched off; ship re-bumps after rebasing onto CURRENT main.
     log(`${key} SAFE → queued for ship (built v${version})${DRY ? " (DRY)" : ""}`);
+    setPhase(item.id, "queued-ship");
+    // Suppressed in DRY — the next line returns instead of actually queuing, so a
+    // preview must not emit a ship-path event for work it never hands off.
+    if (!DRY) await obs.track({ workItemId: item.id, ticketKey: key, kind: "queued-ship", message: `SAFE → queued for ship (built v${version})` });
     if (DRY) {
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "shipped", version });
       return {};
@@ -469,8 +516,20 @@ async function processOne(
  *  GUARDED (a pre-existing tag parks instead of deploying someone else's
  *  image — the v2.174.0 lesson). Returns deployFailed for the breaker. */
 async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
-  const record = (e: Omit<LedgerEntry, "ts">): void =>
+  setPhase(b.itemId, "shipping");
+  const record = (e: Omit<LedgerEntry, "ts">): void => {
     appendLedger(LEDGER, { ...e, ts: new Date().toISOString() });
+    // Mirror processOne: every ship outcome also lands in the live event feed.
+    if (!DRY)
+      void obs.track({
+        workItemId: b.itemId,
+        ticketKey: e.ticket,
+        kind: LEDGER_KIND_MAP[e.resolution] ?? "error",
+        severity: e.resolution === "gated" ? "warn" : "info",
+        message: `${e.ticket} ${e.resolution}${e.version ? ` v${e.version}` : ""}${e.dupOf ? ` (dup of ${e.dupOf})` : ""}`,
+        data: { version: e.version, dupOf: e.dupOf },
+      });
+  };
   const parkShip = async (reason: string): Promise<void> => {
     log(`${b.key} SHIP PARKED (${reason}) → In Review`);
     await ship.pushBranch(b.branch).catch(() => undefined);
@@ -492,6 +551,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
     );
     record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
     await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason, prUrl: prUrl || undefined });
+    await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "warn", message: reason, data: { reason, prUrl: prUrl || undefined } });
   };
 
   try {
@@ -585,6 +645,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       );
       record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
       await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: merged ? "merged but not deployed" : "ship failed before merge", version, prUrl: prUrl || undefined });
+      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: merged ? "merged-undeployed" : "ship-failed", severity: "error", message: merged ? `merged but not deployed (v${version})` : "ship failed before merge", data: { version, prUrl: prUrl || undefined, merged } });
       return { deployFailed: false };
     }
 
@@ -675,6 +736,7 @@ async function processMentions(): Promise<void> {
         }
         await db.comment(m.itemId, reply);
         await db.notifyReply(m.itemId, m.askerUserId, m.key, reply);
+        await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "mention-reply", message: `replied to @Foreman mention on ${m.key}` });
       }
     } catch (e) {
       log(`${m.key} mention handling failed (${String(e)}) — continuing`);
@@ -828,6 +890,10 @@ async function main(): Promise<void> {
   }
   writeFileSync(LOCK, String(process.pid));
   log(`foreman started (pid ${process.pid})${DRY ? " — DRY RUN (no merge/deploy/DB-writes)" : ""}`);
+  // Boot the host row + a boot event. These fire even in DRY (the only feed
+  // writes that do) so the status surface shows a live daemon during a preview.
+  await obs.boot({ daemonVersion: pkgVersion, pid: process.pid, workerTarget: MAX_SLOTS });
+  await obs.track({ kind: "boot", message: `foreman started (pid ${process.pid})` });
   // M3: reclaim anything a prior crash left behind — a leftover staging dir plus
   // the worktree registration that points at it — so the per-ticket `worktree add`
   // below can't be blocked by a stale entry.
@@ -843,11 +909,19 @@ async function main(): Promise<void> {
   // (nothing is working it under this single-daemon lock) back to the pickable pool.
   if (!DRY) {
     const reclaimed = await db.reclaimStranded();
-    if (reclaimed.length > 0) log(`reclaimed ${reclaimed.length} stranded in-progress → backlog: ${reclaimed.join(", ")}`);
+    if (reclaimed.length > 0) {
+      const msg = `reclaimed ${reclaimed.length} stranded in-progress → backlog: ${reclaimed.join(", ")}`;
+      log(msg);
+      await obs.track({ kind: "reclaimed", message: msg });
+    }
     // Snap every linked feedback status back to its ticket's actual column —
     // heals any drift from paths that bypassed the live sync (see db.mts).
     const resynced = await db.resyncFeedbackTruth().catch(() => 0);
-    if (resynced > 0) log(`feedback ground-truth resync over ${resynced} linked items`);
+    if (resynced > 0) {
+      const msg = `feedback ground-truth resync over ${resynced} linked items`;
+      log(msg);
+      await obs.track({ kind: "resync", message: msg });
+    }
   }
   let consecutiveDeployFails = 0;
   // Reconcile gets its OWN deploy-failure breaker, independent of the shared
@@ -857,6 +931,15 @@ async function main(): Promise<void> {
   // forever without ever tripping. Same threshold + halt action. (I3)
   let reconcileDeployFails = 0;
   const BREAKER = 2;
+  // Deploy-breaker snapshot for the heartbeat. It lives here (not beside setPhase)
+  // because it reads the loop's function-local failure counters. There's no
+  // aggregate build-failure streak variable (build failures gate per-ticket), so
+  // `build` is 0; `deploy` is the worse of the two independent deploy streaks.
+  const breakerSnapshot = (): { build: number; deploy: number; tripped: boolean } => ({
+    build: 0,
+    deploy: Math.max(consecutiveDeployFails, reconcileDeployFails),
+    tripped: consecutiveDeployFails >= BREAKER || reconcileDeployFails >= BREAKER,
+  });
   // DRY surveys each backlog ticket exactly once: terminal column moves are
   // skipped in DRY, so without this the picked ticket stays in `backlog` and the
   // loop would re-process the same top-priority one forever. (I1)
@@ -887,11 +970,14 @@ async function main(): Promise<void> {
   const enqueueShip = (b: Built): void => {
     shipChain = shipChain
       .then(() => shipBuilt(b))
-      .then((r) => {
+      .then(async (r) => {
         if (r.deployFailed) {
           if (++consecutiveDeployFails >= BREAKER) {
             log("circuit breaker: 2 deploy failures — disabling");
             writeFileSync(STOP, "circuit-breaker");
+            await obs.track({ kind: "breaker", severity: "error", message: "circuit breaker tripped — 2 consecutive deploy failures; daemon stopping" });
+            // breaker fanout rides the parked channel; generic notifyOrgOwners arrives with the alert endpoint
+            await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: "circuit breaker tripped — daemon stopped" });
           }
         } else {
           consecutiveDeployFails = 0;
@@ -939,6 +1025,14 @@ async function main(): Promise<void> {
         const pool = DRY ? backlog.filter((b) => !processed.has(b.id)) : backlog;
         // LIVE target from org settings (clamped by provisioning + env cap).
         const workerTarget = DRY ? 1 : Math.min(slotCap, await db.deliveryWorkerTarget().catch(() => 1));
+        await obs.heartbeat({
+          workerTarget,
+          slotsBusy: inflight.size,
+          queueDepth: pool.length,
+          inFlight: [...inFlightMeta.values()],
+          breaker: breakerSnapshot(),
+          stopFileSeen: killed(),
+        });
         while (inflight.size < workerTarget && freeSlots.length > 0 && !killed()) {
           const candidates = pool.filter(
             (c) => !inflight.has(c.id) && (attempts.get(c.id) ?? 0) < MAX_ATTEMPTS,
@@ -954,6 +1048,15 @@ async function main(): Promise<void> {
             continue;
           }
           const slot = freeSlots.shift()!;
+          const ref = buildRef(item.projectKey, item.ticketNumber);
+          inFlightMeta.set(item.id, {
+            key: ref, itemId: item.id, orgId: item.orgId, title: item.title,
+            phase: "building", since: new Date().toISOString(),
+          });
+          // The in-memory registry set above is harmless in DRY, but a "claimed"
+          // event is not — DRY never calls db.claimTicket, so there is no real
+          // claim to report. Gate it on !DRY like the other decision events.
+          if (!DRY) await obs.track({ workItemId: item.id, orgId: item.orgId, ticketKey: ref, kind: "claimed", message: `claimed ${ref} for build` });
           const task = (async () => {
             try {
               const out = await processOne(item, { testDbUrl: workerDbUrls[slot] });
@@ -969,10 +1072,12 @@ async function main(): Promise<void> {
                 await db
                   .comment(item.id, `Repeatedly failed to process (${n} attempts) — needs a human. Last error: ${String(e)}`)
                   .catch(() => undefined);
+                await obs.track({ workItemId: item.id, kind: "gated", severity: "warn", message: `repeatedly failed (${n} attempts) — parked for review` });
               }
               await idleSleep(30_000); // bounded backoff without hot-looping the slot
             } finally {
               inflight.delete(item.id);
+              inFlightMeta.delete(item.id);
               freeSlots.push(slot);
             }
           })();
