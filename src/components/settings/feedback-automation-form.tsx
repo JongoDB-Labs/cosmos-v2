@@ -19,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Wand2, Info, HardHat } from "lucide-react";
+import { Wand2, Info } from "lucide-react";
+import { ForemanMark } from "@/components/foreman/foreman-mark";
 
 interface ProjectOption {
   id: string;
@@ -367,7 +368,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 font-medium text-[var(--text)]">
-              <HardHat className="size-4 text-[var(--primary)]" /> Autonomous delivery
+              <ForemanMark className="size-4 text-[var(--primary)]" /> Autonomous delivery
               <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                 Owner
               </span>
