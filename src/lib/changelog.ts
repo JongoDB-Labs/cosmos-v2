@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.170.0",
+    date: "2026-07-10",
+    title: "Search inside long dropdowns",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Picking a parent issue is now a type-to-filter search instead of an endless scroll — start typing a ticket number or title and the list narrows to matches (case-insensitive) as you go, with full keyboard navigation. Clearing the box brings the whole list back. Handy on projects with hundreds of issues.",
+      },
+    ],
+  },
+  {
     version: "2.169.2",
     date: "2026-07-10",
     title: "Say \"Hey Cosmo\"",
