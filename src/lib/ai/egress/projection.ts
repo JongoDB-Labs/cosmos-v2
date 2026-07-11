@@ -69,6 +69,100 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // semanticSearch hits are `{type, id, title, snippet, similarity, url}`.
   // Expose id/type/similarity ONLY — `title`/`snippet`/`url` are/derive CUI.
   search_result: ["id", "type", "similarity"],
+  // listObjectives/create/updateObjective return id/projectId/ownerId/parentId/status/
+  // title/description/targetDate/sortOrder/progress/health(+keyResults[]). `title`/
+  // `description` are content, `keyResults` a nested array → dropped; `progress`(0-100)
+  // + `health`(stoplight) are structural.
+  objective: [
+    "id", "projectId", "ownerId", "parentId", "status", "health", "progress",
+    "targetDate", "sortOrder", "createdAt", "updatedAt",
+  ],
+  // create/update/listKeyResult return id/objectiveId/ownerId/status/rag/confidence/
+  // lowerIsBetter/sortOrder + title + start/current/targetValue + unit. `title`/`unit`
+  // are content; the *Value metrics are ambiguous domain values → dropped. `confidence`
+  // (0-100) + `rag` (stoplight enum) are structural.
+  key_result: [
+    "id", "objectiveId", "ownerId", "status", "rag", "confidence",
+    "lowerIsBetter", "sortOrder", "createdAt", "updatedAt",
+  ],
+  // addKrCheckin returns id/keyResultId/confidence/rag/checkedInById/createdAt. The
+  // check-in `value` (a domain metric) + `note` (content) are NOT selected/exposed.
+  kr_checkin: ["id", "keyResultId", "confidence", "rag", "checkedInById", "createdAt"],
+  // linkKeyResultItem returns id/keyResultId/workItemId/createdAt — all structural FKs.
+  key_result_link: ["id", "keyResultId", "workItemId", "createdAt"],
+  // listMilestones/create/update return id/projectId/ownerId/branchId/status/dueDate/
+  // autoStatus/completedAt/scheduleEscalate/baseline|projected|actualDate/sortOrder(+title).
+  // `title`/`description` are content → dropped.
+  milestone: [
+    "id", "projectId", "ownerId", "branchId", "status", "dueDate", "autoStatus",
+    "completedAt", "scheduleEscalate", "baselineDate", "projectedDate", "actualDate",
+    "sortOrder", "createdAt", "updatedAt",
+  ],
+  // create/updateBlocker return id/code/title/type/status/owner/projectId/branchId/
+  // customerNotified/escalate/identifiedAt/resolvedAt/targetDate/classification. `title`/
+  // `whatUnblocks` are content, `owner` is PII → dropped; `code` (BL-NNN) is structural.
+  blocker: [
+    "id", "code", "projectId", "type", "status", "branchId", "customerNotified",
+    "escalate", "identifiedAt", "resolvedAt", "targetDate", "classification", "createdAt", "updatedAt",
+  ],
+  // create/updateDeliverable return id/code/title/clin/status/owner/projectId/baselineDue/
+  // actualSubmission/govAcceptance/escalate/revisionCycle/milestoneId/branchId/classification.
+  // `title`/`clin`(contract line) are content/sensitive, `owner` PII → dropped.
+  deliverable: [
+    "id", "code", "projectId", "status", "baselineDue", "actualSubmission", "govAcceptance",
+    "escalate", "revisionCycle", "milestoneId", "branchId", "classification", "createdAt", "updatedAt",
+  ],
+  // create/updateChangeRequest return id/code/title/type/status/costImpact/scheduleDaysImpact/
+  // projectId/modRequired/decidedAt/implDate/submittedDate/branchId/classification. `title`/
+  // `type`(free text) are content, `costImpact` is money → dropped; `scheduleDaysImpact`(days) kept.
+  change_request: [
+    "id", "code", "projectId", "status", "scheduleDaysImpact", "modRequired", "decidedAt",
+    "implDate", "submittedDate", "branchId", "classification", "createdAt", "updatedAt",
+  ],
+  // listFeedback/create/setStatus return id/type/status/voteCount/workItemId/projectId/authorId/
+  // title/description/timestamps. `title`/`description` are the reporter's words → dropped
+  // (the executor carries them so the COMMERCIAL path keeps them; gov gets structural only).
+  feedback: ["id", "type", "status", "voteCount", "workItemId", "createdAt"],
+  // listMeetings/create/update return id/projectId/sprintId/customTypeId/meetingType/status/
+  // meetingDate/createdById(+title). `title`/`notes`/`transcript` are content → not exposed.
+  meeting: [
+    "id", "projectId", "sprintId", "customTypeId", "meetingType", "status",
+    "meetingDate", "createdById", "createdAt", "updatedAt",
+  ],
+  // listGoals/create/update return id/projectId/ownerId/status/progress/progressMode/
+  // targetDate/sortOrder(+title). `title`/`description` are content → dropped.
+  goal: [
+    "id", "projectId", "ownerId", "status", "progress", "progressMode",
+    "targetDate", "sortOrder", "createdAt", "updatedAt",
+  ],
+  // listKpis/create/update return id/projectId/direction/autoSource/autoWindowDays/sortOrder
+  // + name/unit/target|currentValue. `name`/`unit` content + the *Value metrics ambiguous → dropped.
+  kpi: [
+    "id", "projectId", "direction", "autoSource", "autoWindowDays",
+    "sortOrder", "createdAt", "updatedAt",
+  ],
+  // listItemLinks/link_items return id/type/sourceItemId/targetItemId/source|targetTicketNumber
+  // (+source|targetTitle). ticket numbers are structural; the titles are content → dropped.
+  work_item_link: [
+    "id", "type", "sourceItemId", "targetItemId", "sourceTicketNumber", "targetTicketNumber", "createdAt",
+  ],
+  // listBoards returns id/projectId/type/sortOrder(+name). `name`/`slug` are content/url-ish → dropped.
+  board: ["id", "projectId", "type", "sortOrder", "createdAt"],
+  // listDocuments returns id/projectId/uploadedById/contentType/format/status/size/pageCount/
+  // classificationLevel(+title). `title`/`filename`/`storageKey` are content → dropped; the MIME
+  // `contentType`, `format`, parse `status`, and `classificationLevel` are structural.
+  document: [
+    "id", "projectId", "uploadedById", "contentType", "format", "status", "size",
+    "pageCount", "classificationLevel", "createdAt", "updatedAt",
+  ],
+  // listPartners returns id/type/status/socioEconomic/perfRating/ndaOnFile/ndaExpiry(+name).
+  // `name`/contact* fields are PII → dropped; the set-aside category + rating are structural.
+  partner: [
+    "id", "type", "status", "socioEconomic", "perfRating", "ndaOnFile", "ndaExpiry", "createdAt", "updatedAt",
+  ],
+  // listProducts returns id/status/currency(+name/category). `name`/`category` are content,
+  // `price` is money (not selected) → dropped; `status`/`currency` are structural.
+  product: ["id", "status", "currency", "createdAt", "updatedAt"],
   // EXTERNAL connector entities (github_issue/github_pull_request — structural-only:
   // number/state/draft/timestamps, title/body WITHHELD) are merged in from the
   // connector registry (see github.descriptor.ts), not listed here.
@@ -154,6 +248,36 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   list_org_members: "org_member",
   query_compliance_controls: "compliance_control", update_compliance_control: "compliance_control",
   semantic_search: "search_result",
+  // Projects + cycles (writes reuse the existing project/cycle structural entities).
+  create_project: "project", update_project: "project",
+  update_cycle: "cycle", complete_cycle: "cycle",
+  // PM register writes (blocker/deliverable/change_request structural-only).
+  create_blocker: "blocker", update_blocker: "blocker",
+  create_deliverable: "deliverable", update_deliverable: "deliverable",
+  create_change_request: "change_request", update_change_request: "change_request",
+  // OKRs.
+  list_objectives: "objective", create_objective: "objective",
+  update_objective: "objective", delete_objective: "objective",
+  create_key_result: "key_result", update_key_result: "key_result",
+  add_kr_checkin: "kr_checkin", link_key_result_item: "key_result_link",
+  // Milestones.
+  list_milestones: "milestone", create_milestone: "milestone",
+  update_milestone: "milestone", delete_milestone: "milestone",
+  // Feedback (title/description withheld for gov — see feedback exposable comment).
+  list_feedback: "feedback", create_feedback: "feedback", set_feedback_status: "feedback",
+  // Meetings.
+  list_meetings: "meeting", create_meeting: "meeting",
+  update_meeting: "meeting", delete_meeting: "meeting",
+  // Goals + KPIs.
+  list_goals: "goal", create_goal: "goal", update_goal: "goal",
+  list_kpis: "kpi", create_kpi: "kpi", update_kpi: "kpi",
+  // Work-item dependency links.
+  list_item_links: "work_item_link", link_items: "work_item_link", unlink_items: "work_item_link",
+  // Boards + documents (read).
+  list_boards: "board", list_documents: "document",
+  // CRM contact writes (reuse crm_contact) + partner/product reads.
+  create_crm_contact: "crm_contact", update_crm_contact: "crm_contact",
+  list_partners: "partner", list_products: "product",
   // EXTERNAL connector tools (github read-only → structural-only github_issue/
   // github_pull_request so a gov tenant sees number/state/timestamps, never
   // titles/bodies) are merged in from the registry (github.descriptor.ts).

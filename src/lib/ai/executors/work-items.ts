@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
-import { Prisma, Priority } from "@prisma/client";
+import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
 
@@ -349,4 +349,120 @@ export async function listWorkItems(
   });
 
   return { count: items.length, items };
+}
+
+// ─── Work-item dependency links ────────────────────────────────────────────
+// Directed edges between two work items in the SAME project. Mirrors
+// `api/v1/orgs/[orgId]/projects/[projectId]/work-item-links/…`.
+
+function linkInvalid(error: z.ZodError): { error: string } {
+  return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
+}
+
+async function projectInOrgWi(projectId: string, orgId: string): Promise<boolean> {
+  const project = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
+  return Boolean(project);
+}
+
+const listItemLinksSchema = z.object({
+  projectId: z.string().uuid(),
+  itemId: z.string().uuid().optional(),
+  limit: z.number().int().positive().optional(),
+});
+
+export async function listItemLinks(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.ITEM_READ);
+  if (denied) return denied;
+
+  const parsed = listItemLinksSchema.safeParse(input);
+  if (!parsed.success) return linkInvalid(parsed.error);
+  const { projectId, itemId, limit } = parsed.data;
+
+  if (!(await projectInOrgWi(projectId, ctx.orgId))) return { error: "Project not found" };
+
+  const links = await prisma.workItemLink.findMany({
+    where: {
+      orgId: ctx.orgId,
+      sourceItem: { projectId },
+      ...(itemId ? { OR: [{ sourceItemId: itemId }, { targetItemId: itemId }] } : {}),
+    },
+    take: Math.min(limit ?? 100, 200),
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true, type: true, sourceItemId: true, targetItemId: true, createdAt: true,
+      sourceItem: { select: { ticketNumber: true, title: true } },
+      targetItem: { select: { ticketNumber: true, title: true } },
+    },
+  });
+
+  return {
+    count: links.length,
+    links: links.map((l) => ({
+      id: l.id,
+      type: l.type,
+      sourceItemId: l.sourceItemId,
+      targetItemId: l.targetItemId,
+      sourceTicketNumber: l.sourceItem.ticketNumber,
+      sourceTitle: l.sourceItem.title,
+      targetTicketNumber: l.targetItem.ticketNumber,
+      targetTitle: l.targetItem.title,
+      createdAt: l.createdAt,
+    })),
+  };
+}
+
+const linkItemsSchema = z.object({
+  projectId: z.string().uuid(),
+  fromId: z.string().uuid(),
+  toId: z.string().uuid(),
+  type: z.nativeEnum(LinkType),
+});
+
+export async function linkItems(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
+  if (denied) return denied;
+
+  const parsed = linkItemsSchema.safeParse(input);
+  if (!parsed.success) return linkInvalid(parsed.error);
+  const { projectId, fromId, toId, type } = parsed.data;
+
+  if (fromId === toId) return { error: "A work item cannot link to itself" };
+  if (!(await projectInOrgWi(projectId, ctx.orgId))) return { error: "Project not found" };
+
+  // BOTH ends must be work items in THIS org+project (no cross-project edges).
+  const ends = await prisma.workItem.findMany({
+    where: { id: { in: [fromId, toId] }, orgId: ctx.orgId, projectId },
+    select: { id: true },
+  });
+  if (ends.length !== 2) return { error: "Both items must be in this project" };
+
+  const link = await prisma.workItemLink.create({
+    data: { orgId: ctx.orgId, sourceItemId: fromId, targetItemId: toId, type },
+    select: { id: true, type: true, sourceItemId: true, targetItemId: true, createdAt: true },
+  });
+  return { created: true, id: link.id, link };
+}
+
+const unlinkItemsSchema = z.object({
+  projectId: z.string().uuid(),
+  linkId: z.string().uuid(),
+});
+
+export async function unlinkItems(input: Record<string, unknown>, ctx: ToolContext) {
+  const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
+  if (denied) return denied;
+
+  const parsed = unlinkItemsSchema.safeParse(input);
+  if (!parsed.success) return linkInvalid(parsed.error);
+  const { projectId, linkId } = parsed.data;
+
+  // Scope the link to this org + project (via its source item's project).
+  const existing = await prisma.workItemLink.findFirst({
+    where: { id: linkId, orgId: ctx.orgId, sourceItem: { projectId } },
+    select: { id: true },
+  });
+  if (!existing) return { error: "Link not found" };
+
+  await prisma.workItemLink.delete({ where: { id: existing.id } });
+  return { deleted: true, id: existing.id };
 }
