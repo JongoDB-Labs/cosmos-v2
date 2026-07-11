@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { jsonFetch } from "@/lib/query/json-fetcher";
-import { Permission } from "@/lib/rbac/permissions";
+import { PERMISSION_GROUPS, labelOf } from "@/lib/rbac/permission-groups";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,28 +66,6 @@ interface OrgMemberLite {
   user?: { displayName?: string; email?: string };
   displayName?: string;
 }
-
-// Group permission keys by their leading segment for a browsable checklist.
-const ALL_PERMISSIONS = Object.keys(Permission);
-function groupOf(key: string): string {
-  const seg = key.split("_")[0];
-  return seg.charAt(0) + seg.slice(1).toLowerCase();
-}
-function labelOf(key: string): string {
-  return key
-    .split("_")
-    .slice(1)
-    .join(" ")
-    .toLowerCase()
-    .replace(/^\w/, (c) => c.toUpperCase());
-}
-const PERMISSION_GROUPS = ALL_PERMISSIONS.reduce<Record<string, string[]>>(
-  (acc, k) => {
-    (acc[groupOf(k)] ??= []).push(k);
-    return acc;
-  },
-  {},
-);
 
 export function RolesManager({ orgId }: { orgId: string }) {
   const rolesKey = useOrgQueryKey("work-roles");
