@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Mic } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useWakeWord } from "@/lib/hooks/use-wake-word";
 import { useBrand } from "@/components/providers/brand-provider";
 
@@ -70,6 +71,8 @@ export function WakeWordProvider() {
   function disable() {
     setEnabled(false);
     window.localStorage.setItem(STORAGE_KEY, "false");
+    // Same-tab `storage` events don't fire — tell the sidebar toggle explicitly.
+    window.dispatchEvent(new CustomEvent("cosmos:wake-word:toggle", { detail: false }));
   }
 
   // LIVE indicator: while the mic is actually listening, show a small pulsing
@@ -78,7 +81,11 @@ export function WakeWordProvider() {
   // and the mobile bottom nav (raised on small screens).
   if (!listening) return null;
 
-  return (
+  // PORTALED to <body>: when the assistant drawer is open, its a11y scoping
+  // (inert/aria-hidden background) swallowed the in-tree pill — visible but
+  // unclickable, so "click to turn off" silently did nothing (the stuck-pill
+  // bug). A body-level portal keeps it interactive above any drawer.
+  return createPortal(
     <button
       type="button"
       onClick={disable}
@@ -92,6 +99,7 @@ export function WakeWordProvider() {
       </span>
       <Mic className="h-3.5 w-3.5" />
       <span>Listening…</span>
-    </button>
+    </button>,
+    document.body,
   );
 }
