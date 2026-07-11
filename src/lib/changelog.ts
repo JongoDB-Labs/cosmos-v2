@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.184.0",
+    date: "2026-07-11",
+    title: "Duplicate an issue into an editable draft",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Duplicating an issue from the Issues list now opens a pre-filled “Duplicate issue” draft — title, description, labels, priority, assignees, type, and more copied from the original — so you can tweak just what's different before creating. Saving makes a brand-new issue with its own ID; comments, activity, and status are never carried over. Great for filing lots of similar tickets without retyping.",
+      },
+    ],
+  },
+  {
     version: "2.183.0",
     date: "2026-07-11",
     title: "Tune autonomous delivery's parallelism from Settings",
