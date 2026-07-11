@@ -10,6 +10,14 @@ import { utilityTools } from "./tools/utility";
 import { ragTools } from "./tools/rag";
 import { complianceTools } from "./tools/compliance";
 import { pmRegisterTools } from "./tools/pm-register";
+import { okrTools } from "./tools/okrs";
+import { milestoneTools } from "./tools/milestones";
+import { feedbackTools } from "./tools/feedback";
+import { meetingTools } from "./tools/meetings";
+import { goalsKpisTools } from "./tools/goals-kpis";
+import { boardTools } from "./tools/boards";
+import { documentTools } from "./tools/documents";
+import { crmTools } from "./tools/crm";
 
 export interface ToolDefinition {
   name: string;
@@ -182,8 +190,18 @@ export const cosmosTools: ToolDefinition[] = [
   // Compliance: run control checks, drive remediation, resolve members to assign/notify.
   ...complianceTools,
   // PM Dashboard registers: read/create/update risks, list blockers/deliverables/changes,
-  // and comment on any PM register subject.
+  // create/update blockers/deliverables/change-requests, and comment on any subject.
   ...pmRegisterTools,
+  // OKRs (objectives/key-results/check-ins/links), milestones, feedback, meetings,
+  // goals + KPIs, boards, documents, and CRM contact writes + partner/product reads.
+  ...okrTools,
+  ...milestoneTools,
+  ...feedbackTools,
+  ...meetingTools,
+  ...goalsKpisTools,
+  ...boardTools,
+  ...documentTools,
+  ...crmTools,
   // EXTERNAL connectors (Google Workspace, GitHub, …) are no longer hand-listed
   // here — they come from the declarative connector registry (connectors/index.ts),
   // so adding a connector is one descriptor + one registration, with no edit to this
@@ -205,4 +223,12 @@ export {
   ragTools,
   complianceTools,
   pmRegisterTools,
+  okrTools,
+  milestoneTools,
+  feedbackTools,
+  meetingTools,
+  goalsKpisTools,
+  boardTools,
+  documentTools,
+  crmTools,
 };
