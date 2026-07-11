@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.175.0",
+    date: "2026-07-11",
+    title: "Manage project tabs right where you see them",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Every project tab now shows a ⋯ menu right on the tab, so renaming, deleting, reordering, hiding, and setting your default view are one click away instead of hidden behind a hover. Right-click a tab for the same menu, and it's fully keyboard-accessible — closing on Escape or an outside click. Editing a board's name still needs manage permission; reordering and hiding tailor your own view and persist across reloads.",
+      },
+    ],
+  },
+  {
     version: "2.174.2",
     date: "2026-07-11",
     title: "Duplicating an item is click-safe",
