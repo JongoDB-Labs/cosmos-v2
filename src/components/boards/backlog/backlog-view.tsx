@@ -27,6 +27,7 @@ import {
   ListChecks,
   MoveRight,
   Inbox,
+  UserCheck,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -39,6 +40,7 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -47,6 +49,7 @@ import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import type {
   Board,
   BoardColumn,
@@ -104,6 +107,18 @@ function formatStart(value: string | null | undefined, fmt: (s: string) => strin
   return value ? fmt(value) : "";
 }
 
+/**
+ * Is a work item assigned to `userId`? Matches the primary assignee OR any
+ * member of the multi-assignee set — the same rule the Kanban filter bar uses,
+ * so "Assigned to me" behaves identically across every board view.
+ */
+export function isAssignedTo(item: WorkItem, userId: string): boolean {
+  return (
+    item.assigneeId === userId ||
+    (item.assignees?.some((a) => a.userId === userId) ?? false)
+  );
+}
+
 export function BacklogView({
   orgId,
   projectId,
@@ -112,8 +127,12 @@ export function BacklogView({
 }: BacklogViewProps) {
   const qc = useQueryClient();
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+  const currentUserId = useCurrentUserId();
 
   const [hideDone, setHideDone] = useState(false);
+  // FR "Assigned to me": one-click filter to the current user, combinable with
+  // "Hide done" (both fold into `visibleItems` below).
+  const [assignedToMe, setAssignedToMe] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -254,10 +273,13 @@ export function BacklogView({
     [],
   );
 
-  const visibleItems = useMemo(
-    () => (hideDone ? items.filter((i) => !isDone(i)) : items),
-    [items, hideDone, isDone],
-  );
+  const visibleItems = useMemo(() => {
+    let list = hideDone ? items.filter((i) => !isDone(i)) : items;
+    if (assignedToMe && currentUserId) {
+      list = list.filter((i) => isAssignedTo(i, currentUserId));
+    }
+    return list;
+  }, [items, hideDone, isDone, assignedToMe, currentUserId]);
 
   // Top "Backlog" section = items with no cycle, ranked.
   const backlogItems = useMemo(
@@ -423,6 +445,18 @@ export function BacklogView({
         <span className="text-xs text-[var(--text-muted)]">
           {totalVisible} item{totalVisible === 1 ? "" : "s"}
         </span>
+        {currentUserId && (
+          <Button
+            size="sm"
+            variant={assignedToMe ? "default" : "outline"}
+            aria-pressed={assignedToMe}
+            className="h-7 gap-1.5"
+            onClick={() => setAssignedToMe((v) => !v)}
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Assigned to me
+          </Button>
+        )}
         <div className="ml-auto flex items-center gap-3">
           <CreateIssueButton
             orgId={orgId}
@@ -454,8 +488,12 @@ export function BacklogView({
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={ListChecks}
-            title="Everything is done"
-            description="Turn off “Hide done” to see completed items."
+            title={assignedToMe ? "Nothing assigned to you" : "Everything is done"}
+            description={
+              assignedToMe
+                ? "No items here are assigned to you. Toggle off “Assigned to me” to see the full backlog."
+                : "Turn off “Hide done” to see completed items."
+            }
           />
         </div>
       ) : (

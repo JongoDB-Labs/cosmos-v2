@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.190.0",
+    date: "2026-07-11",
+    title: "“Assigned to me” on the backlog",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Backlog board now has the same one-click “Assigned to me” toggle as your Sprint and Kanban boards — press it to narrow the whole planner down to just your items, press it again to bring everything back. It works alongside “Hide done”, and the button lights up while it's active so you always know what you're looking at.",
+      },
+    ],
+  },
+  {
     version: "2.189.0",
     date: "2026-07-11",
     title: "Foreman gets a cockpit",
