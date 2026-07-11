@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.174.0",
+    date: "2026-07-11",
+    title: "Cosmo can now act on everything",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmo's toolbox grew from a handful of surfaces to full coverage of the platform: 44 new actions across OKRs (objectives, key results, check-ins, ticket links), projects, sprint updates & completion, milestones, the risk/blocker/deliverable/change registers, feedback, meetings, goals & KPIs, ticket dependencies, boards, documents, and CRM — every one permission-gated and classification-aware. Cosmo also introduces itself properly now and describes what it can do from its real tool list.",
+      },
+    ],
+  },
+  {
     version: "2.173.0",
     date: "2026-07-10",
     title: "Everything on the Release Timeline is clickable",

@@ -144,4 +144,152 @@ export const pmRegisterTools: ToolDefinition[] = [
       required: ["projectId"],
     },
   },
+  {
+    name: "create_blocker",
+    description:
+      "Create a blocker in the project's register. The BL-NNN code is auto-assigned. `type` classifies the blocker source (INTERNAL / EXTERNAL_GOVERNMENT / EXTERNAL_VENDOR / EXTERNAL_PROCUREMENT / EXTERNAL_THIRD_PARTY).",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID to create the blocker in" },
+        title: { type: "string", description: "Short blocker title (max 200 chars)" },
+        description: { type: "string", description: "Optional description" },
+        type: {
+          type: "string",
+          enum: [
+            "INTERNAL",
+            "EXTERNAL_GOVERNMENT",
+            "EXTERNAL_VENDOR",
+            "EXTERNAL_PROCUREMENT",
+            "EXTERNAL_THIRD_PARTY",
+          ],
+          description: "Default INTERNAL",
+        },
+        owner: { type: "string", description: "Optional owner (max 120 chars)" },
+        whatUnblocks: { type: "string", description: "Optional: what would unblock this" },
+        escalate: { type: "boolean", description: "Flag for escalation" },
+      },
+      required: ["projectId", "title"],
+    },
+  },
+  {
+    name: "update_blocker",
+    description:
+      "Update fields on an existing blocker. Field changes are written to the blocker's activity log.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID the blocker belongs to" },
+        blockerId: { type: "string", description: "Blocker ID to update" },
+        title: { type: "string" },
+        description: { type: "string" },
+        type: {
+          type: "string",
+          enum: [
+            "INTERNAL",
+            "EXTERNAL_GOVERNMENT",
+            "EXTERNAL_VENDOR",
+            "EXTERNAL_PROCUREMENT",
+            "EXTERNAL_THIRD_PARTY",
+          ],
+        },
+        owner: { type: "string" },
+        whatUnblocks: { type: "string" },
+        status: { type: "string", enum: ["OPEN", "RESOLVED", "IN_PROGRESS", "ESCALATED"] },
+        escalate: { type: "boolean" },
+      },
+      required: ["projectId", "blockerId"],
+    },
+  },
+  {
+    name: "create_deliverable",
+    description:
+      "Create a deliverable (CDRL) in the project's register. The CDRL-ANNN code is auto-assigned.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID to create the deliverable in" },
+        title: { type: "string", description: "Short deliverable title (max 200 chars)" },
+        description: { type: "string", description: "Optional description" },
+        clin: { type: "string", description: "Optional CLIN (max 80 chars)" },
+        owner: { type: "string", description: "Optional owner (max 120 chars)" },
+        baselineDue: { type: "string", description: "Optional ISO datetime baseline due date" },
+        status: {
+          type: "string",
+          description:
+            "Default NOT_STARTED (NOT_STARTED / IN_PROGRESS / SUBMITTED / IN_GOVT_REVIEW / ACCEPTED / REJECTED / …)",
+        },
+      },
+      required: ["projectId", "title"],
+    },
+  },
+  {
+    name: "update_deliverable",
+    description:
+      "Update fields on an existing deliverable. Field changes are written to the deliverable's activity log.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID the deliverable belongs to" },
+        deliverableId: { type: "string", description: "Deliverable ID to update" },
+        title: { type: "string" },
+        description: { type: "string" },
+        clin: { type: "string" },
+        owner: { type: "string" },
+        baselineDue: { type: "string", description: "ISO datetime" },
+        actualSubmission: { type: "string", description: "ISO datetime" },
+        status: {
+          type: "string",
+          description:
+            "NOT_STARTED / IN_PROGRESS / SUBMITTED / IN_GOVT_REVIEW / ACCEPTED / REJECTED / …",
+        },
+        escalate: { type: "boolean" },
+      },
+      required: ["projectId", "deliverableId"],
+    },
+  },
+  {
+    name: "create_change_request",
+    description:
+      "Create a change request in the project's register. The CR-NNN code is auto-assigned.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID to create the change request in" },
+        title: { type: "string", description: "Short title (max 200 chars)" },
+        description: { type: "string", description: "Optional description" },
+        type: { type: "string", description: "Optional change type label (max 80 chars)" },
+        costImpact: { type: "number", description: "Optional cost impact" },
+        scheduleDaysImpact: { type: "number", description: "Optional schedule impact in days" },
+        status: {
+          type: "string",
+          description:
+            "Default SUBMITTED (SUBMITTED / APPROVED / REJECTED / IMPLEMENTED / UNDER_REVIEW / WITHDRAWN)",
+        },
+      },
+      required: ["projectId", "title"],
+    },
+  },
+  {
+    name: "update_change_request",
+    description:
+      "Update fields on an existing change request. Field changes are written to the change request's activity log.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID the change request belongs to" },
+        changeId: { type: "string", description: "Change request ID to update" },
+        title: { type: "string" },
+        description: { type: "string" },
+        type: { type: "string" },
+        costImpact: { type: "number" },
+        scheduleDaysImpact: { type: "number" },
+        status: {
+          type: "string",
+          description: "SUBMITTED / APPROVED / REJECTED / IMPLEMENTED / UNDER_REVIEW / WITHDRAWN",
+        },
+      },
+      required: ["projectId", "changeId"],
+    },
+  },
 ];
