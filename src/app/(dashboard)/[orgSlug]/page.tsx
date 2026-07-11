@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { StaggeredGrid } from "@/components/ui/staggered-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HomeDashboard } from "@/components/home/home-dashboard";
+import { ForemanPulseCard } from "@/components/foreman/foreman-pulse-card";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -72,6 +73,14 @@ async function HeaderAndContent({ params }: PageParams) {
 
       {/* Personal, customizable widget dashboard (client-rendered). */}
       <HomeDashboard orgId={ctx.orgId} />
+
+      {/* Foreman pulse — self-fetching client card; renders nothing until
+          this org has enabled autonomous delivery or has prior history, so
+          it's silent for orgs that have never touched it. No Suspense
+          wrapper needed (see AGENTS.md's Cache Components note — this reads
+          no dynamic APIs itself, it's a client component that fetches after
+          mount). */}
+      <ForemanPulseCard orgId={ctx.orgId} />
 
       <PageSection
         title="Active projects"

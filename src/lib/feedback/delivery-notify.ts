@@ -24,6 +24,50 @@ export interface DeliveryEventInfo {
   workItemId: string;
 }
 
+/** Shared owner-fanout primitive: every OWNER member of `orgId`, notified with
+ *  the same payload. Deliberately selects only `userId` — `OrgMember.permissions`
+ *  is BigInt and breaks `JSON.stringify` if it ever rides along in a `select`.
+ *  Per-owner `createNotification` failures are swallowed so one bad delivery
+ *  (e.g. a stale push subscription) can't stop the rest of the fanout; the
+ *  caller is responsible for the outer "never throws" contract. */
+async function fanOutToOwners(
+  orgId: string,
+  notif: { type: string; title: string; message: string; relatedId?: string; relatedType?: string; url: string },
+): Promise<void> {
+  const owners = await prisma.orgMember.findMany({
+    where: { orgId, role: "OWNER" },
+    select: { userId: true },
+  });
+  for (const o of owners) {
+    await createNotification({
+      orgId,
+      userId: o.userId,
+      type: notif.type,
+      title: notif.title,
+      message: notif.message,
+      relatedId: notif.relatedId,
+      relatedType: notif.relatedType,
+      url: notif.url,
+    }).catch(() => undefined);
+  }
+}
+
+/** Generic owner ping — the Foreman-down alert route (`/api/foreman/alert`)
+ *  uses this for a plain "heads up" with no delivery-outcome semantics
+ *  (no ticket, no parked/shipped toggle to honor). OWNER members only, never
+ *  throws. Delivery-specific outcomes go through `notifyDeliveryEvent` below,
+ *  which shares the same fanout but keeps its own type/toggle/deep-link logic. */
+export async function notifyOrgOwners(
+  orgId: string,
+  n: { title: string; message: string; url: string },
+): Promise<void> {
+  try {
+    await fanOutToOwners(orgId, { type: "foreman.alert", title: n.title, message: n.message, url: n.url });
+  } catch {
+    /* best-effort by contract */
+  }
+}
+
 /** Notify the org's OWNERs of a delivery outcome, honoring the per-event
  *  toggles. Recipients are owners because autonomous delivery is an owner-level
  *  capability — the people who can approve a parked draft PR. Never throws. */
@@ -41,12 +85,6 @@ export async function notifyDeliveryEvent(
     const cfg = readAutomationConfig(org.settings);
     if (!cfg.autonomousDelivery.notify[event]) return;
 
-    const owners = await prisma.orgMember.findMany({
-      where: { orgId, role: "OWNER" },
-      select: { userId: true },
-    });
-    if (owners.length === 0) return;
-
     const title =
       event === "parked"
         ? `${info.key} needs review${info.version ? ` (v${info.version})` : ""}`
@@ -57,18 +95,14 @@ export async function notifyDeliveryEvent(
         : `${info.title}${info.prUrl ? ` — ${info.prUrl}` : ""}`;
     const url = `/${org.slug}/issues?item=${info.workItemId}`;
 
-    for (const o of owners) {
-      await createNotification({
-        orgId,
-        userId: o.userId,
-        type: event === "parked" ? "delivery.parked" : "delivery.shipped",
-        title,
-        message,
-        relatedId: info.workItemId,
-        relatedType: "work_item",
-        url,
-      }).catch(() => undefined);
-    }
+    await fanOutToOwners(orgId, {
+      type: event === "parked" ? "delivery.parked" : "delivery.shipped",
+      title,
+      message,
+      relatedId: info.workItemId,
+      relatedType: "work_item",
+      url,
+    });
   } catch {
     /* best-effort by contract */
   }

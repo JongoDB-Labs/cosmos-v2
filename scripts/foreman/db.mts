@@ -256,8 +256,10 @@ export async function autonomyEnabled(): Promise<boolean> {
 /** Move any delivery-pool ticket left in `in-progress` back to `backlog`. A single
  *  daemon holds the LOCK, so at startup an in-progress ticket is a crashed/stranded
  *  build that nothing is working — re-queue it instead of leaving it stuck out of the
- *  pickable pool. Returns the reclaimed refs (for logging). */
-export async function reclaimStranded(): Promise<string[]> {
+ *  pickable pool. Returns each reclaimed item's id + ref: the id lets the caller emit
+ *  a per-item, org-scoped `reclaimed` event (no cross-tenant ref leak); the ref is for
+ *  the aggregate log line. */
+export async function reclaimStranded(): Promise<Array<{ id: string; ref: string }>> {
   const pool = await deliveryProjects();
   if (pool.length === 0) return [];
   const poolByProjectId = new Map(pool.map((p) => [p.projectId, p]));
@@ -279,7 +281,7 @@ export async function reclaimStranded(): Promise<string[]> {
   );
   return rows.flatMap((r) => {
     const p = poolByProjectId.get(r.projectId);
-    return p ? [buildRef(p.projectKey, r.ticketNumber)] : [];
+    return p ? [{ id: r.id, ref: buildRef(p.projectKey, r.ticketNumber) }] : [];
   });
 }
 

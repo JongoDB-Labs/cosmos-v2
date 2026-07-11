@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.189.0",
+    date: "2026-07-11",
+    title: "Foreman gets a cockpit",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Autonomous delivery now has a home: a dedicated Foreman console shows live status, what's building right now, and lets you approve or requeue anything parked for review — plus a quick-glance pulse card right on your dashboard. If the daemon ever goes quiet, a watchdog alert lets you know.",
+      },
+    ],
+  },
+  {
     version: "2.188.0",
     date: "2026-07-11",
     title: "Drill into your Sprint Dashboard by assignee",
