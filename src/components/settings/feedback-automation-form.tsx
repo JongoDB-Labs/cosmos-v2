@@ -9,6 +9,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { type AutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
 import { Button } from "@/components/ui/button";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -68,6 +69,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [deliveryProjectIds, setDeliveryProjectIds] = useState<string[]>([]);
   const [deliveryNotify, setDeliveryNotify] = useState<{ parked: boolean; shipped: boolean }>({ parked: true, shipped: true });
+  const [deliveryWorkers, setDeliveryWorkers] = useState(2);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [savingDelivery, setSavingDelivery] = useState(false);
@@ -83,6 +85,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
       setDeliveryEnabled(data.autonomousDelivery.enabled);
       setDeliveryProjectIds(data.autonomousDelivery.projectIds);
       setDeliveryNotify(data.autonomousDelivery.notify ?? { parked: true, shipped: true });
+      setDeliveryWorkers(data.autonomousDelivery.workers ?? 2);
     }
   }, [data]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -111,10 +114,11 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     enabled: boolean,
     projectIds: string[],
     notify: { parked: boolean; shipped: boolean } = deliveryNotify,
+    workers: number = deliveryWorkers,
   ): AutomationConfig {
     return {
       autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
-      autonomousDelivery: { enabled, projectIds, notify },
+      autonomousDelivery: { enabled, projectIds, notify, workers },
     };
   }
   async function persistDelivery(config: AutomationConfig): Promise<boolean> {
@@ -157,7 +161,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
   async function save() {
     const config: AutomationConfig = {
       autoRemediation: { enabled: triageEnabled, projectIds: triageProjectIds, defaultProjectId },
-      autonomousDelivery: { enabled: deliveryEnabled, projectIds: deliveryProjectIds, notify: deliveryNotify },
+      autonomousDelivery: { enabled: deliveryEnabled, projectIds: deliveryProjectIds, notify: deliveryNotify, workers: deliveryWorkers },
     };
     const gateReason = validateEnableGate(config);
     if (gateReason) {
@@ -206,6 +210,16 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
     setDeliveryNotify(nextNotify);
     if (!(await persistDelivery(deliveryConfig(deliveryEnabled, deliveryProjectIds, nextNotify)))) {
       setDeliveryNotify(previous);
+    }
+  }
+
+  // Worker-count changes persist immediately (same UX as the other delivery
+  // controls) and apply LIVE — the daemon re-reads the target each pass.
+  async function changeWorkers(next: number) {
+    const previous = deliveryWorkers;
+    setDeliveryWorkers(next);
+    if (!(await persistDelivery(deliveryConfig(deliveryEnabled, deliveryProjectIds, deliveryNotify, next)))) {
+      setDeliveryWorkers(previous);
     }
   }
 
@@ -386,6 +400,35 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           />
           <p className="mt-1 text-xs text-[var(--text-muted)]">
             These projects&apos; backlogs are implemented &amp; shipped as cosmos-v2 code changes.
+          </p>
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">
+            Parallel builds
+          </label>
+          <div className="flex items-center gap-2">
+            {[1, 2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => changeWorkers(n)}
+                disabled={savingDelivery}
+                aria-pressed={deliveryWorkers === n}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                  deliveryWorkers === n
+                    ? "border-[var(--primary)] bg-[var(--primary-tint)] text-[var(--primary)] font-medium"
+                    : "border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--primary-tint)]",
+                )}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Tickets built at once. Each worker is a full coding session + test run; shipping stays
+            one-at-a-time regardless, so 2 is the sweet spot and 3 the safe ceiling. Applies live — no restart.
           </p>
         </div>
 

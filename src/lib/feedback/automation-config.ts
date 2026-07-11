@@ -21,6 +21,18 @@ export interface AutonomousDeliveryCfg {
   /** Owner notifications for delivery outcomes. Absent (legacy configs) = both
    *  ON — the loop acting silently is the surprising behavior, not the ping. */
   notify: { parked: boolean; shipped: boolean };
+  /** Concurrent build workers (1-3, default 2). Each worker is a full coding
+   *  session + test-suite run; ship stays serialized regardless, so >3 is all
+   *  cost and no throughput. The daemon re-reads this live — no restart. */
+  workers: number;
+}
+
+export const MAX_DELIVERY_WORKERS = 3;
+export const DEFAULT_DELIVERY_WORKERS = 2;
+
+function clampWorkers(value: unknown): number {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : DEFAULT_DELIVERY_WORKERS;
+  return Math.min(MAX_DELIVERY_WORKERS, Math.max(1, n));
 }
 
 export interface AutomationConfig {
@@ -69,6 +81,7 @@ function readAutonomousDelivery(raw: unknown): AutonomousDeliveryCfg {
     projectIds: toStringArray(cfg.projectIds) ?? [],
     // Default ON: only an explicit `false` silences an event.
     notify: { parked: notify.parked !== false, shipped: notify.shipped !== false },
+    workers: clampWorkers(cfg.workers),
   };
 }
 
@@ -109,6 +122,7 @@ export function pruneToProjects(config: AutomationConfig, validProjectIds: Set<s
       enabled: config.autonomousDelivery.enabled && autonomousDeliveryProjectIds.length > 0,
       projectIds: autonomousDeliveryProjectIds,
       notify: config.autonomousDelivery.notify,
+      workers: config.autonomousDelivery.workers,
     },
   };
 }
