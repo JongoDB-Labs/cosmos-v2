@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.192.0",
+    date: "2026-07-11",
+    title: "Right-click a board to add an item",
+    highlights: [
+      {
+        kind: "feature",
+        text: "On your Sprint and Kanban boards you can now right-click a column — or the empty board background — to create a new item right there. The menu defaults to the item type that fits the board, and the quick create dialog opens already pointed at the column you clicked, so adding work is one right-click away no matter where your cursor is.",
+      },
+    ],
+  },
+  {
     version: "2.191.0",
     date: "2026-07-11",
     title: "Calmer chat timestamps",

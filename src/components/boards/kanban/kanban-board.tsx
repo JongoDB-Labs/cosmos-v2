@@ -32,6 +32,10 @@ import {
   matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
+import {
+  BoardCreateMenu,
+  type BoardCreateMenuHandle,
+} from "@/components/boards/shared/board-create-menu";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
@@ -490,6 +494,24 @@ function KanbanBoardInner({
   // (the board's own padding / gaps), never a click that bubbled from a card.
   const handleBackgroundClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && selectMode) clearSelection();
+  };
+
+  // Right-click → "create the appropriate item here" (COSMOS-88). A column
+  // right-click pre-scopes to that column; a genuine background right-click
+  // (the board's own padding/gaps, never a card that bubbled up) falls back to
+  // the first column. The menu itself no-ops without ITEM_CREATE / columns.
+  const createMenuRef = useRef<BoardCreateMenuHandle>(null);
+  const handleColumnContextMenu = (e: ReactMouseEvent, columnKey: string) => {
+    // In select mode the board is in bulk-edit; don't pop a create menu.
+    if (selectMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    createMenuRef.current?.openAt(e.clientX, e.clientY, columnKey);
+  };
+  const handleBackgroundContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || selectMode) return;
+    e.preventDefault();
+    createMenuRef.current?.openAt(e.clientX, e.clientY, null);
   };
 
   // DnD sensors - hybrid touch-aware activation:
@@ -992,6 +1014,7 @@ function KanbanBoardInner({
           <div
             className="flex flex-col gap-4 overflow-auto flex-1 p-4"
             onClick={handleBackgroundClick}
+            onContextMenu={handleBackgroundContextMenu}
           >
             {lanes.map((lane) => (
               <section key={lane.id || "__none__"} className="flex flex-col gap-2">
@@ -1037,6 +1060,7 @@ function KanbanBoardInner({
           <div
             className="flex gap-3 overflow-x-auto scrollbar-x flex-1 p-4"
             onClick={handleBackgroundClick}
+            onContextMenu={handleBackgroundContextMenu}
           >
             {columns.map((col) => (
               <KanbanColumn
@@ -1054,6 +1078,7 @@ function KanbanBoardInner({
                 onToggleSelect={toggleSelect}
                 onCtrlSelect={ctrlSelect}
                 onRangeSelect={handleRangeSelect}
+                onColumnContextMenu={handleColumnContextMenu}
               />
             ))}
           </div>
@@ -1087,6 +1112,16 @@ function KanbanBoardInner({
         projectItems={items}
         onItemCreated={handleCardCreated}
         onOpenItem={handleOpenItemById}
+      />
+
+      {/* Right-click a column or the empty board background to create the
+          appropriate item, pre-scoped to that column (COSMOS-88). */}
+      <BoardCreateMenu
+        ref={createMenuRef}
+        orgId={orgId}
+        projectId={projectId}
+        columns={columns}
+        onCreated={handleCardCreated}
       />
     </div>
   );

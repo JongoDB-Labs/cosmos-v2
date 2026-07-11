@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -38,6 +39,13 @@ interface KanbanColumnProps {
   onToggleSelect?: (id: string) => void;
   onCtrlSelect?: (id: string) => void;
   onRangeSelect?: (id: string) => void;
+  /**
+   * Right-click anywhere in this column → open the board's create menu
+   * pre-scoped to this column (COSMOS-88). Omitted in swimlane mode, where a
+   * single status is repeated across lanes (the board background handles the
+   * right-click there instead).
+   */
+  onColumnContextMenu?: (e: ReactMouseEvent, columnKey: string) => void;
 }
 
 export function KanbanColumn({
@@ -56,6 +64,7 @@ export function KanbanColumn({
   onToggleSelect,
   onCtrlSelect,
   onRangeSelect,
+  onColumnContextMenu,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? column.key });
 
@@ -68,6 +77,11 @@ export function KanbanColumn({
 
   return (
     <div
+      onContextMenu={
+        onColumnContextMenu
+          ? (e) => onColumnContextMenu(e, column.key)
+          : undefined
+      }
       className={cn(
         // Near-full-width columns on phones (with a peek of the next), w-72 at
         // sm+. Avoids the 288px-on-375px unusable horizontal scroll.
