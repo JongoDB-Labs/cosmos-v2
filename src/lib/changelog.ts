@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.185.0",
+    date: "2026-07-11",
+    title: "Custom dashboards for standups and reviews",
+    highlights: [
+      {
+        kind: "feature",
+        text: "New Dashboards page: filter your work items by project, status, assignee, and tag, then save that view as a named dashboard. Switch between your saved dashboards (and ones shared with the team) in one click — perfect for pulling up “my open tasks” or “this sprint's blockers” during a standup. The active dashboard is kept in the URL, so it's bookmarkable and reopens right where you left off. Dashboards live alongside the Issues view's saved filters, so anything you save in one shows up in the other.",
+      },
+    ],
+  },
+  {
     version: "2.184.0",
     date: "2026-07-11",
     title: "Duplicate an issue into an editable draft",

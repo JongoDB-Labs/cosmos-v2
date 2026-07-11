@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  LayoutGrid,
   Settings,
   BarChart3,
   Clock,
@@ -85,6 +86,14 @@ export const SIDEBAR_NAV: NavEntry[] = [
     icon: ListChecks,
     label: "Issues",
     href: "/issues",
+    anyOf: [Permission.ITEM_READ],
+  },
+  {
+    type: "leaf",
+    id: "dashboards",
+    icon: LayoutGrid,
+    label: "Dashboards",
+    href: "/dashboards",
     anyOf: [Permission.ITEM_READ],
   },
   {
