@@ -52,6 +52,28 @@ export interface CreateProject {
   name: string;
 }
 
+/** The source issue to seed a duplicate from (COSMOS-13). */
+export interface DuplicateSource {
+  itemId: string;
+  projectId: string;
+}
+
+/** The subset of a work item the duplicate draft reads. Matches the GET
+ *  /work-items/[itemId] payload (only the core, non-instance-specific fields). */
+interface DuplicateSourceItem {
+  title: string;
+  description: string | null;
+  priority: (typeof PRIORITIES)[number];
+  workItemTypeId: string | null;
+  assigneeId: string | null;
+  assignees?: { userId: string }[];
+  cycleId: string | null;
+  storyPoints: number | null;
+  dueDate: string | null;
+  tags?: string[];
+  customFields?: Record<string, unknown> | null;
+}
+
 /**
  * Full-field "New issue" dialog (Jira-style): every common field is available
  * at creation — title, project, type, priority, assignee, cycle, story points,
@@ -65,6 +87,7 @@ export function CreateWorkItemDialog({
   onOpenChange,
   projects,
   prefilledProjectId,
+  duplicateSource,
   onCreated,
 }: {
   orgId: string;
@@ -72,8 +95,13 @@ export function CreateWorkItemDialog({
   onOpenChange: (open: boolean) => void;
   projects: CreateProject[];
   prefilledProjectId?: string;
+  /** When set, the dialog opens as a "Duplicate issue" draft pre-filled from
+   *  this source item (COSMOS-13). The user edits before creating; comments,
+   *  activity, and status are never carried over (they aren't part of create). */
+  duplicateSource?: DuplicateSource | null;
   onCreated?: () => void;
 }) {
+  const isDuplicate = Boolean(duplicateSource);
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState(prefilledProjectId ?? "");
   const [workItemTypeId, setWorkItemTypeId] = useState("");
@@ -102,9 +130,12 @@ export function CreateWorkItemDialog({
   // resolves bare custom keys like "feature".
   const { types: workItemTypes } = useWorkItemTypes(orgId);
 
-  // Reset the form each time the dialog opens; default the project.
+  // Reset the form each time the dialog opens; default the project. In duplicate
+  // mode the seed effect below owns initialization, so skip the reset — otherwise
+  // a parent re-render (which recreates `projects`) would blank the pre-filled
+  // draft, and the seed effect wouldn't re-run to restore it (COSMOS-13).
   useEffect(() => {
-    if (open) {
+    if (open && !duplicateSource) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitle("");
       setPriority("MEDIUM");
@@ -118,7 +149,7 @@ export function CreateWorkItemDialog({
       setShowCustomErrors(false);
       setProjectId(prefilledProjectId ?? projects[0]?.id ?? "");
     }
-  }, [open, prefilledProjectId, projects]);
+  }, [open, prefilledProjectId, projects, duplicateSource]);
 
   // Default / repair the Type selection once the types load (and re-default
   // when the dialog reopens). Keep a valid selection if one is already chosen.
@@ -168,6 +199,54 @@ export function CreateWorkItemDialog({
       cancelled = true;
     };
   }, [open, orgId, projectId]);
+
+  // Duplicate mode (COSMOS-13): when opened to duplicate an existing issue, fetch
+  // the source and pre-fill every core field so the user edits a DRAFT and then
+  // creates a brand-new issue. This runs after the reset effect above (which
+  // fires first, in declaration order), so the fetched values win. Only the
+  // create-payload fields are copied — comments, activity, and status are never
+  // carried over because they aren't part of the create flow at all.
+  useEffect(() => {
+    if (!open || !duplicateSource) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const src = await jsonFetch<DuplicateSourceItem>(
+          `/api/v1/orgs/${orgId}/projects/${duplicateSource.projectId}/work-items/${duplicateSource.itemId}`,
+        );
+        if (cancelled) return;
+        setShowCustomErrors(false);
+        setTitle(`Copy of ${src.title}`);
+        setProjectId(duplicateSource.projectId);
+        if (src.workItemTypeId) setWorkItemTypeId(src.workItemTypeId);
+        setPriority(src.priority);
+        setAssigneeIds(
+          src.assignees?.length
+            ? src.assignees.map((a) => a.userId)
+            : src.assigneeId
+              ? [src.assigneeId]
+              : [],
+        );
+        setStoryPoints(src.storyPoints != null ? String(src.storyPoints) : "");
+        // The date <input> wants YYYY-MM-DD; the source's dueDate is an ISO
+        // string, so take its date portion (UTC, matching how it's displayed).
+        setDueDate(src.dueDate ? src.dueDate.slice(0, 10) : "");
+        setCycleId(src.cycleId ?? null);
+        setDescription(src.description ?? "");
+        setLabels((src.tags ?? []).join(", "));
+        setCustomValues(
+          src.customFields && typeof src.customFields === "object"
+            ? { ...src.customFields }
+            : {},
+        );
+      } catch (err) {
+        if (!cancelled) notifyError(err, "Couldn't load the issue to duplicate.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, duplicateSource, orgId]);
 
   async function handleSubmit() {
     const trimmed = title.trim();
@@ -260,9 +339,11 @@ export function CreateWorkItemDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New issue</DialogTitle>
+          <DialogTitle>{isDuplicate ? "Duplicate issue" : "New issue"}</DialogTitle>
           <DialogDescription>
-            Fill in as much as you like — only a title and project are required.
+            {isDuplicate
+              ? "Pre-filled from the original — edit anything, then create. Comments, activity, and status aren't carried over."
+              : "Fill in as much as you like — only a title and project are required."}
           </DialogDescription>
         </DialogHeader>
         <div
