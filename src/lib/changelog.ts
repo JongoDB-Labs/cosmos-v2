@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.172.1",
+    date: "2026-07-11",
+    title: "Voice wake-up is rock-solid",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The “Hey Cosmo” microphone session no longer restarts behind the scenes while you use the app — wake-up responds reliably, and the “Listening…” pill now always turns off when you click it, even with the assistant open.",
+      },
+    ],
+  },
+  {
     version: "2.172.0",
     date: "2026-07-10",
     title: "Filter the timeline by your custom fields",
