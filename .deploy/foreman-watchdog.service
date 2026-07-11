@@ -1,0 +1,8 @@
+[Unit]
+Description=Foreman heartbeat watchdog
+
+[Service]
+Type=oneshot
+User=defcon
+EnvironmentFile=/etc/foreman-watchdog.env
+ExecStart=/home/defcon/cosmos-v2/.deploy/foreman-watchdog.sh
