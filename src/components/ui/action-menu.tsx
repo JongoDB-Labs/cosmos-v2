@@ -77,19 +77,8 @@ export function guardScroll(from: Element | null, frames = 20): () => void {
   const winTop = window.scrollY;
   const winLeft = window.scrollX;
 
-  let cancelled = false;
-  const cancel = () => {
-    cancelled = true;
-    if (activeGuardCancel === cancel) activeGuardCancel = null;
-  };
-  activeGuardCancel = cancel;
-
-  // Re-assert the captured offsets every frame for a short window so base-ui's
-  // focus-into-view scroll is neutralized WHENEVER it lands (timing varies as
-  // the popup mounts). Cheap, and only runs right after a right-click/close.
-  let n = 0;
-  const tick = () => {
-    if (cancelled) return;
+  // Snap every tracked container (and the window) back to its captured offset.
+  const reassert = () => {
     for (const t of targets) {
       if (t.el.scrollTop !== t.top) t.el.scrollTop = t.top;
       if (t.el.scrollLeft !== t.left) t.el.scrollLeft = t.left;
@@ -97,6 +86,36 @@ export function guardScroll(from: Element | null, frames = 20): () => void {
     if (window.scrollY !== winTop || window.scrollX !== winLeft) {
       window.scrollTo(winLeft, winTop);
     }
+  };
+
+  let cancelled = false;
+  // Capture-phase scroll interceptor: base-ui's focus-into-view scroll dispatches
+  // a scroll event, and reverting INSIDE that event — before the browser paints —
+  // makes the correction invisible, so the row never visibly "jerks" (COSMOS-36).
+  // The per-frame backstop below alone lands a frame late: base-ui schedules its
+  // focus on rAF too, and after this guard's, so the scrolled state paints for one
+  // frame before it's undone. Intercepting the scroll event closes that gap.
+  // `capture: true` on window catches inner-container scrolls too — scroll doesn't
+  // bubble, but it does traverse the capture phase.
+  const onScroll = () => {
+    if (!cancelled) reassert();
+  };
+  window.addEventListener("scroll", onScroll, true);
+
+  const cancel = () => {
+    if (cancelled) return;
+    cancelled = true;
+    window.removeEventListener("scroll", onScroll, true);
+    if (activeGuardCancel === cancel) activeGuardCancel = null;
+  };
+  activeGuardCancel = cancel;
+
+  // Re-assert once per frame for a short window too, as a backstop for any scroll
+  // that lands without an event we catch (timing varies as the popup mounts).
+  let n = 0;
+  const tick = () => {
+    if (cancelled) return;
+    reassert();
     if (++n < frames) requestAnimationFrame(tick);
     else cancel();
   };
