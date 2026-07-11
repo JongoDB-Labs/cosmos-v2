@@ -40,6 +40,7 @@ import { RolesManager } from "./roles-manager";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 
 const NAME_CLASH = "a role with this name already exists";
+const KEY_CLASH = "A work role with that key already exists";
 
 const ROLES = [
   {
@@ -178,5 +179,20 @@ describe("RolesManager — base + built-in + custom sections", () => {
 
     await user.click(screen.getByRole("button", { name: "Save role" }));
     expect(await screen.findByText(NAME_CLASH)).toBeInTheDocument();
+  });
+
+  it("routes a key-clash 409 to the key field, not the name field", async () => {
+    mockFetch(() => Promise.reject(new FetchError(409, { error: KEY_CLASH }, KEY_CLASH)));
+    const user = userEvent.setup();
+    renderManager();
+    await user.click(await screen.findByRole("button", { name: "Clone Analyst" }));
+    await screen.findByRole("dialog");
+
+    await user.click(screen.getByRole("button", { name: "Save role" }));
+
+    const keyError = await screen.findByText(KEY_CLASH);
+    expect(keyError).toBeInTheDocument();
+    expect(screen.getByLabelText("Key").parentElement).toContainElement(keyError);
+    expect(screen.getByLabelText("Name").parentElement).not.toContainElement(keyError);
   });
 });

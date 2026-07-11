@@ -14,6 +14,12 @@ export type BuiltinWorkRole = {
  * Out-of-the-box work roles: generalized across project types (not
  * software-specific). Seeded per org with isBuiltIn=true (see
  * builtin-work-roles-seed.ts); read-only in the API; cloneable in the UI.
+ *
+ * SECURITY: editing a role's `permissions` list here silently WIDENS or
+ * NARROWS that role for every existing holder in every org, the next time
+ * the seed runs (seed-builtin-roles.mts / seedBuiltinWorkRoles) — there's no
+ * per-org opt-in and no diff shown to an admin. Treat catalog edits as
+ * security-review-required, not a routine copy change.
  */
 export const BUILTIN_WORK_ROLES: BuiltinWorkRole[] = [
   {

@@ -80,6 +80,12 @@ interface RolePrefill {
   grants: string[];
 }
 
+/** Server's max length for a work-role `key` (see workRoleCreateSchema in
+ *  @/lib/rbac/work-role — `z.string().max(40)`). Names are capped at 80
+ *  server-side, generous enough that a " 2"/" 3" dedupe suffix never gets
+ *  near it, so only key dedupe needs to enforce a cap client-side. */
+const MAX_KEY_LENGTH = 40;
+
 /** A URL-safe, valid work-role key derived from a name — never a `builtin.`
  *  prefix (dots collapse to underscores), so the server's reserved-prefix guard
  *  can't trip. Matches the editor's key regex `^[a-z][a-z0-9_]*$`. */
@@ -89,19 +95,30 @@ function deriveKey(name: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
   const safe = /^[a-z]/.test(slug) ? slug : `role_${slug}`;
-  return safe.slice(0, 40) || "role";
+  return safe.slice(0, MAX_KEY_LENGTH) || "role";
 }
 
 /** Appends " 2", " 3", … (or "_2", "_3", … via `sep`) to `base` until the
  *  result doesn't collide (case-insensitively) with anything in `taken`.
  *  Used at clone-open so repeat-cloning the same source doesn't derive a
- *  name/key that's already in use and hit the server's 409 on save. */
-function dedupe(base: string, taken: Iterable<string>, sep: string): string {
+ *  name/key that's already in use and hit the server's 409 on save.
+ *
+ *  `maxLen`, when given, caps the deduped result's length by trimming `base`
+ *  (never the numeric suffix) to make room for it. `base` alone can already
+ *  sit right at the cap — deriveKey() truncates there too — so appending an
+ *  unchecked "_2" on a collision would push the key past what the server
+ *  accepts. Left undefined for name dedupe, whose 80-char cap a "Copy of X 2"
+ *  suffix realistically never reaches. */
+function dedupe(base: string, taken: Iterable<string>, sep: string, maxLen?: number): string {
   const seen = new Set(Array.from(taken, (s) => s.toLowerCase()));
   if (!seen.has(base.toLowerCase())) return base;
-  let n = 2;
-  while (seen.has(`${base}${sep}${n}`.toLowerCase())) n += 1;
-  return `${base}${sep}${n}`;
+  for (let n = 2; ; n += 1) {
+    const suffix = `${sep}${n}`;
+    const candidate = maxLen
+      ? `${base.slice(0, Math.max(0, maxLen - suffix.length))}${suffix}`
+      : `${base}${suffix}`;
+    if (!seen.has(candidate.toLowerCase())) return candidate;
+  }
 }
 
 export function RolesManager({ orgId }: { orgId: string }) {
@@ -136,7 +153,7 @@ export function RolesManager({ orgId }: { orgId: string }) {
   function openClone(name: string, description: string | null, grants: string[]) {
     const baseName = `Copy of ${name}`;
     const cloneName = dedupe(baseName, roles.map((r) => r.name), " ");
-    const cloneKey = dedupe(deriveKey(baseName), roles.map((r) => r.key), "_");
+    const cloneKey = dedupe(deriveKey(baseName), roles.map((r) => r.key), "_", MAX_KEY_LENGTH);
     setPrefill({ name: cloneName, key: cloneKey, description, grants });
     setEditing("new");
   }
@@ -204,9 +221,9 @@ export function RolesManager({ orgId }: { orgId: string }) {
           description="Create job-function roles (e.g. Finance approver, Team lead) that grant extra permissions on top of the org role, and assign members to them."
         />
       ) : (
-        customs.length > 0 && (
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">Custom roles</h2>
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">Custom roles</h2>
+          {customs.length > 0 ? (
             <div className="space-y-2">
               {customs.map((r) => (
                 <WorkRoleRow
@@ -221,8 +238,12 @@ export function RolesManager({ orgId }: { orgId: string }) {
                 />
               ))}
             </div>
-          </section>
-        )
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No custom roles yet — create one from scratch or clone any role above.
+            </p>
+          )}
+        </section>
       )}
 
       {editing && (
