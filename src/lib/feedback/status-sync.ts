@@ -20,9 +20,9 @@ export interface StatusSyncClient {
     updateMany(args: {
       where: {
         workItemId: { in: string[] };
-        status: { notIn: ("DECLINED" | "DONE" | "IN_PROGRESS" | "PLANNED" | "OPEN")[] };
+        status: { notIn: ("DECLINED" | "DONE" | "IN_PROGRESS" | "IN_REVIEW" | "PLANNED" | "OPEN")[] };
       };
-      data: { status: "PLANNED" | "IN_PROGRESS" | "DONE" };
+      data: { status: "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" };
     }): Promise<{ count: number }>;
   };
 }
@@ -31,10 +31,11 @@ export interface StatusSyncClient {
  *  no opinion (an unknown/custom column never touches feedback). Matches the
  *  same done-detection heuristics the cycle-complete report uses, so "Done",
  *  "Completed ✅", "closed-wont-fix" style custom columns all resolve sanely. */
-export function feedbackStatusForColumn(columnKey: string): "PLANNED" | "IN_PROGRESS" | "DONE" | null {
+export function feedbackStatusForColumn(columnKey: string): "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | null {
   const k = columnKey.toLowerCase();
   if (["done", "completed", "closed", "shipped"].some((w) => k.includes(w))) return "DONE";
-  if (["progress", "doing", "review", "testing", "building"].some((w) => k.includes(w))) return "IN_PROGRESS";
+  if (k.includes("review")) return "IN_REVIEW"; // parked for a human — distinct from active work
+  if (["progress", "doing", "testing", "building"].some((w) => k.includes(w))) return "IN_PROGRESS";
   if (["backlog", "todo", "to-do", "new", "triage"].some((w) => k.includes(w))) return "PLANNED";
   return null;
 }
@@ -55,7 +56,7 @@ export async function syncFeedbackForWorkItems(
       select: { id: true, columnKey: true },
     });
     // Group by target status so each status is one updateMany.
-    const byStatus = new Map<"PLANNED" | "IN_PROGRESS" | "DONE", string[]>();
+    const byStatus = new Map<"PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE", string[]>();
     for (const it of items) {
       const status = feedbackStatusForColumn(it.columnKey);
       if (!status) continue;
