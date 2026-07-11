@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { boot, heartbeat, track } from "../../../../scripts/foreman/observe.mts";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("foreman observability tables", () => {
   it("round-trips the state singleton", async () => {
@@ -23,5 +26,32 @@ describe("foreman observability tables", () => {
     });
     const rows = await prisma.foremanEvent.findMany({ orderBy: { ts: "desc" }, take: 1 });
     expect(rows[0]?.kind).toBeTruthy();
+  });
+});
+
+describe("observe.mts writers", () => {
+  it("boot + heartbeat maintain the singleton", async () => {
+    await boot({ daemonVersion: "9.9.9-test", pid: 42, workerTarget: 2 });
+    await heartbeat({
+      workerTarget: 3, slotsBusy: 1, queueDepth: 5,
+      inFlight: [{ key: "COSMOS-1", itemId: "00000000-0000-0000-0000-000000000001", orgId: "00000000-0000-0000-0000-000000000002", title: "t", phase: "building", since: new Date().toISOString() }],
+      breaker: { build: 0, deploy: 1, tripped: false }, stopFileSeen: false,
+    });
+    const row = await prisma.foremanState.findUnique({ where: { id: "host" } });
+    expect(row?.workerTarget).toBe(3);
+    expect(row?.slotsBusy).toBe(1);
+  });
+
+  it("track resolves orgId from workItemId", async () => {
+    const wi = await prisma.workItem.findFirst({ select: { id: true, orgId: true } });
+    if (!wi) return; // seeded DB always has one; guard for empty envs
+    await track({ workItemId: wi.id, ticketKey: "T-1", kind: "gated", message: "m" });
+    const ev = await prisma.foremanEvent.findFirst({ where: { ticketKey: "T-1" }, orderBy: { ts: "desc" } });
+    expect(ev?.orgId).toBe(wi.orgId);
+  });
+
+  it("never throws when the write fails", async () => {
+    vi.spyOn(prisma.foremanEvent, "create").mockRejectedValueOnce(new Error("db down"));
+    await expect(track({ kind: "error", message: "x" })).resolves.toBeUndefined();
   });
 });
