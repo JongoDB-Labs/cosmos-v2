@@ -55,6 +55,18 @@ The difference between auto-triage and autonomous delivery is only where a ticke
 lands: triage puts it in the backlog; delivery takes it to **Done** (a merged,
 versioned, deployed change) or **In Review** (a draft PR).
 
+## Roles & access
+
+Every org is seeded with eight built-in work roles — Project Manager,
+Contributor, Reviewer/Approver, Operations Coordinator, Finance Manager,
+Analyst, Client/Stakeholder, and Compliance Officer — covering common project
+responsibilities out of the box, on top of the six base org roles (Owner, Admin,
+Billing admin, Member, Viewer, Guest) that every member already has. **Settings →
+Roles & Access** shows the exact permissions behind every one of them, base and
+built-in alike, and any role can be **cloned** into a new custom role and
+tailored from there. Built-in roles are read-only server-side, so the defaults
+can't drift or be edited out from under you.
+
 ## Development
 
 ```bash
