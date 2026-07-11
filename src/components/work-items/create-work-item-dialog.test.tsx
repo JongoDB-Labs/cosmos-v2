@@ -232,3 +232,104 @@ describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", (
     expect(postBody()).not.toHaveProperty("cycleId");
   });
 });
+
+describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
+  // The source issue the draft is seeded from. Its GET payload carries the core
+  // fields; comments/activity/status are deliberately absent from create, so a
+  // duplicate can never carry them over.
+  const SOURCE = {
+    title: "Review vendor A codebase",
+    description: "Full security review of the repo.",
+    priority: "HIGH",
+    workItemTypeId: "t2",
+    assigneeId: "u1",
+    assignees: [{ userId: "u1" }],
+    cycleId: null,
+    storyPoints: 5,
+    dueDate: "2026-08-01T00:00:00.000Z",
+    tags: ["security", "review"],
+    customFields: null,
+  };
+
+  beforeEach(() => {
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(useWorkItemTypes).mockReturnValue({
+      types: [
+        { id: "t1", key: "software.task", name: "Task" },
+        { id: "t2", key: "software.bug", name: "Bug" },
+      ],
+    } as never);
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/members")) {
+        return Promise.resolve([
+          { userId: "u1", user: { id: "u1", displayName: "Ana", email: "ana@x.co" } },
+        ]);
+      }
+      if (url.endsWith("/cycles")) return Promise.resolve([]);
+      if (url.endsWith("/boards")) {
+        return Promise.resolve([{ id: "b1", columns: [{ key: "todo", name: "To Do" }] }]);
+      }
+      // The source fetch — GET ends with the item id, not a bare /work-items.
+      if (url.endsWith("/work-items/src1")) return Promise.resolve(SOURCE);
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi-new", ticketNumber: 42 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+  });
+
+  it("pre-fills the draft from the source, lets you edit it, and creates a NEW issue (not a /duplicate clone)", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={[{ id: "p1", key: "ENG", name: "Engineering" }]}
+        duplicateSource={{ itemId: "src1", projectId: "p1" }}
+        onCreated={onCreated}
+      />,
+    );
+
+    await screen.findByRole("dialog");
+    // AC: the action reads as a duplicate.
+    expect(screen.getByText("Duplicate issue")).toBeInTheDocument();
+
+    // AC: core fields are pre-filled from the source.
+    const title = await screen.findByDisplayValue("Copy of Review vendor A codebase");
+    expect(screen.getByLabelText("Description")).toHaveValue(
+      "Full security review of the repo.",
+    );
+    expect(screen.getByLabelText("Labels")).toHaveValue("security, review");
+
+    // AC: the user can edit any field before saving.
+    await user.clear(title);
+    await user.type(title, "Review vendor B codebase");
+
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    const body = postBody();
+    // AC: saving creates a distinct new issue seeded from the source's fields.
+    expect(body.title).toBe("Review vendor B codebase");
+    expect(body.priority).toBe("HIGH");
+    expect(body.workItemTypeId).toBe("t2");
+    expect(body.description).toBe("Full security review of the repo.");
+    expect(body.tags).toEqual(["security", "review"]);
+    expect(body.assigneeIds).toEqual(["u1"]);
+    expect(body.storyPoints).toBe(5);
+    expect(String(body.dueDate)).toContain("2026-08-01");
+    // AC: instance-specific data is never part of the create payload.
+    expect(body).not.toHaveProperty("comments");
+    expect(body).not.toHaveProperty("activities");
+
+    // It went through the normal create POST, NOT the immediate /duplicate clone.
+    const hitDuplicateRoute = vi
+      .mocked(jsonFetch)
+      .mock.calls.some(([u]) => String(u).endsWith("/duplicate"));
+    expect(hitDuplicateRoute).toBe(false);
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+});

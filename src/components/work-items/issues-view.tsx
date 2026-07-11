@@ -255,6 +255,12 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  // When set, the create dialog opens as a pre-filled "Duplicate issue" draft
+  // seeded from this row (COSMOS-13); null = a blank "New issue".
+  const [duplicateSource, setDuplicateSource] = useState<{
+    itemId: string;
+    projectId: string;
+  } | null>(null);
   const [detailRow, setDetailRow] = useState<IssueRow | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -731,16 +737,15 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         ...(canCreateItem
           ? [
               {
+                // Open a pre-filled draft the user can edit before saving —
+                // rather than immediately committing a copy (COSMOS-13). Saving
+                // creates a distinct new issue; comments/activity/status aren't
+                // carried over.
                 label: "Duplicate",
                 icon: Copy,
-                onClick: async () => {
-                  try {
-                    await jsonFetch(`${itemBase}/duplicate`, { method: "POST" });
-                    toast.success("Issue duplicated");
-                    await refetch();
-                  } catch (err) {
-                    notifyError(err, "Couldn't duplicate the issue.");
-                  }
+                onClick: () => {
+                  setDuplicateSource({ itemId: r.id, projectId: r.project.id });
+                  setCreateOpen(true);
                 },
               },
             ]
@@ -923,7 +928,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                 <Button
                   size="sm"
                   className="gap-1.5"
-                  onClick={() => setCreateOpen(true)}
+                  onClick={() => {
+                    setDuplicateSource(null);
+                    setCreateOpen(true);
+                  }}
                 >
                   <Plus className="h-3.5 w-3.5" aria-hidden />
                   New issue
@@ -1151,9 +1159,21 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         <CreateWorkItemDialog
           orgId={orgId}
           open={createOpen}
-          onOpenChange={setCreateOpen}
+          onOpenChange={(next) => {
+            setCreateOpen(next);
+            // Drop the duplicate seed on close so the next plain "New issue"
+            // opens blank (COSMOS-13).
+            if (!next) setDuplicateSource(null);
+          }}
           projects={facets.projects.filter((p) => !p.archived)}
-          prefilledProjectId={filters.project !== ANY ? filters.project : undefined}
+          prefilledProjectId={
+            duplicateSource
+              ? undefined
+              : filters.project !== ANY
+                ? filters.project
+                : undefined
+          }
+          duplicateSource={duplicateSource}
           onCreated={() => void refetch()}
         />
       )}
