@@ -13,8 +13,26 @@ import { pruneToProjects, readAutomationConfig, validateEnableGate, type Automat
 
 const EMPTY: AutomationConfig = {
   autoRemediation: { enabled: false, projectIds: [], defaultProjectId: null },
-  autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true } },
+  autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 },
 };
+
+describe("autonomousDelivery.workers", () => {
+  it("defaults to 2 when absent (legacy configs)", () => {
+    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"] } });
+    expect(cfg.autonomousDelivery.workers).toBe(2);
+  });
+  it("clamps to 1..3 and rounds non-integers", () => {
+    for (const [input, want] of [[0, 1], [1, 1], [3, 3], [9, 3], [2.6, 3], [-4, 1], ["x", 2]] as const) {
+      const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"], workers: input } });
+      expect(cfg.autonomousDelivery.workers).toBe(want);
+    }
+  });
+  it("pruneToProjects carries workers through", () => {
+    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"], workers: 3 } });
+    const pruned = pruneToProjects(cfg, new Set(["a"]));
+    expect(pruned.autonomousDelivery.workers).toBe(3);
+  });
+});
 
 describe("autonomousDelivery.notify", () => {
   it("defaults BOTH events ON when absent (legacy configs)", () => {
@@ -22,11 +40,11 @@ describe("autonomousDelivery.notify", () => {
     expect(cfg.autonomousDelivery.notify).toEqual({ parked: true, shipped: true });
   });
   it("honors an explicit false per event", () => {
-    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"], notify: { parked: false, shipped: true } } });
+    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"], notify: { parked: false, shipped: true }, workers: 2 } });
     expect(cfg.autonomousDelivery.notify).toEqual({ parked: false, shipped: true });
   });
   it("pruneToProjects carries notify through untouched", () => {
-    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"], notify: { parked: false, shipped: false } } });
+    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, projectIds: ["a"], notify: { parked: false, shipped: false }, workers: 2 } });
     const pruned = pruneToProjects(cfg, new Set(["a"]));
     expect(pruned.autonomousDelivery.notify).toEqual({ parked: false, shipped: false });
   });
@@ -63,8 +81,8 @@ describe("readAutomationConfig", () => {
   });
 
   it("reads a bare autonomousDelivery.enabled with no projectIds as enabled + empty scope", () => {
-    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, notify: { parked: true, shipped: true } } });
-    expect(cfg.autonomousDelivery).toEqual({ enabled: true, projectIds: [], notify: { parked: true, shipped: true } });
+    const cfg = readAutomationConfig({ autonomousDelivery: { enabled: true, notify: { parked: true, shipped: true }, workers: 2 } });
+    expect(cfg.autonomousDelivery).toEqual({ enabled: true, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 });
   });
 
   it("treats undefined settings as all-empty/false without throwing", () => {
@@ -119,7 +137,7 @@ describe("readAutomationConfig", () => {
 
   it("filters non-string entries out of autonomousDelivery.projectIds", () => {
     const cfg = readAutomationConfig({
-      autonomousDelivery: { enabled: true, projectIds: ["x", false, "y"], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: ["x", false, "y"], notify: { parked: true, shipped: true }, workers: 2 },
     });
     expect(cfg.autonomousDelivery.projectIds).toEqual(["x", "y"]);
   });
@@ -159,7 +177,7 @@ describe("validateEnableGate", () => {
   it("requires at least one project before enabling autonomous delivery", () => {
     const cfg: AutomationConfig = {
       ...EMPTY,
-      autonomousDelivery: { enabled: true, projectIds: [], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 },
     };
     expect(validateEnableGate(cfg)).toBe("Select at least one project before enabling autonomous delivery.");
   });
@@ -171,7 +189,7 @@ describe("validateEnableGate", () => {
   it("returns null when both automations are enabled with a valid scope", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["a", "b"], defaultProjectId: "b" },
-      autonomousDelivery: { enabled: true, projectIds: ["c"], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: ["c"], notify: { parked: true, shipped: true }, workers: 2 },
     };
     expect(validateEnableGate(cfg)).toBeNull();
   });
@@ -179,7 +197,7 @@ describe("validateEnableGate", () => {
   it("returns the FIRST failing reason when multiple gates fail at once", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: [], defaultProjectId: null },
-      autonomousDelivery: { enabled: true, projectIds: [], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 },
     };
     expect(validateEnableGate(cfg)).toBe(
       "Select at least one project to receive triaged feedback before enabling auto-triage."
@@ -191,7 +209,7 @@ describe("pruneToProjects", () => {
   it("drops a stale id from both autoRemediation.projectIds and autonomousDelivery.projectIds", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["a", "stale"], defaultProjectId: "a" },
-      autonomousDelivery: { enabled: true, projectIds: ["b", "stale"], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: ["b", "stale"], notify: { parked: true, shipped: true }, workers: 2 },
     };
     const pruned = pruneToProjects(cfg, new Set(["a", "b"]));
     expect(pruned.autoRemediation.projectIds).toEqual(["a"]);
@@ -201,7 +219,7 @@ describe("pruneToProjects", () => {
   it("clears defaultProjectId to null when it pointed at a dropped id", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["a", "stale"], defaultProjectId: "stale" },
-      autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 },
     };
     const pruned = pruneToProjects(cfg, new Set(["a"]));
     expect(pruned.autoRemediation.defaultProjectId).toBeNull();
@@ -210,7 +228,7 @@ describe("pruneToProjects", () => {
   it("keeps defaultProjectId when it's still among the pruned projectIds", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["a", "b"], defaultProjectId: "b" },
-      autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: false, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 },
     };
     const pruned = pruneToProjects(cfg, new Set(["a", "b", "c"]));
     expect(pruned.autoRemediation.projectIds).toEqual(["a", "b"]);
@@ -220,7 +238,7 @@ describe("pruneToProjects", () => {
   it("drops nothing when every referenced id is valid", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["a", "b"], defaultProjectId: "a" },
-      autonomousDelivery: { enabled: true, projectIds: ["b"], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: ["b"], notify: { parked: true, shipped: true }, workers: 2 },
     };
     expect(pruneToProjects(cfg, new Set(["a", "b"]))).toEqual(cfg);
   });
@@ -228,20 +246,20 @@ describe("pruneToProjects", () => {
   it("disables a block (and clears the default) when pruning empties its scope — an automation with no projects can't run, and enabled-but-empty wedges the form", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["stale1", "stale2"], defaultProjectId: "stale1" },
-      autonomousDelivery: { enabled: true, projectIds: ["stale3"], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: ["stale3"], notify: { parked: true, shipped: true }, workers: 2 },
     };
     const pruned = pruneToProjects(cfg, new Set());
     expect(pruned.autoRemediation).toEqual({ enabled: false, projectIds: [], defaultProjectId: null });
-    expect(pruned.autonomousDelivery).toEqual({ enabled: false, projectIds: [], notify: { parked: true, shipped: true } });
+    expect(pruned.autonomousDelivery).toEqual({ enabled: false, projectIds: [], notify: { parked: true, shipped: true }, workers: 2 });
   });
 
   it("keeps `enabled` when at least one project survives the prune", () => {
     const cfg: AutomationConfig = {
       autoRemediation: { enabled: true, projectIds: ["a", "stale"], defaultProjectId: "a" },
-      autonomousDelivery: { enabled: true, projectIds: ["a", "stale"], notify: { parked: true, shipped: true } },
+      autonomousDelivery: { enabled: true, projectIds: ["a", "stale"], notify: { parked: true, shipped: true }, workers: 2 },
     };
     const pruned = pruneToProjects(cfg, new Set(["a"]));
     expect(pruned.autoRemediation).toEqual({ enabled: true, projectIds: ["a"], defaultProjectId: "a" });
-    expect(pruned.autonomousDelivery).toEqual({ enabled: true, projectIds: ["a"], notify: { parked: true, shipped: true } });
+    expect(pruned.autonomousDelivery).toEqual({ enabled: true, projectIds: ["a"], notify: { parked: true, shipped: true }, workers: 2 });
   });
 });
