@@ -17,7 +17,7 @@ import {
   MessageSquarePlus,
   KeyRound,
   MailCheck,
-  Bot,
+  HardHat,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { useBrand } from "@/components/providers/brand-provider";
@@ -252,7 +252,7 @@ export function AppSidebar({
                 : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
             )}
           >
-            <Bot className="h-4 w-4 shrink-0" />
+            <HardHat className="h-4 w-4 shrink-0" />
             {open && <span className="truncate">Foreman</span>}
           </Link>
         )}
