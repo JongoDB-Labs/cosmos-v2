@@ -93,9 +93,12 @@ export function runAgent(
     allowedTools?: string;
     permissionMode?: string;
     resume?: string;
+    /** Per-worker e2e database for the agent's own npm test (parallel builds
+     *  must not share one test DB — the racy specs collide cross-process). */
+    testDbUrl?: string;
   } = {},
 ): Promise<AgentResult> {
-  const env = buildAgentEnv(process.env);
+  const env = buildAgentEnv(process.env, opts.testDbUrl);
   assertSubscription(env);
 
   return (async (): Promise<AgentResult> => {

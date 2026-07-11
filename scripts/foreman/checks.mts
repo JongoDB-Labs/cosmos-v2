@@ -32,7 +32,7 @@ async function run(
 /** tsc + eslint(changed files) + vitest, in the worktree. Any failure → ok:false.
  *  "Changed" is measured against origin/main so this only lints what the ticket
  *  actually touched, not the whole tree. */
-export async function runChecks(dir: string): Promise<{ ok: boolean; log: string }> {
+export async function runChecks(dir: string, opts: { testDbUrl?: string } = {}): Promise<{ ok: boolean; log: string }> {
   const tsc = await run("npx", ["tsc", "--noEmit"], dir);
   const changed = (await exec("git", ["diff", "--name-only", "origin/main...HEAD"], { cwd: dir })).stdout
     .split("\n")
@@ -47,9 +47,9 @@ export async function runChecks(dir: string): Promise<{ ok: boolean; log: string
   // the daemon's concurrent load — a false failure would gate a good change. Retry
   // ONCE on failure: a transient flake passes the second time, a real failure fails
   // twice. tsc/eslint are fast + deterministic, so they aren't retried.
-  let vitest = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: testDatabaseUrl() });
+  let vitest = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: opts.testDbUrl ?? testDatabaseUrl() });
   if (!vitest.ok) {
-    const retry = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: testDatabaseUrl() });
+    const retry = await run("npx", ["vitest", "run"], dir, { DATABASE_URL: opts.testDbUrl ?? testDatabaseUrl() });
     vitest = retry.ok
       ? { ok: true, out: vitest.out + "\n--- vitest RETRY (first run flaked) ---\n" + retry.out }
       : { ok: false, out: vitest.out + "\n--- vitest RETRY (still failing) ---\n" + retry.out };
