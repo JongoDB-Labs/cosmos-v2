@@ -20,6 +20,8 @@ const configSchema = z.object({
     notify: z
       .object({ parked: z.boolean(), shipped: z.boolean() })
       .default({ parked: true, shipped: true }),
+    // Parallel build workers — see AutonomousDeliveryCfg.workers.
+    workers: z.number().int().min(1).max(3).default(2),
     enabled: z.boolean(),
     projectIds: z.array(z.string().uuid()),
   }),

@@ -54,9 +54,11 @@ const DRY = process.env.FOREMAN_DRY_RUN === "1";
 // Bounded fix-forward: how many times a failing build is handed back to the SAME
 // agent session (with the check output) before the ticket gates for a human.
 const MAX_REPAIRS = 2;
-// Parallel build workers (builds concurrent; SHIP stays strictly serialized).
-// DRY always runs single-worker. Clamped 1..4.
-const WORKERS = DRY ? 1 : Math.min(4, Math.max(1, parseInt(process.env.FOREMAN_WORKERS ?? "2", 10) || 1));
+// Parallel build SLOTS (builds concurrent; SHIP stays strictly serialized).
+// The provisioned ceiling — the LIVE target within it comes from org settings
+// (Settings → Feedback automation → Parallel builds) via db.deliveryWorkerTarget,
+// re-read each pass so changes apply without a restart. DRY runs single-worker.
+const MAX_SLOTS = DRY ? 1 : 3;
 
 function log(msg: string): void {
   const line = `${new Date().toISOString()} ${msg}\n`;
@@ -869,14 +871,16 @@ async function main(): Promise<void> {
   // ── Parallel build pool ── builds run concurrently (per-worker test DBs so
   // suites can't collide); SHIP is a strictly-serialized promise chain.
   const inflight = new Map<string, Promise<void>>();
-  const freeSlots = [...Array(WORKERS).keys()];
-  let workerDbUrls: (string | undefined)[] = Array(WORKERS).fill(undefined);
-  if (WORKERS > 1) {
+  const freeSlots = [...Array(MAX_SLOTS).keys()];
+  let workerDbUrls: (string | undefined)[] = Array(MAX_SLOTS).fill(undefined);
+  let slotCap = MAX_SLOTS;
+  if (MAX_SLOTS > 1) {
     try {
-      workerDbUrls = await ensureWorkerDbs(WORKERS);
-      log(`provisioned ${WORKERS} worker test DBs`);
+      workerDbUrls = await ensureWorkerDbs(MAX_SLOTS);
+      log(`provisioned ${MAX_SLOTS} worker test DBs`);
     } catch (e) {
-      log(`worker DB provisioning failed (${String(e)}) — falling back to a single shared test DB`);
+      slotCap = 1; // never run parallel suites against ONE shared test DB
+      log(`worker DB provisioning failed (${String(e)}) — capping at a single worker`);
     }
   }
   let shipChain: Promise<void> = Promise.resolve();
@@ -933,7 +937,9 @@ async function main(): Promise<void> {
         // ── fill build slots, then pump on any completion ──
         const backlog = await db.getBacklog();
         const pool = DRY ? backlog.filter((b) => !processed.has(b.id)) : backlog;
-        while (inflight.size < WORKERS && freeSlots.length > 0 && !killed()) {
+        // LIVE target from org settings (clamped by provisioning + env cap).
+        const workerTarget = DRY ? 1 : Math.min(slotCap, await db.deliveryWorkerTarget().catch(() => 1));
+        while (inflight.size < workerTarget && freeSlots.length > 0 && !killed()) {
           const candidates = pool.filter(
             (c) => !inflight.has(c.id) && (attempts.get(c.id) ?? 0) < MAX_ATTEMPTS,
           );

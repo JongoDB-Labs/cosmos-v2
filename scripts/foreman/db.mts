@@ -9,7 +9,7 @@ import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
-import { readAutomationConfig } from "@/lib/feedback/automation-config";
+import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
 
@@ -482,4 +482,23 @@ export async function resyncFeedbackTruth(): Promise<number> {
   if (ids.length === 0) return 0;
   await syncFeedbackForWorkItems(ids, prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
   return ids.length;
+}
+
+/** LIVE parallel-build target: the max `autonomousDelivery.workers` across the
+ *  enabled orgs (they share one daemon), clamped to MAX_DELIVERY_WORKERS and —
+ *  as an ops guardrail — to the FOREMAN_WORKERS env cap when set. Re-read each
+ *  coordinator pass so the Settings control applies without a restart. */
+export async function deliveryWorkerTarget(): Promise<number> {
+  const rows = await prisma.organization.findMany({
+    where: { id: { in: (await deliveryProjects()).map((p) => p.orgId) } },
+    select: { settings: true },
+  });
+  let target = 1;
+  for (const r of rows) {
+    const cfg = readAutomationConfig(r.settings);
+    if (cfg.autonomousDelivery.enabled) target = Math.max(target, cfg.autonomousDelivery.workers);
+  }
+  const envCap = parseInt(process.env.FOREMAN_WORKERS ?? "", 10);
+  const cap = Number.isFinite(envCap) && envCap > 0 ? Math.min(envCap, MAX_DELIVERY_WORKERS) : MAX_DELIVERY_WORKERS;
+  return Math.min(Math.max(1, target), cap);
 }

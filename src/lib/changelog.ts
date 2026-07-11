@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.183.0",
+    date: "2026-07-11",
+    title: "Tune autonomous delivery's parallelism from Settings",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Settings → Feedback automation now has a Parallel builds control (1-3) for how many tickets autonomous delivery works at once. Changes apply live — no restarts. Two is the recommended sweet spot; shipping always stays one-at-a-time for safety.",
+      },
+    ],
+  },
+  {
     version: "2.182.0",
     date: "2026-07-11",
     title: "Search your feedback, with a clearer “no results”",
