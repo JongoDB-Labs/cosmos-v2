@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -1127,36 +1128,30 @@ export function CardDetailSheet({
 
             {projectItems && (
               <MetadataField icon={GitBranch} label="Parent">
-                <Select
-                  items={{
-                    __none__: "None",
-                    ...Object.fromEntries(
-                      parentCandidates.map((p) => [
-                        p.id,
-                        `#${p.ticketNumber} ${p.title}`,
-                      ]),
-                    ),
-                  }}
+                {/* Searchable so re-parenting stays usable when a project has
+                    hundreds of candidate parents — type to filter by ticket
+                    number or title instead of scrolling (COSMOS-37). */}
+                <SearchableSelect
+                  size="sm"
+                  aria-label="Parent"
+                  className="w-full text-xs"
+                  contentClassName="min-w-[16rem]"
+                  searchPlaceholder="Search issues…"
+                  options={[
+                    { value: "__none__", label: "None" },
+                    ...parentCandidates.map((p) => ({
+                      value: p.id,
+                      label: `#${p.ticketNumber} ${p.title}`,
+                    })),
+                  ]}
                   value={parentId ?? "__none__"}
                   onValueChange={(v) =>
                     handleFieldChange(
                       "parentId",
-                      (v === "__none__" ? null : v) as string | null,
+                      v === "__none__" || v === null ? null : v,
                     )
                   }
-                >
-                  <SelectTrigger size="sm" aria-label="Parent" className="w-full text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {parentCandidates.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        #{p.ticketNumber} {p.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </MetadataField>
             )}
           </div>
