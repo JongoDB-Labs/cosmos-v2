@@ -55,6 +55,7 @@ interface PrefState {
   sidebarPosition: SidebarPosition;
   navigationStyle: NavigationStyle;
   methodology: string;
+  voiceCloseWord: string;
   defaultBoardId: string;
   skinId: string | null;
   bgDarkUrl: string | null;
@@ -72,6 +73,7 @@ const DEFAULT_STATE: PrefState = {
   sidebarPosition: "LEFT",
   navigationStyle: "BOTH",
   methodology: "",
+  voiceCloseWord: "",
   defaultBoardId: "",
   skinId: null,
   bgDarkUrl: null,
@@ -159,6 +161,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
       "sidebarPosition",
       "navigationStyle",
       "methodology",
+      "voiceCloseWord",
       "defaultBoardId",
       "skinId",
     ];
@@ -192,6 +195,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
             sidebarPosition: prefs.sidebarPosition ?? "LEFT",
             navigationStyle: prefs.navigationStyle ?? "BOTH",
             methodology: prefs.methodology ?? "",
+            voiceCloseWord: prefs.voiceCloseWord ?? "",
             defaultBoardId: prefs.defaultBoardId ?? "",
             skinId: prefs.skinId ?? null,
             bgDarkUrl: prefs.bgDarkUrl ?? null,
@@ -316,6 +320,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
           sidebarPosition: draft.sidebarPosition,
           navigationStyle: draft.navigationStyle,
           methodology: draft.methodology || null,
+          voiceCloseWord: draft.voiceCloseWord.trim() || null,
           defaultBoardId: draft.defaultBoardId || null,
           skinId: draft.skinId,
         }),
@@ -649,6 +654,19 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 max-w-lg">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="voice-close-word">Voice send phrase</Label>
+            <Input
+              id="voice-close-word"
+              value={draft.voiceCloseWord}
+              onChange={(e) => update("voiceCloseWord", e.target.value)}
+              placeholder='send it'
+              maxLength={40}
+            />
+            <p className="text-xs text-muted-foreground">
+              Say this at the end of a dictated message to Cosmo to send it. Blank uses &quot;send it&quot;.
+            </p>
+          </div>
           <div className="flex flex-col gap-1.5">
             <Label>Default Methodology</Label>
             <Select value={draft.methodology} onValueChange={(val) => update("methodology", val ?? "")}>

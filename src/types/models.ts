@@ -564,6 +564,7 @@ export interface UserPreferences {
   density: "COMPACT" | "COMFORTABLE" | "SPACIOUS";
   defaultBoardId: string | null;
   methodology: string | null;
+  voiceCloseWord: string | null;
   skinId: string | null;
   bgDarkUrl: string | null;
   bgLightUrl: string | null;

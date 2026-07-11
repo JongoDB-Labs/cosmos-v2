@@ -8,7 +8,20 @@ const STORAGE_KEY = "cosmos:wake-word-enabled";
 
 export function WakeWordProvider() {
   const [enabled, setEnabled] = useState(false);
+  // While the assistant's dictation mic is live, the wake listener pauses — two
+  // concurrent recognition sessions fight over the microphone (reference:
+  // okr-dashboard gates its wake loop on chatOpen the same way).
+  const [dictating, setDictating] = useState(false);
   const brand = useBrand();
+
+  useEffect(() => {
+    const onState = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setDictating(Boolean(detail));
+    };
+    window.addEventListener("cosmos:assistant:dictation:state", onState);
+    return () => window.removeEventListener("cosmos:assistant:dictation:state", onState);
+  }, []);
 
   // Load persisted state on mount (client-only)
   useEffect(() => {
@@ -21,9 +34,14 @@ export function WakeWordProvider() {
 
   const { listening } = useWakeWord({
     phrase: brand.wakePhrase,
-    enabled,
+    enabled: enabled && !dictating,
     onWake: () => {
-      window.dispatchEvent(new CustomEvent("cosmos:command-palette:open"));
+      // "Hey Cosmo" → open the assistant and hand the mic to dictation (small
+      // delay lets the drawer mount before the panel starts its session).
+      window.dispatchEvent(new CustomEvent("cosmos:agent:open"));
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("cosmos:assistant:dictation:start"));
+      }, 450);
     },
   });
 

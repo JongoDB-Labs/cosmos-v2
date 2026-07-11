@@ -1592,6 +1592,10 @@ model UserPreferences {
   dndStart        String?         @map("dnd_start") // "HH:MM" 24h, local to dndTimezone
   dndEnd          String?         @map("dnd_end") // "HH:MM"
   dndTimezone     String?         @map("dnd_timezone") // IANA tz, e.g. "America/New_York"
+  /// Spoken phrase that ends a voice-dictated assistant message and sends it
+  /// (default "send it" when null). Matched case-insensitively at the end of
+  /// the utterance; see src/lib/voice/close-word.ts.
+  voiceCloseWord  String?         @map("voice_close_word")
   /// Per-project tab layout prefs, keyed by projectId:
   /// { [projectId]: { tabOrder?, hiddenBoardIds?, hiddenFeatureTabs?, featureTabLabels?, defaultTab? } }
   tabPrefs        Json            @default("{}") @map("tab_prefs")
