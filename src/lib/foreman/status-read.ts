@@ -25,7 +25,7 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
 
   const row = await prisma.foremanState.findUnique({ where: { id: "host" } });
   const breaker = (row?.breaker ?? { build: 0, deploy: 0, tripped: false }) as { build: number; deploy: number; tripped: boolean };
-  const allInFlight = ((row?.inFlight ?? []) as InFlightBuild[]);
+  const allInFlight = Array.isArray(row?.inFlight) ? (row.inFlight as InFlightBuild[]) : [];
   const state = row
     ? {
         pulse: pulseFor({ lastPassAt: row.lastPassAt, paused, breakerTripped: breaker.tripped, stopFileSeen: row.stopFileSeen }),
@@ -44,20 +44,23 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
         take: 50,
       })
     : [];
-  const awaitingApproval = await Promise.all(
-    parked.map(async (wi) => {
-      const ev = await prisma.foremanEvent.findFirst({
-        where: { workItemId: wi.id, kind: { in: ["parked", "gated", "needs-input"] } },
+  const events = parked.length
+    ? await prisma.foremanEvent.findMany({
+        where: { workItemId: { in: parked.map((w) => w.id) }, kind: { in: ["parked", "gated", "needs-input"] } },
         orderBy: { ts: "desc" },
-      });
-      const data = (ev?.data ?? {}) as { reason?: string; prUrl?: string };
-      return {
-        workItemId: wi.id, ticketKey: ev?.ticketKey ?? null, title: wi.title,
-        reason: data.reason ?? ev?.message ?? null, prUrl: data.prUrl ?? null,
-        parkedAt: (wi.columnEnteredAt ?? new Date()).toISOString(),
-      };
-    }),
-  );
+        distinct: ["workItemId"],
+      })
+    : [];
+  const latestByItem = new Map(events.map((e) => [e.workItemId, e]));
+  const awaitingApproval = parked.map((wi) => {
+    const ev = latestByItem.get(wi.id);
+    const data = (ev?.data ?? {}) as { reason?: string; prUrl?: string };
+    return {
+      workItemId: wi.id, ticketKey: ev?.ticketKey ?? null, title: wi.title,
+      reason: data.reason ?? ev?.message ?? null, prUrl: data.prUrl ?? null,
+      parkedAt: (wi.columnEnteredAt ?? new Date()).toISOString(),
+    };
+  });
 
   const hasHistory = (await prisma.foremanEvent.count({ where: { orgId } })) > 0;
   return { state, paused, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory };
