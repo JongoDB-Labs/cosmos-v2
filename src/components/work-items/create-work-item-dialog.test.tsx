@@ -157,3 +157,78 @@ describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", () => {
+  beforeEach(() => {
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(useWorkItemTypes).mockReturnValue({
+      types: [{ id: "t1", key: "software.task", name: "Task" }],
+    } as never);
+  });
+
+  /** Mock every fetch the dialog makes, serving the project's cycles. */
+  function mockWithCycles() {
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/members")) return Promise.resolve([]);
+      if (url.endsWith("/cycles")) {
+        return Promise.resolve([
+          { id: "c1", name: "Sprint 1" },
+          { id: "c2", name: "Sprint 2" },
+        ]);
+      }
+      if (url.endsWith("/boards")) {
+        return Promise.resolve([{ id: "b1", columns: [{ key: "todo", name: "To Do" }] }]);
+      }
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 9 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+  }
+
+  it("exposes a Cycle picker and submits the chosen cycleId", async () => {
+    mockWithCycles();
+    const user = userEvent.setup();
+    render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={PROJECTS}
+        onCreated={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("dialog");
+    // The picker only appears once the project's cycles have loaded.
+    const cycleSelect = await screen.findByLabelText("Cycle");
+    await user.type(screen.getByLabelText("Title"), "Scoped to a sprint");
+    await user.selectOptions(cycleSelect, "c2");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().cycleId).toBe("c2");
+  });
+
+  it("omits cycleId when no cycle is chosen (extra fields stay optional)", async () => {
+    mockWithCycles();
+    const user = userEvent.setup();
+    render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={PROJECTS}
+        onCreated={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("dialog");
+    await screen.findByLabelText("Cycle"); // picker present but left untouched
+    await user.type(screen.getByLabelText("Title"), "No sprint yet");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody()).not.toHaveProperty("cycleId");
+  });
+});
