@@ -58,6 +58,16 @@ export function useWakeWord({
 }: WakeWordOptions): WakeWordStatus {
   const recognitionRef = useRef<unknown | null>(null);
   const targetPhrase = phrase;
+  // The recognition session is EXPENSIVE, stateful browser machinery — it must
+  // survive re-renders. Handlers go through a ref so the session effect depends
+  // only on (enabled, phrase); an inline onWake prop identity changing per
+  // render previously tore the mic down and restarted it on EVERY render, which
+  // Chrome punishes with silently dead sessions (wake goes deaf) and out-of-order
+  // onstart/onend callbacks (the "Listening…" pill sticking after toggle-off).
+  const onWakeRef = useRef(onWake);
+  useEffect(() => {
+    onWakeRef.current = onWake;
+  });
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
 
@@ -115,7 +125,7 @@ export function useWakeWord({
         const result = event.results[i];
         const transcript = result[0]?.transcript ?? "";
         if (matchesWakePhrase(transcript, targetPhrase)) {
-          onWake();
+          onWakeRef.current();
         }
       }
     };
@@ -157,7 +167,7 @@ export function useWakeWord({
       }
       recognitionRef.current = null;
     };
-  }, [enabled, targetPhrase, onWake]);
+  }, [enabled, targetPhrase]);
 
   return { supported, listening };
 }
