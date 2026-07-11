@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.187.0",
+    date: "2026-07-11",
+    title: "A notifications feed you can actually work through",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The notifications bell now opens a full feed you can scroll, with a \"Load older notifications\" button so nothing gets cut off at the bottom anymore — your whole history is reachable.",
+      },
+      {
+        kind: "feature",
+        text: "Filter the feed by type — Mentions, Comments, Assignments, Chat, Notes, Meetings, Delivery, and Feedback — so you can zero in on just what you care about.",
+      },
+      {
+        kind: "feature",
+        text: "Hover any notification to preview the full details (the comment text, the referenced item, and exactly when it happened) before you click through.",
+      },
+      {
+        kind: "feature",
+        text: "Manage notifications inline: mark individual items read or unread, dismiss them one at a time, mark everything read, or clear the whole list (or just the filtered view).",
+      },
+    ],
+  },
+  {
     version: "2.186.0",
     date: "2026-07-11",
     title: "Select and move several cards at once",
