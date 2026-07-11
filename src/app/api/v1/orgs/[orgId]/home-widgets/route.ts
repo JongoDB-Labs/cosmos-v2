@@ -77,3 +77,48 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return handleApiError(e);
   }
 }
+
+const reorderSchema = z.object({
+  orderedIds: z.array(z.string().uuid()).min(1),
+});
+
+/**
+ * Persist a drag-to-arrange reorder of the caller's own dashboard widgets.
+ * Renumbers `sortOrder` to match the incoming id order. Owner-scoped: only ids
+ * that belong to THIS user in THIS org are touched, so a caller can't reshuffle
+ * (or probe) someone else's dashboard by passing foreign widget ids.
+ */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { orgId } = await params;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return new Response("Not found", { status: 404 });
+
+    const ctx = await getAuthContext(org.slug);
+    if (!ctx) return new Response("Unauthorized", { status: 401 });
+    requirePermission(ctx, Permission.ORG_READ);
+
+    const { orderedIds } = reorderSchema.parse(await request.json());
+
+    const owned = await prisma.homeWidget.findMany({
+      where: { orgId, ownerId: ctx.userId, id: { in: orderedIds } },
+      select: { id: true },
+    });
+    const ownedSet = new Set(owned.map((w) => w.id));
+
+    await prisma.$transaction(
+      orderedIds
+        .filter((id) => ownedSet.has(id))
+        .map((id, index) =>
+          prisma.homeWidget.update({
+            where: { id },
+            data: { sortOrder: index },
+          }),
+        ),
+    );
+
+    return success({ reordered: ownedSet.size });
+  } catch (e) {
+    return handleApiError(e);
+  }
+}

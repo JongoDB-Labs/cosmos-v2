@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.177.0",
+    date: "2026-07-11",
+    title: "Arrange your dashboard widgets",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Your personal home dashboard now lets you drag widgets into whatever order you want — grab the handle in the top-right corner of any widget and drop it where it belongs. The layout is saved per person, so the arrangement you choose (alongside the widgets you've pinned, like Recent activity and My watched items) sticks across reloads and sessions. Keyboard users can reorder too: focus a handle, press space, and use the arrow keys.",
+      },
+    ],
+  },
+  {
     version: "2.176.0",
     date: "2026-07-11",
     title: "Classification banners follow real DoD marking policy",
