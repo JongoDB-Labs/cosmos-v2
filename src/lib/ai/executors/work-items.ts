@@ -2,6 +2,11 @@ import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
+import {
+  directedDependencyEdge,
+  wouldCreateDependencyCycle,
+  type DirectedEdge,
+} from "@/lib/work-items/dependency-graph";
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
@@ -435,6 +440,33 @@ export async function linkItems(input: Record<string, unknown>, ctx: ToolContext
     select: { id: true },
   });
   if (ends.length !== 2) return { error: "Both items must be in this project" };
+
+  // Same invalid-state guard as the REST route: reject an exact duplicate link
+  // or a directed link that would form a circular dependency. Keeps the
+  // no-cycles invariant true no matter who creates the link (UI or Cosmo).
+  const existingLinks = await prisma.workItemLink.findMany({
+    where: { orgId: ctx.orgId, sourceItem: { projectId } },
+    select: { type: true, sourceItemId: true, targetItemId: true },
+  });
+  if (
+    existingLinks.some(
+      (l) => l.sourceItemId === fromId && l.targetItemId === toId && l.type === type,
+    )
+  ) {
+    return { error: "These items are already linked with that relationship." };
+  }
+  const candidate = directedDependencyEdge(type, fromId, toId);
+  if (candidate) {
+    const edges = existingLinks
+      .map((l) => directedDependencyEdge(l.type, l.sourceItemId, l.targetItemId))
+      .filter((e): e is DirectedEdge => e !== null);
+    if (wouldCreateDependencyCycle(edges, candidate)) {
+      return {
+        error:
+          "This link would create a circular dependency — the two items would each depend on the other.",
+      };
+    }
+  }
 
   const link = await prisma.workItemLink.create({
     data: { orgId: ctx.orgId, sourceItemId: fromId, targetItemId: toId, type },
