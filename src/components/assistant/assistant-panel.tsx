@@ -846,8 +846,25 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   }, [voiceTick, input, sendMessage]);
 
   // Wake path: "Hey Cosmo" opens this panel and asks it to start dictation.
+  // Two channels, because this panel mounts only when the drawer opens: the
+  // event covers an already-open panel; the sessionStorage handshake covers a
+  // panel that mounts after the wake fired (consumed exactly once).
   useEffect(() => {
-    const onStart = () => dictation.start();
+    const onStart = () => {
+      try {
+        window.sessionStorage.removeItem("cosmos:dictate-on-open");
+      } catch {
+        /* ignore */
+      }
+      dictation.start();
+    };
+    let pending = false;
+    try {
+      pending = window.sessionStorage.getItem("cosmos:dictate-on-open") === "1";
+    } catch {
+      /* ignore */
+    }
+    if (pending) onStart();
     window.addEventListener("cosmos:assistant:dictation:start", onStart);
     return () => window.removeEventListener("cosmos:assistant:dictation:start", onStart);
   }, [dictation]);

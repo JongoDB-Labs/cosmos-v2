@@ -36,8 +36,15 @@ export function WakeWordProvider() {
     phrase: brand.wakePhrase,
     enabled: enabled && !dictating,
     onWake: () => {
-      // "Hey Cosmo" → open the assistant and hand the mic to dictation (small
-      // delay lets the drawer mount before the panel starts its session).
+      // "Hey Cosmo" → open the assistant and hand the mic to dictation. The
+      // panel mounts only when the drawer opens, so a timed event alone races
+      // its mount — the sessionStorage flag is the handshake: a panel that
+      // mounts later consumes it and starts dictation itself.
+      try {
+        window.sessionStorage.setItem("cosmos:dictate-on-open", "1");
+      } catch {
+        /* storage unavailable — the event below still covers an open panel */
+      }
       window.dispatchEvent(new CustomEvent("cosmos:agent:open"));
       window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent("cosmos:assistant:dictation:start"));

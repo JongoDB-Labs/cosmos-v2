@@ -23,13 +23,41 @@ function detectSupport(): boolean {
   return Boolean(w.SpeechRecognition ?? w.webkitSpeechRecognition);
 }
 
+/** Normalize recognizer output for matching: lowercase, strip punctuation
+ *  (Chrome loves to transcribe "Hey, Cosmo." with a comma), collapse spaces. */
+export function normalizeTranscript(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Loose wake matching (ported from the okr-dashboard reference, which matched
+ *  bare "cosmos" + "a cosmos" variants): the full phrase matches after
+ *  normalization, OR the phrase's distinctive last word appears as a word
+ *  prefix — so "hey, cosmo.", "a cosmo", and "hey cosmos" all wake, while the
+ *  recognizer's mangling of the leading "hey" never blocks it. */
+export function matchesWakePhrase(transcript: string, phrase: string): boolean {
+  const t = normalizeTranscript(transcript);
+  const p = normalizeTranscript(phrase);
+  if (!p) return false;
+  if (t.includes(p)) return true;
+  const words = p.split(" ");
+  const distinctive = words[words.length - 1];
+  // Only fall back to the single-word match when it's actually distinctive —
+  // 4+ chars keeps "hey" / "ok" style words from waking on their own.
+  if (distinctive.length < 4) return false;
+  return new RegExp(`\\b${distinctive.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(t);
+}
+
 export function useWakeWord({
   phrase,
   enabled,
   onWake,
 }: WakeWordOptions): WakeWordStatus {
   const recognitionRef = useRef<unknown | null>(null);
-  const targetPhrase = phrase.toLowerCase();
+  const targetPhrase = phrase;
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
 
@@ -85,8 +113,8 @@ export function useWakeWord({
     rec.onresult = (event) => {
       for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
-        const transcript = result[0]?.transcript?.toLowerCase() ?? "";
-        if (transcript.includes(targetPhrase)) {
+        const transcript = result[0]?.transcript ?? "";
+        if (matchesWakePhrase(transcript, targetPhrase)) {
           onWake();
         }
       }
