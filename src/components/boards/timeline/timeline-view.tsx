@@ -24,13 +24,15 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
-import type { WorkItem, OrgMember, Cycle, Board, BoardColumn } from "@/types/models";
+import type { WorkItem, OrgMember, Cycle, Board, BoardColumn, CustomField } from "@/types/models";
 import {
   bareTypeKey,
   FilterBar,
   emptyFilters,
+  matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
+import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 
@@ -92,10 +94,16 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
 
 type DragMode = "move" | "start" | "end";
 
-/** Client-side board-filter match (search/type/priority/assignee/cycle) — mirrors
- *  the Kanban/Table logic so the Gantt's FilterBar behaves identically. Custom
- *  fields aren't surfaced on the Gantt, so they're not applied here. */
-function matchesFilters(item: WorkItem, f: BoardFilters): boolean {
+/** Client-side board-filter match (search/type/priority/assignee/cycle + custom
+ *  fields) — mirrors the Kanban/Table logic so the Gantt's FilterBar behaves
+ *  identically, including filtering by admin-defined custom fields. `defs` is the
+ *  project's custom-field definitions (needed to interpret each active
+ *  constraint's kind); an empty list makes the custom-field check inert. */
+export function matchesFilters(
+  item: WorkItem,
+  f: BoardFilters,
+  defs: CustomField[] = [],
+): boolean {
   if (
     f.search &&
     !item.title.toLowerCase().includes(f.search.toLowerCase()) &&
@@ -113,6 +121,7 @@ function matchesFilters(item: WorkItem, f: BoardFilters): boolean {
   )
     return false;
   if (f.cycleId && item.cycleId !== f.cycleId) return false;
+  if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
 
@@ -220,6 +229,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const links = useMemo<WorkItemLink[]>(() => linksQ.data ?? [], [linksQ.data]);
   const columns = useMemo<BoardColumn[]>(() => boardQ.data?.columns ?? [], [boardQ.data]);
   const cycles = useMemo<Cycle[]>(() => cyclesQ.data ?? [], [cyclesQ.data]);
+  // Custom-field defs for this project (org-wide + project-scoped) — drives the
+  // FilterBar's per-field controls and the client-side filter match below, so a
+  // defined field is filterable on the Gantt exactly as it is on the Kanban board.
+  const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
 
   // ── Gantt controls ───────────────────────────────────────────────────────
   // FilterBar filters (search/type/priority/assignee/cycle), a critical-path
@@ -234,8 +247,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters)),
-    [items, filters],
+    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields)),
+    [items, filters, projectCustomFields],
   );
   const hasEnablers = useMemo(
     () => filteredItems.some((it) => it.workCategory === "ENABLER"),
@@ -705,6 +718,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         members={members}
         cycles={cycles}
         orgId={orgId}
+        customFields={projectCustomFields}
       />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
