@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { krProgressPercent } from "@/lib/okr/progress";
+import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
 import { objectiveHealth } from "@/lib/okr/health";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -41,14 +41,44 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
             },
           },
         },
+        // COSMOS-82: work items linked directly to the objective, plus the other
+        // objectives it depends on. Soft references, so we resolve the far ends
+        // below and drop any that no longer exist.
+        links: {
+          select: {
+            kind: true,
+            workItemId: true,
+            dependsOnObjectiveId: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
 
-    // FR a94ff583: a Key Result with linked tickets AUTO-tracks — its current
-    // value becomes the count of its linked tickets that are done. The objective
-    // progress rolls up from the (possibly auto-derived) KR values, and health
-    // is derived from that progress vs. the objective's target date.
+    // Resolve every directly-linked work item in one query (across all
+    // objectives), scoped to this org+project so a stale/foreign id resolves to
+    // nothing. Dependency targets are other objectives in this same list.
+    const directItemIds = [
+      ...new Set(
+        objectives.flatMap((o) =>
+          o.links.filter((l) => l.kind === "WORK_ITEM" && l.workItemId).map((l) => l.workItemId!),
+        ),
+      ),
+    ];
+    const directItems = directItemIds.length
+      ? await prisma.workItem.findMany({
+          where: { id: { in: directItemIds }, orgId, projectId },
+          select: { id: true, ticketNumber: true, title: true, columnKey: true, completedAt: true },
+        })
+      : [];
+    const itemById = new Map(directItems.map((w) => [w.id, w]));
+
+    // FR a94ff583 + COSMOS-82: a Key Result with linked tickets AUTO-tracks — its
+    // current value becomes the count of its linked tickets that are done. The
+    // objective progress rolls up from the (possibly auto-derived) KR values AND
+    // any work items linked directly to the objective, and health is derived from
+    // that progress vs. the objective's target date.
     const shaped = objectives.map((o) => {
       const keyResults = o.keyResults.map((kr) => {
         const linkedItems = kr.links.map((l) => l.workItem);
@@ -65,25 +95,49 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           linkedItems,
         };
       });
-      const progress =
-        keyResults.length === 0
-          ? 0
-          : Math.round(
-              keyResults.reduce(
-                (sum, kr) =>
-                  sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
-                0,
-              ) / keyResults.length,
-            );
+
+      // Direct objective→work-item links (deliverables), danglers dropped.
+      const directLinked = o.links
+        .filter((l) => l.kind === "WORK_ITEM" && l.workItemId)
+        .map((l) => itemById.get(l.workItemId!))
+        .filter((w): w is NonNullable<typeof w> => w != null);
+      const linkedTotal = directLinked.length;
+      const linkedDone = directLinked.filter((w) => w.completedAt != null).length;
+
+      const krPercents = keyResults.map((kr) =>
+        krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
+      );
+      const progress = objectiveProgressPercent(krPercents, linkedTotal, linkedDone);
+
+      const dependsOnIds = o.links
+        .filter((l) => l.kind === "DEPENDS_ON" && l.dependsOnObjectiveId)
+        .map((l) => l.dependsOnObjectiveId!);
+
       return {
         ...o,
+        links: undefined,
         keyResults,
         progress,
+        linkedItems: directLinked,
+        linkedTotal,
+        linkedDone,
+        dependsOnIds,
         health: objectiveHealth(progress, o.targetDate, o.status, o.createdAt),
       };
     });
 
-    return success(shaped);
+    // Second pass: resolve dependency ids to the (already-shaped) objectives so
+    // each dependency carries its title/status/progress. Danglers drop out.
+    const shapedById = new Map(shaped.map((o) => [o.id, o]));
+    const withDeps = shaped.map(({ dependsOnIds, ...o }) => ({
+      ...o,
+      dependencies: dependsOnIds
+        .map((id) => shapedById.get(id))
+        .filter((d): d is NonNullable<typeof d> => d != null)
+        .map((d) => ({ id: d.id, title: d.title, status: d.status, progress: d.progress })),
+    }));
+
+    return success(withDeps);
   } catch (e) {
     return handleApiError(e);
   }

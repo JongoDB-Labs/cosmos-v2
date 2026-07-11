@@ -13,9 +13,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { KeyResultRow } from "./key-result-row";
-import { krProgressPercent } from "@/lib/okr/progress";
+import { ObjectiveLinksDialog } from "./objective-links-dialog";
+import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
 import { HEALTH_LABEL, type ObjectiveHealth } from "@/lib/okr/health";
 import type { BadgeVariant } from "@/components/ui/badge";
 
@@ -44,14 +45,15 @@ interface ObjectiveCardProps {
   onExpandedChange?: (expanded: boolean) => void;
 }
 
-function computeProgress(keyResults: KeyResult[]): number {
-  if (!keyResults || keyResults.length === 0) return 0;
-  const total = keyResults.reduce(
-    (sum, kr) =>
-      sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
-    0,
+// Roll up the objective's progress from its key results AND any work items
+// linked directly to it (COSMOS-82). Key-result percents recompute locally so
+// inline value edits reflect instantly; the direct-link counts come from the
+// server payload. Mirrors the objectives API's server-side roll-up.
+function computeProgress(objective: Objective, keyResults: KeyResult[]): number {
+  const krPercents = keyResults.map((kr) =>
+    krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
   );
-  return Math.round(total / keyResults.length);
+  return objectiveProgressPercent(krPercents, objective.linkedTotal ?? 0, objective.linkedDone ?? 0);
 }
 
 function getProgressColor(percent: number): string {
@@ -92,7 +94,12 @@ export function ObjectiveCard({
   const [showAddKr, setShowAddKr] = useState(false);
   const [newKrTitle, setNewKrTitle] = useState("");
   const [addingKr, setAddingKr] = useState(false);
+  const [showLinks, setShowLinks] = useState(false);
   const keyResults = objective.keyResults ?? [];
+  const linkedItems = objective.linkedItems ?? [];
+  const dependencies = objective.dependencies ?? [];
+  const linkedTotal = objective.linkedTotal ?? 0;
+  const linkedDone = objective.linkedDone ?? 0;
 
   async function handleAddKr() {
     const trimmed = newKrTitle.trim();
@@ -161,7 +168,7 @@ export function ObjectiveCard({
       Add Key Result
     </Button>
   );
-  const progress = computeProgress(keyResults);
+  const progress = computeProgress(objective, keyResults);
   const ownerName = objective.owner?.user?.displayName ?? "Unassigned";
   const ownerAvatar = objective.owner?.user?.avatarUrl ?? null;
   const ownerInitials = ownerName
@@ -217,6 +224,22 @@ export function ObjectiveCard({
               {progress}%
             </span>
           </div>
+          {(linkedTotal > 0 || dependencies.length > 0) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+              {linkedTotal > 0 && (
+                <span className="inline-flex items-center gap-1">
+                  <Link2 className="h-3 w-3" />
+                  {linkedDone} of {linkedTotal} linked item{linkedTotal === 1 ? "" : "s"} done
+                </span>
+              )}
+              {dependencies.length > 0 && (
+                <span>
+                  {linkedTotal > 0 ? "· " : ""}depends on {dependencies.length} objective
+                  {dependencies.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -248,6 +271,15 @@ export function ObjectiveCard({
               >
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowLinks(true);
+                }}
+              >
+                <Link2 className="mr-2 h-4 w-4" />
+                Link work &amp; dependencies
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -296,6 +328,18 @@ export function ObjectiveCard({
           <div className="flex justify-center">{addKeyResultControl}</div>
         </div>
       )}
+
+      <ObjectiveLinksDialog
+        orgId={orgId}
+        projectId={projectId}
+        objectiveId={objective.id}
+        objectiveTitle={objective.title}
+        linkedItems={linkedItems}
+        dependencies={dependencies}
+        open={showLinks}
+        onOpenChange={setShowLinks}
+        onChanged={onCheckedIn}
+      />
     </div>
   );
 }

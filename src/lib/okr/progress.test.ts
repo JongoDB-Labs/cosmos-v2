@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { krFraction, krProgressPercent } from "./progress";
+import { krFraction, krProgressPercent, objectiveProgressPercent } from "./progress";
 
 describe("krFraction — higher-is-better (default)", () => {
   it("is 0 at start, 1 at target, 0.5 halfway", () => {
@@ -72,5 +72,31 @@ describe("krProgressPercent", () => {
   it("mirrors for lower-is-better", () => {
     expect(krProgressPercent(200, 150, 100, true)).toBe(50);
     expect(krProgressPercent(200, 260, 100, true)).toBe(0);
+  });
+});
+
+describe("objectiveProgressPercent — folds direct work-item links into the roll-up", () => {
+  it("with no direct links, equals the plain key-result average", () => {
+    expect(objectiveProgressPercent([100, 0], 0, 0)).toBe(50);
+    expect(objectiveProgressPercent([40, 60, 80], 0, 0)).toBe(60);
+  });
+
+  it("with no key results, is the share of linked items that are done", () => {
+    expect(objectiveProgressPercent([], 4, 1)).toBe(25);
+    expect(objectiveProgressPercent([], 2, 2)).toBe(100);
+    expect(objectiveProgressPercent([], 3, 0)).toBe(0);
+  });
+
+  it("averages key results and direct links together as equal units", () => {
+    // one KR at 100% + two direct items (one done) → (100 + 100 + 0) / 3 = 67
+    expect(objectiveProgressPercent([100], 2, 1)).toBe(67);
+  });
+
+  it("is 0 when there are no units at all", () => {
+    expect(objectiveProgressPercent([], 0, 0)).toBe(0);
+  });
+
+  it("never exceeds 100% even if done is over-reported", () => {
+    expect(objectiveProgressPercent([], 2, 5)).toBe(100);
   });
 });

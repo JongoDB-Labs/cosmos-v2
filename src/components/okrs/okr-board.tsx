@@ -41,6 +41,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [editDescription, setEditDescription] = useState("");
   const [editPeriod, setEditPeriod] = useState("");
   const [editParentId, setEditParentId] = useState("");
+  const [editTargetDate, setEditTargetDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -176,6 +177,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     setEditDescription(objective.description ?? "");
     setEditPeriod(objective.period ?? "");
     setEditParentId(objective.parentId ?? "");
+    setEditTargetDate(objective.targetDate ? objective.targetDate.slice(0, 10) : "");
   }
 
   async function handleSaveEdit() {
@@ -191,6 +193,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           description: editDescription.trim() || null,
           period: editPeriod.trim() || null,
           parentId: editParentId || null,
+          targetDate: editTargetDate ? new Date(editTargetDate).toISOString() : null,
         }),
       });
 
@@ -363,7 +366,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           <DialogHeader>
             <DialogTitle>Edit objective</DialogTitle>
             <DialogDescription>
-              Update the title, description, and period for this objective.
+              Update the title, description, period, and due date for this objective.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -395,6 +398,19 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
                 value={editPeriod}
                 onChange={(e) => setEditPeriod(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="objective-target-date">Due date</Label>
+              <Input
+                id="objective-target-date"
+                type="date"
+                value={editTargetDate}
+                onChange={(e) => setEditTargetDate(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Drives the objective&apos;s health — it flags as behind once this date passes and it
+                isn&apos;t complete.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="objective-parent">Aligns to (parent objective)</Label>

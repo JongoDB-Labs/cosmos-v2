@@ -196,6 +196,14 @@ export interface Objective {
   updatedAt: string;
   keyResults?: KeyResult[];
   owner?: OrgMember;
+  /** OKR→tickets (COSMOS-82): work items linked DIRECTLY to the objective (its
+   *  deliverables). Populated by the objectives GET; direct links fold into
+   *  `progress` alongside the key results. */
+  linkedItems?: KeyResultLinkedItem[];
+  linkedTotal?: number;
+  linkedDone?: number;
+  /** Other objectives this one depends on (COSMOS-82). Populated by the GET. */
+  dependencies?: ObjectiveDependency[];
 }
 
 /** A ticket linked to a Key Result (as returned in the objectives payload). */
@@ -205,6 +213,14 @@ export interface KeyResultLinkedItem {
   title: string;
   columnKey: string;
   completedAt: string | null;
+}
+
+/** An objective this objective depends on (as returned in the objectives payload). */
+export interface ObjectiveDependency {
+  id: string;
+  title: string;
+  status: "DRAFT" | "ACTIVE" | "COMPLETED" | "CANCELLED";
+  progress: number;
 }
 
 /** @deprecated Key results are now managed as WorkItems. */

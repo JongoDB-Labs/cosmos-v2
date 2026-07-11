@@ -2240,15 +2240,42 @@ model Objective {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   keyResults KeyResult[]
-  parent     Objective?   @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Objective[]  @relation("ObjectiveAlignment")
+  parent     Objective?      @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Objective[]     @relation("ObjectiveAlignment")
+  links      ObjectiveLink[] @relation("ObjectiveLinks")
 
   @@index([orgId, projectId])
   @@index([parentId])
   @@map("objectives")
+}
+
+enum ObjectiveLinkKind {
+  WORK_ITEM // a ticket/task/feature that delivers this objective
+  DEPENDS_ON // this objective depends on another objective (a dependency)
+}
+
+// Links an objective to a work item (a deliverable) OR to another objective it
+// DEPENDS_ON. Exactly one of `workItemId` / `dependsOnObjectiveId` is set per
+// `kind`. Both far ends are SOFT references (no FK), like GoalLink, so deleting
+// the linked item/objective never cascades into this objective — the read path
+// resolves ids at query time and simply drops any that no longer exist. The
+// objective's progress folds in how many of its directly-linked WORK_ITEMs are
+// done (see the objectives GET roll-up).
+model ObjectiveLink {
+  id                   String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectiveId          String            @map("objective_id") @db.Uuid
+  kind                 ObjectiveLinkKind
+  workItemId           String?           @map("work_item_id") @db.Uuid
+  dependsOnObjectiveId String?           @map("depends_on_objective_id") @db.Uuid
+  createdAt            DateTime          @default(now()) @map("created_at")
+
+  objective Objective @relation("ObjectiveLinks", fields: [objectiveId], references: [id], onDelete: Cascade)
+
+  @@index([objectiveId])
+  @@map("objective_links")
 }
 
 model KeyResult {

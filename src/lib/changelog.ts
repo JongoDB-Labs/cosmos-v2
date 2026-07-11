@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.188.0",
+    date: "2026-07-11",
+    title: "Tie objectives to the work that delivers them",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Objectives can now be linked to the tickets that deliver them and to other objectives they depend on — right from the objective's menu (\"Link work & dependencies\"). An objective's progress rolls up automatically from how many of its linked tickets (and key results) are done, and updates on its own as that work moves. Give an objective a due date in its editor and it turns \"Behind\" once the date passes while work is still open, so at-risk objectives stand out at a glance.",
+      },
+    ],
+  },
+  {
     version: "2.187.0",
     date: "2026-07-11",
     title: "Admins can edit any feedback item",

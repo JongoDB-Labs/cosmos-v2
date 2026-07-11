@@ -37,3 +37,29 @@ export function krProgressPercent(
 ): number {
   return Math.round(krFraction(start, current, target, lowerIsBetter) * 100);
 }
+
+/**
+ * Objective progress (0–100), rolled up from its "completion units":
+ *
+ *   - each key result contributes its own progress percent (`krPercents`), and
+ *   - each work item linked DIRECTLY to the objective contributes 100 when done
+ *     and 0 when not (`directTotal` items, `directDone` of them complete).
+ *
+ * The objective's progress is the mean of all these units. With no direct links
+ * this is exactly the plain key-result average (backwards compatible); with no
+ * key results it is the share of linked items that are done. Zero units → 0.
+ *
+ * Single source of truth shared by the objectives API roll-up and the client
+ * card so the two never drift.
+ */
+export function objectiveProgressPercent(
+  krPercents: number[],
+  directTotal: number,
+  directDone: number,
+): number {
+  const unitCount = krPercents.length + directTotal;
+  if (unitCount === 0) return 0;
+  const krSum = krPercents.reduce((sum, p) => sum + p, 0);
+  const directSum = Math.max(0, Math.min(directDone, directTotal)) * 100;
+  return Math.round((krSum + directSum) / unitCount);
+}
