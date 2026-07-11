@@ -709,6 +709,10 @@ async function main(): Promise<void> {
   if (!DRY) {
     const reclaimed = await db.reclaimStranded();
     if (reclaimed.length > 0) log(`reclaimed ${reclaimed.length} stranded in-progress → backlog: ${reclaimed.join(", ")}`);
+    // Snap every linked feedback status back to its ticket's actual column —
+    // heals any drift from paths that bypassed the live sync (see db.mts).
+    const resynced = await db.resyncFeedbackTruth().catch(() => 0);
+    if (resynced > 0) log(`feedback ground-truth resync over ${resynced} linked items`);
   }
   let consecutiveDeployFails = 0;
   // Reconcile gets its OWN deploy-failure breaker, independent of the shared

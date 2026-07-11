@@ -256,6 +256,12 @@ export async function reclaimStranded(): Promise<string[]> {
       data: { columnKey: "backlog", columnEnteredAt: new Date() },
     });
   }
+  // The raw updates above bypass moveColumn — carry linked feedback back to
+  // ground truth too (a reclaimed ticket's feedback showed IN_PROGRESS forever).
+  await syncFeedbackForWorkItems(
+    rows.map((r) => r.id),
+    prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1],
+  );
   return rows.flatMap((r) => {
     const p = poolByProjectId.get(r.projectId);
     return p ? [buildRef(p.projectKey, r.ticketNumber)] : [];
@@ -443,4 +449,22 @@ export async function notifyReply(itemId: string, userId: string, key: string, p
   } catch {
     /* best-effort */
   }
+}
+
+/** Ground-truth reconciler: re-derive EVERY linked feedback status in the pool
+ *  orgs from its work item's current column (same mapping the live sync uses).
+ *  Catches anything that bypassed moveColumn — raw updates, restarts, manual
+ *  SQL — so drift can never accumulate. Runs at daemon startup. */
+export async function resyncFeedbackTruth(): Promise<number> {
+  const pool = await deliveryProjects();
+  if (pool.length === 0) return 0;
+  const orgIds = [...new Set(pool.map((p) => p.orgId))];
+  const linked = await prisma.feedbackItem.findMany({
+    where: { orgId: { in: orgIds }, workItemId: { not: null } },
+    select: { workItemId: true },
+  });
+  const ids = [...new Set(linked.map((f) => f.workItemId).filter((x): x is string => Boolean(x)))];
+  if (ids.length === 0) return 0;
+  await syncFeedbackForWorkItems(ids, prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+  return ids.length;
 }
