@@ -2565,6 +2565,7 @@ enum FeedbackStatus {
   OPEN
   PLANNED
   IN_PROGRESS
+  IN_REVIEW
   DONE
   DECLINED
 }

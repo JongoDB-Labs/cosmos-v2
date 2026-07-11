@@ -6,7 +6,7 @@ describe("feedbackStatusForColumn", () => {
   it("maps the canonical kanban columns", () => {
     expect(feedbackStatusForColumn("backlog")).toBe("PLANNED");
     expect(feedbackStatusForColumn("in-progress")).toBe("IN_PROGRESS");
-    expect(feedbackStatusForColumn("review")).toBe("IN_PROGRESS");
+    expect(feedbackStatusForColumn("review")).toBe("IN_REVIEW");
     expect(feedbackStatusForColumn("done")).toBe("DONE");
   });
 
@@ -15,6 +15,7 @@ describe("feedbackStatusForColumn", () => {
     expect(feedbackStatusForColumn("closed-wont-fix")).toBe("DONE");
     expect(feedbackStatusForColumn("Doing")).toBe("IN_PROGRESS");
     expect(feedbackStatusForColumn("QA Testing")).toBe("IN_PROGRESS");
+    expect(feedbackStatusForColumn("In Review")).toBe("IN_REVIEW");
     expect(feedbackStatusForColumn("To-Do")).toBe("PLANNED");
     expect(feedbackStatusForColumn("triage")).toBe("PLANNED");
   });
@@ -74,14 +75,14 @@ describe("syncFeedbackForWorkItems (e2e DB)", () => {
     return { wi, fb };
   }
 
-  it("follows the work item's column: done → DONE, review → IN_PROGRESS", async () => {
+  it("follows the work item's column: done → DONE, review → IN_REVIEW", async () => {
     const a = await fixture("done", "PLANNED");
     const b = await fixture("review", "PLANNED");
     await syncFeedbackForWorkItems([a.wi.id, b.wi.id]);
     const fa = await prisma.feedbackItem.findUniqueOrThrow({ where: { id: a.fb.id } });
     const fb = await prisma.feedbackItem.findUniqueOrThrow({ where: { id: b.fb.id } });
     expect(fa.status).toBe("DONE");
-    expect(fb.status).toBe("IN_PROGRESS");
+    expect(fb.status).toBe("IN_REVIEW");
   });
 
   it("never overwrites a human DECLINED", async () => {
