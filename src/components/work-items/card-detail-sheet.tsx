@@ -141,6 +141,14 @@ export function CardDetailSheet({
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
   const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
+  // Synchronous re-entrancy guard for duplication. `actionPending` (state) can't
+  // fully guard the trigger: the on-item effect below resets it to null whenever
+  // the `item` prop reference changes — which happens the instant a duplicate
+  // succeeds (the sheet switches to the copy) or on any parent re-render — so a
+  // rapid second click could otherwise fire a second, overlapping duplicate
+  // (BR c7b77295). A ref flips immediately and is only cleared when the in-flight
+  // POST settles, so exactly one duplicate is ever in flight.
+  const duplicatingRef = useRef(false);
   // Watch state (FR 8702c9b8) — fetched per item when the sheet opens.
   const [watching, setWatching] = useState(false);
   const [watchPending, setWatchPending] = useState(false);
@@ -767,7 +775,11 @@ export function CardDetailSheet({
   }
 
   async function handleDuplicate(withChildren: boolean) {
-    if (!item) return;
+    // Ignore repeat invocations while a duplicate is already in flight so rapid
+    // clicks (or a prompt choice landing after the trigger re-enables) resolve to
+    // a single, well-defined duplication instead of overlapping/partial copies.
+    if (!item || duplicatingRef.current) return;
+    duplicatingRef.current = true;
     setDupPrompt(false);
     setActionPending("duplicate");
     try {
@@ -782,6 +794,7 @@ export function CardDetailSheet({
     } catch (err) {
       notifyError(err, "Couldn't duplicate this item.");
     } finally {
+      duplicatingRef.current = false;
       setActionPending(null);
     }
   }
