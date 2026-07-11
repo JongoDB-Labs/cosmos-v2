@@ -676,6 +676,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       );
       record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
       await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined });
+      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "error", message: "deploy health-gate failed; rolled back", data: { reason: "deploy health-gate failed; rolled back", version } });
     } catch (cleanupErr) {
       log(`${b.key} deploy-gate cleanup error (continuing to circuit breaker): ${String(cleanupErr)}`);
     }
@@ -969,7 +970,11 @@ async function main(): Promise<void> {
   let shipChain: Promise<void> = Promise.resolve();
   const enqueueShip = (b: Built): void => {
     shipChain = shipChain
-      .then(() => shipBuilt(b))
+      // The in-flight registry entry (phase "queued-ship", kept alive through this
+      // call by the claim task's keepMeta) must survive until the ship attempt
+      // itself ends — drop it here, right as shipBuilt settles, so it's removed
+      // exactly once regardless of outcome (success or thrown).
+      .then(() => shipBuilt(b).finally(() => inFlightMeta.delete(b.itemId)))
       .then(async (r) => {
         if (r.deployFailed) {
           if (++consecutiveDeployFails >= BREAKER) {
@@ -1058,10 +1063,17 @@ async function main(): Promise<void> {
           // claim to report. Gate it on !DRY like the other decision events.
           if (!DRY) await obs.track({ workItemId: item.id, orgId: item.orgId, ticketKey: ref, kind: "claimed", message: `claimed ${ref} for build` });
           const task = (async () => {
+            // Kept true once the build hands off to the ship queue, so the finally
+            // below leaves the registry entry (phase "queued-ship") in place for the
+            // ship attempt — enqueueShip's own chain drops it when shipping ends.
+            let keepMeta = false;
             try {
               const out = await processOne(item, { testDbUrl: workerDbUrls[slot] });
               attempts.delete(item.id);
-              if (out.ship) enqueueShip(out.ship);
+              if (out.ship) {
+                keepMeta = true;
+                enqueueShip(out.ship);
+              }
             } catch (e) {
               log(`${item.id} error: ${String(e)}`);
               const n = (attempts.get(item.id) ?? 0) + 1;
@@ -1077,7 +1089,7 @@ async function main(): Promise<void> {
               await idleSleep(30_000); // bounded backoff without hot-looping the slot
             } finally {
               inflight.delete(item.id);
-              inFlightMeta.delete(item.id);
+              if (!keepMeta) inFlightMeta.delete(item.id);
               freeSlots.push(slot);
             }
           })();
