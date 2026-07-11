@@ -9,12 +9,15 @@
  * The interactive, day-level, editable scheduler is the Gantt (TimelineView).
  */
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
-import { CalendarRange, Lock } from "lucide-react";
+import { CalendarRange, Lock, Eye, ExternalLink } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { jsonFetch } from "@/lib/query/json-fetcher";
-import { useOrgQueryKey } from "@/lib/query/keys";
+import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
 import type { Cycle } from "@/types/models";
 
@@ -65,8 +68,21 @@ function monthsBetween(a: Date, b: Date): number {
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 }
 
-export function ReleaseTimelineView({ orgId, projectId }: ReleaseTimelineViewProps) {
+export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTimelineViewProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+  const router = useRouter();
+  // Every plotted item links to its own editable surface elsewhere in the app so
+  // the Release Timeline is no longer a dead-end snapshot: click (or right-click →
+  // Open) a deliverable/milestone/increment and you land on the SAME detail/edit
+  // surface you'd reach from any other view (COSMOS-45). Deliverables & milestones
+  // deep-link straight to their detail drawer via `?open=<id>`; an increment opens
+  // the cycles workspace where it's managed.
+  const orgSlug = useOrgSlug();
+  const projectBase = `/${orgSlug}/projects/${projectKey}`;
+  const deliverableHref = (id: string) =>
+    `${projectBase}/pm-dashboard/deliverables?open=${id}`;
+  const milestoneHref = (id: string) => `${projectBase}/milestones?open=${id}`;
+  const cyclesHref = `${projectBase}/cycles`;
   const cyclesKey = useOrgQueryKey("cycles", projectId);
   const deliverablesKey = useOrgQueryKey("deliverables", projectId);
   const milestonesKey = useOrgQueryKey("milestones", projectId);
@@ -233,11 +249,22 @@ export function ReleaseTimelineView({ orgId, projectId }: ReleaseTimelineViewPro
                   return (
                     <div
                       key={c.id}
-                      className="absolute flex items-center rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/15 px-2 text-xs font-medium text-[var(--text)]"
+                      className="group/action absolute"
                       style={{ left, width, top: i * 30 + 4, height: 24 }}
-                      title={`${c.name}`}
                     >
-                      <span className="truncate">{c.name}</span>
+                      <ActionMenu
+                        groups={openGroups(router, cyclesHref)}
+                        triggerLabel={`Actions for ${c.name}`}
+                        triggerClassName="absolute right-0.5 top-1/2 -translate-y-1/2"
+                      >
+                        <Link
+                          href={cyclesHref}
+                          title={c.name}
+                          className="flex h-6 w-full items-center rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/15 px-2 pr-5 text-xs font-medium text-[var(--text)] transition-colors hover:border-[var(--primary)] hover:bg-[var(--primary)]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+                        >
+                          <span className="truncate">{c.name}</span>
+                        </Link>
+                      </ActionMenu>
                     </div>
                   );
                 })}
@@ -251,11 +278,13 @@ export function ReleaseTimelineView({ orgId, projectId }: ReleaseTimelineViewPro
               <MonthChips
                 axis={axis}
                 byMonth={deliverablesByMonth}
+                router={router}
                 render={(d: Deliverable) => ({
                   key: d.id,
                   label: d.code,
                   title: `${d.code} — ${d.title}`,
                   done: d.status === "ACCEPTED" || d.status === "SUBMITTED",
+                  href: deliverableHref(d.id),
                 })}
               />
             </LevelRow>
@@ -267,11 +296,13 @@ export function ReleaseTimelineView({ orgId, projectId }: ReleaseTimelineViewPro
               <MonthChips
                 axis={axis}
                 byMonth={milestonesByMonth}
+                router={router}
                 render={(m: Milestone) => ({
                   key: m.id,
                   label: m.name ?? m.title,
                   title: m.name ?? m.title,
                   done: m.status === "COMPLETED" || m.status === "MET",
+                  href: milestoneHref(m.id),
                 })}
               />
             </LevelRow>
@@ -302,14 +333,81 @@ interface AxisInfo {
   width: number;
 }
 
+/** Right-click / ⋯ menu shared by every plotted item: Open (in place) or Open in
+ *  a new tab. Mirrors the context-menu affordance the other board views expose,
+ *  so the Release Timeline behaves consistently (COSMOS-45). */
+function openGroups(
+  router: ReturnType<typeof useRouter>,
+  href: string,
+): ActionMenuGroup[] {
+  return [
+    {
+      items: [
+        { label: "Open", icon: Eye, onClick: () => router.push(href) },
+        {
+          label: "Open in new tab",
+          icon: ExternalLink,
+          onClick: () => window.open(href, "_blank", "noopener,noreferrer"),
+        },
+      ],
+    },
+  ];
+}
+
+/** A single clickable chip on the Release Timeline. The label is a real link to
+ *  the item's editable surface (so middle-/⌘-click open a new tab and the ref is
+ *  keyboard-navigable), wrapped in the shared ActionMenu for right-click actions. */
+function TimelineChip({
+  router,
+  href,
+  label,
+  title,
+  done,
+}: {
+  router: ReturnType<typeof useRouter>;
+  href: string;
+  label: string;
+  title: string;
+  done: boolean;
+}) {
+  return (
+    <div className="group/action relative">
+      <ActionMenu
+        groups={openGroups(router, href)}
+        triggerLabel={`Actions for ${label}`}
+        triggerClassName="absolute right-0.5 top-1/2 -translate-y-1/2"
+      >
+        <Link
+          href={href}
+          title={title}
+          className={cn(
+            "block truncate rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 pr-5 text-[10px] text-[var(--text)] transition-colors hover:border-[var(--primary)] hover:bg-[var(--muted)]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
+            done && "opacity-60 line-through",
+          )}
+        >
+          {label}
+        </Link>
+      </ActionMenu>
+    </div>
+  );
+}
+
 function MonthChips<T>({
   axis,
   byMonth,
+  router,
   render,
 }: {
   axis: AxisInfo;
   byMonth: Map<number, T[]>;
-  render: (item: T) => { key: string; label: string; title: string; done: boolean };
+  router: ReturnType<typeof useRouter>;
+  render: (item: T) => {
+    key: string;
+    label: string;
+    title: string;
+    done: boolean;
+    href: string;
+  };
 }) {
   return (
     <div className="flex" style={{ width: axis.width }}>
@@ -318,16 +416,14 @@ function MonthChips<T>({
           {(byMonth.get(i) ?? []).map((item) => {
             const r = render(item);
             return (
-              <div
+              <TimelineChip
                 key={r.key}
+                router={router}
+                href={r.href}
+                label={r.label}
                 title={r.title}
-                className={cn(
-                  "truncate rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-[10px] text-[var(--text)]",
-                  r.done && "opacity-60 line-through",
-                )}
-              >
-                {r.label}
-              </div>
+                done={r.done}
+              />
             );
           })}
         </div>
