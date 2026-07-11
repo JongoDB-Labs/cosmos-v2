@@ -59,6 +59,10 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   create_work_item: "work_items",
   update_work_item: "work_items",
   delete_work_item: "work_items",
+  // Work-item dependency links are work-item edges — same coarse domain.
+  list_item_links: "work_items",
+  link_items: "work_items",
+  unlink_items: "work_items",
 
   // ── notes ───────────────────────────────────────────────────────────────────
   create_note: "notes",
@@ -85,14 +89,20 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
 
   // ── crm ─────────────────────────────────────────────────────────────────────
   query_crm: "crm",
+  create_crm_contact: "crm",
+  update_crm_contact: "crm",
+  list_partners: "crm",
+  list_products: "crm",
 
   // ── compliance ──────────────────────────────────────────────────────────────
   query_compliance_controls: "compliance",
   update_compliance_control: "compliance",
 
-  // ── projects (incl. govcon PM Dashboard registers) ───────────────────────────
+  // ── projects (incl. govcon PM Dashboard registers, OKRs, planning) ────────────
   list_projects: "projects",
   list_org_members: "projects",
+  create_project: "projects",
+  update_project: "projects",
   // PM Dashboard register tools (risk/blocker/deliverable/change) — project-management
   // data, grouped under `projects` so an org denies the whole PM agent via one coarse
   // lever (paired with `comments` for add_pm_comment).
@@ -102,11 +112,49 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   list_blockers: "projects",
   list_deliverables: "projects",
   list_changes: "projects",
+  create_blocker: "projects",
+  update_blocker: "projects",
+  create_deliverable: "projects",
+  update_deliverable: "projects",
+  create_change_request: "projects",
+  update_change_request: "projects",
+  // OKRs, milestones, goals, KPIs — project planning/objectives data, same coarse lever.
+  list_objectives: "projects",
+  create_objective: "projects",
+  update_objective: "projects",
+  delete_objective: "projects",
+  create_key_result: "projects",
+  update_key_result: "projects",
+  add_kr_checkin: "projects",
+  link_key_result_item: "projects",
+  list_milestones: "projects",
+  create_milestone: "projects",
+  update_milestone: "projects",
+  delete_milestone: "projects",
+  list_goals: "projects",
+  create_goal: "projects",
+  update_goal: "projects",
+  list_kpis: "projects",
+  create_kpi: "projects",
+  update_kpi: "projects",
+  // Boards, documents, meetings, and the product-feedback backlog — project-scoped /
+  // product-management surfaces, grouped under `projects` for one coarse deny lever.
+  list_boards: "projects",
+  list_documents: "projects",
+  list_meetings: "projects",
+  create_meeting: "projects",
+  update_meeting: "projects",
+  delete_meeting: "projects",
+  list_feedback: "projects",
+  create_feedback: "projects",
+  set_feedback_status: "projects",
 
   // ── cycles ──────────────────────────────────────────────────────────────────
   query_cycles: "cycles",
   list_cycles: "cycles",
   create_cycle: "cycles",
+  update_cycle: "cycles",
+  complete_cycle: "cycles",
   generate_cycle_brief: "cycles",
 
   // ── search / RAG ─────────────────────────────────────────────────────────────
