@@ -33,7 +33,7 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { reportError } from "@/lib/telemetry/error-report";
 import { describeUploadError, networkUploadError } from "./upload-error";
-import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, Pencil, Trash2 } from "lucide-react";
+import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, Pencil, Trash2, MessageSquare } from "lucide-react";
 
 type FType = "BUG" | "FEATURE";
 type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "DECLINED";
@@ -862,6 +862,15 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     </div>
                   </div>
                 )}
+
+                {/* Comments — visible to everyone viewing the item; any member
+                    can add one. Keyed by item id so switching items remounts
+                    with a fresh fetch. */}
+                <FeedbackComments
+                  key={detailItem.id}
+                  basePath={basePath}
+                  feedbackId={detailItem.id}
+                />
               </div>
 
               <DialogFooter className="sm:justify-between">
@@ -982,6 +991,193 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+interface FeedbackComment {
+  id: string;
+  content: string;
+  authorId: string;
+  createdAt: string;
+  updatedAt: string;
+  // Resolved server-side (Comment has no eager User relation) — prefer the
+  // display name, fall back to email, then a generic label if the author's
+  // User row is gone.
+  authorName?: string | null;
+  authorEmail?: string | null;
+  authorAvatarUrl?: string | null;
+  // The server already decided whether the caller may delete this comment
+  // (own comment, or a manager) — the UI just honors it.
+  canDelete: boolean;
+}
+
+function commenterLabel(c: FeedbackComment): string {
+  return c.authorName || c.authorEmail || "Someone";
+}
+
+/**
+ * Comment thread for a single FR/BR, shown inside the detail modal. Loads
+ * lazily on mount (remounted per item via a `key`), lets any org member add a
+ * comment, and — where the server allows it — delete one. All members viewing
+ * the same item see the same thread (fetched fresh each open).
+ */
+function FeedbackComments({
+  basePath,
+  feedbackId,
+}: {
+  basePath: string;
+  feedbackId: string;
+}) {
+  const url = `${basePath}/${feedbackId}/comments`;
+
+  const [comments, setComments] = useState<FeedbackComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setFailed(false);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to load comments");
+      setComments(await res.json());
+    } catch (err) {
+      notifyError(err, "Couldn't load comments.");
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    load();
+  }, [load]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  async function post() {
+    const content = draft.trim();
+    if (!content) return;
+    setPosting(true);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) throw new Error("Failed to post comment");
+      const saved: FeedbackComment = await res.json();
+      setComments((prev) => [...prev, saved]);
+      setDraft("");
+    } catch (err) {
+      notifyError(err, "Couldn't post your comment.");
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function remove(id: string) {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`${url}/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete comment");
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      notifyError(err, "Couldn't delete the comment.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t pt-4">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <MessageSquare className="h-3.5 w-3.5" />
+        Comments{comments.length > 0 ? ` (${comments.length})` : ""}
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-3/4" />
+        </div>
+      ) : failed ? (
+        <button
+          type="button"
+          onClick={load}
+          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          Couldn&apos;t load comments — try again
+        </button>
+      ) : comments.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground">
+          No comments yet. Start the conversation.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {comments.map((c) => (
+            <li key={c.id} className="flex gap-2.5">
+              {c.authorAvatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={c.authorAvatarUrl}
+                  alt={commenterLabel(c)}
+                  className="mt-0.5 h-6 w-6 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium uppercase text-muted-foreground">
+                  {commenterLabel(c).slice(0, 1)}
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">{commenterLabel(c)}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(c.createdAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                  {c.canDelete && (
+                    <button
+                      type="button"
+                      aria-label="Delete comment"
+                      title="Delete comment"
+                      disabled={deletingId === c.id}
+                      onClick={() => remove(c.id)}
+                      className="ml-auto text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-foreground/90">
+                  {c.content}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="space-y-2">
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add a comment…"
+          aria-label="Add a comment"
+          className="min-h-[70px]"
+        />
+        <div className="flex justify-end">
+          <Button size="sm" onClick={post} disabled={posting || !draft.trim()}>
+            {posting ? "Posting…" : "Comment"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

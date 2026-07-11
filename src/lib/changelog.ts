@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.186.0",
+    date: "2026-07-11",
+    title: "Comment on feature & bug requests",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Open any feature request or bug report on the Feedback board and you'll now see a comment thread — add your own take, ask a clarifying question, or share a workaround, and everyone else viewing the same item sees it too. You can delete your own comments (and admins can moderate any). This joins upvoting, which was already there: rally support with a vote and add the detail with a comment.",
+      },
+    ],
+  },
+  {
     version: "2.185.1",
     date: "2026-07-11",
     title: "Steadier issues table on right-click",
