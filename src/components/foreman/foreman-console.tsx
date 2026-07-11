@@ -28,7 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { Bot, RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck } from "lucide-react";
+import { HardHat, RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck } from "lucide-react";
 import { ForemanEventFeed } from "./foreman-event-feed";
 
 /** "3m ago" / "2h ago" / "5d ago" — the app has no shared relative-time
@@ -155,7 +155,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Bot className="size-5 text-[var(--primary)]" aria-hidden />
+            <HardHat className="size-5 text-[var(--primary)]" aria-hidden />
             <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", PULSE_CLASSES[pulse])}>
               {PULSE_LABEL[pulse]}
             </span>
