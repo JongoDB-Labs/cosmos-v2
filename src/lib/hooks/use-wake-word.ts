@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 
 interface WakeWordOptions {
-  phrase: string; // case-insensitive substring to listen for, e.g. "hey cosmos"
+  phrase: string; // case-insensitive substring to listen for, e.g. "hey cosmo"
   enabled: boolean;
   onWake: () => void;
 }
