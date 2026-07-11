@@ -1,11 +1,16 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { requirePermission, ConflictError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
+import {
+  directedDependencyEdge,
+  wouldCreateDependencyCycle,
+  type DirectedEdge,
+} from "@/lib/work-items/dependency-graph";
 import { z } from "zod";
 import { LinkType } from "@prisma/client";
 
@@ -114,6 +119,37 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       select: { id: true },
     });
     if (ends.length !== 2) return new Response("Both items must be in this project", { status: 400 });
+
+    // Load this project's existing links once and reject invalid states before
+    // creating: an exact duplicate of an existing link, or a directed link that
+    // would introduce a CIRCULAR dependency (A must precede B AND B must precede
+    // A). Only directed types can form a cycle — RELATES/DUPLICATES/CLONES are
+    // undirected — so undirected links skip the reachability check. Both throw a
+    // ConflictError → 409 with a human message the detail panel surfaces.
+    const existingLinks = await prisma.workItemLink.findMany({
+      where: { orgId, sourceItem: { projectId } },
+      select: { type: true, sourceItemId: true, targetItemId: true },
+    });
+
+    if (
+      existingLinks.some(
+        (l) => l.sourceItemId === sourceItemId && l.targetItemId === targetItemId && l.type === type,
+      )
+    ) {
+      throw new ConflictError("These items are already linked with that relationship.");
+    }
+
+    const candidate = directedDependencyEdge(type, sourceItemId, targetItemId);
+    if (candidate) {
+      const edges = existingLinks
+        .map((l) => directedDependencyEdge(l.type, l.sourceItemId, l.targetItemId))
+        .filter((e): e is DirectedEdge => e !== null);
+      if (wouldCreateDependencyCycle(edges, candidate)) {
+        throw new ConflictError(
+          "This link would create a circular dependency — the two items would each depend on the other.",
+        );
+      }
+    }
 
     const link = await prisma.workItemLink.create({
       data: { orgId, sourceItemId, targetItemId, type },

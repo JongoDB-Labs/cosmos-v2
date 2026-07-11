@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.179.0",
+    date: "2026-07-11",
+    title: "Dependency links can't loop back on themselves anymore",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Linking work items as dependencies now refuses to create a circular dependency. If you try to add a \"blocks\" / \"blocked by\" / \"predecessor\" / \"successor\" link that would make two items each wait on the other — directly or through a longer chain (A → B → C → A) — the link is rejected with a clear message instead of quietly producing a deadlock the schedule can never resolve. Adding the exact same link twice is blocked too. \"Relates to\" and \"duplicates\" stay unrestricted since they carry no ordering, and the dependency map still flags any loops that already exist in imported data.",
+      },
+    ],
+  },
+  {
     version: "2.178.0",
     date: "2026-07-11",
     title: "The timeline remembers what you collapsed",
