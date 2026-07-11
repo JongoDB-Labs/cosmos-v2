@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.172.2",
+    date: "2026-07-11",
+    title: "Readable in every light/dark combination",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Text no longer washes out when your OS theme and your app theme disagree — ticket descriptions, triage notes, chat content, and every other dark-mode-styled element now follow the theme you picked in the app, not your operating system. If your OS was in dark mode while the app was in light mode, bold text could literally render white-on-white; that whole class of mismatch is fixed at the root.",
+      },
+    ],
+  },
+  {
     version: "2.172.1",
     date: "2026-07-11",
     title: "Voice wake-up is rock-solid",
