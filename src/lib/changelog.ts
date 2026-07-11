@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.184.1",
+    date: "2026-07-11",
+    title: "Clearer feedback screenshot uploads",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Attaching a screenshot to feedback now tells you exactly what went wrong when an upload fails — too large, unsupported file type, rate-limited, or a connection problem — instead of a blanket “Couldn't upload”. Screenshots with spaces and colons in the name (like the default macOS “Screenshot … at 2:27 PM.png”) upload reliably, and failures are now logged with their reason so they're easier to track down.",
+      },
+    ],
+  },
+  {
     version: "2.184.0",
     date: "2026-07-11",
     title: "Duplicate an issue into an editable draft",
