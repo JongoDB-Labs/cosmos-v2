@@ -1,4 +1,22 @@
 @import "tailwindcss";
+
+/* Re-key the `dark:` variant from the OS media query to the APP's theme model:
+ * explicit `.dark`/`.light` root classes with a system-preference fallback when
+ * neither is set (same gating as the background layers below — see the
+ * mixed-appearance bug note there). Without this, every `dark:` utility
+ * followed prefers-color-scheme alone, so OS-dark + app-light rendered
+ * dark-mode styles (white prose bold, dark-tinted text colors) onto light
+ * surfaces — barely-readable content. */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
