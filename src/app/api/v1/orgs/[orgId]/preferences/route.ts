@@ -22,6 +22,8 @@ const updatePreferencesSchema = z.object({
   dndEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   dndTimezone: z.string().max(50).nullable().optional(),
   skinId: z.string().refine(isValidSkinId, "invalid skin").nullable().optional(),
+  // Voice dictation close word ("send it" default when null/blank).
+  voiceCloseWord: z.string().trim().max(40).nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -73,6 +75,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         density: data.density ?? "COMFORTABLE",
         ...(data.themeId !== undefined ? { themeId: data.themeId } : {}),
         ...(data.themeMode !== undefined ? { themeMode: data.themeMode } : {}),
+        ...(data.voiceCloseWord !== undefined ? { voiceCloseWord: data.voiceCloseWord || null } : {}),
         ...(data.defaultBoardId !== undefined ? { defaultBoardId: data.defaultBoardId } : {}),
         ...(data.methodology !== undefined ? { methodology: data.methodology } : {}),
         ...(data.bgDarkUrl !== undefined ? { bgDarkUrl: data.bgDarkUrl } : {}),
@@ -86,6 +89,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       update: {
         ...(data.themeId !== undefined ? { themeId: data.themeId } : {}),
         ...(data.themeMode !== undefined ? { themeMode: data.themeMode } : {}),
+        ...(data.voiceCloseWord !== undefined ? { voiceCloseWord: data.voiceCloseWord || null } : {}),
         ...(data.sidebarPosition !== undefined ? { sidebarPosition: data.sidebarPosition } : {}),
         ...(data.navigationStyle !== undefined ? { navigationStyle: data.navigationStyle } : {}),
         ...(data.density !== undefined ? { density: data.density } : {}),
