@@ -7,14 +7,7 @@ import { ReactionBar } from "./reaction-bar";
 import { EmojiPicker } from "./emoji-picker";
 import { AttachmentTile } from "./attachment-tile";
 import type { ChatMessageDto } from "@/hooks/use-chat-messages";
-
-/** Chat timestamps read to the minute (FR 78b5b1bd) — seconds are noise. */
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+import { formatMinuteTime, formatPreciseTimestamp } from "@/lib/chat/message-time";
 
 export function MessageItem({
   message,
@@ -24,6 +17,7 @@ export function MessageItem({
   refMap,
   isPinned,
   grouped = false,
+  showTimestamp = true,
   onEdit,
   onDelete,
   onReact,
@@ -39,6 +33,10 @@ export function MessageItem({
   /** Compact run-on rendering: same author within a few minutes of the message
    *  above — avatar and name/time header are suppressed (time shows on hover). */
   grouped?: boolean;
+  /** Whether this message opens a new time group (first of day / after a lull).
+   *  Only then is the minute-level timestamp shown in the header (FR 78b5b1bd);
+   *  the precise time is always available by clicking the message. */
+  showTimestamp?: boolean;
   onEdit: (nextContent: string) => void;
   onDelete: () => void;
   onReact: (emoji: string, isOwn: boolean) => void;
@@ -49,8 +47,18 @@ export function MessageItem({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [revealTime, setRevealTime] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const tombstone = message.deletedAt != null;
+
+  // Click a message to reveal its precise (second-level) timestamp on demand
+  // (FR 78b5b1bd). Ignore clicks that land on interactive controls or that are
+  // really a text selection, so reading/copying a message doesn't toggle it.
+  function toggleReveal(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest("a,button,input,textarea")) return;
+    if (typeof window !== "undefined" && window.getSelection()?.toString()) return;
+    setRevealTime((v) => !v);
+  }
 
   // Focus + grow the editor when entering edit mode, caret at the end.
   useEffect(() => {
@@ -107,7 +115,7 @@ export function MessageItem({
         // Run-on message: no avatar repeat — the slot shows the time on hover.
         <div className="flex h-5 w-8 shrink-0 items-center justify-center">
           <span className="text-[9px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-            {formatTime(message.createdAt)}
+            {formatMinuteTime(message.createdAt)}
           </span>
         </div>
       ) : (
@@ -129,9 +137,11 @@ export function MessageItem({
             <>
               <span className="font-medium text-sm">🤖 Assistant</span>
               <span className="text-[10px] text-muted-foreground">· asked by {author.displayName}</span>
-              <span className="text-[10px] text-muted-foreground">
-                {formatTime(message.createdAt)}
-              </span>
+              {showTimestamp && (
+                <span className="text-[10px] text-muted-foreground">
+                  {formatMinuteTime(message.createdAt)}
+                </span>
+              )}
               {message.editedAt && (
                 <span className="text-[10px] text-muted-foreground">(edited)</span>
               )}
@@ -139,9 +149,11 @@ export function MessageItem({
           ) : (
             <>
               <span className="font-medium text-sm">{author.displayName}</span>
-              <span className="text-[10px] text-muted-foreground">
-                {formatTime(message.createdAt)}
-              </span>
+              {showTimestamp && (
+                <span className="text-[10px] text-muted-foreground">
+                  {formatMinuteTime(message.createdAt)}
+                </span>
+              )}
               {message.editedAt && (
                 <span className="text-[10px] text-muted-foreground">(edited)</span>
               )}
@@ -149,7 +161,11 @@ export function MessageItem({
           )}
         </div>
         )}
-        <div className="mt-0.5 text-sm">
+        <div
+          className="mt-0.5 text-sm"
+          onClick={toggleReveal}
+          title={formatPreciseTimestamp(message.createdAt)}
+        >
           {message.kind === "ACTION" ? (
             <div className="italic text-muted-foreground">* {author.displayName} {message.content}</div>
           ) : tombstone ? (
@@ -212,6 +228,13 @@ export function MessageItem({
             </div>
           )}
         </div>
+        {revealTime && (
+          <span className="mt-0.5 text-[10px] text-muted-foreground">
+            {formatPreciseTimestamp(message.createdAt)}
+            {message.editedAt &&
+              ` · edited ${formatPreciseTimestamp(message.editedAt)}`}
+          </span>
+        )}
         {!tombstone && !editing && message.attachments.length > 0 && (
           <div className={cn("flex flex-wrap gap-2 mt-1", alignRight && "justify-end")}>
             {message.attachments.map((a) => (
