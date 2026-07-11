@@ -7,7 +7,7 @@
 // swallows clicks for the whole control cell, so these tests lock the contract:
 // no drawer from the checkbox column, but the drawer still opens from content
 // cells.
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
@@ -97,5 +97,70 @@ describe("DataTable — bulk-select checkbox vs. row-click drawer (COSMOS-26)", 
 
     expect(onRowClick).toHaveBeenCalledTimes(1);
     expect(onRowClick).toHaveBeenCalledWith(DATA[0]);
+  });
+});
+
+// COSMOS-28 — a view's page size must persist across sessions. With a persistKey,
+// changing "Rows" writes the choice to localStorage and a remount recovers it;
+// without one the size stays ephemeral (existing consumers unaffected).
+describe("DataTable — persistent page size (COSMOS-28)", () => {
+  const PERSIST_KEY = "cosmos:test-dt:page-size";
+  const MANY: Row[] = Array.from({ length: 30 }, (_, i) => ({
+    id: `r${i}`,
+    title: `Row ${i}`,
+  }));
+
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("writes the chosen page size to storage and rehydrates it on remount", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <DataTable
+        columns={COLUMNS}
+        data={MANY}
+        getRowId={(r) => r.id}
+        pagination={{ pageSize: 10, pageSizeOptions: [10, 20, 50], persistKey: PERSIST_KEY }}
+      />,
+    );
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("10");
+
+    await user.selectOptions(select, "20");
+    expect(select.value).toBe("20");
+    expect(window.localStorage.getItem(PERSIST_KEY)).toBe("20");
+
+    // A fresh mount (new session) recovers the remembered choice after rehydrate.
+    unmount();
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={MANY}
+        getRowId={(r) => r.id}
+        pagination={{ pageSize: 10, pageSizeOptions: [10, 20, 50], persistKey: PERSIST_KEY }}
+      />,
+    );
+    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("20");
+  });
+
+  it("does not persist when no persistKey is provided", async () => {
+    const user = userEvent.setup();
+    const setSpy = vi.spyOn(Storage.prototype, "setItem");
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={MANY}
+        getRowId={(r) => r.id}
+        pagination={{ pageSize: 10, pageSizeOptions: [10, 20, 50] }}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox"), "20");
+    // The select still reflects the choice for this session…
+    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("20");
+    // …but nothing was written to storage.
+    expect(setSpy).not.toHaveBeenCalled();
+    setSpy.mockRestore();
   });
 });

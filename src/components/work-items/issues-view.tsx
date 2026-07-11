@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
+import { usePersistentPageSize } from "@/lib/hooks/use-persistent-page-size";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -237,6 +238,9 @@ function savedFilterToFilterState(wf: WorkItemFilter): FilterState {
 }
 
 const PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+/** Per-user, per-browser page-size preference for the Issues view (COSMOS-28). */
+const PAGE_SIZE_STORAGE_KEY = "cosmos:issues:page-size";
 
 export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
   const { can } = usePermissions();
@@ -252,7 +256,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // submit/enter so every keystroke doesn't refire the query.
   const [textDraft, setTextDraft] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  // Page size persists across sessions per user (COSMOS-28) — localStorage-backed
+  // so switching it survives reloads without a server round-trip.
+  const [pageSize, setPageSize] = usePersistentPageSize(
+    PAGE_SIZE_STORAGE_KEY,
+    PAGE_SIZE,
+    PAGE_SIZE_OPTIONS,
+  );
   const [saveBoardOpen, setSaveBoardOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   // When set, the create dialog opens as a pre-filled "Duplicate issue" draft
@@ -965,7 +975,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                     aria-label="Issues per page"
                     className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--primary)]"
                   >
-                    {[25, 50, 100, 200].map((n) => (
+                    {PAGE_SIZE_OPTIONS.map((n) => (
                       <option key={n} value={n}>
                         {n}
                       </option>

@@ -14,7 +14,7 @@ import {
   type RowSelectionState,
   type GroupingState,
 } from "@tanstack/react-table";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -35,6 +35,7 @@ import {
   DropdownMenuLabel,
 } from "./dropdown-menu";
 import { guardScroll, type ActionMenuGroup } from "./action-menu";
+import { usePersistentPageSize } from "@/lib/hooks/use-persistent-page-size";
 
 export interface DataTableProps<T> {
   columns: ColumnDef<T>[];
@@ -43,8 +44,13 @@ export interface DataTableProps<T> {
   /** When provided, each row gets an expand chevron and renders this panel
    * underneath the expanded row. Receives the row's original data. */
   renderExpanded?: (row: T) => React.ReactNode;
-  /** Default false. Enables pagination + page-size selector. */
-  pagination?: boolean | { pageSize?: number; pageSizeOptions?: number[] };
+  /** Default false. Enables pagination + page-size selector.
+   * `persistKey` (namespaced, e.g. `"cosmos:board-table:page-size"`) remembers
+   * the chosen page size across sessions per user (COSMOS-28); omit it to keep
+   * the size ephemeral. */
+  pagination?:
+    | boolean
+    | { pageSize?: number; pageSizeOptions?: number[]; persistKey?: string };
   /** Initial pagination state (uncontrolled). */
   initialPageSize?: number;
   /** A stable row identifier — used for keys and expansion state.
@@ -144,12 +150,34 @@ export function DataTable<T>({
   };
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const paginationObj = typeof pagination === "object" ? pagination : null;
+  const defaultPageSize = initialPageSize ?? paginationObj?.pageSize ?? 20;
+  const pageSizeOptions = paginationObj?.pageSizeOptions ?? [10, 20, 50, 100];
+  const persistKey = paginationObj?.persistKey;
+  // Opt-in persistence (COSMOS-28): when a persistKey is given, the chosen size
+  // is remembered per user across sessions. Without one this is inert and the
+  // page size stays ephemeral, so existing consumers are unaffected.
+  const [persistedPageSize, setPersistedPageSize] = usePersistentPageSize(
+    persistKey,
+    defaultPageSize,
+    pageSizeOptions,
+  );
   const [paginationState, setPaginationState] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: initialPageSize ?? paginationObj?.pageSize ?? 20,
+    pageSize: defaultPageSize,
   });
 
-  const pageSizeOptions = paginationObj?.pageSizeOptions ?? [10, 20, 50, 100];
+  // Mirror the persisted size into the table's pagination state (also handles
+  // post-mount rehydration: the stored choice arrives after the first render).
+  // Changing the size returns to the first page so no page is left out of range.
+  useEffect(() => {
+    if (!persistKey) return;
+    setPaginationState((prev) =>
+      prev.pageSize === persistedPageSize
+        ? prev
+        : { pageIndex: 0, pageSize: persistedPageSize },
+    );
+  }, [persistKey, persistedPageSize]);
+
   const paginate = Boolean(pagination);
 
   // Shift-click range selection. `lastSelectedRef` is the anchor (last checkbox
@@ -596,7 +624,12 @@ export function DataTable<T>({
               <span>Rows</span>
               <select
                 value={table.getState().pagination.pageSize}
-                onChange={(e) => table.setPageSize(Number(e.target.value))}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  table.setPageSize(next);
+                  // Write through so the choice is remembered next session.
+                  if (persistKey) setPersistedPageSize(next);
+                }}
                 className="rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5"
               >
                 {pageSizeOptions.map((sz) => (

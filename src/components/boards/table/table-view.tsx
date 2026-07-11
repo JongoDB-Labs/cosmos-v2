@@ -961,7 +961,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           grouping={grouping}
           onGroupingChange={setGrouping}
           rowActions={rowActions}
-          pagination={{ pageSize: 50 }}
+          pagination={{ pageSize: 50, persistKey: "cosmos:board-table:page-size" }}
           stickyHeader
         />
       </div>

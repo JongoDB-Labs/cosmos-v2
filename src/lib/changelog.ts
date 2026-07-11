@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.189.0",
+    date: "2026-07-11",
+    title: "Your issues-per-page choice is remembered",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Pick how many issues to show per page — 25, 50, 100, or 200 on the Issues view — and it now sticks. Your choice is remembered the next time you come back, on both the Issues list and board Table views, so you don't have to re-set it every session. Changing the page size still keeps your filters, sorting, and search intact.",
+      },
+    ],
+  },
+  {
     version: "2.188.0",
     date: "2026-07-11",
     title: "Drill into your Sprint Dashboard by assignee",
