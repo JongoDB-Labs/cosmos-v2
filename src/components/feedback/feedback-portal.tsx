@@ -31,6 +31,8 @@ import {
   Permission,
 } from "@/components/providers/permissions-provider";
 import { notifyError } from "@/lib/errors/notify";
+import { reportError } from "@/lib/telemetry/error-report";
+import { describeUploadError, networkUploadError } from "./upload-error";
 import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, Pencil, Trash2 } from "lucide-react";
 
 type FType = "BUG" | "FEATURE";
@@ -176,11 +178,54 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       for (const file of files.slice(0, 10)) {
         const fd = new FormData();
         fd.append("file", file);
-        const res = await fetch(`${basePath}/attachments`, { method: "POST", body: fd });
-        if (!res.ok) {
-          notifyError(new Error("upload"), `Couldn't upload ${file.name}.`);
+
+        let res: Response;
+        try {
+          res = await fetch(`${basePath}/attachments`, { method: "POST", body: fd });
+        } catch (netErr) {
+          // The request never completed (offline, dropped connection, proxy
+          // reset). Without this catch it escapes as an unhandled rejection and
+          // the user sees nothing at all.
+          const err = netErr instanceof Error ? netErr : new Error("upload network error");
+          reportError(err, {
+            scope: "feedback.attachment",
+            phase: "network",
+            filename: file.name,
+          });
+          notifyError(err, networkUploadError(file.name));
           continue;
         }
+
+        if (!res.ok) {
+          // Pull the server's structured reason ({ error, maxBytes }) so we can
+          // tell the user WHY and record the status/code for diagnosis. The body
+          // may be non-JSON for an infra error (nginx/Cloudflare) — tolerate it.
+          let code: string | null = null;
+          let maxBytes: number | null = null;
+          try {
+            const body: unknown = await res.json();
+            if (body && typeof body === "object") {
+              const b = body as Record<string, unknown>;
+              code = typeof b.error === "string" ? b.error : null;
+              maxBytes = typeof b.maxBytes === "number" ? b.maxBytes : null;
+            }
+          } catch {
+            /* non-JSON error body — the HTTP status alone drives the message */
+          }
+          const err = new Error(`feedback attachment upload failed (${res.status})`);
+          reportError(err, {
+            scope: "feedback.attachment",
+            status: res.status,
+            code,
+            filename: file.name,
+          });
+          notifyError(
+            err,
+            describeUploadError({ filename: file.name, status: res.status, code, maxBytes }),
+          );
+          continue;
+        }
+
         const row = await res.json();
         setPending((prev) => [
           ...prev,
