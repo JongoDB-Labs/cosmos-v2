@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.174.2",
+    date: "2026-07-11",
+    title: "Duplicating an item is click-safe",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Duplicating a work item now behaves the same no matter how fast or how many times you click Duplicate. Rapid or repeated clicks resolve to a single, well-defined duplication instead of quietly kicking off overlapping copies — so you'll always get the \"copy the sub-items too?\" prompt when an item has sub-items, and never end up with a half-finished duplicate.",
+      },
+    ],
+  },
+  {
     version: "2.174.0",
     date: "2026-07-11",
     title: "Cosmo can now act on everything",
