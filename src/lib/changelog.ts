@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.192.0",
+    date: "2026-07-11",
+    title: "Timeline dates stay put while you scroll",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Timeline (Gantt) board, the date row now stays pinned to the top while you scroll down through the chart — so you can always tell which dates the bars line up with. It used to slip out of view after the first screenful.",
+      },
+    ],
+  },
+  {
     version: "2.191.0",
     date: "2026-07-11",
     title: "Calmer chat timestamps",
