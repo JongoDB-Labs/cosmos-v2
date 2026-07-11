@@ -2,6 +2,7 @@
 // in-app feed starts with full history. Idempotent: an entry is skipped when a
 // backfilled event with the same ticketKey+kind+ts already exists.
 // Run: DATABASE_URL=<target> npx tsx scripts/foreman/backfill-events.mts <ledger-path>
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { LEDGER_KIND_MAP, type ForemanEventKind } from "@/lib/foreman/observe";
@@ -67,7 +68,7 @@ async function main(): Promise<void> {
         kind: m.kind,
         severity: m.severity,
         message: m.message,
-        data: m.data as any,
+        data: m.data as Prisma.InputJsonValue,
         ts: m.ts,
         orgId: wi?.orgId ?? null,
         workItemId: wi?.id ?? null,
