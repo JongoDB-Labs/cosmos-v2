@@ -9,6 +9,11 @@ import { FormField } from "@/components/ui/form-field";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { enablePushNotifications, disablePushNotifications } from "@/lib/notifications/subscribe";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import {
+  MAX_AVATAR_DATAURL_BYTES,
+  MAX_AVATAR_SOURCE_BYTES,
+  MAX_AVATAR_SOURCE_MB,
+} from "@/lib/security/image-url";
 
 interface ProfileFormProps {
   initial: {
@@ -18,13 +23,6 @@ interface ProfileFormProps {
     avatarUrl: string | null;
   };
 }
-
-// Cap on the stored avatar data-URL *string length* (~1MB image as base64). Large
-// photos are downscaled client-side (below) to fit, so a user can pick any
-// reasonable image and it just works instead of being rejected for size.
-const MAX_AVATAR_DATAURL = 1_400_000;
-// Don't even try to decode absurd files (avoids hanging on a multi-hundred-MB pick).
-const MAX_SOURCE_BYTES = 25_000_000;
 
 /** Downscale + JPEG-compress a data URL until its string length fits `cap`.
  *  Caps the longest edge at 512px (ample for an avatar) and steps quality down. */
@@ -140,8 +138,10 @@ export function ProfileForm({ initial }: ProfileFormProps) {
       setError("Only images are accepted");
       return;
     }
-    if (file.size > MAX_SOURCE_BYTES) {
-      setError(`That image is too large (${Math.round(file.size / 1024 / 1024)}MB). Pick one under 25MB.`);
+    if (file.size > MAX_AVATAR_SOURCE_BYTES) {
+      setError(
+        `That image is too large (${Math.round(file.size / 1_000_000)}MB). Pick one under ${MAX_AVATAR_SOURCE_MB}MB.`,
+      );
       return;
     }
     setError(null);
@@ -154,10 +154,10 @@ export function ProfileForm({ initial }: ProfileFormProps) {
       });
       // Big photos are downscaled to fit instead of rejected — the whole point of
       // the FR. (Small images pass through untouched, preserving their format.)
-      if (dataUrl.length > MAX_AVATAR_DATAURL) {
-        dataUrl = await downscaleAvatar(dataUrl, MAX_AVATAR_DATAURL);
+      if (dataUrl.length > MAX_AVATAR_DATAURL_BYTES) {
+        dataUrl = await downscaleAvatar(dataUrl, MAX_AVATAR_DATAURL_BYTES);
       }
-      if (dataUrl.length > MAX_AVATAR_DATAURL) {
+      if (dataUrl.length > MAX_AVATAR_DATAURL_BYTES) {
         setError("Couldn't compress that image small enough — try a simpler one.");
         return;
       }
@@ -233,7 +233,9 @@ export function ProfileForm({ initial }: ProfileFormProps) {
             )}
           </div>
         </div>
-        <p className="mt-2 text-xs text-[var(--text-muted)]">PNG/JPG/WEBP up to 200KB.</p>
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          PNG/JPG/WEBP up to {MAX_AVATAR_SOURCE_MB}MB — large images are resized automatically.
+        </p>
       </div>
 
       <FormField label="Display name" required error={errors.displayName}>

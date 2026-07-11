@@ -3,13 +3,13 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { imageUrlSchema } from "@/lib/security/image-url";
+import { avatarUrlSchema } from "@/lib/security/image-url";
 
 const schema = z.object({
   displayName: z.string().min(1).max(100).optional(),
-  // ~1MB image as base64 (expands ~34%) plus the data-URL prefix. The client
-  // downscales large photos to fit, so this is just a safety ceiling.
-  avatarUrl: imageUrlSchema(1_400_000, "Must be a data-URL image (~1MB max) or an https URL"),
+  // Shared avatar limit — the client downscales large photos to fit this cap
+  // before sending, so this is the server-side safety ceiling. See image-url.ts.
+  avatarUrl: avatarUrlSchema,
 });
 
 export async function GET() {
