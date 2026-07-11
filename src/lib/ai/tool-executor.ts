@@ -7,13 +7,24 @@ import {
   updateWorkItem,
   deleteWorkItem,
   listWorkItems,
+  listItemLinks,
+  linkItems,
+  unlinkItems,
 } from "./executors/work-items";
 import { createNote, updateNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
 import { logRevenue, logExpense, getFinanceSummary } from "./executors/finance";
 import { getTrialBalance, getProfitAndLoss } from "./executors/accounting";
-import { listProjects, listCycles, createCycle } from "./executors/projects";
+import {
+  listProjects,
+  listCycles,
+  createCycle,
+  createProject,
+  updateProject,
+  updateCycle,
+  completeCycle,
+} from "./executors/projects";
 import { fetchUrl } from "./executors/utility";
 import { semanticSearch } from "./executors/rag";
 import { canonicalizeStageFilter } from "@/lib/crm/stages";
@@ -29,7 +40,52 @@ import {
   listBlockers,
   listDeliverables,
   listChanges,
+  createBlocker,
+  updateBlocker,
+  createDeliverable,
+  updateDeliverable,
+  createChangeRequest,
+  updateChangeRequest,
 } from "./executors/pm-register";
+import {
+  listObjectives,
+  createObjective,
+  updateObjective,
+  deleteObjective,
+  createKeyResult,
+  updateKeyResult,
+  addKrCheckin,
+  linkKeyResultItem,
+} from "./executors/okrs";
+import {
+  listMilestones,
+  createMilestone,
+  updateMilestone,
+  deleteMilestone,
+} from "./executors/milestones";
+import { listFeedback, createFeedback, setFeedbackStatus } from "./executors/feedback";
+import {
+  listMeetings,
+  createMeeting,
+  updateMeeting,
+  deleteMeeting,
+} from "./executors/meetings";
+import {
+  listGoals,
+  createGoal,
+  updateGoal,
+  listKpis,
+  createKpi,
+  updateKpi,
+} from "./executors/goals-kpis";
+import { listBoards } from "./executors/boards";
+import { listDocuments } from "./executors/documents";
+import {
+  createCrmContact,
+  updateCrmContact,
+  listPartners,
+  listProducts,
+} from "./executors/crm";
 
 interface ToolContext {
   orgId: string;
@@ -290,6 +346,112 @@ async function dispatchTool(
       return listDeliverables(input, ctx);
     case "list_changes":
       return listChanges(input, ctx);
+    case "create_blocker":
+      return createBlocker(input, ctx);
+    case "update_blocker":
+      return updateBlocker(input, ctx);
+    case "create_deliverable":
+      return createDeliverable(input, ctx);
+    case "update_deliverable":
+      return updateDeliverable(input, ctx);
+    case "create_change_request":
+      return createChangeRequest(input, ctx);
+    case "update_change_request":
+      return updateChangeRequest(input, ctx);
+
+    // Projects + cycles (writes)
+    case "create_project":
+      return createProject(input, ctx);
+    case "update_project":
+      return updateProject(input, ctx);
+    case "update_cycle":
+      return updateCycle(input, ctx);
+    case "complete_cycle":
+      return completeCycle(input, ctx);
+
+    // Work-item dependency links
+    case "list_item_links":
+      return listItemLinks(input, ctx);
+    case "link_items":
+      return linkItems(input, ctx);
+    case "unlink_items":
+      return unlinkItems(input, ctx);
+
+    // OKRs
+    case "list_objectives":
+      return listObjectives(input, ctx);
+    case "create_objective":
+      return createObjective(input, ctx);
+    case "update_objective":
+      return updateObjective(input, ctx);
+    case "delete_objective":
+      return deleteObjective(input, ctx);
+    case "create_key_result":
+      return createKeyResult(input, ctx);
+    case "update_key_result":
+      return updateKeyResult(input, ctx);
+    case "add_kr_checkin":
+      return addKrCheckin(input, ctx);
+    case "link_key_result_item":
+      return linkKeyResultItem(input, ctx);
+
+    // Milestones
+    case "list_milestones":
+      return listMilestones(input, ctx);
+    case "create_milestone":
+      return createMilestone(input, ctx);
+    case "update_milestone":
+      return updateMilestone(input, ctx);
+    case "delete_milestone":
+      return deleteMilestone(input, ctx);
+
+    // Feedback
+    case "list_feedback":
+      return listFeedback(input, ctx);
+    case "create_feedback":
+      return createFeedback(input, ctx);
+    case "set_feedback_status":
+      return setFeedbackStatus(input, ctx);
+
+    // Meetings
+    case "list_meetings":
+      return listMeetings(input, ctx);
+    case "create_meeting":
+      return createMeeting(input, ctx);
+    case "update_meeting":
+      return updateMeeting(input, ctx);
+    case "delete_meeting":
+      return deleteMeeting(input, ctx);
+
+    // Goals + KPIs
+    case "list_goals":
+      return listGoals(input, ctx);
+    case "create_goal":
+      return createGoal(input, ctx);
+    case "update_goal":
+      return updateGoal(input, ctx);
+    case "list_kpis":
+      return listKpis(input, ctx);
+    case "create_kpi":
+      return createKpi(input, ctx);
+    case "update_kpi":
+      return updateKpi(input, ctx);
+
+    // Boards + documents (read)
+    case "list_boards":
+      return listBoards(input, ctx);
+    case "list_documents":
+      return listDocuments(input, ctx);
+
+    // CRM
+    case "create_crm_contact":
+      return createCrmContact(input, ctx);
+    case "update_crm_contact":
+      return updateCrmContact(input, ctx);
+    case "list_partners":
+      return listPartners(input, ctx);
+    case "list_products":
+      return listProducts(input, ctx);
 
     default:
       return { error: `Unknown tool: ${name}` };
@@ -318,6 +480,39 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   create_risk: { action: "assistant.risk.created", entity: "risk" },
   update_risk: { action: "assistant.risk.updated", entity: "risk" },
   add_pm_comment: { action: "assistant.pm_comment.added", entity: "comment" },
+  create_blocker: { action: "assistant.blocker.created", entity: "blocker" },
+  update_blocker: { action: "assistant.blocker.updated", entity: "blocker" },
+  create_deliverable: { action: "assistant.deliverable.created", entity: "deliverable" },
+  update_deliverable: { action: "assistant.deliverable.updated", entity: "deliverable" },
+  create_change_request: { action: "assistant.change_request.created", entity: "change_request" },
+  update_change_request: { action: "assistant.change_request.updated", entity: "change_request" },
+  create_project: { action: "assistant.project.created", entity: "project" },
+  update_project: { action: "assistant.project.updated", entity: "project" },
+  update_cycle: { action: "assistant.cycle.updated", entity: "cycle" },
+  complete_cycle: { action: "assistant.cycle.completed", entity: "cycle" },
+  link_items: { action: "assistant.work_item_link.created", entity: "work_item_link" },
+  unlink_items: { action: "assistant.work_item_link.deleted", entity: "work_item_link" },
+  create_objective: { action: "assistant.objective.created", entity: "objective" },
+  update_objective: { action: "assistant.objective.updated", entity: "objective" },
+  delete_objective: { action: "assistant.objective.deleted", entity: "objective" },
+  create_key_result: { action: "assistant.key_result.created", entity: "key_result" },
+  update_key_result: { action: "assistant.key_result.updated", entity: "key_result" },
+  add_kr_checkin: { action: "assistant.kr_checkin.created", entity: "kr_checkin" },
+  link_key_result_item: { action: "assistant.key_result_link.created", entity: "key_result_link" },
+  create_milestone: { action: "assistant.milestone.created", entity: "milestone" },
+  update_milestone: { action: "assistant.milestone.updated", entity: "milestone" },
+  delete_milestone: { action: "assistant.milestone.deleted", entity: "milestone" },
+  create_feedback: { action: "assistant.feedback.created", entity: "feedback" },
+  set_feedback_status: { action: "assistant.feedback.updated", entity: "feedback" },
+  create_meeting: { action: "assistant.meeting.created", entity: "sync_meeting" },
+  update_meeting: { action: "assistant.meeting.updated", entity: "sync_meeting" },
+  delete_meeting: { action: "assistant.meeting.deleted", entity: "sync_meeting" },
+  create_goal: { action: "assistant.goal.created", entity: "goal" },
+  update_goal: { action: "assistant.goal.updated", entity: "goal" },
+  create_kpi: { action: "assistant.kpi.created", entity: "kpi" },
+  update_kpi: { action: "assistant.kpi.updated", entity: "kpi" },
+  create_crm_contact: { action: "assistant.crm_contact.created", entity: "crm_contact" },
+  update_crm_contact: { action: "assistant.crm_contact.updated", entity: "crm_contact" },
   send_email: { action: "assistant.email.sent", entity: "email" },
   create_calendar_event: { action: "assistant.calendar_event.created", entity: "calendar_event" },
   update_calendar_event: { action: "assistant.calendar_event.updated", entity: "calendar_event" },
@@ -330,7 +525,7 @@ function pickEntityId(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   const r = result as Record<string, unknown>;
   if (typeof r.id === "string") return r.id;
-  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "cycle", "event", "item", "risk"]) {
+  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "cycle", "event", "item", "risk", "project", "blocker", "deliverable", "changeRequest", "objective", "keyResult", "checkin", "link", "milestone", "feedback", "meeting", "goal", "kpi", "contact"]) {
     const nested = r[key];
     if (nested && typeof nested === "object" && typeof (nested as Record<string, unknown>).id === "string") {
       return (nested as Record<string, unknown>).id as string;

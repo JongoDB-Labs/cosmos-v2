@@ -351,6 +351,55 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
   });
 
   // Case 10: clean prompt flows verbatim (no false positive)
+  it("case 11 — gov + list_feedback → structural only; user-authored title/description/author never reach the model", async () => {
+    const { toolUse, end } = turns("list_feedback");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("CUI");
+    executeTool.mockResolvedValue({
+      count: 1,
+      feedback: [{
+        id: "f1", type: "BUG", status: "PLANNED", voteCount: 3, workItemId: "w9",
+        projectId: "p1", authorId: "u-pii", title: "CUI//SP incident details",
+        description: "CUI body text", createdAt: "2026-07-11T00:00:00Z", updatedAt: "2026-07-11T00:00:00Z",
+      }],
+    });
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(content).toContain("f1");
+    expect(content).toContain("PLANNED");
+    expect(content).toContain("w9");
+    // content + attribution withheld
+    expect(content).not.toContain("CUI//SP");
+    expect(content).not.toContain("CUI body");
+    expect(content).not.toContain("u-pii");
+  });
+
+  it("case 12 — gov + list_objectives → id/status/progress survive; objective title withheld", async () => {
+    const { toolUse, end } = turns("list_objectives");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    effectiveCeiling.mockResolvedValue("CUI");
+    executeTool.mockResolvedValue({
+      count: 1,
+      objectives: [{
+        id: "o1", projectId: "p1", status: "ACTIVE", progress: 40,
+        targetDate: "2026-09-30", title: "CUI mission objective", description: "CUI detail",
+      }],
+    });
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(content).toContain("o1");
+    expect(content).toContain("ACTIVE");
+    expect(content).toContain("40");
+    expect(content).not.toContain("CUI mission");
+    expect(content).not.toContain("CUI detail");
+  });
+
   it("case 10 — clean prompt flows verbatim through runModelTurn (no false positive)", async () => {
     const end = { text: "Done.", toolUses: [], stopReason: "end_turn" };
     callModel.mockResolvedValueOnce(end);

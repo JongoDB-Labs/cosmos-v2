@@ -39,4 +39,49 @@ export const workItemTools: ToolDefinition[] = [
       required: ["itemId"],
     },
   },
+  {
+    name: "list_item_links",
+    description:
+      "List work-item dependency links in a project (directed edges typed BLOCKS/PREDECESSOR/RELATES/…). Optionally narrow to links touching one item.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID whose links to list" },
+        itemId: { type: "string", description: "Optional: only links touching this work item" },
+        limit: { type: "number", description: "Max results (default 100, cap 200)" },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "link_items",
+    description:
+      "Create a directed dependency link between two work items in the SAME project. A work item cannot link to itself.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID both items belong to" },
+        fromId: { type: "string", description: "Source work item ID" },
+        toId: { type: "string", description: "Target work item ID" },
+        type: {
+          type: "string",
+          enum: ["BLOCKS", "PREDECESSOR", "RELATES", "DUPLICATES"],
+          description: "Link type",
+        },
+      },
+      required: ["projectId", "fromId", "toId", "type"],
+    },
+  },
+  {
+    name: "unlink_items",
+    description: "Remove a work-item dependency link by its link id.",
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project ID the link belongs to" },
+        linkId: { type: "string", description: "Work-item link ID to delete" },
+      },
+      required: ["projectId", "linkId"],
+    },
+  },
 ];
