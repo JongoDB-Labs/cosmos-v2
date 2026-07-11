@@ -10,6 +10,7 @@ import { CosmoAvatar } from "./cosmo-avatar";
 import { useDictation } from "@/lib/hooks/use-dictation";
 import { DEFAULT_CLOSE_WORD } from "@/lib/voice/close-word";
 import { notifyError } from "@/lib/errors/notify";
+import { createTextReveal, type TextReveal } from "@/lib/ai/stream-reveal";
 import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
 import type { ResolvedEntity } from "@/lib/mentions/refs";
@@ -280,6 +281,15 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Smooth-reveal controller for the in-flight assistant response. It paces the
+  // streamed text onto the screen a few chars per frame so coalesced network
+  // bursts don't render as multi-token chunks (COSMOS-24).
+  const revealRef = useRef<TextReveal | null>(null);
+
+  // On unmount, stop any in-flight reveal so its rAF loop can't outlive the
+  // component and call setState on an unmounted tree. stop() (not flush()) so we
+  // don't trigger a final onUpdate/onSettled after teardown.
+  useEffect(() => () => revealRef.current?.stop(), []);
 
   // Tick the elapsed counter once per second while a status is active.
   useEffect(() => {
@@ -656,6 +666,33 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // Smooth reveal: decouple the on-screen cadence from network-chunk cadence
+    // so a coalesced burst of tokens renders as a fluid stream, not a chunk
+    // (COSMOS-24). All streamed-content updates for this send flow through it.
+    revealRef.current?.flush();
+    let finalized:
+      | { messageId?: string; content: string; toolCalls: AssistantMessage["toolCalls"] }
+      | null = null;
+    const patchStreaming = (patch: Partial<AssistantMessage>) =>
+      setMessages((prev) =>
+        prev.map((m) => (m.id === streamingId ? { ...m, ...patch } : m)),
+      );
+    const reveal = createTextReveal({
+      onUpdate: (text) => patchStreaming({ content: text }),
+      onSettled: () => {
+        if (!finalized) return;
+        const f = finalized;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamingId
+              ? { ...m, id: f.messageId ?? m.id, content: f.content, toolCalls: f.toolCalls }
+              : m,
+          ),
+        );
+      },
+    });
+    revealRef.current = reveal;
+
     try {
       const res = await fetch(
         `/api/v1/orgs/${orgId}/assistant/conversations/${currentActiveId}/messages`,
@@ -722,15 +759,10 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
               };
               if (evt.type === "text" && evt.text) {
                 accumulated += evt.text;
-                // First token clears the "Thinking…" status.
+                // First token clears the "Thinking…" status immediately; the
+                // reveal loop paces the text itself onto the screen.
                 setStreamingStatus(null);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === streamingId
-                      ? { ...m, content: accumulated }
-                      : m,
-                  ),
-                );
+                reveal.push(accumulated);
               } else if (evt.type === "tool_call_start") {
                 const tc: LiveToolCall = {
                   id: evt.id ?? `tc_${liveToolCalls.length + 1}`,
@@ -769,33 +801,26 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                 );
               } else if (evt.type === "done") {
                 setStreamingStatus(null);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === streamingId
-                      ? {
-                          ...m,
-                          id: evt.messageId ?? m.id,
-                          content: evt.content ?? accumulated,
-                          toolCalls: evt.toolCalls ?? liveToolCalls,
-                        }
-                      : m,
-                  ),
-                );
+                // Record the final payload and let the reveal drain to it; the
+                // id/toolCalls swap happens in onSettled so the smooth reveal
+                // isn't cut short by a jump to the full content.
+                finalized = {
+                  messageId: evt.messageId,
+                  content: evt.content ?? accumulated,
+                  toolCalls: (evt.toolCalls ??
+                    liveToolCalls) as AssistantMessage["toolCalls"],
+                };
+                reveal.finish(finalized.content);
               } else if (evt.type === "error") {
                 setStreamingStatus(null);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === streamingId
-                      ? {
-                          ...m,
-                          content:
-                            accumulated +
-                            (accumulated ? "\n\n" : "") +
-                            `_Error: ${evt.message ?? "unknown"}_`,
-                        }
-                      : m,
-                  ),
-                );
+                // Freeze the reveal and show everything received plus the error.
+                reveal.stop();
+                patchStreaming({
+                  content:
+                    accumulated +
+                    (accumulated ? "\n\n" : "") +
+                    `_Error: ${evt.message ?? "unknown"}_`,
+                });
               }
             } catch {
               /* skip malformed event */
@@ -804,15 +829,23 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           sepIdx = buffer.indexOf("\n\n");
         }
       }
+
+      // Stream closed. Drain the reveal to the final text (covers a server that
+      // closed without an explicit `done`); onSettled finalizes id/toolCalls.
+      reveal.finish(finalized?.content ?? accumulated);
     } catch (err) {
       // AbortError from the Stop button: keep whatever the user has accumulated
       // so far. Any other failure with no streamed text gets the bubble removed.
       const isAbort =
         err instanceof DOMException && err.name === "AbortError";
-      if (!isAbort) {
-        // Keep the user's message and turn the (possibly partial) streaming
-        // bubble into an inline error, so the failure is anchored to the right
-        // exchange instead of leaving the user message hanging with no reply.
+      if (isAbort) {
+        // Reveal everything received so far in full (no half-animated tail).
+        reveal.flush();
+      } else {
+        // Freeze the reveal, then turn the (possibly partial) streaming bubble
+        // into an inline error anchored to the right exchange instead of
+        // leaving the user message hanging with no reply.
+        reveal.stop();
         setMessages((prev) =>
           prev.map((m) =>
             m.id === streamingId

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.184.1",
+    date: "2026-07-11",
+    title: "Smoother AI assistant streaming",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo's replies now stream onto the screen fluidly, character by character, instead of arriving in visible multi-word bursts. The chat paces the incoming text as it renders, so responses feel more responsive even when the network delivers tokens in clumps.",
+      },
+    ],
+  },
+  {
     version: "2.184.0",
     date: "2026-07-11",
     title: "Duplicate an issue into an editable draft",

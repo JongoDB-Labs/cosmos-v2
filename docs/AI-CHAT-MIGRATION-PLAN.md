@@ -118,3 +118,47 @@ Cosmos currently exposes far fewer tools. Port these, gated on existing permissi
 | 5a. MCP support | 2 days | medium (transport variability) |
 | 5b. Prompt caching + cost | 1 day (after moving to SDK) | low |
 | 5c. RAG | 3-5 days | medium (embedding storage + pgvector setup) |
+
+---
+
+## Streaming fluidity — COSMOS-24 (2026-07-11)
+
+**Symptom:** replies streamed in visible multi-token bursts ("several chunks at a
+time"), not fluid token-by-token, hurting perceived responsiveness.
+
+**Audit of the token path (server → client), all confirmed per-delta:**
+- `provider.callModel` streams via the Anthropic SDK `messages.stream()` and
+  forwards each `text` delta — one delta per event.
+- `runAgentLoop` accumulates and calls `onDelta(textSoFar)` per delta.
+- The assistant route (`.../messages/route.ts`) emits one SSE `text` event per
+  delta and already sets the right anti-buffering headers: `Cache-Control:
+  no-cache, no-transform`, `Connection: keep-alive`, `X-Accel-Buffering: no`.
+- Edge/proxy path: caddy auto-flushes `text/event-stream`; Cloudflare and nginx
+  respect `no-transform` + the SSE content-type; no compression is applied to the
+  stream. So the server flushes each token.
+
+**Root cause:** the network path (Cloudflare → nginx → the plaintext caddy:80
+hop → HTTP/2 framing → TCP) *coalesces* many small per-token writes into a few
+larger reads, and the browser client rendered each `reader.read()` burst
+atomically (React batches the synchronous `setMessages` calls in the SSE parse
+loop). So even a perfectly per-token server stream displays in clumps.
+
+**Lessons borrowed from okr-dashboard (`/home/defcon/okr-dashboard`):**
+- `server/index.js` `sendSSE` calls `res.flush()` after **every** SSE write — the
+  Express+`compression` analog of our `no-transform`/`X-Accel-Buffering: no`
+  headers; the takeaway is *flush per token, never buffer the stream*. Cosmos
+  already does this at the header/stream level (Web `ReadableStream` + no
+  compression on the route), so no server change was required.
+- `ChatPanel.jsx` / `streamWords` reveal text on a **cadence** rather than
+  dumping whatever arrived in a chunk. We generalized this from canned text to
+  the *live* token stream.
+
+**Fix (client-side, self-contained):** `src/lib/ai/stream-reveal.ts` — a
+`createTextReveal` controller that decouples the on-screen cadence from the
+network-arrival cadence. It reveals the received text a few characters per
+`requestAnimationFrame`, accelerating (ease-out) when the backlog is large so it
+never lags, and draining to the exact final text at the end. `assistant-panel.tsx`
+routes all streamed-content updates through it. Pure pacing + controller logic is
+unit-tested (`stream-reveal.test.ts`) with an injected frame scheduler; the
+regression lock asserts a single burst reveals across multiple frames, not one
+jump. TTFT is unchanged (the "Thinking…" status still clears on the first token).
