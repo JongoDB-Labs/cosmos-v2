@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.187.0",
+    date: "2026-07-11",
+    title: "Admins can edit any feedback item",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the feedback board, admins can now edit the title and details of any feature request or bug report — not just triage its status or delete it. You still see who submitted each item (\"Reported by …\"), and regular members can still edit and delete only the items they filed. All of this is enforced on the server, so no one can change someone else's feedback without permission.",
+      },
+    ],
+  },
+  {
     version: "2.186.0",
     date: "2026-07-11",
     title: "Select and move several cards at once",

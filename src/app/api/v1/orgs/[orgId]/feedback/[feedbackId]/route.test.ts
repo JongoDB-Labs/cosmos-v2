@@ -1,17 +1,19 @@
 // @vitest-environment node
 //
-// PUT /feedback/[feedbackId] authorization (COSMOS-85), against the REAL e2e DB
-// (seeded `test-org` with users alice@test.local + bob@test.local). Only
-// `getAuthContext` is mocked — session cookies aren't available in a
-// route-handler test — so the caller's permissions are whatever we hand it;
-// `@/lib/db/client` is left unmocked so the real row is read and written.
+// PUT/DELETE /feedback/[feedbackId] authorization (COSMOS-85 + COSMOS-49),
+// against the REAL e2e DB (seeded `test-org` with users alice@test.local +
+// bob@test.local). Only `getAuthContext` is mocked — session cookies aren't
+// available in a route-handler test — so the caller's permissions are whatever
+// we hand it; `@/lib/db/client` is left unmocked so the real row is read/written.
 //
-// Regression under test: a plain member who AUTHORED a feedback item (a feature
-// request / bug report) must be able to edit its own title/description. The
-// handler used to require ORG_UPDATE for EVERY update, so the author of an item
-// got a 403 trying to edit their own words — "can't update FRs/BRs after
-// creating them". Status triage stays admin-only (ORG_UPDATE); content editing
-// is author-owned.
+// Ownership model under test:
+//  - A plain member who AUTHORED an FR/BR can edit its own title/description
+//    (COSMOS-85 — the handler used to require ORG_UPDATE for EVERY update, so an
+//    author got a 403 editing their own words) and delete its own item.
+//  - An admin (ORG_UPDATE) can edit AND delete ANY member's FR/BR (COSMOS-49:
+//    "admins can edit/delete any FR/BR").
+//  - A non-author WITHOUT ORG_UPDATE can do neither.
+//  - Status triage stays admin-only (ORG_UPDATE).
 //
 // Every row a test creates is deleted in a `finally`, so a failed assertion
 // never leaves the shared e2e DB dirty for the next run.
@@ -25,7 +27,7 @@ const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 
 import { prisma } from "@/lib/db/client";
-import { PUT } from "./route";
+import { PUT, DELETE } from "./route";
 
 const TITLE_PREFIX = "[COSMOS-85-put-test]";
 
@@ -48,6 +50,14 @@ function put(feedbackId: string, body: unknown) {
     { method: "PUT", body: JSON.stringify(body) },
   );
   return PUT(request, { params: Promise.resolve({ orgId, feedbackId }) });
+}
+
+function del(feedbackId: string) {
+  const request = new NextRequest(
+    `http://localhost/api/v1/orgs/${orgId}/feedback/${feedbackId}`,
+    { method: "DELETE" },
+  );
+  return DELETE(request, { params: Promise.resolve({ orgId, feedbackId }) });
 }
 
 /** Create a feedback item authored by `authorId`; returns its id. */
@@ -125,21 +135,25 @@ describe("PUT /feedback/[feedbackId] — content edits are author-owned", () => 
     }
   });
 
-  it("rejects an admin (ORG_UPDATE) rewriting another member's content with 403", async () => {
+  it("lets an admin (ORG_UPDATE) edit another member's content (COSMOS-49)", async () => {
     const id = await seedItem(aliceId, `${TITLE_PREFIX} admin rewrite`);
     try {
       getAuthContext.mockResolvedValue(
         ctxFor(bobId, Permission.ORG_READ | Permission.ORG_UPDATE, OrgRole.ADMIN),
       );
 
-      const res = await put(id, { title: `${TITLE_PREFIX} admin edited` });
-      expect(res.status).toBe(403);
+      const res = await put(id, {
+        title: `${TITLE_PREFIX} admin edited`,
+        description: "after",
+      });
+      expect(res.status).toBe(200);
 
       const row = await prisma.feedbackItem.findUniqueOrThrow({
         where: { id },
-        select: { title: true },
+        select: { title: true, description: true },
       });
-      expect(row.title).toBe(`${TITLE_PREFIX} admin rewrite`); // unchanged
+      expect(row.title).toBe(`${TITLE_PREFIX} admin edited`);
+      expect(row.description).toBe("after");
     } finally {
       await prisma.feedbackItem.deleteMany({ where: { id } });
     }
@@ -180,6 +194,55 @@ describe("PUT /feedback/[feedbackId] — status triage stays admin-only", () => 
         select: { status: true },
       });
       expect(row.status).toBe("PLANNED");
+    } finally {
+      await prisma.feedbackItem.deleteMany({ where: { id } });
+    }
+  });
+});
+
+describe("DELETE /feedback/[feedbackId] — author deletes own; admin deletes any (COSMOS-49)", () => {
+  it("lets a plain member author delete its own item", async () => {
+    const id = await seedItem(aliceId, `${TITLE_PREFIX} author delete`);
+    try {
+      getAuthContext.mockResolvedValue(ctxFor(aliceId, Permission.ORG_READ));
+
+      const res = await del(id);
+      expect(res.status).toBe(200);
+
+      const row = await prisma.feedbackItem.findUnique({ where: { id } });
+      expect(row).toBeNull(); // gone
+    } finally {
+      await prisma.feedbackItem.deleteMany({ where: { id } });
+    }
+  });
+
+  it("rejects a non-author member deleting someone else's item with 403", async () => {
+    const id = await seedItem(aliceId, `${TITLE_PREFIX} not yours delete`);
+    try {
+      getAuthContext.mockResolvedValue(ctxFor(bobId, Permission.ORG_READ));
+
+      const res = await del(id);
+      expect(res.status).toBe(403);
+
+      const row = await prisma.feedbackItem.findUnique({ where: { id } });
+      expect(row).not.toBeNull(); // still there
+    } finally {
+      await prisma.feedbackItem.deleteMany({ where: { id } });
+    }
+  });
+
+  it("lets an admin (ORG_UPDATE) delete another member's item", async () => {
+    const id = await seedItem(aliceId, `${TITLE_PREFIX} admin delete`);
+    try {
+      getAuthContext.mockResolvedValue(
+        ctxFor(bobId, Permission.ORG_READ | Permission.ORG_UPDATE, OrgRole.ADMIN),
+      );
+
+      const res = await del(id);
+      expect(res.status).toBe(200);
+
+      const row = await prisma.feedbackItem.findUnique({ where: { id } });
+      expect(row).toBeNull(); // gone
     } finally {
       await prisma.feedbackItem.deleteMany({ where: { id } });
     }

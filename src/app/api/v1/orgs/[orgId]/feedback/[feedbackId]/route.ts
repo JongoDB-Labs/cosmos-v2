@@ -4,6 +4,7 @@ import { FeedbackStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string; feedbackId: string }> };
@@ -41,21 +42,30 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     //    the bitfield AND any deny policy referencing it, with the author mapped
     //    authorId→createdById for owns_resource narrowing. Identical to
     //    requirePermission until a policy exists.
-    //  - Editing the title/description is author-owned: the author can edit
-    //    their own words WITHOUT ORG_UPDATE (so a member can update the FR/BR
-    //    they filed), and an admin triaging can't rewrite a member's words.
+    //  - Editing the title/description is owned by the author OR an admin: the
+    //    author can edit their own words WITHOUT ORG_UPDATE (so a member can
+    //    update the FR/BR they filed), and an admin (ORG_UPDATE) may edit ANY
+    //    member's item (COSMOS-49). A non-author without ORG_UPDATE is refused
+    //    with a clear, user-facing reason the portal surfaces verbatim.
     if (wantsStatusChange) {
       await requireAccess(ctx, "ORG_UPDATE", {
         createdById: existing.authorId,
       });
     }
     if (wantsContentEdit && !isAuthor) {
-      return new Response(
-        JSON.stringify({
-          error: "Only the author can edit the title or description",
-        }),
-        { status: 403, headers: { "Content-Type": "application/json" } },
-      );
+      if (!hasPermission(ctx.permissions, Permission.ORG_UPDATE)) {
+        return new Response(
+          JSON.stringify({
+            error: "Only the author or an admin can edit the title or description",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      // Admin path routes through the same resource-aware gate as status triage
+      // and delete, so any deny policy an org later authors applies uniformly.
+      await requireAccess(ctx, "ORG_UPDATE", {
+        createdById: existing.authorId,
+      });
     }
 
     const updated = await prisma.feedbackItem.update({
