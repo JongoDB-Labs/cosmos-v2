@@ -211,6 +211,26 @@ describe("FeedbackPortal — status + type filtering (COSMOS-31)", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(listedTitles()).toEqual(["Charlie done feature"]);
   });
+
+  it("filters by requirement type in isolation (Bugs only) and resetting to All restores the full list", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    await screen.findByRole("button", { name: /view details for "Alpha open feature"/i });
+
+    // Restrict to Bugs → only the single BUG item remains (type filter alone,
+    // no status filter set).
+    await user.selectOptions(screen.getByLabelText("Filter by type"), "BUG");
+    expect(listedTitles()).toEqual(["Bravo in-progress bug"]);
+
+    // Clearing the type back to All returns the full, unfiltered list.
+    await user.selectOptions(screen.getByLabelText("Filter by type"), "ALL");
+    expect(listedTitles()).toEqual([
+      "Alpha open feature",
+      "Bravo in-progress bug",
+      "Charlie done feature",
+    ]);
+  });
 });
 
 // COSMOS-9 — search the feedback board instead of scrolling and eyeballing it.
