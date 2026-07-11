@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -297,6 +297,25 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
   const openDeliverable = openDeliverableId
     ? deliverables.find((d) => d.id === openDeliverableId) ?? null
     : null;
+
+  // Deep-link: `?open=<id>` (e.g. a click from the Release Timeline) opens that
+  // deliverable's detail drawer once its row has loaded — so a reference from any
+  // view lands on the SAME editable surface (COSMOS-45). Fires once; closing the
+  // drawer afterwards leaves it closed even though the param persists in the URL.
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current || typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("open");
+    if (!id) {
+      deepLinkHandled.current = true;
+      return;
+    }
+    if (deliverables.some((d) => d.id === id)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOpenDeliverableId(id);
+      deepLinkHandled.current = true;
+    }
+  }, [deliverables]);
 
   const createMutation = useOrgMutation<Deliverable, Error, DeliverableForm>({
     mutationFn: (f) => jsonFetch(apiBase, { method: "POST", body: JSON.stringify(formToBody(f)) }),
