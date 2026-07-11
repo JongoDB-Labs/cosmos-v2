@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.176.0",
+    date: "2026-07-11",
+    title: "Search issues the Jira way",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Issues search box is now a structured query bar. Keep typing plain keywords, or narrow by any attribute with Jira-style clauses — project = FSC, priority is high, status = \"In Progress\", assignee = unassigned, label = urgent — and mix several in one line (project = FSC priority = high overdue). Autocomplete suggests fields, operators, and matching values as you type (↑↓ to navigate, Tab to complete, Enter to search), and an invalid clause shows a clear parse error instead of quietly doing nothing. Applied clauses light up the matching filters, so you can still save the result as a view or a board.",
+      },
+    ],
+  },
+  {
     version: "2.175.0",
     date: "2026-07-11",
     title: "Manage project tabs right where you see them",

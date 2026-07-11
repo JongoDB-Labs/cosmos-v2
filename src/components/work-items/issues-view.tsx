@@ -17,7 +17,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
@@ -38,7 +37,14 @@ import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
+import { QueryBar } from "@/components/work-items/query-bar";
+import {
+  PRIORITY_OPTIONS,
+  EMPTY_VOCAB,
+  type QueryVocab,
+  type ParsedJql,
+} from "@/lib/work-items/query/jql";
 import {
   Dialog,
   DialogContent,
@@ -361,6 +367,44 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   );
 
   const facets = facetsQuery.data;
+
+  // Autocomplete/parse vocabulary for the JQL query bar (COSMOS-59), built from
+  // the same facets that drive the dropdowns. Keys/numbers become single-token
+  // aliases so `project = FSC` / `cycle = 3` resolve without quotes.
+  const queryVocab: QueryVocab = useMemo(() => {
+    if (!facets) return EMPTY_VOCAB;
+    const seenStatus = new Set<string>();
+    return {
+      project: facets.projects.map((p) => ({ value: p.id, label: p.name, aliases: [p.key] })),
+      type: facets.types.map((t) => ({ value: t.id, label: t.name, aliases: [t.key] })),
+      status: facets.statuses
+        .filter((s) => !seenStatus.has(s.key) && seenStatus.add(s.key))
+        .map((s) => ({ value: s.key, label: s.name, aliases: [s.key] })),
+      priority: PRIORITY_OPTIONS,
+      assignee: facets.members.map((m) => ({ value: m.id, label: m.displayName })),
+      label: facets.labels.map((l) => ({ value: l, label: l })),
+      cycle: facets.cycles.map((c) => ({ value: c.id, label: c.name, aliases: [String(c.number)] })),
+    };
+  }, [facets]);
+
+  // Apply a parsed JQL query to the filter bar. MERGE semantics: only the fields
+  // the query names are overwritten, and the free-text remainder becomes `text`
+  // — so a query composes with (doesn't wipe) whatever dropdowns are set.
+  const applyQuery = useCallback((parsed: ParsedJql) => {
+    const wf = parsed.filter;
+    setFilters((prev) => ({
+      ...prev,
+      ...(wf.projectIds?.length ? { project: wf.projectIds[0] } : null),
+      ...(wf.typeIds?.length ? { type: wf.typeIds[0] } : null),
+      ...(wf.columnKeys?.length ? { status: wf.columnKeys[0] } : null),
+      ...(wf.priorities?.length ? { priority: String(wf.priorities[0]) } : null),
+      ...(wf.assigneeIds?.length ? { assignee: wf.assigneeIds[0] } : null),
+      ...(wf.labels?.length ? { label: wf.labels[0] } : null),
+      text: wf.text ?? "",
+    }));
+    setPage(1);
+  }, []);
+
   // Show "Save as board" to org board-creators AND to project managers (who can
   // create boards for the projects they manage, per the board POST's inheritance).
   const managedProjectIds = facets?.managedProjectIds ?? [];
@@ -852,9 +896,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       </div>
       <FilterBar
         filters={filters}
-        textDraft={textDraft}
-        setTextDraft={setTextDraft}
-        onCommitText={() => set("text", textDraft)}
+        query={textDraft}
+        onQueryChange={setTextDraft}
+        vocab={queryVocab}
+        onApplyQuery={applyQuery}
         onChange={set}
         onClear={() => {
           setFilters(EMPTY_FILTERS);
@@ -1163,9 +1208,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
 
 interface FilterBarProps {
   filters: FilterState;
-  textDraft: string;
-  setTextDraft: (v: string) => void;
-  onCommitText: () => void;
+  /** Raw JQL query-bar text (kept in the parent so Clear / saved views reset it). */
+  query: string;
+  onQueryChange: (v: string) => void;
+  /** Autocomplete/parse vocabulary derived from the facets. */
+  vocab: QueryVocab;
+  /** Apply a parsed query to the filter state (merge semantics). */
+  onApplyQuery: (parsed: ParsedJql) => void;
   onChange: <K extends keyof FilterState>(key: K, value: FilterState[K]) => void;
   onClear: () => void;
   activeCount: number;
@@ -1179,9 +1228,10 @@ interface FilterBarProps {
 
 function FilterBar({
   filters,
-  textDraft,
-  setTextDraft,
-  onCommitText,
+  query,
+  onQueryChange,
+  vocab,
+  onApplyQuery,
   onChange,
   onClear,
   activeCount,
@@ -1210,20 +1260,12 @@ function FilterBar({
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-          <Input
-            value={textDraft}
-            onChange={(e) => setTextDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onCommitText();
-            }}
-            onBlur={onCommitText}
-            placeholder="Search title or description…"
-            className="pl-8"
-            aria-label="Search issues"
-          />
-        </div>
+        <QueryBar
+          value={query}
+          onValueChange={onQueryChange}
+          vocab={vocab}
+          onApply={onApplyQuery}
+        />
 
         <FacetSelect
           label="Project"
