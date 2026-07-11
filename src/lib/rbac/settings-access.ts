@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   User, SlidersHorizontal, KeyRound, Building2, UserCog,
   Sparkles, Bot, Gavel, Server, Cpu, Puzzle, Webhook, ShieldEllipsis,
-  LayoutGrid, ListFilter, Tag, Shield, ShieldCheck, ScrollText, Wand2,
+  LayoutGrid, ListFilter, Tag, Tags, Shield, ShieldCheck, ScrollText, Wand2,
 } from "lucide-react";
 import { Permission, hasPermission } from "./permissions";
 import type { AuthContext } from "./check";
@@ -33,6 +33,7 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
   "/settings/api-keys": { view: Permission.API_KEY_MANAGE },
   "/settings/templates": { view: Permission.TEMPLATE_READ, manage: Permission.TEMPLATE_MANAGE },
   "/settings/custom-fields": { view: Permission.CUSTOM_FIELD_MANAGE },
+  "/settings/tags": { view: Permission.ITEM_UPDATE },
   "/settings/classifications": { view: Permission.CLASSIFICATION_READ, manage: Permission.CLASSIFICATION_MANAGE },
   "/settings/compliance": { view: Permission.COMPLIANCE_READ, manage: Permission.COMPLIANCE_MANAGE },
   "/settings/security": { view: Permission.SECURITY_MANAGE },
@@ -81,6 +82,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
   { label: "Workspace & Data", items: [
     { icon: LayoutGrid, label: "Templates", href: "/settings/templates" },
     { icon: ListFilter, label: "Custom Fields", href: "/settings/custom-fields" },
+    { icon: Tags, label: "Tags", href: "/settings/tags" },
     { icon: Tag, label: "Classifications", href: "/settings/classifications" },
   ]},
   { label: "Security & Compliance", items: [

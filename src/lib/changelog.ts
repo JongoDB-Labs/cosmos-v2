@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.185.0",
+    date: "2026-07-11",
+    title: "Create and manage tags",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Settings → Tags lets you build a tidy set of tags for your work — give each one a name and an optional color. You can already add tags to any task and filter the Issues list by them; now you can curate the list itself. Deleting a tag removes it from every task it was on, so retiring an old label is one click instead of hunting it down item by item.",
+      },
+    ],
+  },
+  {
     version: "2.184.0",
     date: "2026-07-11",
     title: "Duplicate an issue into an editable draft",
