@@ -18,6 +18,9 @@ vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div>{children}</div>,
 }));
 vi.mock("remark-gfm", () => ({ default: () => null }));
+// The live-update subscription opens an EventSource (absent in jsdom); this test
+// only exercises the static layout, so stub the hook to a no-op.
+vi.mock("@/hooks/use-work-item-realtime", () => ({ useWorkItemRealtime: () => {} }));
 // next/link needs the app-router context to be mounted; a plain anchor is enough.
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: { children: React.ReactNode; href: unknown }) => (

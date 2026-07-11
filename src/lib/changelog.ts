@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.184.0",
+    date: "2026-07-11",
+    title: "Open issues update live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The issue detail pane now keeps up in real time: if someone else changes a ticket's status, assignee, description, or other fields while you have it open, the pane refreshes on its own — no need to close and reopen it. It also resyncs the moment your connection comes back after a network blip.",
+      },
+    ],
+  },
+  {
     version: "2.183.0",
     date: "2026-07-11",
     title: "Tune autonomous delivery's parallelism from Settings",

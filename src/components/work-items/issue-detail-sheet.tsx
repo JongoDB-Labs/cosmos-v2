@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,6 +10,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { cn } from "@/lib/utils";
 
 export interface IssueDetailRow {
@@ -90,6 +91,11 @@ export function IssueDetailSheet({
   // Once the user toggles, ignore a late in-flight on-open GET so it can't
   // clobber their action.
   const watchTouched = useRef(false);
+  // Live copy of the item's display fields, refreshed when the item changes
+  // under us (another user edits it — COSMOS-14). Overrides the `row` prop while
+  // it's for the same item; a mismatched id (a different item was opened) is
+  // ignored, so no stale reset is needed.
+  const [liveRow, setLiveRow] = useState<IssueDetailRow | null>(null);
 
   useEffect(() => {
     if (!open || !row) return;
@@ -162,9 +168,57 @@ export function IssueDetailSheet({
     };
   }, [open, row, orgId]);
 
+  // Live updates (COSMOS-14): when the open item changes under us, re-pull its
+  // display fields + description in the BACKGROUND — no skeleton flash, and the
+  // watch toggle is left untouched. The sheet has no editable fields of its own
+  // (full editing is "Open in board"), so a refresh can't discard local edits.
+  const refresh = useCallback(async () => {
+    if (!open || !row) return;
+    try {
+      // Fresh display fields in the same IssueRow projection the list uses.
+      const res = await fetch(`/api/v1/orgs/${orgId}/work-items/${row.id}/row`);
+      if (res.ok) {
+        const json = await res.json();
+        const fresh = (json?.data ?? json) as IssueDetailRow | null;
+        if (fresh && fresh.id === row.id) setLiveRow(fresh);
+      }
+    } catch {
+      /* best-effort — keep showing the last-known row */
+    }
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/projects/${row.project.id}/work-items/${row.id}`,
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const item = json?.data ?? json;
+        setDescription(typeof item?.description === "string" ? item.description : "");
+      }
+    } catch {
+      /* description is best-effort */
+    }
+  }, [open, row, orgId]);
+
+  // Fire a background refresh whenever the open item's project publishes a
+  // work-item change over the org SSE stream.
+  useWorkItemRealtime(orgId, row?.project.id ?? null, () => void refresh());
+
+  // Resync on reconnect: a change missed while the network was down is picked
+  // up the moment it returns, not just on the next live event (AC #4).
+  useEffect(() => {
+    if (!open) return;
+    const onOnline = () => void refresh();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [open, refresh]);
+
   if (!row) return null;
 
-  const status = statuses.find((s) => s.key === row.columnKey);
+  // Render from the freshest data we have: the live copy when it's for this
+  // same item, otherwise the row the list handed us.
+  const view = liveRow && liveRow.id === row.id ? liveRow : row;
+
+  const status = statuses.find((s) => s.key === view.columnKey);
   const statusVariant = status ? STATUS_VARIANT[status.category] ?? "neutral" : "neutral";
 
   return (
@@ -173,14 +227,14 @@ export function IssueDetailSheet({
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-              <span className="font-mono">{row.ticketKey}</span>
+              <span className="font-mono">{view.ticketKey}</span>
               <span className="inline-flex items-center gap-1">
-                {row.type.icon && <span aria-hidden>{row.type.icon}</span>}
-                {row.type.name}
+                {view.type.icon && <span aria-hidden>{view.type.icon}</span>}
+                {view.type.name}
               </span>
             </div>
             <h2 className="mt-1 text-lg font-semibold leading-snug text-[var(--text)]">
-              {row.title}
+              {view.title}
             </h2>
           </div>
           <button
@@ -208,50 +262,50 @@ export function IssueDetailSheet({
             own block below. */}
         <div data-testid="issue-detail-body" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4">
           <div className="mb-4 flex flex-wrap gap-2">
-            <Badge variant={statusVariant}>{status?.name ?? row.columnKey}</Badge>
-            <Badge variant={PRIORITY_VARIANT[row.priority]}>{row.priority}</Badge>
+            <Badge variant={statusVariant}>{status?.name ?? view.columnKey}</Badge>
+            <Badge variant={PRIORITY_VARIANT[view.priority]}>{view.priority}</Badge>
           </div>
 
           <dl className="grid grid-cols-2 gap-4">
             <Field label="Project">
-              <Badge variant="neutral">{row.project.key}</Badge>
+              <Badge variant="neutral">{view.project.key}</Badge>
             </Field>
             <Field label="Assignee">
-              {row.assignee ? (
+              {view.assignee ? (
                 <span className="inline-flex items-center gap-2">
                   <Avatar className="h-5 w-5">
-                    <AvatarImage src={row.assignee.avatarUrl ?? undefined} />
+                    <AvatarImage src={view.assignee.avatarUrl ?? undefined} />
                     <AvatarFallback className="text-[9px]">
-                      {row.assignee.displayName.slice(0, 2).toUpperCase()}
+                      {view.assignee.displayName.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  {row.assignee.displayName}
+                  {view.assignee.displayName}
                 </span>
               ) : (
                 <span className="text-[var(--text-muted)]">Unassigned</span>
               )}
             </Field>
-            <Field label="Story points">{row.storyPoints ?? "—"}</Field>
+            <Field label="Story points">{view.storyPoints ?? "—"}</Field>
             <Field label="Parent">
-              {row.parent ? (
-                <span className="font-mono text-xs">{row.parent.ticketKey}</span>
+              {view.parent ? (
+                <span className="font-mono text-xs">{view.parent.ticketKey}</span>
               ) : (
                 "—"
               )}
             </Field>
-            <Field label="Start">{fmtDate(row.startDate)}</Field>
-            <Field label="Due">{fmtDate(row.dueDate)}</Field>
-            <Field label="Created">{fmtDate(row.createdAt)}</Field>
-            <Field label="Updated">{fmtDate(row.updatedAt)}</Field>
+            <Field label="Start">{fmtDate(view.startDate)}</Field>
+            <Field label="Due">{fmtDate(view.dueDate)}</Field>
+            <Field label="Created">{fmtDate(view.createdAt)}</Field>
+            <Field label="Updated">{fmtDate(view.updatedAt)}</Field>
           </dl>
 
-          {row.tags.length > 0 && (
+          {view.tags.length > 0 && (
             <div className="mt-4">
               <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
                 Labels
               </dt>
               <div className="flex flex-wrap gap-1.5">
-                {row.tags.map((t) => (
+                {view.tags.map((t) => (
                   <Badge key={t} variant="neutral">{t}</Badge>
                 ))}
               </div>
@@ -286,7 +340,7 @@ export function IssueDetailSheet({
             Close
           </Button>
           <Link
-            href={`/${orgSlug}/projects/${row.project.key}`}
+            href={`/${orgSlug}/projects/${view.project.key}`}
             className={cn(buttonVariants(), "gap-1.5")}
           >
             Open in board
