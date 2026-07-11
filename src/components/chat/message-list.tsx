@@ -5,6 +5,7 @@ import { ReadReceiptAvatars } from "./read-receipt-avatars";
 import type { ChatMessageDto } from "@/hooks/use-chat-messages";
 import { useRefResolver } from "@/components/mentions/hooks";
 import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
+import { startsNewTimeGroup } from "@/lib/chat/message-time";
 
 export function MessageList({
   orgId,
@@ -65,11 +66,16 @@ export function MessageList({
           prev.kind === "USER" &&
           new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() <
             5 * 60_000;
+        // FR 78b5b1bd: only surface a timestamp for the first message of the
+        // day and the first message after a stretch of silence (channel-wide,
+        // regardless of author) — otherwise it's suppressed for the burst.
+        const showTimestamp = startsNewTimeGroup(prev?.createdAt, m.createdAt);
         return (
           <Fragment key={m.id}>
             <MessageItem
               message={m}
               grouped={grouped}
+              showTimestamp={showTimestamp}
               author={
                 usersById.get(m.authorId) ?? {
                   displayName: "User",
