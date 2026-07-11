@@ -454,6 +454,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       ) : visibleItems.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           No {filterType === "ALL" ? "feedback" : filterType === "BUG" ? "bugs" : "features"}
+          {q !== "" ? ` matching “${search.trim()}”` : ""}
           {statusFilter.size > 0
             ? ` that are ${STATUS_ORDER.filter((s) => statusFilter.has(s))
                 .map((s) => STATUS_LABELS[s].toLowerCase())
