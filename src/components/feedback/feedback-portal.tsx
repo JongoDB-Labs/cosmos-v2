@@ -330,10 +330,10 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     }
   }
 
-  // Author edits the title/description of their own FR/BR. Uses jsonFetch so a
-  // rejected save surfaces the API's specific reason (e.g. a 403 "Only the
-  // author can edit…" or a validation message) via notifyError, instead of a
-  // generic fallback — the "clear message" the acceptance criteria call for.
+  // The author (or an admin) edits an FR/BR's title/description. Uses jsonFetch
+  // so a rejected save surfaces the API's specific reason (e.g. a 403 "Only the
+  // author or an admin can edit…" or a validation message) via notifyError,
+  // instead of a generic fallback — the "clear message" the ACs call for.
   async function saveEdit(item: FeedbackItem, title: string, description: string) {
     setBusyId(item.id);
     try {
@@ -879,8 +879,9 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                   <ChevronUp className="h-4 w-4" />
                   {detailItem.hasVoted ? "Voted" : "Upvote"} · {detailItem.voteCount}
                 </button>
-                {/* Author owns title/description edits + delete; a manager owns
-                    status triage + delete. Each control shows only for the
+                {/* Content edits + delete are owned by the author OR a manager
+                    (admins may edit/delete any FR/BR — COSMOS-49); status
+                    triage is manager-only. Each control shows only for the
                     authority that backs it, mirroring the API. */}
                 {(canManage || detailItem.isMine) &&
                   (editing ? (
@@ -903,7 +904,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      {detailItem.isMine && (
+                      {(canManage || detailItem.isMine) && (
                         <Button
                           variant="ghost"
                           size="icon-sm"
