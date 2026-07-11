@@ -51,6 +51,31 @@ export function matchesWakePhrase(transcript: string, phrase: string): boolean {
   return new RegExp(`\\b${distinctive.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(t);
 }
 
+/** Visual state for the wake-word toggle indicator.
+ *
+ *  `enabled` is the user's saved preference (the toggle is switched on).
+ *  `listening` is whether the mic is ACTUALLY capturing audio right now.
+ *
+ *  These are NOT the same: a toggle can be "on" while the mic is not live —
+ *  the browser lacks the Web Speech API (Firefox), mic permission was denied,
+ *  or the wake listener is paused because dictation currently holds the mic.
+ *  The live-mic warning must track `listening`, never `enabled` alone, or the
+ *  UI falsely tells the user their microphone is capturing audio when it isn't.
+ *
+ *  - "live"   → mic is capturing now; render filled + show the live warning.
+ *  - "arming" → toggle is on but the mic isn't live yet; render on, no warning.
+ *  - "off"    → toggle is off. */
+export type WakeWordIndicator = "off" | "arming" | "live";
+
+export function wakeWordIndicator(
+  enabled: boolean,
+  listening: boolean,
+): WakeWordIndicator {
+  if (listening) return "live";
+  if (enabled) return "arming";
+  return "off";
+}
+
 export function useWakeWord({
   phrase,
   enabled,

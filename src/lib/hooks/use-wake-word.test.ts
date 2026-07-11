@@ -3,7 +3,11 @@
 // test can't cover is the browser's actual audio recognition).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useWakeWord, matchesWakePhrase } from "./use-wake-word";
+import {
+  useWakeWord,
+  matchesWakePhrase,
+  wakeWordIndicator,
+} from "./use-wake-word";
 
 type ResultHandler = ((e: unknown) => void) | null;
 
@@ -68,6 +72,26 @@ describe("matchesWakePhrase (recognizer-realistic transcripts)", () => {
   });
   it("short distinctive words don't single-word-wake (phrase still required)", () => {
     expect(matchesWakePhrase("hey there", "hey it")).toBe(false);
+  });
+});
+
+describe("wakeWordIndicator (live-mic state must track real listening)", () => {
+  it("is 'live' whenever the mic is actually capturing audio", () => {
+    expect(wakeWordIndicator(true, true)).toBe("live");
+    // Even a theoretically-inconsistent (off-but-listening) reading favors the
+    // truthful "live" warning — never hide a live mic.
+    expect(wakeWordIndicator(false, true)).toBe("live");
+  });
+
+  it("is 'arming' when the toggle is on but the mic is NOT live", () => {
+    // The old bug: an enabled-but-not-capturing toggle claimed the mic was
+    // live (Firefox with no Web Speech API, denied permission, or paused for
+    // dictation). It must render as armed-not-live, WITHOUT the live warning.
+    expect(wakeWordIndicator(true, false)).toBe("arming");
+  });
+
+  it("is 'off' when the toggle is off and nothing is listening", () => {
+    expect(wakeWordIndicator(false, false)).toBe("off");
   });
 });
 

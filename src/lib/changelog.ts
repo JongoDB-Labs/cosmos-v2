@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.185.0",
+    date: "2026-07-11",
+    title: "Know exactly when your mic is live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The “Hey Cosmo” voice toggle now reflects whether your microphone is actually capturing audio — not just whether the setting is switched on. When the mic is truly live, the toggle fills in and a clear warning appears telling you it's listening; the warning vanishes the moment listening stops or you switch it off. If voice is on but the mic can't run (unsupported browser, denied permission, or paused while you dictate), the toggle now says so instead of falsely implying you're being heard.",
+      },
+    ],
+  },
+  {
     version: "2.184.0",
     date: "2026-07-11",
     title: "Duplicate an issue into an editable draft",

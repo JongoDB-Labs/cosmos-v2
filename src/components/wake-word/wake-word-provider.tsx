@@ -53,6 +53,18 @@ export function WakeWordProvider() {
     },
   });
 
+  // Broadcast the ACTUAL live-mic state so out-of-tree controls (the sidebar
+  // toggle) reflect it truthfully — they show the filled/active state and the
+  // "listening" warning only while the mic is really capturing, never merely
+  // because the toggle is switched on. The recognition session lives only here,
+  // so an event is the one way peers can learn the real listening state.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("cosmos:wake-word:listening", { detail: listening }),
+    );
+  }, [listening]);
+
   // Toggle is fired from the sidebar/user-card via a custom event so the
   // control can live elsewhere; this provider owns the actual recognition.
   useEffect(() => {

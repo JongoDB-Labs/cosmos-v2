@@ -17,7 +17,9 @@ import {
   MessageSquarePlus,
   KeyRound,
   MailCheck,
+  AlertTriangle,
 } from "lucide-react";
+import { wakeWordIndicator } from "@/lib/hooks/use-wake-word";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { useBrand } from "@/components/providers/brand-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -407,10 +409,16 @@ function UserCard({
     .toUpperCase()
     .slice(0, 2);
 
-  // Reflect the wake-word listening state in the toggle (filled when on +
-  // a listening warning) so it's not a blind switch. Mirrors WakeWordProvider's
-  // localStorage + custom-event contract.
+  // Reflect the wake-word state in the toggle so it's not a blind switch.
+  // Two distinct signals: `wakeWordOn` is the saved preference (toggle on/off),
+  // `micLive` is whether the mic is ACTUALLY capturing audio right now — the
+  // latter is broadcast by WakeWordProvider (which owns the recognition
+  // session). The filled/active state and the live-mic warning MUST track
+  // `micLive`, not `wakeWordOn`, so we never tell the user their mic is live
+  // when it isn't (unsupported browser, denied permission, or paused for
+  // dictation). Mirrors WakeWordProvider's localStorage + custom-event contract.
   const [wakeWordOn, setWakeWordOn] = useState(false);
+  const [micLive, setMicLive] = useState(false);
   useEffect(() => {
     const read = () =>
       setWakeWordOn(
@@ -420,15 +428,24 @@ function UserCard({
     read();
     const onToggle = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      setWakeWordOn((prev) => (typeof detail === "boolean" ? detail : !prev));
+      const next = typeof detail === "boolean" ? detail : undefined;
+      setWakeWordOn((prev) => (next === undefined ? !prev : next));
+      // Turning the toggle off ends capture immediately — drop the live warning
+      // now instead of waiting for the session's async teardown broadcast.
+      if (next === false) setMicLive(false);
     };
+    const onListening = (e: Event) =>
+      setMicLive(Boolean((e as CustomEvent).detail));
     window.addEventListener("cosmos:wake-word:toggle", onToggle);
+    window.addEventListener("cosmos:wake-word:listening", onListening);
     window.addEventListener("storage", read);
     return () => {
       window.removeEventListener("cosmos:wake-word:toggle", onToggle);
+      window.removeEventListener("cosmos:wake-word:listening", onListening);
       window.removeEventListener("storage", read);
     };
   }, []);
+  const wakeState = wakeWordIndicator(wakeWordOn, micLive);
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -466,27 +483,41 @@ function UserCard({
           <Mic
             className={cn(
               "mr-2 h-4 w-4",
-              wakeWordOn && "fill-[var(--primary)] text-[var(--primary)]",
+              // Filled + active ONLY when the mic is truly live; merely-armed
+              // gets the accent color without the fill so the two read apart.
+              wakeState === "live" && "fill-[var(--primary)] text-[var(--primary)]",
+              wakeState === "arming" && "text-[var(--primary)]",
             )}
           />
           <span className="flex-1">&quot;{brand.wakeWord}&quot; voice</span>
-          {wakeWordOn ? (
+          {wakeState === "live" ? (
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[var(--primary-tint)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)]">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--primary)] opacity-75" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
               </span>
-              On
+              Live
             </span>
+          ) : wakeState === "arming" ? (
+            <span className="ml-2 text-[10px] text-[var(--text-muted)]">On</span>
           ) : (
             <span className="ml-2 text-[10px] text-[var(--text-muted)]">Off</span>
           )}
         </DropdownMenuItem>
-        {wakeWordOn && (
-          <p className="px-2 pb-1 text-[10px] leading-tight text-[var(--text-muted)]">
-            Your mic is on, listening for “{brand.wakeWord}”.
+        {wakeState === "live" ? (
+          // Persistent live-mic warning — shown only while the mic is actually
+          // capturing audio, and cleared the instant listening stops.
+          <p className="flex items-start gap-1 px-2 pb-1 text-[10px] leading-tight text-destructive">
+            <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+            <span>
+              Your mic is on and capturing audio, listening for “{brand.wakeWord}”.
+            </span>
           </p>
-        )}
+        ) : wakeState === "arming" ? (
+          <p className="px-2 pb-1 text-[10px] leading-tight text-[var(--text-muted)]">
+            On — waiting for microphone access. Nothing is captured yet.
+          </p>
+        ) : null}
         <DropdownMenuSeparator />
         <div className="px-2 py-1.5">
           <p className="text-sm font-medium">{user.displayName}</p>
