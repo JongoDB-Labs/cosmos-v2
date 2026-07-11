@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.191.0",
+    date: "2026-07-11",
+    title: "Calmer chat timestamps",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Chat and DM timestamps now read to the minute instead of the second, and they no longer repeat on every message — you'll see a time on the first message of the day and again after a few hours of quiet, so a quick back-and-forth stays clean. Need the exact time on a specific message? Just click it to reveal the full timestamp, down to the second.",
+      },
+    ],
+  },
+  {
     version: "2.190.1",
     date: "2026-07-11",
     title: "Foreman gets a hard hat",
