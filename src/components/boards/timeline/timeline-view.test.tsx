@@ -11,8 +11,8 @@
 // measure scroll offsets; instead we assert the invariant that makes the desync
 // impossible: a single scroll container, both panes as its direct children, and
 // no independently-scrollable label column.
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
@@ -64,9 +64,33 @@ const ITEMS = [
   item(3, "2026-01-15", "2026-01-25"),
 ];
 
+// A minimal parent→child hierarchy (an epic with one story) so a collapse
+// chevron actually renders — the flat ITEMS above have no parents, so no row is
+// collapsible.
+const HIER_ITEMS = [
+  {
+    ...item(1, "2026-01-05", "2026-01-20"),
+    id: "epic1",
+    ticketNumber: 1,
+    title: "Epic One",
+    workItemType: { key: "EPIC", name: "Epic" },
+  },
+  {
+    ...item(2, "2026-01-06", "2026-01-18"),
+    id: "story1",
+    ticketNumber: 2,
+    title: "Story One",
+    parentId: "epic1",
+  },
+];
+
+// The work-items the fetcher mock serves; swapped per describe block so a test
+// can opt into the hierarchy without changing the default flat dataset.
+let activeItems: unknown[] = ITEMS;
+
 vi.mock("@/lib/query/json-fetcher", () => ({
   jsonFetch: vi.fn((url: string) => {
-    if (url.endsWith("/work-items")) return Promise.resolve(ITEMS);
+    if (url.endsWith("/work-items")) return Promise.resolve(activeItems);
     if (url.endsWith("/members")) return Promise.resolve([]);
     if (url.endsWith("/work-item-links")) return Promise.resolve([]);
     if (url.endsWith("/cycles")) return Promise.resolve([]);
@@ -213,5 +237,42 @@ describe("TimelineView.matchesFilters — custom-field filtering", () => {
     const filter: BoardFilters = { ...withCustom({ goal: "Growth" }), priorities: ["HIGH"] };
     // Custom field matches but priority doesn't → excluded.
     expect(matchesFilters(cfItem({ goal: "Growth" }), filter, defs)).toBe(false);
+  });
+});
+
+// COSMOS-69: collapsing a parent must survive leaving the timeline and coming
+// back within the session. The collapse state is persisted to sessionStorage
+// keyed by board, so a fresh mount restores it rather than starting expanded.
+describe("TimelineView — collapse state persists across navigation (COSMOS-69)", () => {
+  beforeEach(() => {
+    activeItems = HIER_ITEMS;
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    window.sessionStorage.clear();
+    activeItems = ITEMS;
+  });
+
+  it("keeps a collapsed epic collapsed after the view is remounted", async () => {
+    const first = renderTimeline();
+    await screen.findByText("Work Items");
+    // While expanded, the epic's child story is on screen.
+    expect(screen.getByText(/FSC-2/)).toBeInTheDocument();
+
+    // Collapse the epic — its whole subtree (the story) disappears.
+    fireEvent.click(screen.getByLabelText("Collapse children"));
+    expect(screen.queryByText(/FSC-2/)).not.toBeInTheDocument();
+
+    // Navigate away and back: fully unmount, then mount a brand-new instance.
+    first.unmount();
+    renderTimeline();
+    await screen.findByText("Work Items");
+
+    // The collapse survived the remount — the child is still hidden and the epic
+    // now offers to expand (proof the restored state, not a fresh default).
+    expect(screen.queryByText(/FSC-2/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Expand children")).toBeInTheDocument();
   });
 });

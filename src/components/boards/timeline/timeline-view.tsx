@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -65,6 +65,39 @@ const typeColorMap: Record<string, { fill: string; stroke: string; text: string 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 50;
 const DAY_WIDTH = 28;
+
+// ── Collapse-state persistence (FR COSMOS-69) ───────────────────────────────
+// The per-parent expand/collapse state is kept in sessionStorage, keyed by
+// board id, so it survives navigating away from the timeline and back within
+// the same browser session (and a reload) — not just interactions on the live
+// view. sessionStorage (per-tab, cleared when the tab closes) matches the
+// "within the timeline session" scope: it's remembered while you work, not
+// forever. All access is guarded so private mode / disabled storage / SSR just
+// degrade to the previous ephemeral behavior.
+const collapseStorageKey = (boardId: string) => `cosmos:timeline-collapsed:${boardId}`;
+
+function readCollapsedIds(boardId: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(collapseStorageKey(boardId));
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((x): x is string => typeof x === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedIds(boardId: string, ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(collapseStorageKey(boardId), JSON.stringify([...ids]));
+  } catch {
+    /* private mode / disabled storage — collapse state stays ephemeral */
+  }
+}
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date);
@@ -261,21 +294,47 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // list). A child whose parent is filtered out surfaces as a root so a filter
   // can never hide items silently. Ordering (roots by start date, sub-items by
   // their manual sortOrder — FR COSMOS-5) lives in `buildTimelineTree`.
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  //
+  // The collapse state is seeded from (and written back to) sessionStorage keyed
+  // by board, so it persists across navigating away and back within the session
+  // (FR COSMOS-69) rather than resetting every time the view mounts.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() =>
+    readCollapsedIds(boardId),
+  );
+  // If this same view instance is reused for a different board (TIMELINE →
+  // TIMELINE navigation reconciles rather than remounts), re-seed that board's
+  // saved state instead of carrying the previous board's collapse set over.
+  const boardRef = useRef(boardId);
+  useEffect(() => {
+    if (boardRef.current === boardId) return;
+    boardRef.current = boardId;
+    setCollapsedIds(readCollapsedIds(boardId));
+  }, [boardId]);
 
   const { treeRows, parentIds } = useMemo(
     () => buildTimelineTree(filteredItems, collapsedIds),
     [filteredItems, collapsedIds],
   );
 
-  const toggleCollapse = useCallback((id: string) => {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
+  // Apply a change to the collapse set and persist it in one step, so the
+  // session-restored state always matches what's on screen.
+  const commitCollapsed = useCallback(
+    (next: Set<string>) => {
+      writeCollapsedIds(boardId, next);
+      setCollapsedIds(next);
+    },
+    [boardId],
+  );
+
+  const toggleCollapse = useCallback(
+    (id: string) => {
+      const next = new Set(collapsedIds);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
-    });
-  }, []);
+      commitCollapsed(next);
+    },
+    [collapsedIds, commitCollapsed],
+  );
   const doneKeys = useMemo(
     () => new Set(columns.filter((c) => c.category === "DONE").map((c) => c.key)),
     [columns],
@@ -765,7 +824,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           {parentIds.size > 0 && (
             <button
               onClick={() =>
-                setCollapsedIds((prev) => (prev.size > 0 ? new Set() : new Set(parentIds)))
+                commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
               }
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               title={

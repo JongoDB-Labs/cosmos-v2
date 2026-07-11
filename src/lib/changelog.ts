@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.178.0",
+    date: "2026-07-11",
+    title: "The timeline remembers what you collapsed",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Collapsing an epic or story on the interactive timeline (Gantt) now sticks. Fold up a branch to focus on the big picture, then move to another board or reload the page — when you come back to the timeline, it's exactly how you left it instead of springing fully open again. The state is remembered per board for the rest of your browser session, and nested collapses are preserved: expanding an epic brings its stories back in whatever collapsed/expanded state they were in.",
+      },
+    ],
+  },
+  {
     version: "2.177.0",
     date: "2026-07-11",
     title: "Set an issue's cycle right when you create it",
