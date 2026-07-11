@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.188.0",
+    date: "2026-07-11",
+    title: "Drill into your Sprint Dashboard by assignee",
+    highlights: [
+      {
+        kind: "feature",
+        text: "On the Sprint Dashboard, the Assignee Workload chart is now clickable — click a teammate's bar to see the exact tickets making up their workload, then close it to jump right back to the dashboard. This rounds out drill-down across the whole dashboard, alongside the metric cards and the status and priority charts.",
+      },
+    ],
+  },
+  {
     version: "2.187.0",
     date: "2026-07-11",
     title: "Admins can edit any feedback item",
