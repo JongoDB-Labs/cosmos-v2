@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.182.0",
+    date: "2026-07-11",
+    title: "Search your feedback, with a clearer “no results”",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A reminder that the feedback board is searchable: type in the search box to find feature requests and bug reports by title or description (and filter by type) instead of scrolling and eyeballing the list. And when a search turns up nothing, the empty message now names exactly what you searched for, so it's obvious the term simply had no matches.",
+      },
+    ],
+  },
+  {
     version: "2.181.0",
     date: "2026-07-11",
     title: "Feedback shows “In review” distinctly",
