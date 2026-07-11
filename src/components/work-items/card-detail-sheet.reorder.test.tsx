@@ -162,3 +162,99 @@ describe("CardDetailSheet — drag-reorder sub-items (COSMOS-5)", () => {
     expect(onChildrenReordered).not.toHaveBeenCalled();
   });
 });
+
+describe("CardDetailSheet — keyboard reorder + drop indicator (COSMOS-47)", () => {
+  it("reorders sub-items with the arrow keys and persists the new order", async () => {
+    const puts: { url: string; sortOrder: number }[] = [];
+    mockFetch(puts);
+    const onChildrenReordered = vi.fn();
+
+    render(
+      <CardDetailSheet
+        item={parentWithChildren([childRef("A", 11), childRef("B", 12), childRef("C", 13)])}
+        open
+        onOpenChange={() => {}}
+        orgId="o1"
+        projectId="pr1"
+        members={[]}
+        cycles={[]}
+        columns={[{ key: "todo", name: "To Do" } as never]}
+        onUpdate={() => {}}
+        onChildrenReordered={onChildrenReordered}
+      />,
+    );
+
+    const grips = await screen.findAllByLabelText("Drag to reorder");
+    // Each grip is a focusable button; ArrowDown moves its row down one slot.
+    // A,B,C → B,A,C when A (the first grip) is pushed down.
+    fireEvent.keyDown(grips[0], { key: "ArrowDown" });
+
+    await waitFor(() => expect(onChildrenReordered).toHaveBeenCalledTimes(1));
+    // Same persistence contract as the mouse path: one contiguous PUT per sibling.
+    expect(puts).toHaveLength(3);
+    expect(puts.map((p) => p.sortOrder)).toEqual([0, 1, 2]);
+    expect(puts[0].url).toContain("/B");
+    expect(puts[1].url).toContain("/A");
+    expect(puts[2].url).toContain("/C");
+  });
+
+  it("ignores an arrow-key move past the ends of the list", async () => {
+    const puts: { url: string; sortOrder: number }[] = [];
+    mockFetch(puts);
+    const onChildrenReordered = vi.fn();
+
+    render(
+      <CardDetailSheet
+        item={parentWithChildren([childRef("A", 11), childRef("B", 12)])}
+        open
+        onOpenChange={() => {}}
+        orgId="o1"
+        projectId="pr1"
+        members={[]}
+        cycles={[]}
+        columns={[{ key: "todo", name: "To Do" } as never]}
+        onUpdate={() => {}}
+        onChildrenReordered={onChildrenReordered}
+      />,
+    );
+
+    const grips = await screen.findAllByLabelText("Drag to reorder");
+    // ArrowUp on the first row would move it to index -1 — a no-op, no PUTs.
+    fireEvent.keyDown(grips[0], { key: "ArrowUp" });
+
+    await waitFor(() => expect(screen.getAllByLabelText("Drag to reorder")).toHaveLength(2));
+    expect(puts).toHaveLength(0);
+    expect(onChildrenReordered).not.toHaveBeenCalled();
+  });
+
+  it("flags the hovered row as the drop target while dragging, then clears it", async () => {
+    mockFetch([]);
+
+    render(
+      <CardDetailSheet
+        item={parentWithChildren([childRef("A", 11), childRef("B", 12), childRef("C", 13)])}
+        open
+        onOpenChange={() => {}}
+        orgId="o1"
+        projectId="pr1"
+        members={[]}
+        cycles={[]}
+        columns={[{ key: "todo", name: "To Do" } as never]}
+        onUpdate={() => {}}
+      />,
+    );
+
+    const grips = await screen.findAllByLabelText("Drag to reorder");
+    const rowC = grips[2].parentElement as HTMLElement;
+    expect(rowC).not.toHaveAttribute("data-drop-target");
+
+    // Start dragging A, hover C's row → C is marked as the landing spot.
+    fireEvent.dragStart(grips[0]);
+    fireEvent.dragOver(rowC);
+    expect(rowC).toHaveAttribute("data-drop-target", "true");
+
+    // Ending the drag removes the indicator.
+    fireEvent.dragEnd(grips[0]);
+    expect(rowC).not.toHaveAttribute("data-drop-target");
+  });
+});

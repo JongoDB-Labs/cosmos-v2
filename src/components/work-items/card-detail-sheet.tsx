@@ -135,6 +135,14 @@ export function CardDetailSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dupPrompt, setDupPrompt] = useState(false);
   const [dragChildIdx, setDragChildIdx] = useState<number | null>(null);
+  // The sub-item row currently under the drag — drives the visible drop indicator
+  // so the user can see where the item will land (COSMOS-47).
+  const [dragOverChildIdx, setDragOverChildIdx] = useState<number | null>(null);
+  // Keyboard reorder (COSMOS-47): grip refs keyed by child id so we can restore
+  // focus to the moved sub-item after an arrow-key move re-renders the list,
+  // letting the user chain presses without re-tabbing to the grip.
+  const childGripRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  const focusChildGripAfterReorder = useRef<string | null>(null);
   const [actionPending, setActionPending] = useState<null | "delete" | "duplicate">(null);
   // Synchronous re-entrancy guard for duplication. `actionPending` (state) can't
   // fully guard the trigger: the on-item effect below resets it to null whenever
@@ -643,6 +651,26 @@ export function CardDetailSheet({
       notifyError(err, "Couldn't reorder the sub-items.");
     }
   }
+
+  // Keyboard-accessible reorder (COSMOS-47): move a focused sub-item up/down with
+  // the arrow keys, mirroring the mouse drag. Moves past either end are no-ops.
+  // We remember the moved item's id so focus returns to its grip after the list
+  // re-renders (see the effect below).
+  function moveChildByKeyboard(idx: number, direction: -1 | 1) {
+    const to = idx + direction;
+    if (to < 0 || to >= children.length) return;
+    focusChildGripAfterReorder.current = children[idx].id;
+    void reorderChildren(idx, to);
+  }
+
+  // After a keyboard reorder re-renders the list, return focus to the moved grip
+  // so arrow-key moves can be chained without re-tabbing (COSMOS-47).
+  useEffect(() => {
+    const id = focusChildGripAfterReorder.current;
+    if (!id) return;
+    focusChildGripAfterReorder.current = null;
+    childGripRefs.current.get(id)?.focus();
+  }, [children]);
 
   // handleSave persists title/description (free-text fields that don't auto-save
   // on each keystroke).
@@ -1173,33 +1201,66 @@ export function CardDetailSheet({
                   <CornerDownRight className="h-3.5 w-3.5" />
                   Sub-items ({children.length})
                 </h3>
-                {children.map((c, idx) => (
+                {children.map((c, idx) => {
+                  // The row we'd drop onto: highlight it (but never the row being
+                  // dragged) so the user can see where the item will land.
+                  const isDropTarget =
+                    dragChildIdx !== null && dragOverChildIdx === idx && dragChildIdx !== idx;
+                  return (
                   <div
                     key={c.id}
+                    data-drop-target={isDropTarget ? "true" : undefined}
                     className={cn(
                       "group/child flex items-center gap-1.5 text-sm rounded transition-colors",
-                      dragChildIdx !== null && dragChildIdx !== idx && "border-t border-transparent",
+                      // Reserve a 2px top border on every row during a drag so
+                      // colouring the drop target in doesn't shift the list. Each
+                      // row gets exactly one border colour to avoid a Tailwind
+                      // conflict between transparent and the primary highlight.
+                      dragChildIdx !== null && !isDropTarget && "border-t-2 border-transparent",
+                      isDropTarget && "border-t-2 border-primary",
+                      dragChildIdx === idx && "opacity-50",
                     )}
                     onDragOver={(e) => {
-                      if (dragChildIdx !== null) e.preventDefault();
+                      if (dragChildIdx !== null) {
+                        e.preventDefault();
+                        setDragOverChildIdx(idx);
+                      }
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
                       if (dragChildIdx !== null) void reorderChildren(dragChildIdx, idx);
                       setDragChildIdx(null);
+                      setDragOverChildIdx(null);
                     }}
                   >
                     {canEditItem && children.length > 1 && (
-                      <span
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          childGripRefs.current.set(c.id, el);
+                        }}
                         draggable
                         onDragStart={() => setDragChildIdx(idx)}
-                        onDragEnd={() => setDragChildIdx(null)}
+                        onDragEnd={() => {
+                          setDragChildIdx(null);
+                          setDragOverChildIdx(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            moveChildByKeyboard(idx, -1);
+                          } else if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            moveChildByKeyboard(idx, 1);
+                          }
+                        }}
                         aria-label="Drag to reorder"
-                        title="Drag to reorder"
-                        className="shrink-0 cursor-grab text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing"
+                        aria-keyshortcuts="ArrowUp ArrowDown"
+                        title="Drag, or focus and press ↑ / ↓, to reorder"
+                        className="shrink-0 cursor-grab rounded text-muted-foreground/60 hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
                       >
                         <GripVertical className="h-3.5 w-3.5" />
-                      </span>
+                      </button>
                     )}
                     <button
                       type="button"
@@ -1224,7 +1285,8 @@ export function CardDetailSheet({
                       </button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 {canDuplicate && (
                   <div className="flex gap-2">
                     <Input

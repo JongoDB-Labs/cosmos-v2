@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.193.0",
+    date: "2026-07-11",
+    title: "Reorder sub-items your way",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Reordering the sub-items on an issue is now fully keyboard-friendly: click a sub-item's grip (or tab to it) and press the ↑ / ↓ arrow keys to move it up or down — no mouse required. Dragging with the mouse still works, and now a clear line shows exactly where the sub-item will land as you drag. The new order sticks for everyone after a reload.",
+      },
+    ],
+  },
+  {
     version: "2.192.0",
     date: "2026-07-11",
     title: "Timeline dates stay put while you scroll",
