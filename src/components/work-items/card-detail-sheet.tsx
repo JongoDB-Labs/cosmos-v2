@@ -18,12 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-} from "@/components/ui/dropdown-menu";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import {
   Dialog,
   DialogContent,
@@ -1019,47 +1014,25 @@ export function CardDetailSheet({
             )}
 
             <MetadataField icon={User} label="Assignees">
-              {/* Multi-assign (FR 1d38496a): checkbox list; first-checked stays
-                  the primary. Falls back to "Unassigned" when the set is empty. */}
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  aria-label="Assignees"
-                  className="flex h-7 w-full items-center justify-between rounded-lg border border-input px-2 text-left text-xs transition-colors hover:bg-muted/40"
-                >
-                  <span className="truncate">
-                    {assigneeIds.length === 0
-                      ? "Unassigned"
-                      : assigneeIds
-                          .map(
-                            (id) =>
-                              members.find((m) => m.userId === id)?.user
-                                ?.displayName ?? "Unknown",
-                          )
-                          .slice(0, 2)
-                          .join(", ") +
-                        (assigneeIds.length > 2
-                          ? ` +${assigneeIds.length - 2}`
-                          : "")}
-                  </span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 min-w-52 overflow-y-auto">
-                  {members.map((m) => (
-                    <DropdownMenuCheckboxItem
-                      key={m.userId}
-                      checked={assigneeIds.includes(m.userId)}
-                      onCheckedChange={(c) =>
-                        void patchAssignees(
-                          c
-                            ? [...assigneeIds, m.userId]
-                            : assigneeIds.filter((id) => id !== m.userId),
-                        )
-                      }
-                    >
-                      {m.user?.displayName ?? m.user?.email ?? "Unknown"}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Multi-assign (FR 1d38496a): first-checked stays the primary.
+                  Searchable so it stays usable when an org has hundreds of
+                  members — type to filter by name/email instead of scrolling
+                  (COSMOS-37). Falls back to "Unassigned" when the set is empty. */}
+              <SearchableMultiSelect
+                size="sm"
+                aria-label="Assignees"
+                className="w-full text-xs"
+                contentClassName="min-w-[16rem]"
+                placeholder="Unassigned"
+                searchPlaceholder="Search members…"
+                emptyText="No members"
+                value={assigneeIds}
+                onValueChange={(ids) => void patchAssignees(ids)}
+                options={members.map((m) => ({
+                  value: m.userId,
+                  label: m.user?.displayName ?? m.user?.email ?? "Unknown",
+                }))}
+              />
             </MetadataField>
 
             <MetadataField icon={Hash} label="Points">

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.185.0",
+    date: "2026-07-11",
+    title: "Search the assignee picker too",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Assigning people to an issue is now a type-to-filter search, matching the parent-issue picker — open the Assignees dropdown on an issue and start typing a name or email to narrow a long member list instead of scrolling. You can still pick several people (the first stays the primary assignee), the popup stays open as you check them off, and clearing the box brings everyone back. Handy for orgs with lots of members.",
+      },
+    ],
+  },
+  {
     version: "2.184.1",
     date: "2026-07-11",
     title: "Clearer feedback screenshot uploads",
