@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { CosmoGlyph } from "@/components/assistant/cosmo-avatar";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import { useBrand } from "@/components/providers/brand-provider";
@@ -50,7 +50,7 @@ export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
         "transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
       )}
     >
-      <CosmoGlyph className="h-5 w-5" />
+      <Sparkles className="h-5 w-5" />
     </button>
   );
 }
