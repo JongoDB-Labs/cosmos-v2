@@ -174,7 +174,7 @@ interface FeedbackAnalytics {
   }[];
 }
 
-const FEEDBACK_STATUSES = ["OPEN", "PLANNED", "IN_PROGRESS", "DONE", "DECLINED"] as const;
+const FEEDBACK_STATUSES = ["OPEN", "PLANNED", "IN_PROGRESS", "IN_REVIEW", "DONE", "DECLINED"] as const;
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Open",
   PLANNED: "Planned",

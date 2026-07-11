@@ -34,7 +34,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { ChevronUp, Plus, Bug, Lightbulb, Megaphone, Pencil, Trash2 } from "lucide-react";
 
 type FType = "BUG" | "FEATURE";
-type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "DONE" | "DECLINED";
+type FStatus = "OPEN" | "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "DECLINED";
 
 interface FeedbackAttachment {
   id: string;
@@ -85,6 +85,7 @@ const STATUS_LABELS: Record<FStatus, string> = {
   OPEN: "Open",
   PLANNED: "Planned",
   IN_PROGRESS: "In progress",
+  IN_REVIEW: "In review",
   DONE: "Done",
   DECLINED: "Declined",
 };
@@ -93,6 +94,7 @@ const STATUS_ORDER: FStatus[] = [
   "OPEN",
   "PLANNED",
   "IN_PROGRESS",
+  "IN_REVIEW",
   "DONE",
   "DECLINED",
 ];
@@ -502,7 +504,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                       {item.type === "BUG" ? "Bug" : "Feature"}
                     </Badge>
                     <Badge
-                      variant={item.status === "DONE" ? "progress" : "neutral"}
+                      variant={item.status === "DONE" ? "progress" : item.status === "IN_REVIEW" ? "review" : "neutral"}
                       className="text-[10px]"
                     >
                       {STATUS_LABELS[item.status]}
@@ -722,7 +724,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     {detailItem.type === "BUG" ? "Bug" : "Feature"}
                   </Badge>
                   <Badge
-                    variant={detailItem.status === "DONE" ? "progress" : "neutral"}
+                    variant={detailItem.status === "DONE" ? "progress" : detailItem.status === "IN_REVIEW" ? "review" : "neutral"}
                     className="text-[10px]"
                   >
                     {STATUS_LABELS[detailItem.status]}
