@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.185.0",
+    date: "2026-07-11",
+    title: "Open a table row in a detail side panel",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Table board views can now open any item in a side panel — click the panel icon on a row (or right-click → Open details) to edit its description, status, assignee, priority, dates, comments, sub-items, and more, just like the Kanban board. Changes save as you make them and show up in the row right away; close the panel any time without losing a thing. The old click-to-edit the title inline still works.",
+      },
+    ],
+  },
+  {
     version: "2.184.0",
     date: "2026-07-11",
     title: "Duplicate an issue into an editable draft",

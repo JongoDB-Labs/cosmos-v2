@@ -60,7 +60,10 @@ import {
   Copy,
   ListFilter,
   ChevronDown,
+  PanelRightOpen,
 } from "lucide-react";
+import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { WorkItem, Board, BoardColumn, OrgMember, Cycle } from "@/types/models";
 
@@ -113,6 +116,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const [density, setDensity] = useState<Density>("comfortable");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
+  // Detail side panel (COSMOS-96): open the same rich CardDetailSheet the Kanban
+  // board uses, so a table row can be fully edited (description, status,
+  // assignee, dates, comments…) — not just its name inline.
+  const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
@@ -274,6 +282,49 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     [qc, itemsKey, basePath],
   );
 
+  // Open a row in the detail side panel.
+  const openDetail = useCallback((item: WorkItem) => {
+    setDetailItem(item);
+    setDetailOpen(true);
+  }, []);
+
+  // Open a sub-item / linked item in the same sheet. Same-project rows are
+  // already in the query cache; fall back to a fetch for anything off-list.
+  const openItemById = useCallback(
+    async (id: string) => {
+      const found = allItems.find((i) => i.id === id);
+      if (found) {
+        setDetailItem(found);
+        setDetailOpen(true);
+        return;
+      }
+      try {
+        const res = await fetch(`${basePath}/work-items/${id}`);
+        if (!res.ok) return;
+        setDetailItem(await res.json());
+        setDetailOpen(true);
+      } catch {
+        /* swallow — the link row stays put */
+      }
+    },
+    [allItems, basePath],
+  );
+
+  // Mirror an edit from the sheet straight into the table's row cache so the
+  // change shows immediately (AC: edits reflected in the corresponding row).
+  const handleItemUpdate = useCallback(
+    (updated: WorkItem) => {
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        (prev ?? []).map((i) => (i.id === updated.id ? updated : i)),
+      );
+      // Only re-point the open sheet when the updated row IS the one on screen —
+      // re-parenting also patches parent rows, and echoing those in would flip
+      // the sheet away from the child being edited (COSMOS-67).
+      setDetailItem((cur) => syncOpenDetail(cur, updated));
+    },
+    [qc, itemsKey],
+  );
+
   const selectedIds = useMemo(
     () => Object.keys(rowSelection).filter((k) => rowSelection[k]),
     [rowSelection],
@@ -396,6 +447,15 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         {
           items: [
             {
+              label: "Open details",
+              icon: PanelRightOpen,
+              onClick: () => openDetail(item),
+            },
+          ],
+        },
+        {
+          items: [
+            {
               label: "Edit title",
               icon: Pencil,
               onClick: () =>
@@ -495,7 +555,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
       return groups;
     },
-    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey],
+    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey, openDetail],
   );
 
   const columnHelper = createColumnHelper<WorkItem>();
@@ -536,22 +596,36 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
             );
           }
           return (
-            <button
-              type="button"
-              className="text-left w-full truncate hover:text-primary transition-colors"
-              onClick={() =>
-                setEditingCell({
-                  rowId: info.row.original.id,
-                  columnId: "title",
-                  value: info.getValue(),
-                })
-              }
-            >
-              <span className="text-muted-foreground mr-1.5 text-xs">
-                {projectKey}-{info.row.original.ticketNumber}
-              </span>
-              {info.getValue()}
-            </button>
+            <div className="flex w-full min-w-0 items-center gap-1.5">
+              {/* Designated affordance (COSMOS-96): open the full detail panel.
+                  Kept distinct from the title button so single-click title
+                  inline-editing still works. */}
+              <button
+                type="button"
+                aria-label="Open details"
+                title="Open details"
+                onClick={() => openDetail(info.row.original)}
+                className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              >
+                <PanelRightOpen className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left hover:text-primary transition-colors"
+                onClick={() =>
+                  setEditingCell({
+                    rowId: info.row.original.id,
+                    columnId: "title",
+                    value: info.getValue(),
+                  })
+                }
+              >
+                <span className="text-muted-foreground mr-1.5 text-xs">
+                  {projectKey}-{info.row.original.ticketNumber}
+                </span>
+                {info.getValue()}
+              </button>
+            </div>
           );
         },
         size: 350,
@@ -832,7 +906,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         enableSorting: false,
       }),
     ] as ColumnDef<WorkItem>[],
-    [columnHelper, editingCell, memberMap, memberById, columnMap, cycleMap, columns, members, projectKey, saveEdit]
+    [columnHelper, editingCell, memberMap, memberById, columnMap, cycleMap, columns, members, projectKey, saveEdit, openDetail]
   );
 
   const selectedCount = selectedIds.length;
@@ -1105,6 +1179,38 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Detail side panel (COSMOS-96) — the same rich editor the Kanban board
+          uses. Edits auto-save and flow back into the table row via
+          handleItemUpdate; closing the sheet keeps saved changes and restores
+          focus to the row's affordance. */}
+      <CardDetailSheet
+        item={detailItem}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        orgId={orgId}
+        projectId={projectId}
+        members={members}
+        cycles={cycles}
+        columns={columns}
+        onUpdate={handleItemUpdate}
+        onDelete={(id) => {
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            (prev ?? []).filter((i) => i.id !== id),
+          );
+          setDetailOpen(false);
+        }}
+        onDuplicate={(dupe) => {
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), dupe]);
+          setDetailItem(dupe);
+          setDetailOpen(true);
+        }}
+        projectItems={allItems}
+        onItemCreated={(child) =>
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), child])
+        }
+        onOpenItem={openItemById}
+      />
     </div>
   );
 }
