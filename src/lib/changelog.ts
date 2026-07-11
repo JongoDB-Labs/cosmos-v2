@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.171.0",
+    date: "2026-07-11",
+    title: "Talk to Cosmo — hands-free",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Say \"Hey Cosmo\" and the assistant opens with the mic already live — speak your message and end with \"send it\" to send it. A mic button in the chat input starts dictation any time, the input shows the live transcript while you talk, and you can set your own send phrase under Preferences → Voice send phrase.",
+      },
+    ],
+  },
+  {
     version: "2.170.0",
     date: "2026-07-10",
     title: "Search inside long dropdowns",

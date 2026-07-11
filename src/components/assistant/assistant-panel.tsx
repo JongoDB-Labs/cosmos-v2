@@ -7,6 +7,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { CosmoAvatar } from "./cosmo-avatar";
+import { useDictation } from "@/lib/hooks/use-dictation";
+import { DEFAULT_CLOSE_WORD } from "@/lib/voice/close-word";
 import { notifyError } from "@/lib/errors/notify";
 import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
@@ -30,6 +32,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Paperclip,
+  Mic,
   X,
   Loader2,
   Wrench,
@@ -207,6 +210,22 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
+  // Voice dictation (reference UX: okr-dashboard ChatPanel). The close word is
+  // the user's Preferences → Voice phrase; a completed dictation writes the
+  // message into `input` and bumps the tick, and the effect below sends once
+  // the state has committed (calling sendMessage() directly here would read a
+  // stale `input` closure).
+  const [closeWord, setCloseWord] = useState<string | null>(null);
+  const voiceTickRef = useRef(0);
+  const [voiceTick, setVoiceTick] = useState(0);
+  const dictation = useDictation({
+    onTranscript: setInput,
+    onSend: (text) => {
+      setInput(text);
+      setVoiceTick((t) => t + 1);
+    },
+    closeWord,
+  });
   // @-mention typeahead. Tokens are inserted id-only (`<@type:id>`) and travel
   // to the assistant as opaque ids — never expanded to CUI content client-side;
   // any server-side expansion must go through the egress gate.
@@ -530,6 +549,21 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   // Send / Stop
   // ---------------------------------------------------------------------------
 
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/v1/orgs/${orgId}/preferences`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (!alive) return;
+        const prefs = (body?.data ?? body) as { voiceCloseWord?: string | null } | null;
+        setCloseWord(prefs?.voiceCloseWord ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [orgId]);
+
   const sendMessage = useCallback(async () => {
     if ((!input.trim() && attachments.length === 0) || sending) return;
 
@@ -799,6 +833,37 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       abortRef.current = null;
     }
   }, [input, sending, activeId, orgId, attachments, model]);
+
+  // Voice: send once the dictated message has committed to `input` (tick-guarded
+  // so this fires exactly once per completed dictation, never on keystrokes).
+  useEffect(() => {
+    if (voiceTick !== voiceTickRef.current) {
+      voiceTickRef.current = voiceTick;
+      // Deferred: sendMessage sets state; calling it synchronously inside the
+      // effect trips the cascading-render lint. A microtask keeps ordering.
+      if (input.trim()) queueMicrotask(() => sendMessage());
+    }
+  }, [voiceTick, input, sendMessage]);
+
+  // Wake path: "Hey Cosmo" opens this panel and asks it to start dictation.
+  useEffect(() => {
+    const onStart = () => dictation.start();
+    window.addEventListener("cosmos:assistant:dictation:start", onStart);
+    return () => window.removeEventListener("cosmos:assistant:dictation:start", onStart);
+  }, [dictation]);
+
+  // Tell the wake-word provider when the chat mic is live so the two listeners
+  // never fight over the microphone (reference: okr-dashboard's chatOpen gate).
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("cosmos:assistant:dictation:state", { detail: dictation.listening }),
+    );
+    return () => {
+      if (dictation.listening) {
+        window.dispatchEvent(new CustomEvent("cosmos:assistant:dictation:state", { detail: false }));
+      }
+    };
+  }, [dictation.listening]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
@@ -1219,12 +1284,16 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
               <textarea
                 ref={textareaRef}
                 value={input}
-                onChange={onInputChange}
+                onChange={(e) => {
+                  if (!dictation.listening) onInputChange(e);
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  activeId
-                    ? "Type a message... (@ to mention)"
-                    : "Type a message to start a new conversation... (@ to mention)"
+                  dictation.listening
+                    ? `Listening… say “${(closeWord ?? DEFAULT_CLOSE_WORD).trim() || DEFAULT_CLOSE_WORD}” to send`
+                    : activeId
+                      ? "Type a message... (@ to mention)"
+                      : "Type a message to start a new conversation... (@ to mention)"
                 }
                 disabled={sending}
                 rows={1}
@@ -1238,6 +1307,22 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                   onPick={pickEntity}
                   onCancel={() => setMentionState(null)}
                 />
+              )}
+              {dictation.supported && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+                  aria-label={dictation.listening ? "Stop voice input" : "Start voice input"}
+                  title={dictation.listening ? "Stop voice input" : "Voice input"}
+                  className={
+                    dictation.listening
+                      ? "text-destructive bg-destructive/10 border border-destructive/40 animate-pulse"
+                      : "text-muted-foreground"
+                  }
+                >
+                  <Mic className="size-4" />
+                </Button>
               )}
               {sending ? (
                 <Button
