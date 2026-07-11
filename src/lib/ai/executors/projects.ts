@@ -369,9 +369,21 @@ export async function completeCycle(input: Record<string, unknown>, ctx: ToolCon
     };
 
     if (incompleteItems.length > 0) {
+      // Harden beyond the HTTP route (review finding): the destination cycle is
+      // untrusted, LLM-reachable input — require it to exist in THIS org+project
+      // before re-pointing items at it; otherwise carry over to no cycle.
+      let destination: string | null = null;
+      if (data.moveIncompleteToCycleId) {
+        const dest = await tx.cycle.findFirst({
+          where: { id: data.moveIncompleteToCycleId, orgId: ctx.orgId, projectId: cycle.projectId },
+          select: { id: true },
+        });
+        if (!dest) throw new Error("moveIncompleteToCycleId is not a cycle in this project");
+        destination = dest.id;
+      }
       await tx.workItem.updateMany({
         where: { id: { in: incompleteItems.map((i) => i.id) } },
-        data: { cycleId: data.moveIncompleteToCycleId ?? null },
+        data: { cycleId: destination },
       });
     }
 

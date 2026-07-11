@@ -53,12 +53,12 @@ export async function listMeetings(input: Record<string, unknown>, ctx: ToolCont
 
 // ── create_meeting ─────────────────────────────────────────────────────────
 const createSchema = z.object({
-  title: z.string().min(1),
+  title: z.string().min(1).max(200),
   meetingDate: z.string().datetime(),
   projectId: z.string().uuid().nullish(),
   sprintId: z.string().uuid().nullish(),
   meetingType: z.nativeEnum(MeetingType).optional(),
-  notes: z.string().nullish(),
+  notes: z.string().max(10000).nullish(),
 });
 
 export async function createMeeting(input: Record<string, unknown>, ctx: ToolContext) {
@@ -76,6 +76,15 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
       select: { id: true },
     });
     if (!project) return { error: "Project not found" };
+  }
+  // SyncMeeting.sprintId has no FK relation (bare id) — require it to be one of
+  // this org's cycles so an untrusted id can't plant a cross-org pointer.
+  if (data.sprintId) {
+    const sprint = await prisma.cycle.findFirst({
+      where: { id: data.sprintId, orgId: ctx.orgId },
+      select: { id: true },
+    });
+    if (!sprint) return { error: "sprintId is not a cycle in this organization" };
   }
 
   const created = await prisma.syncMeeting.create({
@@ -100,7 +109,7 @@ const updateSchema = z.object({
   title: z.string().min(1).optional(),
   meetingDate: z.string().datetime().optional(),
   status: z.nativeEnum(MeetingStatus).optional(),
-  notes: z.string().nullish(),
+  notes: z.string().max(10000).nullish(),
 });
 
 export async function updateMeeting(input: Record<string, unknown>, ctx: ToolContext) {
