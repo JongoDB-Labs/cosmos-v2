@@ -2,6 +2,7 @@
 // a failed observability write must NEVER take down or delay delivery, so
 // every call swallows its own errors (logged to stderr for journald).
 import { prisma } from "@/lib/db/client";
+import type { Prisma } from "@prisma/client";
 import type { ForemanEventKind, InFlightBuild } from "@/lib/foreman/observe";
 
 const HOST = "host";
@@ -55,7 +56,7 @@ export async function track(ev: {
       data: {
         orgId, workItemId: ev.workItemId ?? null, ticketKey: ev.ticketKey ?? null,
         kind: ev.kind, severity: ev.severity ?? "info", message: ev.message,
-        data: ev.data ?? undefined,
+        data: (ev.data ?? undefined) as Prisma.InputJsonValue | undefined,
       },
     });
   } catch (e) { swallow(e); }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { boot, heartbeat, track } from "../../../../scripts/foreman/observe.mts";
+import { boot, heartbeat, track } from "../../../../scripts/foreman/observe.mjs";
 
 afterEach(() => vi.restoreAllMocks());
 
