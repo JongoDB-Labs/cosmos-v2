@@ -26,6 +26,7 @@ describe("foreman observability tables", () => {
     });
     const rows = await prisma.foremanEvent.findMany({ orderBy: { ts: "desc" }, take: 1 });
     expect(rows[0]?.kind).toBeTruthy();
+    await prisma.foremanEvent.deleteMany({ where: { kind: "boot", message: "test boot" } });
   });
 });
 
@@ -48,6 +49,7 @@ describe("observe.mts writers", () => {
     await track({ workItemId: wi.id, ticketKey: "T-1", kind: "gated", message: "m" });
     const ev = await prisma.foremanEvent.findFirst({ where: { ticketKey: "T-1" }, orderBy: { ts: "desc" } });
     expect(ev?.orgId).toBe(wi.orgId);
+    await prisma.foremanEvent.deleteMany({ where: { ticketKey: "T-1", message: "m" } });
   });
 
   it("never throws when the write fails", async () => {
