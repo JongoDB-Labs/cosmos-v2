@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.175.0",
+    date: "2026-07-11",
+    title: "Run Microsoft Teams meetings from your linked M365 tenant",
+    highlights: [
+      {
+        kind: "feature",
+        text: "If your organization has linked a Microsoft 365 tenant on the Integrations page, you can now schedule, reschedule attendees on, cancel, and delete Teams meetings without leaving Cosmos — each change lands on the organizer's real M365 calendar and Teams sends the invites and cancellations. Everything is tenant-scoped: you only ever see and touch meetings on the tenant your org linked, and if the tenant isn't connected (or the app lacks calendar permission) you get a clear, actionable message instead of a silent failure.",
+      },
+    ],
+  },
+  {
     version: "2.173.0",
     date: "2026-07-10",
     title: "Everything on the Release Timeline is clickable",

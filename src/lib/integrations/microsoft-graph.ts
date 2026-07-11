@@ -281,6 +281,74 @@ export async function graphFetch(
 }
 
 /**
+ * Issue a write (POST / PATCH / DELETE) against Microsoft Graph for the org,
+ * minting/refreshing the access token as needed. This is the write counterpart to
+ * {@link graphFetch} — it powers the Teams-meeting lifecycle (create/update/cancel/
+ * delete calendar events) and any other org-scoped Graph mutation.
+ *
+ * `path` is appended to the cloud-correct Graph base URL. `body` (when provided) is
+ * JSON-encoded; DELETE and action endpoints (e.g. `/events/{id}/cancel`) may omit it.
+ * Graph mutations frequently answer 202/204 with an EMPTY body, so a successful
+ * response with no/invalid JSON resolves to `{ ok:true, data:null }` rather than
+ * throwing. The Bearer token is sent to Graph but NEVER returned or logged; a
+ * not-connected org, a token-exchange failure, or a Graph 4xx/5xx all map to a
+ * graceful `{ ok:false, error }` (the code, never the token/secret).
+ */
+export async function graphWrite(
+  orgId: string,
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown,
+  opts: { fetchImpl?: FetchLike } = {},
+): Promise<GraphFetchResult> {
+  const tok = await getGraphToken(orgId, opts);
+  if ("error" in tok) return { ok: false, error: tok.error };
+
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+  const url = `${tok.graphBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${tok.accessToken}`,
+    Accept: "application/json",
+    "User-Agent": "cosmos-connector",
+  };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+
+  let res;
+  try {
+    res = await doFetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Microsoft Graph request failed: ${msg}` };
+  }
+
+  if (!res.ok) {
+    // Surface a clean, token-free error. Graph wraps errors as { error: { code, message } }.
+    let detail = "";
+    try {
+      const parsed = (await res.json()) as { error?: { code?: unknown } };
+      if (typeof parsed?.error?.code === "string") detail = `: ${parsed.error.code}`;
+    } catch {
+      /* body not JSON — ignore */
+    }
+    return { ok: false, error: `Microsoft Graph API error (HTTP ${res.status})${detail}` };
+  }
+
+  // 202/204 (cancel/delete) carry no body — tolerate an empty / non-JSON payload.
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  return { ok: true, data };
+}
+
+/**
  * Upload (PUT) a binary file to Microsoft Graph for the org — e.g. mirror an
  * export to a SharePoint document library. `uploadPath` is appended to the
  * cloud-correct Graph base URL, e.g.

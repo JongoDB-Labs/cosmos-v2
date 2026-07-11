@@ -21,6 +21,7 @@ vi.mock("@/lib/db/client", () => ({ prisma }));
 import {
   getGraphToken,
   graphFetch,
+  graphWrite,
   _resetGraphTokenCache,
 } from "./microsoft-graph";
 
@@ -238,5 +239,74 @@ describe("secret / token never leak into returned values", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
     const res = (await getGraphToken(ORG, { fetchImpl })) as { error?: string };
     expect(res.error).toContain("ECONNREFUSED");
+  });
+});
+
+describe("graphWrite (POST / PATCH / DELETE)", () => {
+  it("POSTs a JSON body with the Bearer token to the cloud-correct base URL", async () => {
+    const fetchImpl = mockFetch({ graphStatus: 201, graphBody: { id: "evt1" } });
+    const res = await graphWrite(ORG, "POST", "/users/u1/events", { subject: "Sync" }, { fetchImpl });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data).toEqual({ id: "evt1" });
+
+    const [url, init] = fetchImpl.mock.calls[1]; // [0] is the token exchange
+    expect(url).toBe("https://graph.microsoft.com/v1.0/users/u1/events");
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body)).toEqual({ subject: "Sync" });
+  });
+
+  it("PATCH sends the body and method through", async () => {
+    const fetchImpl = mockFetch({ graphStatus: 200, graphBody: { id: "evt1" } });
+    await graphWrite(ORG, "PATCH", "/users/u1/events/evt1", { attendees: [] }, { fetchImpl });
+    const [, init] = fetchImpl.mock.calls[1];
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ attendees: [] });
+  });
+
+  it("DELETE sends no body and tolerates a 204 empty response", async () => {
+    // A 204 has no JSON body — json() rejects; graphWrite must resolve ok with data:null.
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      const isToken = url.includes("/oauth2/v2.0/token");
+      return Promise.resolve({
+        ok: true,
+        status: isToken ? 200 : 204,
+        json: () =>
+          isToken
+            ? Promise.resolve({ access_token: ACCESS_TOKEN, expires_in: 3600 })
+            : Promise.reject(new Error("Unexpected end of JSON input")),
+        text: () => Promise.resolve(""),
+      });
+    });
+    const res = await graphWrite(ORG, "DELETE", "/users/u1/events/evt1", undefined, { fetchImpl });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data).toBeNull();
+    const [, init] = fetchImpl.mock.calls[1];
+    expect(init.method).toBe("DELETE");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("surfaces a Graph 403 as a graceful, token-free error", async () => {
+    const fetchImpl = mockFetch({
+      graphStatus: 403,
+      graphBody: { error: { code: "ErrorAccessDenied", message: "Insufficient privileges" } },
+    });
+    const res = await graphWrite(ORG, "POST", "/users/u1/events", {}, { fetchImpl });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toContain("HTTP 403");
+      expect(res.error).toContain("ErrorAccessDenied");
+      expect(res.error).not.toContain(ACCESS_TOKEN);
+    }
+  });
+
+  it("a not-connected org never calls fetch", async () => {
+    getOrgCredential.mockResolvedValue(null);
+    const fetchImpl = mockFetch({});
+    const res = await graphWrite(ORG, "POST", "/users/u1/events", {}, { fetchImpl });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("not connected");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
