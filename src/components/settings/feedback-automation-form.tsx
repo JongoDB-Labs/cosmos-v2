@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Wand2, Info, Bot } from "lucide-react";
+import { Wand2, Info, HardHat } from "lucide-react";
 
 interface ProjectOption {
   id: string;
@@ -367,7 +367,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 font-medium text-[var(--text)]">
-              <Bot className="size-4 text-[var(--primary)]" /> Autonomous delivery
+              <HardHat className="size-4 text-[var(--primary)]" /> Autonomous delivery
               <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                 Owner
               </span>
