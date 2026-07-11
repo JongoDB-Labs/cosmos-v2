@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.185.1",
+    date: "2026-07-11",
+    title: "Steadier issues table on right-click",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Right-clicking a row in the Issues table (or any data table) to open its actions menu no longer jerks the list up or down — the rows stay exactly where they were while the menu opens and after it closes.",
+      },
+    ],
+  },
+  {
     version: "2.185.0",
     date: "2026-07-11",
     title: "Search the assignee picker too",

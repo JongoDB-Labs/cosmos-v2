@@ -353,7 +353,12 @@ export function DataTable<T>({
             />
           }
         />
-        <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="min-w-[160px]">
+        {/* positionMethod="fixed" mirrors base-ui's own ContextMenu: a fixed
+            popup has no scrollable ancestor, so focusing a menu item on open
+            can't scroll the table into view — half of the right-click "jerk"
+            fix (COSMOS-36); the other half is the fixed-parked anchor + the
+            capture-phase guardScroll on open/close. */}
+        <DropdownMenuContent align="start" side="bottom" sideOffset={2} positionMethod="fixed" className="min-w-[160px]">
           {menuGroups
             .filter((group) => group.items.length > 0)
             .map((group, gi) => (
