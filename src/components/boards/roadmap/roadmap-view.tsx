@@ -11,11 +11,14 @@
  */
 import { useMemo, useState } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Map as MapIcon, Check } from "lucide-react";
+import { ChevronDown, ChevronRight, Map as MapIcon, Check, UserCheck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { isAssignedTo } from "@/lib/boards/assignment";
 import { cn } from "@/lib/utils";
 import type { WorkItem, OrgMember, Cycle, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
@@ -72,10 +75,17 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   const columns: BoardColumn[] = boardQ.data?.columns ?? [];
   const cycles: Cycle[] = useMemo(() => cyclesQ.data ?? [], [cyclesQ.data]);
 
+  const currentUserId = useCurrentUserId();
   const [detailId, setDetailId] = useState<string | null>(null);
   const detailItem = detailId ? items.find((i) => i.id === detailId) ?? null : null;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [hideDone, setHideDone] = useState(false);
+  // "Assigned to me" (COSMOS-51): narrow the roadmap to the current user. An epic
+  // lane stays visible when the epic itself is assigned to me OR it still has a
+  // feature assigned to me; its cells show only my features. Combines with
+  // "Hide done" (applied per-cell at render time).
+  const [assignedToMe, setAssignedToMe] = useState(false);
+  const mineOnly = assignedToMe && currentUserId !== null;
 
   const loading = itemsQ.isLoading || cyclesQ.isLoading || boardQ.isLoading;
 
@@ -107,10 +117,12 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
     }
     lanes = [...lanes].sort((a, b) => a.sortOrder - b.sortOrder);
 
-    return lanes.map((epic) => {
-      const feats = (childrenByParent.get(epic.id) ?? []).sort(
+    const me = currentUserId;
+    const built = lanes.map((epic) => {
+      let feats = (childrenByParent.get(epic.id) ?? []).sort(
         (a, b) => a.sortOrder - b.sortOrder,
       );
+      if (mineOnly && me) feats = feats.filter((f) => isAssignedTo(f, me));
       const done = feats.filter((f) => f.completedAt).length;
       const byCol = new Map<string, WorkItem[]>();
       for (const f of feats) {
@@ -121,7 +133,13 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       }
       return { epic, feats, total: feats.length, done, byCol };
     });
-  }, [items]);
+
+    // Under "Assigned to me", drop lanes with no feature of mine — unless the
+    // epic itself is assigned to me (keep it visible for context).
+    return mineOnly && me
+      ? built.filter((r) => r.feats.length > 0 || isAssignedTo(r.epic, me))
+      : built;
+  }, [items, mineOnly, currentUserId]);
 
   // Only render PI columns that actually hold a feature somewhere (keeps the grid
   // from sprawling across empty future PIs) — but always keep the real PIs; drop
@@ -133,18 +151,6 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   );
 
   if (loading) return <RoadmapSkeleton />;
-
-  if (rows.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <EmptyState
-          icon={MapIcon}
-          title="No epics to roadmap yet"
-          description="Create Epic-type work items (with Features under them) and assign them to increments — they'll appear here as strategic swimlanes across your PIs."
-        />
-      </div>
-    );
-  }
 
   const toggle = (id: string) =>
     setCollapsed((prev) => {
@@ -166,6 +172,18 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
         <span className="text-[var(--text-muted)]">
           {rows.length} epics · {cycles.length} increments
         </span>
+        {currentUserId && (
+          <Button
+            size="sm"
+            variant={assignedToMe ? "default" : "outline"}
+            aria-pressed={assignedToMe}
+            className="h-7 gap-1.5"
+            onClick={() => setAssignedToMe((v) => !v)}
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Assigned to me
+          </Button>
+        )}
         <div className="ml-auto flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-[var(--text-muted)]">
             <input
@@ -188,6 +206,19 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       </div>
 
       {/* grid */}
+      {rows.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <EmptyState
+            icon={MapIcon}
+            title={mineOnly ? "Nothing assigned to you" : "No epics to roadmap yet"}
+            description={
+              mineOnly
+                ? "No epics or features here are assigned to you. Toggle off “Assigned to me” to see the full roadmap."
+                : "Create Epic-type work items (with Features under them) and assign them to increments — they'll appear here as strategic swimlanes across your PIs."
+            }
+          />
+        </div>
+      ) : (
       <div className="flex-1 overflow-auto">
         <div className="min-w-max">
           {/* column headers */}
@@ -290,6 +321,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
           })}
         </div>
       </div>
+      )}
 
       <CardDetailSheet
         item={detailItem}

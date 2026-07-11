@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.193.0",
+    date: "2026-07-11",
+    title: "“Assigned to me” on every board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The one-click “Assigned to me” filter now reaches the last few board views — the Roadmap, Table, and Calendar. Press it to narrow the view down to just your items, press it again to bring everything back. It stacks on top of the filters each board already has, and the button lights up while it's active. Together with the Backlog, Sprint, Kanban, and Timeline boards, that's every board covered.",
+      },
+    ],
+  },
+  {
     version: "2.192.0",
     date: "2026-07-11",
     title: "Timeline dates stay put while you scroll",

@@ -5,6 +5,8 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { isAssignedTo } from "@/lib/boards/assignment";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import {
@@ -56,6 +58,7 @@ import {
   Flag,
   CircleDot,
   UserCog,
+  UserCheck,
   CalendarClock,
   Copy,
   ListFilter,
@@ -113,6 +116,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const [density, setDensity] = useState<Density>("comfortable");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
+  // "Assigned to me" (COSMOS-51): one-click filter to the current user, combinable
+  // with the board's type filter (both fold into the `items` memo below).
+  const [assignedToMe, setAssignedToMe] = useState(false);
+  const currentUserId = useCurrentUserId();
 
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
@@ -174,13 +181,18 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [allItems]);
 
-  const items: WorkItem[] = useMemo(
-    () =>
+  const items: WorkItem[] = useMemo(() => {
+    let list =
       typeKeys.length === 0
         ? allItems
-        : allItems.filter((i) => i.workItemType?.key && typeKeys.includes(i.workItemType.key)),
-    [allItems, typeKeys],
-  );
+        : allItems.filter(
+            (i) => i.workItemType?.key && typeKeys.includes(i.workItemType.key),
+          );
+    if (assignedToMe && currentUserId) {
+      list = list.filter((i) => isAssignedTo(i, currentUserId));
+    }
+    return list;
+  }, [allItems, typeKeys, assignedToMe, currentUserId]);
 
   // Persist a change to the board's type filter (optimistic: patch the board
   // cache so the table re-filters immediately, then PUT the merged config).
@@ -910,9 +922,25 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           </DropdownMenu>
         )}
 
+        {currentUserId && (
+          <Button
+            size="sm"
+            variant={assignedToMe ? "default" : "outline"}
+            aria-pressed={assignedToMe}
+            className="h-7 gap-1.5"
+            onClick={() => setAssignedToMe((v) => !v)}
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Assigned to me
+          </Button>
+        )}
+
         <span className="text-xs text-muted-foreground">
           {items.length}
-          {typeKeys.length > 0 ? ` of ${allItems.length}` : ""} items
+          {typeKeys.length > 0 || (assignedToMe && currentUserId)
+            ? ` of ${allItems.length}`
+            : ""}{" "}
+          items
         </span>
 
         {selectedCount > 0 && (

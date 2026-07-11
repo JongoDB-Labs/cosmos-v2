@@ -50,6 +50,7 @@ import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { isAssignedTo } from "@/lib/boards/assignment";
 import type {
   Board,
   BoardColumn,
@@ -107,17 +108,9 @@ function formatStart(value: string | null | undefined, fmt: (s: string) => strin
   return value ? fmt(value) : "";
 }
 
-/**
- * Is a work item assigned to `userId`? Matches the primary assignee OR any
- * member of the multi-assignee set — the same rule the Kanban filter bar uses,
- * so "Assigned to me" behaves identically across every board view.
- */
-export function isAssignedTo(item: WorkItem, userId: string): boolean {
-  return (
-    item.assigneeId === userId ||
-    (item.assignees?.some((a) => a.userId === userId) ?? false)
-  );
-}
+// Re-exported for existing importers/tests; the predicate now lives in a shared,
+// dependency-free lib so every board view can use it (see @/lib/boards/assignment).
+export { isAssignedTo };
 
 export function BacklogView({
   orgId,

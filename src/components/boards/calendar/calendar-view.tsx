@@ -9,7 +9,9 @@ import { CreateIssueButton } from "@/components/boards/shared/create-issue-butto
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, UserCheck } from "lucide-react";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { isAssignedTo } from "@/lib/boards/assignment";
 import type { WorkItem, OrgMember } from "@/types/models";
 
 interface CalendarViewProps {
@@ -54,6 +56,9 @@ function isSameDay(a: Date, b: Date) {
 export function CalendarView({ orgId, projectId, projectKey, boardId }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  // "Assigned to me" (COSMOS-51): one-click filter to the current user.
+  const [assignedToMe, setAssignedToMe] = useState(false);
+  const currentUserId = useCurrentUserId();
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -74,8 +79,17 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
     ],
   });
 
-  const items: WorkItem[] = itemsQ.data ?? [];
+  const allItems: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
   const members: OrgMember[] = membersQ.data ?? [];
+  // Fold the "Assigned to me" toggle into the item set the calendar buckets by
+  // date, so it combines with everything downstream (day cells + expanded panel).
+  const items: WorkItem[] = useMemo(
+    () =>
+      assignedToMe && currentUserId
+        ? allItems.filter((i) => isAssignedTo(i, currentUserId))
+        : allItems,
+    [allItems, assignedToMe, currentUserId],
+  );
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
@@ -165,6 +179,18 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          {currentUserId && (
+            <Button
+              size="sm"
+              variant={assignedToMe ? "default" : "outline"}
+              aria-pressed={assignedToMe}
+              className="h-7 gap-1.5"
+              onClick={() => setAssignedToMe((v) => !v)}
+            >
+              <UserCheck className="h-3.5 w-3.5" />
+              Assigned to me
+            </Button>
+          )}
           <CreateIssueButton
             orgId={orgId}
             projectId={projectId}
