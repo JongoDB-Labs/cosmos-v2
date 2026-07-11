@@ -53,7 +53,7 @@ describe("resolveBrand", () => {
   it("keeps base wakePhrase when org provides no wakeWord", () => {
     delete process.env.NEXT_PUBLIC_PRODUCT;
     const b = resolveBrand({ brandName: "Acme Studio" });
-    expect(b.wakePhrase).toBe("hey cosmos"); // base
+    expect(b.wakePhrase).toBe("hey cosmo"); // base
   });
 
   it("falls through to the base profile for null fields", () => {
@@ -63,7 +63,7 @@ describe("resolveBrand", () => {
     expect(b.tagline).toBe("Enterprise Project Management"); // base
     expect(b.markSrc).toBe("/cosmos-mark.png"); // base
     expect(b.agentName).toBe("COSMOS Agent"); // base
-    expect(b.wakeWord).toBe("Hey COSMOS"); // base
+    expect(b.wakeWord).toBe("Hey Cosmo"); // base
     expect(b.defaultSkinId).toBe("universe"); // base
   });
 
