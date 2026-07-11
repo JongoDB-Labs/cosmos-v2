@@ -3,7 +3,7 @@
 // test can't cover is the browser's actual audio recognition).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useWakeWord } from "./use-wake-word";
+import { useWakeWord, matchesWakePhrase } from "./use-wake-word";
 
 type ResultHandler = ((e: unknown) => void) | null;
 
@@ -46,6 +46,29 @@ beforeEach(() => {
 afterEach(() => {
   delete (window as unknown as Record<string, unknown>).SpeechRecognition;
   vi.restoreAllMocks();
+});
+
+describe("matchesWakePhrase (recognizer-realistic transcripts)", () => {
+  it("matches the mangled forms Chrome actually produces", () => {
+    for (const heard of [
+      "Hey Cosmo",
+      "hey, cosmo.",
+      "Hey Cosmos",
+      "a cosmo open my tasks",
+      "OK hey Cosmo!",
+      "they cosmos",
+    ]) {
+      expect(matchesWakePhrase(heard, "hey cosmo")).toBe(true);
+    }
+  });
+  it("still rejects unrelated speech", () => {
+    for (const heard of ["hey costco", "cosplay time", "hey come over", "echo system"]) {
+      expect(matchesWakePhrase(heard, "hey cosmo")).toBe(false);
+    }
+  });
+  it("short distinctive words don't single-word-wake (phrase still required)", () => {
+    expect(matchesWakePhrase("hey there", "hey it")).toBe(false);
+  });
 });
 
 describe("useWakeWord", () => {
