@@ -7,7 +7,7 @@ import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
-const OPEN_STATUSES = ["OPEN", "PLANNED", "IN_PROGRESS"] as const;
+const OPEN_STATUSES = ["OPEN", "PLANNED", "IN_PROGRESS", "IN_REVIEW"] as const;
 const CLOSED_STATUSES = ["DONE", "DECLINED"] as const;
 
 /**

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.181.0",
+    date: "2026-07-11",
+    title: "Feedback shows “In review” distinctly",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Feedback whose fix is built and waiting for a human to approve now shows as “In review” instead of “In progress” — so you can tell at a glance what's actively being worked versus what's waiting on you.",
+      },
+    ],
+  },
+  {
     version: "2.180.0",
     date: "2026-07-11",
     title: "Get a heads-up when your feedback gets picked up",

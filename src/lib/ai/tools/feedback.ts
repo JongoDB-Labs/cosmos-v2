@@ -15,7 +15,7 @@ export const feedbackTools: ToolDefinition[] = [
         type: { type: "string", enum: ["BUG", "FEATURE"], description: "Optional type filter" },
         status: {
           type: "string",
-          enum: ["OPEN", "PLANNED", "IN_PROGRESS", "DONE", "DECLINED"],
+          enum: ["OPEN", "PLANNED", "IN_PROGRESS", "IN_REVIEW", "DONE", "DECLINED"],
           description: "Optional status filter",
         },
         limit: { type: "number", description: "Max results (default 50, cap 200)" },
@@ -45,7 +45,7 @@ export const feedbackTools: ToolDefinition[] = [
         feedbackId: { type: "string", description: "Feedback item ID" },
         status: {
           type: "string",
-          enum: ["OPEN", "PLANNED", "IN_PROGRESS", "DONE", "DECLINED"],
+          enum: ["OPEN", "PLANNED", "IN_PROGRESS", "IN_REVIEW", "DONE", "DECLINED"],
           description: "New status",
         },
       },
