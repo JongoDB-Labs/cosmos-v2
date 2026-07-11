@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Flag, Plus, Pencil, Trash2, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -156,6 +156,25 @@ export function MilestonesTimeline({ orgId, projectId }: MilestonesTimelineProps
   const [createOpen, setCreateOpen] = useState(false);
   const [editMilestone, setEditMilestone] = useState<Milestone | null>(null);
   const [linkMilestone, setLinkMilestone] = useState<Milestone | null>(null);
+
+  // Deep-link: `?open=<id>` (e.g. a click from the Release Timeline) opens that
+  // milestone's edit dialog once loaded — a reference from any view reaches the
+  // SAME editable surface (COSMOS-45). Fires once so a manual close stays closed.
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current || typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("open");
+    if (!id) {
+      deepLinkHandled.current = true;
+      return;
+    }
+    const target = milestones.find((m) => m.id === id);
+    if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEditMilestone(target);
+      deepLinkHandled.current = true;
+    }
+  }, [milestones]);
 
   const createMutation = useOrgMutation<Milestone, Error, CreatePayload>({
     mutationFn: (payload) =>

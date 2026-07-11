@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.173.0",
+    date: "2026-07-10",
+    title: "Everything on the Release Timeline is clickable",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Release Timeline is no longer a dead-end snapshot — every increment, deliverable, and milestone on it is now a real link. Click one to jump straight to its detail view and edit it (deliverables and milestones open their detail drawer already focused on that item), and right-click any of them for the same \"Open\" / \"Open in new tab\" menu you get elsewhere. Middle-click and ⌘/Ctrl-click open in a new tab too, so references behave consistently across every board.",
+      },
+    ],
+  },
+  {
     version: "2.172.2",
     date: "2026-07-11",
     title: "Readable in every light/dark combination",
