@@ -4,6 +4,7 @@ import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
+import { createNotification } from "@/lib/notifications/create";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
 import type { Prisma } from "@prisma/client";
 
@@ -16,8 +17,9 @@ import type { Prisma } from "@prisma/client";
  * own project if that's in scope, else the org's default — see
  * `resolveDeliveryTarget`), runs a best-effort AI triage, creates a linked work
  * item there (so the item enters the normal board → scheduling → fix
- * workflow), and stamps the feedback delivered. It NEVER merges, deploys, or
- * edits code — delivery into the backlog is the whole job; the actual fix
+ * workflow), stamps the feedback delivered, and notifies the reporter that their
+ * request was picked up. It NEVER merges, deploys, or edits code — delivery into
+ * the backlog is the whole job; the actual fix
  * stays a human/agent step downstream (the optional PR-drafting bridge is a
  * separate, opt-in workflow).
  *
@@ -303,7 +305,7 @@ export async function runFeedbackRemediation(
 
   const org = await prisma.organization.findUnique({
     where: { id: orgId },
-    select: { id: true, settings: true, tenantClass: true },
+    select: { id: true, slug: true, settings: true, tenantClass: true },
   });
   if (!org) return empty("not-enabled");
 
@@ -462,20 +464,28 @@ export async function runFeedbackRemediation(
       bucket.count += 1;
       byProject.set(target.id, bucket);
 
-      await logAudit({
-        orgId,
-        userId: opts.actorUserId,
-        action: "feedback.delivered",
-        entity: "feedback_item",
-        entityId: item.id,
-        metadata: {
-          workItemId: created.id,
-          ticketKey,
-          classification: triage.classification,
-          severity: triage.severity,
-          source: triage.source,
-        } as Record<string, string>,
-      });
+      // Everything from here on is a POST-COMMIT side-effect — the work item and
+      // the delivered stamp already committed in the transaction above. Each is
+      // best-effort and independently guarded: an audit or realtime hiccup must
+      // never abort the run or skip the reporter notification that follows.
+      try {
+        await logAudit({
+          orgId,
+          userId: opts.actorUserId,
+          action: "feedback.delivered",
+          entity: "feedback_item",
+          entityId: item.id,
+          metadata: {
+            workItemId: created.id,
+            ticketKey,
+            classification: triage.classification,
+            severity: triage.severity,
+            source: triage.source,
+          } as Record<string, string>,
+        });
+      } catch {
+        /* audit is best-effort post-commit */
+      }
       try {
         publishToOrg(orgId, "feedback.delivered", {
           feedbackId: item.id,
@@ -484,6 +494,27 @@ export async function runFeedbackRemediation(
         });
       } catch {
         /* realtime is best-effort */
+      }
+
+      // Close the loop with the reporter: whoever filed this FR/BR is notified
+      // the moment it's picked up and turned into a tracked ticket, so "did
+      // anyone see this?" is answered without them watching the board. Rides the
+      // existing notification pipeline (bell + SSE + web push) and deep-links to
+      // the feedback board (reporters watch feedback status, not the board).
+      // Best-effort by contract — a notify hiccup must never fail the delivery.
+      try {
+        await createNotification({
+          orgId,
+          userId: item.authorId,
+          type: "feedback.delivered",
+          title: `Your ${item.type === "BUG" ? "bug report" : "feature request"} is being worked on`,
+          message: `"${item.title}" has been triaged into the backlog as ${ticketKey}.`,
+          relatedId: item.id,
+          relatedType: "feedback_item",
+          url: `/${org.slug}/feedback`,
+        });
+      } catch {
+        /* reporter notification is best-effort */
       }
     } catch {
       // A single item's failure must not abort the run — leave it un-delivered

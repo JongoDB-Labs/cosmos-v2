@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.180.0",
+    date: "2026-07-11",
+    title: "Get a heads-up when your feedback gets picked up",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When a feature request or bug report you submitted is automatically triaged into the backlog, you now get a notification — in the bell, and as a web push if you've enabled them — so you know it was seen and is being worked on without having to watch the feedback board. The alert names the ticket your feedback became and links straight back to it.",
+      },
+    ],
+  },
+  {
     version: "2.179.0",
     date: "2026-07-11",
     title: "Dependency links can't loop back on themselves anymore",
