@@ -212,3 +212,100 @@ describe("FeedbackPortal — status + type filtering (COSMOS-31)", () => {
     expect(listedTitles()).toEqual(["Charlie done feature"]);
   });
 });
+
+// COSMOS-9 — search the feedback board instead of scrolling and eyeballing it.
+// The search box (title + description keyword match) shipped in v2.84.1 but had
+// no regression guard; these lock the four acceptance criteria: a search input
+// exists, it matches title AND description (case-insensitively), it composes
+// with the type filter, and a no-match state clearly names what was searched.
+describe("FeedbackPortal — keyword search (COSMOS-9)", () => {
+  const ITEMS = [
+    {
+      ...FR,
+      id: "a",
+      title: "Dark mode toggle",
+      description: "Add a dark theme option to the settings page.",
+      type: "FEATURE",
+      status: "OPEN",
+    },
+    {
+      ...FR,
+      id: "b",
+      title: "Export board to CSV",
+      description: "Download the whole board as a spreadsheet.",
+      type: "FEATURE",
+      status: "OPEN",
+    },
+    {
+      ...FR,
+      id: "c",
+      title: "Login screen crash",
+      description: "The app crashes on the dark login screen.",
+      type: "BUG",
+      status: "OPEN",
+    },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", stubFetch(ITEMS));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const listedTitles = () =>
+    screen
+      .queryAllByRole("button", { name: /^view details for /i })
+      .map((b) => b.getAttribute("aria-label")?.replace(/^view details for "(.*)"$/i, "$1"));
+
+  it("exposes a search input and filters the list by a keyword in the title", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("button", { name: /view details for "Dark mode toggle"/i });
+
+    const box = screen.getByRole("searchbox", { name: /search feedback/i });
+    await user.type(box, "export");
+
+    expect(listedTitles()).toEqual(["Export board to CSV"]);
+  });
+
+  it("matches keywords in the description too, case-insensitively", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("button", { name: /view details for "Dark mode toggle"/i });
+
+    // "dark" hits the title of item a AND the description of item c — and an
+    // upper-case query still matches, proving the search is case-insensitive.
+    await user.type(screen.getByRole("searchbox", { name: /search feedback/i }), "DARK");
+
+    expect(listedTitles()).toEqual(["Dark mode toggle", "Login screen crash"]);
+  });
+
+  it("composes the search with the type filter (search AND type)", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("button", { name: /view details for "Dark mode toggle"/i });
+
+    await user.type(screen.getByRole("searchbox", { name: /search feedback/i }), "dark");
+    // Both a (FEATURE) and c (BUG) match "dark"; restricting to Features drops
+    // the bug, leaving only the feature request.
+    await user.selectOptions(screen.getByLabelText("Filter by type"), "FEATURE");
+
+    expect(listedTitles()).toEqual(["Dark mode toggle"]);
+  });
+
+  it("clearly indicates when no matches are found, naming the query", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("button", { name: /view details for "Dark mode toggle"/i });
+
+    await user.type(screen.getByRole("searchbox", { name: /search feedback/i }), "zzz-nope");
+
+    // No items remain listed…
+    expect(listedTitles()).toEqual([]);
+    // …and the empty state names what was searched for.
+    const emptyMsg = screen.getByText(/no feedback matching/i);
+    expect(emptyMsg).toHaveTextContent(/zzz-nope/);
+  });
+});
