@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.176.0",
+    date: "2026-07-11",
+    title: "Export your project items to CSV",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can now export project items to a clean, spreadsheet-ready CSV built on one common Cosmos schema — the same columns (Kind, Title, Type, Status, Owner, Project, dates, and more) describe issues, OKR objectives, milestones, and sprints alike, with a Kind column telling the rows apart. From the Issues view, \"Export CSV\" downloads the issues you're currently filtered to, and the new \"Export all\" downloads every issue, objective, milestone, and sprint you can see in a single file. Exports are scoped to the projects you have access to, handle empty results (you still get a valid header row) and very large item counts without truncating.",
+      },
+    ],
+  },
+  {
     version: "2.175.0",
     date: "2026-07-11",
     title: "Manage project tabs right where you see them",

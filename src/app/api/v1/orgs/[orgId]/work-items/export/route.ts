@@ -9,7 +9,7 @@ import {
   parseSearchParams,
   runWorkItemQuery,
 } from "@/lib/work-items/query";
-import { toCSV } from "@/lib/export/csv";
+import { issueToCosmosItem, serializeCosmosCsv } from "@/lib/export/cosmos-schema";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -20,15 +20,15 @@ const csvHeaders = (slug: string) => ({
     .slice(0, 10)}.csv"`,
 });
 
-const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
-
 /**
  * GET — export the actor's readable work items as a CSV download. Mirrors the
  * Issues view's RBAC-scoped search (same `?filter` params → "export what you
- * see"), then projects each row onto a clean, human-readable schema (resolved
- * type / project / assignee / parent names, not raw ids). The same scoping as
- * `/work-items/search` guarantees a user can never export items from a project
- * they can't read.
+ * see"), then projects each row onto the common Cosmos item schema (see
+ * `@/lib/export/cosmos-schema`) with resolved type / project / assignee / parent
+ * names — the same schema the unified `/export/cosmos` endpoint uses, so an
+ * issue reads identically whether exported on its own or alongside OKRs,
+ * milestones, and sprints. The same scoping as `/work-items/search` guarantees a
+ * user can never export items from a project they can't read.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const allowedProjectIds = await getReadableProjectIds(ctx);
     if (allowedProjectIds.length === 0) {
-      return new Response("", { status: 200, headers: csvHeaders(org.slug) });
+      // Header-only CSV (still well-formed) rather than an empty body.
+      return new Response(serializeCosmosCsv([]), { status: 200, headers: csvHeaders(org.slug) });
     }
 
     const { filter, sort } = parseSearchParams(request.nextUrl.searchParams);
@@ -68,26 +69,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       pageSize: 50_000,
     });
 
-    // Clean, common schema across the export (one row per work item).
-    const rows = data.map((r) => ({
-      Ticket: r.ticketKey,
-      Title: r.title,
-      Type: r.type.name,
-      Status: r.columnKey,
-      Priority: r.priority,
-      Project: r.project.name,
-      Assignee: r.assignee?.displayName ?? "",
-      "Story Points": r.storyPoints ?? "",
-      Parent: r.parent?.ticketKey ?? "",
-      Tags: r.tags.join("; "),
-      "Start Date": day(r.startDate),
-      "Due Date": day(r.dueDate),
-      Completed: day(r.completedAt),
-      Created: day(r.createdAt),
-      Updated: day(r.updatedAt),
-    }));
+    // Project each work item onto the common Cosmos schema (one row per item).
+    const items = data.map((r) =>
+      issueToCosmosItem({
+        id: r.id,
+        ticketKey: r.ticketKey,
+        title: r.title,
+        typeName: r.type.name,
+        columnKey: r.columnKey,
+        priority: r.priority,
+        assigneeName: r.assignee?.displayName ?? null,
+        projectName: r.project.name,
+        parentKey: r.parent?.ticketKey ?? null,
+        storyPoints: r.storyPoints,
+        tags: r.tags,
+        startDate: r.startDate,
+        dueDate: r.dueDate,
+        completedAt: r.completedAt,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }),
+    );
 
-    return new Response(toCSV(rows), { status: 200, headers: csvHeaders(org.slug) });
+    return new Response(serializeCosmosCsv(items), { status: 200, headers: csvHeaders(org.slug) });
   } catch (e) {
     return handleApiError(e);
   }

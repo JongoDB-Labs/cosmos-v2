@@ -849,6 +849,16 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         >
           <Download className="h-4 w-4" /> Export CSV
         </a>
+        {/* Unified export: issues + OKRs + milestones + sprints in one CSV, all
+            projected onto the common Cosmos item schema (Kind column separates
+            the types). Scoped to projects you can read. */}
+        <a
+          href={`/api/v1/orgs/${orgId}/export/cosmos`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+          title="Download all project items — issues, OKRs, milestones, and sprints — as one CSV in the common Cosmos schema"
+        >
+          <Download className="h-4 w-4" /> Export all
+        </a>
       </div>
       <FilterBar
         filters={filters}
