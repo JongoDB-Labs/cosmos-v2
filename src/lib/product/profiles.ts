@@ -22,7 +22,7 @@ export type ProductProfile = {
   agentName: string;
   /** Spoken wake phrase, lowercase, matched by the recognizer. */
   wakePhrase: string;
-  /** Display form of the wake phrase, e.g. "Hey COSMOS". */
+  /** Display form of the wake phrase, e.g. "Hey Cosmo". */
   wakeWord: string;
   /** Default TenantClass for orgs created on this product. */
   defaultTenantClass: "GOV" | "COMMERCIAL";
@@ -48,8 +48,10 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     themeColor: "#0B0E1A",
     backgroundColor: "#0B0E1A",
     agentName: "COSMOS Agent",
-    wakePhrase: "hey cosmos",
-    wakeWord: "Hey COSMOS",
+    // "hey cosmo" is a substring of the old "hey cosmos", so legacy utterances
+    // still wake it — muscle memory keeps working.
+    wakePhrase: "hey cosmo",
+    wakeWord: "Hey Cosmo",
     defaultTenantClass: "GOV",
     signingMode: "kms",
     defaultEnabledModules: null,
