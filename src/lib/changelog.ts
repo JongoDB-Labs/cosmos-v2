@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.190.1",
+    date: "2026-07-11",
+    title: "Foreman gets a hard hat",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman traded the robot icon for a hard hat — a flat, modern glyph on its ticket-comment avatar and across the console, sidebar, dashboard card, and settings.",
+      },
+    ],
+  },
+  {
     version: "2.190.0",
     date: "2026-07-11",
     title: "“Assigned to me” on the backlog",

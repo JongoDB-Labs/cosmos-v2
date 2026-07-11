@@ -1,13 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Foreman — the autonomous delivery agent's avatar: hard hat on amber. -->
-  <circle cx="32" cy="32" r="32" fill="#f59e0b"/>
-  <!-- hard hat shell -->
-  <path d="M14 36c0-10 8-18 18-18s18 8 18 18v2H14v-2z" fill="#fff"/>
-  <!-- hat center rib -->
-  <rect x="29" y="14" width="6" height="10" rx="3" fill="#fff"/>
-  <!-- brim -->
-  <rect x="10" y="38" width="44" height="5" rx="2.5" fill="#fff"/>
-  <!-- eyes -->
-  <circle cx="24" cy="50" r="3" fill="#78350f"/>
-  <circle cx="40" cy="50" r="3" fill="#78350f"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Foreman">
+  <title>Foreman</title>
+  <!-- Foreman: a plain hard hat — modern flat glyph, no character. Fixed colors
+       (no CSS vars) so it renders identically via <img src> on any theme. -->
+  <circle cx="64" cy="64" r="64" fill="#242a33"/>
+  <path fill="#f6b90d" d="M52 30.5c1-4.3 23-4.3 24 0l1.6 7.4C90.4 42.6 100 54.6 100 69v6H28v-6c0-14.4 9.6-26.4 22.4-31.1Z"/>
+  <path fill="#d99a04" d="M56.6 27.4h14.8v35.2H56.6zM25 81h78c3.6 0 6.5 2.9 6.5 6.5S106.6 94 103 94H25c-3.6 0-6.5-2.9-6.5-6.5S21.4 81 25 81Z"/>
 </svg>
