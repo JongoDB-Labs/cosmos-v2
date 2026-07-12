@@ -14,28 +14,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { TeamRoleDialog } from "./team-role-dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { Shield, UserMinus, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
-
-// Every non-OWNER OrgRole is assignable here (ownership transfer is a separate
-// flow). Keep in sync with the OrgRole enum so a member's current role — e.g.
-// GUEST — is always representable in the dialog.
-const ASSIGNABLE_ROLES: Record<string, string> = {
-  ADMIN: "Admin",
-  BILLING_ADMIN: "Billing Admin",
-  MEMBER: "Member",
-  VIEWER: "Viewer",
-  GUEST: "Guest",
-};
 
 type Row = {
   kind: "member" | "invite";
@@ -72,19 +55,17 @@ const ROLE_VARIANT = {
 
 export function TeamTable({
   rows,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- threaded through for the role-assignment dialog rewrite (Task 3); not consumed by this cell render yet.
   workRoleOptions,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- see above.
   grantableRoleIds,
 }: TeamTableProps) {
   const { can, orgId } = usePermissions();
   const router = useRouter();
-  const [roleTarget, setRoleTarget] = useState<{
+  const [roleDialogTarget, setRoleDialogTarget] = useState<{
     id: string;
     name: string;
     role: string;
+    workRoleIds: string[];
   } | null>(null);
-  const [savingRole, setSavingRole] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<{
     action: "remove" | "revoke";
     id: string;
@@ -92,25 +73,16 @@ export function TeamTable({
   } | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
 
-  const handleChangeRole = async () => {
-    if (!roleTarget) return;
-    setSavingRole(true);
-    try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/members/${roleTarget.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: roleTarget.role }),
-      });
-      if (!res.ok) throw new Error(`Failed to change role (HTTP ${res.status})`);
-      setRoleTarget(null);
-      router.refresh();
-    } catch (err) {
-      console.error("Failed to change role", err);
-      notifyError(err, "Couldn't change the member's role.");
-    } finally {
-      setSavingRole(false);
-    }
-  };
+  // Open the unified Manage-roles dialog for a member row, seeding it with the
+  // member's current tier + assigned work-role ids (mapped off the row's chips).
+  const openRoleDialog = useCallback((r: Row) => {
+    setRoleDialogTarget({
+      id: r.id,
+      name: r.name,
+      role: r.role,
+      workRoleIds: r.workRoles.map((w) => w.id),
+    });
+  }, []);
 
   const handleRemoveMember = useCallback(
     async (memberId: string) => {
@@ -200,22 +172,23 @@ export function TeamTable({
       }
 
       const isOwner = r.role === "OWNER";
-      const canManage = canManageMembers && !isOwner;
       return [
         {
-          items: canManage
+          // "Manage roles…" opens the unified tier + work-role dialog. Available
+          // even for an OWNER (their tier is static there, but their work-roles
+          // are still manageable) — only the destructive "Remove" excludes owners.
+          items: canManageMembers
             ? [
                 {
-                  label: "Change role",
+                  label: "Manage roles…",
                   icon: Shield,
-                  onClick: () =>
-                    setRoleTarget({ id: r.id, name: r.name, role: r.role }),
+                  onClick: () => openRoleDialog(r),
                 },
               ]
             : [],
         },
         {
-          items: canManage
+          items: canManageMembers && !isOwner
             ? [
                 {
                   label: "Remove from org",
@@ -229,7 +202,7 @@ export function TeamTable({
         },
       ];
     },
-    [can, handleResendInvite],
+    [can, handleResendInvite, openRoleDialog],
   );
 
   const runConfirm = async () => {
@@ -279,7 +252,7 @@ export function TeamTable({
         const { workRoles } = row.original;
         const shown = workRoles.slice(0, 2);
         const overflow = workRoles.length - shown.length;
-        return (
+        const chips = (
           <div className="flex flex-wrap items-center gap-1">
             <Badge variant={variant}>{row.original.role}</Badge>
             {shown.map((wr) => (
@@ -293,6 +266,19 @@ export function TeamTable({
               </Badge>
             )}
           </div>
+        );
+        // The cell doubles as a shortcut into the Manage-roles dialog for anyone
+        // who can manage members (mirrors the ActionMenu entry).
+        if (!can(Permission.ORG_MANAGE_MEMBERS)) return chips;
+        return (
+          <button
+            type="button"
+            className="cursor-pointer rounded-sm text-left transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+            onClick={() => openRoleDialog(row.original)}
+            aria-label={`Manage roles for ${row.original.name}`}
+          >
+            {chips}
+          </button>
         );
       },
     },
@@ -330,48 +316,15 @@ export function TeamTable({
     <>
       <DataTable columns={columns} data={rows} rowActions={rowActions} />
 
-      <Dialog
-        open={roleTarget !== null}
-        onOpenChange={(open) => !open && setRoleTarget(null)}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Change role{roleTarget ? ` — ${roleTarget.name}` : ""}</DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <Select
-              items={ASSIGNABLE_ROLES}
-              value={roleTarget?.role ?? "MEMBER"}
-              onValueChange={(v) =>
-                setRoleTarget((prev) => (prev && v ? { ...prev, role: v } : prev))
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(ASSIGNABLE_ROLES).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setRoleTarget(null)}
-              disabled={savingRole}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleChangeRole} disabled={savingRole}>
-              {savingRole ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {roleDialogTarget && (
+        <TeamRoleDialog
+          orgId={orgId}
+          member={roleDialogTarget}
+          workRoleOptions={workRoleOptions}
+          grantableRoleIds={grantableRoleIds}
+          onClose={() => setRoleDialogTarget(null)}
+        />
+      )}
 
       <Dialog
         open={confirmTarget !== null}
