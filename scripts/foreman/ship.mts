@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isPrAlreadyExistsError, resolveExistingPr } from "@/lib/foreman/open-pr";
 
 const exec = promisify(execFile);
 const REPO = "/home/defcon/cosmos-v2";
@@ -69,14 +70,33 @@ export async function pushBranch(branch: string): Promise<void> {
 
 /** Open a PR for the built branch; returns its URL. `draft=true` leaves it for a
  *  human to review + merge (the risky path); `draft=false` is a PR Foreman will
- *  immediately auto-merge (the safe/delivery path) — so EVERY change gets a PR trail. */
+ *  immediately auto-merge (the safe/delivery path) — so EVERY change gets a PR trail.
+ *
+ *  Idempotent across rebuilds: `auto/<KEY>` is reused attempt-to-attempt, so a
+ *  ticket whose prior draft PR is still OPEN makes `gh pr create` fail with GitHub's
+ *  "a pull request … already exists". That's not fatal — the `pushBranch` force-push
+ *  already updated that same PR's head — so we resolve and reuse the existing PR
+ *  rather than wedge the park path. Any OTHER create failure still throws. */
 export async function openPr(branch: string, title: string, body: string, draft: boolean): Promise<string> {
   const args = ["pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", body];
   if (draft) args.push("--draft");
-  const { stdout } = await exec("gh", args, { cwd: REPO });
-  // gh prints the created PR's URL on its own line.
-  const url = stdout.trim().split(/\s+/).filter((t) => t.startsWith("https://")).pop();
-  return url ?? stdout.trim();
+  try {
+    const { stdout } = await exec("gh", args, { cwd: REPO });
+    // gh prints the created PR's URL on its own line.
+    const url = stdout.trim().split(/\s+/).filter((t) => t.startsWith("https://")).pop();
+    return url ?? stdout.trim();
+  } catch (e) {
+    if (!isPrAlreadyExistsError(e)) throw e;
+    const { stdout } = await exec("gh", ["pr", "view", branch, "--json", "url,state"], { cwd: REPO });
+    const existing = resolveExistingPr(stdout);
+    if (existing.kind === "none") throw e; // couldn't resolve the PR — surface the original create error
+    if (existing.kind === "reopen") {
+      // CLOSED-without-merge: revive the same PR/branch. Best-effort — if reopen itself
+      // fails we still return the URL so the park path completes without an error event.
+      await exec("gh", ["pr", "reopen", branch], { cwd: REPO }).catch(() => undefined);
+    }
+    return existing.url;
+  }
 }
 
 /** Squash-merge an open (non-draft) PR into main and hard-sync the local checkout
