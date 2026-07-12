@@ -49,7 +49,7 @@ ${diff.text}
    - Does the change actually satisfy the ticket + criteria, or merely appear to?
    - Does the added/updated test REALLY assert the fixed behavior (would it fail on the old code)?
    - Correctness at the edges: null/empty states, timezone/locale, pagination, concurrent updates.
-   - Multi-tenancy + security: org scoping preserved, no cross-tenant data paths, no secrets, OrgMember.permissions (BigInt) never serialized, no auth/permission widening.
+   - Multi-tenancy + security: org scoping preserved, no cross-tenant data paths, no secrets, OrgMember.permissions (decimal-string mask) never serialized, no auth/permission widening.
    - Regressions: does it change behavior other surfaces rely on? Removed/renamed exports still referenced?
    - Conventions: matches the repo's patterns (org-scoped query keys, base-ui — no asChild, explicit Prisma selects).
 4. Scope: flag ONLY problems that justify blocking this ship. Style nits and pre-existing issues are not blockers.

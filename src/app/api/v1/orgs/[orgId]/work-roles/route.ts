@@ -7,10 +7,12 @@ import {
   Permission,
   permissionMaskFromKeys,
   isPermissionSubset,
+  maskToDb,
 } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleCreateSchema } from "@/lib/rbac/work-role";
+import { BUILTIN_KEY_PREFIX } from "@/lib/rbac/builtin-work-roles";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -46,7 +48,38 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
-    const data = workRoleCreateSchema.parse(await request.json());
+    const body: unknown = await request.json();
+
+    // Reserved key prefix: checked on the RAW body, not `data.key` post-parse.
+    // The key-format regex below (lowercase letters/digits/underscores only)
+    // already rejects any dotted key, so a `builtin.*` key never survives
+    // workRoleCreateSchema.parse() — gating on the parsed value would make
+    // this branch unreachable and surface a generic validation error instead
+    // of this specific, UI-facing one.
+    const rawKey = (body as { key?: unknown } | null)?.key;
+    if (typeof rawKey === "string" && rawKey.startsWith(BUILTIN_KEY_PREFIX)) {
+      return new Response(
+        JSON.stringify({ error: "role key prefix is reserved" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const data = workRoleCreateSchema.parse(body);
+
+    // Name uniqueness (case-insensitive) is app-level — the DB only enforces
+    // uniqueness on { orgId, key }. Checked before the escalation guard below
+    // so a name clash always reports 409, never masked by a 403.
+    const nameClash = await prisma.workRole.findFirst({
+      where: { orgId, name: { equals: data.name, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (nameClash) {
+      return new Response(
+        JSON.stringify({ error: "a role with this name already exists" }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     const mask = permissionMaskFromKeys(data.grants);
 
     // Escalation guard: you can't mint a role granting permissions you don't
@@ -70,7 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           key: data.key,
           name: data.name,
           description: data.description ?? null,
-          grants: mask,
+          grants: maskToDb(mask),
           policies: (data.policies ?? []) as Prisma.InputJsonValue,
         },
         include: { _count: { select: { members: true } } },

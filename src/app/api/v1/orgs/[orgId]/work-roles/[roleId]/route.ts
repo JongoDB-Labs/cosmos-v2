@@ -6,6 +6,7 @@ import {
   Permission,
   permissionMaskFromKeys,
   isPermissionSubset,
+  maskToDb,
 } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -50,18 +51,35 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.workRole.findFirst({ where: { id: roleId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    // Built-in (platform-managed) roles are immutable, matching the convention
-    // used for built-in work-item types / themes / templates.
+    // Built-in (platform-managed) roles are read-only end to end (matching the
+    // convention used for built-in work-item types / themes / templates) —
+    // same error contract as DELETE below; the settings UI matches on it.
     if (existing.isBuiltIn) {
       return new Response(
-        JSON.stringify({ error: "Built-in roles can't be modified" }),
+        JSON.stringify({ error: "built-in roles are read-only" }),
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
 
     const data = workRoleUpdateSchema.parse(await request.json());
 
-    let grantsUpdate: { grants?: bigint } = {};
+    if (data.name !== undefined) {
+      // Same case-insensitive uniqueness POST enforces on create — a rename
+      // must not become a bypass. Excludes the role's own row so re-saving
+      // your own name (or just its casing) isn't a false clash.
+      const nameClash = await prisma.workRole.findFirst({
+        where: { orgId, name: { equals: data.name, mode: "insensitive" }, id: { not: roleId } },
+        select: { id: true },
+      });
+      if (nameClash) {
+        return new Response(
+          JSON.stringify({ error: "a role with this name already exists" }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+    let grantsUpdate: { grants?: string } = {};
     if (data.grants !== undefined) {
       const mask = permissionMaskFromKeys(data.grants);
       // Ceiling is basePermissions (excludes the actor's own work-role grants)
@@ -74,7 +92,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           { status: 403, headers: { "Content-Type": "application/json" } },
         );
       }
-      grantsUpdate = { grants: mask };
+      grantsUpdate = { grants: maskToDb(mask) };
     }
 
     await prisma.workRole.update({
@@ -119,10 +137,11 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.workRole.findFirst({ where: { id: roleId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    // Built-in (platform-managed) roles can't be deleted.
+    // Built-in (platform-managed) roles are read-only end to end — same error
+    // contract as PUT above; the settings UI matches on it.
     if (existing.isBuiltIn) {
       return new Response(
-        JSON.stringify({ error: "Built-in roles can't be deleted" }),
+        JSON.stringify({ error: "built-in roles are read-only" }),
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }

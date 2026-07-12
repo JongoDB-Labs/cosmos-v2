@@ -132,6 +132,26 @@ export const Permission = {
 
 export type PermissionKey = keyof typeof Permission;
 
+// ─── DB boundary ────────────────────────────────────────────────────────────
+// Permission masks are stored as decimal STRINGS in TEXT columns
+// (OrgMember.permissions, WorkRole.grants) because the bitfield above assigns
+// bits >= 63 (CRM_CREATE onward), which overflow Postgres BIGINT (63 usable
+// bits). ALL in-memory math stays on `bigint`; convert only when crossing the
+// DB boundary — read with maskFromDb(), write with maskToDb().
+
+/** Parse a mask read from the DB (a decimal string) back into a bigint. Tolerant
+ *  of null/undefined/"" (→ 0n) and of a raw bigint passthrough, so transitional
+ *  callers and test mocks that still hand over a bigint keep working. */
+export function maskFromDb(v: string | bigint | null | undefined): bigint {
+  if (v === null || v === undefined || v === "") return 0n;
+  return BigInt(v);
+}
+
+/** Serialize an in-memory mask to the decimal-string form the TEXT column holds. */
+export function maskToDb(m: bigint): string {
+  return m.toString();
+}
+
 function combine(...perms: bigint[]): bigint {
   return perms.reduce((acc, p) => acc | p, 0n);
 }

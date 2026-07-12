@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { permissionNames, Permission } from "./permissions";
+import { permissionNames, maskFromDb, Permission } from "./permissions";
 
 type WorkRoleRow = {
   id: string;
@@ -7,7 +7,9 @@ type WorkRoleRow = {
   key: string;
   name: string;
   description: string | null;
-  grants: bigint;
+  // Decimal-string mask from the TEXT column (see permissions.ts). maskFromDb
+  // also tolerates a raw bigint, so transitional callers/test mocks still work.
+  grants: string | bigint;
   policies: unknown;
   isBuiltIn: boolean;
   createdAt: Date;
@@ -27,7 +29,7 @@ export function toWorkRoleDto(r: WorkRoleRow) {
     key: r.key,
     name: r.name,
     description: r.description,
-    grants: permissionNames(r.grants),
+    grants: permissionNames(maskFromDb(r.grants)),
     policies: Array.isArray(r.policies) ? r.policies : [],
     isBuiltIn: r.isBuiltIn,
     memberCount: r._count?.members ?? 0,

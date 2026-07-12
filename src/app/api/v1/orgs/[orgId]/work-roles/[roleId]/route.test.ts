@@ -19,7 +19,7 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
-    workRole: { findFirst: vi.fn(), update: vi.fn() },
+    workRole: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
   },
   logAudit: vi.fn(),
 }));
@@ -28,7 +28,7 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 
-import { PUT } from "./route";
+import { PUT, DELETE } from "./route";
 
 // --- ctx + fixture helpers ---------------------------------------------------
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
@@ -50,11 +50,22 @@ function ctxWith(opts: { basePermissions: bigint; orgRole?: OrgRole }): AuthCont
   };
 }
 
-function putRequest(grants: PermissionKey[]): NextRequest {
+function putRequest(
+  grants: PermissionKey[] | undefined,
+  overrides: Record<string, unknown> = {},
+): NextRequest {
+  const body: Record<string, unknown> = { ...overrides };
+  if (grants !== undefined) body.grants = grants;
   return new NextRequest(`http://localhost/api/v1/orgs/o/work-roles/r`, {
     method: "PUT",
-    body: JSON.stringify({ grants }),
+    body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function deleteRequest(): NextRequest {
+  return new NextRequest(`http://localhost/api/v1/orgs/o/work-roles/r`, {
+    method: "DELETE",
   });
 }
 
@@ -82,6 +93,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   prisma.workRole.update.mockResolvedValue({ id: ROLE_ID });
+  prisma.workRole.delete.mockResolvedValue({ id: ROLE_ID });
   logAudit.mockResolvedValue(undefined);
 });
 
@@ -124,6 +136,82 @@ describe("PUT /work-roles/[roleId] — authoring ceiling + built-in immutability
     const res = await PUT(putRequest(["AUDIT_LOG_READ"]), { params });
 
     expect(res.status).toBe(403);
+    expect(prisma.workRole.update).not.toHaveBeenCalled();
+  });
+});
+
+// Guardrails around role EDITING: built-ins are read-only end to end (PUT and
+// DELETE, with the exact error body the settings UI matches on), and renaming
+// a custom role can't collide with another role's name case-insensitively —
+// the same 409 contract POST enforces on create.
+describe("PUT/DELETE /work-roles/[roleId] — built-in read-only contract + rename uniqueness", () => {
+  const BUILTIN_ANALYST_ROLE = {
+    id: ROLE_ID,
+    orgId: ORG_ID,
+    key: "builtin.analyst",
+    name: "Analyst",
+    description: "See everything, change nothing.",
+    grants: 0n,
+    policies: [],
+    isBuiltIn: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    _count: { members: 0 },
+  };
+
+  it("PUT renaming a seeded built-in (builtin.analyst) → 403 read-only, no update", async () => {
+    getAuthContext.mockResolvedValue(
+      ctxWith({ basePermissions: bits("ORG_READ", "AUDIT_LOG_READ") }),
+    );
+    prisma.workRole.findFirst.mockResolvedValue(BUILTIN_ANALYST_ROLE);
+
+    const res = await PUT(putRequest(undefined, { name: "Analyst But Evil" }), { params });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "built-in roles are read-only" });
+    expect(prisma.workRole.update).not.toHaveBeenCalled();
+  });
+
+  it("DELETE on a seeded built-in (builtin.analyst) → 403 read-only, no delete", async () => {
+    getAuthContext.mockResolvedValue(
+      ctxWith({ basePermissions: bits("ORG_READ", "AUDIT_LOG_READ") }),
+    );
+    prisma.workRole.findFirst.mockResolvedValue(BUILTIN_ANALYST_ROLE);
+
+    const res = await DELETE(deleteRequest(), { params });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "built-in roles are read-only" });
+    expect(prisma.workRole.delete).not.toHaveBeenCalled();
+  });
+
+  it("PUT renaming a custom role to collide case-insensitively with another role's name → 409, no update", async () => {
+    getAuthContext.mockResolvedValue(
+      ctxWith({ basePermissions: bits("ORG_READ", "AUDIT_LOG_READ") }),
+    );
+    prisma.workRole.findFirst
+      // 1st call: fetch the role being edited (non-built-in, passes the guard).
+      .mockResolvedValueOnce({
+        id: ROLE_ID,
+        orgId: ORG_ID,
+        key: "auditor",
+        name: "Auditor",
+        description: null,
+        grants: 0n,
+        policies: [],
+        isBuiltIn: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { members: 0 },
+      })
+      // 2nd call: the rename-uniqueness check finds another role already
+      // named "Casing Test".
+      .mockResolvedValueOnce({ id: "99999999-9999-9999-9999-999999999999" });
+
+    const res = await PUT(putRequest(undefined, { name: "casing test" }), { params });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "a role with this name already exists" });
     expect(prisma.workRole.update).not.toHaveBeenCalled();
   });
 });

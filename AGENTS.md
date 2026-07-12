@@ -61,7 +61,7 @@ Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — sam
 
 ## Server-side response patterns
 
-- **`OrgMember.permissions` is BigInt** — including it in any Prisma `include`/`select` and returning the result via `success()` will break `JSON.stringify`. Always project members with an explicit `select` that excludes `permissions`.
+- **Permission masks are decimal-string `TEXT`, not `BigInt`.** `OrgMember.permissions` and `WorkRole.grants` store a permission bitmask as a decimal string (the bitfield in `src/lib/rbac/permissions.ts` assigns bits ≥ 63, which overflow Postgres `BIGINT`). Keep ALL bit-math on `bigint` and cross the DB boundary with `maskFromDb()` (read) / `maskToDb()` (write) from `@/lib/rbac/permissions` — never `BigInt(row.permissions)` or `mask` written raw. The `JSON.stringify`-throws-on-BigInt crash class is gone, but these are still permission masks: don't `select`/`include` them into a `success()` payload carelessly. Project members with an explicit `select` that excludes `permissions`, and expose `WorkRole.grants` only as permission KEYS via `toWorkRoleDto` — never the raw value.
 - **Behind nginx + Cloudflare Tunnel** — `request.url` resolves to the bind hostname (`localhost:3000`), not the public URL. For any redirect, use `getPublicOrigin(request)` from `@/lib/auth/public-url` which honors `X-Forwarded-Host` + `X-Forwarded-Proto`.
 
 ## base-ui primitives don't support `asChild`

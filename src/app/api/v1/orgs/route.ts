@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Plan } from "@prisma/client";
 import { provisionComplianceBaseline } from "@/lib/compliance/provision";
 import { provisionEntitlements } from "@/lib/entitlements";
+import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { isInternalAdmin } from "@/lib/internal/access";
 
@@ -115,6 +116,9 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // Best-effort: preset roles failing must not fail org creation.
+    await seedBuiltinWorkRoles(org.id).catch((e) => console.error("builtin role seed failed:", e));
 
     await logAudit({
       orgId: org.id,
