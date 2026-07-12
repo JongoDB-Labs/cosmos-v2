@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.195.0",
+    date: "2026-07-11",
+    title: "Roles you can start with",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every org now ships with eight ready-made work roles — Project Manager, Contributor, Reviewer, Operations, Finance, Analyst, Client, and Compliance — so you can assign sensible permissions from day one instead of building roles from scratch. The Roles & Access page now shows the exact permissions behind every role, including the base org roles, and any role can be cloned into a new custom one to fine-tune.",
+      },
+    ],
+  },
+  {
     version: "2.193.0",
     date: "2026-07-11",
     title: "Bigger profile pictures, clearer guidance",
