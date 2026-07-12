@@ -4,7 +4,12 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { PageShell } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import {
+  hasPermission,
+  isPermissionSubset,
+  maskFromDb,
+  Permission,
+} from "@/lib/rbac/permissions";
 import { TeamTable } from "./team-table";
 import { InviteMemberButton } from "./invite-member-button";
 
@@ -26,7 +31,7 @@ async function TeamPageContent({ params }: PageParams) {
   const org = await prisma.organization.findUnique({ where: { id: ctx.orgId } });
   if (!org) notFound();
 
-  const [members, invitations] = await Promise.all([
+  const [members, invitations, workRoles, memberWorkRoles] = await Promise.all([
     prisma.orgMember.findMany({
       where: { orgId: ctx.orgId },
       include: { user: true },
@@ -35,7 +40,25 @@ async function TeamPageContent({ params }: PageParams) {
     prisma.invitation.findMany({
       where: { orgId: ctx.orgId, expiresAt: { gt: new Date() } },
     }),
+    // Grants are used ONLY for the server-side grantableRoleIds computation
+    // below — stripped before workRoleOptions goes to the client.
+    prisma.workRole.findMany({
+      where: { orgId: ctx.orgId },
+      select: { id: true, name: true, isBuiltIn: true, grants: true },
+    }),
+    prisma.orgMemberWorkRole.findMany({
+      where: { orgMember: { orgId: ctx.orgId } },
+      select: { orgMemberId: true, workRole: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+
+  const workRolesByMember = new Map<string, { id: string; name: string }[]>();
+  for (const assignment of memberWorkRoles) {
+    const list = workRolesByMember.get(assignment.orgMemberId) ?? [];
+    list.push(assignment.workRole);
+    workRolesByMember.set(assignment.orgMemberId, list);
+  }
 
   const rows = [
     ...members.map((m) => ({
@@ -46,6 +69,7 @@ async function TeamPageContent({ params }: PageParams) {
       role: m.role,
       joined: m.joinedAt.toISOString(),
       avatarUrl: m.user.avatarUrl,
+      workRoles: workRolesByMember.get(m.id) ?? [],
     })),
     ...invitations.map((i) => ({
       kind: "invite" as const,
@@ -55,8 +79,23 @@ async function TeamPageContent({ params }: PageParams) {
       role: i.role,
       joined: i.createdAt.toISOString(),
       avatarUrl: null,
+      workRoles: [] as { id: string; name: string }[],
     })),
   ];
+
+  // Grant ceiling: an actor may only hand out a work-role whose grants are a
+  // subset of their OWN basePermissions (role base | explicit override,
+  // EXCLUDING work-role grants) — never their widened `permissions` — so a
+  // self-assigned grant can't be laundered into assigning new roles. Mirrors
+  // the same guard used by the work-roles API routes.
+  const grantableRoleIds = workRoles
+    .filter((r) => isPermissionSubset(maskFromDb(r.grants), ctx.basePermissions))
+    .map((r) => r.id);
+  const workRoleOptions = workRoles.map(({ id, name, isBuiltIn }) => ({
+    id,
+    name,
+    isBuiltIn,
+  }));
 
   const canInvite = hasPermission(ctx.permissions, Permission.ORG_MANAGE_MEMBERS);
 
@@ -66,7 +105,11 @@ async function TeamPageContent({ params }: PageParams) {
       description={`${members.length} members across ${org.name}`}
       actions={canInvite ? <InviteMemberButton orgId={ctx.orgId} /> : null}
     >
-      <TeamTable rows={rows} />
+      <TeamTable
+        rows={rows}
+        workRoleOptions={workRoleOptions}
+        grantableRoleIds={grantableRoleIds}
+      />
     </PageShell>
   );
 }
