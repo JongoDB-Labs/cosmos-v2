@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll } from "vitest";
 import { prisma } from "@/lib/db/client";
 import { seedBuiltinWorkRoles } from "./builtin-work-roles-seed";
 import { BUILTIN_WORK_ROLES } from "./builtin-work-roles";
-import { permissionMaskFromKeys } from "./permissions";
+import { permissionMaskFromKeys, maskToDb } from "./permissions";
 
 let orgId: string;
 beforeAll(async () => {
@@ -19,10 +19,11 @@ describe("seedBuiltinWorkRoles", () => {
   });
   it("re-syncs drifted names/grants from the catalog", async () => {
     const pm = BUILTIN_WORK_ROLES[0];
-    await prisma.workRole.update({ where: { orgId_key: { orgId, key: pm.key } }, data: { name: "Tampered", grants: 0n } });
+    await prisma.workRole.update({ where: { orgId_key: { orgId, key: pm.key } }, data: { name: "Tampered", grants: maskToDb(0n) } });
     await seedBuiltinWorkRoles(orgId);
     const row = await prisma.workRole.findUniqueOrThrow({ where: { orgId_key: { orgId, key: pm.key } } });
     expect(row.name).toBe(pm.name);
-    expect(row.grants).toBe(permissionMaskFromKeys(pm.permissions));
+    // grants is now decimal-string TEXT (bits >= 63 overflow BIGINT).
+    expect(row.grants).toBe(maskToDb(permissionMaskFromKeys(pm.permissions)));
   });
 });

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { resolvePermissions } from "./check";
+import { maskFromDb } from "./permissions";
 import { coerceRules, type AbacRule } from "@/lib/abac/engine";
 import type { OrgRole } from "@prisma/client";
 
@@ -50,11 +51,11 @@ export async function loadEffectivePermissions(
   let grants = 0n;
   const workRolePolicies: AbacRule[] = [];
   for (const assignment of member.workRoles) {
-    grants |= assignment.workRole.grants ?? 0n;
+    grants |= maskFromDb(assignment.workRole.grants);
     workRolePolicies.push(...coerceRules(assignment.workRole.policies));
   }
 
-  const basePermissions = resolvePermissions(member.role, member.permissions);
+  const basePermissions = resolvePermissions(member.role, maskFromDb(member.permissions));
   return {
     orgRole: member.role,
     permissions: basePermissions | grants,

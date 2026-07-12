@@ -7,6 +7,7 @@ import {
   Permission,
   permissionMaskFromKeys,
   isPermissionSubset,
+  maskToDb,
 } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           key: data.key,
           name: data.name,
           description: data.description ?? null,
-          grants: mask,
+          grants: maskToDb(mask),
           policies: (data.policies ?? []) as Prisma.InputJsonValue,
         },
         include: { _count: { select: { members: true } } },
