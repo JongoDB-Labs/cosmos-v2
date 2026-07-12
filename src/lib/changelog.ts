@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.198.0",
+    date: "2026-07-12",
+    title: "Talk to Foreman on its tickets",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Comment “approve” (or “lgtm”, “ship it”) on a parked Foreman ticket to merge its pull request right away — deploy follows on the next pass, and no @Foreman mention is needed since a comment on a parked ticket is already talking to it. Any other comment resumes the exact same working session against that PR instead of starting over, and “rebuild” discards the attempt for a fresh one — the Foreman console's review cards now have a one-click “Approve” button to match.",
+      },
+    ],
+  },
+  {
     version: "2.197.0",
     date: "2026-07-12",
     title: "Assign every role from the Team page",
