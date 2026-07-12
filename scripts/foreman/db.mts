@@ -9,7 +9,7 @@ import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
-import { PARKED_EVENT_KINDS } from "@/lib/foreman/observe";
+import { PARKED_EVENT_KINDS, pickParkEvent } from "@/lib/foreman/observe";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
@@ -511,13 +511,22 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
 
   // Every review-column item in the pool, batched with (one query, no N+1) each
-  // one's LATEST parked/gated event — the "is this ticket parked, and with what
+  // one's ONE park event — the "is this ticket parked, and with what
   // session/branch/PR" lookup both the review-column token-mention path below
-  // and the bare-comment ingestion path need. Reuses the batched
-  // latest-event-per-item shape from src/lib/foreman/status-read.ts, simplified:
-  // that read prefers the newest REASONED event (so a later blank event can't
-  // blank out a reason); this one just wants the newest event, full stop —
-  // `events` is ts-desc, so the first hit per item is already that.
+  // and the bare-comment ingestion path need. MUST select through the SAME
+  // observe.pickParkEvent helper the console's Approve gate
+  // (src/lib/foreman/status-read.ts) and the legacy prUrl backfill
+  // (backfill-park-prurls.mts) use — the newest event carrying a reason,
+  // falling back to the newest of any kind only when none is reasoned — so the
+  // daemon can never act on an event the human never saw. Concretely: a later
+  // reason-less `gated`/`ship-failed` (the daemon writes one on repeated
+  // failure, run.mts) must not blank the reason/prUrl an earlier reasoned
+  // `parked` recorded — taking the newest event full stop let exactly that
+  // happen, so handleApprove read a blank prUrl/sessionId off an event the
+  // console never displayed (a false "nothing built to merge" reply, and a
+  // resume that lost the session). `events` is ts-desc then id-desc, the same
+  // secondary order status-read.ts's query uses, so pickParkEvent sees an
+  // identically ordered history on both sides.
   const reviewItems = await prisma.workItem.findMany({
     where: { projectId: { in: pool.map((p) => p.projectId) }, columnKey: "review" },
     select: {
@@ -534,14 +543,21 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const parkEvents = reviewItems.length
     ? await prisma.foremanEvent.findMany({
         where: { workItemId: { in: reviewItems.map((r) => r.id) }, kind: { in: [...PARKED_EVENT_KINDS] } },
-        orderBy: { ts: "desc" },
-        select: { workItemId: true, data: true },
+        orderBy: [{ ts: "desc" }, { id: "desc" }],
+        select: { id: true, workItemId: true, kind: true, ts: true, data: true },
       })
     : [];
-  const parkedInfoByItem = new Map<string, { sessionId?: string; branch?: string; prUrl?: string }>();
+  const parkEventsByItem = new Map<string, typeof parkEvents>();
   for (const e of parkEvents) {
-    if (!e.workItemId || parkedInfoByItem.has(e.workItemId)) continue; // ts-desc: first hit per item wins
-    parkedInfoByItem.set(e.workItemId, parkedInfoFromEventData(e.data));
+    if (!e.workItemId) continue;
+    const arr = parkEventsByItem.get(e.workItemId);
+    if (arr) arr.push(e);
+    else parkEventsByItem.set(e.workItemId, [e]);
+  }
+  const parkedInfoByItem = new Map<string, { sessionId?: string; branch?: string; prUrl?: string }>();
+  for (const [itemId, evs] of parkEventsByItem) {
+    const ev = pickParkEvent(evs);
+    if (ev) parkedInfoByItem.set(itemId, parkedInfoFromEventData(ev.data));
   }
 
   // F1: the bot-reply half of the review-column watermark. Batched newest-bot-

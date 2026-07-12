@@ -634,4 +634,75 @@ describe("freshMentions — bare-comment ingestion on parked tickets", () => {
       await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
     }
   });
+
+  it("mixed-shape park history: parked.prUrl/sessionId come from the OLDER reasoned event, not a newer reason-less gated event", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+
+    const org = await prisma.organization.create({ data: { name: `mixed-park-test-${stamp}`, slug: `mixed-park-test-${stamp}` } });
+    const orgId = org.id;
+    const orgIds = [orgId];
+    const project = await prisma.project.create({ data: { orgId, name: "Mixed Park Test", key: `MX${stamp.slice(-6).toUpperCase()}` } });
+    const projectId = project.id;
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } } },
+    });
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+    const eventIds: string[] = [];
+
+    try {
+      const item = await prisma.workItem.create({
+        data: {
+          orgId, projectId, ticketNumber: 1,
+          title: `[mixed-park-test] parked ${stamp}`, description: "",
+          columnKey: "review", workItemTypeId: type.id, createdById: alice.id,
+          columnEnteredAt: new Date(Date.now() - 180_000),
+        },
+      });
+      itemIds.push(item.id);
+
+      // OLDER event: reasoned `parked`, carrying the real build's session/branch/PR —
+      // the one the console's Approve gate (status-read.ts, via observe.pickParkEvent)
+      // actually surfaces to the human.
+      const olderReasoned = await prisma.foremanEvent.create({
+        data: {
+          workItemId: item.id, orgId, ticketKey: "MX-001", kind: "parked", ts: new Date(Date.now() - 120_000),
+          message: "checks failed", data: { reason: "checks failed", prUrl: "https://example.com/pr/mixed", sessionId: "sess-mixed", branch: "auto/MX-1" },
+        },
+      });
+      eventIds.push(olderReasoned.id);
+
+      // NEWER event: a reason-less `gated` the daemon can write on a later, unrelated
+      // failure — empty data. Under "newest event, full stop" this blank event wins
+      // and blanks parked.prUrl/sessionId out from under handleApprove; pickParkEvent
+      // must skip it for the older reasoned one instead.
+      const newerBlank = await prisma.foremanEvent.create({
+        data: {
+          workItemId: item.id, orgId, ticketKey: "MX-001", kind: "gated", ts: new Date(Date.now() - 60_000),
+          message: "repeatedly failed", data: {},
+        },
+      });
+      eventIds.push(newerBlank.id);
+
+      // Fresh privileged approve — a bare comment past the review watermark, same
+      // shape as the console's own Approve action.
+      await prisma.comment.create({ data: { orgId, workItemId: item.id, authorId: alice.id, content: `approve ${stamp}` } });
+
+      const fresh = await freshMentions();
+      const row = fresh.find((m) => m.itemId === item.id);
+      expect(row).toBeDefined();
+      expect(row?.parked?.prUrl).toBe("https://example.com/pr/mixed");
+      expect(row?.parked?.sessionId).toBe("sess-mixed");
+      expect(row?.parked?.branch).toBe("auto/MX-1");
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
+      await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
 });
