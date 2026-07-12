@@ -198,12 +198,13 @@ export async function notifyDelivery(
   }
 }
 
-/** Atomically claim a backlog ticket for a build worker: flips backlog →
- *  in-progress only if it is STILL in the backlog, so two workers can never
- *  claim the same ticket (updateMany's count is the winner signal). */
+/** Atomically claim a ticket for a build worker: flips any ready column
+ *  (TODO_COLUMNS — backlog or todo) → in-progress only if it is STILL in one of
+ *  them, so two workers can never claim the same ticket (updateMany's count is
+ *  the winner signal). */
 export async function claimTicket(itemId: string): Promise<boolean> {
   const r = await prisma.workItem.updateMany({
-    where: { id: itemId, columnKey: "backlog" },
+    where: { id: itemId, columnKey: { in: TODO_COLUMNS } },
     data: { columnKey: "in-progress", columnEnteredAt: new Date() },
   });
   if (r.count === 1) {
