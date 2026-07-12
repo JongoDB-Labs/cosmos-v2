@@ -62,7 +62,7 @@ const shaBytes = (s: string): Buffer<ArrayBuffer> =>
   createHash("sha256").update(s).digest() as Buffer<ArrayBuffer>;
 
 // RBAC permission bits (from src/lib/rbac/permissions.ts) for WorkRole.grants.
-// NOTE: work_roles.grants is a Postgres int8 (64-bit), so only bits 0..62 fit.
+// NOTE: work_roles.grants is decimal-string TEXT (masks outgrew int8) — any bit fits.
 // We grant from this low-bit subset; the page renders these as permission names.
 const P: Record<string, bigint> = {
   ORG_READ: 1n << 0n,
