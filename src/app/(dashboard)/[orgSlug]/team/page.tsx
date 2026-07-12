@@ -49,6 +49,7 @@ async function TeamPageContent({ params }: PageParams) {
     prisma.orgMemberWorkRole.findMany({
       where: { orgMember: { orgId: ctx.orgId } },
       select: { orgMemberId: true, workRole: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
