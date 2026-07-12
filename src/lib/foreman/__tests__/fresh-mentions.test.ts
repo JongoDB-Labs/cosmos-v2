@@ -162,4 +162,274 @@ describe("freshMentions — bare-comment ingestion on parked tickets", () => {
       await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
     }
   });
+
+  it("watermark-reject: excludes bare comments created before columnEnteredAt", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+
+    const org = await prisma.organization.create({
+      data: { name: `watermark-test-${stamp}`, slug: `watermark-test-${stamp}` },
+    });
+    const orgId = org.id;
+    const orgIds = [orgId];
+
+    const project = await prisma.project.create({
+      data: { orgId, name: "Watermark Test", key: `WM${stamp.slice(-6).toUpperCase()}` },
+    });
+    const projectId = project.id;
+
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } },
+      },
+    });
+
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+    const eventIds: string[] = [];
+
+    try {
+      // Item with columnEnteredAt = NOW (freshly requeued)
+      const columnEnteredAtTime = new Date();
+      const watermarkItem = await prisma.workItem.create({
+        data: {
+          orgId,
+          projectId,
+          ticketNumber: 1,
+          title: `[watermark-test] watermark ${stamp}`,
+          description: "",
+          columnKey: "review",
+          workItemTypeId: type.id,
+          createdById: alice.id,
+          columnEnteredAt: columnEnteredAtTime,
+        },
+      });
+      itemIds.push(watermarkItem.id);
+
+      // Parked event so the bare comment ingestion path activates
+      const parkEvent = await prisma.foremanEvent.create({
+        data: {
+          workItemId: watermarkItem.id, orgId, ticketKey: "WM-001", kind: "parked", ts: new Date(),
+          message: "needs review", data: { sessionId: "sess-wm", branch: "auto/WM-1" },
+        },
+      });
+      eventIds.push(parkEvent.id);
+
+      // Comment created BEFORE columnEnteredAt (60 seconds in the past)
+      const commentCreatedAt = new Date(columnEnteredAtTime.getTime() - 60_000);
+      await prisma.comment.create({
+        data: { orgId, workItemId: watermarkItem.id, authorId: alice.id, content: "old comment before watermark" },
+        select: { id: true }, // force explicit creation time handling
+      });
+
+      // Manually update the comment to set createdAt in the past (Prisma doesn't
+      // allow setting createdAt in create/update; we use raw SQL or fetch then update)
+      await prisma.$executeRawUnsafe(
+        `UPDATE "comments" SET "created_at" = $1 WHERE "work_item_id" = $2`,
+        commentCreatedAt,
+        watermarkItem.id
+      );
+
+      const fresh = await freshMentions();
+      const watermarkRow = fresh.find((m) => m.itemId === watermarkItem.id);
+
+      // Should NOT appear because comment.createdAt <= columnEnteredAt
+      expect(watermarkRow).toBeUndefined();
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
+      await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
+
+  it("dedupe-token-wins: returns exactly one FreshMention when both token and bare comment exist, preferring token", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+    const bot = await botUserId();
+    const token = `<@${bot}>`;
+
+    const org = await prisma.organization.create({
+      data: { name: `dedupe-test-${stamp}`, slug: `dedupe-test-${stamp}` },
+    });
+    const orgId = org.id;
+    const orgIds = [orgId];
+
+    const project = await prisma.project.create({
+      data: { orgId, name: "Dedupe Test", key: `DE${stamp.slice(-6).toUpperCase()}` },
+    });
+    const projectId = project.id;
+
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } },
+      },
+    });
+
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+    const eventIds: string[] = [];
+
+    try {
+      // Parked review item with columnEnteredAt in the past
+      const dedupeItem = await prisma.workItem.create({
+        data: {
+          orgId,
+          projectId,
+          ticketNumber: 2,
+          title: `[dedupe-test] token+bare ${stamp}`,
+          description: "",
+          columnKey: "review",
+          workItemTypeId: type.id,
+          createdById: alice.id,
+          columnEnteredAt: new Date(Date.now() - 120_000), // 2 min ago
+        },
+      });
+      itemIds.push(dedupeItem.id);
+
+      // Parked event
+      const parkEvent = await prisma.foremanEvent.create({
+        data: {
+          workItemId: dedupeItem.id, orgId, ticketKey: "DE-002", kind: "parked", ts: new Date(),
+          message: "review needed", data: { sessionId: "sess-dedupe", branch: "auto/DE-2" },
+        },
+      });
+      eventIds.push(parkEvent.id);
+
+      // Token comment (explicit instruction)
+      const tokenCommentText = `please fix this ${token} carefully`;
+      await prisma.comment.create({
+        data: { orgId, workItemId: dedupeItem.id, authorId: alice.id, content: tokenCommentText },
+      });
+
+      // Bare comment (fallback instruction)
+      const bareCommentText = `also remember to test this`;
+      await prisma.comment.create({
+        data: { orgId, workItemId: dedupeItem.id, authorId: alice.id, content: bareCommentText },
+      });
+
+      const fresh = await freshMentions();
+      const dedupeRow = fresh.filter((m) => m.itemId === dedupeItem.id);
+
+      // Exactly one FreshMention per item
+      expect(dedupeRow).toHaveLength(1);
+      // It should be the token one (token comment is created first and therefore has earlier
+      // createdAt, so it wins in the token-path dedup logic; the question text should not
+      // include the token)
+      expect(dedupeRow[0]?.question).toContain("please fix this");
+      expect(dedupeRow[0]?.question).not.toContain(token);
+      expect(dedupeRow[0]?.parked?.sessionId).toBe("sess-dedupe");
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
+      await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
+
+  it("parked-population-on-token-path: token mention on review returns parked.sessionId; on non-review returns null", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+    const bot = await botUserId();
+    const token = `<@${bot}>`;
+
+    const org = await prisma.organization.create({
+      data: { name: `parked-pop-test-${stamp}`, slug: `parked-pop-test-${stamp}` },
+    });
+    const orgId = org.id;
+    const orgIds = [orgId];
+
+    const project = await prisma.project.create({
+      data: { orgId, name: "Parked Pop Test", key: `PP${stamp.slice(-6).toUpperCase()}` },
+    });
+    const projectId = project.id;
+
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } },
+      },
+    });
+
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+    const eventIds: string[] = [];
+
+    try {
+      // Case 1: Token mention on a PARKED review item → parked.sessionId is populated
+      const reviewParkedItem = await prisma.workItem.create({
+        data: {
+          orgId,
+          projectId,
+          ticketNumber: 3,
+          title: `[parked-pop-test] review parked ${stamp}`,
+          description: "",
+          columnKey: "review",
+          workItemTypeId: type.id,
+          createdById: alice.id,
+          columnEnteredAt: new Date(Date.now() - 120_000),
+        },
+      });
+      itemIds.push(reviewParkedItem.id);
+
+      const reviewParkEvent = await prisma.foremanEvent.create({
+        data: {
+          workItemId: reviewParkedItem.id, orgId, ticketKey: "PP-003", kind: "parked", ts: new Date(),
+          message: "checks failed", data: { sessionId: "sess-review-park", branch: "auto/PP-3" },
+        },
+      });
+      eventIds.push(reviewParkEvent.id);
+
+      await prisma.comment.create({
+        data: { orgId, workItemId: reviewParkedItem.id, authorId: alice.id, content: `fix this ${token} now` },
+      });
+
+      // Case 2: Token mention on a NON-review item (e.g., backlog) → parked should be null
+      const backlogItem = await prisma.workItem.create({
+        data: {
+          orgId,
+          projectId,
+          ticketNumber: 4,
+          title: `[parked-pop-test] backlog token ${stamp}`,
+          description: "",
+          columnKey: "backlog",
+          workItemTypeId: type.id,
+          createdById: alice.id,
+        },
+      });
+      itemIds.push(backlogItem.id);
+
+      await prisma.comment.create({
+        data: { orgId, workItemId: backlogItem.id, authorId: alice.id, content: `implement this ${token} soon` },
+      });
+
+      const fresh = await freshMentions();
+
+      const reviewRow = fresh.find((m) => m.itemId === reviewParkedItem.id);
+      expect(reviewRow).toBeDefined();
+      expect(reviewRow?.columnKey).toBe("review");
+      expect(reviewRow?.parked).toBeDefined();
+      expect(reviewRow?.parked?.sessionId).toBe("sess-review-park");
+      expect(reviewRow?.parked?.branch).toBe("auto/PP-3");
+
+      const backlogRow = fresh.find((m) => m.itemId === backlogItem.id);
+      expect(backlogRow).toBeDefined();
+      expect(backlogRow?.columnKey).toBe("backlog");
+      // Non-review items should have parked === null
+      expect(backlogRow?.parked).toBeNull();
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
+      await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
 });
