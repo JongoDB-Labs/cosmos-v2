@@ -40,6 +40,13 @@ automation**.
    (never metered API billing) and is gated behind an org toggle and a kill
    switch. See [`docs/runbooks/autonomous-delivery.md`](docs/runbooks/autonomous-delivery.md).
 
+**Board choreography.** Foreman works the board left to right: Backlog (open
+pool) → To-do (planned up next) → In progress → Review (parked for you) →
+Done (shipped). Move a ticket back to To-do or Backlog to have it reworked —
+comments ride along. To-do is curated by Foreman itself — a planner pass
+promotes the highest-priority/ROI backlog tickets (votes, severity, age) and
+posts a "Planned" event with the reasoning.
+
 **Observability & supervision.** Every org with autonomous delivery gets a
 dedicated `/[org]/foreman` console: live pulse (alive/idle/stale/paused/circuit-
 breaker), what's building right now, tickets parked awaiting a decision, and a
