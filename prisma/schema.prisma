@@ -389,7 +389,11 @@ model OrgMember {
   orgId       String   @map("org_id") @db.Uuid
   userId      String   @map("user_id") @db.Uuid
   role        OrgRole  @default(MEMBER)
-  permissions BigInt   @default(0)
+  // Permission bitmask stored as a decimal STRING in a TEXT column: the bitfield
+  // (src/lib/rbac/permissions.ts) has bits >= 63, which overflow Postgres BIGINT.
+  // All in-memory math stays on `bigint` — cross the boundary with
+  // maskFromDb()/maskToDb(). Never serialize this raw into a response payload.
+  permissions String   @default("0")
   abacRules   Json     @default("{}") @map("abac_rules")
   joinedAt    DateTime @default(now()) @map("joined_at")
 
@@ -2681,10 +2685,12 @@ model WorkRole {
   key         String
   name        String
   description String?
-  // Extra Permission bits this role GRANTS on top of the org role (BigInt). The
-  // grant layer only ever WIDENS the bitfield — never serialize this raw to
-  // JSON (toString it in API responses).
-  grants      BigInt   @default(0)
+  // Extra Permission bits this role GRANTS on top of the org role, stored as a
+  // decimal STRING in a TEXT column (the bitfield has bits >= 63 that overflow
+  // Postgres BIGINT). The grant layer only ever WIDENS the bitfield. All bit-math
+  // stays on `bigint` — cross the boundary with maskFromDb()/maskToDb(); the API
+  // DTO exposes it as permission KEYS, never this raw value.
+  grants      String   @default("0")
   // AbacRule[] (see src/lib/abac/engine.ts) that NARROW access for members of
   // this role. Stored as a JSON array.
   policies    Json     @default("[]")

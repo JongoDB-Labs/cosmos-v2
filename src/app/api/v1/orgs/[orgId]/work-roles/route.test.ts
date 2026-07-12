@@ -10,7 +10,7 @@
 // permissions) so a self-assigned work-role grant can't be laundered.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
+import { Permission, maskToDb, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
@@ -19,7 +19,7 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
-    workRole: { create: vi.fn() },
+    workRole: { create: vi.fn(), findFirst: vi.fn() },
   },
   logAudit: vi.fn(),
 }));
@@ -50,10 +50,17 @@ function ctxWith(opts: { basePermissions: bigint; orgRole?: OrgRole }): AuthCont
   };
 }
 
-function postRequest(grants: PermissionKey[]): NextRequest {
+function postRequest(
+  grants: PermissionKey[],
+  overrides: { key?: string; name?: string } = {},
+): NextRequest {
   return new NextRequest(`http://localhost/api/v1/orgs/o/work-roles`, {
     method: "POST",
-    body: JSON.stringify({ key: "auditor", name: "Auditor", grants }),
+    body: JSON.stringify({
+      key: overrides.key ?? "auditor",
+      name: overrides.name ?? "Auditor",
+      grants,
+    }),
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -63,6 +70,8 @@ const params = Promise.resolve({ orgId: ORG_ID });
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+  // Default: no name clash. Individual tests override with mockResolvedValueOnce.
+  prisma.workRole.findFirst.mockResolvedValue(null);
   prisma.workRole.create.mockResolvedValue({
     id: ROLE_ID,
     orgId: ORG_ID,
@@ -104,5 +113,79 @@ describe("POST /work-roles — authoring ceiling (isPermissionSubset)", () => {
     expect(logAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: "work_role.created" }),
     );
+  });
+});
+
+// Guardrails around role AUTHORING: the built-in key namespace can't be
+// squatted on by a custom role, and role names must be unique per org
+// (case-insensitively) so the UI's role picker/@-mention isn't ambiguous.
+// Both checks run after schema parse and before the escalation guard, so a
+// 400/409 here is never masked by the 403 above.
+describe("POST /work-roles — guardrails (reserved key prefix, unique name)", () => {
+  it("key starting with the reserved built-in prefix (builtin.) → 400, no create", async () => {
+    getAuthContext.mockResolvedValue(ctxWith({ basePermissions: bits("ORG_READ") }));
+
+    const res = await POST(postRequest([], { key: "builtin.sneaky" }), { params });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "role key prefix is reserved" });
+    expect(prisma.workRole.create).not.toHaveBeenCalled();
+  });
+
+  it("name matching an existing role case-insensitively → 409, no create", async () => {
+    getAuthContext.mockResolvedValue(ctxWith({ basePermissions: bits("ORG_READ") }));
+    // Simulates a pre-existing "Casing Test" role in the org.
+    prisma.workRole.findFirst.mockResolvedValueOnce({
+      id: "99999999-9999-9999-9999-999999999999",
+    });
+
+    const res = await POST(postRequest([], { name: "casing test" }), { params });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "a role with this name already exists" });
+    expect(prisma.workRole.create).not.toHaveBeenCalled();
+  });
+});
+
+// Regression for the BIGINT-overflow bug this migration fixes: grant masks with
+// bits >= 63 (CRM_CREATE = 1n<<63n, ACCOUNTING_CLOSE = 1n<<115n) can't fit a
+// signed BIGINT column — they threw "Value out of range" on write. The route
+// must serialize the mask to a decimal STRING on write (maskToDb) and the DTO
+// must parse it back to KEYS on read (maskFromDb), end to end with no throw.
+describe("POST /work-roles — high-bit grants (>= 2^63) round-trip through TEXT storage", () => {
+  it("creating a role granting ACCOUNTING_CLOSE + CRM_CREATE → 201, decimal-string write, keys returned", async () => {
+    const highBits = bits("ACCOUNTING_CLOSE", "CRM_CREATE");
+    // Actor's base covers the high bits so the escalation guard passes.
+    getAuthContext.mockResolvedValue(
+      ctxWith({ basePermissions: bits("ORG_READ", "ACCOUNTING_CLOSE", "CRM_CREATE") }),
+    );
+    // The persisted row returns grants as the decimal STRING the TEXT column
+    // holds — toWorkRoleDto must map it back to the two permission keys.
+    prisma.workRole.create.mockResolvedValue({
+      id: ROLE_ID,
+      orgId: ORG_ID,
+      key: "auditor",
+      name: "Auditor",
+      description: null,
+      grants: maskToDb(highBits),
+      policies: [],
+      isBuiltIn: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      _count: { members: 0 },
+    });
+
+    const res = await POST(postRequest(["ACCOUNTING_CLOSE", "CRM_CREATE"]), { params });
+
+    expect(res.status).toBe(201);
+    // WRITE boundary: grants persisted as a decimal string, never a raw bigint.
+    expect(prisma.workRole.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ grants: maskToDb(highBits) }),
+      }),
+    );
+    // READ boundary: the DTO surfaces both high-bit permission keys.
+    const body = await res.json();
+    expect(new Set(body.grants)).toEqual(new Set(["ACCOUNTING_CLOSE", "CRM_CREATE"]));
   });
 });

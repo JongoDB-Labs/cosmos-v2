@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { OrgRole } from "@prisma/client";
 import {
   Permission,
   RolePermissions,
   permissionMaskFromKeys,
   isPermissionSubset,
   permissionNames,
+  maskFromDb,
+  maskToDb,
 } from "./permissions";
+import { resolvePermissions } from "./check";
 
 /**
  * These guard the math the work-role escalation guards rely on (work-roles
@@ -100,5 +104,60 @@ describe("escalation invariants (the ceiling a non-OWNER may grant/assign)", () 
     const newRoleMask = permissionMaskFromKeys(["FINANCE_MANAGE"]);
     expect(isPermissionSubset(newRoleMask, effective)).toBe(true); // would pass if guard used effective (the bug)
     expect(isPermissionSubset(newRoleMask, base)).toBe(false); // correct: guard uses base → blocked
+  });
+});
+
+/**
+ * DB boundary: permission masks are stored as decimal STRINGS in TEXT columns
+ * (OrgMember.permissions, WorkRole.grants) because the bitfield assigns bits
+ * >= 63 (CRM_CREATE = 1n<<63n onward) that overflow Postgres BIGINT. maskFromDb
+ * parses on read, maskToDb serializes on write; all math stays on bigint.
+ */
+describe("maskFromDb / maskToDb (DB TEXT boundary)", () => {
+  it("round-trips a mask with bits >= 63 (the exact class BIGINT could not store)", () => {
+    // CRM_CREATE = 1n<<63n is the first bit that overflows a signed BIGINT;
+    // ACCOUNTING_CLOSE = 1n<<115n and AGENT_POLICY_MANAGE = 1n<<116n are far past it.
+    const mask =
+      Permission.CRM_CREATE | Permission.ACCOUNTING_CLOSE | Permission.AGENT_POLICY_MANAGE;
+    const stored = maskToDb(mask);
+    expect(typeof stored).toBe("string");
+    expect(maskFromDb(stored)).toBe(mask);
+  });
+
+  it("round-trips a value beyond 2^100", () => {
+    const mask = (1n << 200n) | (1n << 101n) | 0b111n;
+    expect(maskToDb(mask)).toBe(mask.toString());
+    expect(maskFromDb(maskToDb(mask))).toBe(mask);
+  });
+
+  it("maskToDb emits a plain decimal string (no 0x, no bigint 'n' suffix)", () => {
+    expect(maskToDb(0n)).toBe("0");
+    expect(maskToDb(255n)).toBe("255");
+  });
+
+  it("maskFromDb defaults null / undefined / '' to 0n (fresh member, no override)", () => {
+    expect(maskFromDb(null)).toBe(0n);
+    expect(maskFromDb(undefined)).toBe(0n);
+    expect(maskFromDb("")).toBe(0n);
+  });
+
+  it("maskFromDb accepts a raw bigint passthrough (transitional callers / test mocks)", () => {
+    expect(maskFromDb(Permission.CRM_CREATE)).toBe(Permission.CRM_CREATE);
+    expect(maskFromDb(0n)).toBe(0n);
+  });
+});
+
+describe("high-bit permission override survives the DB boundary (effective-permissions core)", () => {
+  // loadEffectivePermissions reads OrgMember.permissions (now TEXT) via maskFromDb
+  // and folds it into the role base with resolvePermissions. This locks the pure
+  // seam of that path: a stored per-member override on a bit >= 63 must survive
+  // the string round-trip and WIDEN the effective set — the class of grant that
+  // couldn't even be persisted before this fix.
+  it("a VIEWER with a stored ACCOUNTING_CLOSE override (bit 115) gains that bit", () => {
+    const storedOverride = maskToDb(Permission.ACCOUNTING_CLOSE); // as persisted in TEXT
+    const eff = resolvePermissions(OrgRole.VIEWER, maskFromDb(storedOverride));
+    expect(isPermissionSubset(Permission.ACCOUNTING_CLOSE, eff)).toBe(true);
+    // The override only WIDENS — the VIEWER base bits are still present.
+    expect(isPermissionSubset(Permission.ORG_READ, eff)).toBe(true);
   });
 });

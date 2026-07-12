@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission, isPermissionSubset } from "@/lib/rbac/permissions";
+import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
       const overreach = roles.find(
-        (r) => !isPermissionSubset(r.grants ?? 0n, ctx.basePermissions),
+        (r) => !isPermissionSubset(maskFromDb(r.grants), ctx.basePermissions),
       );
       if (overreach) {
         return new Response(
