@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.199.0",
+    date: "2026-07-12",
+    title: "Foreman plans its own queue — and takes rework orders",
+    highlights: [
+      {
+        kind: "feature",
+        text: "To-do is now Foreman's curated \"up next\" queue: a planner pass promotes the highest-priority backlog tickets (weighing votes, severity, bugs vs features, and age) with a visible one-line why. Move a ticket out of To-do and Foreman respects the demotion until the ticket changes (or a week passes). Foreman console: new Up-next section shows the planned queue in claim order; parked builds gain a Rework button — type follow-up instructions and Foreman resumes the same session.",
+      },
+      {
+        kind: "fix",
+        text: "Tickets placed in To-do were never actually claimed; Approve now lights up on builds parked before v2.198.",
+      },
+    ],
+  },
+  {
     version: "2.198.0",
     date: "2026-07-12",
     title: "Talk to Foreman on its tickets",

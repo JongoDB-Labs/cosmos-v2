@@ -9,7 +9,7 @@ import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
-import { PARKED_EVENT_KINDS } from "@/lib/foreman/observe";
+import { PARKED_EVENT_KINDS, pickParkEvent } from "@/lib/foreman/observe";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
@@ -100,7 +100,16 @@ export async function deliveryProjects(): Promise<
  */
 export async function getBacklog(): Promise<
   Array<
-    QueueItem & { title: string; description: string; triage: unknown; projectKey: string; orgId: string }
+    QueueItem & {
+      title: string;
+      description: string;
+      triage: unknown;
+      voteCount: number | null;
+      feedbackType: string | null;
+      severity: string | null;
+      projectKey: string;
+      orgId: string;
+    }
   >
 > {
   const pool = await deliveryProjects();
@@ -124,11 +133,25 @@ export async function getBacklog(): Promise<
   const feedback = rows.length
     ? await prisma.feedbackItem.findMany({
         where: { workItemId: { in: rows.map((r) => r.id) } },
-        select: { workItemId: true, triage: true },
+        select: { workItemId: true, triage: true, voteCount: true, type: true },
       })
     : [];
-  const triageByItem = new Map<string, unknown>();
-  for (const f of feedback) if (f.workItemId) triageByItem.set(f.workItemId, f.triage);
+  // Feedback digest per work item for the planner. `severity` is NOT a
+  // FeedbackItem column — it lives inside the AI-triage blob (triage.severity),
+  // so it's read off `triage` rather than selected. Null for un-triaged items.
+  const fbByItem = new Map<
+    string,
+    { triage: unknown; voteCount: number; feedbackType: string; severity: string | null }
+  >();
+  for (const f of feedback) {
+    if (!f.workItemId) continue;
+    fbByItem.set(f.workItemId, {
+      triage: f.triage,
+      voteCount: f.voteCount,
+      feedbackType: f.type,
+      severity: severityFromTriage(f.triage),
+    });
+  }
 
   // flatMap (not map) so a row whose projectId somehow isn't in the pool map —
   // can't happen given the `where` above is scoped to pool project ids, but the
@@ -136,6 +159,7 @@ export async function getBacklog(): Promise<
   return rows.flatMap((r) => {
     const p = poolByProjectId.get(r.projectId);
     if (!p) return [];
+    const fb = fbByItem.get(r.id);
     return [
       {
         id: r.id,
@@ -145,12 +169,65 @@ export async function getBacklog(): Promise<
         columnEnteredAt: (r.columnEnteredAt ?? new Date(0)).toISOString(),
         title: r.title,
         description: r.description,
-        triage: triageByItem.get(r.id) ?? null,
+        triage: fb?.triage ?? null,
+        voteCount: fb?.voteCount ?? null,
+        feedbackType: fb?.feedbackType ?? null,
+        severity: fb?.severity ?? null,
         projectKey: p.projectKey,
         orgId: p.orgId,
       },
     ];
   });
+}
+
+/** Read `severity` out of a feedback item's AI-triage blob. `severity` is not a
+ *  FeedbackItem column — the triage JSON (classification/severity/effort/…) is
+ *  where the remediation loop records it. Null when absent or not yet triaged. */
+function severityFromTriage(triage: unknown): string | null {
+  const s = (triage as { severity?: unknown } | null)?.severity;
+  return typeof s === "string" ? s : null;
+}
+
+/** Demotion facts for a set of work items, batched (no N+1) for the planner's
+ *  demotion-respect check: the newest `planned` event ts (when Foreman last
+ *  promoted the item to To-do; null if never), the item's `updatedAt`, and the
+ *  newest comment ts (null when it has none). Three grouped/selected queries only
+ *  — mirrors the batched-groupBy shape freshMentions uses. */
+export async function getDemotionFacts(
+  itemIds: string[],
+): Promise<Map<string, { plannedAt: Date | null; updatedAt: Date; lastCommentAt: Date | null }>> {
+  const facts = new Map<string, { plannedAt: Date | null; updatedAt: Date; lastCommentAt: Date | null }>();
+  if (itemIds.length === 0) return facts;
+  // Exclude the Foreman bot's OWN comments from lastCommentAt: the bot replies to
+  // @-mentions on backlog tickets too (run.mts's mention Q&A path), and a bot reply
+  // must not count as post-demotion activity that re-opens a human's demotion —
+  // only a human touch should. Same bot-author filter freshMentions uses.
+  const bot = await botUserId();
+  const [plannedAgg, commentAgg, items] = await Promise.all([
+    prisma.foremanEvent.groupBy({
+      by: ["workItemId"],
+      where: { workItemId: { in: itemIds }, kind: "planned" },
+      _max: { ts: true },
+    }),
+    prisma.comment.groupBy({
+      by: ["workItemId"],
+      where: { workItemId: { in: itemIds }, authorId: { not: bot } },
+      _max: { createdAt: true },
+    }),
+    prisma.workItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, updatedAt: true } }),
+  ]);
+  const plannedByItem = new Map<string, Date>();
+  for (const g of plannedAgg) if (g.workItemId && g._max.ts) plannedByItem.set(g.workItemId, g._max.ts);
+  const lastCommentByItem = new Map<string, Date>();
+  for (const g of commentAgg) if (g.workItemId && g._max.createdAt) lastCommentByItem.set(g.workItemId, g._max.createdAt);
+  for (const it of items) {
+    facts.set(it.id, {
+      plannedAt: plannedByItem.get(it.id) ?? null,
+      updatedAt: it.updatedAt,
+      lastCommentAt: lastCommentByItem.get(it.id) ?? null,
+    });
+  }
+  return facts;
 }
 
 /** Resolve a `<projectKey>-<ticketNumber>` ref's number half to its work-item id
@@ -198,13 +275,32 @@ export async function notifyDelivery(
   }
 }
 
-/** Atomically claim a backlog ticket for a build worker: flips backlog →
- *  in-progress only if it is STILL in the backlog, so two workers can never
- *  claim the same ticket (updateMany's count is the winner signal). */
+/** Atomically claim a ticket for a build worker: flips any ready column
+ *  (TODO_COLUMNS — backlog or todo) → in-progress only if it is STILL in one of
+ *  them, so two workers can never claim the same ticket (updateMany's count is
+ *  the winner signal). */
 export async function claimTicket(itemId: string): Promise<boolean> {
   const r = await prisma.workItem.updateMany({
-    where: { id: itemId, columnKey: "backlog" },
+    where: { id: itemId, columnKey: { in: TODO_COLUMNS } },
     data: { columnKey: "in-progress", columnEnteredAt: new Date() },
+  });
+  if (r.count === 1) {
+    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    return true;
+  }
+  return false;
+}
+
+/** Atomically promote a ticket the planner picked from backlog → todo: flips
+ *  backlog → todo only if it is STILL in backlog, so a human's concurrent move
+ *  during the planner's LLM window (e.g. backlog → done) is never clobbered back
+ *  to todo (updateMany's count is the winner signal — mirrors claimTicket). Carries
+ *  linked feedback with the move (same as claimTicket) so a promoted ticket's
+ *  feedback reads PLANNED. */
+export async function promoteToTodo(itemId: string): Promise<boolean> {
+  const r = await prisma.workItem.updateMany({
+    where: { id: itemId, columnKey: "backlog" },
+    data: { columnKey: "todo", columnEnteredAt: new Date() },
   });
   if (r.count === 1) {
     await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
@@ -415,13 +511,22 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
 
   // Every review-column item in the pool, batched with (one query, no N+1) each
-  // one's LATEST parked/gated event — the "is this ticket parked, and with what
+  // one's ONE park event — the "is this ticket parked, and with what
   // session/branch/PR" lookup both the review-column token-mention path below
-  // and the bare-comment ingestion path need. Reuses the batched
-  // latest-event-per-item shape from src/lib/foreman/status-read.ts, simplified:
-  // that read prefers the newest REASONED event (so a later blank event can't
-  // blank out a reason); this one just wants the newest event, full stop —
-  // `events` is ts-desc, so the first hit per item is already that.
+  // and the bare-comment ingestion path need. MUST select through the SAME
+  // observe.pickParkEvent helper the console's Approve gate
+  // (src/lib/foreman/status-read.ts) and the legacy prUrl backfill
+  // (backfill-park-prurls.mts) use — the newest event carrying a reason,
+  // falling back to the newest of any kind only when none is reasoned — so the
+  // daemon can never act on an event the human never saw. Concretely: a later
+  // reason-less `gated`/`ship-failed` (the daemon writes one on repeated
+  // failure, run.mts) must not blank the reason/prUrl an earlier reasoned
+  // `parked` recorded — taking the newest event full stop let exactly that
+  // happen, so handleApprove read a blank prUrl/sessionId off an event the
+  // console never displayed (a false "nothing built to merge" reply, and a
+  // resume that lost the session). `events` is ts-desc then id-desc, the same
+  // secondary order status-read.ts's query uses, so pickParkEvent sees an
+  // identically ordered history on both sides.
   const reviewItems = await prisma.workItem.findMany({
     where: { projectId: { in: pool.map((p) => p.projectId) }, columnKey: "review" },
     select: {
@@ -438,14 +543,21 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const parkEvents = reviewItems.length
     ? await prisma.foremanEvent.findMany({
         where: { workItemId: { in: reviewItems.map((r) => r.id) }, kind: { in: [...PARKED_EVENT_KINDS] } },
-        orderBy: { ts: "desc" },
-        select: { workItemId: true, data: true },
+        orderBy: [{ ts: "desc" }, { id: "desc" }],
+        select: { id: true, workItemId: true, kind: true, ts: true, data: true },
       })
     : [];
-  const parkedInfoByItem = new Map<string, { sessionId?: string; branch?: string; prUrl?: string }>();
+  const parkEventsByItem = new Map<string, typeof parkEvents>();
   for (const e of parkEvents) {
-    if (!e.workItemId || parkedInfoByItem.has(e.workItemId)) continue; // ts-desc: first hit per item wins
-    parkedInfoByItem.set(e.workItemId, parkedInfoFromEventData(e.data));
+    if (!e.workItemId) continue;
+    const arr = parkEventsByItem.get(e.workItemId);
+    if (arr) arr.push(e);
+    else parkEventsByItem.set(e.workItemId, [e]);
+  }
+  const parkedInfoByItem = new Map<string, { sessionId?: string; branch?: string; prUrl?: string }>();
+  for (const [itemId, evs] of parkEventsByItem) {
+    const ev = pickParkEvent(evs);
+    if (ev) parkedInfoByItem.set(itemId, parkedInfoFromEventData(ev.data));
   }
 
   // F1: the bot-reply half of the review-column watermark. Batched newest-bot-

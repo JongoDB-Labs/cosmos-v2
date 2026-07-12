@@ -41,23 +41,34 @@ export async function heartbeat(f: {
   } catch (e) { swallow(e); }
 }
 
-export async function track(ev: {
+type TrackEvent = {
   workItemId?: string; orgId?: string; ticketKey?: string;
   kind: ForemanEventKind; severity?: "info" | "warn" | "error";
   message: string; data?: Record<string, unknown>;
-}): Promise<void> {
-  try {
-    let orgId = ev.orgId ?? null;
-    if (!orgId && ev.workItemId) {
-      const wi = await prisma.workItem.findUnique({ where: { id: ev.workItemId }, select: { orgId: true } });
-      orgId = wi?.orgId ?? null;
-    }
-    await prisma.foremanEvent.create({
-      data: {
-        orgId, workItemId: ev.workItemId ?? null, ticketKey: ev.ticketKey ?? null,
-        kind: ev.kind, severity: ev.severity ?? "info", message: ev.message,
-        data: (ev.data ?? undefined) as Prisma.InputJsonValue | undefined,
-      },
-    });
-  } catch (e) { swallow(e); }
+};
+
+/** Write a foreman_event, THROWING on failure. For the load-bearing events whose
+ *  absence changes behavior — e.g. the `planned` event getDemotionFacts keys
+ *  demotion protection off — the caller must know the write failed. Best-effort
+ *  callers use `track` (below), which is this with the throw swallowed. */
+export async function trackStrict(ev: TrackEvent): Promise<void> {
+  let orgId = ev.orgId ?? null;
+  if (!orgId && ev.workItemId) {
+    const wi = await prisma.workItem.findUnique({ where: { id: ev.workItemId }, select: { orgId: true } });
+    orgId = wi?.orgId ?? null;
+  }
+  await prisma.foremanEvent.create({
+    data: {
+      orgId, workItemId: ev.workItemId ?? null, ticketKey: ev.ticketKey ?? null,
+      kind: ev.kind, severity: ev.severity ?? "info", message: ev.message,
+      data: (ev.data ?? undefined) as Prisma.InputJsonValue | undefined,
+    },
+  });
+}
+
+/** Best-effort event write: `trackStrict` with the failure swallowed (logged to
+ *  stderr for journald) — the contract every existing caller relies on, so a
+ *  failed observability write can never take down or delay delivery. */
+export async function track(ev: TrackEvent): Promise<void> {
+  return trackStrict(ev).catch(swallow);
 }
