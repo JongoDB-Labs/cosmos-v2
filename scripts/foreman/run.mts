@@ -945,7 +945,14 @@ async function processMentions(
           log(`${m.key} reply agent failed — leaving the mention for the next pass`);
           continue;
         }
-        await db.comment(m.itemId, reply);
+        // Finished tickets invite "can you also…" comments, but replies alone
+        // never trigger work — tell the asker how to actually re-action it, in
+        // the reply itself (the non-obvious part of the mention model).
+        const DONE_COLUMNS = ["done", "completed", "closed", "shipped"];
+        const actionHint = DONE_COLUMNS.includes(m.columnKey)
+          ? "\n\n---\n_Want me to action this? Move the ticket back to **Backlog** — comments here ride along as instructions for the rebuild. (Or file it as new feedback to keep this ticket closed.)_"
+          : "";
+        await db.comment(m.itemId, reply + actionHint);
         await db.notifyReply(m.itemId, m.askerUserId, m.key, reply);
         await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "mention-reply", message: `replied to @Foreman mention on ${m.key}` });
       }
