@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pickNext } from "@/lib/foreman/queue";
+import { plannerPrompt, parsePlannerPicks, isStandingDemotion, PLAN_TARGET, type PlannerCandidate } from "@/lib/foreman/planner";
 import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, type TicketBrief } from "@/lib/foreman/prompt";
@@ -154,6 +155,80 @@ async function clarityCheck(brief: TicketBrief, instructions: string[] = []): Pr
   const r = await runAgent(SCRATCH, prompt, { maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
   const m = r.log.match(/NEEDS_INPUT:\s*(.+)/);
   return m ? { needsInput: true, question: m[1].trim() } : { needsInput: false, question: "" };
+}
+
+const PLANNER_TIMEOUT_MS = 120_000;
+/** Keep To-do stocked to PLAN_TARGET: one cheap read-only LLM ranking pass over
+ *  the eligible backlog, promoting the winners to To-do with a visible why.
+ *  Skips any ticket under a standing human demotion (isStandingDemotion). Fully
+ *  failure-isolated: any error logs and returns, so a planner hiccup can never
+ *  throw into the pass loop or block a build. No writes in DRY. */
+async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Promise<void> {
+  try {
+    const todoCount = backlog.filter((b) => b.columnKey === "todo").length;
+    const slots = PLAN_TARGET - todoCount;
+    if (slots <= 0) return;
+    const pool = backlog.filter((b) => b.columnKey === "backlog");
+    if (pool.length === 0) return;
+    const facts = await db.getDemotionFacts(pool.map((p) => p.id));
+    const now = new Date();
+    const eligible = pool.filter((p) => {
+      const f = facts.get(p.id);
+      if (!f) return true;
+      return !isStandingDemotion({
+        plannedAt: f.plannedAt,
+        demotedAt: new Date(p.columnEnteredAt),
+        updatedAt: f.updatedAt,
+        lastCommentAt: f.lastCommentAt,
+        now,
+      });
+    });
+    if (eligible.length === 0) return;
+    const byKey = new Map(eligible.map((p) => [buildRef(p.projectKey, p.ticketNumber), p]));
+    const candidates: PlannerCandidate[] = eligible.map((p) => ({
+      key: buildRef(p.projectKey, p.ticketNumber),
+      title: p.title,
+      description: p.description ?? "",
+      priority: p.priority,
+      feedbackType: p.feedbackType,
+      severity: p.severity,
+      voteCount: p.voteCount,
+      ageDays: Math.floor((now.getTime() - Date.parse(p.columnEnteredAt)) / 86_400_000),
+    }));
+    const r = await runAgent(SCRATCH, plannerPrompt(candidates, slots), {
+      maxTurns: 2,
+      timeoutMs: PLANNER_TIMEOUT_MS,
+      allowedTools: "Read,Grep,Glob",
+    });
+    if (!r.ok) {
+      log(`planner: agent failed — skipping this pass`);
+      return;
+    }
+    const picks = parsePlannerPicks(r.log, new Set(byKey.keys()), slots);
+    for (const pick of picks) {
+      const item = byKey.get(pick.key);
+      if (!item) continue;
+      if (DRY) {
+        log(`planner (dry): would promote ${pick.key} — ${pick.why}`);
+        continue;
+      }
+      await db.moveColumn(item.id, "todo");
+      item.columnKey = "todo"; // in-memory view stays truthful for this pass's pickNext
+      await obs
+        .track({
+          workItemId: item.id,
+          orgId: item.orgId,
+          ticketKey: pick.key,
+          kind: "planned",
+          message: `Planned ${pick.key} → To-do: ${pick.why || "queued"}`,
+          data: { why: pick.why },
+        })
+        .catch(() => undefined);
+      log(`planner: ${pick.key} → todo — ${pick.why}`);
+    }
+  } catch (e) {
+    log(`planner: pass failed — ${String(e)}`);
+  }
 }
 
 /** Build a TicketBrief from its raw parts + the feedback-triage blob. Shared by
@@ -1457,6 +1532,10 @@ async function main(): Promise<void> {
         if (killed()) continue;
         // ── fill build slots, then pump on any completion ──
         const backlog = await db.getBacklog();
+        // Curate To-do to PLAN_TARGET before claiming, on the SAME backlog array
+        // the claim loop consumes — a promotion here retiers the item for this
+        // pass's pickNext. Failure-isolated: never blocks or crashes the pass.
+        await planPass(backlog).catch((e) => log(`planner error: ${String(e)}`));
         const pool = DRY ? backlog.filter((b) => !processed.has(b.id)) : backlog;
         // LIVE target from org settings (clamped by provisioning + env cap).
         const workerTarget = DRY ? 1 : Math.min(slotCap, await db.deliveryWorkerTarget().catch(() => 1));

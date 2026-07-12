@@ -100,7 +100,16 @@ export async function deliveryProjects(): Promise<
  */
 export async function getBacklog(): Promise<
   Array<
-    QueueItem & { title: string; description: string; triage: unknown; projectKey: string; orgId: string }
+    QueueItem & {
+      title: string;
+      description: string;
+      triage: unknown;
+      voteCount: number | null;
+      feedbackType: string | null;
+      severity: string | null;
+      projectKey: string;
+      orgId: string;
+    }
   >
 > {
   const pool = await deliveryProjects();
@@ -124,11 +133,25 @@ export async function getBacklog(): Promise<
   const feedback = rows.length
     ? await prisma.feedbackItem.findMany({
         where: { workItemId: { in: rows.map((r) => r.id) } },
-        select: { workItemId: true, triage: true },
+        select: { workItemId: true, triage: true, voteCount: true, type: true },
       })
     : [];
-  const triageByItem = new Map<string, unknown>();
-  for (const f of feedback) if (f.workItemId) triageByItem.set(f.workItemId, f.triage);
+  // Feedback digest per work item for the planner. `severity` is NOT a
+  // FeedbackItem column — it lives inside the AI-triage blob (triage.severity),
+  // so it's read off `triage` rather than selected. Null for un-triaged items.
+  const fbByItem = new Map<
+    string,
+    { triage: unknown; voteCount: number; feedbackType: string; severity: string | null }
+  >();
+  for (const f of feedback) {
+    if (!f.workItemId) continue;
+    fbByItem.set(f.workItemId, {
+      triage: f.triage,
+      voteCount: f.voteCount,
+      feedbackType: f.type,
+      severity: severityFromTriage(f.triage),
+    });
+  }
 
   // flatMap (not map) so a row whose projectId somehow isn't in the pool map —
   // can't happen given the `where` above is scoped to pool project ids, but the
@@ -136,6 +159,7 @@ export async function getBacklog(): Promise<
   return rows.flatMap((r) => {
     const p = poolByProjectId.get(r.projectId);
     if (!p) return [];
+    const fb = fbByItem.get(r.id);
     return [
       {
         id: r.id,
@@ -145,12 +169,60 @@ export async function getBacklog(): Promise<
         columnEnteredAt: (r.columnEnteredAt ?? new Date(0)).toISOString(),
         title: r.title,
         description: r.description,
-        triage: triageByItem.get(r.id) ?? null,
+        triage: fb?.triage ?? null,
+        voteCount: fb?.voteCount ?? null,
+        feedbackType: fb?.feedbackType ?? null,
+        severity: fb?.severity ?? null,
         projectKey: p.projectKey,
         orgId: p.orgId,
       },
     ];
   });
+}
+
+/** Read `severity` out of a feedback item's AI-triage blob. `severity` is not a
+ *  FeedbackItem column — the triage JSON (classification/severity/effort/…) is
+ *  where the remediation loop records it. Null when absent or not yet triaged. */
+function severityFromTriage(triage: unknown): string | null {
+  const s = (triage as { severity?: unknown } | null)?.severity;
+  return typeof s === "string" ? s : null;
+}
+
+/** Demotion facts for a set of work items, batched (no N+1) for the planner's
+ *  demotion-respect check: the newest `planned` event ts (when Foreman last
+ *  promoted the item to To-do; null if never), the item's `updatedAt`, and the
+ *  newest comment ts (null when it has none). Three grouped/selected queries only
+ *  — mirrors the batched-groupBy shape freshMentions uses. */
+export async function getDemotionFacts(
+  itemIds: string[],
+): Promise<Map<string, { plannedAt: Date | null; updatedAt: Date; lastCommentAt: Date | null }>> {
+  const facts = new Map<string, { plannedAt: Date | null; updatedAt: Date; lastCommentAt: Date | null }>();
+  if (itemIds.length === 0) return facts;
+  const [plannedAgg, commentAgg, items] = await Promise.all([
+    prisma.foremanEvent.groupBy({
+      by: ["workItemId"],
+      where: { workItemId: { in: itemIds }, kind: "planned" },
+      _max: { ts: true },
+    }),
+    prisma.comment.groupBy({
+      by: ["workItemId"],
+      where: { workItemId: { in: itemIds } },
+      _max: { createdAt: true },
+    }),
+    prisma.workItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, updatedAt: true } }),
+  ]);
+  const plannedByItem = new Map<string, Date>();
+  for (const g of plannedAgg) if (g.workItemId && g._max.ts) plannedByItem.set(g.workItemId, g._max.ts);
+  const lastCommentByItem = new Map<string, Date>();
+  for (const g of commentAgg) if (g.workItemId && g._max.createdAt) lastCommentByItem.set(g.workItemId, g._max.createdAt);
+  for (const it of items) {
+    facts.set(it.id, {
+      plannedAt: plannedByItem.get(it.id) ?? null,
+      updatedAt: it.updatedAt,
+      lastCommentAt: lastCommentByItem.get(it.id) ?? null,
+    });
+  }
+  return facts;
 }
 
 /** Resolve a `<projectKey>-<ticketNumber>` ref's number half to its work-item id
