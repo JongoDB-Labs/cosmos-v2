@@ -28,7 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check } from "lucide-react";
+import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
 
@@ -92,6 +92,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   });
 
   const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
+  const [rework, setRework] = useState<{ workItemId: string; projectId: string; ticketKey: string | null } | null>(null);
+  const [reworkText, setReworkText] = useState("");
 
   // Pause/resume PUTs the FULL automation config back (both blocks) — same
   // contract as the settings form — flipping only autonomousDelivery.enabled.
@@ -126,6 +128,23 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
     invalidate: [["foreman-status"]],
     onSuccess: () => {
       toast.success("Approved — Foreman merges & deploys on its next pass (≤1 min)");
+    },
+  });
+
+  // Same comments-route mutation as `approve`, but with user-typed follow-up
+  // instructions instead of the fixed "approve" string. Foreman treats it as
+  // any other ticket comment — reads it on its next pass and resumes.
+  const sendRework = useOrgMutation<unknown, Error, { workItemId: string; projectId: string; content: string }>({
+    mutationFn: ({ workItemId, projectId, content }) =>
+      jsonFetch<unknown>(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/work-items/${workItemId}/comments`,
+        { method: "POST", body: JSON.stringify({ content }) },
+      ),
+    invalidate: [["foreman-status"]],
+    onSuccess: () => {
+      toast.success("Sent — Foreman picks it up on its next pass (≤1 min)");
+      setReworkText("");
+      setRework(null);
     },
   });
 
@@ -205,6 +224,11 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
               : "The Foreman daemon hasn't run yet."}
           </p>
         )}
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          Foreman works the board left to right: Backlog (open pool) → To-do (planned up next) →
+          In progress → Review (parked for you) → Done (shipped). Move a ticket back to To-do or
+          Backlog to have it reworked — comments ride along.
+        </p>
       </div>
 
       <Dialog open={pauseDialogOpen} onOpenChange={setPauseDialogOpen}>
@@ -232,6 +256,48 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SectionCard
+        icon={ListOrdered}
+        title="Up next"
+        description="Foreman's planned queue — To-do tickets in claim order. Curate it by moving tickets on the board."
+      >
+        {data.upNext.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">
+            Nothing planned yet — Foreman promotes the highest-priority backlog tickets here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wider text-[var(--text-muted)]">
+                  <th className="py-2 pr-4 font-medium">Ticket</th>
+                  <th className="py-2 pr-4 font-medium">Title</th>
+                  <th className="py-2 pr-4 font-medium">Why</th>
+                  <th className="py-2 text-right font-medium">Age</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {data.upNext.map((u) => (
+                  <tr key={u.workItemId}>
+                    <td className="py-2 pr-4">
+                      <Link
+                        href={`/${orgSlug}/issues?item=${u.workItemId}`}
+                        className="font-mono text-xs text-[var(--primary)] hover:underline"
+                      >
+                        {u.ticketKey ?? "—"}
+                      </Link>
+                    </td>
+                    <td className="max-w-xs truncate py-2 pr-4">{u.title}</td>
+                    <td className="max-w-xs truncate py-2 pr-4 text-[var(--text-muted)]">{u.why ?? "—"}</td>
+                    <td className="py-2 text-right text-[var(--text-muted)]">{rel(u.since)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
 
       {/* In-flight builds — may show MORE rows than state.slotsBusy: a
           queued-ship/shipping item holds no build slot but still occupies a
@@ -337,6 +403,16 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                         </Button>
                         <Button
                           size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setRework({ workItemId: a.workItemId, projectId: a.projectId, ticketKey: a.ticketKey });
+                            setReworkText("");
+                          }}
+                        >
+                          <MessageSquarePlus className="size-3.5" /> Rework
+                        </Button>
+                        <Button
+                          size="sm"
                           disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
                           title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
                           onClick={() => {
@@ -357,14 +433,61 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-[var(--text-muted)]">
-                  Approve merges the built PR and deploys it. Comment on the ticket to give
-                  instructions instead — Foreman resumes right where it left off.
+                  Approve merges the built PR and deploys it. Rework sends follow-up instructions —
+                  Foreman resumes right where it left off. Comments on the ticket work too.
                 </p>
               </li>
             ))}
           </ul>
         )}
       </SectionCard>
+
+      <Dialog
+        open={rework !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRework(null);
+            setReworkText("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rework {rework?.ticketKey ?? "ticket"}</DialogTitle>
+            <DialogDescription>
+              Foreman resumes its previous session on this ticket with your notes and pushes an
+              updated build for approval.
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            value={reworkText}
+            onChange={(e) => setReworkText(e.target.value)}
+            placeholder="What should change?"
+            rows={4}
+            className="w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRework(null);
+                setReworkText("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!reworkText.trim() || sendRework.isPending}
+              onClick={() => {
+                if (!rework) return;
+                sendRework.mutate({ workItemId: rework.workItemId, projectId: rework.projectId, content: reworkText.trim() });
+              }}
+            >
+              <MessageSquarePlus className="size-3.5" /> Send to Foreman
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ForemanEventFeed orgId={orgId} />
     </div>

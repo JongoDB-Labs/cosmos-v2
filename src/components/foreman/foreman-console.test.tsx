@@ -52,6 +52,7 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
       stopFileSeen: false,
     },
     paused: false,
+    upNext: [],
     inFlight: [],
     awaitingApproval: [],
     config: {
@@ -177,14 +178,14 @@ describe("ForemanConsole — awaiting approval", () => {
     });
   }
 
-  it("renders the comment-to-instruct hint on a parked card", async () => {
+  it("renders the rework/comment hint on a parked card", async () => {
     withOneParked();
     renderConsole();
 
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Approve merges the built PR and deploys it. Comment on the ticket to give instructions instead — Foreman resumes right where it left off.",
+        "Approve merges the built PR and deploys it. Rework sends follow-up instructions — Foreman resumes right where it left off. Comments on the ticket work too.",
       ),
     ).toBeInTheDocument();
   });
@@ -275,5 +276,124 @@ describe("ForemanConsole — awaiting approval", () => {
       "title",
       "Nothing built yet — comment instructions on the ticket or Rebuild",
     );
+    // Rework has no prUrl gate — instructions can be sent before anything's built.
+    expect(screen.getByRole("button", { name: /rework/i })).toBeEnabled();
+  });
+});
+
+describe("ForemanConsole — Up next", () => {
+  afterEach(() => {
+    cleanup();
+    holder.calls.length = 0;
+  });
+
+  it("renders a row per queued ticket: ticket-key link, title, why, and age; muted dash when why is null", async () => {
+    holder.status = baseStatus({
+      upNext: [
+        {
+          workItemId: "wi-20",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-20",
+          title: "Tighten the dedup window",
+          why: "Highest open ROI — top vote count",
+          since: new Date(Date.now() - 3 * 3600_000).toISOString(),
+        },
+        {
+          workItemId: "wi-21",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-21",
+          title: "Human-added todo ticket",
+          why: null,
+          since: new Date(Date.now() - 60_000).toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Up next")).toBeInTheDocument();
+    expect(screen.getByText("Tighten the dedup window")).toBeInTheDocument();
+    expect(screen.getByText("Highest open ROI — top vote count")).toBeInTheDocument();
+    expect(screen.getByText("3h ago")).toBeInTheDocument();
+
+    const link = screen.getByRole("link", { name: "COSMOS-20" });
+    expect(link).toHaveAttribute("href", "/acme/issues?item=wi-20");
+
+    // Human-added todo item (Foreman never planned it): why renders as "—", not blank.
+    const humanRow = screen.getByText("Human-added todo ticket").closest("tr");
+    const whyCell = humanRow?.querySelectorAll("td")[2];
+    expect(whyCell).toHaveTextContent("—");
+  });
+
+  it("shows the empty state when nothing is planned", async () => {
+    holder.status = baseStatus({ upNext: [] });
+    renderConsole();
+
+    expect(
+      await screen.findByText(
+        "Nothing planned yet — Foreman promotes the highest-priority backlog tickets here.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ForemanConsole — Rework dialog", () => {
+  afterEach(() => {
+    cleanup();
+    holder.calls.length = 0;
+  });
+
+  function withOneParked() {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-1",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-9",
+          title: "Fix the flaky dedup test",
+          reason: "Touches the auth boundary — flagged for review.",
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/123",
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+  }
+
+  it("opens with the ticket key in the title and keeps Send disabled until real text is entered", async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /rework/i }));
+
+    expect(await screen.findByText("Rework COSMOS-9")).toBeInTheDocument();
+    const sendButton = screen.getByRole("button", { name: /send to foreman/i });
+    expect(sendButton).toBeDisabled();
+
+    const textarea = screen.getByPlaceholderText("What should change?");
+    fireEvent.change(textarea, { target: { value: "   " } });
+    expect(sendButton).toBeDisabled();
+
+    fireEvent.change(textarea, { target: { value: "Also handle the retry case" } });
+    expect(sendButton).toBeEnabled();
+  });
+
+  it("Send posts the typed instructions to the ticket's comments route and toasts", async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /rework/i }));
+    expect(await screen.findByText("Rework COSMOS-9")).toBeInTheDocument();
+
+    const textarea = screen.getByPlaceholderText("What should change?");
+    fireEvent.change(textarea, { target: { value: "Also handle the retry case" } });
+    fireEvent.click(screen.getByRole("button", { name: /send to foreman/i }));
+
+    const commentsUrl = "/api/v1/orgs/org-1/projects/proj-1/work-items/wi-1/comments";
+    await waitFor(() => expect(holder.calls.some((c) => c.url === commentsUrl)).toBe(true));
+    const call = holder.calls.find((c) => c.url === commentsUrl);
+    expect(call?.method).toBe("POST");
+    expect(call?.body).toEqual({ content: "Also handle the retry case" });
+    expect(toast.success).toHaveBeenCalledWith("Sent — Foreman picks it up on its next pass (≤1 min)");
   });
 });

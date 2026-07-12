@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/db/client";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
 import { pulseFor, PARKED_EVENT_KINDS, type InFlightBuild } from "@/lib/foreman/observe";
+import { PRIORITY_RANK } from "@/lib/foreman/queue";
 
 export type ForemanStatusPayload = {
   state: null | {
@@ -12,6 +13,11 @@ export type ForemanStatusPayload = {
     stopFileSeen: boolean;
   };
   paused: boolean;
+  /** Foreman's planned To-do queue, in claim order (priority tier, then FIFO —
+   *  mirrors queue.ts's pickNext ordering). `why` is the latest `planned`
+   *  event's one-line rationale, null for a todo item a human moved there
+   *  directly (Foreman never planned it). No permission/member fields. */
+  upNext: { workItemId: string; projectId: string; ticketKey: string | null; title: string; why: string | null; since: string }[];
   inFlight: InFlightBuild[];
   awaitingApproval: { workItemId: string; projectId: string; ticketKey: string | null; title: string; reason: string | null; prUrl: string | null; parkedAt: string }[];
   config: ReturnType<typeof readAutomationConfig>;
@@ -86,6 +92,61 @@ export async function assembleStatus(orgId: string, actorCanSteer = false): Prom
     };
   });
 
+  // Up next: the To-do column for the same delivery pool, claim-ordered
+  // (priority tier then FIFO — same comparator queue.pickNext/planner's
+  // rankAndCapCandidates use). ticketKey comes from the work item's own
+  // project key + ticket number (always present, unlike an event-sourced
+  // key) — every real ticket gets a link, not just ones Foreman has touched.
+  // WorkItem has no Prisma relation to Project (projectId is a plain FK
+  // column) — batch-resolve keys the same way src/lib/work-items/query/
+  // project.ts does, rather than an `include`.
+  const todo = projectIds.length
+    ? await prisma.workItem.findMany({
+        where: { orgId, projectId: { in: projectIds }, columnKey: "todo" },
+        select: {
+          id: true, projectId: true, title: true, priority: true, ticketNumber: true,
+          columnEnteredAt: true,
+        },
+        orderBy: { columnEnteredAt: "asc" },
+        take: 50,
+      })
+    : [];
+  const [plannedEvents, todoProjects] = todo.length
+    ? await Promise.all([
+        prisma.foremanEvent.findMany({
+          where: { workItemId: { in: todo.map((w) => w.id) }, kind: "planned" },
+          orderBy: { ts: "desc" },
+        }),
+        prisma.project.findMany({
+          where: { id: { in: [...new Set(todo.map((w) => w.projectId))] } },
+          select: { id: true, key: true },
+        }),
+      ])
+    : [[], []];
+  // Latest `planned` event per item — the join exists only to source `why`;
+  // `events` is ts-desc, so the first hit per item is the newest.
+  const latestPlannedByItem = new Map<string, (typeof plannedEvents)[number]>();
+  for (const e of plannedEvents) {
+    if (!e.workItemId) continue;
+    if (!latestPlannedByItem.has(e.workItemId)) latestPlannedByItem.set(e.workItemId, e);
+  }
+  const projectKeyById = new Map(todoProjects.map((p) => [p.id, p.key]));
+  const upNext = [...todo]
+    .sort(
+      (a, b) =>
+        PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+        (a.columnEnteredAt?.getTime() ?? 0) - (b.columnEnteredAt?.getTime() ?? 0),
+    )
+    .map((wi) => {
+      const ev = latestPlannedByItem.get(wi.id);
+      const why = ((ev?.data ?? {}) as { why?: string }).why ?? null;
+      const projectKey = projectKeyById.get(wi.projectId) ?? "";
+      return {
+        workItemId: wi.id, projectId: wi.projectId, ticketKey: `${projectKey}-${wi.ticketNumber}`,
+        title: wi.title, why, since: (wi.columnEnteredAt ?? new Date()).toISOString(),
+      };
+    });
+
   const hasHistory = (await prisma.foremanEvent.count({ where: { orgId } })) > 0;
-  return { state, paused, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory, actorCanSteer };
+  return { state, paused, upNext, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory, actorCanSteer };
 }

@@ -30,6 +30,7 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
       stopFileSeen: false,
     },
     paused: false,
+    upNext: [],
     inFlight: [],
     awaitingApproval: [],
     config: {
