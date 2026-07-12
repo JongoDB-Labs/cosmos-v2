@@ -159,6 +159,10 @@ describe("assembleStatus", () => {
       expect(rowA).toBeDefined();
       expect(rowB).toBeDefined();
       expect(rowC).toBeDefined();
+      // Every row carries projectId (added for the console's Approve POST URL).
+      expect(rowA?.projectId).toBe(project.id);
+      expect(rowB?.projectId).toBe(project.id);
+      expect(rowC?.projectId).toBe(project.id);
       // A: reason + prUrl come from the parked event, NOT the newer empty `gated` one.
       expect(rowA?.reason).toBe("checks failed");
       expect(rowA?.prUrl).toBe("https://example.com/pr/1");

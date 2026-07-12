@@ -13,7 +13,7 @@ export type ForemanStatusPayload = {
   };
   paused: boolean;
   inFlight: InFlightBuild[];
-  awaitingApproval: { workItemId: string; ticketKey: string | null; title: string; reason: string | null; prUrl: string | null; parkedAt: string }[];
+  awaitingApproval: { workItemId: string; projectId: string; ticketKey: string | null; title: string; reason: string | null; prUrl: string | null; parkedAt: string }[];
   config: ReturnType<typeof readAutomationConfig>;
   hasHistory: boolean;
 };
@@ -39,7 +39,7 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
   const parked = projectIds.length
     ? await prisma.workItem.findMany({
         where: { orgId, projectId: { in: projectIds }, columnKey: "review" },
-        select: { id: true, title: true, columnEnteredAt: true },
+        select: { id: true, projectId: true, title: true, columnEnteredAt: true },
         orderBy: { columnEnteredAt: "desc" },
         take: 50,
       })
@@ -73,7 +73,7 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
     const ev = latestByItem.get(wi.id);
     const data = (ev?.data ?? {}) as { reason?: string; prUrl?: string };
     return {
-      workItemId: wi.id, ticketKey: ev?.ticketKey ?? null, title: wi.title,
+      workItemId: wi.id, projectId: wi.projectId, ticketKey: ev?.ticketKey ?? null, title: wi.title,
       reason: data.reason ?? ev?.message ?? null, prUrl: data.prUrl ?? null,
       parkedAt: (wi.columnEnteredAt ?? new Date()).toISOString(),
     };

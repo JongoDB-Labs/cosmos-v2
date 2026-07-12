@@ -126,6 +126,7 @@ describe("ForemanPulseCard", () => {
       ],
       awaitingApproval: [1, 2, 3].map((n) => ({
         workItemId: `wi-a${n}`,
+        projectId: "p1",
         ticketKey: `COSMOS-${n}`,
         title: `Item ${n}`,
         reason: null,
