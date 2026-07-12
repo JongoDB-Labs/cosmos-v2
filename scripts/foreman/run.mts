@@ -189,6 +189,7 @@ interface Built {
   classification: "BUG" | "FEATURE";
   branch: string;
   wt: string;
+  sessionId: string | undefined;
   subject: string;
   commit: string;
   processNote: string;
@@ -313,7 +314,7 @@ async function processOne(
         await db.moveColumn(item.id, "review");
         await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
         await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
-        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete" } });
+        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete", sessionId: agent.sessionId } });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return {};
@@ -408,7 +409,7 @@ async function processOne(
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       if (!DRY) await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason, version });
-      if (!DRY) await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: reason, data: { reason, version } });
+      if (!DRY) await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: reason, data: { reason, version, sessionId: agent.sessionId, branch, worktreePath: wt } });
     };
 
     if (!checks.ok || risk.gated) {
@@ -489,6 +490,7 @@ async function processOne(
         classification: brief.classification,
         branch,
         wt,
+        sessionId: agent.sessionId ?? undefined,
         subject,
         commit,
         processNote,
@@ -551,7 +553,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
     );
     record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
     await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason, prUrl: prUrl || undefined });
-    await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "warn", message: reason, data: { reason, prUrl: prUrl || undefined } });
+    await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "warn", message: reason, data: { reason, prUrl: prUrl || undefined, sessionId: b.sessionId, branch: b.branch } });
   };
 
   try {
@@ -645,7 +647,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       );
       record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
       await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: merged ? "merged but not deployed" : "ship failed before merge", version, prUrl: prUrl || undefined });
-      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: merged ? "merged-undeployed" : "ship-failed", severity: "error", message: merged ? `merged but not deployed (v${version})` : "ship failed before merge", data: { version, prUrl: prUrl || undefined, merged } });
+      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: merged ? "merged-undeployed" : "ship-failed", severity: "error", message: merged ? `merged but not deployed (v${version})` : "ship failed before merge", data: { version, prUrl: prUrl || undefined, merged, sessionId: b.sessionId, branch: b.branch } });
       return { deployFailed: false };
     }
 
@@ -676,7 +678,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       );
       record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "gated" });
       await db.notifyDelivery(b.itemId, "parked", { key: b.key, title: b.title, reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined });
-      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "error", message: "deploy health-gate failed; rolled back", data: { reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined } });
+      await obs.track({ workItemId: b.itemId, ticketKey: b.key, kind: "parked", severity: "error", message: "deploy health-gate failed; rolled back", data: { reason: "deploy health-gate failed; rolled back", version, prUrl: prUrl || undefined, sessionId: b.sessionId, branch: b.branch } });
     } catch (cleanupErr) {
       log(`${b.key} deploy-gate cleanup error (continuing to circuit breaker): ${String(cleanupErr)}`);
     }
