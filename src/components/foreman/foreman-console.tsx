@@ -28,7 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck } from "lucide-react";
+import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
 
@@ -113,10 +113,27 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
     },
   });
 
-  // Pulls a `review`-parked ticket back to `backlog`. Patches the status
-  // cache immediately so the card disappears without waiting on the
-  // invalidate round-trip, then invalidates to reconcile with the server.
-  const requeue = useOrgMutation<{ ok: boolean }, Error, string>({
+  // Posts a plain "approve" comment on the ticket's own thread — the SAME
+  // route/schema the ticket sheet's comment box uses — as the acting
+  // (logged-in) user. The decision lives in the ticket's audit trail; the
+  // daemon reads it on its next pass (≤60s) and merges the built PR.
+  const approve = useOrgMutation<unknown, Error, { workItemId: string; projectId: string }>({
+    mutationFn: ({ workItemId, projectId }) =>
+      jsonFetch<unknown>(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/work-items/${workItemId}/comments`,
+        { method: "POST", body: JSON.stringify({ content: "approve" }) },
+      ),
+    invalidate: [["foreman-status"]],
+    onSuccess: () => {
+      toast.success("Approved — Foreman merges & deploys on its next pass (≤1 min)");
+    },
+  });
+
+  // Pulls a `review`-parked ticket back to `backlog`, discarding the current
+  // build for a fresh one. Patches the status cache immediately so the card
+  // disappears without waiting on the invalidate round-trip, then
+  // invalidates to reconcile with the server.
+  const rebuild = useOrgMutation<{ ok: boolean }, Error, string>({
     mutationFn: (workItemId) =>
       jsonFetch<{ ok: boolean }>(`/api/v1/orgs/${orgId}/foreman/requeue`, {
         method: "POST",
@@ -129,7 +146,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           ? { ...old, awaitingApproval: old.awaitingApproval.filter((a) => a.workItemId !== workItemId) }
           : old,
       );
-      toast.success("Requeued for another pass.");
+      toast.success("Rebuild queued — a fresh pass starts shortly.");
     },
   });
 
@@ -297,16 +314,52 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                         <ExternalLink className="size-3.5" /> Open PR
                       </a>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={requeue.isPending && requeue.variables === a.workItemId}
-                      onClick={() => requeue.mutate(a.workItemId)}
-                    >
-                      <RefreshCw className="size-3.5" /> Requeue
-                    </Button>
+                    {/* Steering (Approve / Rebuild) is a BASE OWNER/ADMIN privilege —
+                        matches the daemon's own gate. A non-steward sees the card
+                        (Open PR, reason) read-only, no levers. */}
+                    {data.actorCanSteer && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={rebuild.isPending && rebuild.variables === a.workItemId}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                "Rebuild this ticket? Foreman discards the current build and queues a fresh pass.",
+                              )
+                            )
+                              return;
+                            rebuild.mutate(a.workItemId);
+                          }}
+                        >
+                          <RefreshCw className="size-3.5" /> Rebuild
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
+                          title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
+                          onClick={() => {
+                            // Approve deploys to prod — confirm first, mirroring Rebuild.
+                            if (
+                              !window.confirm(
+                                `Merge and deploy ${a.ticketKey ?? "this ticket"}? Foreman handles the rest.`,
+                              )
+                            )
+                              return;
+                            approve.mutate({ workItemId: a.workItemId, projectId: a.projectId });
+                          }}
+                        >
+                          <Check className="size-3.5" /> Approve
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
+                <p className="mt-3 text-xs text-[var(--text-muted)]">
+                  Approve merges the built PR and deploys it. Comment on the ticket to give
+                  instructions instead — Foreman resumes right where it left off.
+                </p>
               </li>
             ))}
           </ul>
