@@ -45,7 +45,23 @@ type Row = {
   role: string;
   joined: string;
   avatarUrl: string | null;
+  /** Work-roles assigned to this member (id/name only — grants stay
+   *  server-side). Always `[]` for invite rows (nothing is assigned until the
+   *  invite is accepted). */
+  workRoles: { id: string; name: string }[];
 };
+
+interface TeamTableProps {
+  rows: Row[];
+  /** Every work-role in the org (id/name/isBuiltIn — grants stay
+   *  server-side), for the role-assignment dialog. */
+  workRoleOptions: { id: string; name: string; isBuiltIn: boolean }[];
+  /** Ids of `workRoleOptions` the current actor may grant, computed
+   *  server-side (isPermissionSubset against their basePermissions ceiling)
+   *  so a member can never hand out a role that grants more than they hold
+   *  themselves. */
+  grantableRoleIds: string[];
+}
 
 const ROLE_VARIANT = {
   OWNER: "strategic",
@@ -54,7 +70,13 @@ const ROLE_VARIANT = {
   VIEWER: "neutral",
 } as const;
 
-export function TeamTable({ rows }: { rows: Row[] }) {
+export function TeamTable({
+  rows,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- threaded through for the role-assignment dialog rewrite (Task 3); not consumed by this cell render yet.
+  workRoleOptions,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- see above.
+  grantableRoleIds,
+}: TeamTableProps) {
   const { can, orgId } = usePermissions();
   const router = useRouter();
   const [roleTarget, setRoleTarget] = useState<{
@@ -254,7 +276,24 @@ export function TeamTable({ rows }: { rows: Row[] }) {
         }
         const variant =
           ROLE_VARIANT[row.original.role as keyof typeof ROLE_VARIANT] ?? "neutral";
-        return <Badge variant={variant}>{row.original.role}</Badge>;
+        const { workRoles } = row.original;
+        const shown = workRoles.slice(0, 2);
+        const overflow = workRoles.length - shown.length;
+        return (
+          <div className="flex flex-wrap items-center gap-1">
+            <Badge variant={variant}>{row.original.role}</Badge>
+            {shown.map((wr) => (
+              <Badge key={wr.id} variant="neutral" className="text-[10px]">
+                {wr.name}
+              </Badge>
+            ))}
+            {overflow > 0 && (
+              <Badge variant="neutral" className="text-[10px]">
+                +{overflow}
+              </Badge>
+            )}
+          </div>
+        );
       },
     },
     {
