@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.197.0",
+    date: "2026-07-12",
+    title: "Assign every role from the Team page",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each member's row on the Team page now shows their base role plus chips for every work role they hold, so you can see everyone's access at a glance. A new Manage roles dialog sets both the base tier and any built-in or custom roles in one place — no more hopping over to Roles & Access to grant a single role.",
+      },
+    ],
+  },
+  {
     version: "2.195.0",
     date: "2026-07-11",
     title: "Roles you can start with",

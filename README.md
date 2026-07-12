@@ -65,7 +65,8 @@ Billing admin, Member, Viewer, Guest) that every member already has. **Settings 
 Roles & Access** shows the exact permissions behind every one of them, base and
 built-in alike, and any role can be **cloned** into a new custom role and
 tailored from there. Built-in roles are read-only server-side, so the defaults
-can't drift or be edited out from under you.
+can't drift or be edited out from under you. Per-member assignment now also
+lives on the Team page, via each row's **Manage roles** dialog.
 
 ## Development
 
