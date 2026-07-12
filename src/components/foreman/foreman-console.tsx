@@ -314,30 +314,46 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                         <ExternalLink className="size-3.5" /> Open PR
                       </a>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={rebuild.isPending && rebuild.variables === a.workItemId}
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            "Rebuild this ticket? Foreman discards the current build and queues a fresh pass.",
-                          )
-                        )
-                          return;
-                        rebuild.mutate(a.workItemId);
-                      }}
-                    >
-                      <RefreshCw className="size-3.5" /> Rebuild
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
-                      title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
-                      onClick={() => approve.mutate({ workItemId: a.workItemId, projectId: a.projectId })}
-                    >
-                      <Check className="size-3.5" /> Approve
-                    </Button>
+                    {/* Steering (Approve / Rebuild) is a BASE OWNER/ADMIN privilege —
+                        matches the daemon's own gate. A non-steward sees the card
+                        (Open PR, reason) read-only, no levers. */}
+                    {data.actorCanSteer && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={rebuild.isPending && rebuild.variables === a.workItemId}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                "Rebuild this ticket? Foreman discards the current build and queues a fresh pass.",
+                              )
+                            )
+                              return;
+                            rebuild.mutate(a.workItemId);
+                          }}
+                        >
+                          <RefreshCw className="size-3.5" /> Rebuild
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
+                          title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
+                          onClick={() => {
+                            // Approve deploys to prod — confirm first, mirroring Rebuild.
+                            if (
+                              !window.confirm(
+                                `Merge and deploy ${a.ticketKey ?? "this ticket"}? Foreman handles the rest.`,
+                              )
+                            )
+                              return;
+                            approve.mutate({ workItemId: a.workItemId, projectId: a.projectId });
+                          }}
+                        >
+                          <Check className="size-3.5" /> Approve
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-[var(--text-muted)]">

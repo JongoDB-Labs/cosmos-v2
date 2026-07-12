@@ -79,6 +79,7 @@ describe("assembleStatus", () => {
     let itemAId: string | undefined;
     let itemBId: string | undefined;
     let itemCId: string | undefined;
+    let itemDId: string | undefined;
     const eventIds: string[] = [];
 
     try {
@@ -119,6 +120,15 @@ describe("assembleStatus", () => {
       });
       itemCId = itemC.id;
 
+      const itemD = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket + 3,
+          title: `status-read join fixture D ${stamp}`, description: "", columnKey: "review",
+          workItemTypeId: type.id, createdById: author.id,
+        },
+      });
+      itemDId = itemD.id;
+
       // Item A: a `parked` event carrying reason + prUrl, then a LATER `gated` event
       // with EMPTY data. The join must still surface the parked reason/prUrl — not
       // blank them because a reason-less event arrived afterward.
@@ -148,17 +158,34 @@ describe("assembleStatus", () => {
         },
       });
       eventIds.push(mergedEvent.id);
+      // Item D: a `ship-failed` event — its prUrl must surface too, proving the join
+      // reads the shared PARKED_EVENT_KINDS list (parked/gated/needs-input/ship-failed/
+      // merged-undeployed) rather than a narrower inline set.
+      const shipFailedEvent = await prisma.foremanEvent.create({
+        data: {
+          workItemId: itemD.id, orgId: org.id, ticketKey: "TST-904", kind: "ship-failed",
+          message: "ship failed before merge",
+          data: { prUrl: "https://example.com/pr/4", version: "9.9.9", branch: "auto/TST-904" },
+        },
+      });
+      eventIds.push(shipFailedEvent.id);
 
       const s = await assembleStatus(org.id);
       expect(s.paused).toBe(false);
       expect(s.hasHistory).toBe(true);
+      // actorCanSteer is threaded from the arg (route computes the base-role gate):
+      // default false, explicit true flips it. The cards surface regardless (F5).
+      expect(s.actorCanSteer).toBe(false);
+      expect((await assembleStatus(org.id, true)).actorCanSteer).toBe(true);
 
       const rowA = s.awaitingApproval.find((r) => r.workItemId === itemA.id);
       const rowB = s.awaitingApproval.find((r) => r.workItemId === itemB.id);
       const rowC = s.awaitingApproval.find((r) => r.workItemId === itemC.id);
+      const rowD = s.awaitingApproval.find((r) => r.workItemId === itemD.id);
       expect(rowA).toBeDefined();
       expect(rowB).toBeDefined();
       expect(rowC).toBeDefined();
+      expect(rowD).toBeDefined();
       // Every row carries projectId (added for the console's Approve POST URL).
       expect(rowA?.projectId).toBe(project.id);
       expect(rowB?.projectId).toBe(project.id);
@@ -173,11 +200,15 @@ describe("assembleStatus", () => {
       // C: merged-undeployed prUrl surfaced.
       expect(rowC?.prUrl).toBe("https://example.com/pr/3");
       expect(rowC?.ticketKey).toBe("TST-903");
+      // D: ship-failed prUrl surfaced (shared PARKED_EVENT_KINDS).
+      expect(rowD?.prUrl).toBe("https://example.com/pr/4");
+      expect(rowD?.ticketKey).toBe("TST-904");
     } finally {
       for (const id of eventIds) await prisma.foremanEvent.delete({ where: { id } }).catch(() => undefined);
       if (itemAId) await prisma.workItem.delete({ where: { id: itemAId } }).catch(() => undefined);
       if (itemBId) await prisma.workItem.delete({ where: { id: itemBId } }).catch(() => undefined);
       if (itemCId) await prisma.workItem.delete({ where: { id: itemCId } }).catch(() => undefined);
+      if (itemDId) await prisma.workItem.delete({ where: { id: itemDId } }).catch(() => undefined);
       await prisma.organization.update({
         where: { id: org.id },
         data: { settings: originalSettings as unknown as Prisma.InputJsonValue },

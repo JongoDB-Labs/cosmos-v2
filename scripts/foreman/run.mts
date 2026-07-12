@@ -23,7 +23,7 @@ import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
-import { combineIntents } from "@/lib/foreman/intent";
+import { combineIntents, classifyInstruction } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
 import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
@@ -342,7 +342,7 @@ async function processOne(
     if (!DRY) {
       await db.moveColumn(item.id, "review");
       await db.addTag(item.id, "needs-input");
-      await db.comment(item.id, `❓ Needs your input before I can build this: ${clar.question}\n\nAnswer in the description/comments and move the card back to Backlog to re-queue.`);
+      await db.comment(item.id, `❓ Needs your input before I can build this: ${clar.question}\n\nAnswer in the description/comments and reply here to instruct or say 'rebuild' to re-queue.`);
       await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: `needs input — ${clar.question}` });
       await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: `needs input — ${clar.question}`, data: { reason: clar.question } });
     }
@@ -801,8 +801,10 @@ type EnqueueRepoWork = <T>(work: () => Promise<T>) => Promise<T>;
  *  to surface here as a false "conflict" for a merge that actually landed).
  *  Never throws to its caller's loop guard: every db.comment/obs.track call
  *  around the merge is best-effort, so a DB blip can't obscure (or throw past)
- *  the true merge outcome. */
-async function handleApprove(m: FreshMention, enqueueRepoWork: EnqueueRepoWork): Promise<void> {
+ *  the true merge outcome. `hadOtherNotes` only tunes the success-comment
+ *  wording — whether this batch mixed in non-approve notes that approve
+ *  superseded (approve carries no instructions, so they're dropped). */
+async function handleApprove(m: FreshMention, enqueueRepoWork: EnqueueRepoWork, hadOtherNotes: boolean): Promise<void> {
   const prUrl = m.parked?.prUrl;
   const branch = m.parked?.branch ?? `auto/${m.key}`;
   const hasPr = Boolean(prUrl);
@@ -824,12 +826,15 @@ async function handleApprove(m: FreshMention, enqueueRepoWork: EnqueueRepoWork):
       log(`${m.key} approve → merge FAILED (${String(e)}) — parked with conflict guidance`);
       await db.comment(m.itemId, mergeConflictGuidance(m.key, branch, String(e))).catch(() => undefined);
       await obs
-        .track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: `approve-merge failed — ${String(e)}`, data: { reason: "approve-merge failed", prUrl, branch } })
+        .track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: `approve-merge failed — ${String(e)}`, data: { reason: "approve-merge failed", prUrl, branch, sessionId: m.parked?.sessionId } })
         .catch(() => undefined);
       return;
     }
     log(`${m.key} approved via comment — PR merged; deploy on next reconcile`);
-    await db.comment(m.itemId, `Approved by ${author} — merging now; deploy follows automatically.`).catch(() => undefined);
+    // #8: when the batch mixed approve with other notes, say so — approve wins in
+    // combineIntents but carries no instructions, so those notes were dropped.
+    const ignored = hadOtherNotes ? ", ignoring the other notes in this thread" : "";
+    await db.comment(m.itemId, `Approved by ${author} — merging now; deploy follows automatically${ignored}.`).catch(() => undefined);
     await obs
       .track({ workItemId: m.itemId, ticketKey: m.key, kind: "queued-ship", message: "approved via comment — PR merged, deploy on next reconcile" })
       .catch(() => undefined);
@@ -897,7 +902,10 @@ async function processMentions(
         const texts = group.map((g) => g.question).filter((q) => q.trim().length > 0);
         const { intent, instructions } = combineIntents(texts);
         if (intent === "approve") {
-          await handleApprove(m, enqueueRepoWork);
+          // #8: did the batch mix in any non-approve note that approve superseded?
+          // (approve wins via combineIntents but carries no instructions.)
+          const hadOtherNotes = texts.some((t) => classifyInstruction(t) !== "approve");
+          await handleApprove(m, enqueueRepoWork, hadOtherNotes);
         } else if (intent === "rebuild") {
           // Unchanged legacy path: full requeue to backlog (the instruction is
           // re-consumed by instructionsFor() when the fresh build runs).
@@ -964,11 +972,16 @@ async function processResume(
 ): Promise<{ ship?: Built }> {
   const { m, instructions } = entry;
   const key = m.key;
-  const branch = m.parked?.branch;
+  // F2: parks from v2.189–2.195 recorded a PR but not the branch in the event
+  // `data`. When there's a PR to resume against, fall back to the conventional
+  // `auto/<KEY>` branch (the same fallback handleApprove uses) rather than
+  // discarding the build with a rebuild requeue. Only a park with NEITHER branch
+  // nor PR (a true no-build park, e.g. "agent did not complete") drops through.
+  const branch = m.parked?.branch ?? (m.parked?.prUrl ? `auto/${key}` : undefined);
   const wt = `/tmp/foreman/${key}`;
   let keepWorktree = false;
 
-  // No branch persisted (e.g. the "agent did not complete" park, which never pushed
+  // No branch and no PR (e.g. the "agent did not complete" park, which never pushed
   // anything) → nothing to resume. Fall back to a rebuild: requeue to backlog so a
   // fresh build picks up the instructions via instructionsFor().
   if (!branch) {
@@ -1128,7 +1141,7 @@ async function processResume(
 }
 
 /** Reconcile approved (merged) gated tickets. When Foreman gates a risky change it
- *  opens a DRAFT PR on `auto/<KEY>-<n>` and parks the ticket in `review`; a human
+ *  opens a DRAFT PR on `auto/<KEY>` and parks the ticket in `review`; a human
  *  then reviews + merges it to main. This step closes that loop: detect the merged
  *  PR, deploy main, and move the ticket to `done` — or, if the merge is already
  *  live, just close it.

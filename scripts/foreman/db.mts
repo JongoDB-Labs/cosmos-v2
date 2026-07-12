@@ -9,6 +9,7 @@ import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
+import { PARKED_EVENT_KINDS } from "@/lib/foreman/observe";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
@@ -367,23 +368,16 @@ export interface FreshMention {
   askerUserId: string;
   question: string;
   thread: { author: string; text: string }[];
-  // The item's latest parked/gated foreman_events `data`, so run.mts (a future
-  // change, not this one) can resume the SAME agent session/branch instead of
-  // starting a fresh build — null when the item was never parked (or isn't in
-  // `review`). `data`'s JSON round-trips an absent field as `null`, not
+  // The item's latest parked-kind foreman_events `data` (see PARKED_EVENT_KINDS),
+  // so run.mts can resume the SAME agent session/branch instead of starting a
+  // fresh build — null when the item was never parked (or isn't in `review`).
+  // `data`'s JSON round-trips an absent field as `null`, not
   // `undefined`; normalized to `undefined` here so callers can use `??`/spread
   // without `null` leaking into a rebuilt prompt or request body.
   parked: { sessionId?: string; branch?: string; prUrl?: string } | null;
 }
 
-/** kinds that mean "this ticket is sitting in review awaiting a human" — see
- *  EVENT_KINDS in src/lib/foreman/observe.ts. Only these two ever park a
- *  ticket; `needs-input`/`ship-failed`/`merged-undeployed` etc. are distinct
- *  outcomes status-read.ts's approval panel also surfaces but that this
- *  mention/park-resume channel doesn't (yet) care about. */
-const PARK_EVENT_KINDS = ["parked", "gated"];
-
-/** Normalize a parked/gated event's `data` into the FreshMention `parked`
+/** Normalize a parked-kind event's `data` into the FreshMention `parked`
  *  shape: absent or explicitly-null fields (a Json column round-trips an
  *  omitted field as `null`) both become `undefined`. */
 function parkedInfoFromEventData(data: unknown): { sessionId?: string; branch?: string; prUrl?: string } {
@@ -396,9 +390,13 @@ function parkedInfoFromEventData(data: unknown): { sessionId?: string; branch?: 
 }
 
 /** Pool tickets with a privileged @Foreman mention that hasn't been consumed:
- *  - a ticket in `review` whose mention is newer than it ENTERED review
- *    (columnEnteredAt) → the caller requeues it (requeue resets the watermark).
- *    EVERY fresh comment past that watermark is returned, not just the first —
+ *  - a ticket in `review` whose mention is newer than BOTH when it ENTERED review
+ *    (columnEnteredAt) AND the bot's own last comment on it → the caller acts on
+ *    it. The bot-comment half matters because a terminal approve outcome
+ *    (nothing-built / merge-conflict / already-merged) posts a bot reply but never
+ *    MOVES the card, so columnEnteredAt alone would re-fire the same stale
+ *    "approve" every pass (F1). EVERY fresh comment past that watermark is
+ *    returned, not just the first —
  *    a parked ticket can pick up several plain replies in one pass (e.g. an
  *    earlier steering note followed by a later "approved"), and run.mts's
  *    combineIntents needs the whole set to land on the right combined intent;
@@ -439,7 +437,7 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const reviewItemById = new Map(reviewItems.map((r) => [r.id, r] as const));
   const parkEvents = reviewItems.length
     ? await prisma.foremanEvent.findMany({
-        where: { workItemId: { in: reviewItems.map((r) => r.id) }, kind: { in: PARK_EVENT_KINDS } },
+        where: { workItemId: { in: reviewItems.map((r) => r.id) }, kind: { in: [...PARKED_EVENT_KINDS] } },
         orderBy: { ts: "desc" },
         select: { workItemId: true, data: true },
       })
@@ -449,6 +447,29 @@ export async function freshMentions(): Promise<FreshMention[]> {
     if (!e.workItemId || parkedInfoByItem.has(e.workItemId)) continue; // ts-desc: first hit per item wins
     parkedInfoByItem.set(e.workItemId, parkedInfoFromEventData(e.data));
   }
+
+  // F1: the bot-reply half of the review-column watermark. Batched newest-bot-
+  // comment-per-review-item (groupBy, no N+1) over the SAME reviewItems snapshot.
+  // A terminal approve outcome posts a bot comment but never moves the card, so
+  // without this half a stale "approve" would sit above columnEnteredAt forever
+  // and re-fire every pass; the effective watermark below is the max of the two.
+  const botCommentAgg = reviewItems.length
+    ? await prisma.comment.groupBy({
+        by: ["workItemId"],
+        where: { workItemId: { in: reviewItems.map((r) => r.id) }, authorId: bot },
+        _max: { createdAt: true },
+      })
+    : [];
+  const lastBotCommentByItem = new Map<string, Date>();
+  for (const g of botCommentAgg) {
+    if (g.workItemId && g._max.createdAt) lastBotCommentByItem.set(g.workItemId, g._max.createdAt);
+  }
+  /** Effective review-column watermark (F1): a fresh comment on a parked ticket
+   *  must be newer than BOTH columnEnteredAt AND the bot's last comment on it.
+   *  Milliseconds; 0 when neither exists (preserving the old "null columnEnteredAt
+   *  ⇒ don't filter" behavior for a never-commented, freshly-created review row). */
+  const reviewWatermarkMs = (itemId: string, columnEnteredAt: Date | null): number =>
+    Math.max(columnEnteredAt?.getTime() ?? 0, lastBotCommentByItem.get(itemId)?.getTime() ?? 0);
 
   const mentions = await prisma.comment.findMany({
     where: {
@@ -500,10 +521,10 @@ export async function freshMentions(): Promise<FreshMention[]> {
       privCache.set(wi.orgId, priv);
     }
     if (!priv.has(m.authorId)) continue;
-    // Watermark: review-column tickets consume on requeue (columnEnteredAt);
-    // everything else consumes on the bot's last comment.
+    // Watermark: review-column tickets consume on max(columnEnteredAt, bot's last
+    // comment) (F1); every other column consumes on the bot's last comment alone.
     if (isReview) {
-      if (wi.columnEnteredAt && m.createdAt.getTime() <= wi.columnEnteredAt.getTime()) continue;
+      if (m.createdAt.getTime() <= reviewWatermarkMs(m.workItemId, wi.columnEnteredAt)) continue;
     } else {
       const lastBot = await prisma.comment.findFirst({
         where: { workItemId: m.workItemId, authorId: bot },
@@ -583,8 +604,9 @@ export async function freshMentions(): Promise<FreshMention[]> {
       privCache.set(wi.orgId, priv);
     }
     if (!priv.has(c.authorId)) continue;
-    // Same review-column watermark as the token path: consumed on requeue (columnEnteredAt).
-    if (wi.columnEnteredAt && c.createdAt.getTime() <= wi.columnEnteredAt.getTime()) continue;
+    // Same combined review-column watermark as the token path (F1): newer than
+    // BOTH columnEnteredAt and the bot's last comment on the item.
+    if (c.createdAt.getTime() <= reviewWatermarkMs(c.workItemId, wi.columnEnteredAt)) continue;
     const thread = await prisma.comment.findMany({
       where: { workItemId: c.workItemId },
       orderBy: { createdAt: "desc" },

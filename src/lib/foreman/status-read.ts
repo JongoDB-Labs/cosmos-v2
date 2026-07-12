@@ -1,7 +1,7 @@
 // Server-side assembly of the Foreman console payload. Read-only.
 import { prisma } from "@/lib/db/client";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
-import { pulseFor, type InFlightBuild } from "@/lib/foreman/observe";
+import { pulseFor, PARKED_EVENT_KINDS, type InFlightBuild } from "@/lib/foreman/observe";
 
 export type ForemanStatusPayload = {
   state: null | {
@@ -16,9 +16,16 @@ export type ForemanStatusPayload = {
   awaitingApproval: { workItemId: string; projectId: string; ticketKey: string | null; title: string; reason: string | null; prUrl: string | null; parkedAt: string }[];
   config: ReturnType<typeof readAutomationConfig>;
   hasHistory: boolean;
+  /** Whether the requesting actor may STEER the autonomous deployer (Approve /
+   *  Rebuild). This is the BASE org role (OWNER/ADMIN) — matching the daemon's own
+   *  privilegedUserIds gate — NOT the effective ORG_UPDATE permission, which a
+   *  work-role can widen onto a MEMBER whose comments the daemon would ignore.
+   *  Computed route-side and threaded in; the cards stay visible read-only when
+   *  false, only the steering buttons hide. */
+  actorCanSteer: boolean;
 };
 
-export async function assembleStatus(orgId: string): Promise<ForemanStatusPayload> {
+export async function assembleStatus(orgId: string, actorCanSteer = false): Promise<ForemanStatusPayload> {
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { settings: true } });
   const config = readAutomationConfig(org?.settings ?? {});
   const paused = !config.autonomousDelivery.enabled;
@@ -48,7 +55,7 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
     ? await prisma.foremanEvent.findMany({
         where: {
           workItemId: { in: parked.map((w) => w.id) },
-          kind: { in: ["parked", "gated", "needs-input", "ship-failed", "merged-undeployed"] },
+          kind: { in: [...PARKED_EVENT_KINDS] },
         },
         orderBy: { ts: "desc" },
       })
@@ -80,5 +87,5 @@ export async function assembleStatus(orgId: string): Promise<ForemanStatusPayloa
   });
 
   const hasHistory = (await prisma.foremanEvent.count({ where: { orgId } })) > 0;
-  return { state, paused, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory };
+  return { state, paused, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory, actorCanSteer };
 }

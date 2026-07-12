@@ -508,4 +508,130 @@ describe("freshMentions — bare-comment ingestion on parked tickets", () => {
       await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
     }
   });
+
+  it("bot-reply watermark (F1): an owner comment older than the bot's last comment is NOT returned; a newer one IS", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+    const bot = await botUserId();
+
+    const org = await prisma.organization.create({ data: { name: `botwm-test-${stamp}`, slug: `botwm-test-${stamp}` } });
+    const orgId = org.id;
+    const orgIds = [orgId];
+    const project = await prisma.project.create({ data: { orgId, name: "Bot Watermark Test", key: `BW${stamp.slice(-6).toUpperCase()}` } });
+    const projectId = project.id;
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } } },
+    });
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+    const eventIds: string[] = [];
+
+    try {
+      // Parked review item; entered review 5 min ago (before every comment below),
+      // so columnEnteredAt alone would NOT filter the stale comment — the bot-reply
+      // half of the watermark is what must reject it (a terminal approve outcome
+      // posts a bot comment but never moves the card off `review`).
+      const item = await prisma.workItem.create({
+        data: {
+          orgId, projectId, ticketNumber: 1,
+          title: `[botwm-test] parked ${stamp}`, description: "",
+          columnKey: "review", workItemTypeId: type.id, createdById: alice.id,
+          columnEnteredAt: new Date(Date.now() - 5 * 60_000),
+        },
+      });
+      itemIds.push(item.id);
+      const parkEvent = await prisma.foremanEvent.create({
+        data: { workItemId: item.id, orgId, ticketKey: "BW-001", kind: "parked", ts: new Date(), message: "checks failed", data: { sessionId: "sess-bw", branch: "auto/BW-1" } },
+      });
+      eventIds.push(parkEvent.id);
+
+      // (a) STALE owner comment at T-4min; (bot) reply at T-2min; (b) NEWER owner
+      // comment at T-30s. Created here in any order, then backdated by id below
+      // (Prisma can't set createdAt on create).
+      const staleText = `botwm stale approve ${stamp}`;
+      const stale = await prisma.comment.create({ data: { orgId, workItemId: item.id, authorId: alice.id, content: staleText } });
+      const botReply = await prisma.comment.create({ data: { orgId, workItemId: item.id, authorId: bot, content: `There's nothing built to merge yet ${stamp}` } });
+      const freshText = `botwm rebuild please ${stamp}`;
+      const freshOwner = await prisma.comment.create({ data: { orgId, workItemId: item.id, authorId: alice.id, content: freshText } });
+
+      await prisma.$executeRawUnsafe(`UPDATE "comments" SET "created_at" = $1 WHERE "id" = $2`, new Date(Date.now() - 4 * 60_000), stale.id);
+      await prisma.$executeRawUnsafe(`UPDATE "comments" SET "created_at" = $1 WHERE "id" = $2`, new Date(Date.now() - 2 * 60_000), botReply.id);
+      await prisma.$executeRawUnsafe(`UPDATE "comments" SET "created_at" = $1 WHERE "id" = $2`, new Date(Date.now() - 30_000), freshOwner.id);
+
+      const fresh = await freshMentions();
+      const rows = fresh.filter((m) => m.itemId === item.id);
+
+      // Only the post-bot-reply owner comment surfaces; the pre-reply stale one is
+      // consumed by the bot-comment watermark, so it can't re-fire forever (F1).
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.question).toBe(freshText);
+      expect(rows.find((r) => r.question === staleText)).toBeUndefined();
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
+      await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
+
+  it("ship-failed park surfaces on the bare-comment path (shared PARKED_EVENT_KINDS, F3)", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+
+    const org = await prisma.organization.create({ data: { name: `shipfail-test-${stamp}`, slug: `shipfail-test-${stamp}` } });
+    const orgId = org.id;
+    const orgIds = [orgId];
+    const project = await prisma.project.create({ data: { orgId, name: "Ship Failed Test", key: `SF${stamp.slice(-6).toUpperCase()}` } });
+    const projectId = project.id;
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } } },
+    });
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+    const eventIds: string[] = [];
+
+    try {
+      const item = await prisma.workItem.create({
+        data: {
+          orgId, projectId, ticketNumber: 1,
+          title: `[shipfail-test] parked ${stamp}`, description: "",
+          columnKey: "review", workItemTypeId: type.id, createdById: alice.id,
+          columnEnteredAt: new Date(Date.now() - 60_000),
+        },
+      });
+      itemIds.push(item.id);
+
+      // A `ship-failed` event — NOT parked/gated. Before F3, freshMentions only
+      // recognized parked/gated as "parked", so this item (a PR that failed to
+      // merge) was invisible to the approve/resume channel even though the console
+      // showed an Approve button. Now ship-failed is in the shared PARKED_EVENT_KINDS.
+      const ev = await prisma.foremanEvent.create({
+        data: {
+          workItemId: item.id, orgId, ticketKey: "SF-001", kind: "ship-failed", ts: new Date(),
+          message: "ship failed before merge", data: { prUrl: "https://example.com/pr/sf", branch: "auto/SF-1", sessionId: "sess-sf" },
+        },
+      });
+      eventIds.push(ev.id);
+      await prisma.comment.create({ data: { orgId, workItemId: item.id, authorId: alice.id, content: `approve ${stamp}` } });
+
+      const fresh = await freshMentions();
+      const row = fresh.find((m) => m.itemId === item.id);
+      expect(row).toBeDefined();
+      expect(row?.columnKey).toBe("review");
+      expect(row?.parked?.prUrl).toBe("https://example.com/pr/sf");
+      expect(row?.parked?.branch).toBe("auto/SF-1");
+      expect(row?.parked?.sessionId).toBe("sess-sf");
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
+      await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
 });

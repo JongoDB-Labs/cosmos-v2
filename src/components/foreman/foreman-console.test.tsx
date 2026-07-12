@@ -64,6 +64,7 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
       },
     },
     hasHistory: true,
+    actorCanSteer: true,
     ...overrides,
   };
 }
@@ -196,11 +197,41 @@ describe("ForemanConsole — awaiting approval", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /approve/i }));
 
+    // Approve deploys to prod, so it confirms first (mirrors Rebuild); the
+    // window.confirm stub returns true, so the click proceeds to the POST.
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Merge and deploy COSMOS-9? Foreman handles the rest.",
+    );
     const commentsUrl = "/api/v1/orgs/org-1/projects/proj-1/work-items/wi-1/comments";
     await waitFor(() => expect(holder.calls.some((c) => c.url === commentsUrl)).toBe(true));
     const call = holder.calls.find((c) => c.url === commentsUrl);
     expect(call?.method).toBe("POST");
     expect(call?.body).toEqual({ content: "approve" });
+  });
+
+  it("hides Approve and Rebuild when the actor cannot steer (base-role gate), card stays read-only", async () => {
+    holder.status = baseStatus({
+      actorCanSteer: false,
+      awaitingApproval: [
+        {
+          workItemId: "wi-1",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-9",
+          title: "Fix the flaky dedup test",
+          reason: "Touches the auth boundary — flagged for review.",
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/123",
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    // The card itself is still rendered (read-only) — reason + Open PR link.
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open pr/i })).toBeInTheDocument();
+    // ...but the steering levers are gone.
+    expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /rebuild/i })).not.toBeInTheDocument();
   });
 
   it("Rebuild confirms, then POSTs the existing requeue route when Rebuild is clicked", async () => {
