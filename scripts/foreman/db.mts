@@ -349,6 +349,32 @@ export interface FreshMention {
   askerUserId: string;
   question: string;
   thread: { author: string; text: string }[];
+  // The item's latest parked/gated foreman_events `data`, so run.mts (a future
+  // change, not this one) can resume the SAME agent session/branch instead of
+  // starting a fresh build — null when the item was never parked (or isn't in
+  // `review`). `data`'s JSON round-trips an absent field as `null`, not
+  // `undefined`; normalized to `undefined` here so callers can use `??`/spread
+  // without `null` leaking into a rebuilt prompt or request body.
+  parked: { sessionId?: string; branch?: string; prUrl?: string } | null;
+}
+
+/** kinds that mean "this ticket is sitting in review awaiting a human" — see
+ *  EVENT_KINDS in src/lib/foreman/observe.ts. Only these two ever park a
+ *  ticket; `needs-input`/`ship-failed`/`merged-undeployed` etc. are distinct
+ *  outcomes status-read.ts's approval panel also surfaces but that this
+ *  mention/park-resume channel doesn't (yet) care about. */
+const PARK_EVENT_KINDS = ["parked", "gated"];
+
+/** Normalize a parked/gated event's `data` into the FreshMention `parked`
+ *  shape: absent or explicitly-null fields (a Json column round-trips an
+ *  omitted field as `null`) both become `undefined`. */
+function parkedInfoFromEventData(data: unknown): { sessionId?: string; branch?: string; prUrl?: string } {
+  const d = (data ?? {}) as { sessionId?: string | null; branch?: string | null; prUrl?: string | null };
+  return {
+    sessionId: d.sessionId ?? undefined,
+    branch: d.branch ?? undefined,
+    prUrl: d.prUrl ?? undefined,
+  };
 }
 
 /** Pool tickets with a privileged @Foreman mention that hasn't been consumed:
@@ -365,6 +391,41 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const token = mentionToken(bot);
   const since = new Date(Date.now() - 14 * 24 * 3600_000);
   const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
+
+  // Every review-column item in the pool, batched with (one query, no N+1) each
+  // one's LATEST parked/gated event — the "is this ticket parked, and with what
+  // session/branch/PR" lookup both the review-column token-mention path below
+  // and the bare-comment ingestion path need. Reuses the batched
+  // latest-event-per-item shape from src/lib/foreman/status-read.ts, simplified:
+  // that read prefers the newest REASONED event (so a later blank event can't
+  // blank out a reason); this one just wants the newest event, full stop —
+  // `events` is ts-desc, so the first hit per item is already that.
+  const reviewItems = await prisma.workItem.findMany({
+    where: { projectId: { in: pool.map((p) => p.projectId) }, columnKey: "review" },
+    select: {
+      id: true,
+      orgId: true,
+      projectId: true,
+      title: true,
+      description: true,
+      columnEnteredAt: true,
+      ticketNumber: true,
+    },
+  });
+  const reviewItemById = new Map(reviewItems.map((r) => [r.id, r] as const));
+  const parkEvents = reviewItems.length
+    ? await prisma.foremanEvent.findMany({
+        where: { workItemId: { in: reviewItems.map((r) => r.id) }, kind: { in: PARK_EVENT_KINDS } },
+        orderBy: { ts: "desc" },
+        select: { workItemId: true, data: true },
+      })
+    : [];
+  const parkedInfoByItem = new Map<string, { sessionId?: string; branch?: string; prUrl?: string }>();
+  for (const e of parkEvents) {
+    if (!e.workItemId || parkedInfoByItem.has(e.workItemId)) continue; // ts-desc: first hit per item wins
+    parkedInfoByItem.set(e.workItemId, parkedInfoFromEventData(e.data));
+  }
+
   const mentions = await prisma.comment.findMany({
     where: {
       createdAt: { gt: since },
@@ -440,9 +501,79 @@ export async function freshMentions(): Promise<FreshMention[]> {
       thread: thread
         .reverse()
         .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+      parked: wi.columnKey === "review" ? (parkedInfoByItem.get(m.workItemId) ?? null) : null,
     });
     seenItems.add(m.workItemId);
   }
+
+  // Bare-comment ingestion: on a PARKED ticket, a privileged member's comment is
+  // already an instruction — the ticket is sitting in front of them for
+  // approval, so replying to it (no @Foreman token needed) reads the same as
+  // explicitly addressing the bot. Scoped tight so a bare comment can't
+  // accidentally trigger this anywhere else: item must be in `review` (not just
+  // any pool item) AND have a latest parked/gated event (`parkedInfoByItem`,
+  // built above from the SAME reviewItems snapshot — no separate "is it
+  // parked" query), same privileged-author + review watermark rules as the
+  // token path, and never the bot itself. `seenItems` is shared with the loop
+  // above, so an item a token mention already claimed is skipped here — token
+  // mentions are the explicit channel and take priority; this is the fallback
+  // for when the owner just replies in-thread instead. Because the query below
+  // excludes token-bearing content, a comment can never satisfy both sources,
+  // so there's nothing to dedupe by comment id — the shared `seenItems` (one
+  // FreshMention per item, the existing invariant) is enough.
+  const parkedItemIds = [...parkedInfoByItem.keys()];
+  const bareComments = parkedItemIds.length
+    ? await prisma.comment.findMany({
+        where: {
+          workItemId: { in: parkedItemIds },
+          createdAt: { gt: since },
+          authorId: { not: bot },
+          NOT: { content: { contains: token } },
+        },
+        select: { workItemId: true, authorId: true, content: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  for (const c of bareComments) {
+    if (!c.workItemId || seenItems.has(c.workItemId)) continue;
+    const wi = reviewItemById.get(c.workItemId);
+    if (!wi) continue; // defensive: parkedItemIds is derived from reviewItems, so this can't miss
+    let priv = privCache.get(wi.orgId);
+    if (!priv) {
+      priv = await privilegedUserIds(wi.orgId);
+      privCache.set(wi.orgId, priv);
+    }
+    if (!priv.has(c.authorId)) continue;
+    // Same review-column watermark as the token path: consumed on requeue (columnEnteredAt).
+    if (wi.columnEnteredAt && c.createdAt.getTime() <= wi.columnEnteredAt.getTime()) continue;
+    const thread = await prisma.comment.findMany({
+      where: { workItemId: c.workItemId },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { content: true, createdAt: true, authorId: true },
+    });
+    const authors = await prisma.user.findMany({
+      where: { id: { in: [...new Set(thread.map((t) => t.authorId))] } },
+      select: { id: true, displayName: true },
+    });
+    const nameOf = new Map(authors.map((a) => [a.id, a.displayName] as const));
+    out.push({
+      itemId: c.workItemId,
+      orgId: wi.orgId,
+      key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
+      title: wi.title,
+      description: wi.description,
+      columnKey: "review",
+      askerUserId: c.authorId,
+      question: c.content.trim(),
+      thread: thread
+        .reverse()
+        .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+      parked: parkedInfoByItem.get(c.workItemId) ?? null,
+    });
+    seenItems.add(c.workItemId);
+  }
+
   return out;
 }
 
