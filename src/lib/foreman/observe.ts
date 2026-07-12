@@ -22,6 +22,38 @@ export const PARKED_EVENT_KINDS = [
   "parked", "gated", "needs-input", "ship-failed", "merged-undeployed",
 ] as const;
 
+/** The ONE park event the console surfaces for a single work item's park history
+ *  — and therefore the one the Approve gate (src/lib/foreman/status-read.ts) and
+ *  the legacy prUrl backfill (src/lib/foreman/backfill-park-prurls.ts) must BOTH
+ *  act on, so the script can never patch an event the console isn't reading.
+ *  Selection: the NEWEST event carrying a non-null `data.reason`, falling back to
+ *  the newest event of any kind only when none is reasoned — so a later
+ *  reason-less `gated`/`ship-failed` (the daemon writes one on repeated failure,
+ *  run.mts) can't blank the reason/prUrl an earlier reasoned `parked` recorded.
+ *  Non-PARKED_EVENT_KINDS events are ignored; exact-ms ts ties break by `id`
+ *  descending, mirroring the events query's `orderBy: [{ ts: "desc" }, { id:
+ *  "desc" }]` so re-runs are stable. Pure — `data` is read defensively so a
+ *  malformed/legacy row never throws. */
+export function pickParkEvent<T extends { id: string; kind: string; ts: Date; data: unknown }>(
+  events: readonly T[],
+): T | null {
+  const parkKinds: readonly string[] = PARKED_EVENT_KINDS;
+  const isNewer = (a: T, b: T): boolean => {
+    const at = a.ts.getTime();
+    const bt = b.ts.getTime();
+    return at !== bt ? at > bt : a.id > b.id;
+  };
+  let newest: T | null = null;
+  let newestReasoned: T | null = null;
+  for (const e of events) {
+    if (!parkKinds.includes(e.kind)) continue;
+    if (!newest || isNewer(e, newest)) newest = e;
+    const hasReason = ((e.data ?? {}) as { reason?: unknown }).reason != null;
+    if (hasReason && (!newestReasoned || isNewer(e, newestReasoned))) newestReasoned = e;
+  }
+  return newestReasoned ?? newest;
+}
+
 /** A build a worker slot is holding right now, as stored in foreman_state.inFlight. */
 export type InFlightBuild = {
   key: string;

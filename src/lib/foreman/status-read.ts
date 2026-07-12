@@ -1,7 +1,7 @@
 // Server-side assembly of the Foreman console payload. Read-only.
 import { prisma } from "@/lib/db/client";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
-import { pulseFor, PARKED_EVENT_KINDS, type InFlightBuild } from "@/lib/foreman/observe";
+import { pulseFor, PARKED_EVENT_KINDS, pickParkEvent, type InFlightBuild } from "@/lib/foreman/observe";
 import { PRIORITY_RANK } from "@/lib/foreman/queue";
 
 export type ForemanStatusPayload = {
@@ -63,24 +63,27 @@ export async function assembleStatus(orgId: string, actorCanSteer = false): Prom
           workItemId: { in: parked.map((w) => w.id) },
           kind: { in: [...PARKED_EVENT_KINDS] },
         },
-        orderBy: { ts: "desc" },
+        // ts-desc, then id-desc so exact-ms ties resolve deterministically —
+        // the same secondary order the prUrl backfill's query uses, so both feed
+        // pickParkEvent an identically-ordered history.
+        orderBy: [{ ts: "desc" }, { id: "desc" }],
       })
     : [];
-  // Pick, per item, the newest event that actually carries a reason (data.reason),
-  // falling back to the newest listed event of any kind. Blindly taking the latest
-  // (the old `distinct`) let a later reason-less `gated`/`ship-failed` blank the
-  // reason/prUrl a prior `parked` recorded. `events` is ts-desc, so the first hit
-  // per item is the newest of its category.
-  const newestByItem = new Map<string, (typeof events)[number]>();
-  const reasonedByItem = new Map<string, (typeof events)[number]>();
+  // Per item, the ONE park event to surface — observe.pickParkEvent: the newest
+  // event carrying a reason (data.reason), falling back to the newest of any kind
+  // only when none is reasoned. Blindly taking the latest let a later reason-less
+  // `gated`/`ship-failed` blank the reason/prUrl a prior `parked` recorded. The
+  // legacy prUrl backfill (backfill-park-prurls.ts) selects through the SAME
+  // helper, so it can never patch an event this join isn't reading.
+  const eventsByItem = new Map<string, typeof events>();
   for (const e of events) {
     if (!e.workItemId) continue;
-    if (!newestByItem.has(e.workItemId)) newestByItem.set(e.workItemId, e);
-    const hasReason = ((e.data ?? {}) as { reason?: unknown }).reason != null;
-    if (hasReason && !reasonedByItem.has(e.workItemId)) reasonedByItem.set(e.workItemId, e);
+    const arr = eventsByItem.get(e.workItemId);
+    if (arr) arr.push(e);
+    else eventsByItem.set(e.workItemId, [e]);
   }
   const latestByItem = new Map(
-    parked.map((w) => [w.id, reasonedByItem.get(w.id) ?? newestByItem.get(w.id)] as const),
+    parked.map((w) => [w.id, pickParkEvent(eventsByItem.get(w.id) ?? [])] as const),
   );
   const awaitingApproval = parked.map((wi) => {
     const ev = latestByItem.get(wi.id);
