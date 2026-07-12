@@ -785,10 +785,24 @@ Two ways forward:
 - Or resolve it by hand: rebase \`${branch}\` onto \`origin/main\`, push, and merge the PR — my next reconcile pass will deploy it.`;
 }
 
+/** A REPO-mutating unit of work, appended to the coordinator's serialized ship
+ *  chain and settled on its own — see `enqueueRepoWork` in main(). Lets a
+ *  caller outside the chain (handleApprove) still react to what ITS OWN
+ *  enqueued work did, while the chain link itself never breaks the queue for
+ *  whatever runs next. */
+type EnqueueRepoWork = <T>(work: () => Promise<T>) => Promise<T>;
+
 /** Approve intent on a parked ticket: merge the parked PR now (deploy follows on
  *  the next reconcile pass, exactly as a human-merged draft PR does), or explain
- *  why there's nothing to merge. Never throws to its caller's loop guard. */
-async function handleApprove(m: FreshMention): Promise<void> {
+ *  why there's nothing to merge. The merge itself is routed through
+ *  `enqueueRepoWork` — the coordinator's ship-chain handle — so it can never
+ *  overlap a build's own merge/tag/deploy sequence on the shared REPO checkout
+ *  (two REPO-mutating ops racing there collide on `.git/index.lock`, which used
+ *  to surface here as a false "conflict" for a merge that actually landed).
+ *  Never throws to its caller's loop guard: every db.comment/obs.track call
+ *  around the merge is best-effort, so a DB blip can't obscure (or throw past)
+ *  the true merge outcome. */
+async function handleApprove(m: FreshMention, enqueueRepoWork: EnqueueRepoWork): Promise<void> {
   const prUrl = m.parked?.prUrl;
   const branch = m.parked?.branch ?? `auto/${m.key}`;
   const hasPr = Boolean(prUrl);
@@ -798,18 +812,27 @@ async function handleApprove(m: FreshMention): Promise<void> {
 
   if (decision === "merge") {
     try {
-      // Parked PRs are drafts — mark ready so the admin squash-merge can land.
-      await exec("gh", ["pr", "ready", branch], { cwd: REPO }).catch(() => undefined);
-      await ship.mergePr(branch);
+      // Serialized behind the ship chain (same mutex enqueueShip uses for
+      // build/ship): mark-ready + merge run only once nothing else is
+      // mutating the shared checkout.
+      await enqueueRepoWork(async () => {
+        // Parked PRs are drafts — mark ready so the admin squash-merge can land.
+        await exec("gh", ["pr", "ready", branch], { cwd: REPO }).catch(() => undefined);
+        await ship.mergePr(branch);
+      });
     } catch (e) {
       log(`${m.key} approve → merge FAILED (${String(e)}) — parked with conflict guidance`);
-      await db.comment(m.itemId, mergeConflictGuidance(m.key, branch, String(e)));
-      await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: `approve-merge failed — ${String(e)}`, data: { reason: "approve-merge failed", prUrl, branch } });
+      await db.comment(m.itemId, mergeConflictGuidance(m.key, branch, String(e))).catch(() => undefined);
+      await obs
+        .track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: `approve-merge failed — ${String(e)}`, data: { reason: "approve-merge failed", prUrl, branch } })
+        .catch(() => undefined);
       return;
     }
     log(`${m.key} approved via comment — PR merged; deploy on next reconcile`);
-    await db.comment(m.itemId, `Approved by ${author} — merging now; deploy follows automatically.`);
-    await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "queued-ship", message: "approved via comment — PR merged, deploy on next reconcile" });
+    await db.comment(m.itemId, `Approved by ${author} — merging now; deploy follows automatically.`).catch(() => undefined);
+    await obs
+      .track({ workItemId: m.itemId, ticketKey: m.key, kind: "queued-ship", message: "approved via comment — PR merged, deploy on next reconcile" })
+      .catch(() => undefined);
     return;
   }
   if (decision === "reconcile-only") {
@@ -827,20 +850,30 @@ async function handleApprove(m: FreshMention): Promise<void> {
  *  them per ticket, then route:
  *  - ticket in `review` (parked): classify the owner's combined replies via
  *    combineIntents into ONE intent —
- *      · approve  → merge the parked PR now (handleApprove);
+ *      · approve  → merge the parked PR now (handleApprove, via enqueueRepoWork
+ *                   so the merge is serialized behind the ship chain);
  *      · rebuild  → full requeue to backlog (legacy path; the instruction is
  *                   re-read by instructionsFor() at build time);
  *      · instruct → enqueue a RESUME of the same session/worktree (resumeQueue),
  *                   drained by the coordinator into a build slot.
  *    Each of these advances the review watermark (columnEnteredAt) when the ticket
- *    finally moves, so a mention is consumed exactly once.
+ *    finally moves, so a mention is consumed exactly once. freshMentions may now
+ *    surface several fresh comments for the SAME parked ticket in one pass (every
+ *    comment past the watermark, oldest first) — `texts` below folds all of them
+ *    into one combineIntents call so, e.g., a later "approve" always outranks an
+ *    earlier steering note in the same group.
  *  - any other column: REPLY in-thread via a read-only agent (Read/Grep/Glob in
  *    the repo — code-grounded answers, no shell, no edits) + ping the asker. The
  *    bot's reply timestamp is that path's watermark.
  *  `isInflight` reports whether a build/resume for an item is already running (so a
- *  duplicate resume isn't queued). Mentions by non-privileged members are filtered
+ *  duplicate resume isn't queued). `enqueueRepoWork` is the coordinator's ship-chain
+ *  handle, threaded down to handleApprove so its merge never races a build's own
+ *  REPO-mutating steps. Mentions by non-privileged members are filtered
  *  in db.freshMentions. Never throws — a mention hiccup must not stall delivery. */
-async function processMentions(isInflight: (itemId: string) => boolean): Promise<void> {
+async function processMentions(
+  isInflight: (itemId: string) => boolean,
+  enqueueRepoWork: EnqueueRepoWork,
+): Promise<void> {
   let fresh: FreshMention[];
   try {
     fresh = await db.freshMentions();
@@ -864,7 +897,7 @@ async function processMentions(isInflight: (itemId: string) => boolean): Promise
         const texts = group.map((g) => g.question).filter((q) => q.trim().length > 0);
         const { intent, instructions } = combineIntents(texts);
         if (intent === "approve") {
-          await handleApprove(m);
+          await handleApprove(m, enqueueRepoWork);
         } else if (intent === "rebuild") {
           // Unchanged legacy path: full requeue to backlog (the instruction is
           // re-consumed by instructionsFor() when the fresh build runs).
@@ -1344,6 +1377,22 @@ async function main(): Promise<void> {
       })
       .catch((e) => log(`${b.key} ship worker error: ${String(e)}`));
   };
+  // The approve path's handle onto the SAME mutex: a comment-triggered merge
+  // (handleApprove) is a REPO-mutating op too, so it rides this chain instead of
+  // running inline in the coordinator loop — otherwise it could overlap a
+  // build's own merge/tag/deploy sequence and collide on `.git/index.lock`.
+  // Unlike enqueueShip (fire-and-forget, itemId-keyed metadata cleanup), this
+  // returns the enqueued call's OWN promise so handleApprove can await its true
+  // result; the chain link itself (`shipChain =`) always resolves — success or
+  // failure — so one failed approve-merge can never stall a later-queued ship.
+  const enqueueRepoWork: EnqueueRepoWork = (work) => {
+    const result = shipChain.then(work);
+    shipChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
   try {
     while (!killed()) {
       try {
@@ -1384,7 +1433,7 @@ async function main(): Promise<void> {
         // outranks the queue. Never in DRY (it comments + moves cards on the live
         // board, and enqueues resumes). `inflight.has` lets it skip a duplicate
         // resume for an item already building.
-        if (!DRY) await processMentions((id) => inflight.has(id));
+        if (!DRY) await processMentions((id) => inflight.has(id), enqueueRepoWork);
         if (killed()) continue;
         // ── fill build slots, then pump on any completion ──
         const backlog = await db.getBacklog();

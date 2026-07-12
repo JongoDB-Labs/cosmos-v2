@@ -397,9 +397,15 @@ function parkedInfoFromEventData(data: unknown): { sessionId?: string; branch?: 
 
 /** Pool tickets with a privileged @Foreman mention that hasn't been consumed:
  *  - a ticket in `review` whose mention is newer than it ENTERED review
- *    (columnEnteredAt) → the caller requeues it (requeue resets the watermark);
+ *    (columnEnteredAt) → the caller requeues it (requeue resets the watermark).
+ *    EVERY fresh comment past that watermark is returned, not just the first —
+ *    a parked ticket can pick up several plain replies in one pass (e.g. an
+ *    earlier steering note followed by a later "approved"), and run.mts's
+ *    combineIntents needs the whole set to land on the right combined intent;
  *  - any other ticket whose mention is newer than the bot's own last comment
- *    on it → the caller replies (the reply becomes the new watermark).
+ *    on it → the caller replies (the reply becomes the new watermark). Capped
+ *    to the single oldest fresh mention per pass — the Q&A path answers one
+ *    question at a time.
  *  Scans the last 14 days of pool comments — the loop runs every few minutes,
  *  so the window is purely a query bound, not a semantic one. */
 export async function freshMentions(): Promise<FreshMention[]> {
@@ -471,12 +477,23 @@ export async function freshMentions(): Promise<FreshMention[]> {
     },
     orderBy: { createdAt: "asc" },
   });
-  const out: FreshMention[] = [];
-  const seenItems = new Set<string>();
+  // Each candidate is kept alongside its own comment's createdAt so the two
+  // sources below (token mentions, then bare parked-ticket replies) can be
+  // merged into one createdAt-ascending stream before returning — see the sort
+  // at the end of this function.
+  const dated: { createdAt: Date; mention: FreshMention }[] = [];
+  // Caps a NON-review item to its single oldest fresh token mention per pass
+  // (the Q&A reply path — one reply per pass is correct, and the bot's reply
+  // becomes the new watermark). Review-column items are NOT capped here: every
+  // fresh token mention on a parked ticket is pushed below, same as the
+  // bare-comment loop.
+  const seenNonReview = new Set<string>();
   const privCache = new Map<string, Set<string>>();
   for (const m of mentions) {
     const wi = m.workItem;
-    if (!wi || !m.workItemId || seenItems.has(m.workItemId)) continue;
+    if (!wi || !m.workItemId) continue;
+    const isReview = wi.columnKey === "review";
+    if (!isReview && seenNonReview.has(m.workItemId)) continue;
     let priv = privCache.get(wi.orgId);
     if (!priv) {
       priv = await privilegedUserIds(wi.orgId);
@@ -485,7 +502,7 @@ export async function freshMentions(): Promise<FreshMention[]> {
     if (!priv.has(m.authorId)) continue;
     // Watermark: review-column tickets consume on requeue (columnEnteredAt);
     // everything else consumes on the bot's last comment.
-    if (wi.columnKey === "review") {
+    if (isReview) {
       if (wi.columnEnteredAt && m.createdAt.getTime() <= wi.columnEnteredAt.getTime()) continue;
     } else {
       const lastBot = await prisma.comment.findFirst({
@@ -507,21 +524,24 @@ export async function freshMentions(): Promise<FreshMention[]> {
       select: { id: true, displayName: true },
     });
     const nameOf = new Map(authors.map((a) => [a.id, a.displayName] as const));
-    out.push({
-      itemId: m.workItemId,
-      orgId: wi.orgId,
-      key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
-      title: wi.title,
-      description: wi.description,
-      columnKey: wi.columnKey,
-      askerUserId: m.authorId,
-      question: m.content.split(token).join("").trim(),
-      thread: thread
-        .reverse()
-        .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
-      parked: wi.columnKey === "review" ? (parkedInfoByItem.get(m.workItemId) ?? null) : null,
+    dated.push({
+      createdAt: m.createdAt,
+      mention: {
+        itemId: m.workItemId,
+        orgId: wi.orgId,
+        key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
+        title: wi.title,
+        description: wi.description,
+        columnKey: wi.columnKey,
+        askerUserId: m.authorId,
+        question: m.content.split(token).join("").trim(),
+        thread: thread
+          .reverse()
+          .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+        parked: isReview ? (parkedInfoByItem.get(m.workItemId) ?? null) : null,
+      },
     });
-    seenItems.add(m.workItemId);
+    if (!isReview) seenNonReview.add(m.workItemId);
   }
 
   // Bare-comment ingestion: on a PARKED ticket, a privileged member's comment is
@@ -532,13 +552,14 @@ export async function freshMentions(): Promise<FreshMention[]> {
   // any pool item) AND have a latest parked/gated event (`parkedInfoByItem`,
   // built above from the SAME reviewItems snapshot — no separate "is it
   // parked" query), same privileged-author + review watermark rules as the
-  // token path, and never the bot itself. `seenItems` is shared with the loop
-  // above, so an item a token mention already claimed is skipped here — token
-  // mentions are the explicit channel and take priority; this is the fallback
-  // for when the owner just replies in-thread instead. Because the query below
-  // excludes token-bearing content, a comment can never satisfy both sources,
-  // so there's nothing to dedupe by comment id — the shared `seenItems` (one
-  // FreshMention per item, the existing invariant) is enough.
+  // token path, and never the bot itself. EVERY fresh bare comment past the
+  // watermark is pushed (not just the first) — a parked ticket can rack up
+  // several plain replies in one pass, and all of them need to reach
+  // run.mts's combineIntents. Because the query below excludes token-bearing
+  // content, a comment can never satisfy both this source and the token loop
+  // above, so there's nothing to dedupe by comment id between the two sources
+  // (verified: the token query requires `content contains token`, this one
+  // requires NOT).
   const parkedItemIds = [...parkedInfoByItem.keys()];
   const bareComments = parkedItemIds.length
     ? await prisma.comment.findMany({
@@ -553,7 +574,7 @@ export async function freshMentions(): Promise<FreshMention[]> {
       })
     : [];
   for (const c of bareComments) {
-    if (!c.workItemId || seenItems.has(c.workItemId)) continue;
+    if (!c.workItemId) continue;
     const wi = reviewItemById.get(c.workItemId);
     if (!wi) continue; // defensive: parkedItemIds is derived from reviewItems, so this can't miss
     let priv = privCache.get(wi.orgId);
@@ -575,24 +596,31 @@ export async function freshMentions(): Promise<FreshMention[]> {
       select: { id: true, displayName: true },
     });
     const nameOf = new Map(authors.map((a) => [a.id, a.displayName] as const));
-    out.push({
-      itemId: c.workItemId,
-      orgId: wi.orgId,
-      key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
-      title: wi.title,
-      description: wi.description,
-      columnKey: "review",
-      askerUserId: c.authorId,
-      question: c.content.trim(),
-      thread: thread
-        .reverse()
-        .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
-      parked: parkedInfoByItem.get(c.workItemId) ?? null,
+    dated.push({
+      createdAt: c.createdAt,
+      mention: {
+        itemId: c.workItemId,
+        orgId: wi.orgId,
+        key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
+        title: wi.title,
+        description: wi.description,
+        columnKey: "review",
+        askerUserId: c.authorId,
+        question: c.content.trim(),
+        thread: thread
+          .reverse()
+          .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+        parked: parkedInfoByItem.get(c.workItemId) ?? null,
+      },
     });
-    seenItems.add(c.workItemId);
   }
 
-  return out;
+  // A review item can now carry entries from BOTH sources above (pushed in two
+  // separate passes); sort the combined stream by createdAt ascending so a
+  // parked ticket's fresh comments reach run.mts — and its per-item grouping —
+  // in the order they were actually written, oldest first.
+  dated.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return dated.map((d) => d.mention);
 }
 
 /** Ping the asker that Foreman replied on the ticket (bell + push). */

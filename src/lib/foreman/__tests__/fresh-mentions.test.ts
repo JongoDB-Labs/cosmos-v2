@@ -246,7 +246,7 @@ describe("freshMentions — bare-comment ingestion on parked tickets", () => {
     }
   });
 
-  it("dedupe-token-wins: returns exactly one FreshMention when both token and bare comment exist, preferring token", async () => {
+  it("token-and-bare-both-return: a parked item's token comment and a later bare comment BOTH surface, oldest first", async () => {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
     const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
@@ -317,14 +317,18 @@ describe("freshMentions — bare-comment ingestion on parked tickets", () => {
       const fresh = await freshMentions();
       const dedupeRow = fresh.filter((m) => m.itemId === dedupeItem.id);
 
-      // Exactly one FreshMention per item
-      expect(dedupeRow).toHaveLength(1);
-      // It should be the token one (token comment is created first and therefore has earlier
-      // createdAt, so it wins in the token-path dedup logic; the question text should not
-      // include the token)
+      // BOTH the token comment and the bare comment now surface for a parked
+      // item — a review-column item is no longer capped at one FreshMention per
+      // pass, so an older instruct can never again silently swallow a newer
+      // approve (or vice versa) before combineIntents sees it. Returned
+      // oldest-first: the token comment was created first, so it's index 0; the
+      // bare comment (created second) follows at index 1.
+      expect(dedupeRow).toHaveLength(2);
       expect(dedupeRow[0]?.question).toContain("please fix this");
       expect(dedupeRow[0]?.question).not.toContain(token);
       expect(dedupeRow[0]?.parked?.sessionId).toBe("sess-dedupe");
+      expect(dedupeRow[1]?.question).toBe(bareCommentText);
+      expect(dedupeRow[1]?.parked?.sessionId).toBe("sess-dedupe");
     } finally {
       await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
       await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
@@ -428,6 +432,78 @@ describe("freshMentions — bare-comment ingestion on parked tickets", () => {
     } finally {
       await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
       await prisma.foremanEvent.deleteMany({ where: { id: { in: eventIds } } });
+      await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
+      await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
+    }
+  });
+
+  it("non-review-still-single: a NON-review item with two fresh token comments still returns exactly one FreshMention", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const alice = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" }, select: { id: true } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null }, select: { id: true } });
+    const bot = await botUserId();
+    const token = `<@${bot}>`;
+
+    const org = await prisma.organization.create({
+      data: { name: `nonreview-cap-test-${stamp}`, slug: `nonreview-cap-test-${stamp}` },
+    });
+    const orgId = org.id;
+    const orgIds = [orgId];
+
+    const project = await prisma.project.create({
+      data: { orgId, name: "Non-Review Cap Test", key: `NR${stamp.slice(-6).toUpperCase()}` },
+    });
+    const projectId = project.id;
+
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        settings: { autonomousDelivery: { enabled: true, projectIds: [projectId], workers: 1, notify: { parked: true, shipped: true } } },
+      },
+    });
+
+    await prisma.orgMember.create({ data: { orgId, userId: alice.id, role: "ADMIN" } });
+
+    const itemIds: string[] = [];
+
+    try {
+      // A non-review (backlog) item — the Q&A watermark path (newer than the
+      // bot's last comment), not the review requeue watermark.
+      const backlogItem = await prisma.workItem.create({
+        data: {
+          orgId,
+          projectId,
+          ticketNumber: 1,
+          title: `[nonreview-cap-test] backlog ${stamp}`,
+          description: "",
+          columnKey: "backlog",
+          workItemTypeId: type.id,
+          createdById: alice.id,
+        },
+      });
+      itemIds.push(backlogItem.id);
+
+      // TWO fresh token mentions on the SAME non-review item, both privileged
+      // and both past the (nonexistent) bot-reply watermark.
+      await prisma.comment.create({
+        data: { orgId, workItemId: backlogItem.id, authorId: alice.id, content: `first question ${token} please` },
+      });
+      await prisma.comment.create({
+        data: { orgId, workItemId: backlogItem.id, authorId: alice.id, content: `second question ${token} too` },
+      });
+
+      const fresh = await freshMentions();
+      const rows = fresh.filter((m) => m.itemId === backlogItem.id);
+
+      // Still capped at exactly one — the Q&A reply path (non-review columns)
+      // answers a single question per pass; the bot's reply becomes the new
+      // watermark that surfaces the second question on the NEXT pass. Only
+      // review-column items are exempt from this cap.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.question).toContain("first question");
+      expect(rows[0]?.columnKey).toBe("backlog");
+    } finally {
+      await prisma.comment.deleteMany({ where: { workItemId: { in: itemIds } } });
       await prisma.workItem.deleteMany({ where: { id: { in: itemIds } } });
       await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
     }
