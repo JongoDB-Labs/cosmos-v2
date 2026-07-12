@@ -233,6 +233,7 @@ describe("ForemanConsole — awaiting approval", () => {
     // ...but the steering levers are gone.
     expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /rebuild/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /rework/i })).not.toBeInTheDocument();
   });
 
   it("Rebuild confirms, then POSTs the existing requeue route when Rebuild is clicked", async () => {
@@ -395,5 +396,48 @@ describe("ForemanConsole — Rework dialog", () => {
     expect(call?.method).toBe("POST");
     expect(call?.body).toEqual({ content: "Also handle the retry case" });
     expect(toast.success).toHaveBeenCalledWith("Sent — Foreman picks it up on its next pass (≤1 min)");
+  });
+
+  it("resets the textarea across tickets — typed text for one ticket doesn't leak into the next", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-1",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-9",
+          title: "Fix the flaky dedup test",
+          reason: "Touches the auth boundary — flagged for review.",
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/123",
+          parkedAt: new Date().toISOString(),
+        },
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Clarity suggestions — needs review.",
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/124",
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    const reworkButtons = screen.getAllByRole("button", { name: /rework/i });
+    expect(reworkButtons).toHaveLength(2);
+
+    // Open for ticket A, type, cancel without sending.
+    fireEvent.click(reworkButtons[0]);
+    expect(await screen.findByText("Rework COSMOS-9")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("What should change?"), {
+      target: { value: "Notes meant only for COSMOS-9" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    // Open for ticket B — the single shared dialog must not carry A's text over.
+    fireEvent.click(reworkButtons[1]);
+    expect(await screen.findByText("Rework COSMOS-10")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("What should change?")).toHaveValue("");
   });
 });

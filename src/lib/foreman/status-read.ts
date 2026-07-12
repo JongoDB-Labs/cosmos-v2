@@ -107,7 +107,14 @@ export async function assembleStatus(orgId: string, actorCanSteer = false): Prom
           id: true, projectId: true, title: true, priority: true, ticketNumber: true,
           columnEnteredAt: true,
         },
-        orderBy: { columnEnteredAt: "asc" },
+        // `take: 50` applies BEFORE the in-memory sort below, so the DB order
+        // must already be priority-aware — a plain columnEnteredAt order would
+        // silently drop a fresh CRITICAL past the cap on a busy board. Priority
+        // is a native Postgres enum declared CRITICAL/HIGH/MEDIUM/LOW (see
+        // Priority in prisma/schema.prisma), and Postgres orders native enums
+        // by declaration position, so `asc` here reproduces PRIORITY_RANK order
+        // in SQL. The in-memory sort stays as the final tie-break authority.
+        orderBy: [{ priority: "asc" }, { columnEnteredAt: "asc" }],
         take: 50,
       })
     : [];
