@@ -9,7 +9,7 @@
 // config to seed.
 import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { getDemotionFacts } from "../../../../scripts/foreman/db.mjs";
+import { getDemotionFacts, botUserId } from "../../../../scripts/foreman/db.mjs";
 
 describe("getDemotionFacts — batched planner demotion facts", () => {
   it("reports newest planned-event ts / updatedAt / newest comment ts per item, null when absent", async () => {
@@ -79,7 +79,22 @@ describe("getDemotionFacts — batched planner demotion facts", () => {
       // Item 3: never planned, no comments → plannedAt null, lastCommentAt null.
       const item3 = await createItem(3, "never-planned", demotedAt);
 
-      const facts = await getDemotionFacts([item1.id, item2.id, item3.id]);
+      // Item 4: a planned event AND a later comment authored by the FOREMAN BOT
+      // (not a human). The bot replies to @-mentions on backlog tickets too, but
+      // its OWN reply must never count as post-demotion activity — so lastCommentAt
+      // stays null and the demotion keeps standing. Contrast item 2, whose HUMAN
+      // comment (also newer than the demotion) DOES re-open it.
+      const bot = await botUserId();
+      const item4 = await createItem(4, "planned-bot-comment", demotedAt);
+      const ev4 = await prisma.foremanEvent.create({
+        data: { workItemId: item4.id, orgId, ticketKey: "PD-4", kind: "planned", ts: plannedTs, message: "Planned PD-4 → To-do", data: { why: "roi" } },
+      });
+      eventIds.push(ev4.id);
+      const botCommentAt = new Date(Date.now() - 1800_000); // 30m ago (after the demotion)
+      const c4 = await prisma.comment.create({ data: { orgId, workItemId: item4.id, authorId: bot, content: "Answered your question." } });
+      await prisma.$executeRawUnsafe(`UPDATE "comments" SET "created_at" = $1 WHERE "id" = $2`, botCommentAt, c4.id);
+
+      const facts = await getDemotionFacts([item1.id, item2.id, item3.id, item4.id]);
 
       const f1 = facts.get(item1.id);
       expect(f1).toBeDefined();
@@ -87,6 +102,7 @@ describe("getDemotionFacts — batched planner demotion facts", () => {
       expect(f1?.lastCommentAt).toBeNull();
       expect(f1?.updatedAt).toBeInstanceOf(Date);
 
+      // Human comment newer than the demotion → reflected (this re-opens the demotion).
       const f2 = facts.get(item2.id);
       expect(f2?.plannedAt?.getTime()).toBe(plannedTs.getTime());
       expect(f2?.lastCommentAt?.getTime()).toBe(commentAt.getTime());
@@ -95,6 +111,12 @@ describe("getDemotionFacts — batched planner demotion facts", () => {
       expect(f3).toBeDefined();
       expect(f3?.plannedAt).toBeNull();
       expect(f3?.lastCommentAt).toBeNull();
+
+      // Bot-authored comment newer than the demotion → excluded, lastCommentAt null
+      // (the demotion still stands despite the bot's reply).
+      const f4 = facts.get(item4.id);
+      expect(f4?.plannedAt?.getTime()).toBe(plannedTs.getTime());
+      expect(f4?.lastCommentAt).toBeNull();
 
       // Empty input short-circuits to an empty map (no queries).
       expect((await getDemotionFacts([])).size).toBe(0);

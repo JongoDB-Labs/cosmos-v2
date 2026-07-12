@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pickNext } from "@/lib/foreman/queue";
-import { plannerPrompt, parsePlannerPicks, isStandingDemotion, PLAN_TARGET, type PlannerCandidate } from "@/lib/foreman/planner";
+import { plannerPrompt, parsePlannerPicks, isStandingDemotion, rankAndCapCandidates, PLAN_TARGET, PLANNER_MAX_CANDIDATES, type PlannerCandidate } from "@/lib/foreman/planner";
 import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, type TicketBrief } from "@/lib/foreman/prompt";
@@ -184,8 +184,15 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
       });
     });
     if (eligible.length === 0) return;
-    const byKey = new Map(eligible.map((p) => [buildRef(p.projectKey, p.ticketNumber), p]));
-    const candidates: PlannerCandidate[] = eligible.map((p) => ({
+    // Bound the digest: rank by priority then oldest-first (shared with pickNext)
+    // and keep at most PLANNER_MAX_CANDIDATES, so a large backlog can't bloat the
+    // prompt — the overflow dropped is always the lowest-priority, newest work.
+    const ranked = rankAndCapCandidates(eligible, PLANNER_MAX_CANDIDATES);
+    if (eligible.length > PLANNER_MAX_CANDIDATES) {
+      log(`planner: digest capped at ${PLANNER_MAX_CANDIDATES} of ${eligible.length} candidates`);
+    }
+    const byKey = new Map(ranked.map((p) => [buildRef(p.projectKey, p.ticketNumber), p]));
+    const candidates: PlannerCandidate[] = ranked.map((p) => ({
       key: buildRef(p.projectKey, p.ticketNumber),
       title: p.title,
       description: p.description ?? "",
@@ -212,18 +219,34 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
         log(`planner (dry): would promote ${pick.key} — ${pick.why}`);
         continue;
       }
-      await db.moveColumn(item.id, "todo");
-      item.columnKey = "todo"; // in-memory view stays truthful for this pass's pickNext
-      await obs
-        .track({
+      // Guarded promote: backlog → todo ONLY if still in backlog. A human who
+      // moved the card during the ~120s LLM window (e.g. backlog → done) wins —
+      // skip rather than resurrect it, and don't write the event or patch the row.
+      const promoted = await db.promoteToTodo(item.id);
+      if (!promoted) {
+        log(`planner: ${pick.key} moved while planning — skipped`);
+        continue;
+      }
+      // Keep this pass's in-memory view truthful for pickNext: the new column AND
+      // a fresh columnEnteredAt matching what promoteToTodo just stamped, so the
+      // FIFO tie-break agrees with the DB.
+      item.columnKey = "todo";
+      item.columnEnteredAt = new Date().toISOString();
+      // The `planned` event is load-bearing — getDemotionFacts keys demotion
+      // protection off it — so write it strictly. On failure the promotion still
+      // stands (do NOT revert); only its demotion protection is degraded, so warn.
+      try {
+        await obs.trackStrict({
           workItemId: item.id,
           orgId: item.orgId,
           ticketKey: pick.key,
           kind: "planned",
           message: `Planned ${pick.key} → To-do: ${pick.why || "queued"}`,
           data: { why: pick.why },
-        })
-        .catch(() => undefined);
+        });
+      } catch {
+        log(`planner: WARN planned-event write failed for ${pick.key} — demotion protection degraded`);
+      }
       log(`planner: ${pick.key} → todo — ${pick.why}`);
     }
   } catch (e) {

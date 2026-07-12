@@ -3,7 +3,9 @@ import {
   plannerPrompt,
   parsePlannerPicks,
   isStandingDemotion,
+  rankAndCapCandidates,
   PLAN_TARGET,
+  PLANNER_MAX_CANDIDATES,
   type PlannerCandidate,
 } from "./planner";
 
@@ -167,5 +169,64 @@ describe("isStandingDemotion", () => {
     const fresh = { plannedAt: d("-7d"), demotedAt: d("-6d"), updatedAt: d("-7d"), lastCommentAt: null, now: d("0") };
     expect(isStandingDemotion(elapsed)).toBe(false);
     expect(isStandingDemotion(fresh)).toBe(true);
+  });
+
+  // The demotion move itself bumps Prisma's @updatedAt a few ms-to-seconds after
+  // the route stamps columnEnteredAt (the demotedAt this predicate reads), so an
+  // exact updatedAt <= demotedAt would read that clock noise as a post-demotion
+  // edit and wrongly re-open the demotion. The 5s grace absorbs it while a real
+  // human edit (seconds+ later) still re-opens.
+  it("grace: updatedAt 4ms after demotedAt still stands (the demotion write's own @updatedAt bump)", () => {
+    expect(isStandingDemotion({ ...base, updatedAt: new Date(base.demotedAt.getTime() + 4) })).toBe(true);
+  });
+  it("grace: updatedAt 4.9s after demotedAt still stands (within the 5s grace)", () => {
+    expect(isStandingDemotion({ ...base, updatedAt: new Date(base.demotedAt.getTime() + 4900) })).toBe(true);
+  });
+  it("grace: updatedAt 6s after demotedAt is a real post-demotion edit → re-eligible", () => {
+    expect(isStandingDemotion({ ...base, updatedAt: new Date(base.demotedAt.getTime() + 6000) })).toBe(false);
+  });
+});
+
+describe("rankAndCapCandidates", () => {
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  it("orders by priority then oldest-first and caps to the limit, dropping the newest lowest-priority", () => {
+    // 39 HIGH (all older) + two LOW (rank 3, so always last). At a cap of 40 the
+    // slice keeps every HIGH plus the OLDER low and drops the NEWEST low — i.e.
+    // the newest lowest-priority candidate is the one that falls off.
+    const highs = Array.from({ length: 39 }, (_, i) => ({
+      id: `high-${i}`,
+      priority: "HIGH" as const,
+      columnEnteredAt: iso(1_000_000 + i * 1000),
+    }));
+    const olderLow = { id: "low-older", priority: "LOW" as const, columnEnteredAt: iso(8_000_000) };
+    const newestLow = { id: "low-newest", priority: "LOW" as const, columnEnteredAt: iso(9_000_000) };
+    const out = rankAndCapCandidates([newestLow, olderLow, ...highs], PLANNER_MAX_CANDIDATES);
+
+    expect(out).toHaveLength(40);
+    expect(out.some((c) => c.id === "low-newest")).toBe(false); // dropped
+    expect(out.some((c) => c.id === "low-older")).toBe(true); // kept
+    expect(out[0].id).toBe("high-0"); // oldest HIGH first
+    expect(out[38].id).toBe("high-38"); // newest HIGH last among highs
+    expect(out[39].id).toBe("low-older"); // then the surviving (older) low
+  });
+
+  it("returns every item, sorted, when under the cap (CRITICAL before LOW, oldest-first)", () => {
+    const items = [
+      { id: "low", priority: "LOW" as const, columnEnteredAt: iso(2000) },
+      { id: "crit", priority: "CRITICAL" as const, columnEnteredAt: iso(3000) },
+      { id: "high-new", priority: "HIGH" as const, columnEnteredAt: iso(5000) },
+      { id: "high-old", priority: "HIGH" as const, columnEnteredAt: iso(1000) },
+    ];
+    expect(rankAndCapCandidates(items, 40).map((c) => c.id)).toEqual(["crit", "high-old", "high-new", "low"]);
+  });
+
+  it("does not mutate its input", () => {
+    const items = [
+      { id: "b", priority: "LOW" as const, columnEnteredAt: iso(2000) },
+      { id: "a", priority: "CRITICAL" as const, columnEnteredAt: iso(3000) },
+    ];
+    rankAndCapCandidates(items, 40);
+    expect(items.map((c) => c.id)).toEqual(["b", "a"]);
   });
 });

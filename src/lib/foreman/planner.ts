@@ -3,12 +3,25 @@
 // the predicate that respects a human demotion. No I/O — imported by the daemon
 // (scripts/foreman/run.mts) and unit-tested in isolation (vitest cannot load the
 // .mts daemon modules, so all pure logic lives here).
+import { PRIORITY_RANK, type QueueItem } from "./queue";
 
 /** Number of tickets To-do is kept stocked to. */
 export const PLAN_TARGET = 3;
 
+/** Most candidates included in one ranking digest — bounds prompt size (and cost)
+ *  when the backlog is large; the overflow is dropped after the deterministic
+ *  ordering below, so the highest-priority/oldest work is always what's kept. */
+export const PLANNER_MAX_CANDIDATES = 40;
+
 /** How long a human demotion suppresses re-promotion, absent any new activity. */
 const DEMOTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Grace applied to the `updatedAt <= demotedAt` demotion test. The demotion move
+ *  writes Prisma's @updatedAt a few milliseconds-to-seconds AFTER the route stamps
+ *  columnEnteredAt (the demotedAt this predicate reads), so an exact `<=` would
+ *  read that write's own clock skew as a post-demotion edit and wrongly re-open
+ *  the demotion. A real human edit lands seconds+ later, well past this grace. */
+const DEMOTION_UPDATED_GRACE_MS = 5_000;
 
 /** Max length of a promotion's one-line rationale. */
 const WHY_MAX = 140;
@@ -40,10 +53,31 @@ export function isStandingDemotion(f: {
 }): boolean {
   if (f.plannedAt === null) return false;
   if (f.plannedAt.getTime() >= f.demotedAt.getTime()) return false;
-  if (f.updatedAt.getTime() > f.demotedAt.getTime()) return false;
+  // The demotion write stamps @updatedAt just after columnEnteredAt (=demotedAt),
+  // so allow DEMOTION_UPDATED_GRACE_MS of clock noise before treating an updatedAt
+  // as a genuine post-demotion edit that re-opens the ticket.
+  if (f.updatedAt.getTime() > f.demotedAt.getTime() + DEMOTION_UPDATED_GRACE_MS) return false;
   if (f.lastCommentAt !== null && f.lastCommentAt.getTime() > f.demotedAt.getTime()) return false;
   if (f.now.getTime() - f.demotedAt.getTime() >= DEMOTION_WINDOW_MS) return false;
   return true;
+}
+
+/** Deterministically order candidates for the digest and cap the list: priority
+ *  first (CRITICAL < HIGH < MEDIUM < LOW, via the shared PRIORITY_RANK), then
+ *  oldest columnEnteredAt first — the same ordering queue.pickNext uses within a
+ *  tier — so when the backlog exceeds `cap` the overflow that's dropped is always
+ *  the lowest-priority, newest work. Pure and non-mutating (sorts a copy). */
+export function rankAndCapCandidates<T extends { priority: QueueItem["priority"]; columnEnteredAt: string }>(
+  items: T[],
+  cap: number,
+): T[] {
+  return [...items]
+    .sort(
+      (a, b) =>
+        PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+        Date.parse(a.columnEnteredAt) - Date.parse(b.columnEnteredAt),
+    )
+    .slice(0, cap);
 }
 
 /** The ranking prompt: a numbered digest of every candidate followed by a strict

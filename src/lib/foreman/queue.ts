@@ -9,7 +9,9 @@ export interface QueueItem {
 /** Columns that count as "ready to build". */
 export const TODO_KEYS = new Set(["backlog", "todo"]);
 
-const RANK: Record<QueueItem["priority"], number> = {
+/** Priority ordering shared by the queue's pick order and the planner's digest
+ *  cap: lower rank = worked first (CRITICAL < HIGH < MEDIUM < LOW). */
+export const PRIORITY_RANK: Record<QueueItem["priority"], number> = {
   CRITICAL: 0,
   HIGH: 1,
   MEDIUM: 2,
@@ -28,7 +30,7 @@ export function pickNext(items: QueueItem[]): QueueItem | null {
   return [...todo].sort(
     (a, b) =>
       (TIER[a.columnKey] ?? 1) - (TIER[b.columnKey] ?? 1) ||
-      RANK[a.priority] - RANK[b.priority] ||
+      PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
       Date.parse(a.columnEnteredAt) - Date.parse(b.columnEnteredAt),
   )[0];
 }

@@ -198,6 +198,11 @@ export async function getDemotionFacts(
 ): Promise<Map<string, { plannedAt: Date | null; updatedAt: Date; lastCommentAt: Date | null }>> {
   const facts = new Map<string, { plannedAt: Date | null; updatedAt: Date; lastCommentAt: Date | null }>();
   if (itemIds.length === 0) return facts;
+  // Exclude the Foreman bot's OWN comments from lastCommentAt: the bot replies to
+  // @-mentions on backlog tickets too (run.mts's mention Q&A path), and a bot reply
+  // must not count as post-demotion activity that re-opens a human's demotion —
+  // only a human touch should. Same bot-author filter freshMentions uses.
+  const bot = await botUserId();
   const [plannedAgg, commentAgg, items] = await Promise.all([
     prisma.foremanEvent.groupBy({
       by: ["workItemId"],
@@ -206,7 +211,7 @@ export async function getDemotionFacts(
     }),
     prisma.comment.groupBy({
       by: ["workItemId"],
-      where: { workItemId: { in: itemIds } },
+      where: { workItemId: { in: itemIds }, authorId: { not: bot } },
       _max: { createdAt: true },
     }),
     prisma.workItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, updatedAt: true } }),
@@ -278,6 +283,24 @@ export async function claimTicket(itemId: string): Promise<boolean> {
   const r = await prisma.workItem.updateMany({
     where: { id: itemId, columnKey: { in: TODO_COLUMNS } },
     data: { columnKey: "in-progress", columnEnteredAt: new Date() },
+  });
+  if (r.count === 1) {
+    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    return true;
+  }
+  return false;
+}
+
+/** Atomically promote a ticket the planner picked from backlog → todo: flips
+ *  backlog → todo only if it is STILL in backlog, so a human's concurrent move
+ *  during the planner's LLM window (e.g. backlog → done) is never clobbered back
+ *  to todo (updateMany's count is the winner signal — mirrors claimTicket). Carries
+ *  linked feedback with the move (same as claimTicket) so a promoted ticket's
+ *  feedback reads PLANNED. */
+export async function promoteToTodo(itemId: string): Promise<boolean> {
+  const r = await prisma.workItem.updateMany({
+    where: { id: itemId, columnKey: "backlog" },
+    data: { columnKey: "todo", columnEnteredAt: new Date() },
   });
   if (r.count === 1) {
     await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
