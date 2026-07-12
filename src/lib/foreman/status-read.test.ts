@@ -220,4 +220,329 @@ describe("assembleStatus", () => {
     const restored = await assembleStatus(org.id);
     expect(restored.paused).toBe(baselinePaused);
   });
+
+  it("returns upNext: todo-column items in claim order (priority then FIFO), why from the latest planned event and null when Foreman never touched it, scoped to delivery projects, no permission/member fields", async () => {
+    const org = await prisma.organization.findFirstOrThrow({
+      where: { slug: "test-org" },
+      select: { id: true, settings: true },
+    });
+    const project = await prisma.project.findFirstOrThrow({ where: { orgId: org.id } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { OR: [{ orgId: org.id }, { orgId: null }] } });
+    const author = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
+
+    const originalSettings = org.settings;
+    const settingsRecord = (org.settings ?? {}) as Record<string, unknown>;
+
+    const last = await prisma.workItem.findFirst({
+      where: { projectId: project.id },
+      orderBy: { ticketNumber: "desc" },
+      select: { ticketNumber: true },
+    });
+    const nextTicket = (last?.ticketNumber ?? 0) + 1;
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+
+    let criticalId: string | undefined;
+    let highOlderId: string | undefined;
+    let highNewerId: string | undefined;
+    let backlogId: string | undefined;
+    const eventIds: string[] = [];
+
+    try {
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: {
+          settings: {
+            ...settingsRecord,
+            autonomousDelivery: { enabled: true, projectIds: [project.id], workers: 2, notify: { parked: true, shipped: true } },
+          },
+        },
+      });
+
+      // CRITICAL, newest columnEnteredAt, no planned event (human-dragged straight
+      // into To-do) — must still outrank both HIGH items despite being the newest,
+      // because priority tier beats age; why stays null.
+      const critical = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket,
+          title: `upNext fixture CRITICAL ${stamp}`, description: "", columnKey: "todo", priority: "CRITICAL",
+          workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now - 1 * 3600_000),
+        },
+      });
+      criticalId = critical.id;
+
+      // HIGH, older columnEnteredAt, WITH a planned event carrying `why` — must
+      // sort before the newer HIGH item within the same tier (FIFO).
+      const highOlder = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket + 1,
+          title: `upNext fixture HIGH older ${stamp}`, description: "", columnKey: "todo", priority: "HIGH",
+          workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now - 5 * 3600_000),
+        },
+      });
+      highOlderId = highOlder.id;
+      const plannedEvent = await prisma.foremanEvent.create({
+        data: {
+          workItemId: highOlder.id, orgId: org.id, ticketKey: "TST-950", kind: "planned",
+          message: "Planned TST-950 -> To-do: highest open ROI", data: { why: "Highest open ROI" },
+          ts: new Date(now - 5 * 3600_000),
+        },
+      });
+      eventIds.push(plannedEvent.id);
+      // A later, non-planned event on the same item must not leak into `why`.
+      const claimedEvent = await prisma.foremanEvent.create({
+        data: { workItemId: highOlder.id, orgId: org.id, kind: "claimed", message: "claimed", ts: new Date(now - 4 * 3600_000) },
+      });
+      eventIds.push(claimedEvent.id);
+
+      // HIGH, newer columnEnteredAt, no planned event — human-added, why null;
+      // must sort AFTER highOlder within the same HIGH tier.
+      const highNewer = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket + 2,
+          title: `upNext fixture HIGH newer ${stamp}`, description: "", columnKey: "todo", priority: "HIGH",
+          workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now - 2 * 3600_000),
+        },
+      });
+      highNewerId = highNewer.id;
+
+      // Backlog-column item, same org/project — must NOT appear (upNext is
+      // scoped to the todo column only; backlog is a different surface).
+      const backlog = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket + 3,
+          title: `upNext fixture BACKLOG ${stamp}`, description: "", columnKey: "backlog", priority: "CRITICAL",
+          workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now - 1 * 3600_000),
+        },
+      });
+      backlogId = backlog.id;
+
+      const s = await assembleStatus(org.id);
+
+      const rowCritical = s.upNext.find((r) => r.workItemId === critical.id);
+      const rowHighOlder = s.upNext.find((r) => r.workItemId === highOlder.id);
+      const rowHighNewer = s.upNext.find((r) => r.workItemId === highNewer.id);
+      expect(rowCritical).toBeDefined();
+      expect(rowHighOlder).toBeDefined();
+      expect(rowHighNewer).toBeDefined();
+      expect(s.upNext.find((r) => r.workItemId === backlog.id)).toBeUndefined();
+
+      // `why`: populated from the latest planned event; null for a human-added item.
+      expect(rowHighOlder?.why).toBe("Highest open ROI");
+      expect(rowCritical?.why).toBeNull();
+      expect(rowHighNewer?.why).toBeNull();
+
+      // Claim order: CRITICAL first (priority beats age), then HIGH tier oldest-first.
+      const idx = (id: string) => s.upNext.findIndex((r) => r.workItemId === id);
+      expect(idx(critical.id)).toBeLessThan(idx(highOlder.id));
+      expect(idx(highOlder.id)).toBeLessThan(idx(highNewer.id));
+
+      // Row shape: exactly the documented fields — no permission/member data.
+      expect(Object.keys(rowCritical!).sort()).toEqual(
+        ["projectId", "since", "ticketKey", "title", "why", "workItemId"].sort(),
+      );
+      expect(rowCritical?.projectId).toBe(project.id);
+      expect(typeof rowCritical?.ticketKey).toBe("string");
+      expect(rowCritical?.title).toBe(`upNext fixture CRITICAL ${stamp}`);
+      expect(rowHighOlder?.since).toBe(new Date(now - 5 * 3600_000).toISOString());
+    } finally {
+      for (const id of eventIds) await prisma.foremanEvent.delete({ where: { id } }).catch(() => undefined);
+      for (const id of [criticalId, highOlderId, highNewerId, backlogId]) {
+        if (id) await prisma.workItem.delete({ where: { id } }).catch(() => undefined);
+      }
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
+      });
+    }
+  });
+
+  it("upNext DB cap stays priority-aware: a fresh CRITICAL isn't pushed out by 51 older LOW items", async () => {
+    const org = await prisma.organization.findFirstOrThrow({
+      where: { slug: "test-org" },
+      select: { id: true, settings: true },
+    });
+    const project = await prisma.project.findFirstOrThrow({ where: { orgId: org.id } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { OR: [{ orgId: org.id }, { orgId: null }] } });
+    const author = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
+
+    const originalSettings = org.settings;
+    const settingsRecord = (org.settings ?? {}) as Record<string, unknown>;
+
+    const last = await prisma.workItem.findFirst({
+      where: { projectId: project.id },
+      orderBy: { ticketNumber: "desc" },
+      select: { ticketNumber: true },
+    });
+    const nextTicket = (last?.ticketNumber ?? 0) + 1;
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+
+    let lowIds: string[] = [];
+    let criticalId: string | undefined;
+
+    try {
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: {
+          settings: {
+            ...settingsRecord,
+            autonomousDelivery: { enabled: true, projectIds: [project.id], workers: 2, notify: { parked: true, shipped: true } },
+          },
+        },
+      });
+
+      // 51 LOW items, all older than the CRITICAL below. A plain
+      // columnEnteredAt-asc `take: 50` already fills the cap from these alone.
+      const lows = await Promise.all(
+        Array.from({ length: 51 }, (_, i) =>
+          prisma.workItem.create({
+            data: {
+              orgId: org.id, projectId: project.id, ticketNumber: nextTicket + i,
+              title: `upNext cap fixture LOW ${i} ${stamp}`, description: "", columnKey: "todo", priority: "LOW",
+              workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now - 10 * 3600_000),
+            },
+          }),
+        ),
+      );
+      lowIds = lows.map((w) => w.id);
+
+      // The newest arrival by far — exactly where a fresh CRITICAL lands.
+      const critical = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket + 51,
+          title: `upNext cap fixture CRITICAL ${stamp}`, description: "", columnKey: "todo", priority: "CRITICAL",
+          workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now),
+        },
+      });
+      criticalId = critical.id;
+
+      const s = await assembleStatus(org.id);
+
+      // CRITICAL is the 52nd-oldest of the 52 todo items in the pool — a plain
+      // columnEnteredAt-asc `take: 50` drops it entirely. The priority-aware
+      // DB order must surface it, and first (priority tier beats age).
+      expect(s.upNext.some((r) => r.workItemId === critical.id)).toBe(true);
+      expect(s.upNext[0]?.workItemId).toBe(critical.id);
+    } finally {
+      if (criticalId) await prisma.workItem.delete({ where: { id: criticalId } }).catch(() => undefined);
+      for (const id of lowIds) await prisma.workItem.delete({ where: { id } }).catch(() => undefined);
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
+      });
+    }
+  });
+
+  it("upNext why comes from the LATEST planned event when an item has more than one", async () => {
+    const org = await prisma.organization.findFirstOrThrow({
+      where: { slug: "test-org" },
+      select: { id: true, settings: true },
+    });
+    const project = await prisma.project.findFirstOrThrow({ where: { orgId: org.id } });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { OR: [{ orgId: org.id }, { orgId: null }] } });
+    const author = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
+
+    const originalSettings = org.settings;
+    const settingsRecord = (org.settings ?? {}) as Record<string, unknown>;
+
+    const last = await prisma.workItem.findFirst({
+      where: { projectId: project.id },
+      orderBy: { ticketNumber: "desc" },
+      select: { ticketNumber: true },
+    });
+    const nextTicket = (last?.ticketNumber ?? 0) + 1;
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+
+    let itemId: string | undefined;
+    const eventIds: string[] = [];
+
+    try {
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: {
+          settings: {
+            ...settingsRecord,
+            autonomousDelivery: { enabled: true, projectIds: [project.id], workers: 2, notify: { parked: true, shipped: true } },
+          },
+        },
+      });
+
+      const item = await prisma.workItem.create({
+        data: {
+          orgId: org.id, projectId: project.id, ticketNumber: nextTicket,
+          title: `upNext fixture re-planned ${stamp}`, description: "", columnKey: "todo", priority: "MEDIUM",
+          workItemTypeId: type.id, createdById: author.id, columnEnteredAt: new Date(now - 3 * 3600_000),
+        },
+      });
+      itemId = item.id;
+
+      const firstPlanned = await prisma.foremanEvent.create({
+        data: {
+          workItemId: item.id, orgId: org.id, ticketKey: "TST-960", kind: "planned",
+          message: "Planned TST-960 -> To-do: first pass", data: { why: "First rationale" },
+          ts: new Date(now - 2 * 3600_000),
+        },
+      });
+      eventIds.push(firstPlanned.id);
+      // A second, later `planned` event (e.g. Foreman re-planned it after a
+      // demotion round) — `why` must track this one, not the first.
+      const secondPlanned = await prisma.foremanEvent.create({
+        data: {
+          workItemId: item.id, orgId: org.id, ticketKey: "TST-960", kind: "planned",
+          message: "Planned TST-960 -> To-do: re-planned after demotion", data: { why: "Latest rationale" },
+          ts: new Date(now - 1 * 3600_000),
+        },
+      });
+      eventIds.push(secondPlanned.id);
+
+      const s = await assembleStatus(org.id);
+      const row = s.upNext.find((r) => r.workItemId === item.id);
+      expect(row?.why).toBe("Latest rationale");
+    } finally {
+      for (const id of eventIds) await prisma.foremanEvent.delete({ where: { id } }).catch(() => undefined);
+      if (itemId) await prisma.workItem.delete({ where: { id: itemId } }).catch(() => undefined);
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
+      });
+    }
+  });
+
+  it("upNext is empty (and the payload still shape-checks) when the delivery pool has no projects", async () => {
+    const org = await prisma.organization.findFirstOrThrow({
+      where: { slug: "test-org" },
+      select: { id: true, settings: true },
+    });
+    const originalSettings = org.settings;
+    const settingsRecord = (org.settings ?? {}) as Record<string, unknown>;
+
+    try {
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: {
+          settings: {
+            ...settingsRecord,
+            autonomousDelivery: { enabled: true, projectIds: [], workers: 2, notify: { parked: true, shipped: true } },
+          },
+        },
+      });
+
+      const s = await assembleStatus(org.id);
+      expect(s.upNext).toEqual([]);
+      // Shape-check: an empty delivery pool short-circuits upNext (and
+      // awaitingApproval) but must not blow up the rest of the payload.
+      expect(s.awaitingApproval).toEqual([]);
+      expect(typeof s.paused).toBe("boolean");
+      expect(s.config.autonomousDelivery).toHaveProperty("workers");
+      expect(s).toHaveProperty("actorCanSteer");
+      expect(s).toHaveProperty("hasHistory");
+    } finally {
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
+      });
+    }
+  });
 });
