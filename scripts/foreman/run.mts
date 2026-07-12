@@ -21,8 +21,10 @@ import { promisify } from "node:util";
 import { pickNext } from "@/lib/foreman/queue";
 import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
-import { foremanPrompt, repairPrompt, type TicketBrief } from "@/lib/foreman/prompt";
+import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
+import { combineIntents } from "@/lib/foreman/intent";
+import { decideApprove } from "@/lib/foreman/approve-decision";
 import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
@@ -33,7 +35,7 @@ import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
-import { runAgent } from "./agent.mjs";
+import { runAgent, type AgentResult } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
 import { ensureWorkerDbs } from "./worker-db.mjs";
@@ -154,20 +156,39 @@ async function clarityCheck(brief: TicketBrief, instructions: string[] = []): Pr
   return m ? { needsInput: true, question: m[1].trim() } : { needsInput: false, question: "" };
 }
 
-function briefFrom(t: Awaited<ReturnType<typeof db.getBacklog>>[number]): TicketBrief {
-  const tri = (t.triage ?? {}) as Record<string, unknown>;
+/** Build a TicketBrief from its raw parts + the feedback-triage blob. Shared by
+ *  briefFrom (backlog items) and the resume path (a review-column item, whose ref
+ *  is already known and whose triage is fetched via db.triageFor). */
+function briefFromParts(key: string, title: string, description: string, triage: unknown): TicketBrief {
+  const tri = (triage ?? {}) as Record<string, unknown>;
   const classification: "BUG" | "FEATURE" = tri.classification === "FEATURE" ? "FEATURE" : "BUG";
   const rawCriteria = tri.acceptanceCriteria;
   return {
-    key: buildRef(t.projectKey, t.ticketNumber),
-    title: t.title,
-    description: t.description,
+    key,
+    title,
+    description,
     classification,
     acceptanceCriteria: Array.isArray(rawCriteria)
       ? rawCriteria.filter((x: unknown): x is string => typeof x === "string")
       : [],
   };
 }
+
+function briefFrom(t: Awaited<ReturnType<typeof db.getBacklog>>[number]): TicketBrief {
+  return briefFromParts(buildRef(t.projectKey, t.ticketNumber), t.title, t.description, t.triage);
+}
+
+/** One item's fresh @Foreman mention, as returned by db.freshMentions (Task 3). */
+type FreshMention = Awaited<ReturnType<typeof db.freshMentions>>[number];
+
+/** Queue of parked tickets whose owner replied with steering (the "instruct"
+ *  intent) — drained into free build slots by the coordinator, BEFORE new backlog
+ *  work, so a resume runs the maintainer's notes against the SAME session/worktree.
+ *  Module-level (not local to main) so processMentions — which classifies the
+ *  intent — can enqueue while the coordinator drains. Deduped by itemId: a second
+ *  reply while one is queued/in-flight is a no-op (its text is already captured, or
+ *  will be re-read next pass). */
+const resumeQueue = new Map<string, { m: FreshMention; instructions: string[] }>();
 
 /** Force the shared REPO checkout back to a pristine origin/main after a
  *  half-finished ship (a squash-merge conflict because main moved, a push that
@@ -195,6 +216,73 @@ interface Built {
   processNote: string;
   changelogEntry: string | null;
   bumpKind: BumpKind;
+  // Set ONLY on a resume handoff (processResume): the existing parked draft PR to
+  // ship in place. When present, shipBuilt reuses it (marks it ready + merges)
+  // instead of opening a fresh PR — the resume already updated it via git push.
+  // Undefined for every fresh build (processOne), which opens its own PR.
+  prUrl?: string;
+}
+
+/** Bounded fix-forward repair loop, shared by processOne and processResume: run
+ *  the checks and, while failing and under MAX_REPAIRS, resume the SAME agent
+ *  session with the failing output so it fixes forward in place. Returns the final
+ *  checks result + repair count; `halted:true` means the kill switch fired
+ *  mid-loop and the caller must abandon WITHOUT shipping. Phase-advance is left to
+ *  the caller (via `onRound`) so each keeps its own inFlightMeta wiring. */
+async function repairLoop(
+  key: string,
+  wt: string,
+  sessionId: string | undefined,
+  testDbUrl: string | undefined,
+  haltIfKilled: () => Promise<boolean>,
+  onRound: (round: number) => void,
+): Promise<{ checks: Awaited<ReturnType<typeof runChecks>>; repairs: number; halted: boolean }> {
+  let checks = await runChecks(wt, { testDbUrl });
+  let repairs = 0;
+  while (!checks.ok && repairs < MAX_REPAIRS) {
+    if (await haltIfKilled()) return { checks, repairs, halted: true };
+    repairs++;
+    log(`${key} checks failed — repair round ${repairs}/${MAX_REPAIRS}`);
+    onRound(repairs);
+    const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
+      resume: sessionId,
+      timeoutMs: 25 * 60_000,
+      testDbUrl,
+    });
+    if (!rep.ok) {
+      log(`${key} repair agent did not complete — gating with the last check output`);
+      break;
+    }
+    checks = await runChecks(wt, { testDbUrl });
+  }
+  return { checks, repairs, halted: false };
+}
+
+/** Adversarial, READ-ONLY pre-ship review of the final diff (origin/main...HEAD),
+ *  shared by processOne and processResume. The diff is inlined for the normal case
+ *  (SAFE ⇒ small) and, when oversized, written INSIDE the resolved git dir — never
+ *  the worktree, so it can't enter the change under review (in a linked worktree
+ *  `.git` is a FILE, so the path is resolved via rev-parse). Fail-closed: an
+ *  unreadable/failed reviewer yields {approve:false}; one retry absorbs infra flakes. */
+async function reviewFinalDiff(brief: TicketBrief, wt: string): Promise<{ approve: boolean; reason: string }> {
+  const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  let reviewDiff: ReviewDiff;
+  if (diffText.length <= 200_000) {
+    reviewDiff = { kind: "inline", text: diffText };
+  } else {
+    const { stdout: gitDir } = await exec("git", ["-C", wt, "rev-parse", "--absolute-git-dir"]);
+    const diffFile = join(gitDir.trim(), "FOREMAN_REVIEW.diff");
+    writeFileSync(diffFile, diffText);
+    reviewDiff = { kind: "file", path: diffFile };
+  }
+  const reviewOpts = { allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
+  let review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
+  if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
+  return review.ok
+    ? parseReviewVerdict(review.log)
+    : { approve: false, reason: "reviewer agent failed twice (infra)" };
 }
 
 async function processOne(
@@ -314,7 +402,7 @@ async function processOne(
         await db.moveColumn(item.id, "review");
         await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
         await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
-        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete", sessionId: agent.sessionId } });
+        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete", sessionId: agent.sessionId ?? undefined } });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return {};
@@ -342,24 +430,16 @@ async function processOne(
     // fix forward — up to MAX_REPAIRS rounds, then gate. This targets the observed
     // failure mode where a good change's own new test needed one more iteration.
     setPhase(item.id, "checks");
-    let checks = await runChecks(wt, { testDbUrl: workerOpts.testDbUrl });
-    let repairs = 0;
-    while (!checks.ok && repairs < MAX_REPAIRS) {
-      if (await haltIfKilled()) return {}; // never keep building past a kill
-      repairs++;
-      log(`${key} checks failed — repair round ${repairs}/${MAX_REPAIRS}`);
-      setPhase(item.id, "repair", { repairRound: repairs });
-      const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
-        resume: agent.sessionId ?? undefined,
-        timeoutMs: 25 * 60_000,
-        testDbUrl: workerOpts.testDbUrl,
-      });
-      if (!rep.ok) {
-        log(`${key} repair agent did not complete — gating with the last check output`);
-        break;
-      }
-      checks = await runChecks(wt, { testDbUrl: workerOpts.testDbUrl });
-    }
+    const repair = await repairLoop(
+      key,
+      wt,
+      agent.sessionId ?? undefined,
+      workerOpts.testDbUrl,
+      haltIfKilled,
+      (round) => setPhase(item.id, "repair", { repairRound: round }),
+    );
+    if (repair.halted) return {}; // kill switch fired mid-repair — abandon without shipping
+    const { checks, repairs } = repair;
     // Recompute the diff after repairs (rounds may add/change files) — the risk
     // classifier and the migration flag must see the FINAL change, not round 0's.
     diff = await diffSummary(wt);
@@ -382,9 +462,13 @@ async function processOne(
      *  shared by the checks/risk gate and the reviewer gate below. */
     const parkForReview = async (reason: string, checkLog?: string): Promise<void> => {
       log(`${key} GATED (${reason}) → In Review`);
+      // Hoisted so the park EVENT (and the owner notification) can carry the draft
+      // PR url — the approval loop's approve/resume paths read parked.prUrl to know
+      // there's a PR to merge (freshMentions → decideApprove). Undefined in DRY.
+      let prUrl: string | undefined;
       if (!DRY) {
         await ship.pushBranch(branch);
-        const prUrl = await ship.openPr(
+        prUrl = await ship.openPr(
           branch,
           `auto: ${key} (review — ${reason})`.slice(0, 250),
           `Automated draft for ${key}. Reason parked: ${reason}. Approve = merge; Foreman deploys it on its next pass.`,
@@ -408,8 +492,8 @@ async function processOne(
         );
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
-      if (!DRY) await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason, version });
-      if (!DRY) await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: reason, data: { reason, version, sessionId: agent.sessionId, branch, worktreePath: wt } });
+      if (!DRY) await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason, version, prUrl });
+      if (!DRY) await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: reason, data: { reason, version, sessionId: agent.sessionId ?? undefined, branch, worktreePath: wt, prUrl } });
     };
 
     if (!checks.ok || risk.gated) {
@@ -422,33 +506,11 @@ async function processOne(
     // (d) Pre-ship REVIEW: checks are green and risk says safe, so this change
     // would auto-merge to prod — an adversarial, READ-ONLY second agent judges the
     // final diff first (risky changes already get a human; this covers the safe
-    // path). The diff is written inside .git/ so it can never enter the change
-    // itself. Fail-closed: an unreadable/failed reviewer parks the ticket — a
-    // ship gate that can't run must not open. One retry absorbs infra flakes.
-    const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
-      maxBuffer: 32 * 1024 * 1024,
-    });
-    // Inline the diff for the normal case (SAFE ⇒ ≤400 changed lines, fits the
-    // prompt; zero file access needed). The oversized fallback writes into the
-    // REAL git dir — resolved via rev-parse, because in a linked worktree `.git`
-    // is a FILE pointing at <repo>/.git/worktrees/<KEY>, so joining ".git/x"
-    // throws ENOTDIR (this exact bug crashed the first three reviews live).
-    let reviewDiff: ReviewDiff;
-    if (diffText.length <= 200_000) {
-      reviewDiff = { kind: "inline", text: diffText };
-    } else {
-      const { stdout: gitDir } = await exec("git", ["-C", wt, "rev-parse", "--absolute-git-dir"]);
-      const diffFile = join(gitDir.trim(), "FOREMAN_REVIEW.diff");
-      writeFileSync(diffFile, diffText);
-      reviewDiff = { kind: "file", path: diffFile };
-    }
-    const reviewOpts = { allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
+    // path). Fail-closed inside reviewFinalDiff: an unreadable/failed reviewer
+    // returns {approve:false} → parked, because a ship gate that can't run must
+    // not open. Same helper the resume path uses.
     setPhase(item.id, "review");
-    let review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
-    if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
-    const verdict = review.ok
-      ? parseReviewVerdict(review.log)
-      : { approve: false, reason: "reviewer agent failed twice (infra)" };
+    const verdict = await reviewFinalDiff(brief, wt);
     if (!verdict.approve) {
       await parkForReview(`reviewer rejected — ${verdict.reason}`);
       return {};
@@ -610,17 +672,25 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
     const finalDiff = await diffSummary(b.wt);
     log(`${b.key} SHIP → v${version}`);
 
-    let prUrl = "";
+    let prUrl = b.prUrl ?? "";
     let merged = false;
     let mergedCommit = "";
     try {
       await ship.pushBranch(b.branch);
-      prUrl = await ship.openPr(
-        b.branch,
-        `auto: ${b.key} — ${b.title}`.slice(0, 250),
-        `Automated fix for ${b.key} (v${version}). Auto-merged by Foreman after green checks.`,
-        false,
-      );
+      // A RESUME handoff (b.prUrl set) already has an open draft PR on this branch —
+      // pushBranch above just updated it in place, so reuse it and mark it ready so
+      // the squash-merge can land, instead of opening a second PR (gh refuses a
+      // duplicate). A FRESH build has no PR yet → open a non-draft one to auto-merge.
+      if (b.prUrl) {
+        await exec("gh", ["pr", "ready", b.branch], { cwd: REPO }).catch(() => undefined);
+      } else {
+        prUrl = await ship.openPr(
+          b.branch,
+          `auto: ${b.key} — ${b.title}`.slice(0, 250),
+          `Automated fix for ${b.key} (v${version}). Auto-merged by Foreman after green checks.`,
+          false,
+        );
+      }
       await ship.mergePr(b.branch);
       merged = true;
       mergedCommit = (await ship.headInfo(REPO)).commit;
@@ -689,35 +759,132 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
   }
 }
 
+/** Is the PR at `prRef` (a URL / branch / number gh accepts) already merged?
+ *  Best-effort — any gh error (no PR, transient failure) is treated as NOT merged,
+ *  which routes an approve to the merge path and lets mergePr's own error surface
+ *  the real problem (conflict guidance) rather than silently doing nothing. */
+async function prIsMerged(prRef: string): Promise<boolean> {
+  try {
+    const { stdout } = await exec("gh", ["pr", "view", prRef, "--json", "state,mergedAt"], { cwd: REPO });
+    return (JSON.parse(stdout) as { state?: string }).state === "MERGED";
+  } catch {
+    return false;
+  }
+}
+
+/** The comment posted when an approve→merge fails — almost always the parked
+ *  branch no longer applies to a main that moved since it was built. Names the two
+ *  levers: rebuild (regenerate from current main) or resolve by hand on the branch. */
+function mergeConflictGuidance(key: string, branch: string, err: string): string {
+  return `I couldn't merge ${key} — the parked branch no longer applies cleanly to main (it moved since this was built).
+
+Details: ${err}
+
+Two ways forward:
+- Reply "rebuild" (or "start over") and I'll regenerate the change against current main, then re-park it for your approval.
+- Or resolve it by hand: rebase \`${branch}\` onto \`origin/main\`, push, and merge the PR — my next reconcile pass will deploy it.`;
+}
+
+/** Approve intent on a parked ticket: merge the parked PR now (deploy follows on
+ *  the next reconcile pass, exactly as a human-merged draft PR does), or explain
+ *  why there's nothing to merge. Never throws to its caller's loop guard. */
+async function handleApprove(m: FreshMention): Promise<void> {
+  const prUrl = m.parked?.prUrl;
+  const branch = m.parked?.branch ?? `auto/${m.key}`;
+  const hasPr = Boolean(prUrl);
+  const prMerged = hasPr ? await prIsMerged(prUrl as string) : false;
+  const decision = decideApprove({ hasPr, prMerged });
+  const author = (await db.displayName(m.askerUserId).catch(() => null)) ?? "maintainer";
+
+  if (decision === "merge") {
+    try {
+      // Parked PRs are drafts — mark ready so the admin squash-merge can land.
+      await exec("gh", ["pr", "ready", branch], { cwd: REPO }).catch(() => undefined);
+      await ship.mergePr(branch);
+    } catch (e) {
+      log(`${m.key} approve → merge FAILED (${String(e)}) — parked with conflict guidance`);
+      await db.comment(m.itemId, mergeConflictGuidance(m.key, branch, String(e)));
+      await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: `approve-merge failed — ${String(e)}`, data: { reason: "approve-merge failed", prUrl, branch } });
+      return;
+    }
+    log(`${m.key} approved via comment — PR merged; deploy on next reconcile`);
+    await db.comment(m.itemId, `Approved by ${author} — merging now; deploy follows automatically.`);
+    await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "queued-ship", message: "approved via comment — PR merged, deploy on next reconcile" });
+    return;
+  }
+  if (decision === "reconcile-only") {
+    log(`${m.key} approved but PR already merged — reconcile finishes the deploy`);
+    await db.comment(m.itemId, "Already merged — deploy completes on my next pass.");
+    return;
+  }
+  // nothing-built: no PR was ever opened (e.g. the build never got that far).
+  log(`${m.key} approved but nothing was built to merge`);
+  await db.comment(m.itemId, `There's nothing built to merge for ${m.key} yet. Reply with what you'd like changed and I'll resume where I left off, or say "rebuild" to start over from current main.`);
+}
+
 /** @Foreman mention processor — the ticket-comment channel (§ agent identity).
- *  Each pass: find privileged mentions not yet consumed (db.freshMentions), then
- *  - ticket in `review` (parked / needs-input): REQUEUE it to the backlog with an
- *    ack comment — the instruction itself is picked up by instructionsFor() at
- *    build time, so the rebuild follows it. moveColumn resets columnEnteredAt,
- *    which is the watermark, so a mention is consumed exactly once.
+ *  Each pass: find privileged mentions not yet consumed (db.freshMentions), group
+ *  them per ticket, then route:
+ *  - ticket in `review` (parked): classify the owner's combined replies via
+ *    combineIntents into ONE intent —
+ *      · approve  → merge the parked PR now (handleApprove);
+ *      · rebuild  → full requeue to backlog (legacy path; the instruction is
+ *                   re-read by instructionsFor() at build time);
+ *      · instruct → enqueue a RESUME of the same session/worktree (resumeQueue),
+ *                   drained by the coordinator into a build slot.
+ *    Each of these advances the review watermark (columnEnteredAt) when the ticket
+ *    finally moves, so a mention is consumed exactly once.
  *  - any other column: REPLY in-thread via a read-only agent (Read/Grep/Glob in
  *    the repo — code-grounded answers, no shell, no edits) + ping the asker. The
  *    bot's reply timestamp is that path's watermark.
- *  Mentions by non-privileged members are filtered in db.freshMentions. Never
- *  throws — a mention hiccup must not stall delivery. */
-async function processMentions(): Promise<void> {
-  let fresh: Awaited<ReturnType<typeof db.freshMentions>>;
+ *  `isInflight` reports whether a build/resume for an item is already running (so a
+ *  duplicate resume isn't queued). Mentions by non-privileged members are filtered
+ *  in db.freshMentions. Never throws — a mention hiccup must not stall delivery. */
+async function processMentions(isInflight: (itemId: string) => boolean): Promise<void> {
+  let fresh: FreshMention[];
   try {
     fresh = await db.freshMentions();
   } catch (e) {
     log(`mention scan failed (${String(e)}) — skipping this pass`);
     return;
   }
+  // Group by itemId, preserving comment order, so each ticket is routed ONCE over
+  // its combined fresh comments (freshMentions may surface several per item).
+  const byItem = new Map<string, FreshMention[]>();
   for (const m of fresh) {
+    const g = byItem.get(m.itemId);
+    if (g) g.push(m);
+    else byItem.set(m.itemId, [m]);
+  }
+  for (const group of byItem.values()) {
+    const m = group[0];
     try {
       if (killed()) return;
       if (m.columnKey === "review") {
-        log(`${m.key} @Foreman instruction on parked ticket — requeueing`);
-        await db.moveColumn(m.itemId, "backlog");
-        await db.comment(
-          m.itemId,
-          `Got it — requeued with your instructions. I'll rebuild ${m.key} accordingly on my next pass.`,
-        );
+        const texts = group.map((g) => g.question).filter((q) => q.trim().length > 0);
+        const { intent, instructions } = combineIntents(texts);
+        if (intent === "approve") {
+          await handleApprove(m);
+        } else if (intent === "rebuild") {
+          // Unchanged legacy path: full requeue to backlog (the instruction is
+          // re-consumed by instructionsFor() when the fresh build runs).
+          log(`${m.key} @Foreman rebuild on parked ticket — requeueing`);
+          await db.moveColumn(m.itemId, "backlog");
+          await db.comment(
+            m.itemId,
+            `Got it — requeued with your instructions. I'll rebuild ${m.key} accordingly on my next pass.`,
+          );
+        } else {
+          // instruct: resume the SAME session/worktree with these notes. Enqueue for
+          // the coordinator; dedupe by itemId and skip if already building/queued.
+          if (isInflight(m.itemId) || resumeQueue.has(m.itemId)) {
+            log(`${m.key} resume already queued/in-flight — skipping duplicate`);
+          } else {
+            resumeQueue.set(m.itemId, { m, instructions });
+            await db.comment(m.itemId, "On it — resuming where I left off with your notes.");
+            log(`${m.key} @Foreman instruction on parked ticket — queued for resume`);
+          }
+        }
       } else {
         log(`${m.key} @Foreman question (${m.columnKey}) — drafting reply`);
         const r = await runAgent(
@@ -744,6 +911,186 @@ async function processMentions(): Promise<void> {
     } catch (e) {
       log(`${m.key} mention handling failed (${String(e)}) — continuing`);
     }
+  }
+}
+
+/** RESUME a parked ticket in place (the "instruct" intent): the change was already
+ *  built + parked for review, and the maintainer replied with steering. Re-checkout
+ *  the SAME branch/worktree, resume the SAME agent session with those notes (falling
+ *  back to a fresh agent seeded with the ticket brief + current PR diff when the
+ *  session is gone or errors), then run the IDENTICAL post-build gate as processOne
+ *  (repair loop → risk → adversarial reviewer, all shared helpers). SAFE → hand the
+ *  EXISTING PR to the ship worker (Built.prUrl set, so shipBuilt merges it in place
+ *  rather than opening a new one); RISKY / rejected / incomplete → push the updated
+ *  branch (the PR refreshes in place) and re-park with the NEW sessionId. A missing
+ *  branch (nothing was ever pushed) falls back to a rebuild requeue. Coordinator
+ *  gates the drain, so this never runs in DRY. */
+async function processResume(
+  entry: { m: FreshMention; instructions: string[] },
+  workerOpts: { testDbUrl?: string } = {},
+): Promise<{ ship?: Built }> {
+  const { m, instructions } = entry;
+  const key = m.key;
+  const branch = m.parked?.branch;
+  const wt = `/tmp/foreman/${key}`;
+  let keepWorktree = false;
+
+  // No branch persisted (e.g. the "agent did not complete" park, which never pushed
+  // anything) → nothing to resume. Fall back to a rebuild: requeue to backlog so a
+  // fresh build picks up the instructions via instructionsFor().
+  if (!branch) {
+    log(`${key} resume requested but no parked branch — falling back to rebuild`);
+    await db.moveColumn(m.itemId, "backlog");
+    await db.comment(m.itemId, `I don't have a prior build to resume for ${m.key}, so I've requeued it — I'll rebuild it with your notes on my next pass.`);
+    return {};
+  }
+
+  const brief = briefFromParts(key, m.title, m.description, await db.triageFor(m.itemId).catch(() => null));
+
+  const haltIfKilled = async (): Promise<boolean> => {
+    if (!killed()) return false;
+    log(`${key} resume halted by kill switch — left in progress`);
+    await db.comment(m.itemId, "Halted by kill switch mid-resume; left in progress. Move the card back to Backlog to retry.").catch(() => undefined);
+    await restoreMain();
+    return true;
+  };
+
+  // Re-materialize the worktree at the parked branch. The branch lives on origin
+  // (the park's pushBranch put it there); fetch it, then check it out. Force-clean
+  // any stale dir first — `worktree add` fails hard on an existing dir.
+  rmSync(wt, { recursive: true, force: true });
+  await exec("git", ["-C", REPO, "worktree", "prune"]).catch(() => undefined);
+  await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
+  try {
+    await exec("git", ["-C", REPO, "fetch", "origin", branch]);
+    await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, `origin/${branch}`]);
+  } catch (e) {
+    // The branch is gone from origin (deleted after a prior merge, or never pushed)
+    // → nothing to resume; requeue as a rebuild.
+    log(`${key} resume branch origin/${branch} unavailable (${String(e)}) — falling back to rebuild`);
+    await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
+    await db.moveColumn(m.itemId, "backlog");
+    await db.comment(m.itemId, `The prior build branch for ${m.key} is no longer available, so I've requeued it — I'll rebuild it with your notes on my next pass.`);
+    return {};
+  }
+  try {
+    symlinkSync(join(REPO, "node_modules"), join(wt, "node_modules"), "dir");
+  } catch (e) {
+    log(`${key} node_modules symlink failed (checks may gate): ${String(e)}`);
+  }
+
+  try {
+    if (await haltIfKilled()) return {};
+
+    // Resume the SAME agent session with the notes. No session persisted → skip
+    // straight to the context fallback (a bare resumePrompt on a fresh session has
+    // no memory of the build). If the resume itself errors, fall back too: a FRESH
+    // agent seeded with the ticket brief + current PR diff reconstructs the context.
+    let agent: AgentResult = m.parked?.sessionId
+      ? await runAgent(wt, resumePrompt(key, instructions), { resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl })
+      : { ok: false, log: "", sessionId: null };
+    if (!agent.ok) {
+      const { stdout: prDiff } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], { maxBuffer: 32 * 1024 * 1024 });
+      agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { testDbUrl: workerOpts.testDbUrl });
+    }
+    if (await haltIfKilled()) return {};
+
+    /** Re-park the resumed ticket: push the updated branch so the EXISTING PR
+     *  reflects the resume, then move to review + audit comment + parked event with
+     *  the NEW sessionId. Never opens a new PR (one already exists on this branch). */
+    const reparkResume = async (reason: string, checkLog?: string, processNote?: string): Promise<void> => {
+      log(`${key} RESUME GATED (${reason}) → In Review`);
+      await ship.pushBranch(branch).catch(() => undefined);
+      const { commit, subject } = await ship.headInfo(wt);
+      let version = "";
+      try { version = ship.readVersion(wt); } catch { /* corrupt package.json → surfaced by checks/reason */ }
+      await db.moveColumn(m.itemId, "review");
+      await db.comment(m.itemId, formatAudit({ key, outcome: "review", summary: subject, reason, version, branch, prUrl: m.parked?.prUrl, commit, checkLog, process: processNote }));
+      await db.notifyDelivery(m.itemId, "parked", { key, title: m.title, reason, version, prUrl: m.parked?.prUrl });
+      await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: reason, data: { reason, version, sessionId: agent.sessionId ?? undefined, branch, worktreePath: wt, prUrl: m.parked?.prUrl } });
+    };
+
+    if (!agent.ok) {
+      await reparkResume("resume agent did not complete (timeout, spawn error, or non-zero exit)");
+      return {};
+    }
+
+    // Empty diff after a resume means the change was reverted back to main — nothing
+    // to ship. Re-park so a human sees it rather than silently closing the PR.
+    let diff = await diffSummary(wt);
+    if (diff.files.length === 0) {
+      await reparkResume("resume produced no diff against main");
+      return {};
+    }
+
+    // IDENTICAL post-build gate as processOne, via the shared helpers.
+    setPhase(m.itemId, "checks");
+    const repair = await repairLoop(
+      key,
+      wt,
+      agent.sessionId ?? undefined,
+      workerOpts.testDbUrl,
+      haltIfKilled,
+      (round) => setPhase(m.itemId, "repair", { repairRound: round }),
+    );
+    if (repair.halted) return {};
+    const { checks, repairs } = repair;
+    diff = await diffSummary(wt);
+    let version = "";
+    try { version = ship.readVersion(wt); } catch { /* corrupt package.json → checks gate */ }
+    const { commit, subject } = await ship.headInfo(wt);
+    const risk = classifyRisk(diff);
+    const processParts: string[] = ["resumed with maintainer notes"];
+    if (repairs > 0) processParts.push(`${repairs} repair round${repairs > 1 ? "s" : ""}`);
+
+    if (!checks.ok || risk.gated) {
+      await reparkResume(!checks.ok ? "checks failed" : risk.reasons.join("; "), checks.ok ? undefined : checks.log, processParts.join(" · "));
+      return {};
+    }
+
+    setPhase(m.itemId, "review");
+    const verdict = await reviewFinalDiff(brief, wt);
+    if (!verdict.approve) {
+      await reparkResume(`reviewer rejected — ${verdict.reason}`, undefined, processParts.join(" · "));
+      return {};
+    }
+    processParts.push(`reviewer approved — ${verdict.reason}`);
+    const processNote = processParts.join(" · ");
+
+    // SAFE → hand the EXISTING PR to the serialized ship worker (Built.prUrl set).
+    log(`${key} RESUME SAFE → queued for ship (built v${version})`);
+    setPhase(m.itemId, "queued-ship");
+    await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "queued-ship", message: `resume SAFE → queued for ship (built v${version})` });
+    if (await haltIfKilled()) return {};
+
+    let changelogEntry: string | null = null;
+    if (diff.files.includes("src/lib/changelog.ts")) {
+      try {
+        const cl = readFileSync(join(wt, "src/lib/changelog.ts"), "utf8");
+        changelogEntry = extractTopChangelogEntry(cl)?.entry ?? null;
+      } catch { /* unreadable changelog → ship without an entry rewrite */ }
+    }
+    keepWorktree = true; // the ship worker owns cleanup from here
+    return {
+      ship: {
+        itemId: m.itemId,
+        key,
+        title: m.title,
+        classification: brief.classification,
+        branch,
+        wt,
+        sessionId: agent.sessionId ?? undefined,
+        subject,
+        commit,
+        processNote,
+        changelogEntry,
+        bumpKind: brief.classification === "FEATURE" ? "minor" : "patch",
+        prUrl: m.parked?.prUrl,
+      },
+    };
+  } finally {
+    if (!keepWorktree) await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
+    await exec("git", ["-C", REPO, "checkout", "-f", "main"]).catch(() => undefined);
   }
 }
 
@@ -1032,10 +1379,12 @@ async function main(): Promise<void> {
         }
         if (killed()) continue; // breaker may have just fired — don't start a build
 
-        // @Foreman mentions: requeue instructed parked tickets + answer questions
-        // BEFORE picking new work — a maintainer's instruction outranks the queue.
-        // Never in DRY (it comments + moves cards on the live board).
-        if (!DRY) await processMentions();
+        // @Foreman mentions: route approve/rebuild/instruct on parked tickets +
+        // answer questions BEFORE picking new work — a maintainer's instruction
+        // outranks the queue. Never in DRY (it comments + moves cards on the live
+        // board, and enqueues resumes). `inflight.has` lets it skip a duplicate
+        // resume for an item already building.
+        if (!DRY) await processMentions((id) => inflight.has(id));
         if (killed()) continue;
         // ── fill build slots, then pump on any completion ──
         const backlog = await db.getBacklog();
@@ -1051,6 +1400,55 @@ async function main(): Promise<void> {
           stopFileSeen: killed(),
         });
         while (inflight.size < workerTarget && freeSlots.length > 0 && !killed()) {
+          // Drain a queued RESUME first — a maintainer's steering on a parked ticket
+          // outranks new backlog work. Never in DRY (resumeQueue is only filled by
+          // the !DRY processMentions, so it's always empty here in a dry preview).
+          const resumeItemId = DRY ? undefined : (resumeQueue.keys().next().value as string | undefined);
+          if (resumeItemId !== undefined) {
+            const resumeEntry = resumeQueue.get(resumeItemId)!;
+            resumeQueue.delete(resumeItemId);
+            // Already building (shouldn't happen — processMentions guards on inflight —
+            // but belt-and-suspenders): drop the queue entry, it'll re-surface next
+            // pass if still parked.
+            if (inflight.has(resumeItemId)) continue;
+            // Atomic claim: flip review → in-progress. A lost claim (a human dragged
+            // it, or it already shipped) just drops the resume from this pass.
+            if (!(await db.claimParked(resumeItemId))) {
+              log(`${resumeEntry.m.key} resume claim lost (no longer in review) — skipping`);
+              continue;
+            }
+            const rslot = freeSlots.shift()!;
+            inFlightMeta.set(resumeItemId, {
+              key: resumeEntry.m.key, itemId: resumeItemId, orgId: resumeEntry.m.orgId, title: resumeEntry.m.title,
+              phase: "building", since: new Date().toISOString(),
+            });
+            await obs.track({ workItemId: resumeItemId, orgId: resumeEntry.m.orgId, ticketKey: resumeEntry.m.key, kind: "claimed", message: `claimed ${resumeEntry.m.key} for resume` });
+            const resumeTask = (async () => {
+              // keepMeta mirrors the build task: kept true when the resume hands off to
+              // the ship queue, so enqueueShip's chain owns dropping the registry entry.
+              let keepMeta = false;
+              try {
+                const out = await processResume(resumeEntry, { testDbUrl: workerDbUrls[rslot] });
+                if (out.ship) {
+                  keepMeta = true;
+                  enqueueShip(out.ship);
+                }
+              } catch (e) {
+                // A failed resume re-parks with the error (no attempts/backoff — the
+                // maintainer can steer again). Best-effort: never let it escape the slot.
+                log(`${resumeEntry.m.key} resume error: ${String(e)} — re-parking`);
+                await db.moveColumn(resumeItemId, "review").catch(() => undefined);
+                await db.comment(resumeItemId, `Resume failed unexpectedly — left in review. Last error: ${String(e)}`).catch(() => undefined);
+              } finally {
+                inflight.delete(resumeItemId);
+                if (!keepMeta) inFlightMeta.delete(resumeItemId);
+                freeSlots.push(rslot);
+              }
+            })();
+            inflight.set(resumeItemId, resumeTask);
+            continue; // one dispatch per iteration
+          }
+
           const candidates = pool.filter(
             (c) => !inflight.has(c.id) && (attempts.get(c.id) ?? 0) < MAX_ATTEMPTS,
           );

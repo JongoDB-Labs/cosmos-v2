@@ -212,6 +212,24 @@ export async function claimTicket(itemId: string): Promise<boolean> {
   return false;
 }
 
+/** Atomically claim a PARKED (review-column) ticket for a RESUME worker: flips
+ *  review → in-progress only if it is STILL in review, so draining the resume
+ *  queue can't race a human drag or a second drain of the same item. Mirrors
+ *  claimTicket (which guards backlog → in-progress); this is the review-column
+ *  variant the approval loop's resume path uses. Carries linked feedback with the
+ *  move (same as claimTicket) so a resumed ticket's feedback reads IN_PROGRESS. */
+export async function claimParked(itemId: string): Promise<boolean> {
+  const r = await prisma.workItem.updateMany({
+    where: { id: itemId, columnKey: "review" },
+    data: { columnKey: "in-progress", columnEnteredAt: new Date() },
+  });
+  if (r.count === 1) {
+    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    return true;
+  }
+  return false;
+}
+
 export async function moveColumn(itemId: string, columnKey: string): Promise<void> {
   await prisma.workItem.update({
     where: { id: itemId },
@@ -597,6 +615,23 @@ export async function notifyReply(itemId: string, userId: string, key: string, p
   } catch {
     /* best-effort */
   }
+}
+
+/** A user's display name, for approval-loop attribution ("Approved by <name>").
+ *  Null when the user row is gone — the caller falls back to "maintainer". One
+ *  narrow lookup (displayName only). */
+export async function displayName(userId: string): Promise<string | null> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true } });
+  return u?.displayName ?? null;
+}
+
+/** The feedback-triage blob (classification + acceptance criteria) for a ticket,
+ *  or null when it wasn't filed via the feedback portal. The resume path needs it
+ *  to rebuild a TicketBrief (for the pre-ship reviewer + the SemVer bump kind) on a
+ *  review-column item that getBacklog — TODO-only — never returns. */
+export async function triageFor(itemId: string): Promise<unknown> {
+  const fb = await prisma.feedbackItem.findFirst({ where: { workItemId: itemId }, select: { triage: true } });
+  return fb?.triage ?? null;
 }
 
 /** Ground-truth reconciler: re-derive EVERY linked feedback status in the pool
