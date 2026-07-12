@@ -18,6 +18,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
+import { toast } from "sonner";
+
 beforeAll(() => {
   // base-ui (Dialog/Button) needs these in jsdom — see
   // memory/testing-base-ui-in-jsdom.md.
@@ -167,7 +169,7 @@ describe("ForemanConsole — awaiting approval", () => {
           ticketKey: "COSMOS-9",
           title: "Fix the flaky dedup test",
           reason: "Touches the auth boundary — flagged for review.",
-          prUrl: null,
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/123",
           parkedAt: new Date().toISOString(),
         },
       ],
@@ -216,5 +218,31 @@ describe("ForemanConsole — awaiting approval", () => {
     const call = holder.calls.find((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue");
     expect(call?.method).toBe("POST");
     expect(call?.body).toEqual({ workItemId: "wi-1" });
+    expect(toast.success).toHaveBeenCalledWith("Rebuild queued — a fresh pass starts shortly.");
+  });
+
+  it("renders Approve button disabled when card has no prUrl", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Clarity suggestions — needs review.",
+          prUrl: null,
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Agent feedback improvement")).toBeInTheDocument();
+    const approveButton = screen.getByRole("button", { name: /approve/i });
+    expect(approveButton).toBeDisabled();
+    expect(approveButton).toHaveAttribute(
+      "title",
+      "Nothing built yet — comment instructions on the ticket or Rebuild",
+    );
   });
 });

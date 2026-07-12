@@ -146,7 +146,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           ? { ...old, awaitingApproval: old.awaitingApproval.filter((a) => a.workItemId !== workItemId) }
           : old,
       );
-      toast.success("Requeued for another pass.");
+      toast.success("Rebuild queued — a fresh pass starts shortly.");
     },
   });
 
@@ -332,7 +332,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                     </Button>
                     <Button
                       size="sm"
-                      disabled={approve.isPending && approve.variables?.workItemId === a.workItemId}
+                      disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
+                      title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
                       onClick={() => approve.mutate({ workItemId: a.workItemId, projectId: a.projectId })}
                     >
                       <Check className="size-3.5" /> Approve
