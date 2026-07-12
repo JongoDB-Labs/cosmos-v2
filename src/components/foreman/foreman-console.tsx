@@ -289,7 +289,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                       </Link>
                     </td>
                     <td className="max-w-xs truncate py-2 pr-4">{u.title}</td>
-                    <td className="max-w-xs truncate py-2 pr-4 text-[var(--text-muted)]">{u.why ?? "—"}</td>
+                    {/* || not ??: a planner pick missing its why stores "" — dash both. */}
+                    <td className="max-w-xs truncate py-2 pr-4 text-[var(--text-muted)]">{u.why || "—"}</td>
                     <td className="py-2 text-right text-[var(--text-muted)]">{rel(u.since)}</td>
                   </tr>
                 ))}
