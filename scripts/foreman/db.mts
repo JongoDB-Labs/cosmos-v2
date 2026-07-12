@@ -9,6 +9,7 @@ import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery
 import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
+import { PARKED_EVENT_KINDS } from "@/lib/foreman/observe";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
@@ -212,6 +213,24 @@ export async function claimTicket(itemId: string): Promise<boolean> {
   return false;
 }
 
+/** Atomically claim a PARKED (review-column) ticket for a RESUME worker: flips
+ *  review → in-progress only if it is STILL in review, so draining the resume
+ *  queue can't race a human drag or a second drain of the same item. Mirrors
+ *  claimTicket (which guards backlog → in-progress); this is the review-column
+ *  variant the approval loop's resume path uses. Carries linked feedback with the
+ *  move (same as claimTicket) so a resumed ticket's feedback reads IN_PROGRESS. */
+export async function claimParked(itemId: string): Promise<boolean> {
+  const r = await prisma.workItem.updateMany({
+    where: { id: itemId, columnKey: "review" },
+    data: { columnKey: "in-progress", columnEnteredAt: new Date() },
+  });
+  if (r.count === 1) {
+    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    return true;
+  }
+  return false;
+}
+
 export async function moveColumn(itemId: string, columnKey: string): Promise<void> {
   await prisma.workItem.update({
     where: { id: itemId },
@@ -349,13 +368,42 @@ export interface FreshMention {
   askerUserId: string;
   question: string;
   thread: { author: string; text: string }[];
+  // The item's latest parked-kind foreman_events `data` (see PARKED_EVENT_KINDS),
+  // so run.mts can resume the SAME agent session/branch instead of starting a
+  // fresh build — null when the item was never parked (or isn't in `review`).
+  // `data`'s JSON round-trips an absent field as `null`, not
+  // `undefined`; normalized to `undefined` here so callers can use `??`/spread
+  // without `null` leaking into a rebuilt prompt or request body.
+  parked: { sessionId?: string; branch?: string; prUrl?: string } | null;
+}
+
+/** Normalize a parked-kind event's `data` into the FreshMention `parked`
+ *  shape: absent or explicitly-null fields (a Json column round-trips an
+ *  omitted field as `null`) both become `undefined`. */
+function parkedInfoFromEventData(data: unknown): { sessionId?: string; branch?: string; prUrl?: string } {
+  const d = (data ?? {}) as { sessionId?: string | null; branch?: string | null; prUrl?: string | null };
+  return {
+    sessionId: d.sessionId ?? undefined,
+    branch: d.branch ?? undefined,
+    prUrl: d.prUrl ?? undefined,
+  };
 }
 
 /** Pool tickets with a privileged @Foreman mention that hasn't been consumed:
- *  - a ticket in `review` whose mention is newer than it ENTERED review
- *    (columnEnteredAt) → the caller requeues it (requeue resets the watermark);
+ *  - a ticket in `review` whose mention is newer than BOTH when it ENTERED review
+ *    (columnEnteredAt) AND the bot's own last comment on it → the caller acts on
+ *    it. The bot-comment half matters because a terminal approve outcome
+ *    (nothing-built / merge-conflict / already-merged) posts a bot reply but never
+ *    MOVES the card, so columnEnteredAt alone would re-fire the same stale
+ *    "approve" every pass (F1). EVERY fresh comment past that watermark is
+ *    returned, not just the first —
+ *    a parked ticket can pick up several plain replies in one pass (e.g. an
+ *    earlier steering note followed by a later "approved"), and run.mts's
+ *    combineIntents needs the whole set to land on the right combined intent;
  *  - any other ticket whose mention is newer than the bot's own last comment
- *    on it → the caller replies (the reply becomes the new watermark).
+ *    on it → the caller replies (the reply becomes the new watermark). Capped
+ *    to the single oldest fresh mention per pass — the Q&A path answers one
+ *    question at a time.
  *  Scans the last 14 days of pool comments — the loop runs every few minutes,
  *  so the window is purely a query bound, not a semantic one. */
 export async function freshMentions(): Promise<FreshMention[]> {
@@ -365,6 +413,64 @@ export async function freshMentions(): Promise<FreshMention[]> {
   const token = mentionToken(bot);
   const since = new Date(Date.now() - 14 * 24 * 3600_000);
   const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
+
+  // Every review-column item in the pool, batched with (one query, no N+1) each
+  // one's LATEST parked/gated event — the "is this ticket parked, and with what
+  // session/branch/PR" lookup both the review-column token-mention path below
+  // and the bare-comment ingestion path need. Reuses the batched
+  // latest-event-per-item shape from src/lib/foreman/status-read.ts, simplified:
+  // that read prefers the newest REASONED event (so a later blank event can't
+  // blank out a reason); this one just wants the newest event, full stop —
+  // `events` is ts-desc, so the first hit per item is already that.
+  const reviewItems = await prisma.workItem.findMany({
+    where: { projectId: { in: pool.map((p) => p.projectId) }, columnKey: "review" },
+    select: {
+      id: true,
+      orgId: true,
+      projectId: true,
+      title: true,
+      description: true,
+      columnEnteredAt: true,
+      ticketNumber: true,
+    },
+  });
+  const reviewItemById = new Map(reviewItems.map((r) => [r.id, r] as const));
+  const parkEvents = reviewItems.length
+    ? await prisma.foremanEvent.findMany({
+        where: { workItemId: { in: reviewItems.map((r) => r.id) }, kind: { in: [...PARKED_EVENT_KINDS] } },
+        orderBy: { ts: "desc" },
+        select: { workItemId: true, data: true },
+      })
+    : [];
+  const parkedInfoByItem = new Map<string, { sessionId?: string; branch?: string; prUrl?: string }>();
+  for (const e of parkEvents) {
+    if (!e.workItemId || parkedInfoByItem.has(e.workItemId)) continue; // ts-desc: first hit per item wins
+    parkedInfoByItem.set(e.workItemId, parkedInfoFromEventData(e.data));
+  }
+
+  // F1: the bot-reply half of the review-column watermark. Batched newest-bot-
+  // comment-per-review-item (groupBy, no N+1) over the SAME reviewItems snapshot.
+  // A terminal approve outcome posts a bot comment but never moves the card, so
+  // without this half a stale "approve" would sit above columnEnteredAt forever
+  // and re-fire every pass; the effective watermark below is the max of the two.
+  const botCommentAgg = reviewItems.length
+    ? await prisma.comment.groupBy({
+        by: ["workItemId"],
+        where: { workItemId: { in: reviewItems.map((r) => r.id) }, authorId: bot },
+        _max: { createdAt: true },
+      })
+    : [];
+  const lastBotCommentByItem = new Map<string, Date>();
+  for (const g of botCommentAgg) {
+    if (g.workItemId && g._max.createdAt) lastBotCommentByItem.set(g.workItemId, g._max.createdAt);
+  }
+  /** Effective review-column watermark (F1): a fresh comment on a parked ticket
+   *  must be newer than BOTH columnEnteredAt AND the bot's last comment on it.
+   *  Milliseconds; 0 when neither exists (preserving the old "null columnEnteredAt
+   *  ⇒ don't filter" behavior for a never-commented, freshly-created review row). */
+  const reviewWatermarkMs = (itemId: string, columnEnteredAt: Date | null): number =>
+    Math.max(columnEnteredAt?.getTime() ?? 0, lastBotCommentByItem.get(itemId)?.getTime() ?? 0);
+
   const mentions = await prisma.comment.findMany({
     where: {
       createdAt: { gt: since },
@@ -392,22 +498,33 @@ export async function freshMentions(): Promise<FreshMention[]> {
     },
     orderBy: { createdAt: "asc" },
   });
-  const out: FreshMention[] = [];
-  const seenItems = new Set<string>();
+  // Each candidate is kept alongside its own comment's createdAt so the two
+  // sources below (token mentions, then bare parked-ticket replies) can be
+  // merged into one createdAt-ascending stream before returning — see the sort
+  // at the end of this function.
+  const dated: { createdAt: Date; mention: FreshMention }[] = [];
+  // Caps a NON-review item to its single oldest fresh token mention per pass
+  // (the Q&A reply path — one reply per pass is correct, and the bot's reply
+  // becomes the new watermark). Review-column items are NOT capped here: every
+  // fresh token mention on a parked ticket is pushed below, same as the
+  // bare-comment loop.
+  const seenNonReview = new Set<string>();
   const privCache = new Map<string, Set<string>>();
   for (const m of mentions) {
     const wi = m.workItem;
-    if (!wi || !m.workItemId || seenItems.has(m.workItemId)) continue;
+    if (!wi || !m.workItemId) continue;
+    const isReview = wi.columnKey === "review";
+    if (!isReview && seenNonReview.has(m.workItemId)) continue;
     let priv = privCache.get(wi.orgId);
     if (!priv) {
       priv = await privilegedUserIds(wi.orgId);
       privCache.set(wi.orgId, priv);
     }
     if (!priv.has(m.authorId)) continue;
-    // Watermark: review-column tickets consume on requeue (columnEnteredAt);
-    // everything else consumes on the bot's last comment.
-    if (wi.columnKey === "review") {
-      if (wi.columnEnteredAt && m.createdAt.getTime() <= wi.columnEnteredAt.getTime()) continue;
+    // Watermark: review-column tickets consume on max(columnEnteredAt, bot's last
+    // comment) (F1); every other column consumes on the bot's last comment alone.
+    if (isReview) {
+      if (m.createdAt.getTime() <= reviewWatermarkMs(m.workItemId, wi.columnEnteredAt)) continue;
     } else {
       const lastBot = await prisma.comment.findFirst({
         where: { workItemId: m.workItemId, authorId: bot },
@@ -428,22 +545,104 @@ export async function freshMentions(): Promise<FreshMention[]> {
       select: { id: true, displayName: true },
     });
     const nameOf = new Map(authors.map((a) => [a.id, a.displayName] as const));
-    out.push({
-      itemId: m.workItemId,
-      orgId: wi.orgId,
-      key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
-      title: wi.title,
-      description: wi.description,
-      columnKey: wi.columnKey,
-      askerUserId: m.authorId,
-      question: m.content.split(token).join("").trim(),
-      thread: thread
-        .reverse()
-        .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+    dated.push({
+      createdAt: m.createdAt,
+      mention: {
+        itemId: m.workItemId,
+        orgId: wi.orgId,
+        key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
+        title: wi.title,
+        description: wi.description,
+        columnKey: wi.columnKey,
+        askerUserId: m.authorId,
+        question: m.content.split(token).join("").trim(),
+        thread: thread
+          .reverse()
+          .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+        parked: isReview ? (parkedInfoByItem.get(m.workItemId) ?? null) : null,
+      },
     });
-    seenItems.add(m.workItemId);
+    if (!isReview) seenNonReview.add(m.workItemId);
   }
-  return out;
+
+  // Bare-comment ingestion: on a PARKED ticket, a privileged member's comment is
+  // already an instruction — the ticket is sitting in front of them for
+  // approval, so replying to it (no @Foreman token needed) reads the same as
+  // explicitly addressing the bot. Scoped tight so a bare comment can't
+  // accidentally trigger this anywhere else: item must be in `review` (not just
+  // any pool item) AND have a latest parked/gated event (`parkedInfoByItem`,
+  // built above from the SAME reviewItems snapshot — no separate "is it
+  // parked" query), same privileged-author + review watermark rules as the
+  // token path, and never the bot itself. EVERY fresh bare comment past the
+  // watermark is pushed (not just the first) — a parked ticket can rack up
+  // several plain replies in one pass, and all of them need to reach
+  // run.mts's combineIntents. Because the query below excludes token-bearing
+  // content, a comment can never satisfy both this source and the token loop
+  // above, so there's nothing to dedupe by comment id between the two sources
+  // (verified: the token query requires `content contains token`, this one
+  // requires NOT).
+  const parkedItemIds = [...parkedInfoByItem.keys()];
+  const bareComments = parkedItemIds.length
+    ? await prisma.comment.findMany({
+        where: {
+          workItemId: { in: parkedItemIds },
+          createdAt: { gt: since },
+          authorId: { not: bot },
+          NOT: { content: { contains: token } },
+        },
+        select: { workItemId: true, authorId: true, content: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  for (const c of bareComments) {
+    if (!c.workItemId) continue;
+    const wi = reviewItemById.get(c.workItemId);
+    if (!wi) continue; // defensive: parkedItemIds is derived from reviewItems, so this can't miss
+    let priv = privCache.get(wi.orgId);
+    if (!priv) {
+      priv = await privilegedUserIds(wi.orgId);
+      privCache.set(wi.orgId, priv);
+    }
+    if (!priv.has(c.authorId)) continue;
+    // Same combined review-column watermark as the token path (F1): newer than
+    // BOTH columnEnteredAt and the bot's last comment on the item.
+    if (c.createdAt.getTime() <= reviewWatermarkMs(c.workItemId, wi.columnEnteredAt)) continue;
+    const thread = await prisma.comment.findMany({
+      where: { workItemId: c.workItemId },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { content: true, createdAt: true, authorId: true },
+    });
+    const authors = await prisma.user.findMany({
+      where: { id: { in: [...new Set(thread.map((t) => t.authorId))] } },
+      select: { id: true, displayName: true },
+    });
+    const nameOf = new Map(authors.map((a) => [a.id, a.displayName] as const));
+    dated.push({
+      createdAt: c.createdAt,
+      mention: {
+        itemId: c.workItemId,
+        orgId: wi.orgId,
+        key: buildRef(keyByProject.get(wi.projectId) ?? "ITEM", wi.ticketNumber),
+        title: wi.title,
+        description: wi.description,
+        columnKey: "review",
+        askerUserId: c.authorId,
+        question: c.content.trim(),
+        thread: thread
+          .reverse()
+          .map((t) => ({ author: nameOf.get(t.authorId) ?? "member", text: t.content.slice(0, 500) })),
+        parked: parkedInfoByItem.get(c.workItemId) ?? null,
+      },
+    });
+  }
+
+  // A review item can now carry entries from BOTH sources above (pushed in two
+  // separate passes); sort the combined stream by createdAt ascending so a
+  // parked ticket's fresh comments reach run.mts — and its per-item grouping —
+  // in the order they were actually written, oldest first.
+  dated.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return dated.map((d) => d.mention);
 }
 
 /** Ping the asker that Foreman replied on the ticket (bell + push). */
@@ -466,6 +665,23 @@ export async function notifyReply(itemId: string, userId: string, key: string, p
   } catch {
     /* best-effort */
   }
+}
+
+/** A user's display name, for approval-loop attribution ("Approved by <name>").
+ *  Null when the user row is gone — the caller falls back to "maintainer". One
+ *  narrow lookup (displayName only). */
+export async function displayName(userId: string): Promise<string | null> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true } });
+  return u?.displayName ?? null;
+}
+
+/** The feedback-triage blob (classification + acceptance criteria) for a ticket,
+ *  or null when it wasn't filed via the feedback portal. The resume path needs it
+ *  to rebuild a TicketBrief (for the pre-ship reviewer + the SemVer bump kind) on a
+ *  review-column item that getBacklog — TODO-only — never returns. */
+export async function triageFor(itemId: string): Promise<unknown> {
+  const fb = await prisma.feedbackItem.findFirst({ where: { workItemId: itemId }, select: { triage: true } });
+  return fb?.triage ?? null;
 }
 
 /** Ground-truth reconciler: re-derive EVERY linked feedback status in the pool
