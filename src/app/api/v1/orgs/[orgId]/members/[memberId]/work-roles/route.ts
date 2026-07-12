@@ -94,7 +94,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: "work_role.members_set",
+      // Distinct from the per-role route's "work_role.members_set" so audit
+      // queries can tell "one member's set changed" from "one role's roster changed".
+      action: "member.work_roles_set",
       entity: "org_member",
       entityId: memberId,
       metadata: {

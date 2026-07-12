@@ -121,6 +121,11 @@ export function TeamRoleDialog({
   const rolesChanged = !sameRoleSet(roleIds, member.workRoleIds);
 
   async function handleSave() {
+    // Nothing changed — close quietly rather than toasting a save that never happened.
+    if (!tierChanged && !rolesChanged) {
+      onClose();
+      return;
+    }
     setSaving(true);
     setError(null);
     let tierSaved = false;
