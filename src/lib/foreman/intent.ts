@@ -5,26 +5,30 @@
 export type CommentIntent = "approve" | "rebuild" | "instruct";
 
 /** Strip leading mention token (<@uuid> or @foreman, case-insensitive) and
- * surrounding whitespace/punctuation. */
+ * surrounding whitespace/punctuation. Only strips trailing punctuation if a
+ * token was actually removed (so "approve?" stays "approve?" and won't match
+ * the approve pattern, which only tolerates [.!\s] trailing chars). */
 function stripMentionToken(text: string): string {
   let result = text.trim();
 
   // Try to strip <@...> token (e.g., <@123e4567-e89b-12d3-a456-426614174000>)
-  const uuidTokenMatch = result.match(/^<@[^>]+>\s*/);
+  const uuidTokenMatch = result.match(/^<@[^>]+>/);
   if (uuidTokenMatch) {
     result = result.slice(uuidTokenMatch[0].length);
+    // Strip separator (whitespace, period, colon, comma) that follows the removed token
+    result = result.replace(/^[\s.:,]+/, "");
   } else {
     // Try to strip @foreman token (case-insensitive)
-    const atForemanMatch = result.match(/^@foreman\s*/i);
+    const atForemanMatch = result.match(/^@foreman/i);
     if (atForemanMatch) {
       result = result.slice(atForemanMatch[0].length);
+      // Strip separator (whitespace, period, colon, comma) that follows the removed token
+      result = result.replace(/^[\s.:,]+/, "");
+    } else {
+      // No token was stripped, only trim whitespace (not punctuation)
+      result = result.trim();
     }
   }
-
-  // Strip surrounding whitespace and punctuation
-  result = result.trim();
-  result = result.replace(/^[.,!?\s]+/, "");
-  result = result.replace(/[.,!?\s]+$/, "");
 
   return result;
 }
@@ -60,10 +64,6 @@ export function classifyInstruction(text: string): CommentIntent {
  * For rebuild or instruct: all original texts are returned in order.
  */
 export function combineIntents(texts: string[]): { intent: CommentIntent; instructions: string[] } {
-  if (texts.length === 0) {
-    return { intent: "instruct", instructions: [] };
-  }
-
   const intents = texts.map(classifyInstruction);
 
   // Priority: approve > rebuild > instruct

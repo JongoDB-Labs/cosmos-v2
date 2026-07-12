@@ -68,6 +68,50 @@ describe("classifyInstruction", () => {
     });
   });
 
+  describe("hedged punctuation (no false-positive approve)", () => {
+    it("classifies 'approve?' as instruct (hedge, not approval)", () => {
+      expect(classifyInstruction("approve?")).toBe("instruct");
+    });
+
+    it("classifies 'approve,' as instruct (fragment, not approval)", () => {
+      expect(classifyInstruction("approve,")).toBe("instruct");
+    });
+
+    it("classifies 'lgtm?' as instruct (hedge)", () => {
+      expect(classifyInstruction("lgtm?")).toBe("instruct");
+    });
+
+    it("classifies 'ship it?' as instruct (hedge)", () => {
+      expect(classifyInstruction("ship it?")).toBe("instruct");
+    });
+
+    it("classifies 'approve.' as approve (regex tolerates period)", () => {
+      expect(classifyInstruction("approve.")).toBe("approve");
+    });
+
+    it("classifies 'approve!' as approve (regex tolerates exclamation)", () => {
+      expect(classifyInstruction("approve!")).toBe("approve");
+    });
+
+    it("classifies mention token with colon separator + approve", () => {
+      expect(classifyInstruction("<@123e4567-e89b-12d3-a456-426614174000>: approve")).toBe(
+        "approve",
+      );
+    });
+
+    it("classifies 'approve\\n\\nalso fix the header' as instruct (multi-line with content)", () => {
+      expect(classifyInstruction("approve\n\nalso fix the header")).toBe("instruct");
+    });
+
+    it("classifies 'don't approve yet' as instruct", () => {
+      expect(classifyInstruction("don't approve yet")).toBe("instruct");
+    });
+
+    it("classifies 'never approve this' as instruct", () => {
+      expect(classifyInstruction("never approve this")).toBe("instruct");
+    });
+  });
+
   describe("rebuild variants", () => {
     it("classifies 'rebuild' as rebuild", () => {
       expect(classifyInstruction("rebuild")).toBe("rebuild");
@@ -122,6 +166,15 @@ describe("classifyInstruction", () => {
     it("does not match 'rebuilding' as rebuild (exact word)", () => {
       // This should be "instruct" since "rebuild" must be a whole word
       expect(classifyInstruction("rebuilding")).toBe("instruct");
+    });
+
+    it("classifies 'prebuild the assets' as instruct (prebuild is not a keyword)", () => {
+      expect(classifyInstruction("prebuild the assets")).toBe("instruct");
+    });
+
+    it("does not match 'requeued' as rebuild (substring in different word)", () => {
+      // "requeue" with \b boundaries does not match inside "requeued"
+      expect(classifyInstruction("this was requeued before")).toBe("instruct");
     });
   });
 });
