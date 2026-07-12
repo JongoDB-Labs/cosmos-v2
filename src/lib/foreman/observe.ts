@@ -9,6 +9,19 @@ export const EVENT_KINDS = [
 ] as const;
 export type ForemanEventKind = (typeof EVENT_KINDS)[number];
 
+/** Event kinds that mean "this ticket is parked in review awaiting a human
+ *  decision" — the ONE union read by BOTH the console's approval panel
+ *  (src/lib/foreman/status-read.ts) and the daemon's mention/approve ingestion
+ *  (scripts/foreman/db.mts freshMentions), so the console can never show an
+ *  Approve the daemon can't hear. All five are meaningful to approve:
+ *  parked/gated (the checks/risk/reviewer gate) carry a draft PR; ship-failed
+ *  (PR exists → approve retries the merge) and merged-undeployed (approve →
+ *  already-merged reply, reconcile owns the deploy) carry a PR too; needs-input
+ *  has no PR, so an approve there gets the nothing-built reply. */
+export const PARKED_EVENT_KINDS = [
+  "parked", "gated", "needs-input", "ship-failed", "merged-undeployed",
+] as const;
+
 /** A build a worker slot is holding right now, as stored in foreman_state.inFlight. */
 export type InFlightBuild = {
   key: string;

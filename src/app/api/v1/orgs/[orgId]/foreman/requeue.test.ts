@@ -27,11 +27,11 @@ let userId: string;
 let projectId: string;
 let workItemTypeId: string;
 
-function ctx(perms: bigint): AuthContext {
+function ctx(perms: bigint, orgRole: OrgRole = OrgRole.ADMIN): AuthContext {
   return {
     userId,
     orgId,
-    orgRole: OrgRole.ADMIN,
+    orgRole,
     permissions: perms,
     basePermissions: perms,
     abacRules: [],
@@ -205,6 +205,23 @@ describe("POST /foreman/requeue", () => {
     const res = await postRequeue(req({ workItemId: item.id }), { params: params() });
     expect(res.status).not.toBe(200);
     expect(res.status).toBeGreaterThanOrEqual(400);
+
+    const untouched = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(untouched.columnKey).toBe("review");
+  });
+
+  it("403s a work-role-widened non-admin (ORG_UPDATE permission but base role MEMBER)", async () => {
+    // A MEMBER whose work-role grants ORG_UPDATE clears requirePermission, but
+    // STEERING the deployer is a BASE OWNER/ADMIN privilege (matches the daemon's
+    // privilegedUserIds gate) — so requeue must still 403 with the base-role error.
+    getAuthContext.mockResolvedValue(ctx(Permission.ORG_UPDATE, OrgRole.MEMBER));
+    const item = await createItem("review");
+    cleanup.itemIds.push(item.id);
+
+    const res = await postRequeue(req({ workItemId: item.id }), { params: params() });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("steering the delivery agent requires the Owner or Admin base role");
 
     const untouched = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(untouched.columnKey).toBe("review");

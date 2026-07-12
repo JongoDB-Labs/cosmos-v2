@@ -42,14 +42,23 @@ automation**.
 
 **Observability & supervision.** Every org with autonomous delivery gets a
 dedicated `/[org]/foreman` console: live pulse (alive/idle/stale/paused/circuit-
-breaker), what's building right now, tickets parked awaiting a human decision
-(with one-click requeue), and a full decision-feed audit trail. A compact pulse
-card on the org dashboard mirrors the same at-a-glance status and links straight
-through. Pause and resume the daemon from either surface — in-flight work always
-finishes first, nothing is discarded. A host-side systemd timer watches the
-daemon's heartbeat and, if it goes quiet, POSTs to `/api/foreman/alert` (bearer-
-authenticated via the `FOREMAN_ALERT_TOKEN` env var) so a stuck or crashed
-daemon doesn't fail silently.
+breaker), what's building right now, tickets parked awaiting a decision, and a
+full decision-feed audit trail. A compact pulse card on the org dashboard
+mirrors the same at-a-glance status and links straight through. Pause and
+resume the daemon from either surface — in-flight work always finishes first,
+nothing is discarded. A host-side systemd timer watches the daemon's heartbeat
+and, if it goes quiet, POSTs to `/api/foreman/alert` (bearer-authenticated via
+the `FOREMAN_ALERT_TOKEN` env var) so a stuck or crashed daemon doesn't fail
+silently.
+
+A parked ticket stays conversational: comment "approve" (or "lgtm" / "ship
+it") and Foreman marks its draft PR ready and merges it — deploy follows on
+the next reconcile pass, and no @Foreman mention is needed since a comment on
+a parked ticket is already talking to it. Any other comment resumes the exact
+same agent session against the same branch and PR instead of starting over;
+comment "rebuild" to discard that attempt and build fresh instead. The
+console's parked cards carry matching one-click **Approve** and **Rebuild**
+buttons, with Approve disabled until there's a PR to merge.
 
 The difference between auto-triage and autonomous delivery is only where a ticket
 lands: triage puts it in the backlog; delivery takes it to **Done** (a merged,

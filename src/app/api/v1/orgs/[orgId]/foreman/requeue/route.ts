@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
+import { OrgRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission, ConflictError } from "@/lib/rbac/check";
+import { requirePermission, ConflictError, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
+    // Steering the deployer is a BASE OWNER/ADMIN privilege (matches the daemon's
+    // privilegedUserIds gate + the console's actorCanSteer) — a work-role that
+    // widens ORG_UPDATE onto a MEMBER must NOT be able to requeue a parked build.
+    if (ctx.orgRole !== OrgRole.OWNER && ctx.orgRole !== OrgRole.ADMIN) {
+      throw new ForbiddenError("steering the delivery agent requires the Owner or Admin base role");
+    }
 
     const { workItemId } = requeueSchema.parse(await request.json());
 

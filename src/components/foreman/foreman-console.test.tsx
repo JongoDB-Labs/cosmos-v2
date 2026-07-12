@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Foreman console — pulse pill mapping (alive/stale/paused/breaker) and the
-// awaiting-approval Requeue control. `paused` is tested with `state: null`
+// awaiting-approval Approve/Rebuild controls. `paused` is tested with `state: null`
 // (daemon has never heartbeat) to exercise the fallback that derives the
 // pill from the top-level `paused` flag when there's no live daemon state —
 // the other three pills come straight from `state.pulse` as the API computes
@@ -18,6 +18,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
+import { toast } from "sonner";
+
 beforeAll(() => {
   // base-ui (Dialog/Button) needs these in jsdom — see
   // memory/testing-base-ui-in-jsdom.md.
@@ -30,6 +32,10 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = Element.prototype.hasPointerCapture || (() => false);
   Element.prototype.setPointerCapture = Element.prototype.setPointerCapture || (() => {});
   Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture || (() => {});
+  // Rebuild is a confirm-gated destructive action (same window.confirm
+  // convention as the PM trackers' delete buttons) — stub it to always
+  // proceed so the click can be asserted straight through to the POST.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatusPayload {
@@ -58,6 +64,7 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
       },
     },
     hasHistory: true,
+    actorCanSteer: true,
     ...overrides,
   };
 }
@@ -154,14 +161,106 @@ describe("ForemanConsole — awaiting approval", () => {
     holder.calls.length = 0;
   });
 
-  it("renders the ticket title and requeues it via POST when Requeue is clicked", async () => {
+  function withOneParked() {
     holder.status = baseStatus({
       awaitingApproval: [
         {
           workItemId: "wi-1",
+          projectId: "proj-1",
           ticketKey: "COSMOS-9",
           title: "Fix the flaky dedup test",
           reason: "Touches the auth boundary — flagged for review.",
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/123",
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+  }
+
+  it("renders the comment-to-instruct hint on a parked card", async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Approve merges the built PR and deploys it. Comment on the ticket to give instructions instead — Foreman resumes right where it left off.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("Approve POSTs a comment on the ticket's own thread as the acting user", async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+
+    // Approve deploys to prod, so it confirms first (mirrors Rebuild); the
+    // window.confirm stub returns true, so the click proceeds to the POST.
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Merge and deploy COSMOS-9? Foreman handles the rest.",
+    );
+    const commentsUrl = "/api/v1/orgs/org-1/projects/proj-1/work-items/wi-1/comments";
+    await waitFor(() => expect(holder.calls.some((c) => c.url === commentsUrl)).toBe(true));
+    const call = holder.calls.find((c) => c.url === commentsUrl);
+    expect(call?.method).toBe("POST");
+    expect(call?.body).toEqual({ content: "approve" });
+  });
+
+  it("hides Approve and Rebuild when the actor cannot steer (base-role gate), card stays read-only", async () => {
+    holder.status = baseStatus({
+      actorCanSteer: false,
+      awaitingApproval: [
+        {
+          workItemId: "wi-1",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-9",
+          title: "Fix the flaky dedup test",
+          reason: "Touches the auth boundary — flagged for review.",
+          prUrl: "https://github.com/jongodb-labs/cosmos-v2/pull/123",
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    // The card itself is still rendered (read-only) — reason + Open PR link.
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open pr/i })).toBeInTheDocument();
+    // ...but the steering levers are gone.
+    expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /rebuild/i })).not.toBeInTheDocument();
+  });
+
+  it("Rebuild confirms, then POSTs the existing requeue route when Rebuild is clicked", async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /rebuild/i }));
+
+    expect(window.confirm).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(holder.calls.some((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue")).toBe(true),
+    );
+    const call = holder.calls.find((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue");
+    expect(call?.method).toBe("POST");
+    expect(call?.body).toEqual({ workItemId: "wi-1" });
+    expect(toast.success).toHaveBeenCalledWith("Rebuild queued — a fresh pass starts shortly.");
+  });
+
+  it("renders Approve button disabled when card has no prUrl", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Clarity suggestions — needs review.",
           prUrl: null,
           parkedAt: new Date().toISOString(),
         },
@@ -169,15 +268,12 @@ describe("ForemanConsole — awaiting approval", () => {
     });
     renderConsole();
 
-    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /requeue/i }));
-
-    await waitFor(() =>
-      expect(holder.calls.some((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue")).toBe(true),
+    expect(await screen.findByText("Agent feedback improvement")).toBeInTheDocument();
+    const approveButton = screen.getByRole("button", { name: /approve/i });
+    expect(approveButton).toBeDisabled();
+    expect(approveButton).toHaveAttribute(
+      "title",
+      "Nothing built yet — comment instructions on the ticket or Rebuild",
     );
-    const call = holder.calls.find((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue");
-    expect(call?.method).toBe("POST");
-    expect(call?.body).toEqual({ workItemId: "wi-1" });
   });
 });

@@ -18,7 +18,7 @@ export default async function ForemanPage({ params }: PageParams) {
   return (
     <PageShell
       title="Foreman"
-      description="Autonomous delivery — live status, decisions, and controls."
+      description="Autonomous delivery — live status, decisions, and controls. Comment on a parked ticket to give Foreman new instructions."
     >
       {canManage ? (
         <ForemanConsole orgId={ctx.orgId} />

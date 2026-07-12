@@ -40,6 +40,70 @@ ${maintainer}
 - If you cannot make the checks pass or the ticket is under-specified, stop and leave a commit documenting what you found rather than guessing.`;
 }
 
+/** Max characters of PR diff embedded in the lost-session resume prompt — past
+ *  this the diff is truncated (the agent still has the worktree to read in full). */
+const RESUME_DIFF_CAP = 150_000;
+
+/** The resume instruction for the approval loop: a ticket was built, parked for
+ *  review, and the maintainer replied with steering. The SAME agent session is
+ *  resumed (its previous work is already in the worktree), so this only carries
+ *  the new instructions — no ticket/diff context is needed. Pure so the wording
+ *  is tested; the orchestrator owns the session resume + branch/worktree. */
+export function resumePrompt(key: string, instructions: string[]): string {
+  const notes = instructions.length
+    ? instructions.map((i) => `- ${i}`).join("\n")
+    : "- (no specific notes — re-verify the change still holds and address any obvious gap)";
+  return `You built ${key} and it was parked for review. The maintainer replied:
+${notes}
+
+Apply these instructions in the current worktree (your previous session's work). Re-run relevant tests. Update version/changelog only if the change's nature demands it. Commit when done.
+
+## Hard limits (unchanged)
+- Do NOT push to main, open/merge a PR, deploy, or tag — Foreman does that.
+- Do NOT add any Claude/Anthropic/AI/assistant attribution to commits, code, or messages. Commit under the existing git identity only.
+- Stay on the CURRENT branch; do not start over or revert unrelated work.`;
+}
+
+/** The lost-session fallback for resumePrompt: when the original agent session
+ *  can't be resumed (no sessionId persisted, or the resume errored), a FRESH
+ *  agent is given the same instructions PLUS the original ticket brief and the
+ *  current PR diff so it can reconstruct the context. The diff is capped at
+ *  RESUME_DIFF_CAP chars (the agent can still read the full tree from its cwd).
+ *  Pure so the framing + truncation note are tested. */
+export function resumeContextPrompt(
+  brief: { key: string; title: string; description: string },
+  prDiff: string,
+  instructions: string[],
+): string {
+  const notes = instructions.length
+    ? instructions.map((i) => `- ${i}`).join("\n")
+    : "- (no specific notes — re-verify the change still holds and address any obvious gap)";
+  const truncated = prDiff.length > RESUME_DIFF_CAP;
+  const diff = truncated
+    ? prDiff.slice(0, RESUME_DIFF_CAP) + "\n… [diff truncated — read the full change from the worktree]"
+    : prDiff;
+  return `You built ${brief.key} and it was parked for review. The maintainer replied:
+${notes}
+
+Your original session could not be resumed, so here is the context to pick up where it left off.
+
+## Original ticket
+${brief.title}
+${brief.description || "(no description)"}
+
+## Current PR diff:
+\`\`\`diff
+${diff}
+\`\`\`
+
+Apply these instructions in the current worktree (your previous session's work is already committed on this branch). Re-run relevant tests. Update version/changelog only if the change's nature demands it. Commit when done.
+
+## Hard limits (unchanged)
+- Do NOT push to main, open/merge a PR, deploy, or tag — Foreman does that.
+- Do NOT add any Claude/Anthropic/AI/assistant attribution to commits, code, or messages. Commit under the existing git identity only.
+- Stay on the CURRENT branch; do not start over or revert unrelated work.`;
+}
+
 /** The repair-round instruction: the SAME agent session (resumed, full context of
  *  what it built and why) is told exactly what failed and to fix forward. Pure so
  *  the wording is tested; the orchestrator bounds the number of rounds. */
