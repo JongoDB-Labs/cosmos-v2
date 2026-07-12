@@ -34,6 +34,7 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 
 import { prisma } from "@/lib/db/client";
 import { PUT } from "./work-roles/route";
+import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
 
 const MARKER = "t1-uwra";
 const OTHER_ORG_SLUG = `${MARKER}-other-org`;
@@ -114,6 +115,9 @@ beforeAll(async () => {
     select: { id: true },
   });
   orgId = org.id;
+  // CI runs on a pristine DB where the catalog may not be seeded yet (file order
+  // is nondeterministic) — seed idempotently before the lookups below rely on it.
+  await seedBuiltinWorkRoles(orgId);
 
   const targetUser = await prisma.user.create({
     data: { email: TARGET_EMAIL, displayName: "T1 UWRA Target" },
