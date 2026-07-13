@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
+import { ForemanClaudePanel } from "./foreman-claude-panel";
 
 /** "3m ago" / "2h ago" / "5d ago" — the app has no shared relative-time
  *  helper (each consumer defines its own; see activity-feed.tsx /
@@ -256,6 +257,11 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Admin section — Foreman's own Claude subscription. This page is
+          already OWNER/ADMIN-gated (see foreman/page.tsx's canManage check),
+          so no extra permission gate is needed here. */}
+      <ForemanClaudePanel orgId={orgId} />
 
       <SectionCard
         icon={ListOrdered}

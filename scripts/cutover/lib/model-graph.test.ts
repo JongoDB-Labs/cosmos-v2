@@ -47,8 +47,11 @@ describe("buildModelPlans — classification", () => {
     // (risks, deliverables, blockers, change_requests — migration 20260627000000).
     // Bumped from <105 when multi-assign added work_item_assignees (migration
     // 20260706070000) — plans hit exactly 105.
+    // Bumped from <110 as later org-scoped additions (incl. foreman_ai_settings,
+    // the dedicated Foreman Claude connection — migration 20260713150000; DIRECT
+    // via org_id, surrogate `id` PK like org_ai_settings) took the count to 110.
     expect(plans.length).toBeGreaterThan(50);
-    expect(plans.length).toBeLessThan(110);
+    expect(plans.length).toBeLessThan(115);
   });
 
   it("excludes the 5 v2-only models (no v1 source)", () => {

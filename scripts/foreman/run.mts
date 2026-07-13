@@ -36,7 +36,7 @@ import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
-import { runAgent, type AgentResult } from "./agent.mjs";
+import { runAgent, NoForemanCredentialError, type AgentResult } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
 import { ensureWorkerDbs } from "./worker-db.mjs";
@@ -110,12 +110,13 @@ async function idleSleep(ms: number): Promise<void> {
 async function judge(
   title: string,
   shortlist: Candidate[],
+  orgId: string,
 ): Promise<{ dupOf: string | null; reason: string }> {
   const list = shortlist.map((c) => `${c.ref}: ${c.title}`).join("\n");
   const prompt = `Ticket: "${title}". Already-known items:\n${list}\nIs the ticket the SAME underlying request as one of them? Reply exactly "DUP <ref>: <reason>" or "UNIQUE: <reason>".`;
   // Read-only tools + scratch cwd (not REPO): this judge reasons over untrusted
   // ticket/feedback text, so it must not be able to shell out or edit the repo. (I3)
-  const r = await runAgent(SCRATCH, prompt, { maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
+  const r = await runAgent(SCRATCH, prompt, { orgId, maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
   // Honor the LAST verdict line, anchored to the line start: a hedged mid-sentence
   // "... this is NOT a DUP COSMOS-1 ..." can't register as a duplicate (it doesn't
   // start with "DUP "), and a trailing "UNIQUE:" overrides an earlier "DUP".
@@ -142,7 +143,7 @@ async function judge(
 
 /** Clarity gate (§5.6): can this be built correctly without a product/scope
  *  decision the author must make? A cheap subscription judgment — never guess & ship. */
-async function clarityCheck(brief: TicketBrief, instructions: string[] = []): Promise<{ needsInput: boolean; question: string }> {
+async function clarityCheck(brief: TicketBrief, orgId: string, instructions: string[] = []): Promise<{ needsInput: boolean; question: string }> {
   const criteria = brief.acceptanceCriteria[0]
     ? brief.acceptanceCriteria.map((c) => "- " + c).join("\n")
     : "(none)";
@@ -152,7 +153,7 @@ async function clarityCheck(brief: TicketBrief, instructions: string[] = []): Pr
   const prompt = `A ticket to implement:\nTitle: ${brief.title}\nDescription: ${brief.description || "(none)"}\nAcceptance criteria:\n${criteria}\n${guidance}\nCan a competent engineer implement this CORRECTLY from what's written, WITHOUT a product/scope/UX/business decision that only the author can make (e.g. which metrics, what layout, a business rule, a missing credential, an ambiguous "which one")? Reply exactly "OK" if yes, or "NEEDS_INPUT: <the single most important question to unblock it>" if not.`;
   // Read-only tools + scratch cwd (not REPO): same untrusted-input reasoning as the
   // dedup judge — no shell, no repo writes. (I3)
-  const r = await runAgent(SCRATCH, prompt, { maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
+  const r = await runAgent(SCRATCH, prompt, { orgId, maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
   const m = r.log.match(/NEEDS_INPUT:\s*(.+)/);
   return m ? { needsInput: true, question: m[1].trim() } : { needsInput: false, question: "" };
 }
@@ -170,6 +171,15 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
     if (slots <= 0) return;
     const pool = backlog.filter((b) => b.columnKey === "backlog");
     if (pool.length === 0) return;
+    // The planner ranks the shared pool but runAgent must authenticate as ONE org's
+    // Foreman subscription. Resolve the single Foreman-connected delivery org; with
+    // none (or an ambiguous multiple) there's nothing to run the ranking on, so skip
+    // the pass — the daemon idles the planner cleanly instead of throwing.
+    const plannerOrgId = await db.primaryDeliveryOrgId();
+    if (!plannerOrgId) {
+      log(`planner: no Foreman-connected delivery org — skipping`);
+      return;
+    }
     const facts = await db.getDemotionFacts(pool.map((p) => p.id));
     const now = new Date();
     const eligible = pool.filter((p) => {
@@ -203,6 +213,7 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
       ageDays: Math.floor((now.getTime() - Date.parse(p.columnEnteredAt)) / 86_400_000),
     }));
     const r = await runAgent(SCRATCH, plannerPrompt(candidates, slots), {
+      orgId: plannerOrgId,
       maxTurns: 2,
       timeoutMs: PLANNER_TIMEOUT_MS,
       allowedTools: "Read,Grep,Glob",
@@ -329,6 +340,7 @@ interface Built {
  *  the caller (via `onRound`) so each keeps its own inFlightMeta wiring. */
 async function repairLoop(
   key: string,
+  orgId: string,
   wt: string,
   sessionId: string | undefined,
   testDbUrl: string | undefined,
@@ -343,6 +355,7 @@ async function repairLoop(
     log(`${key} checks failed — repair round ${repairs}/${MAX_REPAIRS}`);
     onRound(repairs);
     const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
+      orgId,
       resume: sessionId,
       timeoutMs: 25 * 60_000,
       testDbUrl,
@@ -362,7 +375,7 @@ async function repairLoop(
  *  the worktree, so it can't enter the change under review (in a linked worktree
  *  `.git` is a FILE, so the path is resolved via rev-parse). Fail-closed: an
  *  unreadable/failed reviewer yields {approve:false}; one retry absorbs infra flakes. */
-async function reviewFinalDiff(brief: TicketBrief, wt: string): Promise<{ approve: boolean; reason: string }> {
+async function reviewFinalDiff(brief: TicketBrief, orgId: string, wt: string): Promise<{ approve: boolean; reason: string }> {
   const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
     maxBuffer: 32 * 1024 * 1024,
   });
@@ -375,7 +388,7 @@ async function reviewFinalDiff(brief: TicketBrief, wt: string): Promise<{ approv
     writeFileSync(diffFile, diffText);
     reviewDiff = { kind: "file", path: diffFile };
   }
-  const reviewOpts = { allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
+  const reviewOpts = { orgId, allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
   let review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
   if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
   return review.ok
@@ -418,7 +431,7 @@ async function processOne(
     ...ledgerCandidates(ledgerEntries),
     ...(await db.historyCandidates()),
   ].filter((c) => c.ref !== key);
-  const dup = await dedupGate({ title: brief.title, candidates }, judge);
+  const dup = await dedupGate({ title: brief.title, candidates }, (title, shortlist) => judge(title, shortlist, item.orgId));
   if (dup.dupOf) {
     log(`${key} duplicate of ${dup.dupOf} — ${dup.reason}`);
     if (!DRY) {
@@ -434,7 +447,7 @@ async function processOne(
   // @Foreman instructions from privileged ticket comments — authoritative
   // answers/steering for both the clarity gate and the build itself.
   const instructions = await db.instructionsFor(item.id).catch(() => [] as string[]);
-  const clar = await clarityCheck(brief, instructions);
+  const clar = await clarityCheck(brief, item.orgId, instructions);
   if (clar.needsInput) {
     log(`${key} needs input — ${clar.question}`);
     if (!DRY) {
@@ -488,7 +501,7 @@ async function processOne(
     return true;
   };
   try {
-    const agent = await runAgent(wt, foremanPrompt(brief, instructions), { testDbUrl: workerOpts.testDbUrl });
+    const agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl });
     if (await haltIfKilled()) return {}; // checkpoint 1: right after the agent returns
 
     // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
@@ -530,6 +543,7 @@ async function processOne(
     setPhase(item.id, "checks");
     const repair = await repairLoop(
       key,
+      item.orgId,
       wt,
       agent.sessionId ?? undefined,
       workerOpts.testDbUrl,
@@ -608,7 +622,7 @@ async function processOne(
     // returns {approve:false} → parked, because a ship gate that can't run must
     // not open. Same helper the resume path uses.
     setPhase(item.id, "review");
-    const verdict = await reviewFinalDiff(brief, wt);
+    const verdict = await reviewFinalDiff(brief, item.orgId, wt);
     if (!verdict.approve) {
       await parkForReview(`reviewer rejected — ${verdict.reason}`);
       return {};
@@ -1036,7 +1050,7 @@ async function processMentions(
             thread: m.thread,
             question: m.question,
           }),
-          { allowedTools: "Read,Grep,Glob", maxTurns: 15, timeoutMs: 5 * 60_000 },
+          { orgId: m.orgId, allowedTools: "Read,Grep,Glob", maxTurns: 15, timeoutMs: 5 * 60_000 },
         );
         const reply = r.ok && r.log.trim() ? r.log.trim().slice(-2000) : "";
         if (!reply) {
@@ -1055,7 +1069,13 @@ async function processMentions(
         await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "mention-reply", message: `replied to @Foreman mention on ${m.key}` });
       }
     } catch (e) {
-      log(`${m.key} mention handling failed (${String(e)}) — continuing`);
+      if (e instanceof NoForemanCredentialError) {
+        // The reply agent needs this org's Foreman subscription; it's not connected,
+        // so skip the mention (log-and-continue) rather than crashing the pass.
+        log(`${m.key} mention skipped — no Foreman Claude connection`);
+      } else {
+        log(`${m.key} mention handling failed (${String(e)}) — continuing`);
+      }
     }
   }
 }
@@ -1138,11 +1158,11 @@ async function processResume(
     // no memory of the build). If the resume itself errors, fall back too: a FRESH
     // agent seeded with the ticket brief + current PR diff reconstructs the context.
     let agent: AgentResult = m.parked?.sessionId
-      ? await runAgent(wt, resumePrompt(key, instructions), { resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl })
+      ? await runAgent(wt, resumePrompt(key, instructions), { orgId: m.orgId, resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl })
       : { ok: false, log: "", sessionId: null };
     if (!agent.ok) {
       const { stdout: prDiff } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], { maxBuffer: 32 * 1024 * 1024 });
-      agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { testDbUrl: workerOpts.testDbUrl });
+      agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { orgId: m.orgId, testDbUrl: workerOpts.testDbUrl });
     }
     if (await haltIfKilled()) return {};
 
@@ -1178,6 +1198,7 @@ async function processResume(
     setPhase(m.itemId, "checks");
     const repair = await repairLoop(
       key,
+      m.orgId,
       wt,
       agent.sessionId ?? undefined,
       workerOpts.testDbUrl,
@@ -1200,7 +1221,7 @@ async function processResume(
     }
 
     setPhase(m.itemId, "review");
-    const verdict = await reviewFinalDiff(brief, wt);
+    const verdict = await reviewFinalDiff(brief, m.orgId, wt);
     if (!verdict.approve) {
       await reparkResume(`reviewer rejected — ${verdict.reason}`, undefined, processParts.join(" · "));
       return {};
@@ -1605,11 +1626,21 @@ async function main(): Promise<void> {
                   enqueueShip(out.ship);
                 }
               } catch (e) {
-                // A failed resume re-parks with the error (no attempts/backoff — the
-                // maintainer can steer again). Best-effort: never let it escape the slot.
-                log(`${resumeEntry.m.key} resume error: ${String(e)} — re-parking`);
-                await db.moveColumn(resumeItemId, "review").catch(() => undefined);
-                await db.comment(resumeItemId, `Resume failed unexpectedly — left in review. Last error: ${String(e)}`).catch(() => undefined);
+                if (e instanceof NoForemanCredentialError) {
+                  // No connected Foreman subscription for this org — can't resume.
+                  // Leave it parked in review with a clear reason (connect it on the
+                  // Foreman page, then steer again); a resume is mention-driven, so
+                  // there's nothing to hot-loop. No crash.
+                  log(`${resumeEntry.m.key} resume skipped — no Foreman Claude connection`);
+                  await db.moveColumn(resumeItemId, "review").catch(() => undefined);
+                  await obs.track({ workItemId: resumeItemId, orgId: resumeEntry.m.orgId, ticketKey: resumeEntry.m.key, kind: "parked", severity: "warn", message: "no Foreman Claude connection — connect it on the Foreman page", data: { reason: "no-foreman-connection" } });
+                } else {
+                  // A failed resume re-parks with the error (no attempts/backoff — the
+                  // maintainer can steer again). Best-effort: never let it escape the slot.
+                  log(`${resumeEntry.m.key} resume error: ${String(e)} — re-parking`);
+                  await db.moveColumn(resumeItemId, "review").catch(() => undefined);
+                  await db.comment(resumeItemId, `Resume failed unexpectedly — left in review. Last error: ${String(e)}`).catch(() => undefined);
+                }
               } finally {
                 inflight.delete(resumeItemId);
                 if (!keepMeta) inFlightMeta.delete(resumeItemId);
@@ -1656,18 +1687,33 @@ async function main(): Promise<void> {
                 enqueueShip(out.ship);
               }
             } catch (e) {
-              log(`${item.id} error: ${String(e)}`);
-              const n = (attempts.get(item.id) ?? 0) + 1;
-              attempts.set(item.id, n);
-              if (n >= MAX_ATTEMPTS && !DRY) {
-                log(`${item.id} failed ${n}× — parking for review so the loop can progress`);
-                await db.moveColumn(item.id, "review").catch(() => undefined);
-                await db
-                  .comment(item.id, `Repeatedly failed to process (${n} attempts) — needs a human. Last error: ${String(e)}`)
-                  .catch(() => undefined);
-                await obs.track({ workItemId: item.id, kind: "gated", severity: "warn", message: `repeatedly failed (${n} attempts) — parked for review` });
+              if (e instanceof NoForemanCredentialError) {
+                // This item's org has no connected Foreman Claude subscription, so no
+                // agent can run for it. Return it to backlog (it builds once the org
+                // connects on the Foreman page) with a clear parked reason, and count
+                // the attempt so an unconnected org drops out of the candidate pool
+                // after MAX_ATTEMPTS instead of hot-looping the slot — the daemon keeps
+                // serving connected orgs and idles cleanly, never crash-loops.
+                log(`${ref} skipped — no Foreman Claude connection`);
+                attempts.set(item.id, (attempts.get(item.id) ?? 0) + 1);
+                if (!DRY) {
+                  await db.moveColumn(item.id, "backlog").catch(() => undefined);
+                  await obs.track({ workItemId: item.id, orgId: item.orgId, ticketKey: ref, kind: "parked", severity: "warn", message: "no Foreman Claude connection — connect it on the Foreman page", data: { reason: "no-foreman-connection" } });
+                }
+              } else {
+                log(`${item.id} error: ${String(e)}`);
+                const n = (attempts.get(item.id) ?? 0) + 1;
+                attempts.set(item.id, n);
+                if (n >= MAX_ATTEMPTS && !DRY) {
+                  log(`${item.id} failed ${n}× — parking for review so the loop can progress`);
+                  await db.moveColumn(item.id, "review").catch(() => undefined);
+                  await db
+                    .comment(item.id, `Repeatedly failed to process (${n} attempts) — needs a human. Last error: ${String(e)}`)
+                    .catch(() => undefined);
+                  await obs.track({ workItemId: item.id, kind: "gated", severity: "warn", message: `repeatedly failed (${n} attempts) — parked for review` });
+                }
+                await idleSleep(30_000); // bounded backoff without hot-looping the slot
               }
-              await idleSleep(30_000); // bounded backoff without hot-looping the slot
             } finally {
               inflight.delete(item.id);
               if (!keepMeta) inFlightMeta.delete(item.id);

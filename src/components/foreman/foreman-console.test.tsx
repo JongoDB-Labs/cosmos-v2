@@ -91,6 +91,12 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     if (url.includes("/foreman/requeue")) {
       return Promise.resolve({ ok: true });
     }
+    // The console also renders ForemanClaudePanel, which self-fetches its own
+    // (differently-shaped) status — not connected here; see
+    // foreman-claude-panel.test.tsx for that card's own behavior.
+    if (url.includes("/foreman/claude-subscription/status")) {
+      return Promise.resolve({ connected: false });
+    }
     return Promise.resolve(holder.status);
   }),
 }));

@@ -12,6 +12,7 @@ export default defineConfig({
       "src/**/*.test.{ts,tsx}",
       "scripts/cutover/**/*.test.{ts,mts}",
       "scripts/dsop/**/*.test.{ts,mts,mjs}",
+      "scripts/foreman/**/*.test.{ts,mts}",
     ],
   },
   resolve: {
