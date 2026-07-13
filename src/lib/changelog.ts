@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.201.0",
+    date: "2026-07-13",
+    title: "A sharper Cosmo chat",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Conversations name themselves. After your first exchange, Cosmo titles the chat with a short summary — no more a sidebar full of \"New conversation.\"",
+      },
+      {
+        kind: "fix",
+        text: "Tool-call steps no longer spin forever. Finished steps show as done — including when you reopen an earlier conversation.",
+      },
+      {
+        kind: "feature",
+        text: "When Cosmo creates or updates something — a work item, note, meeting, or project — it now appears in the chat as a clickable card that takes you straight to it.",
+      },
+    ],
+  },
+  {
     version: "2.200.1",
     date: "2026-07-13",
     title: "Foreman connections now power the daemon",

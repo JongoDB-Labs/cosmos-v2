@@ -16,6 +16,10 @@ import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { runAgentLoop, type AgentToolCall } from "@/lib/ai/agent-loop";
 import { buildAssistantSystemPrompt } from "@/lib/ai/assistant-prompt";
+import {
+  generateConversationTitle,
+  DEFAULT_CONVERSATION_TITLE,
+} from "@/lib/ai/conversation-title";
 
 const sendMessageSchema = z.object({
   content: z.string().min(1),
@@ -172,6 +176,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       model,
       // fail-closed: only an explicit COMMERCIAL org gets the permissive class.
       tenantClass: org.tenantClass === "COMMERCIAL" ? "commercial" : "gov",
+      // Auto-title inputs: the conversation's current title (still the default
+      // ⇒ never titled) and THIS turn's user message (the first, when default).
+      priorTitle: conversation.title,
+      userContent: data.content,
     };
 
     if (wantsStream) {
@@ -196,6 +204,39 @@ interface IterationCtx {
   model: string;
   /** The org's data-sensitivity class, mapped from Organization.tenantClass. */
   tenantClass: "gov" | "commercial";
+  /** The conversation's title BEFORE this turn — default ⇒ eligible for auto-titling. */
+  priorTitle: string;
+  /** This turn's raw user message — the first exchange's user side when titling. */
+  userContent: string;
+}
+
+/**
+ * Auto-title the conversation after the first exchange (Anthropic Claude Chat UX).
+ * Fires ONCE: only while the title is still the default sentinel — once we store a
+ * generated title, later turns short-circuit here. Generation runs through the
+ * SAME egress chokepoint as the assistant (see conversation-title.ts). Returns the
+ * new title (persisted) or null when it was skipped / generation yielded nothing.
+ */
+async function maybeGenerateTitle(
+  ctx: IterationCtx,
+  assistantText: string,
+): Promise<string | null> {
+  if (ctx.priorTitle !== DEFAULT_CONVERSATION_TITLE) return null;
+  const title = await generateConversationTitle({
+    orgId: ctx.orgId,
+    userId: ctx.userId,
+    conversationId: ctx.conversationId,
+    tenantClass: ctx.tenantClass,
+    model: ctx.model,
+    firstUserMessage: ctx.userContent,
+    firstAssistantMessage: assistantText,
+  });
+  if (!title) return null;
+  await prisma.assistantConversation.update({
+    where: { id: ctx.conversationId },
+    data: { title },
+  });
+  return title;
 }
 
 async function runBlocking(ctx: IterationCtx): Promise<Response> {
@@ -214,6 +255,9 @@ async function runBlocking(ctx: IterationCtx): Promise<Response> {
     result.text,
     result.toolCalls,
   );
+  // Auto-title after the first exchange (persists on the conversation). Non-
+  // streaming clients pick the new title up on their next conversation-list fetch.
+  await maybeGenerateTitle(ctx, result.text);
   return created(assistantMsg);
 }
 
@@ -284,6 +328,16 @@ function runStreaming(ctx: IterationCtx): Response {
           content: result.text,
           toolCalls: result.toolCalls,
         });
+
+        // Auto-title AFTER `done` so the message renders immediately; the title
+        // arrives as its own event a beat later (first exchange only — see
+        // maybeGenerateTitle). A failure here never affects the delivered answer.
+        try {
+          const newTitle = await maybeGenerateTitle(ctx, result.text);
+          if (newTitle) send({ type: "title", title: newTitle });
+        } catch {
+          /* titling is best-effort; the answer is already delivered */
+        }
       } catch (err) {
         send({
           type: "error",
