@@ -5,7 +5,6 @@ describe("buildAssistantSystemPrompt — requesting-user identity injection", ()
   const identity = {
     userId: "11111111-1111-1111-1111-111111111111",
     name: "Jon Rannabargar",
-    email: "jon@fightingsmartcyber.com",
     role: "OWNER",
   };
 
@@ -14,12 +13,17 @@ describe("buildAssistantSystemPrompt — requesting-user identity injection", ()
     expect(p).toContain(BASE_SYSTEM_PROMPT);
   });
 
-  it("tells the model exactly who it is talking to (name, email, id, role)", () => {
+  it("tells the model exactly who it is talking to (name, id, role) and keeps email out of it", () => {
     const p = buildAssistantSystemPrompt(identity);
     expect(p).toContain("Jon Rannabargar");
-    expect(p).toContain("jon@fightingsmartcyber.com");
     expect(p).toContain(identity.userId);
     expect(p).toContain("OWNER");
+    // GOV-mode withholds member email as PII from tool data (egress/projection.ts);
+    // the acting user's own email must not leak into the model context either —
+    // the identity block carries name + id + role only.
+    const identityBlock = p.slice(BASE_SYSTEM_PROMPT.length);
+    expect(identityBlock).not.toContain("@");
+    expect(identityBlock.toLowerCase()).not.toContain("email");
   });
 
   it("instructs the model NOT to ask who the user is or for their id", () => {
@@ -29,10 +33,10 @@ describe("buildAssistantSystemPrompt — requesting-user identity injection", ()
     expect(p.toLowerCase()).toMatch(/\bme\b|assign to me|"my"|current user/);
   });
 
-  it("does not crash on a missing/blank name (falls back gracefully)", () => {
-    const p = buildAssistantSystemPrompt({ userId: "u1", name: "", email: "x@y.z", role: "MEMBER" });
+  it("does not crash on a missing/blank name (falls back to the user id, not email)", () => {
+    const p = buildAssistantSystemPrompt({ userId: "u1", name: "", role: "MEMBER" });
     expect(p).toContain("u1");
-    expect(p).toContain("x@y.z");
+    expect(p.slice(BASE_SYSTEM_PROMPT.length)).not.toContain("@");
   });
 });
 

@@ -34,9 +34,8 @@ Working with protected data (important):
 /** The authenticated requesting user, as known from their session. */
 export interface RequestingUserIdentity {
   userId: string;
-  /** Display name; may be empty — the builder falls back to the email. */
+  /** Display name; may be empty — the builder falls back to the user id. */
   name: string;
-  email: string;
   /** Org role (OWNER/ADMIN/MEMBER/…) for the user's context. */
   role: string;
 }
@@ -49,12 +48,15 @@ export interface RequestingUserIdentity {
  * This is safe to place in the system prompt: it is the requesting user's OWN
  * identity (not another member's PII), and the egress gate exposes system-prompt
  * text to the model (it gates tool DATA, not the prompt). We never inject OTHER
- * users' names/emails here.
+ * users' names/emails here — and we deliberately leave out the acting user's OWN
+ * email too: GOV-mode already withholds member email as PII from tool data (see
+ * egress/projection.ts), so injecting it here would be inconsistent with that
+ * posture. Name + id + role is sufficient for identity and "assign to me".
  */
 export function buildAssistantSystemPrompt(user: RequestingUserIdentity): string {
-  const name = user.name?.trim() || user.email;
+  const name = user.name?.trim() || user.userId;
   const identityBlock = `Who you are talking to:
-- You are speaking with ${name} (${user.email}), whose org role is ${user.role} and whose user id is ${user.userId}.
+- You are speaking with ${name}, whose org role is ${user.role} and whose user id is ${user.userId}.
 - You ALREADY KNOW who the requesting user is from this context. NEVER ask them who they are, what their name is, or for their user id.
 - When they say "me", "my", "mine", "myself", or "assign it to me", that means this user — use their user id (${user.userId}) directly as the assignee/owner/user id parameter. You may also pass the literal "me" as an assignee and the server will resolve it to them.`;
   return `${BASE_SYSTEM_PROMPT}\n\n${identityBlock}`;
