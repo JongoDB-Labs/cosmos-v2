@@ -50,9 +50,6 @@ type InviteResponse = {
   acceptUrl: string;
   emailSent: boolean;
   emailError: string | null;
-  // Present only for email/password invites where a credential was freshly
-  // provisioned — shown ONCE as a delivery fallback.
-  tempPassword: string | null;
 };
 
 export function InviteMemberButton({ orgId }: { orgId: string }) {
@@ -60,7 +57,6 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<InviteResponse | null>(null);
   const [copied, setCopied] = useState(false);
-  const [copiedPw, setCopiedPw] = useState(false);
 
   const {
     register,
@@ -126,7 +122,6 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
       reset();
       setResult(null);
       setCopied(false);
-      setCopiedPw(false);
     }
   }
 
@@ -135,13 +130,6 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
     await navigator.clipboard.writeText(result.acceptUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }
-
-  async function copyPassword() {
-    if (!result?.tempPassword) return;
-    await navigator.clipboard.writeText(result.tempPassword);
-    setCopiedPw(true);
-    setTimeout(() => setCopiedPw(false), 1500);
   }
 
   return (
@@ -157,11 +145,9 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
           <DialogDescription>
             {result
               ? result.emailSent
-                ? result.tempPassword
-                  ? "An email with their temporary password has been sent."
-                  : "An email with a sign-in link has been sent."
-                : "Email delivery was unavailable. Share the details below."
-              : "Choose how they'll sign in. OAuth invitees get a sign-in link; email & password invitees get a temporary password to change on first sign-in."}
+                ? "We've emailed their sign-in details."
+                : "Email delivery was unavailable — use “Resend invite” from the team list to try again."
+              : "Choose how they'll sign in. OAuth invitees get a sign-in link; email & password invitees are emailed a temporary password to change on first sign-in."}
           </DialogDescription>
         </DialogHeader>
 
@@ -174,35 +160,13 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
               <p className="text-sm font-medium">{result.invitation.role}</p>
             </div>
 
-            {result.tempPassword && (
+            {!result.emailSent && (
               <div className="rounded-md border border-[var(--status-warning,#b45309)]/40 bg-[var(--status-warning,#b45309)]/5 p-3">
-                <Label className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                  Temporary password
-                </Label>
-                <div className="mt-1 flex items-center gap-2">
-                  <Input
-                    value={result.tempPassword}
-                    readOnly
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={copyPassword}
-                    aria-label="Copy temporary password"
-                  >
-                    {copiedPw ? (
-                      <Check className="h-4 w-4 text-[var(--status-done)]" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-                <p className="mt-2 text-xs text-[var(--text-muted)]">
-                  Also emailed to them. Share it over a secure channel if needed —
-                  it&apos;s shown only once and they must change it at first
-                  sign-in.
+                <p className="text-xs text-[var(--text-muted)]">
+                  We couldn&apos;t email the invitation. Their temporary password
+                  is never shown here for security — use{" "}
+                  <span className="font-medium">Resend invite</span> from the team
+                  list to deliver it again.
                 </p>
               </div>
             )}

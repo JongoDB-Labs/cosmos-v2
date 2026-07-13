@@ -13,6 +13,7 @@ import {
 import {
   provisionEmailPasswordInvite,
   SIGN_IN_METHODS,
+  EMAIL_PASSWORD_INVITE_EXISTING_USER,
 } from "@/lib/auth/invite-credentials";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { z } from "zod";
@@ -118,7 +119,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const existingUser = await prisma.user.findFirst({ where: { email } });
+    const isEmailPassword = data.signInMethod === "email_password";
+
+    // Case-insensitive so a differently-cased row can't slip past the guards
+    // below (matches provisionEmailPasswordInvite's own lookup).
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
     if (existingUser) {
       const existingMember = await prisma.orgMember.findUnique({
         where: {
@@ -128,6 +135,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (existingMember) {
         return new Response(
           JSON.stringify({ error: "User is already a member" }),
+          { status: 409, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // SECURITY (cross-tenant account takeover): an email/password invite must
+      // never attach an admin-set credential to a PRE-EXISTING account. Sessions
+      // are user-global, so resetting a known email's password would hand the
+      // inviter that user's access everywhere. Existing users join via OAuth (or
+      // sign in with their own password). Reject BEFORE the allowlist upsert so a
+      // rejected invite leaves no trace.
+      if (isEmailPassword) {
+        return new Response(
+          JSON.stringify({ error: EMAIL_PASSWORD_INVITE_EXISTING_USER }),
           { status: 409, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -141,33 +160,36 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       create: { email, addedBy: ctx.userId },
     });
 
-    const isEmailPassword = data.signInMethod === "email_password";
-
-    // For email/password invites, provision the local credential BEFORE creating
-    // the invitation row so a failure here doesn't leave a dangling invite. The
-    // returned tempPassword is emailed + shown once to the admin, never logged.
-    let tempPassword: string | null = null;
-    if (isEmailPassword) {
-      const provisioned = await provisionEmailPasswordInvite({
-        email,
-        mfaRequired: data.mfaRequired,
-      });
-      tempPassword = provisioned.tempPassword;
-    }
-
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const invitation = await prisma.invitation.create({
-      data: {
-        orgId,
-        email,
-        role: data.role,
-        workRoleIds,
-        expiresAt,
-        signInMethod: data.signInMethod,
-        mfaRequired: data.mfaRequired,
-      },
+    // Provision the local credential (email/password invites only) and create the
+    // invitation row in ONE transaction: a failure on either side rolls both
+    // back, so we never leave an orphan User (password hash, no invite) nor a
+    // dangling invite. provisionEmailPasswordInvite re-checks for an existing
+    // user inside the tx and throws (→ 409) if one appeared since the guard above
+    // (TOCTOU-safe). The returned tempPassword is emailed only, never logged.
+    let tempPassword: string | null = null;
+    const invitation = await prisma.$transaction(async (tx) => {
+      if (isEmailPassword) {
+        const provisioned = await provisionEmailPasswordInvite({
+          email,
+          mfaRequired: data.mfaRequired,
+          client: tx,
+        });
+        tempPassword = provisioned.tempPassword;
+      }
+      return tx.invitation.create({
+        data: {
+          orgId,
+          email,
+          role: data.role,
+          workRoleIds,
+          expiresAt,
+          signInMethod: data.signInMethod,
+          mfaRequired: data.mfaRequired,
+        },
+      });
     });
 
     const inviter = await getCurrentUser();
@@ -227,15 +249,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    // tempPassword is surfaced to the admin ONCE as a delivery fallback (e.g. the
-    // Gmail send failed). It only exists here as plaintext; only its hash is
-    // stored. Null for OAuth invites and for invitees who already had a password.
+    // The temporary password is delivered ONLY by email (sendPasswordInviteEmail)
+    // and is deliberately NOT returned here — a plaintext secret in an API
+    // response leaks into proxies, server logs and browser history. If the email
+    // failed (emailSent === false) the admin resends the invitation from the team
+    // list; we never surface the secret.
     return created({
       invitation,
       acceptUrl,
       emailSent,
       emailError,
-      tempPassword,
     });
   } catch (error) {
     return handleApiError(error);

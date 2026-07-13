@@ -123,3 +123,66 @@ Tests (all green; `tsc --noEmit` clean; eslint clean):
    worktrees, so the four additive columns were applied out-of-band
    (idempotent `ADD COLUMN IF NOT EXISTS`) to enable tests; the committed
    migration uses standard Prisma `ADD COLUMN` for fresh/CI databases.
+
+---
+
+## 5. Security remediation (2026-07-13)
+
+Two findings from the security review of this branch are now fixed, plus two
+cheap correctness items. Invariant added: **an invite NEVER writes
+`passwordHash`/`mustChangePassword`/`mfaRequired` onto a pre-existing User** — the
+only credential write is a brand-new `user.create`.
+
+### #1 — Cross-tenant account takeover (CRITICAL, fixed)
+An `email_password` invite used to *attach* an admin-generated password to an
+existing account (the `if (existing)` / OAuth-only branch in
+`provisionEmailPasswordInvite`). Because sessions are user-global, any member
+could self-create an org (→ OWNER), invite an existing OAuth-only user
+(`victim@othertenant.com`) as `email_password`, and take over that account
+everywhere.
+
+- `src/lib/auth/invite-credentials.ts`: `provisionEmailPasswordInvite` now
+  provisions **only brand-new accounts**. If the email resolves to ANY existing
+  User (case-insensitive) it throws `ConflictError`
+  (`EMAIL_PASSWORD_INVITE_EXISTING_USER`) and writes nothing. The OAuth-only
+  "attach credential" and "existing password" branches are deleted.
+- `invitations/route.ts`: rejects an `email_password` invite for a known email
+  with **409** *before* the allowlist upsert (rejected invite leaves no trace).
+  Existing users are still invitable via **OAuth** (unchanged pending-invite
+  grant). The in-transaction re-check makes it TOCTOU-safe.
+
+### #2 — Plaintext temp password leaked in the API response (fixed)
+`invitations/route.ts` no longer returns `tempPassword` in the `created({...})`
+body. The secret is delivered **only** by email (`sendPasswordInviteEmail`).
+`invite-member-button.tsx` drops the temp-password display/copy entirely; on a
+failed send it shows a note pointing to the existing **"Resend invite"**
+affordance (team list) instead of any secret. This supersedes "Auth decision #1"
+above.
+
+### Cheap fixes
+- **Orphan-User ordering**: the credential provision + `invitation.create` now
+  run in a single `prisma.$transaction`, so a failure on either side rolls both
+  back — no orphan User (password hash, no invite) and no dangling invite.
+- **Alphabet comment** in `temp-password.ts`: the set is 57 chars (base58 minus
+  `1`), not 58; comment corrected (entropy ≈128 bits unchanged).
+
+### Tests (all green) + `tsc --noEmit` clean
+- `invite-credentials.test.ts` — rewritten: brand-new account still hashes +
+  force-rotates + threads MFA; an existing user (OAuth-only **and**
+  has-password) is **rejected with no create/update**.
+- `invitations/route.test.ts` — response asserted to **not** contain
+  `tempPassword`; **new takeover test**: an `email_password` invite for a
+  pre-existing (non-member) user → **409**, victim's `passwordHash`/
+  `mustChangePassword`/`mfaRequired`/`passwordSetAt` untouched, and no invitation
+  or allowlist row created. OAuth + brand-new paths unchanged.
+- `first-login-flow.test.ts` — forced-first-login state machine unchanged.
+
+### Known limitation (not a regression)
+If the **first** email of a brand-new `email_password` invite fails to send, the
+temp password is unrecoverable (hash-only, no longer in the response). The
+existing "Resend invite" endpoint re-sends the OAuth-style email and does **not**
+re-issue a temp password — deliberately, to preserve the "no invite writes a
+credential onto an existing User" invariant. Operationally, recovery is to revoke
+the un-onboarded invite + account and re-create. A dedicated, tightly-gated
+"re-issue temp password for an un-onboarded invitee" path could close this, but
+was left out of scope to keep the security invariant auditable.
