@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.200.1",
+    date: "2026-07-13",
+    title: "Foreman connections now power the daemon",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Connecting a Claude subscription for Foreman now actually drives autonomous delivery. The connection saved correctly, but the daemon couldn't use it — so builds stayed parked and the console read \"not responding.\" Fixed: a freshly connected Foreman starts working right away.",
+      },
+    ],
+  },
+  {
     version: "2.200.0",
     date: "2026-07-13",
     title: "Foreman gets its own Claude connection — plus a sharper assistant",
