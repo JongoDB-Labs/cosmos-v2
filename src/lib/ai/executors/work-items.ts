@@ -58,6 +58,25 @@ const listWorkItemsSchema = z.object({
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 /**
+ * Self-referential assignee tokens. When the model (or a user) passes one of
+ * these as `assigneeId`, resolve it to the INVOKING user's id so "assign a
+ * ticket to me" works without the model knowing/echoing the uuid. Any other
+ * string passes through untouched (and is then uuid-validated as before).
+ */
+const SELF_ASSIGNEE_TOKENS = new Set(["me", "@me", "self", "@self", "myself", "current user", "current_user"]);
+
+function resolveSelfAssignee(
+  input: Record<string, unknown>,
+  userId: string
+): Record<string, unknown> {
+  const a = input.assigneeId;
+  if (typeof a === "string" && SELF_ASSIGNEE_TOKENS.has(a.trim().toLowerCase())) {
+    return { ...input, assigneeId: userId };
+  }
+  return input;
+}
+
+/**
  * Resolve `type` (a short name like 'task' OR a full key like 'software.task'
  * OR a work-item-type UUID) to a concrete WorkItemType id for the given
  * project, honoring the project's template sector when present.
@@ -124,6 +143,7 @@ export async function createWorkItem(
   const denied = await assertPermission(ctx, Permission.ITEM_CREATE);
   if (denied) return denied;
 
+  input = resolveSelfAssignee(input, ctx.userId);
   const parsed = createWorkItemSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
@@ -216,6 +236,7 @@ export async function updateWorkItem(
   const denied = await assertPermission(ctx, Permission.ITEM_UPDATE);
   if (denied) return denied;
 
+  input = resolveSelfAssignee(input, ctx.userId);
   const parsed = updateWorkItemSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
