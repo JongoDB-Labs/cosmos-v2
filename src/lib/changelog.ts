@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.200.0",
+    date: "2026-07-13",
+    title: "Foreman gets its own Claude connection — plus a sharper assistant",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Foreman now runs on its own dedicated Claude subscription. Connect it on the Foreman console — separate from your organization and personal AI connections — so autonomous delivery keeps running on its own capacity.",
+      },
+      {
+        kind: "improvement",
+        text: "The Cosmo assistant now knows who it's talking to, so \"assign this to me\" just works, and it resolves projects by loose name — say \"VITL BMA\" and it maps to your VITL project.",
+      },
+      {
+        kind: "feature",
+        text: "Organization owners can raise their data classification in Settings → Organization; lowering it (which relaxes AI content controls) stays with platform administrators.",
+      },
+    ],
+  },
+  {
     version: "2.199.1",
     date: "2026-07-12",
     title: "Refining a parked build no longer discards it",
