@@ -2888,6 +2888,24 @@ model OrgAiSettings {
   @@map("org_ai_settings")
 }
 
+/// Foreman's OWN per-org Claude subscription (distinct from OrgAiSettings, which is
+/// the org's general-purpose AI provider config). Gives the autonomous-delivery
+/// daemon a dedicated OAuth connection so its usage doesn't consume a human seat's
+/// token. Tokens are SEALED via the vault before they touch the DB (Json { sealed }),
+/// mirroring OrgAiSettings/UserAiSettings.
+model ForemanAiSettings {
+  orgId             String    @id @map("org_id") @db.Uuid
+  provider          String    @default("claude-oauth")
+  oauthAccessToken  Json?     @map("oauth_access_token")
+  oauthRefreshToken Json?     @map("oauth_refresh_token")
+  oauthExpiresAt    DateTime? @map("oauth_expires_at")
+  updatedById       String?   @map("updated_by_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("foreman_ai_settings")
+}
+
 // PER-USER Claude subscription OAuth — the agent prefers the requesting USER's
 // personal Claude token over the org's (FR: "tied to user's oauth/token not
 // org-wide"). Mirrors the OAuth columns of OrgAiSettings, keyed on userId.
