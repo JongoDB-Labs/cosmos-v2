@@ -187,3 +187,107 @@ If option 2 or 4 is chosen and a request/approval step is involved, append:
 - `compliance/ssp/SSP.md:124, 141, 251`
 - `COSMO-INVESTIGATION.md:110-137`
 - git: `4312468 feat(runtime-config): tenantClass gov guardrails + APIs + RBAC`
+
+---
+
+# UPDATE — Option 3 SHIPPED: asymmetric, compliance-preserving tenant-facing control
+
+Building on the investigation above, **Option 3 (asymmetric self-service)** is now implemented.
+It ADDS a tenant-facing, **tighten-only** path ALONGSIDE the existing platform-owner internal
+route. The internal route and the egress masking logic are **unchanged**; the AC-3 /
+separation-of-duties control is **preserved** (loosening stays platform-owner-only).
+
+## Protectiveness ordering (chosen + documented)
+
+The `TenantClass` enum has exactly two values (`prisma/schema.prisma:23-26`). Ordered by how
+much each masks (most-masked = most protective):
+
+| Class        | Rank | Meaning                                                              |
+|--------------|------|---------------------------------------------------------------------|
+| `GOV`        | 1    | **MOST protective** — fully CUI-blind; tool-result content masked.   |
+| `COMMERCIAL` | 0    | **LEAST protective** — masking off; the model sees content unmasked. |
+
+- **TIGHTEN** = move to an EQUAL-or-MORE-protective class (rank ≥ current), e.g.
+  `COMMERCIAL → GOV`. Only ever INCREASES masking ⇒ can never leak CUI ⇒ **allowed for the org
+  OWNER, self-service.**
+- **LOOSEN** = move to a LESS-protective class (rank < current), e.g. `GOV → COMMERCIAL`.
+  REMOVES masking ⇒ **stays platform-owner-only** (existing internal route); the tenant path
+  **403s** it and points at a platform admin.
+
+The ordering lives in ONE place so the API and UI can't drift:
+`src/lib/org/tenant-class.ts` — `TENANT_CLASS_PROTECTIVENESS` (a `Record<TenantClass, number>`,
+so a newly-added class fails to compile until it's ranked), `TENANT_CLASSES_BY_PROTECTIVENESS`
+(most→least, for ordered UI), `isAtLeastAsProtective(target, current)` (the tighten/no-op
+predicate), `isLoosening(...)` (its inverse), and `isValidTenantClass(...)`.
+
+## What I built
+
+1. **Shared ordering helper** — `src/lib/org/tenant-class.ts` (pure, server+client safe).
+2. **Tenant-facing API** — `src/app/api/v1/orgs/[orgId]/tenant-class/route.ts` (`PATCH`):
+   - Resolves the org, then `getAuthContext(org.slug)` (401 if none).
+   - `requirePermission(ctx, ORG_MANAGE_SETTINGS)` **plus** an explicit `ctx.orgRole !== "OWNER"`
+     → `ForbiddenError` (403). OWNER-only by construction — an ADMIN holding
+     `ORG_MANAGE_SETTINGS` is still refused (mirrors the `members/[memberId]` OWNER guard).
+   - Validates the body with `z.nativeEnum(TenantClass)` (invalid ⇒ 400 via `handleApiError`).
+   - **Asymmetric guard:** if `!isAtLeastAsProtective(target, prior)` ⇒ `ForbiddenError` (403)
+     with a "contact your platform administrator" message.
+   - On a valid tighten, updates `tenantClass` and — when the target is `GOV` — runs
+     `applyGovGuardrails` in the SAME `$transaction` (never momentarily gov-with-breadth),
+     exactly like the internal route. Audits `tenant_class.changed` with
+     `by: "tenant_owner", direction: "tighten"`.
+3. **Org-settings UI** — `src/components/settings/org-tenant-class.tsx`, rendered from
+   `src/app/(dashboard)/[orgSlug]/settings/organization/page.tsx` in a new "Data classification"
+   section for everyone who can view the page (`isOwner = ctx.orgRole === "OWNER"`):
+   - Shows the current class (Badge) + what it means.
+   - **OWNER:** an ordered radio list (most→least protective). More-protective / current options
+     are selectable; **less-protective options are DISABLED with a platform-administrator-only
+     note.** Staging a tighten reveals an `AlertTriangle` warning (irreversible-by-you +
+     guardrail side-effects), applied via a two-step `ConfirmButton` that `PATCH`es the route.
+   - **Non-owner:** read-only (a tenant admin can READ but not flip — preserves the SSP wording).
+   - The redundant read-only "Tenant class" cell was removed from `org-general-settings.tsx`
+     (single source of truth is now this dedicated control).
+
+## Tests (TDD; DATABASE_URL=…:55440 npx vitest run <path>)
+
+- `src/lib/org/tenant-class.test.ts` (9) — ordering, predicates, validation, inverse property.
+- `src/app/api/v1/orgs/[orgId]/tenant-class/route.test.ts` (8) — OWNER tighten persists +
+  guardrails + audit; no-op allowed; **OWNER loosen → 403** (no write/guardrail/audit);
+  **non-owner ADMIN → 403**; MEMBER → 403; 401; 404; **invalid → 400**. (Real authz + ordering,
+  only I/O mocked.)
+- `src/app/api/internal/orgs/[orgId]/tenant-class/route.test.ts` (5) — **unchanged, still green**
+  (internal platform route untouched).
+- `src/components/settings/org-tenant-class.test.tsx` (3) — OWNER tighten flow PATCHes GOV;
+  GOV org disables the loosen option w/ the note; non-owner read-only (no picker).
+- `src/app/(dashboard)/[orgSlug]/settings/organization/page.test.tsx` (+2, 8 total) — control
+  renders for viewers read-only; `isOwner` only for `OWNER`.
+
+34/34 across these 5 files; neighborhood suites (`src/components/settings/`, orgs `[orgId]`
+route) green; `tsc --noEmit` clean; `eslint` clean on all changed files.
+
+## Exact UI copy
+
+- **Section title / description:** "Tenant class & CUI masking" — "Controls how much of this
+  organization's content is masked (CUI-blind) before it reaches the AI assistant."
+- **Page section intro:** "Data classification" — "The tenant class drives CUI-blind masking for
+  the AI assistant. The owner can increase protection at any time; reducing it (removing masking)
+  requires a platform administrator."
+- **GOV blurb:** "Most protective. Fully CUI-blind — project & ticket names, member names, notes,
+  and other free-text tool-result content are masked before they reach the AI assistant.
+  Commercial connector breadth and external MCP are disabled."
+- **COMMERCIAL blurb:** "Least protective. CUI masking is off — the AI assistant sees this
+  organization's content unmasked."
+- **Owner helper:** "You can tighten to a more protective class at any time — tightening increases
+  CUI protection. Reducing protection (removing masking) is not self-service and requires a
+  platform administrator."
+- **Disabled loosen note:** "Platform administrator only — reducing masking requires a platform
+  administrator. Contact them to request this change."
+- **Tighten warning (AlertTriangle):** "Increasing protection to **{TARGET}** masks more of this
+  organization's content from the AI assistant[, and disables commercial connector breadth and
+  external MCP — GOV only]. This change is audited and **cannot be undone by you** — only a
+  platform administrator can later reduce protection."
+- **Confirm button:** "Increase protection" → armed: "Yes, increase protection to {TARGET}".
+- **Non-owner read-only:** "Only the organization owner can change the tenant class. Increasing
+  protection (more masking) is self-service for the owner; reducing protection (removing CUI
+  masking) always requires a platform administrator."
+- **API 403 (loosen):** "Reducing this organization's tenant class removes CUI masking and is not
+  self-service. Contact your platform administrator to request this change."
