@@ -29,6 +29,13 @@ describe("buildAgentEnv", () => {
     expect(env.LC_ALL).toBe("C.UTF-8");
   });
 
+  it("overrides HOME with the injected homeDir (the per-org Foreman creds dir)", () => {
+    // runAgent materializes a throwaway HOME holding the org's Foreman OAuth creds
+    // and passes it here — the SDK then authenticates as that subscription, NOT the
+    // deploy box's ~/.claude. The override wins over the inherited HOME.
+    expect(buildAgentEnv({ ...base, HOME: "/real" }, undefined, "/injected").HOME).toBe("/injected");
+  });
+
   it("EXCLUDES GH tokens and metered/cloud-billing vars — never handed to the agent's shell", () => {
     const env = buildAgentEnv({
       ...base,
