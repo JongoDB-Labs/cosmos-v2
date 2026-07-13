@@ -173,6 +173,10 @@ jobs:
           context: .
           load: true
           build-args: APP_VERSION=${{ steps.version.outputs.version }}
+          # Authenticate the Dockerfile's MiniLM download (see release.yml / Dockerfile)
+          # so this scan's fresh image build isn't rate-limited on HF's anonymous IP cap.
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN }}
           tags: cosmos-v2:${{ steps.version.outputs.version }}
       - name: Trivy image (record High; report)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
