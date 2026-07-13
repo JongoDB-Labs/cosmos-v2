@@ -12,6 +12,15 @@ describe("materializeForemanHome / cleanupForemanHome", () => {
     expect(j.claudeAiOauth.accessToken).toBe("AT");
     expect(j.claudeAiOauth.refreshToken).toBe("RT");
     expect(j.claudeAiOauth.expiresAt).toBe(1783969315076);
+    // REGRESSION GUARD: the runtime rejects the token triple ALONE as "Not logged
+    // in" — the credentials file MUST also carry the granted scopes (incl.
+    // user:sessions:claude_code) and a subscriptionType, or the daemon idles on
+    // every pass. A direct SDK probe confirmed the triple-only shape fails and
+    // this shape logs in.
+    expect(j.claudeAiOauth.scopes).toContain("user:sessions:claude_code");
+    expect(j.claudeAiOauth.scopes).toContain("user:inference");
+    expect(typeof j.claudeAiOauth.subscriptionType).toBe("string");
+    expect(j.claudeAiOauth.subscriptionType.length).toBeGreaterThan(0);
     // A live OAuth token on disk MUST be owner-only.
     expect(statSync(credPath).mode & 0o777).toBe(0o600);
     cleanupForemanHome(dir);
