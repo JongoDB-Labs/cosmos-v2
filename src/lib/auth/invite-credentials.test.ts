@@ -1,9 +1,13 @@
 // @vitest-environment node
 //
 // provisionEmailPasswordInvite — the credential side of an email/password invite.
-// Locks the security-critical guarantees: a temp password is generated + HASHED
-// (never stored raw), the force-rotate flag is set, the MFA floor is threaded,
-// and an existing self-chosen password is NEVER clobbered by a re-invite.
+// Locks the security-critical guarantees:
+//   - a BRAND-NEW account gets a generated + HASHED temp password (never stored
+//     raw), the force-rotate flag, and the invite's MFA floor, and the plaintext
+//     is returned exactly once (for the caller to email);
+//   - it REFUSES to touch a PRE-EXISTING account (member of this org or not):
+//     no passwordHash / mustChangePassword / mfaRequired is ever written onto an
+//     existing User via an invite — that would be a cross-tenant takeover vector.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { prisma } = vi.hoisted(() => ({
@@ -17,14 +21,18 @@ const { prisma } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
-import { provisionEmailPasswordInvite } from "./invite-credentials";
+import {
+  provisionEmailPasswordInvite,
+  EMAIL_PASSWORD_INVITE_EXISTING_USER,
+} from "./invite-credentials";
+import { ConflictError } from "@/lib/rbac/check";
 import { verifyPassword } from "./password";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("provisionEmailPasswordInvite", () => {
+describe("provisionEmailPasswordInvite — brand-new account", () => {
   it("creates a new local user with a hashed temp password + force-rotate flag", async () => {
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.user.create.mockResolvedValue({ id: "new-user" });
@@ -40,7 +48,7 @@ describe("provisionEmailPasswordInvite", () => {
     const data = prisma.user.create.mock.calls[0][0].data;
     // Stored hash must NOT be the plaintext, and must verify against it.
     expect(data.passwordHash).not.toContain(res.tempPassword);
-    expect(verifyPassword(res.tempPassword as string, data.passwordHash)).toBe(true);
+    expect(verifyPassword(res.tempPassword, data.passwordHash)).toBe(true);
     expect(data.mustChangePassword).toBe(true);
     expect(data.mfaRequired).toBe(false);
     expect(data.email).toBe("new.person@example.com"); // normalized
@@ -55,58 +63,31 @@ describe("provisionEmailPasswordInvite", () => {
 
     expect(prisma.user.create.mock.calls[0][0].data.mfaRequired).toBe(true);
   });
+});
 
-  it("attaches a temp credential to an existing OAuth-only user (no password yet)", async () => {
-    prisma.user.findFirst.mockResolvedValue({ id: "oauth-user", passwordHash: null });
-    prisma.user.update.mockResolvedValue({ id: "oauth-user" });
+describe("provisionEmailPasswordInvite — refuses any pre-existing account", () => {
+  it("rejects an existing OAuth-only user (no password) without writing a credential", async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: "oauth-user" }); // passwordHash null
 
-    const res = await provisionEmailPasswordInvite({
-      email: "oauth@example.com",
-      mfaRequired: true,
-    });
+    await expect(
+      provisionEmailPasswordInvite({ email: "oauth@example.com", mfaRequired: true }),
+    ).rejects.toBeInstanceOf(ConflictError);
 
-    expect(res.userId).toBe("oauth-user");
-    expect(res.tempPassword).toBeTruthy();
+    // Cross-tenant takeover guard: NOTHING is written onto the existing user.
+    expect(prisma.user.update).not.toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
-    const data = prisma.user.update.mock.calls[0][0].data;
-    expect(verifyPassword(res.tempPassword as string, data.passwordHash)).toBe(true);
-    expect(data.mustChangePassword).toBe(true);
-    expect(data.mfaRequired).toBe(true);
   });
 
-  it("NEVER clobbers an existing self-chosen password on re-invite", async () => {
+  it("rejects an existing user who already has a password (no reset / lockout)", async () => {
     prisma.user.findFirst.mockResolvedValue({
       id: "real-user",
       passwordHash: "scrypt$16384$8$1$deadbeef$cafe",
     });
-    prisma.user.update.mockResolvedValue({ id: "real-user" });
 
-    const res = await provisionEmailPasswordInvite({
-      email: "real@example.com",
-      mfaRequired: true,
-    });
+    await expect(
+      provisionEmailPasswordInvite({ email: "real@example.com", mfaRequired: true }),
+    ).rejects.toThrow(EMAIL_PASSWORD_INVITE_EXISTING_USER);
 
-    expect(res.tempPassword).toBeNull(); // email tells them to use their own pw
-    expect(prisma.user.create).not.toHaveBeenCalled();
-    // Only the MFA floor may be raised — the password must be untouched.
-    const data = prisma.user.update.mock.calls[0][0].data;
-    expect(data).toEqual({ mfaRequired: true });
-    expect(data.passwordHash).toBeUndefined();
-    expect(data.mustChangePassword).toBeUndefined();
-  });
-
-  it("leaves an existing password user fully untouched when MFA is not required", async () => {
-    prisma.user.findFirst.mockResolvedValue({
-      id: "real-user",
-      passwordHash: "scrypt$16384$8$1$dead$beef",
-    });
-
-    const res = await provisionEmailPasswordInvite({
-      email: "real@example.com",
-      mfaRequired: false,
-    });
-
-    expect(res).toEqual({ userId: "real-user", tempPassword: null });
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
