@@ -4,6 +4,7 @@ import {
   initiateClaudeOAuthCore,
   exchangeClaudeCodeCore,
   getClaudeTokenCore,
+  getClaudeCredsCore,
   fetchAccountEmail,
   CLAUDE_SCOPE_CODE,
   type TokenStore,
@@ -133,6 +134,21 @@ export async function exchangeForemanClaudeCode(
  */
 export async function getForemanClaudeToken(orgId: string): Promise<string | null> {
   return getClaudeTokenCore(makeForemanTokenStore(orgId));
+}
+
+/**
+ * The FULL credential triple (access + refresh + expiry-ms) for Foreman's own
+ * connection on this org, auto-refreshing like {@link getForemanClaudeToken}.
+ * Returns null when the org has no connection or the token can't be
+ * unsealed/refreshed. This is what runAgent materializes into the Agent SDK's
+ * `.credentials.json` (via {@link file://../foreman/foreman-creds.ts}) so the
+ * agent authenticates as this org's subscription — the access token alone isn't
+ * enough, the SDK refreshes from the refresh token + expiry on its own.
+ */
+export async function getForemanClaudeCreds(
+  orgId: string,
+): Promise<{ accessToken: string; refreshToken: string | null; expiresAt: number } | null> {
+  return getClaudeCredsCore(makeForemanTokenStore(orgId));
 }
 
 /* -------------------------------------------------------------------------- */

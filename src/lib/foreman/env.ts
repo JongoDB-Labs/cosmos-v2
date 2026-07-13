@@ -17,8 +17,13 @@ import { testDatabaseUrl } from "@/lib/foreman/test-db";
  *  (testDatabaseUrl throws if that ever resolves to the live URL). NODE_ENV is
  *  forced to "test" — see the file header. Metered/cloud-billing vars, GH tokens
  *  and the live DATABASE_URL are excluded by construction; assertSubscription
- *  re-checks the result. */
-export function buildAgentEnv(src: NodeJS.ProcessEnv, testDbUrl?: string): NodeJS.ProcessEnv {
+ *  re-checks the result.
+ *
+ *  `homeDir`, when set, OVERRIDES the inherited HOME (after the copy loop) — this
+ *  is how runAgent points the agent at the throwaway HOME holding the per-org
+ *  Foreman OAuth creds (see foreman-creds.ts), so the SDK authenticates as that
+ *  org's subscription rather than the deploy box's ~/.claude. */
+export function buildAgentEnv(src: NodeJS.ProcessEnv, testDbUrl?: string, homeDir?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { NODE_ENV: "test" };
   for (const key of ["PATH", "HOME", "TERM", "LANG"]) {
     if (src[key] !== undefined) env[key] = src[key];
@@ -27,6 +32,7 @@ export function buildAgentEnv(src: NodeJS.ProcessEnv, testDbUrl?: string): NodeJ
     if (key.startsWith("LC_") && value !== undefined) env[key] = value;
   }
   env.DATABASE_URL = testDbUrl ?? testDatabaseUrl(src.DATABASE_URL);
+  if (homeDir !== undefined) env.HOME = homeDir;
   return env;
 }
 

@@ -19,6 +19,7 @@ import {
   initiateClaudeOAuthCore,
   exchangeClaudeCodeCore,
   getClaudeTokenCore,
+  getClaudeCredsCore,
   CLAUDE_SCOPE_INFERENCE,
   CLAUDE_SCOPE_CODE,
   type TokenStore,
@@ -172,6 +173,49 @@ describe("claude-oauth-core", () => {
     it("returns null when the store has no connection at all", async () => {
       const store = fakeStore(null);
       expect(await getClaudeTokenCore(store)).toBeNull();
+    });
+  });
+
+  describe("getClaudeCredsCore", () => {
+    it("returns the full unsealed triple (access + refresh + expiry-ms) when not near expiry", async () => {
+      const farExpiry = new Date(Date.now() + 60 * 60 * 1000);
+      const store = fakeStore({
+        access: { sealed: sealSecret("AT") },
+        refresh: { sealed: sealSecret("RT") },
+        expiresAt: farExpiry,
+      });
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const creds = await getClaudeCredsCore(store);
+
+      expect(creds).toEqual({ accessToken: "AT", refreshToken: "RT", expiresAt: farExpiry.getTime() });
+      expect(fetchSpy).not.toHaveBeenCalled(); // no refresh — far from expiry
+    });
+
+    it("refreshes near expiry and returns the FRESH triple (new access + refresh + expiry), re-read from the store", async () => {
+      const nearExpiry = new Date(Date.now() + 60 * 1000); // inside the 5-min skew
+      const store = fakeStore({
+        access: { sealed: sealSecret("AT1") },
+        refresh: { sealed: sealSecret("RT1") },
+        expiresAt: nearExpiry,
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ access_token: "AT2", refresh_token: "RT2", expires_in: 3600 }))),
+      );
+
+      const before = Date.now();
+      const creds = await getClaudeCredsCore(store);
+
+      // The triple reflects the refreshed row (not the pre-refresh AT1/RT1/nearExpiry).
+      expect(creds?.accessToken).toBe("AT2");
+      expect(creds?.refreshToken).toBe("RT2");
+      expect(creds?.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+    });
+
+    it("returns null when there is no connection", async () => {
+      expect(await getClaudeCredsCore(fakeStore(null))).toBeNull();
     });
   });
 

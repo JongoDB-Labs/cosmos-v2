@@ -362,3 +362,34 @@ export async function getClaudeTokenCore(
 
   return fromSealedJson(row.access);
 }
+
+/**
+ * Like {@link getClaudeTokenCore}, but returns the FULL credential triple —
+ * unsealed access + refresh tokens and the expiry as epoch MILLISECONDS —
+ * auto-refreshing within the skew window. This is what the Agent SDK's native
+ * auth needs to write a `.credentials.json` (`claudeAiOauth`): the access token
+ * alone isn't enough, the runtime refreshes on its own from the refresh token +
+ * expiry. Returns null when there's no connection or the access token can't be
+ * unsealed. After a refresh it re-reads the store so the returned refresh token
+ * and expiry are the freshly-persisted ones, not the pre-refresh row's.
+ */
+export async function getClaudeCredsCore(
+  store: TokenStore,
+): Promise<{ accessToken: string; refreshToken: string | null; expiresAt: number } | null> {
+  let row = await store.read();
+  if (!row || row.access == null) return null;
+
+  const expiresAtMs = row.expiresAt ? row.expiresAt.getTime() : 0;
+  if (expiresAtMs > 0 && Date.now() > expiresAtMs - REFRESH_SKEW_MS) {
+    const refreshed = await refreshClaudeTokenCore(store);
+    if (refreshed) row = (await store.read()) ?? row;
+  }
+
+  const accessToken = fromSealedJson(row.access);
+  if (!accessToken) return null;
+  return {
+    accessToken,
+    refreshToken: fromSealedJson(row.refresh),
+    expiresAt: row.expiresAt ? row.expiresAt.getTime() : 0,
+  };
+}
