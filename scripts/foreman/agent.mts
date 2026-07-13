@@ -10,10 +10,16 @@
 // orchestrator parks/idles that org's work) rather than silently falling back to
 // any ambient credentials. The SDK bundles its own Claude Code runtime, so daemon
 // behavior no longer changes when the interactive `claude` binary upgrades.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { buildAgentEnv } from "@/lib/foreman/env";
-import { materializeForemanHome, cleanupForemanHome } from "@/lib/foreman/foreman-creds";
-import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
+import {
+  materializeForemanHome,
+  cleanupForemanHome,
+  type ForemanClaudeCreds,
+} from "@/lib/foreman/foreman-creds";
+import { getForemanClaudeCreds, persistForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
 
 /** Thrown when an org has no connected Foreman Claude subscription, so no agent
  *  can run for it. The orchestrator catches this and parks/idles that org's work
@@ -47,6 +53,46 @@ export function assertSubscription(env: NodeJS.ProcessEnv): void {
     if (env[v]) {
       throw new Error(`${v} is set — refusing (routes to metered/cloud billing). Unset it.`);
     }
+  }
+}
+
+/** After a run, compare what's now in `home`'s materialized `.credentials.json`
+ *  against the `injected` triple runAgent wrote there before the run: the Agent
+ *  SDK refreshes its own OAuth token in place when it goes near expiry mid-run,
+ *  and that fresh token would otherwise be silently discarded along with the
+ *  throwaway HOME on cleanup — letting the DB's refresh token go stale over
+ *  time. When the on-disk access token differs from what we injected, the SDK
+ *  rotated it, so write the rotated triple back onto the org's
+ *  ForemanAiSettings row via {@link persistForemanClaudeCreds}. A no-op (most
+ *  runs) when the token never needed refreshing.
+ *
+ *  Exported so it's directly testable as its own unit — real e2e DB, no SDK
+ *  call needed. Best-effort BY DESIGN: any failure (file gone, malformed JSON,
+ *  a DB write error, ...) is swallowed so a write-back failure can never break
+ *  — or even affect the result of — the run itself. */
+export async function persistRotatedCredsIfChanged(
+  orgId: string,
+  home: string,
+  injected: ForemanClaudeCreds,
+): Promise<void> {
+  try {
+    const raw = readFileSync(join(home, ".claude", ".credentials.json"), "utf8");
+    const oauth = JSON.parse(raw)?.claudeAiOauth as
+      | { accessToken?: unknown; refreshToken?: unknown; expiresAt?: unknown }
+      | undefined;
+    if (
+      oauth &&
+      typeof oauth.accessToken === "string" &&
+      oauth.accessToken !== injected.accessToken
+    ) {
+      await persistForemanClaudeCreds(orgId, {
+        accessToken: oauth.accessToken,
+        refreshToken: typeof oauth.refreshToken === "string" ? oauth.refreshToken : null,
+        expiresAt: typeof oauth.expiresAt === "number" ? oauth.expiresAt : injected.expiresAt,
+      });
+    }
+  } catch {
+    // Best-effort — see the doc comment: never let this break the run.
   }
 }
 
@@ -154,6 +200,10 @@ export async function runAgent(
     }
     return { ok, log, sessionId };
   } finally {
+    // A mid-run SDK refresh rotates the token IN PLACE on disk; write any such
+    // rotation back to the DB before the throwaway HOME (and the fresh token
+    // living only in it) is torn down. Best-effort — see the doc comment.
+    await persistRotatedCredsIfChanged(opts.orgId, home, creds);
     cleanupForemanHome(home);
   }
 }

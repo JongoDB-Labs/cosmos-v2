@@ -2,8 +2,15 @@
 // looks at ~/.claude — the per-org Foreman token resolution (getForemanClaudeCreds)
 // + the `!creds → throw NoForemanCredentialError` in runAgent are the auth source
 // now — but it MUST still refuse any metered/cloud-billing env, verbatim.
-import { describe, it, expect } from "vitest";
-import { assertSubscription, NoForemanCredentialError } from "./agent.mjs";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import crypto from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { prisma } from "@/lib/db/client";
+import { openSecret } from "@/lib/crypto/vault";
+import { materializeForemanHome, cleanupForemanHome } from "@/lib/foreman/foreman-creds";
+import { persistForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
+import { assertSubscription, NoForemanCredentialError, persistRotatedCredsIfChanged } from "./agent.mjs";
 
 describe("assertSubscription — metered refusal kept verbatim", () => {
   it("refuses when a metered / cloud-billing var is present", () => {
@@ -28,5 +35,97 @@ describe("NoForemanCredentialError", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.orgId).toBe("org-123");
     expect(e.message).toContain("org-123");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  persistRotatedCredsIfChanged — the runAgent `finally`'s write-back step,   */
+/*  tested directly (real e2e DB + real vault; no SDK call involved at all).   */
+/* -------------------------------------------------------------------------- */
+describe("persistRotatedCredsIfChanged (e2e DB)", () => {
+  const VAULT_KEY = crypto.randomBytes(32).toString("base64");
+  const ORIGINAL_VAULT_KEY = process.env.SSO_VAULT_KEY;
+  const cleanup: { orgIds: string[]; homes: string[] } = { orgIds: [], homes: [] };
+
+  beforeAll(() => {
+    process.env.SSO_VAULT_KEY = VAULT_KEY;
+    delete process.env.SSO_VAULT_KEYS;
+    delete process.env.SSO_VAULT_ACTIVE_KID;
+  });
+
+  afterAll(async () => {
+    if (ORIGINAL_VAULT_KEY === undefined) delete process.env.SSO_VAULT_KEY;
+    else process.env.SSO_VAULT_KEY = ORIGINAL_VAULT_KEY;
+    await prisma.organization
+      .deleteMany({ where: { id: { in: cleanup.orgIds } } })
+      .catch(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const dir of cleanup.homes.splice(0)) cleanupForemanHome(dir);
+  });
+
+  async function makeOrg() {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const org = await prisma.organization.create({
+      data: { name: `org-agent-rotate-test ${stamp}`, slug: `org-agent-rotate-test-${stamp}` },
+    });
+    cleanup.orgIds.push(org.id);
+    return org;
+  }
+
+  it("writes the rotated triple back onto ForemanAiSettings when the SDK rewrote the on-disk access token mid-run", async () => {
+    // Only external `fetch` is mocked (and pinned to throw) — proving the
+    // write-back path never touches the network; prisma + the vault are real.
+    const fetchStub = vi.fn(async () => {
+      throw new Error("unexpected network call");
+    });
+    vi.stubGlobal("fetch", fetchStub);
+
+    const org = await makeOrg();
+    // Inject creds A into a temp HOME, exactly as runAgent's materializeForemanHome does.
+    const credsA = { accessToken: "AT-A", refreshToken: "RT-A", expiresAt: Date.now() + 3600_000 };
+    await persistForemanClaudeCreds(org.id, credsA);
+    const home = materializeForemanHome(credsA);
+    cleanup.homes.push(home);
+
+    // Simulate the SDK's own mid-run refresh: it rewrites .credentials.json in place
+    // with a fresh triple (creds B) before runAgent's finally ever looks at it.
+    const credsB = { accessToken: "AT-B", refreshToken: "RT-B", expiresAt: Date.now() + 7_200_000 };
+    writeFileSync(
+      join(home, ".claude", ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: credsB }),
+    );
+
+    // Run exactly the runAgent `finally` write-back step, in isolation.
+    await persistRotatedCredsIfChanged(org.id, home, credsA);
+
+    const row = await prisma.foremanAiSettings.findUniqueOrThrow({ where: { orgId: org.id } });
+    expect(openSecret((row.oauthAccessToken as { sealed: string }).sealed)).toBe(credsB.accessToken);
+    expect(openSecret((row.oauthRefreshToken as { sealed: string }).sealed)).toBe(credsB.refreshToken);
+    expect(row.oauthExpiresAt?.getTime()).toBe(credsB.expiresAt);
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when the on-disk access token is unchanged (the common case — the SDK never refreshed)", async () => {
+    const org = await makeOrg();
+    const creds = { accessToken: "AT-SAME", refreshToken: "RT-SAME", expiresAt: Date.now() + 3600_000 };
+    await persistForemanClaudeCreds(org.id, creds);
+    const home = materializeForemanHome(creds);
+    cleanup.homes.push(home);
+
+    const upsertSpy = vi.spyOn(prisma.foremanAiSettings, "upsert");
+    await persistRotatedCredsIfChanged(org.id, home, creds);
+    expect(upsertSpy).not.toHaveBeenCalled();
+    upsertSpy.mockRestore();
+  });
+
+  it("is best-effort — never throws, even when the credentials file is missing/unreadable", async () => {
+    const org = await makeOrg();
+    const creds = { accessToken: "AT-X", refreshToken: null, expiresAt: 0 };
+    await expect(
+      persistRotatedCredsIfChanged(org.id, "/nonexistent/foreman-home-dir", creds),
+    ).resolves.toBeUndefined();
   });
 });
