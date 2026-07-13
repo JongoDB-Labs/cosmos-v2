@@ -40,6 +40,11 @@ jobs:
       # mocks Prisma). Same value the Build step already used as a stub.
       DATABASE_URL: postgres://ci:ci@localhost:5432/ci
       DIRECT_URL: postgres://ci:ci@localhost:5432/ci
+      # The "real MiniLM" specs (rag/embed, classification/classifier) download the
+      # embedding model from HuggingFace. Anonymous downloads from CI's shared
+      # runner IPs get rate-limited (403); an authenticated token has a far higher
+      # limit. Optional — unset (forks) falls back to anonymous, unchanged.
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
