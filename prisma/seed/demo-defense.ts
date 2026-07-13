@@ -120,7 +120,7 @@ async function joinChannel(channelId: string, userId: string, isAdmin: boolean) 
 }
 
 async function main() {
-  // ── 1. Org (GOV plan) ────────────────────────────────────────────────────
+  // ── 1. Org (ENTERPRISE plan; GOV tenant class via the fail-closed default) ─
   // settings.isDemo flags this as walkthrough/sample data so the UI can show a
   // "Demo data" banner and offer one-step removal (see the demo teardown script).
   const demoSettings = {
@@ -129,8 +129,8 @@ async function main() {
   } satisfies Prisma.InputJsonValue;
   const org = await prisma.organization.upsert({
     where: { slug: SLUG },
-    update: { plan: "GOV", name: "Apex Defense Systems", themePrimary: "#1f3a5f", settings: demoSettings },
-    create: { name: "Apex Defense Systems", slug: SLUG, plan: "GOV", themePrimary: "#1f3a5f", settings: demoSettings },
+    update: { plan: "ENTERPRISE", name: "Apex Defense Systems", themePrimary: "#1f3a5f", settings: demoSettings },
+    create: { name: "Apex Defense Systems", slug: SLUG, plan: "ENTERPRISE", themePrimary: "#1f3a5f", settings: demoSettings },
   });
 
   // ── 2. People ─────────────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ async function main() {
   if ((await prisma.auditLog.count({ where: { orgId: org.id } })) === 0) {
     await prisma.auditLog.createMany({
       data: [
-        { orgId: org.id, userId: jon.id, action: "organization.created", entity: "organization", entityId: org.id, metadata: { plan: "GOV" }, createdAt: d(-10) },
+        { orgId: org.id, userId: jon.id, action: "organization.created", entity: "organization", entityId: org.id, metadata: { plan: "ENTERPRISE" }, createdAt: d(-10) },
         { orgId: org.id, userId: jon.id, action: "org_member.invited", entity: "org_member", metadata: { email: "dana.reyes@apex-defense.local", role: "ADMIN" }, createdAt: d(-10) },
         { orgId: org.id, userId: jon.id, action: "org_member.invited", entity: "org_member", metadata: { email: "priya.nair@apex-defense.local", role: "MEMBER" }, createdAt: d(-9) },
         { orgId: org.id, userId: jon.id, action: "data_classification.upserted", entity: "data_classification", metadata: { level: "CUI", project: "SENTINEL" }, createdAt: d(-9) },
@@ -429,7 +429,7 @@ async function main() {
   console.log("✅ Seeded Apex Defense Systems:", {
     orgId: org.id,
     orgSlug: org.slug,
-    plan: "GOV",
+    plan: "ENTERPRISE",
     ownerUserId: jon.id,
     projectId,
     projectKey: PKEY,

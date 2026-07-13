@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { listItemLinks, linkItems, unlinkItems } from "./work-items";
+import { listItemLinks, linkItems, unlinkItems, createWorkItem, updateWorkItem } from "./work-items";
 import type { ToolContext } from "./_ctx";
 
 /** Covers the work-item DEPENDENCY LINK tools added to this executor. */
@@ -105,5 +105,79 @@ describe("work-item link executors (e2e DB)", () => {
     expect(await unlinkItems({ projectId: project.id, linkId: NON_MEMBER }, denyCtx)).toEqual({
       error: "Insufficient permissions",
     });
+  });
+});
+
+// Bug #1 (assign-to-me): a self-referential assignee token ("me"/"self"/"@me"/
+// "myself") must resolve to the invoking user's id so "assign a ticket to me"
+// works without the model knowing/echoing the uuid. Real uuids pass through.
+describe("createWorkItem / updateWorkItem — self-assignee sentinel (e2e DB)", () => {
+  const cleanup: { orgIds: string[] } = { orgIds: [] };
+  afterAll(async () => {
+    await prisma.organization.deleteMany({ where: { id: { in: cleanup.orgIds } } }).catch(() => undefined);
+  });
+
+  async function makeOrg() {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const owner = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
+    const org = await prisma.organization.create({ data: { name: `wm-test ${stamp}`, slug: `wm-test-${stamp}` } });
+    cleanup.orgIds.push(org.id);
+    await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "OWNER" } });
+    const project = await prisma.project.create({
+      data: { orgId: org.id, name: "P", key: `WM${stamp.slice(-4).toUpperCase()}` },
+    });
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
+    const ctx: ToolContext = { orgId: org.id, userId: owner.id };
+    return { org, project, type, ctx, ownerId: owner.id };
+  }
+
+  it("create_work_item resolves assigneeId 'me' to the invoking user", async () => {
+    const { project, type, ctx, ownerId } = await makeOrg();
+    const res = (await createWorkItem(
+      { projectId: project.id, title: "assign to me", workItemTypeId: type.id, assigneeId: "me" },
+      ctx,
+    )) as { created: boolean; id: string };
+    expect(res.created).toBe(true);
+    expect((await prisma.workItem.findUnique({ where: { id: res.id } }))?.assigneeId).toBe(ownerId);
+  });
+
+  it("accepts self tokens case/space/@-insensitively ('  Self ', '@me', 'myself')", async () => {
+    const { project, type, ctx, ownerId } = await makeOrg();
+    for (const token of ["  Self ", "@me", "MYSELF"]) {
+      const res = (await createWorkItem(
+        { projectId: project.id, title: `t ${token}`, workItemTypeId: type.id, assigneeId: token },
+        ctx,
+      )) as { created: boolean; id: string };
+      expect(res.created).toBe(true);
+      expect((await prisma.workItem.findUnique({ where: { id: res.id } }))?.assigneeId).toBe(ownerId);
+    }
+  });
+
+  it("update_work_item resolves assigneeId 'me' to the invoking user", async () => {
+    const { project, type, ctx, ownerId } = await makeOrg();
+    const created = (await createWorkItem(
+      { projectId: project.id, title: "unassigned", workItemTypeId: type.id },
+      ctx,
+    )) as { id: string };
+    expect((await prisma.workItem.findUnique({ where: { id: created.id } }))?.assigneeId).toBeNull();
+
+    const upd = (await updateWorkItem({ itemId: created.id, assigneeId: "me" }, ctx)) as { updated: boolean };
+    expect(upd.updated).toBe(true);
+    expect((await prisma.workItem.findUnique({ where: { id: created.id } }))?.assigneeId).toBe(ownerId);
+  });
+
+  it("passes an explicit uuid assignee through unchanged and leaves no-assignee null", async () => {
+    const { project, type, ctx, ownerId } = await makeOrg();
+    const withUuid = (await createWorkItem(
+      { projectId: project.id, title: "explicit", workItemTypeId: type.id, assigneeId: ownerId },
+      ctx,
+    )) as { id: string };
+    expect((await prisma.workItem.findUnique({ where: { id: withUuid.id } }))?.assigneeId).toBe(ownerId);
+
+    const none = (await createWorkItem(
+      { projectId: project.id, title: "none", workItemTypeId: type.id },
+      ctx,
+    )) as { id: string };
+    expect((await prisma.workItem.findUnique({ where: { id: none.id } }))?.assigneeId).toBeNull();
   });
 });

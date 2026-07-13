@@ -6,17 +6,18 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { ensureGeneralChannel, autoJoinGeneral } from "@/lib/chat/seed-general";
 import { z } from "zod";
-import { Plan } from "@prisma/client";
 import { provisionComplianceBaseline } from "@/lib/compliance/provision";
 import { provisionEntitlements } from "@/lib/entitlements";
 import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { isInternalAdmin } from "@/lib/internal/access";
 
+// NOTE: `plan` is intentionally NOT accepted here. New orgs take the schema
+// default (ENTERPRISE); changing a plan is a PLATFORM-ADMIN action only, via
+// /api/internal/orgs/[orgId]/plan — never org-owner self-service at create time.
 const createOrgSchema = z.object({
   name: z.string().min(2).max(100),
   slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/),
-  plan: z.nativeEnum(Plan).optional(),
 });
 
 export async function GET() {
@@ -107,7 +108,6 @@ export async function POST(request: NextRequest) {
       data: {
         name: data.name,
         slug: data.slug,
-        ...(data.plan ? { plan: data.plan } : {}),
         members: {
           create: {
             userId: user.id,
@@ -140,7 +140,9 @@ export async function POST(request: NextRequest) {
 
     // Regulated (GOV) orgs get the NIST 800-171 / CMMC L2 control baseline
     // provisioned out-of-the-box, so a CMMC assessment is ready on day one.
-    if (org.plan === "GOV") {
+    // Regulated-ness is the org's data-classification (tenantClass), NOT its
+    // billing plan — new orgs default to tenantClass GOV (fail-closed).
+    if (org.tenantClass === "GOV") {
       try {
         const { count, framework } = await provisionComplianceBaseline(org.id);
         await logAudit({

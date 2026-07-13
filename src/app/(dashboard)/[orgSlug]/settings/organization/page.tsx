@@ -10,6 +10,7 @@ import {
   OrgBrandingSection,
   type OrgBrandingInitial,
 } from "@/components/settings/org-branding-section";
+import { OrgTenantClass } from "@/components/settings/org-tenant-class";
 import { OrgDangerZone } from "@/components/settings/org-danger-zone";
 import { Separator } from "@/components/ui/separator";
 
@@ -31,6 +32,9 @@ export default async function OrganizationPage({ params }: PageParams) {
   const canUpdate = hasPermission(ctx.permissions, Permission.ORG_UPDATE);
   const canBrand = hasPermission(ctx.permissions, Permission.THEME_MANAGE);
   const canDelete = hasPermission(ctx.permissions, Permission.ORG_DELETE);
+  // The tenant class is OWNER-only to change (and then only tighter). Everyone who can view
+  // this page sees it read-only; only the OWNER gets the tighten control.
+  const isOwner = ctx.orgRole === "OWNER";
 
   const org = await prisma.organization.findUnique({
     where: { id: ctx.orgId },
@@ -81,9 +85,18 @@ export default async function OrganizationPage({ params }: PageParams) {
               slug: org.slug,
               logoUrl: org.logoUrl,
               plan: org.plan,
-              tenantClass: org.tenantClass,
             }}
           />
+        </section>
+        <Separator />
+        <section>
+          <h3 className="mb-1 text-sm font-semibold">Data classification</h3>
+          <p className="mb-3 text-xs text-muted-foreground">
+            The tenant class drives CUI-blind masking for the AI assistant. The owner can
+            increase protection at any time; reducing it (removing masking) requires a
+            platform administrator.
+          </p>
+          <OrgTenantClass orgId={ctx.orgId} current={org.tenantClass} isOwner={isOwner} />
         </section>
         {canBrand && (
           <>
