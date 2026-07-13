@@ -236,6 +236,7 @@ model Organization {
   deliverableRevisions   DeliverableRevision[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
+  foremanAiSettings      ForemanAiSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
 
@@ -2902,6 +2903,8 @@ model ForemanAiSettings {
   updatedById       String?   @map("updated_by_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("foreman_ai_settings")
 }
