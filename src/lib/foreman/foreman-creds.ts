@@ -8,6 +8,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CLAUDE_SCOPE_CODE } from "@/lib/ai/claude-oauth-core";
 
 /** The credential triple the SDK reads from `~/.claude/.credentials.json`'s
  *  `claudeAiOauth`. `expiresAt` is a Unix epoch in MILLISECONDS (matches a live
@@ -18,6 +19,18 @@ export interface ForemanClaudeCreds {
   refreshToken: string | null;
   expiresAt: number;
 }
+
+/** The scopes the Foreman connection is granted — the exact set the connect flow
+ *  requests ({@link CLAUDE_SCOPE_CODE}), written as the array a live credentials
+ *  file stores. The Claude Code runtime checks this for `user:sessions:claude_code`
+ *  and refuses to consider itself logged in without it. */
+const FOREMAN_CRED_SCOPES = CLAUDE_SCOPE_CODE.split(" ");
+
+/** Local subscription-mode hint the runtime reads from the credentials file to
+ *  take the flat-subscription auth path (not metered). The connected account's
+ *  real plan is enforced server-side by the token itself — this value is only the
+ *  local mode signal, mirroring what a live `~/.claude` cred carries. */
+const FOREMAN_SUBSCRIPTION_TYPE = "max";
 
 /** Write the given creds to a fresh temp HOME's `.claude/.credentials.json`
  *  (mode 0600) and return that HOME dir. Caller sets HOME=<dir> for the agent
@@ -34,6 +47,13 @@ export function materializeForemanHome(creds: ForemanClaudeCreds): string {
         accessToken: creds.accessToken,
         refreshToken: creds.refreshToken,
         expiresAt: creds.expiresAt,
+        // The runtime rejects an otherwise-valid token as "Not logged in · Please
+        // run /login" from the triple ALONE — it also reads `scopes` (to confirm
+        // user:sessions:claude_code) and `subscriptionType` (to take the flat-
+        // subscription path). A live ~/.claude cred carries both; omitting them
+        // was the bug that idled the daemon on every pass.
+        scopes: FOREMAN_CRED_SCOPES,
+        subscriptionType: FOREMAN_SUBSCRIPTION_TYPE,
       },
     }),
     { mode: 0o600 },
