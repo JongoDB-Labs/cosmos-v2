@@ -6,7 +6,42 @@ import { assertPermission, type ToolContext } from "./_ctx";
 
 const listProjectsSchema = z.object({
   includeArchived: z.boolean().optional(),
+  // Fuzzy resolver: when present, match against project name + key SERVER-SIDE
+  // and return only the matches (best first). This is how the CUI-blind model
+  // resolves a project the user names in words ("the VITL BMA project") even
+  // when the name/key are withheld from it by the egress gate — the match runs
+  // here on the real values; the model only ever gets the resolved id.
+  query: z.string().max(200).optional(),
 });
+
+/**
+ * Score how well a project matches a free-text query, over its name AND key.
+ * Higher = better; 0 = no match. Tokenized + case-insensitive so extra/misordered
+ * words ("VITL BMA" → key "VITL"), partials, and key/name hits all resolve.
+ */
+function scoreProjectMatch(name: string, key: string, query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 1;
+  const n = (name ?? "").toLowerCase();
+  const k = (key ?? "").toLowerCase();
+  const split = (s: string) => s.split(/[^a-z0-9]+/).filter(Boolean);
+  const qTokens = split(q);
+  const nTokens = split(n);
+  let score = 0;
+
+  if (q === k || q === n) score += 100;                       // exact key/name
+  if (k.length >= 2 && qTokens.includes(k)) score += 60;      // "vitl bma" contains key token "vitl"
+  if (k.length >= 2 && q.startsWith(k)) score += 20;          // key is a prefix of the phrase
+  if (n.length > 0 && (q.includes(n) || n.includes(q))) score += 40; // whole-name containment either way
+
+  // Token overlap with the name (each shared word is a signal).
+  const nSet = new Set(nTokens);
+  for (const qt of qTokens) {
+    if (nSet.has(qt)) score += 15;
+    else if (qt.length >= 3 && (k.startsWith(qt) || nTokens.some((nt) => nt.startsWith(qt)))) score += 5;
+  }
+  return score;
+}
 
 const listCyclesSchema = z.object({
   projectId: z.string().uuid(),
@@ -53,7 +88,20 @@ export async function listProjects(
     },
   });
 
-  return { count: projects.length, projects };
+  // No query ⇒ unchanged behavior (all active projects, recent-first).
+  const q = parsed.data.query?.trim();
+  if (!q) return { count: projects.length, projects };
+
+  // Fuzzy-resolve: keep only positive-scoring matches, best first. The scoring
+  // runs on the real name/key here — the model only receives the resolved id
+  // (name/key are still withheld downstream by the egress gate for gov tenants).
+  const ranked = projects
+    .map((p) => ({ p, score: scoreProjectMatch(p.name, p.key, q) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((r) => r.p);
+
+  return { count: ranked.length, projects: ranked };
 }
 
 export async function listCycles(
