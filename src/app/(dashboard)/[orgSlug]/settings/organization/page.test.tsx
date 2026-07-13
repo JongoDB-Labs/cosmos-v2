@@ -123,7 +123,7 @@ const FAKE_ORG = {
   name: "Acme Inc",
   slug: "acme",
   logoUrl: null,
-  plan: "FREE",
+  plan: "ENTERPRISE",
   tenantClass: "GOV",
   themePrimary: null,
   themeMode: null,
