@@ -15,6 +15,7 @@ import {
   GitCompareArrows,
   Wrench,
   Flag,
+  TriangleAlert,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
+import { isWorkItemOverdue } from "@/lib/boards/overdue";
 import type { WorkItem, OrgMember, Cycle, Board, BoardColumn, CustomField } from "@/types/models";
 import {
   bareTypeKey,
@@ -277,11 +279,41 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [showCritical, setShowCritical] = useState(false);
   const [showBaseline, setShowBaseline] = useState(true);
   const [showEnablers, setShowEnablers] = useState(false);
+  // Overdue lens (COSMOS-104): a leader-facing view of items that slipped past
+  // their planned end date and still aren't done. Off by default — overdue items
+  // are always highlighted in place, and this narrows the chart to just them.
+  const [showOverdue, setShowOverdue] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Board columns that mean "resolved" (done or cancelled) — a cancelled item
+  // isn't "missing the mark", so it's excluded from overdue alongside done work.
+  const resolvedKeys = useMemo(
+    () =>
+      new Set(
+        columns
+          .filter((c) => c.category === "DONE" || c.category === "CANCELLED")
+          .map((c) => c.key),
+      ),
+    [columns],
+  );
+  // Ids of every board item that's currently overdue (past due date, not done).
+  // Recomputed whenever items refetch or a due date / completion changes, so the
+  // highlight and count reflect real-time slippage without a manual refresh.
+  const overdueIds = useMemo(() => {
+    const now = Date.now();
+    return new Set(
+      items.filter((it) => isWorkItemOverdue(it, resolvedKeys, now)).map((it) => it.id),
+    );
+  }, [items, resolvedKeys]);
+
   const filteredItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields)),
-    [items, filters, projectCustomFields],
+    () =>
+      items.filter(
+        (it) =>
+          matchesFilters(it, filters, projectCustomFields) &&
+          (!showOverdue || overdueIds.has(it.id)),
+      ),
+    [items, filters, projectCustomFields, showOverdue, overdueIds],
   );
   const hasEnablers = useMemo(
     () => filteredItems.some((it) => it.workCategory === "ENABLER"),
@@ -809,6 +841,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
             accent="var(--type-enabler, #0891b2)"
           />
+          <LensToggle
+            active={showOverdue}
+            onClick={() => setShowOverdue((v) => !v)}
+            icon={<TriangleAlert className="size-3.5" />}
+            label={overdueIds.size > 0 ? `Overdue (${overdueIds.size})` : "Overdue"}
+            title="Show only items past their planned end date that aren't done yet"
+            accent="var(--status-critical)"
+          />
           {canEdit && (
             <Button
               variant="outline"
@@ -902,8 +942,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         </div>
       </div>
       {/* Contextual legend — only the keys for what's actually on screen. */}
-      {(showBaseline || hasEnablers) && (
+      {(showBaseline || hasEnablers || overdueIds.size > 0) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
+          {overdueIds.size > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <TriangleAlert className="size-3 text-[var(--status-critical)]" />
+              Overdue — past its planned end date, not done
+            </span>
+          )}
           {showBaseline && (
             <>
               <span className="inline-flex items-center gap-1.5">
@@ -969,11 +1015,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             const isParent = parentIds.has(item.id);
             const isCollapsed = collapsedIds.has(item.id);
+            const isOverdue = overdueIds.has(item.id);
             return (
               <div
                 key={item.id}
                 className="flex w-full items-center border-b border-border/30 hover:bg-muted/30 transition-colors"
-                style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 14 }}
+                style={{
+                  height: ROW_HEIGHT,
+                  paddingLeft: 6 + depth * 14,
+                  // Red inset accent flags a slipped item without shifting the
+                  // row layout (a border would). Always on, so leaders spot
+                  // overdue work while scanning the list, not only when filtered.
+                  boxShadow: isOverdue
+                    ? "inset 2px 0 0 var(--status-critical)"
+                    : undefined,
+                }}
               >
                 {isParent ? (
                   <button
@@ -993,16 +1049,32 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 <button
                   type="button"
                   onClick={() => setDetailId(item.id)}
-                  title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
+                  title={`${projectKey}-${item.ticketNumber}: ${item.title}${isOverdue ? " · Overdue" : ""}`}
                   className="flex h-full min-w-0 flex-1 items-center gap-2 pr-3 text-left"
                 >
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: colors.fill }}
-                  />
+                  {isOverdue ? (
+                    // Decorative — the "· Overdue" suffix in the button title
+                    // carries the meaning for assistive tech.
+                    <TriangleAlert
+                      aria-hidden
+                      className="size-3 shrink-0 text-[var(--status-critical)]"
+                    />
+                  ) : (
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: colors.fill }}
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="text-xs truncate">
-                      <span className="text-muted-foreground mr-1">
+                      <span
+                        className={cn(
+                          "mr-1",
+                          isOverdue
+                            ? "font-medium text-[var(--status-critical-text)]"
+                            : "text-muted-foreground",
+                        )}
+                      >
                         {projectKey}-{item.ticketNumber}
                       </span>
                       {item.title}
@@ -1242,6 +1314,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const prog = progressOf(item, doneKeys);
               const isCrit = showCritical && criticalSet.has(item.id);
               const isEnabler = item.workCategory === "ENABLER";
+              // Overdue: highlighted in place (not gated on the lens) so slipped
+              // work reads at a glance on the chart, not just in the filtered view.
+              const isOverdue = overdueIds.has(item.id);
               // Business items dim slightly while the Enabler lens is on so the
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
@@ -1306,8 +1381,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <polygon
                       points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
                       fill={colors.fill}
-                      stroke={isCrit ? "var(--status-critical)" : colors.stroke}
-                      strokeWidth={isCrit ? 2.5 : 1.5}
+                      stroke={
+                        isCrit || isOverdue ? "var(--status-critical)" : colors.stroke
+                      }
+                      strokeWidth={isCrit || isOverdue ? 2.5 : 1.5}
                     />
                   </g>
                 );
@@ -1410,6 +1487,24 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
+                  {/* Overdue outline — a red dashed ring drawn on top of the bar
+                      so a slipped item is unmistakable on the chart. Distinct
+                      from the solid critical-path stroke and the cyan enabler
+                      dashes; non-interactive so it never blocks a drag. */}
+                  {isOverdue && (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={w}
+                      height={h}
+                      rx={4}
+                      fill="none"
+                      stroke="var(--status-critical)"
+                      strokeWidth={1.5}
+                      strokeDasharray="3 2"
+                      style={{ pointerEvents: "none" }}
+                    />
+                  )}
                   {canEdit && (
                     <>
                       {/* Left edge → move start date */}
@@ -1503,6 +1598,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 )}
                 {hoveredItem.dueDate && (
                   <p>Due: {new Date(hoveredItem.dueDate).toLocaleDateString()}</p>
+                )}
+                {overdueIds.has(hoveredItem.id) && (
+                  <p className="inline-flex items-center gap-1 font-medium text-[var(--status-critical-text)]">
+                    <TriangleAlert className="size-3" /> Overdue — past its planned end date
+                  </p>
                 )}
                 {/* Slippage vs. baseline — the delay this bar's red tail shows. */}
                 {hoveredItem.baselineEnd &&

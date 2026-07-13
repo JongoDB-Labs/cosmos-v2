@@ -84,6 +84,15 @@ const HIER_ITEMS = [
   },
 ];
 
+// Two past-due items: one still open (→ overdue) and one already completed (→
+// NOT overdue, because it's done). Both dates stay in 2026 so the deterministic
+// outcome doesn't depend on when the test runs, and the Gantt's date range
+// stays small (COSMOS-104).
+const OVERDUE_MIX = [
+  item(1, "2026-01-05", "2026-01-20"),
+  { ...item(2, "2026-01-10", "2026-01-25"), completedAt: "2026-01-24T00:00:00.000Z" },
+];
+
 // The work-items the fetcher mock serves; swapped per describe block so a test
 // can opt into the hierarchy without changing the default flat dataset.
 let activeItems: unknown[] = ITEMS;
@@ -316,5 +325,41 @@ describe("TimelineView — collapse state persists across navigation (COSMOS-69)
     // now offers to expand (proof the restored state, not a fresh default).
     expect(screen.queryByText(/FSC-2/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Expand children")).toBeInTheDocument();
+  });
+});
+
+// COSMOS-104: leaders need to see items that blew past their planned end date
+// without completing. The Gantt gains an "Overdue" lens that narrows the chart
+// to exactly those items — past due AND not in a done/cancelled column.
+describe("TimelineView — Overdue lens surfaces late items (COSMOS-104)", () => {
+  beforeEach(() => {
+    activeItems = OVERDUE_MIX;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    activeItems = ITEMS;
+  });
+
+  it("filters the chart to only past-due, not-done items when toggled on", async () => {
+    renderTimeline();
+    await screen.findByText("Work Items");
+
+    // Both items show by default (no filter active).
+    expect(screen.getByText(/FSC-101/)).toBeInTheDocument();
+    expect(screen.getByText(/FSC-102/)).toBeInTheDocument();
+
+    // Flip the Overdue lens: only the past-due, still-open item (101) remains;
+    // the past-due but already-completed item (102) drops out.
+    fireEvent.click(screen.getByRole("button", { name: /Overdue/ }));
+    expect(screen.getByText(/FSC-101/)).toBeInTheDocument();
+    expect(screen.queryByText(/FSC-102/)).not.toBeInTheDocument();
+  });
+
+  it("counts the overdue items on the lens toggle", async () => {
+    renderTimeline();
+    await screen.findByText("Work Items");
+    // Exactly one of the two seeded items is overdue.
+    expect(screen.getByRole("button", { name: /Overdue \(1\)/ })).toBeInTheDocument();
   });
 });

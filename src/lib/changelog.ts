@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.200.0",
+    date: "2026-07-12",
+    title: "Spot slipping work on the timeline",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Gantt/Timeline now flags overdue work — items past their planned end date that still aren't done. They're highlighted in place with a red marker so leaders can spot slippage at a glance, and a new \"Overdue\" lens narrows the chart to just those items (with a live count). It updates in real time as items complete or their dates change.",
+      },
+    ],
+  },
+  {
     version: "2.199.0",
     date: "2026-07-12",
     title: "Foreman plans its own queue — and takes rework orders",
