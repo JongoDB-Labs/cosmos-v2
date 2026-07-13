@@ -1,0 +1,13 @@
+-- ForemanAiSettings was missing the Organization FK its sibling org_ai_settings has,
+-- so deleting an org silently orphaned that org's row of sealed Foreman Claude OAuth
+-- tokens instead of cascading. Adds the same FK (same naming/CASCADE convention as
+-- org_ai_settings_org_id_fkey).
+--
+-- NOT VALID: this environment can carry foreman_ai_settings rows from orgs deleted
+-- before this FK existed (exactly the bug this migration fixes), and a normal ADD
+-- CONSTRAINT validates ALL existing rows up front, so it would fail on that
+-- pre-existing debris. NOT VALID skips that one-time backfill scan/lock and leaves
+-- any already-orphaned rows as-is (a separate data-hygiene concern), while still
+-- FULLY enforcing the constraint — including ON DELETE CASCADE — for every insert,
+-- update, and delete from this point forward, which is what actually matters here.
+ALTER TABLE "foreman_ai_settings" ADD CONSTRAINT "foreman_ai_settings_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE NOT VALID;
