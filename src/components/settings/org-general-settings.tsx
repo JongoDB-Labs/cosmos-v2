@@ -17,7 +17,6 @@ interface OrgGeneralSettingsProps {
     slug: string;
     logoUrl: string | null;
     plan: string;
-    tenantClass: string;
   };
 }
 
@@ -36,8 +35,9 @@ function isParsableUrl(value: string): boolean {
 
 /**
  * Organization identity: name, workspace URL (slug), and logo. Editable only
- * with ORG_UPDATE (owner/admin); everyone else sees a read-only view. Plan,
- * tenant class, and the org ID are shown for reference but never editable here.
+ * with ORG_UPDATE (owner/admin); everyone else sees a read-only view. Plan and
+ * the org ID are shown for reference but never editable here. (Tenant class has
+ * its own dedicated control — see OrgTenantClass.)
  */
 export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSettingsProps) {
   const router = useRouter();
@@ -166,10 +166,6 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
           <div>
             <p className="text-[var(--text-muted)]">Plan</p>
             <p className="font-medium capitalize">{initial.plan.toLowerCase()}</p>
-          </div>
-          <div>
-            <p className="text-[var(--text-muted)]">Tenant class</p>
-            <p className="font-medium">{initial.tenantClass}</p>
           </div>
           <div className="col-span-2">
             <p className="text-[var(--text-muted)]">Organization ID</p>

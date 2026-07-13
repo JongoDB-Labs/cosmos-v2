@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { createProject, updateProject, updateCycle, completeCycle } from "./projects";
+import { createProject, updateProject, updateCycle, completeCycle, listProjects } from "./projects";
 import type { ToolContext } from "./_ctx";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
@@ -110,6 +110,37 @@ describe("projects + cycles executors (e2e DB)", () => {
     expect((await prisma.cycle.findUnique({ where: { id: cycle.id } }))?.status).toBe("COMPLETED");
     // Incomplete item was returned to the backlog (cycle cleared).
     expect((await prisma.workItem.findUnique({ where: { id: open.id } }))?.cycleId).toBeNull();
+  });
+
+  it("list_projects fuzzy-resolves a project the user names in words (bug #2)", async () => {
+    const { ctx, org } = await makeOrg();
+    await prisma.project.create({ data: { orgId: org.id, name: "Vital Signs Platform", key: "VITL" } });
+    await prisma.project.create({ data: { orgId: org.id, name: "Marketing Site", key: "MKTG" } });
+    await prisma.project.create({ data: { orgId: org.id, name: "Payroll", key: "PAY" } });
+
+    // "VITL BMA" (extra word, wrong casing) must resolve to the VITL project.
+    const byKeyPhrase = (await listProjects({ query: "VITL BMA" }, ctx)) as {
+      count: number;
+      projects: { key: string }[];
+    };
+    expect(byKeyPhrase.count).toBeGreaterThanOrEqual(1);
+    expect(byKeyPhrase.projects[0].key).toBe("VITL");
+
+    // Match on NAME tokens too.
+    const byName = (await listProjects({ query: "vital" }, ctx)) as { projects: { key: string }[] };
+    expect(byName.projects[0]?.key).toBe("VITL");
+
+    // Match on KEY alone.
+    const byKey = (await listProjects({ query: "mktg" }, ctx)) as { projects: { key: string }[] };
+    expect(byKey.projects[0]?.key).toBe("MKTG");
+
+    // No fuzzy hit ⇒ empty (so the model gets a clear "no match", not a dump).
+    const none = (await listProjects({ query: "zzzznope" }, ctx)) as { count: number };
+    expect(none.count).toBe(0);
+
+    // No query ⇒ unchanged behavior: returns all active projects.
+    const all = (await listProjects({}, ctx)) as { count: number };
+    expect(all.count).toBe(3);
   });
 
   it("denies a non-member across the projects/cycles surface", async () => {
