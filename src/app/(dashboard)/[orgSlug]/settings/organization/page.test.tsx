@@ -62,6 +62,27 @@ vi.mock("@/components/settings/org-danger-zone", () => ({
   ),
 }));
 
+vi.mock("@/components/settings/org-tenant-class", () => ({
+  OrgTenantClass: ({
+    orgId,
+    current,
+    isOwner,
+  }: {
+    orgId: string;
+    current: string;
+    isOwner: boolean;
+  }) => (
+    <div
+      data-testid="org-tenant-class"
+      data-org-id={orgId}
+      data-current={current}
+      data-is-owner={String(isOwner)}
+    >
+      Tenant class section
+    </div>
+  ),
+}));
+
 // Light stubs for layout primitives — keeps the test focused on RBAC logic.
 vi.mock("@/components/ui/page-shell", () => ({
   PageShell: ({ title, children }: { title: string; children: React.ReactNode }) => (
@@ -87,11 +108,11 @@ vi.mock("@/components/ui/separator", () => ({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeCtx(permissions: bigint): AuthContext {
+function makeCtx(permissions: bigint, orgRole: OrgRole = OrgRole.MEMBER): AuthContext {
   return {
     userId: "u1",
     orgId: "org-abc",
-    orgRole: OrgRole.MEMBER,
+    orgRole,
     permissions,
     basePermissions: permissions,
     abacRules: [],
@@ -103,7 +124,7 @@ const FAKE_ORG = {
   slug: "acme",
   logoUrl: null,
   plan: "FREE",
-  tenantClass: "STANDARD",
+  tenantClass: "GOV",
   themePrimary: null,
   themeMode: null,
   defaultSkinId: null,
@@ -212,5 +233,29 @@ describe("OrganizationPage RBAC gate", () => {
 
     // Danger zone IS present
     expect(screen.getByTestId("org-danger-zone")).toBeInTheDocument();
+  });
+});
+
+describe("OrganizationPage — tenant-class control wiring", () => {
+  it("renders the tenant-class control for any page viewer, read-only for a non-owner", async () => {
+    // A THEME_MANAGE-only admin can view the page but is NOT the owner.
+    mockGetAuthContext.mockResolvedValue(makeCtx(Permission.THEME_MANAGE, OrgRole.ADMIN));
+    mockFindUnique.mockResolvedValue(FAKE_ORG);
+
+    await renderPage();
+
+    const section = screen.getByTestId("org-tenant-class");
+    expect(section).toBeInTheDocument();
+    expect(section).toHaveAttribute("data-current", "GOV");
+    expect(section).toHaveAttribute("data-is-owner", "false");
+  });
+
+  it("passes isOwner=true only when the caller's org role is OWNER", async () => {
+    mockGetAuthContext.mockResolvedValue(makeCtx(Permission.ORG_UPDATE, OrgRole.OWNER));
+    mockFindUnique.mockResolvedValue(FAKE_ORG);
+
+    await renderPage();
+
+    expect(screen.getByTestId("org-tenant-class")).toHaveAttribute("data-is-owner", "true");
   });
 });
