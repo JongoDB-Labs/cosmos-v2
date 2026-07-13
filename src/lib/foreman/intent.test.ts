@@ -112,7 +112,7 @@ describe("classifyInstruction", () => {
     });
   });
 
-  describe("rebuild variants", () => {
+  describe("rebuild variants (standalone command, full-match)", () => {
     it("classifies 'rebuild' as rebuild", () => {
       expect(classifyInstruction("rebuild")).toBe("rebuild");
     });
@@ -121,12 +121,12 @@ describe("classifyInstruction", () => {
       expect(classifyInstruction("please start over")).toBe("rebuild");
     });
 
-    it("classifies 'do it from scratch' as rebuild", () => {
-      expect(classifyInstruction("do it from scratch")).toBe("rebuild");
+    it("classifies 'start over' as rebuild", () => {
+      expect(classifyInstruction("start over")).toBe("rebuild");
     });
 
-    it("classifies 'requeue this' as rebuild", () => {
-      expect(classifyInstruction("requeue this")).toBe("rebuild");
+    it("classifies 'from scratch' as rebuild", () => {
+      expect(classifyInstruction("from scratch")).toBe("rebuild");
     });
 
     it("classifies with mention token and rebuild as rebuild", () => {
@@ -158,13 +158,13 @@ describe("classifyInstruction", () => {
     });
   });
 
-  describe("rebuild keyword matching (whole-word only)", () => {
-    it("classifies 'requeue' as rebuild (not substring)", () => {
+  describe("rebuild keyword matching (must be a standalone command)", () => {
+    it("classifies 'requeue' as rebuild (standalone, not a substring)", () => {
       expect(classifyInstruction("requeue")).toBe("rebuild");
     });
 
-    it("does not match 'rebuilding' as rebuild (exact word)", () => {
-      // This should be "instruct" since "rebuild" must be a whole word
+    it("does not match 'rebuilding' as rebuild (full-match required)", () => {
+      // "rebuilding" is not the standalone command "rebuild"
       expect(classifyInstruction("rebuilding")).toBe("instruct");
     });
 
@@ -173,8 +173,45 @@ describe("classifyInstruction", () => {
     });
 
     it("does not match 'requeued' as rebuild (substring in different word)", () => {
-      // "requeue" with \b boundaries does not match inside "requeued"
+      // The anchored pattern never fires inside a larger word/sentence
       expect(classifyInstruction("this was requeued before")).toBe("instruct");
+    });
+  });
+
+  // Regression: a rebuild keyword mentioned mid-sentence (or hedged/negated) must
+  // NOT tear down and requeue the parked build the maintainer is trying to refine.
+  // Rebuild fires only when the comment IS a standalone rebuild command.
+  describe("rebuild anchoring (mid-sentence / hedged mentions do not tear down)", () => {
+    it("classifies 'no need to rebuild everything' as instruct", () => {
+      expect(classifyInstruction("no need to rebuild everything")).toBe("instruct");
+    });
+
+    it("classifies 'tweak the copy — no need to rebuild everything' as instruct", () => {
+      expect(classifyInstruction("tweak the copy — no need to rebuild everything")).toBe(
+        "instruct",
+      );
+    });
+
+    it("classifies \"let's not start over, just fix the header\" as instruct", () => {
+      expect(classifyInstruction("let's not start over, just fix the header")).toBe("instruct");
+    });
+
+    it("classifies 'do it from scratch' as instruct (leading verb phrase → not standalone)", () => {
+      // Previously matched the loose substring pattern and forced a rebuild; the
+      // anchored pattern rides it in as an instruction instead of a teardown.
+      expect(classifyInstruction("do it from scratch")).toBe("instruct");
+    });
+
+    it("classifies 'requeue this' as instruct (trailing object → not standalone)", () => {
+      expect(classifyInstruction("requeue this")).toBe("instruct");
+    });
+
+    it("classifies 'Rebuild.' as rebuild (standalone, trailing period tolerated)", () => {
+      expect(classifyInstruction("Rebuild.")).toBe("rebuild");
+    });
+
+    it("classifies 'please rebuild' as rebuild (standalone command)", () => {
+      expect(classifyInstruction("please rebuild")).toBe("rebuild");
     });
   });
 });
@@ -219,6 +256,20 @@ describe("combineIntents", () => {
     expect(combineIntents(["rebuild", "LGTM"])).toEqual({
       intent: "approve",
       instructions: [],
+    });
+  });
+
+  it("approve still wins over a standalone rebuild command in a batch", () => {
+    expect(combineIntents(["please rebuild", "approve"])).toEqual({
+      intent: "approve",
+      instructions: [],
+    });
+  });
+
+  it("does not force rebuild when a text only mentions rebuild mid-sentence", () => {
+    expect(combineIntents(["no need to rebuild everything"])).toEqual({
+      intent: "instruct",
+      instructions: ["no need to rebuild everything"],
     });
   });
 
