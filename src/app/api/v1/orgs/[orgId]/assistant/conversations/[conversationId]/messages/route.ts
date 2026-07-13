@@ -150,12 +150,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // the egress gate exposes system-prompt text, so this reaches the model.
     const actor = await prisma.user.findUnique({
       where: { id: ctx.userId },
-      select: { displayName: true, email: true },
+      select: { displayName: true },
     });
     const systemPrompt = buildAssistantSystemPrompt({
       userId: ctx.userId,
       name: actor?.displayName ?? "",
-      email: actor?.email ?? "",
       role: ctx.orgRole,
     });
 
