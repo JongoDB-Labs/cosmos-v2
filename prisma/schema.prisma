@@ -2895,7 +2895,8 @@ model OrgAiSettings {
 /// token. Tokens are SEALED via the vault before they touch the DB (Json { sealed }),
 /// mirroring OrgAiSettings/UserAiSettings.
 model ForemanAiSettings {
-  orgId             String    @id @map("org_id") @db.Uuid
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String    @unique @map("org_id") @db.Uuid
   provider          String    @default("claude-oauth")
   oauthAccessToken  Json?     @map("oauth_access_token")
   oauthRefreshToken Json?     @map("oauth_refresh_token")
