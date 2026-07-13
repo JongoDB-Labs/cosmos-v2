@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.199.1",
+    date: "2026-07-12",
+    title: "Refining a parked build no longer discards it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A comment that only mentions rebuilding in passing — like “tweak the copy, no need to rebuild everything” or “let's not start over, just fix the header” — now resumes Foreman's parked build with your instructions instead of throwing it away and starting from scratch. Rebuild only fires when the whole comment is the command itself (“rebuild”, “start over”, “please rebuild”).",
+      },
+    ],
+  },
+  {
     version: "2.199.0",
     date: "2026-07-12",
     title: "Foreman plans its own queue — and takes rework orders",
