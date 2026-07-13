@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import { sealSecret } from "@/lib/crypto/vault";
 import {
   initiateClaudeOAuthCore,
   exchangeClaudeCodeCore,
@@ -202,5 +203,34 @@ export async function disconnectForemanClaude(orgId: string): Promise<void> {
       oauthRefreshToken: Prisma.DbNull,
       oauthExpiresAt: null,
     },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*  6. Persist a mid-run rotated credential triple                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Seal + persist a credential triple straight onto the org's ForemanAiSettings
+ * row, bypassing the PKCE/refresh mechanics entirely. This is for the ONE
+ * caller that already holds a live, unsealed triple it didn't get from
+ * {@link getForemanClaudeToken}/{@link getForemanClaudeCreds}: runAgent's
+ * `finally`, when the Agent SDK has rotated the access token mid-run by
+ * refreshing on its own (writing straight to the materialized
+ * `.credentials.json` — see {@link file://../foreman/foreman-creds.ts}) — that
+ * fresh token would otherwise be discarded with the throwaway HOME, letting
+ * the DB's refresh token go stale over time. Reuses {@link makeForemanTokenStore}
+ * so the on-disk shape (sealed Json, `{ sealed: <str> }`) and the write
+ * semantics (an unstamped `updatedById` — this is a refresh, not a
+ * user-initiated exchange) exactly match every other write path here.
+ */
+export async function persistForemanClaudeCreds(
+  orgId: string,
+  creds: { accessToken: string; refreshToken: string | null; expiresAt: number },
+): Promise<void> {
+  await makeForemanTokenStore(orgId).write({
+    access: sealSecret(creds.accessToken),
+    refresh: creds.refreshToken != null ? sealSecret(creds.refreshToken) : null,
+    expiresAt: new Date(creds.expiresAt),
   });
 }
