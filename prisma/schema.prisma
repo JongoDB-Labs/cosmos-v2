@@ -274,6 +274,14 @@ model User {
   mfaSecret         String?   @map("mfa_secret")
   mfaRecoveryCodes  String[]  @default([]) @map("mfa_recovery_codes")
   mfaEnrolledAt     DateTime? @map("mfa_enrolled_at")
+  // Email/password invite onboarding (additive; default false for every existing
+  // user + all OAuth/SSO users). `mustChangePassword` forces a rotation of the
+  // admin-generated temporary password at first sign-in BEFORE any session is
+  // minted. `mfaRequired` is the per-user MFA floor set at invite time — enforced
+  // at the password-login boundary (forced TOTP enrollment) so it never depends
+  // on a page-level gate.
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  mfaRequired        Boolean  @default(false) @map("mfa_required")
   createdAt         DateTime  @default(now()) @map("created_at")
 
   memberships         OrgMember[]
@@ -415,6 +423,13 @@ model Invitation {
   // ABAC policies on top of the base org role). Validated against the actor's
   // ceiling at invite time; applied on consumption.
   workRoleIds String[] @default([]) @map("work_role_ids")
+  // How the invitee will sign in: "oauth" (existing Google/Microsoft/SSO flow —
+  // the default, so every prior invite is unchanged) or "email_password" (the
+  // admin provisions a local credential + temporary password emailed with the
+  // invite). `mfaRequired` mirrors User.mfaRequired for audit/history of what the
+  // invite asked for.
+  signInMethod String  @default("oauth") @map("sign_in_method")
+  mfaRequired  Boolean @default(false) @map("mfa_required")
   token       String   @unique @default(dbgenerated("gen_random_uuid()"))
   expiresAt   DateTime @map("expires_at")
   createdAt   DateTime @default(now()) @map("created_at")
