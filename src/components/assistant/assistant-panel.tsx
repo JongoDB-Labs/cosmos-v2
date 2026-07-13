@@ -13,6 +13,12 @@ import { notifyError } from "@/lib/errors/notify";
 import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
 import type { ResolvedEntity } from "@/lib/mentions/refs";
+import { ENTITY_PREFIX } from "@/lib/mentions/refs";
+import { isToolCallRunning, finalizeToolCalls } from "@/lib/assistant/tool-status";
+import {
+  artifactsFromToolCalls,
+  type ChatArtifact,
+} from "@/lib/assistant/artifacts";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -38,6 +44,7 @@ import {
   Wrench,
   Settings,
   ExternalLink,
+  ArrowUpRight,
 } from "lucide-react";
 
 // =============================================================================
@@ -576,10 +583,9 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: (input.trim() || attachments[0]?.name || "New conversation")
-                .slice(0, 60),
-            }),
+            // Create with the default title; the server auto-titles from the first
+            // exchange and streams a `title` event back (Anthropic Claude Chat UX).
+            body: JSON.stringify({ title: "New conversation" }),
           }
         );
         if (res.ok) {
@@ -719,6 +725,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                 toolCalls?: Record<string, unknown>[];
                 messageId?: string;
                 message?: string;
+                title?: string;
               };
               if (evt.type === "text" && evt.text) {
                 accumulated += evt.text;
@@ -776,11 +783,28 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                           ...m,
                           id: evt.messageId ?? m.id,
                           content: evt.content ?? accumulated,
-                          toolCalls: evt.toolCalls ?? liveToolCalls,
+                          // The `done` event carries the loop's AgentToolCall[]
+                          // (no `status`); finalize so every chip renders as
+                          // completed instead of reverting to the spinner.
+                          toolCalls: finalizeToolCalls(
+                            (evt.toolCalls as LiveToolCall[] | undefined) ??
+                              liveToolCalls,
+                          ),
                         }
                       : m,
                   ),
                 );
+              } else if (evt.type === "title") {
+                // Auto-title arrived (first exchange). Update the sidebar + header
+                // title for this conversation, replacing "New conversation".
+                if (evt.title) {
+                  const newTitle = evt.title;
+                  setConversations((prev) =>
+                    prev.map((c) =>
+                      c.id === currentActiveId ? { ...c, title: newTitle } : c,
+                    ),
+                  );
+                }
               } else if (evt.type === "error") {
                 setStreamingStatus(null);
                 setMessages((prev) =>
@@ -831,6 +855,17 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       setSending(false);
       setStreamingStatus(null);
       abortRef.current = null;
+      // Nothing left spinning: if the stream closed, dropped, or was aborted
+      // before `done` finalized the chips, flip any still-running tool chips on
+      // the pending bubble to done. (After a normal `done` the bubble's id has
+      // already changed off `streamingId`, so this is a no-op there.)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamingId && Array.isArray(m.toolCalls) && m.toolCalls.length > 0
+            ? { ...m, toolCalls: finalizeToolCalls(m.toolCalls as LiveToolCall[]) }
+            : m,
+        ),
+      );
     }
   }, [input, sending, activeId, orgId, attachments, model]);
 
@@ -1231,6 +1266,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
                   <MessageBubble
                     key={msg.id}
                     message={msg}
+                    orgSlug={orgSlug}
                     expanded={expandedTools.has(msg.id)}
                     onToggleTool={() => toggleToolExpand(msg.id)}
                     status={isLastStreaming ? streamingStatus : null}
@@ -1374,12 +1410,14 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
 
 function MessageBubble({
   message,
+  orgSlug,
   expanded,
   onToggleTool,
   status,
   elapsedSeconds,
 }: {
   message: AssistantMessage;
+  orgSlug: string;
   expanded: boolean;
   onToggleTool: () => void;
   status: { label: string; startedAt: number } | null;
@@ -1442,6 +1480,10 @@ function MessageBubble({
   // ASSISTANT
   const toolCalls = (message.toolCalls ?? []) as LiveToolCall[];
   const hasContent = message.content.length > 0;
+  // Linked entity cards for the mutations this turn performed (create/update/
+  // delete). Derived from the SAME toolCalls, so they render for both a live
+  // stream and a reopened (persisted) conversation.
+  const artifacts = artifactsFromToolCalls(toolCalls, { orgSlug });
 
   return (
     <div className="flex items-start gap-2">
@@ -1449,25 +1491,37 @@ function MessageBubble({
       <div className="rounded-xl bg-muted px-4 py-2.5 max-w-[80%] min-w-0">
         {toolCalls.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {toolCalls.map((tc) => (
-              <span
-                key={tc.id}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px]",
-                  tc.status === "done"
-                    ? "border-border bg-background text-muted-foreground"
-                    : "border-primary/30 bg-primary/10 text-primary",
-                )}
-              >
-                {tc.status === "done" ? (
-                  <Wrench className="size-3" />
-                ) : (
-                  <Loader2 className="size-3 animate-spin" />
-                )}
-                {tc.status === "done"
-                  ? pastTenseLabel(tc.name)
-                  : `${labelForTool(tc.name)}…`}
-              </span>
+            {toolCalls.map((tc) => {
+              // A chip spins ONLY while explicitly running; a finished or
+              // status-less (persisted / `done`-event) call renders as complete.
+              const running = isToolCallRunning(tc);
+              return (
+                <span
+                  key={tc.id}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px]",
+                    running
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground",
+                  )}
+                >
+                  {running ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Wrench className="size-3" />
+                  )}
+                  {running
+                    ? `${labelForTool(tc.name)}…`
+                    : pastTenseLabel(tc.name)}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {artifacts.length > 0 && (
+          <div className="mb-2 flex flex-col gap-1.5">
+            {artifacts.map((a) => (
+              <ArtifactCard key={a.toolCallId} artifact={a} />
             ))}
           </div>
         )}
@@ -1494,5 +1548,64 @@ function MessageBubble({
         )}
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// ArtifactCard — an entity Cosmo created/updated/deleted, surfaced inline as a
+// clickable card that deep-links to the entity (mirrors the v1 okr-dashboard
+// ToolCallBadge, upgraded from a static label to a real link). CUI-blind: it
+// links BY ID and shows only the entity's own title/type; the destination page
+// enforces authorization + classification on click.
+// =============================================================================
+
+const ARTIFACT_ACTION_VERB: Record<ChatArtifact["action"], string> = {
+  created: "Created",
+  updated: "Updated",
+  deleted: "Deleted",
+};
+
+function ArtifactCard({ artifact }: { artifact: ChatArtifact }) {
+  const glyph = ENTITY_PREFIX[artifact.entityType];
+  const inner = (
+    <>
+      <span
+        aria-hidden
+        className="flex size-6 shrink-0 items-center justify-center rounded-md border bg-background text-sm"
+      >
+        {glyph}
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-xs font-medium text-foreground">
+          {artifact.label}
+        </span>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          {ARTIFACT_ACTION_VERB[artifact.action]} · {artifact.typeLabel}
+        </span>
+      </span>
+    </>
+  );
+
+  const cls =
+    "group inline-flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 no-underline";
+
+  if (!artifact.url) {
+    // Deleted, or an entity with no linkable page → non-interactive card.
+    return (
+      <div className={cn(cls, "opacity-80")} data-testid="artifact-card">
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={artifact.url}
+      className={cn(cls, "transition-colors hover:border-primary/40 hover:bg-accent")}
+      data-testid="artifact-card"
+    >
+      {inner}
+      <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+    </Link>
   );
 }
