@@ -35,8 +35,15 @@ function stripMentionToken(text: string): string {
 
 /** Classify a single instruction text into an intent.
  * - If remainder after stripping mention token matches approve pattern → "approve"
- * - Else if it contains a whole-word rebuild keyword → "rebuild"
+ * - Else if the remainder IS a standalone rebuild command → "rebuild"
  * - Else → "instruct"
+ *
+ * Rebuild is anchored (full-match) exactly like approve: a comment must *be* a
+ * rebuild command, not merely mention one. A loose substring match would let a
+ * hedged or mid-sentence mention like "no need to rebuild everything" or
+ * "let's not start over, just fix the header" tear down and requeue the parked
+ * build the maintainer was trying to refine. Anything that only *contains* a
+ * rebuild keyword rides in as an "instruct" so it resumes the build instead.
  */
 export function classifyInstruction(text: string): CommentIntent {
   const stripped = stripMentionToken(text);
@@ -48,8 +55,10 @@ export function classifyInstruction(text: string): CommentIntent {
     return "approve";
   }
 
-  // Check for rebuild keywords (whole-word match)
-  const rebuildPattern = /\b(rebuild|start over|from scratch|requeue)\b/i;
+  // Check for a standalone rebuild command — full match, like approve above.
+  // Must BE the command (optionally prefixed with "please"), not merely contain
+  // a rebuild keyword somewhere in a larger sentence.
+  const rebuildPattern = /^(please\s+)?(rebuild|start over|from scratch|requeue)[.!\s]*$/i;
   if (rebuildPattern.test(stripped)) {
     return "rebuild";
   }
