@@ -368,6 +368,27 @@ export async function autonomyEnabled(): Promise<boolean> {
   return (await deliveryProjects()).length > 0;
 }
 
+/** The single delivery-pool org an agent can authenticate as right now: one that
+ *  is in the pool (autonomousDelivery.enabled with ≥1 resolved project) AND has a
+ *  connected Foreman Claude subscription (foremanAiSettings.oauthAccessToken set).
+ *  The planner ranks the SHARED pool but runAgent needs ONE org's token to run on,
+ *  so this resolves it — today that's defcon-new. Returns null when NONE is
+ *  connected (nothing to authenticate as → the planner skips its pass) OR when
+ *  more than one is (ambiguous: don't silently spend one org's subscription
+ *  ranking another's pool — skip until it's unambiguous). Connectedness is read in
+ *  JS off the fetched rows (oauthAccessToken is a sealed Json column) rather than a
+ *  Json-null WHERE filter. */
+export async function primaryDeliveryOrgId(): Promise<string | null> {
+  const orgIds = [...new Set((await deliveryProjects()).map((p) => p.orgId))];
+  if (orgIds.length === 0) return null;
+  const settings = await prisma.foremanAiSettings.findMany({
+    where: { orgId: { in: orgIds } },
+    select: { orgId: true, oauthAccessToken: true },
+  });
+  const connected = settings.filter((s) => s.oauthAccessToken != null).map((s) => s.orgId);
+  return connected.length === 1 ? connected[0] : null;
+}
+
 /** Move any delivery-pool ticket left in `in-progress` back to `backlog`. A single
  *  daemon holds the LOCK, so at startup an in-progress ticket is a crashed/stranded
  *  build that nothing is working — re-queue it instead of leaving it stuck out of the
