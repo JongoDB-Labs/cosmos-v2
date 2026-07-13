@@ -3,10 +3,15 @@ import type { ToolDefinition } from "../tools";
 export const projectTools: ToolDefinition[] = [
   {
     name: "list_projects",
-    description: "List active (non-archived) projects in the org.",
+    description:
+      "List active (non-archived) projects in the org. Pass `query` to fuzzy-resolve a project the user names in words or by key — it matches the project name AND key server-side (e.g. 'the VITL BMA project' resolves to the VITL project) and returns only the matches, best first, with their ids. Use this to turn a spoken project reference into a projectId, even when project names are withheld from you.",
     input_schema: {
       type: "object",
       properties: {
+        query: {
+          type: "string",
+          description: "Fuzzy match over project name + key to resolve a project by how the user referred to it (e.g. 'vitl bma', 'marketing site').",
+        },
         includeArchived: { type: "boolean", description: "Include archived projects (default false)" },
       },
       required: [],
