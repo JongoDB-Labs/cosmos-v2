@@ -14,11 +14,16 @@ COPY --from=deps /app/node_modules ./node_modules
 # loads it OFFLINE (gov can't fetch at runtime). It sits before `COPY . .` so a pure
 # code change reuses the cached layer — BUT a version bump changes package.json, which
 # busts npm ci → the deps copy → this layer, so on a real deploy it re-downloads.
-# The HuggingFace fetch is intermittently flaky (~50% of the time it times out), so
-# RETRY with backoff and surface the real error instead of aborting the whole deploy.
+# The HuggingFace fetch is intermittently flaky (rate-limited 403 on CI's shared runner
+# IPs, or timeouts), so RETRY with backoff and surface the real error instead of aborting.
+# When the hf_token build secret is provided (release.yml wires secrets.HF_TOKEN), export
+# it so the download AUTHENTICATES — anonymous per-IP limits are what 403 a version-bump
+# rebuild. `required=false` + the `|| true` fallback keep an un-tokened build (forks, local
+# `docker build` without --secret) on the prior anonymous path, unchanged.
 # The cache lands in node_modules/@huggingface/transformers/.cache/ and is COPY'd to
 # the runtime stage; node_modules is .dockerignore'd so the later `COPY . .` can't clobber it.
-RUN set -e; \
+RUN --mount=type=secret,id=hf_token,required=false set -e; \
+    export HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
     for i in 1 2 3 4 5; do \
       if node -e "import('@huggingface/transformers').then(({pipeline})=>pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')).then(()=>console.log('model cached')).catch(e=>{console.error('[model] '+String(e&&e.message||e).slice(0,300));process.exit(1)})"; then \
         exit 0; \
