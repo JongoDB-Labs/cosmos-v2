@@ -104,6 +104,13 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.version }}
             PRODUCT=${{ matrix.product }}
+          # Authenticate the Dockerfile's MiniLM model download (build stage) so a
+          # version-bump build — which busts the model cache layer and re-fetches —
+          # isn't rate-limited (403) on HuggingFace's anonymous per-IP limit. Mounted
+          # as a build secret (never baked into an image layer). Empty (unset secret)
+          # degrades to the prior anonymous fetch, unchanged.
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max
