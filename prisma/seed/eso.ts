@@ -230,7 +230,7 @@ async function main() {
     create: {
       name: ORG_NAME,
       slug: ORG_SLUG,
-      plan: "BUSINESS",
+      plan: "ENTERPRISE",
       tenantClass: "COMMERCIAL",
       themePrimary: ESO_TEAL,
     },

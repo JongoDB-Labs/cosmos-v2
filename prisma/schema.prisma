@@ -13,11 +13,9 @@ datasource db {
 // ─────────────────────────────────────────────
 
 enum Plan {
-  FREE
+  BASIC
   TEAM
-  BUSINESS
   ENTERPRISE
-  GOV
 }
 
 enum TenantClass {
@@ -176,7 +174,7 @@ model Organization {
   name           String
   slug           String      @unique
   auth0OrgId     String?     @unique @map("auth0_org_id")
-  plan           Plan        @default(FREE)
+  plan           Plan        @default(ENTERPRISE)
   tenantClass    TenantClass @default(GOV) @map("tenant_class")
   logoUrl        String?     @map("logo_url")
   themePrimary   String?     @map("theme_primary")

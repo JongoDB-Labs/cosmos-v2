@@ -29,8 +29,8 @@ import { hashPassword, passwordPolicyError } from "../../src/lib/auth/password";
 // ── Config (all overridable via env) ─────────────────────────────────────────
 const ORG_NAME = (process.env.ORG_NAME ?? "Acme Inc").trim();
 const ORG_SLUG = (process.env.ORG_SLUG ?? "acme").trim();
-// Plan enum: FREE | TEAM | BUSINESS | ENTERPRISE | GOV. Default BUSINESS.
-const ORG_PLAN = (process.env.ORG_PLAN ?? "BUSINESS").trim();
+// Plan enum: BASIC | TEAM | ENTERPRISE. Default ENTERPRISE.
+const ORG_PLAN = (process.env.ORG_PLAN ?? "ENTERPRISE").trim();
 // TenantClass enum: GOV | COMMERCIAL. Default COMMERCIAL (overrides the schema's
 // GOV default, matching the common self-serve case).
 const ORG_TENANT_CLASS = (process.env.ORG_TENANT_CLASS ?? "COMMERCIAL").trim();
