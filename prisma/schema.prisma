@@ -235,6 +235,7 @@ model Organization {
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   foremanAiSettings      ForemanAiSettings?
+  emailSettings          OrgEmailSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
 
@@ -2921,6 +2922,29 @@ model ForemanAiSettings {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("foreman_ai_settings")
+}
+
+/// PER-ORG transactional-email (Resend) delivery config, set by an org OWNER from
+/// the org settings UI instead of a server env var. The provider API key is SEALED
+/// via the vault before it touches the DB (Json { sealed }), mirroring
+/// OrgAiSettings/ForemanAiSettings; it is unsealed only server-side at send time
+/// (see src/lib/integrations/org-email-config.ts). When `enabled` with a valid
+/// sealed key + fromAddress, invitation email sends through this config; otherwise
+/// the sender falls back to env RESEND_API_KEY/EMAIL_FROM, then the inviter's Gmail.
+model OrgEmailSettings {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @unique @map("org_id") @db.Uuid
+  provider    String   @default("resend")
+  apiKey      Json?    @map("api_key")
+  fromAddress String?  @map("from_address")
+  enabled     Boolean  @default(false)
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_email_settings")
 }
 
 // PER-USER Claude subscription OAuth — the agent prefers the requesting USER's
