@@ -14,7 +14,8 @@
 // a `.mts` import path fails typecheck with TS5097, while `.mjs` resolves to the
 // `.mts` source for BOTH `tsc --noEmit` and `tsx` at runtime.
 import { existsSync, writeFileSync, readFileSync, rmSync, appendFileSync, mkdirSync, symlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -47,7 +48,10 @@ import * as obs from "./observe.mjs";
 
 const exec = promisify(execFile);
 
-const REPO = "/home/defcon/cosmos-v2";
+// Repo root, derived from THIS module's own location (scripts/foreman/run.mts →
+// ../..), so the daemon runs from ANY clone path + user. Was hardcoded to the
+// original host's /home/defcon/cosmos-v2, which broke a move to another host.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LEDGER = join(REPO, ".deploy/foreman-ledger.jsonl");
 // DRY runs write here instead of the real ledger, so a dry preview never seeds an
 // armed run's dedup/history. Reads in DRY consult BOTH (real + dry) — see processOne.

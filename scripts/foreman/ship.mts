@@ -8,10 +8,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const exec = promisify(execFile);
-const REPO = "/home/defcon/cosmos-v2";
+// Repo root derived from this module's location (scripts/foreman/ship.mts →
+// ../..) so the daemon is portable across hosts/users (was hardcoded).
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export function readVersion(dir: string): string {
   return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
