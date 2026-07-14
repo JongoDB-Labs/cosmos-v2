@@ -10,6 +10,7 @@ import {
   maskFromDb,
   Permission,
 } from "@/lib/rbac/permissions";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { TeamTable } from "./team-table";
 import { InviteMemberButton } from "./invite-member-button";
 
@@ -30,6 +31,11 @@ async function TeamPageContent({ params }: PageParams) {
 
   const org = await prisma.organization.findUnique({ where: { id: ctx.orgId } });
   if (!org) notFound();
+
+  // Platform admins get an extra "Delete account" affordance in the row menu
+  // (global account deletion is a system-tier control, not org self-service).
+  const platformAdmin = await requireSystemAdmin();
+  const isPlatformAdmin = Boolean(platformAdmin);
 
   const [members, invitations, workRoles, memberWorkRoles] = await Promise.all([
     prisma.orgMember.findMany({
@@ -64,6 +70,9 @@ async function TeamPageContent({ params }: PageParams) {
     ...members.map((m) => ({
       kind: "member" as const,
       id: m.id,
+      // The User id (distinct from the OrgMember id) — the platform-admin
+      // "Delete account" action targets the global user, not the membership.
+      userId: m.user.id,
       name: m.user.displayName,
       email: m.user.email,
       role: m.role,
@@ -74,6 +83,7 @@ async function TeamPageContent({ params }: PageParams) {
     ...invitations.map((i) => ({
       kind: "invite" as const,
       id: i.id,
+      userId: null,
       name: "Invited",
       email: i.email,
       role: i.role,
@@ -109,6 +119,8 @@ async function TeamPageContent({ params }: PageParams) {
         rows={rows}
         workRoleOptions={workRoleOptions}
         grantableRoleIds={grantableRoleIds}
+        isPlatformAdmin={isPlatformAdmin}
+        currentUserId={ctx.userId}
       />
     </PageShell>
   );
