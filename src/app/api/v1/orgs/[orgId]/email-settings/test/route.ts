@@ -52,6 +52,8 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         text: `This is a test message confirming that ${brand} transactional email delivery for your organization is configured and working.`,
         html: `<p>This is a test message confirming that <strong>${brand}</strong> transactional email delivery for your organization is configured and working.</p>`,
         orgId,
+        // Verify the saved key even before Enabled is flipped on (test-only).
+        includeDisabledOrgConfig: true,
       });
       return success({ ok: true });
     } catch (err) {

@@ -60,6 +60,7 @@ function unsealApiKey(value: unknown): string | null {
  */
 export async function getOrgEmailConfig(
   orgId: string,
+  opts?: { includeDisabled?: boolean },
 ): Promise<OrgEmailConfig | null> {
   let settings: {
     provider: string;
@@ -76,7 +77,11 @@ export async function getOrgEmailConfig(
     return null; // a DB hiccup degrades to the env/Gmail fallback — never throws
   }
 
-  if (!settings || !settings.enabled || !settings.fromAddress) return null;
+  // `includeDisabled` is for the owner's "Send test" only: it lets an owner verify a
+  // just-saved key BEFORE flipping Enabled on (real sends always require enabled).
+  // A key + From are still mandatory — you can't send without them.
+  if (!settings || (!opts?.includeDisabled && !settings.enabled) || !settings.fromAddress)
+    return null;
 
   const apiKey = unsealApiKey(settings.apiKey);
   if (!apiKey) return null;

@@ -70,6 +70,20 @@ describe("getOrgEmailConfig", () => {
     expect(await getOrgEmailConfig(ORG)).toBeNull();
   });
 
+  it("returns the config for a DISABLED row when includeDisabled is set (Send-test path)", async () => {
+    findUnique.mockResolvedValue(row({ enabled: false }));
+    expect(await getOrgEmailConfig(ORG, { includeDisabled: true })).toEqual({
+      apiKey: "re_secret_key",
+      from: "Cosmos <invites@example.com>",
+      provider: "resend",
+    });
+  });
+
+  it("still requires a key + from even with includeDisabled (can't test what can't send)", async () => {
+    findUnique.mockResolvedValue(row({ enabled: false, fromAddress: null }));
+    expect(await getOrgEmailConfig(ORG, { includeDisabled: true })).toBeNull();
+  });
+
   it("returns null when there is no row for the org", async () => {
     findUnique.mockResolvedValue(null);
     expect(await getOrgEmailConfig(ORG)).toBeNull();
