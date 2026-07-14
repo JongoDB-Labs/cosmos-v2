@@ -160,7 +160,13 @@ function LoginInner() {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState<
-    "creds" | "change_password" | "enroll_mfa" | "mfa" | "recovery"
+    | "creds"
+    | "change_password"
+    | "enroll_mfa"
+    | "mfa"
+    | "recovery"
+    | "forgot"
+    | "forgot_sent"
   >("creds");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
@@ -237,6 +243,32 @@ function LoginInner() {
       await applyNext(data);
     } catch {
       setPwError("Something went wrong. Please try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  // Self-service "forgot password": request a reset email for an email/password
+  // account. The endpoint always responds OK (it never reveals whether the email
+  // exists), so on any non-error response we show the same neutral confirmation.
+  async function submitForgot(e?: React.FormEvent) {
+    e?.preventDefault();
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      await fetch("/api/auth/password/reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          ...(orgSlug ? { orgSlug } : {}),
+        }),
+      });
+      setPassword("");
+      setPhase("forgot_sent");
+    } catch {
+      // Even on a network error, don't leak anything — show the neutral screen.
+      setPhase("forgot_sent");
     } finally {
       setPwBusy(false);
     }
@@ -461,6 +493,73 @@ function LoginInner() {
                   onClick={() => void submitCreds()}
                 >
                   {pwBusy ? "Signing in…" : "Sign in"}
+                </Button>
+                <button
+                  type="button"
+                  className="w-full text-center text-xs text-[var(--text-muted)] underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setPwError(null);
+                    setPassword("");
+                    setPhase("forgot");
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            ) : phase === "forgot" ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-[var(--text-muted)]">
+                  Enter your email and we&apos;ll send a reset link if an
+                  email &amp; password account exists.
+                </p>
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  autoFocus
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitForgot()}
+                  required
+                />
+                {pwError && (
+                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                )}
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={pwBusy || email.trim().length === 0}
+                  onClick={() => void submitForgot()}
+                >
+                  {pwBusy ? "Sending…" : "Send reset link"}
+                </Button>
+                <button
+                  type="button"
+                  className="w-full text-center text-xs text-[var(--text-muted)] underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setPwError(null);
+                    setPhase("creds");
+                  }}
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : phase === "forgot_sent" ? (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm">
+                  If an account with that email exists, we&apos;ve sent a link
+                  to reset its password. The link expires in an hour and can be
+                  used once.
+                </p>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    setPwError(null);
+                    setPhase("creds");
+                  }}
+                >
+                  Back to sign in
                 </Button>
               </div>
             ) : phase === "change_password" ? (

@@ -204,6 +204,55 @@ export async function sendPasswordInviteEmail(params: {
   await dispatchInviteEmail({ ...params, subject, textBody, htmlBody });
 }
 
+/**
+ * Password-reset email (self-service "forgot password" + admin-triggered reset).
+ *
+ * Transactional-ONLY: sent via the org's Resend config, or the deployment-wide
+ * env fallback (see email-sender.ts) — there is NO inviter/actor mailbox to fall
+ * back to here (a self-service requester is signed out). It therefore throws when
+ * transactional email isn't configured; the caller decides how loud to be (the
+ * self-service endpoint swallows it so it never reveals config/account state; the
+ * admin endpoint surfaces it so the admin can retry).
+ */
+export async function sendPasswordResetEmail(params: {
+  /** The org whose Resend config sends the mail; undefined → env fallback. */
+  orgId?: string;
+  toEmail: string;
+  /** Fully-formed reset link (single-use, time-limited token in the query). */
+  resetUrl: string;
+}): Promise<void> {
+  const brand = getBrand().name;
+  const subject = `Reset your ${brand} password`;
+
+  const textBody = [
+    `We received a request to reset the password for your ${brand} account.`,
+    "",
+    "Reset it here (this link can be used once and expires in 1 hour):",
+    params.resetUrl,
+    "",
+    "If you didn't request this, you can safely ignore this email — your",
+    "password won't change until someone uses the link above.",
+  ].join("\n");
+
+  const htmlBody = `
+    <p>We received a request to reset the password for your ${brand} account.</p>
+    <p><a href="${params.resetUrl}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;">Reset password</a></p>
+    <p>Or open this link (single-use, expires in 1 hour):<br><code>${escapeHtml(params.resetUrl)}</code></p>
+    <p style="color:#666;font-size:12px;">If you didn't request this, you can safely ignore this email — your password won't change until someone uses the link above.</p>
+  `;
+
+  if (!(await isTransactionalEmailConfigured(params.orgId))) {
+    throw new Error("transactional email not configured");
+  }
+  await sendAppEmail({
+    to: params.toEmail,
+    subject,
+    text: textBody,
+    html: htmlBody,
+    orgId: params.orgId,
+  });
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
