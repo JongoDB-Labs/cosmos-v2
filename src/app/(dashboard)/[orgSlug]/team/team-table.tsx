@@ -16,13 +16,16 @@ import {
 } from "@/components/ui/dialog";
 import { TeamRoleDialog } from "./team-role-dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
-import { Shield, UserMinus, Send, Trash2 } from "lucide-react";
+import { Shield, UserMinus, Send, Trash2, UserX } from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
 
 type Row = {
   kind: "member" | "invite";
   id: string;
+  /** The global User id — present on member rows only (null for invites). The
+   *  platform-admin "Delete account" action targets this, not the OrgMember id. */
+  userId?: string | null;
   name: string;
   email: string;
   role: string;
@@ -44,6 +47,12 @@ interface TeamTableProps {
    *  so a member can never hand out a role that grants more than they hold
    *  themselves. */
   grantableRoleIds: string[];
+  /** True when the viewer is a platform/system admin (INTERNAL_ADMINS). Unlocks
+   *  the global "Delete account" row action — the API re-checks this gate. */
+  isPlatformAdmin?: boolean;
+  /** The viewer's own User id — used to hide "Delete account" on their own row
+   *  (the API also blocks self-deletion). */
+  currentUserId?: string;
 }
 
 const ROLE_VARIANT = {
@@ -57,6 +66,8 @@ export function TeamTable({
   rows,
   workRoleOptions,
   grantableRoleIds,
+  isPlatformAdmin = false,
+  currentUserId,
 }: TeamTableProps) {
   const { can, orgId } = usePermissions();
   const router = useRouter();
@@ -67,7 +78,9 @@ export function TeamTable({
     workRoleIds: string[];
   } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{
-    action: "remove" | "revoke";
+    // "remove" targets an OrgMember id, "revoke" an invitation id,
+    // "delete-account" a global User id.
+    action: "remove" | "revoke" | "delete-account";
     id: string;
     name: string;
   } | null>(null);
@@ -98,6 +111,32 @@ export function TeamTable({
       }
     },
     [orgId, router],
+  );
+
+  // Platform-admin only: permanently delete the GLOBAL user account (anonymize +
+  // revoke all access + free the email). Hits the system-tier internal route,
+  // which re-checks the platform-admin gate and all guards server-side.
+  const handleDeleteAccount = useCallback(
+    async (userId: string) => {
+      try {
+        const res = await fetch(`/api/internal/users/${userId}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(
+            data?.error ?? `Failed to delete account (HTTP ${res.status})`,
+          );
+        }
+        toast.success("Account deleted — their email is free to invite again.");
+        router.refresh();
+      } catch (err) {
+        notifyError(err, "Couldn't delete the account.");
+      }
+    },
+    [router],
   );
 
   const handleRevokeInvite = useCallback(
@@ -172,6 +211,10 @@ export function TeamTable({
       }
 
       const isOwner = r.role === "OWNER";
+      // Platform-admin only: delete the GLOBAL account. Hidden on the viewer's
+      // own row (the API also blocks self-deletion) and on invite rows.
+      const canDeleteAccount =
+        isPlatformAdmin && !!r.userId && r.userId !== currentUserId;
       return [
         {
           // "Manage roles…" opens the unified tier + work-role dialog. Available
@@ -188,21 +231,42 @@ export function TeamTable({
             : [],
         },
         {
-          items: canManageMembers && !isOwner
-            ? [
-                {
-                  label: "Remove from org",
-                  icon: UserMinus,
-                  variant: "destructive" as const,
-                  onClick: () =>
-                    setConfirmTarget({ action: "remove", id: r.id, name: r.name }),
-                },
-              ]
-            : [],
+          items: [
+            ...(canManageMembers && !isOwner
+              ? [
+                  {
+                    label: "Remove from org",
+                    icon: UserMinus,
+                    variant: "destructive" as const,
+                    onClick: () =>
+                      setConfirmTarget({ action: "remove", id: r.id, name: r.name }),
+                  },
+                ]
+              : []),
+            ...(canDeleteAccount
+              ? [
+                  {
+                    label: "Delete account",
+                    icon: UserX,
+                    variant: "destructive" as const,
+                    onClick: () => {
+                      // Guarded above (canDeleteAccount) — narrow for the target.
+                      if (r.userId) {
+                        setConfirmTarget({
+                          action: "delete-account",
+                          id: r.userId,
+                          name: r.name,
+                        });
+                      }
+                    },
+                  },
+                ]
+              : []),
+          ],
         },
       ];
     },
-    [can, handleResendInvite, openRoleDialog],
+    [can, handleResendInvite, openRoleDialog, isPlatformAdmin, currentUserId],
   );
 
   const runConfirm = async () => {
@@ -210,6 +274,8 @@ export function TeamTable({
     setConfirmPending(true);
     if (confirmTarget.action === "remove") {
       await handleRemoveMember(confirmTarget.id);
+    } else if (confirmTarget.action === "delete-account") {
+      await handleDeleteAccount(confirmTarget.id);
     } else {
       await handleRevokeInvite(confirmTarget.id);
     }
@@ -337,7 +403,9 @@ export function TeamTable({
             <DialogTitle>
               {confirmTarget?.action === "remove"
                 ? "Remove from organization?"
-                : "Revoke invitation?"}
+                : confirmTarget?.action === "delete-account"
+                  ? "Delete this account?"
+                  : "Revoke invitation?"}
             </DialogTitle>
           </DialogHeader>
           <p className="py-1 text-sm text-muted-foreground">
@@ -345,6 +413,15 @@ export function TeamTable({
               <>
                 This removes <strong>{confirmTarget?.name}</strong> from the
                 organization and revokes their access. This cannot be undone.
+              </>
+            ) : confirmTarget?.action === "delete-account" ? (
+              <>
+                This permanently deletes <strong>{confirmTarget?.name}</strong>
+                &apos;s account across <em>every</em> organization: all sessions,
+                memberships, sign-in methods and the allowlist entry are revoked,
+                and their profile is anonymized. Work they authored stays but is
+                attributed to a &ldquo;Deleted user.&rdquo; Their email is freed
+                so it can be invited again. This cannot be undone.
               </>
             ) : (
               <>
@@ -370,10 +447,14 @@ export function TeamTable({
               {confirmPending
                 ? confirmTarget?.action === "remove"
                   ? "Removing…"
-                  : "Revoking…"
+                  : confirmTarget?.action === "delete-account"
+                    ? "Deleting…"
+                    : "Revoking…"
                 : confirmTarget?.action === "remove"
                   ? "Remove"
-                  : "Revoke"}
+                  : confirmTarget?.action === "delete-account"
+                    ? "Delete account"
+                    : "Revoke"}
             </Button>
           </DialogFooter>
         </DialogContent>

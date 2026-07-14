@@ -9,8 +9,10 @@
 //     credential (scrypt-hashed temp password), sets mustChangePassword + the
 //     per-user MFA floor, records the method on the invitation, and NEVER returns
 //     the plaintext temp password in the API response (email-only delivery);
-//   - an email_password invite for a PRE-EXISTING account is rejected (409) with
-//     no credential written onto it (cross-tenant takeover guard);
+//   - an email_password invite for a PRE-EXISTING account is NO LONGER a dead end:
+//     it creates a NORMAL pending invitation (allowlist + invitation, coerced to
+//     signInMethod "oauth"), returns { existingAccount: true }, and still writes NO
+//     credential onto the pre-existing account (cross-tenant takeover guard holds);
 //   - the existing OAuth invite is unchanged: no credential, no temp password.
 // All fixtures are torn down in afterAll.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
@@ -118,12 +120,12 @@ describe("POST /invitations — email_password", () => {
   });
 });
 
-describe("POST /invitations — email_password targeting an EXISTING user (takeover guard)", () => {
-  it("rejects the invite and never writes a credential onto the pre-existing account", async () => {
-    // A pre-existing OAuth-only account NOT a member of this org — the exact
-    // cross-tenant takeover target from the finding.
-    const victim = await prisma.user.create({
-      data: { email: VICTIM_EMAIL, displayName: "Victim" }, // passwordHash: null
+describe("POST /invitations — email_password targeting an EXISTING user (seamless re-add)", () => {
+  it("creates a normal pending invite (no dead end) and never writes a credential onto the pre-existing account", async () => {
+    // A pre-existing OAuth-only account NOT a member of this org — previously the
+    // cross-tenant takeover target; now the seamless-re-add case.
+    const existing = await prisma.user.create({
+      data: { email: VICTIM_EMAIL, displayName: "Existing" }, // passwordHash: null
       select: { id: true },
     });
 
@@ -134,20 +136,32 @@ describe("POST /invitations — email_password targeting an EXISTING user (takeo
       mfaRequired: true,
     }), { params: Promise.resolve({ orgId }) });
 
-    // Rejected as a conflict — no admin credential handed out.
-    expect(res.status).toBe(409);
+    // No longer a dead end: a normal pending invitation is created (201) and the
+    // caller is told the target already has an account.
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      existingAccount: boolean;
+      invitation: { signInMethod: string };
+    };
+    expect(body.existingAccount).toBe(true);
+    // The credential is NEVER provisioned for an existing account, so the stored
+    // method is coerced to the OAuth-style flow (consumed on next sign-in).
+    expect(body.invitation.signInMethod).toBe("oauth");
+    // The plaintext temp password is never applicable here, and never returned.
+    expect(body).not.toHaveProperty("tempPassword");
 
-    // The victim's credential fields are completely untouched: no admin password,
-    // no forced rotation, no raised MFA floor.
-    const after = await prisma.user.findUniqueOrThrow({ where: { id: victim.id } });
+    // SECURITY — the pre-existing account's credential fields are completely
+    // untouched: no admin password, no forced rotation, no raised MFA floor.
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: existing.id } });
     expect(after.passwordHash).toBeNull();
     expect(after.mustChangePassword).toBe(false);
     expect(after.mfaRequired).toBe(false);
     expect(after.passwordSetAt).toBeNull();
 
-    // A rejected invite leaves no trace: no invitation row, no allowlist entry.
-    expect(await prisma.invitation.findFirst({ where: { email: VICTIM_EMAIL } })).toBeNull();
-    expect(await prisma.allowedEmail.findFirst({ where: { email: VICTIM_EMAIL } })).toBeNull();
+    // A pending invitation + allowlist entry now exist so they rejoin on sign-in.
+    const invite = await prisma.invitation.findFirstOrThrow({ where: { email: VICTIM_EMAIL } });
+    expect(invite.signInMethod).toBe("oauth");
+    expect(await prisma.allowedEmail.findFirst({ where: { email: VICTIM_EMAIL } })).not.toBeNull();
   });
 });
 

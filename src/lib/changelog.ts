@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.0",
+    date: "2026-07-14",
+    title: "Re-add teammates cleanly, and offboard for real",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Re-inviting someone who already has an account just works now — instead of an error, they're added back to the team the next time they sign in (with whatever login they already use). No need to guess which sign-in method to pick.",
+      },
+      {
+        kind: "feature",
+        text: "Platform admins can permanently offboard a user account: it revokes access across every organization and frees the email to be invited fresh, while the person's past work is preserved (shown as \"Deleted user\") — nothing is orphaned.",
+      },
+    ],
+  },
+  {
     version: "2.203.0",
     date: "2026-07-13",
     title: "Send invitations from your own domain",

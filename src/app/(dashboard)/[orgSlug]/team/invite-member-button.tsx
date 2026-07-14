@@ -50,6 +50,11 @@ type InviteResponse = {
   acceptUrl: string;
   emailSent: boolean;
   emailError: string | null;
+  // True when the invited email already had an account (any org). The invite is
+  // still created — they simply rejoin via a normal pending invitation on their
+  // next sign-in, with NO admin-set password — so the UI shows a friendly note
+  // instead of the old "email already has an account" error.
+  existingAccount?: boolean;
 };
 
 export function InviteMemberButton({ orgId }: { orgId: string }) {
@@ -104,7 +109,11 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
       }),
     onSuccess: (res) => {
       setResult(res);
-      if (res.emailSent) {
+      if (res.existingAccount) {
+        toast.success(
+          `${res.invitation.email} already has an account — they'll rejoin on next sign-in.`,
+        );
+      } else if (res.emailSent) {
         toast.success(`Invitation emailed to ${res.invitation.email}`);
       } else {
         toast.warning(
@@ -144,9 +153,11 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
           </DialogTitle>
           <DialogDescription>
             {result
-              ? result.emailSent
-                ? "We've emailed their sign-in details."
-                : "Email delivery was unavailable — use “Resend invite” from the team list to try again."
+              ? result.existingAccount
+                ? "They already have an account — no new password is set."
+                : result.emailSent
+                  ? "We've emailed their sign-in details."
+                  : "Email delivery was unavailable — use “Resend invite” from the team list to try again."
               : "Choose how they'll sign in. OAuth invitees get a sign-in link; email & password invitees are emailed a temporary password to change on first sign-in."}
           </DialogDescription>
         </DialogHeader>
@@ -160,7 +171,17 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
               <p className="text-sm font-medium">{result.invitation.role}</p>
             </div>
 
-            {!result.emailSent && (
+            {result.existingAccount && (
+              <div className="rounded-md border border-[var(--primary)]/30 bg-[var(--primary-tint)] p-3">
+                <p className="text-xs text-[var(--text-muted)]">
+                  This person already has an account — they&apos;ll rejoin the team
+                  the next time they sign in. No new password was set on their
+                  existing account.
+                </p>
+              </div>
+            )}
+
+            {!result.emailSent && !result.existingAccount && (
               <div className="rounded-md border border-[var(--status-warning,#b45309)]/40 bg-[var(--status-warning,#b45309)]/5 p-3">
                 <p className="text-xs text-[var(--text-muted)]">
                   We couldn&apos;t email the invitation. Their temporary password
