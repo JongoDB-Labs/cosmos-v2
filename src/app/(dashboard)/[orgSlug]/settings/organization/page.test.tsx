@@ -26,12 +26,17 @@ vi.mock("@/lib/auth/session", () => ({
   getAuthContext: (_orgSlug: string) => mockGetAuthContext(),
 }));
 
-// @/lib/db/client: stub prisma.organization.findUnique
+// @/lib/db/client: stub prisma.organization.findUnique + the email-settings read
+// (the page loads OrgEmailSettings status; these RBAC tests don't exercise it, so
+// it resolves null → the email section falls back to its unconfigured defaults).
 const mockFindUnique = vi.fn();
 vi.mock("@/lib/db/client", () => ({
   prisma: {
     organization: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
+    },
+    orgEmailSettings: {
+      findUnique: () => Promise.resolve(null),
     },
   },
 }));
@@ -79,6 +84,14 @@ vi.mock("@/components/settings/org-tenant-class", () => ({
       data-is-owner={String(isOwner)}
     >
       Tenant class section
+    </div>
+  ),
+}));
+
+vi.mock("@/components/settings/org-email-delivery", () => ({
+  OrgEmailDelivery: ({ orgId, isOwner }: { orgId: string; isOwner: boolean }) => (
+    <div data-testid="org-email-delivery" data-org-id={orgId} data-is-owner={String(isOwner)}>
+      Email delivery section
     </div>
   ),
 }));

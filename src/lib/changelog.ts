@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.203.0",
+    date: "2026-07-13",
+    title: "Send invitations from your own domain",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Set up email delivery in Settings → Organization: connect Resend with your verified domain, and invitations send from your own branded address (e.g. invites@yourdomain.com) instead of the inviter's personal Gmail — so they reach the inbox instead of spam. Includes a one-click \"Send test\" to confirm delivery before you turn it on.",
+      },
+    ],
+  },
+  {
     version: "2.202.1",
     date: "2026-07-13",
     title: "Your theme follows you, not the browser",

@@ -1,5 +1,7 @@
 import { getGmailClient } from "./google";
 import { getBrand } from "@/lib/brand";
+import { prisma } from "@/lib/db/client";
+import { isTransactionalEmailConfigured, sendAppEmail } from "./email-sender";
 
 /**
  * Low-level: send one multipart/alternative message via the inviter's Gmail
@@ -46,6 +48,57 @@ async function sendViaGmail(params: {
 }
 
 /**
+ * Best-effort inviter email for the Resend `reply_to` header, so a reply to
+ * the branded invite still reaches the person who sent it. The invite params
+ * only carry `fromUserId` (no email field), so this looks it up directly; a
+ * lookup failure — or a since-deleted user — just omits reply_to rather than
+ * blocking the send.
+ */
+async function lookupInviterEmail(fromUserId: string): Promise<string | undefined> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: fromUserId },
+      select: { email: true },
+    });
+    return user?.email ?? undefined;
+  } catch {
+    // Best-effort only — replyTo is a nicety, never worth failing the send over.
+    return undefined;
+  }
+}
+
+/**
+ * Shared dispatch point for both invite variants below: send from the branded,
+ * verified-domain Resend sender when configured instead of the inviter's personal
+ * Gmail mailbox — the personal send is what was landing invites in recipients'
+ * spam. Resolution precedence (see email-sender.ts): the INVITING ORG's own
+ * vault-sealed Resend config first (passed as `orgId`), then the deployment-wide
+ * env RESEND_API_KEY/EMAIL_FROM, and finally — when neither is configured — the
+ * existing inviter's-own-Gmail path, UNCHANGED.
+ */
+async function dispatchInviteEmail(params: {
+  fromUserId: string;
+  orgId: string;
+  toEmail: string;
+  subject: string;
+  textBody: string;
+  htmlBody: string;
+}): Promise<void> {
+  if (await isTransactionalEmailConfigured(params.orgId)) {
+    await sendAppEmail({
+      to: params.toEmail,
+      subject: params.subject,
+      text: params.textBody,
+      html: params.htmlBody,
+      replyTo: await lookupInviterEmail(params.fromUserId),
+      orgId: params.orgId,
+    });
+    return;
+  }
+  await sendViaGmail(params);
+}
+
+/**
  * OAuth invite email (Google / Microsoft / SSO). Unchanged behavior: the invitee
  * accepts by signing in with their existing provider account.
  */
@@ -76,7 +129,7 @@ export async function sendInvitationEmail(params: {
     <p style="color:#666;font-size:12px;">If you didn't expect this invitation, you can ignore this email.</p>
   `;
 
-  await sendViaGmail({ ...params, subject, textBody, htmlBody });
+  await dispatchInviteEmail({ ...params, subject, textBody, htmlBody });
 }
 
 /**
@@ -148,7 +201,7 @@ export async function sendPasswordInviteEmail(params: {
     <p style="color:#666;font-size:12px;">If you didn't expect this invitation, you can ignore this email.</p>
   `;
 
-  await sendViaGmail({ ...params, subject, textBody, htmlBody });
+  await dispatchInviteEmail({ ...params, subject, textBody, htmlBody });
 }
 
 function escapeHtml(s: string): string {

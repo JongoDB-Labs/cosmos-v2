@@ -12,6 +12,8 @@ import {
 } from "@/components/settings/org-branding-section";
 import { OrgTenantClass } from "@/components/settings/org-tenant-class";
 import { OrgDangerZone } from "@/components/settings/org-danger-zone";
+import { OrgEmailDelivery } from "@/components/settings/org-email-delivery";
+import { hasSealedApiKey } from "@/lib/integrations/org-email-config";
 import { Separator } from "@/components/ui/separator";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
@@ -66,6 +68,19 @@ export default async function OrganizationPage({ params }: PageParams) {
     wakeWord: org.wakeWord,
   };
 
+  // Per-org email delivery status. `apiKey` (the sealed key) is read ONLY to derive
+  // the `configured` boolean — it is never passed to the client component.
+  const emailSettings = await prisma.orgEmailSettings.findUnique({
+    where: { orgId: ctx.orgId },
+    select: { provider: true, fromAddress: true, enabled: true, apiKey: true },
+  });
+  const emailInitial = {
+    provider: emailSettings?.provider ?? "resend",
+    fromAddress: emailSettings?.fromAddress ?? null,
+    enabled: emailSettings?.enabled ?? false,
+    configured: hasSealedApiKey(emailSettings?.apiKey),
+  };
+
   return (
     <PageShell
       title="Organization"
@@ -97,6 +112,15 @@ export default async function OrganizationPage({ params }: PageParams) {
             platform administrator.
           </p>
           <OrgTenantClass orgId={ctx.orgId} current={org.tenantClass} isOwner={isOwner} />
+        </section>
+        <Separator />
+        <section>
+          <h3 className="mb-1 text-sm font-semibold">Email delivery</h3>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Configure a per-org transactional email sender (Resend) so invitations
+            arrive from your own verified domain. Only the owner can change it.
+          </p>
+          <OrgEmailDelivery orgId={ctx.orgId} isOwner={isOwner} initial={emailInitial} />
         </section>
         {canBrand && (
           <>
