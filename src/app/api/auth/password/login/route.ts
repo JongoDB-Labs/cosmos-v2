@@ -4,16 +4,19 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import {
-  createLocalSession,
-  SESSION_COOKIE,
-  SESSION_COOKIE_OPTIONS,
+  finishPasswordLogin,
   MFA_PENDING_COOKIE,
 } from "@/lib/auth/local-session";
+import {
+  sealFirstLogin,
+  FIRST_LOGIN_COOKIE,
+  FIRST_LOGIN_COOKIE_OPTIONS,
+  nextFirstLoginStep,
+} from "@/lib/auth/first-login";
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { getIpAddress } from "@/lib/api-helpers";
 import { googleLoginBlockedByGovSso } from "@/lib/auth/sso-enforcement";
-import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
 
 const MFA_PENDING_TTL = 300; // 5 minutes to complete the second factor
 
@@ -61,7 +64,13 @@ export async function POST(request: NextRequest) {
       passwordHash: { not: null },
       isBot: false,
     },
-    select: { id: true, passwordHash: true, mfaEnabled: true },
+    select: {
+      id: true,
+      passwordHash: true,
+      mfaEnabled: true,
+      mustChangePassword: true,
+      mfaRequired: true,
+    },
   });
 
   let ok = false;
@@ -83,9 +92,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // MFA enrolled → don't mint a session yet; hand back a short-lived sealed
-  // pending token and require the TOTP/recovery step at /api/auth/password/mfa.
-  if (user.mfaEnabled) {
+  // Forced first-login onboarding (email/password invites): rotate the temporary
+  // password and/or enroll MFA BEFORE any session is minted. We hand back a
+  // short-lived sealed first-login cookie and tell the client the next step; the
+  // /api/auth/password/first-login/* endpoints drive it and mint the session only
+  // once everything the invite required is satisfied.
+  const step = nextFirstLoginStep(user);
+  if (step === "change_password" || step === "enroll_mfa") {
+    const res = NextResponse.json({ next: step, mfaRequired: user.mfaRequired });
+    res.cookies.set(FIRST_LOGIN_COOKIE, sealFirstLogin(user.id), FIRST_LOGIN_COOKIE_OPTIONS);
+    return res;
+  }
+
+  // MFA already enrolled → don't mint a session yet; hand back a short-lived
+  // sealed pending token and require the TOTP/recovery step at
+  // /api/auth/password/mfa (unchanged existing flow).
+  if (step === "mfa") {
     const pending = sealSecret(JSON.stringify({ userId: user.id, ts: Date.now() }));
     const res = NextResponse.json({ mfaRequired: true });
     res.cookies.set(MFA_PENDING_COOKIE, pending, {
@@ -98,25 +120,8 @@ export async function POST(request: NextRequest) {
     return res;
   }
 
-  const { sessionId } = await createLocalSession(user.id, { mfaSatisfied: false });
+  // Nothing owed → mint the session (and accept any pending invitations).
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
-
-  // Remember the org so /login can pre-render its brand next time — only when
-  // it's unambiguous (the user belongs to exactly one org). Multi-org users get
-  // no remembered org and the login page falls back to the deployment default.
-  // Best-effort: a DB blip here must not fail a login whose session is already set.
-  try {
-    const memberships = await prisma.orgMember.findMany({
-      where: { userId: user.id },
-      select: { org: { select: { slug: true } } },
-      take: 2,
-    });
-    if (memberships.length === 1) {
-      setRememberedOrgCookie(res, memberships[0].org.slug);
-    }
-  } catch {
-    /* remembered-org cookie is best-effort */
-  }
+  await finishPasswordLogin(res, { userId: user.id, email, mfaSatisfied: false });
   return res;
 }

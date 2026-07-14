@@ -154,14 +154,70 @@ function LoginInner() {
     DEFAULT_SKIN_ID;
   const motif = getSkinPreset(activeSkin).motif;
 
-  // ── Email + password (+ TOTP) sign-in ──
+  // ── Email + password (+ forced first-login onboarding + TOTP) sign-in ──
   const [showPw, setShowPw] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [phase, setPhase] = useState<"creds" | "mfa">("creds");
+  const [phase, setPhase] = useState<
+    "creds" | "change_password" | "enroll_mfa" | "mfa" | "recovery"
+  >("creds");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
+  // Forced first-login state.
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [enroll, setEnroll] = useState<{ secret: string; qr: string } | null>(null);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+
+  type LoginResponse = {
+    ok?: boolean;
+    mfaRequired?: boolean;
+    next?: "change_password" | "enroll_mfa" | "mfa";
+    error?: string;
+    recoveryCodes?: string[];
+  };
+
+  // Begin forced TOTP enrollment: fetch a pending secret + render its QR.
+  async function beginMfaEnroll(): Promise<boolean> {
+    const res = await fetch("/api/auth/password/first-login/mfa-setup", {
+      method: "POST",
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      secret?: string;
+      otpauthUri?: string;
+      error?: string;
+    };
+    if (!res.ok || !data.otpauthUri || !data.secret) {
+      setPwError(data.error ?? "Couldn't start two-factor setup.");
+      return false;
+    }
+    const QR = await import("qrcode");
+    const qr = await QR.toDataURL(data.otpauthUri, { width: 200, margin: 1 });
+    setEnroll({ secret: data.secret, qr });
+    setPhase("enroll_mfa");
+    return true;
+  }
+
+  // Route to the next step the server says the invitee owes (or finish).
+  async function applyNext(data: LoginResponse): Promise<void> {
+    if (data.next === "change_password") {
+      setPassword("");
+      setPhase("change_password");
+      return;
+    }
+    if (data.next === "enroll_mfa") {
+      setPassword("");
+      await beginMfaEnroll();
+      return;
+    }
+    if (data.next === "mfa" || data.mfaRequired) {
+      setPassword("");
+      setPhase("mfa");
+      return;
+    }
+    if (data.ok) window.location.href = "/";
+  }
 
   async function submitCreds(e?: React.FormEvent) {
     e?.preventDefault();
@@ -173,21 +229,71 @@ function LoginInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        mfaRequired?: boolean;
-        error?: string;
-      };
-      if (data.mfaRequired) {
-        setPhase("mfa");
-        setPassword("");
-        return;
-      }
-      if (!res.ok || !data.ok) {
+      const data = (await res.json().catch(() => ({}))) as LoginResponse;
+      if (!res.ok && !data.next && !data.mfaRequired) {
         setPwError(data.error ?? "Invalid email or password.");
         return;
       }
-      window.location.href = "/";
+      await applyNext(data);
+    } catch {
+      setPwError("Something went wrong. Please try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function submitChangePassword(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setPwError("Passwords don't match.");
+      return;
+    }
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      const res = await fetch("/api/auth/password/first-login/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = (await res.json().catch(() => ({}))) as LoginResponse;
+      if (!res.ok && !data.next && !data.ok) {
+        setPwError(data.error ?? "Couldn't set your password.");
+        return;
+      }
+      setNewPassword("");
+      setConfirmPassword("");
+      await applyNext(data);
+    } catch {
+      setPwError("Something went wrong. Please try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function submitEnrollMfa(e?: React.FormEvent) {
+    e?.preventDefault();
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      const res = await fetch("/api/auth/password/first-login/mfa-enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as LoginResponse;
+      if (!res.ok || !data.ok) {
+        setPwError(data.error ?? "That code didn't match. Try again.");
+        return;
+      }
+      setCode("");
+      // Show the one-time recovery codes before entering the app.
+      if (data.recoveryCodes && data.recoveryCodes.length > 0) {
+        setRecoveryCodes(data.recoveryCodes);
+        setPhase("recovery");
+      } else {
+        window.location.href = "/";
+      }
     } catch {
       setPwError("Something went wrong. Please try again.");
     } finally {
@@ -355,6 +461,108 @@ function LoginInner() {
                   onClick={() => void submitCreds()}
                 >
                   {pwBusy ? "Signing in…" : "Sign in"}
+                </Button>
+              </div>
+            ) : phase === "change_password" ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-[var(--text-muted)]">
+                  Set a new password to finish signing in. It must be at least 12
+                  characters and different from the temporary one.
+                </p>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  autoFocus
+                  placeholder="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitChangePassword()}
+                  required
+                />
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitChangePassword()}
+                  required
+                />
+                {pwError && (
+                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                )}
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={pwBusy || newPassword.length < 12}
+                  onClick={() => void submitChangePassword()}
+                >
+                  {pwBusy ? "Saving…" : "Set password & continue"}
+                </Button>
+              </div>
+            ) : phase === "enroll_mfa" ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-[var(--text-muted)]">
+                  Your organization requires two-factor. Scan this with Google
+                  Authenticator, Authy, 1Password, etc., then enter the 6-digit
+                  code.
+                </p>
+                {enroll && (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={enroll.qr}
+                      alt="Authenticator QR code"
+                      width={200}
+                      height={200}
+                      className="mx-auto rounded-md border border-[var(--border)] bg-white p-2"
+                    />
+                    <p className="text-center text-[11px] text-[var(--text-muted)]">
+                      Can&apos;t scan? Key:{" "}
+                      <code className="font-mono">{enroll.secret}</code>
+                    </p>
+                  </>
+                )}
+                <Input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void submitEnrollMfa()}
+                  required
+                />
+                {pwError && (
+                  <p className="text-xs text-[var(--status-critical)]">{pwError}</p>
+                )}
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={pwBusy}
+                  onClick={() => void submitEnrollMfa()}
+                >
+                  {pwBusy ? "Verifying…" : "Enable & continue"}
+                </Button>
+              </div>
+            ) : phase === "recovery" ? (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm">
+                  Two-factor is on. Save these <b>one-time recovery codes</b>{" "}
+                  somewhere safe — they&apos;re shown only once.
+                </p>
+                <div className="grid grid-cols-2 gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-3 font-mono text-sm">
+                  {(recoveryCodes ?? []).map((c) => (
+                    <span key={c}>{c}</span>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    window.location.href = "/";
+                  }}
+                >
+                  I&apos;ve saved them — continue
                 </Button>
               </div>
             ) : (

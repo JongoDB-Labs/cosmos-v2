@@ -1,0 +1,11 @@
+# gitleaks config — extends the full default ruleset (nothing is disabled) and adds
+# a single, narrow allowlist for a known false positive. See
+# https://github.com/gitleaks/gitleaks#configuration
+[extend]
+useDefault = true
+
+[allowlist]
+description = "TEMP_PASSWORD_ALPHABET (src/lib/auth/temp-password.ts) is the character SET used to GENERATE temporary passwords — an unambiguous base58-style alphabet, not a credential. gitleaks' generic-api-key rule trips on the long alphanumeric literal. Matched by its exact value so nothing else is suppressed."
+regexes = [
+  '''23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz''',
+]

@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.202.0",
+    date: "2026-07-13",
+    title: "Invite teammates by email + password",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Invite teammates with either single sign-on (Google/Microsoft) or an email + password. Email/password invitees receive a one-time temporary password with their invite and must set their own at first sign-in.",
+      },
+      {
+        kind: "feature",
+        text: "Require multi-factor authentication per invite — the invitee is walked through MFA enrollment on first sign-in, before they reach the app.",
+      },
+    ],
+  },
+  {
     version: "2.201.0",
     date: "2026-07-13",
     title: "A sharper Cosmo chat",
