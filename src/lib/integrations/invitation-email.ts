@@ -68,11 +68,13 @@ async function lookupInviterEmail(fromUserId: string): Promise<string | undefine
 }
 
 /**
- * Shared dispatch point for both invite variants below: send from the
- * branded, verified-domain Resend sender when configured (RESEND_API_KEY +
- * EMAIL_FROM) instead of the inviter's personal Gmail mailbox — the personal
- * send is what was landing invites in recipients' spam. Falls back to the
- * existing Gmail path, UNCHANGED, when Resend isn't configured.
+ * Shared dispatch point for both invite variants below: send from the branded,
+ * verified-domain Resend sender when configured instead of the inviter's personal
+ * Gmail mailbox — the personal send is what was landing invites in recipients'
+ * spam. Resolution precedence (see email-sender.ts): the INVITING ORG's own
+ * vault-sealed Resend config first (passed as `orgId`), then the deployment-wide
+ * env RESEND_API_KEY/EMAIL_FROM, and finally — when neither is configured — the
+ * existing inviter's-own-Gmail path, UNCHANGED.
  */
 async function dispatchInviteEmail(params: {
   fromUserId: string;
@@ -82,13 +84,14 @@ async function dispatchInviteEmail(params: {
   textBody: string;
   htmlBody: string;
 }): Promise<void> {
-  if (isTransactionalEmailConfigured()) {
+  if (await isTransactionalEmailConfigured(params.orgId)) {
     await sendAppEmail({
       to: params.toEmail,
       subject: params.subject,
       text: params.textBody,
       html: params.htmlBody,
       replyTo: await lookupInviterEmail(params.fromUserId),
+      orgId: params.orgId,
     });
     return;
   }

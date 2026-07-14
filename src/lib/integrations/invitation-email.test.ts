@@ -74,6 +74,10 @@ describe("sendInvitationEmail — sender selection", () => {
     expect(call.subject).toContain("Acme");
     expect(call.text).toContain(BASE_OAUTH.acceptUrl);
     expect(call.html).toContain(BASE_OAUTH.acceptUrl);
+    // The inviting org is threaded through so the sender can resolve the org's
+    // own per-org (vault-sealed) Resend config before falling back to env.
+    expect(call.orgId).toBe("org-1");
+    expect(isTransactionalEmailConfigured).toHaveBeenCalledWith("org-1");
 
     // The inviter lookup is scoped by fromUserId.
     expect(findUnique).toHaveBeenCalledWith({
@@ -143,6 +147,8 @@ describe("sendPasswordInviteEmail — sender selection", () => {
     expect(call.subject).toContain("Acme");
     expect(call.text).toContain("TempPass123!");
     expect(call.html).toContain("TempPass123!");
+    expect(call.orgId).toBe("org-1");
+    expect(isTransactionalEmailConfigured).toHaveBeenCalledWith("org-1");
 
     expect(getGmailClient).not.toHaveBeenCalled();
   });
