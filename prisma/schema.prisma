@@ -284,6 +284,18 @@ model User {
   mustChangePassword Boolean  @default(false) @map("must_change_password")
   mfaRequired        Boolean  @default(false) @map("mfa_required")
   createdAt         DateTime  @default(now()) @map("created_at")
+  // Platform-admin account deletion (member-lifecycle). A hard `user.delete` is
+  // NOT safe: chat_bot_runs.triggered_by_user_id is ON DELETE RESTRICT and the
+  // authored-content columns (work_items.created_by_id, comments.author_id,
+  // notes.author_id, journal_lines/invoices/payments created_by_id, …) are
+  // REQUIRED and FK-LESS, so a raw delete either fails at the DB or orphans
+  // business/financial records. Instead the account is ANONYMIZED in place and
+  // `deactivatedAt` is stamped: access is fully revoked (sessions / memberships /
+  // federated identities / allowlist / pending invitations deleted), credentials
+  // wiped, and the email freed (rewritten to a sentinel) so it can be invited
+  // fresh — while authored content stays attributed to an anonymized tombstone
+  // rather than being deleted or dangling. Null for every live account.
+  deactivatedAt      DateTime? @map("deactivated_at")
 
   memberships         OrgMember[]
   preferences         UserPreferences?
