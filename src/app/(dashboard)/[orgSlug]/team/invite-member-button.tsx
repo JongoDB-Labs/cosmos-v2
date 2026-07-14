@@ -35,13 +35,18 @@ const inviteSchema = z.object({
   // on top via work-roles (selectable below; defined in Settings → Roles & Access).
   role: z.enum(["VIEWER", "MEMBER", "ADMIN", "BILLING_ADMIN", "GUEST"]),
   workRoleIds: z.array(z.string()),
+  // How the invitee will sign in. "oauth" = existing Google/Microsoft/SSO flow;
+  // "email_password" = provision a local credential + temporary password.
+  signInMethod: z.enum(["oauth", "email_password"]),
+  // Require two-factor at their first email/password sign-in.
+  mfaRequired: z.boolean(),
 });
 type InviteValues = z.infer<typeof inviteSchema>;
 
 type WorkRoleOption = { id: string; name: string; grants: string[] };
 
 type InviteResponse = {
-  invitation: { id: string; email: string; role: string };
+  invitation: { id: string; email: string; role: string; signInMethod?: string };
   acceptUrl: string;
   emailSent: boolean;
   emailError: string | null;
@@ -62,11 +67,19 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
     formState: { errors },
   } = useForm<InviteValues>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { email: "", role: "MEMBER", workRoleIds: [] },
+    defaultValues: {
+      email: "",
+      role: "MEMBER",
+      workRoleIds: [],
+      signInMethod: "oauth",
+      mfaRequired: false,
+    },
   });
 
   const role = watch("role");
   const selectedRoles = watch("workRoleIds") ?? [];
+  const signInMethod = watch("signInMethod");
+  const mfaRequired = watch("mfaRequired");
 
   // Work-roles available to assign at invite time (granular permission grants +
   // ABAC policies, defined in Settings → Roles & Access).
@@ -132,9 +145,9 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
           <DialogDescription>
             {result
               ? result.emailSent
-                ? "An email with a sign-in link has been sent."
-                : "Email delivery was unavailable. Share the link below."
-              : "We'll email them a sign-in link. Their email is also added to the allowlist so the first sign-in is one click."}
+                ? "We've emailed their sign-in details."
+                : "Email delivery was unavailable — use “Resend invite” from the team list to try again."
+              : "Choose how they'll sign in. OAuth invitees get a sign-in link; email & password invitees are emailed a temporary password to change on first sign-in."}
           </DialogDescription>
         </DialogHeader>
 
@@ -146,6 +159,17 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
               <p className="mt-2 text-xs text-[var(--text-muted)]">Role</p>
               <p className="text-sm font-medium">{result.invitation.role}</p>
             </div>
+
+            {!result.emailSent && (
+              <div className="rounded-md border border-[var(--status-warning,#b45309)]/40 bg-[var(--status-warning,#b45309)]/5 p-3">
+                <p className="text-xs text-[var(--text-muted)]">
+                  We couldn&apos;t email the invitation. Their temporary password
+                  is never shown here for security — use{" "}
+                  <span className="font-medium">Resend invite</span> from the team
+                  list to deliver it again.
+                </p>
+              </div>
+            )}
 
             <div>
               <Label className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
@@ -247,6 +271,59 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <Label
+                htmlFor="invite-signin"
+                className="text-xs uppercase tracking-wide text-[var(--text-muted)]"
+              >
+                Sign-in method
+              </Label>
+              <Select
+                value={signInMethod}
+                onValueChange={(v) =>
+                  setValue("signInMethod", v as InviteValues["signInMethod"], {
+                    shouldValidate: true,
+                  })
+                }
+              >
+                <SelectTrigger id="invite-signin">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="oauth">
+                    Google / Microsoft / SSO — they sign in with their provider
+                  </SelectItem>
+                  <SelectItem value="email_password">
+                    Email &amp; password — we email a temporary password
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {signInMethod === "email_password" && (
+                <p className="text-xs text-[var(--text-muted)]">
+                  Use this for people outside your identity provider. They&apos;ll
+                  be required to set a new password at first sign-in.
+                </p>
+              )}
+            </div>
+
+            <label className="flex items-start gap-2 rounded-md border border-[var(--border)] p-2.5 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-3.5 rounded border-border"
+                checked={mfaRequired}
+                onChange={(e) =>
+                  setValue("mfaRequired", e.target.checked, { shouldValidate: true })
+                }
+                disabled={invite.isPending}
+              />
+              <span>
+                <span className="font-medium">Require two-factor (MFA)</span>
+                <span className="block text-xs text-[var(--text-muted)]">
+                  They must set up an authenticator app before finishing sign-in.
+                </span>
+              </span>
+            </label>
 
             {workRoles.length > 0 && (
               <div className="space-y-2">

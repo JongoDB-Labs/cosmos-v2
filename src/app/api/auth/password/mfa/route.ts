@@ -4,9 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { verifyTotp, consumeRecoveryCode } from "@/lib/auth/totp";
 import { openSecret } from "@/lib/crypto/vault";
 import {
-  createLocalSession,
-  SESSION_COOKIE,
-  SESSION_COOKIE_OPTIONS,
+  finishPasswordLogin,
   MFA_PENDING_COOKIE,
   MFA_PENDING_TTL_MS,
 } from "@/lib/auth/local-session";
@@ -61,7 +59,13 @@ export async function POST(request: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { id: pending.userId },
-    select: { id: true, mfaEnabled: true, mfaSecret: true, mfaRecoveryCodes: true },
+    select: {
+      id: true,
+      email: true,
+      mfaEnabled: true,
+      mfaSecret: true,
+      mfaRecoveryCodes: true,
+    },
   });
   if (!user || !user.mfaEnabled || !user.mfaSecret) return expire();
 
@@ -86,9 +90,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid code. Try again." }, { status: 401 });
   }
 
-  const { sessionId } = await createLocalSession(user.id, { mfaSatisfied: true });
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
+  await finishPasswordLogin(res, {
+    userId: user.id,
+    email: user.email,
+    mfaSatisfied: true,
+  });
   res.cookies.delete(MFA_PENDING_COOKIE);
   return res;
 }

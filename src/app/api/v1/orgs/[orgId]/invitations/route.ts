@@ -6,7 +6,15 @@ import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissio
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
-import { sendInvitationEmail } from "@/lib/integrations/invitation-email";
+import {
+  sendInvitationEmail,
+  sendPasswordInviteEmail,
+} from "@/lib/integrations/invitation-email";
+import {
+  provisionEmailPasswordInvite,
+  SIGN_IN_METHODS,
+  EMAIL_PASSWORD_INVITE_EXISTING_USER,
+} from "@/lib/auth/invite-credentials";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
@@ -17,6 +25,13 @@ const inviteSchema = z.object({
   // Optional work-roles to assign on acceptance (granular permission grants +
   // ABAC policies). Validated against the inviter's ceiling below.
   workRoleIds: z.array(z.string().uuid()).max(50).default([]),
+  // How the invitee signs in. "oauth" (default) preserves the existing Google/
+  // Microsoft/SSO flow; "email_password" provisions a local credential + temp
+  // password emailed with the invite.
+  signInMethod: z.enum(SIGN_IN_METHODS).default("oauth"),
+  // Per-invite MFA floor — enforced (forced TOTP enrollment) at the invitee's
+  // first email/password sign-in.
+  mfaRequired: z.boolean().default(false),
 });
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -104,7 +119,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const existingUser = await prisma.user.findFirst({ where: { email } });
+    const isEmailPassword = data.signInMethod === "email_password";
+
+    // Case-insensitive so a differently-cased row can't slip past the guards
+    // below (matches provisionEmailPasswordInvite's own lookup).
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
     if (existingUser) {
       const existingMember = await prisma.orgMember.findUnique({
         where: {
@@ -114,6 +135,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (existingMember) {
         return new Response(
           JSON.stringify({ error: "User is already a member" }),
+          { status: 409, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // SECURITY (cross-tenant account takeover): an email/password invite must
+      // never attach an admin-set credential to a PRE-EXISTING account. Sessions
+      // are user-global, so resetting a known email's password would hand the
+      // inviter that user's access everywhere. Existing users join via OAuth (or
+      // sign in with their own password). Reject BEFORE the allowlist upsert so a
+      // rejected invite leaves no trace.
+      if (isEmailPassword) {
+        return new Response(
+          JSON.stringify({ error: EMAIL_PASSWORD_INVITE_EXISTING_USER }),
           { status: 409, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -130,27 +163,70 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const invitation = await prisma.invitation.create({
-      data: { orgId, email, role: data.role, workRoleIds, expiresAt },
+    // Provision the local credential (email/password invites only) and create the
+    // invitation row in ONE transaction: a failure on either side rolls both
+    // back, so we never leave an orphan User (password hash, no invite) nor a
+    // dangling invite. provisionEmailPasswordInvite re-checks for an existing
+    // user inside the tx and throws (→ 409) if one appeared since the guard above
+    // (TOCTOU-safe). The returned tempPassword is emailed only, never logged.
+    let tempPassword: string | null = null;
+    const invitation = await prisma.$transaction(async (tx) => {
+      if (isEmailPassword) {
+        const provisioned = await provisionEmailPasswordInvite({
+          email,
+          mfaRequired: data.mfaRequired,
+          client: tx,
+        });
+        tempPassword = provisioned.tempPassword;
+      }
+      return tx.invitation.create({
+        data: {
+          orgId,
+          email,
+          role: data.role,
+          workRoleIds,
+          expiresAt,
+          signInMethod: data.signInMethod,
+          mfaRequired: data.mfaRequired,
+        },
+      });
     });
 
     const inviter = await getCurrentUser();
-    const acceptUrl = `${getPublicOrigin(request)}/login?invite=${invitation.token}`;
+    const origin = getPublicOrigin(request);
+    // OAuth invitees accept via a sign-in link; email/password invitees go to the
+    // branded login screen and sign in with their credentials.
+    const acceptUrl = isEmailPassword
+      ? `${origin}/login?org=${encodeURIComponent(org.slug)}`
+      : `${origin}/login?invite=${invitation.token}`;
     let emailSent = false;
     let emailError: string | null = null;
     if (inviter) {
       try {
-        await sendInvitationEmail({
-          fromUserId: ctx.userId,
-          orgId,
-          toEmail: email,
-          orgName: org.name,
-          inviterName: inviter.displayName,
-          acceptUrl,
-        });
+        if (isEmailPassword) {
+          await sendPasswordInviteEmail({
+            fromUserId: ctx.userId,
+            orgId,
+            toEmail: email,
+            orgName: org.name,
+            inviterName: inviter.displayName,
+            loginUrl: acceptUrl,
+            tempPassword,
+            mfaRequired: data.mfaRequired,
+          });
+        } else {
+          await sendInvitationEmail({
+            fromUserId: ctx.userId,
+            orgId,
+            toEmail: email,
+            orgName: org.name,
+            inviterName: inviter.displayName,
+            acceptUrl,
+          });
+        }
         emailSent = true;
       } catch (e) {
-        // Don't fail the invite creation — admin can copy the link manually.
+        // Don't fail the invite creation — admin can copy the link / credential.
         emailError = e instanceof Error ? e.message : "send_failed";
       }
     }
@@ -161,16 +237,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       action: "invitation.created",
       entity: "invitation",
       entityId: invitation.id,
+      // NB: the temporary password is NEVER written to the audit log.
       metadata: {
         email,
         role: data.role,
+        signInMethod: data.signInMethod,
+        mfaRequired: String(data.mfaRequired),
         emailSent: String(emailSent),
         ...(emailError ? { emailError } : {}),
       } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 
-    return created({ invitation, acceptUrl, emailSent, emailError });
+    // The temporary password is delivered ONLY by email (sendPasswordInviteEmail)
+    // and is deliberately NOT returned here — a plaintext secret in an API
+    // response leaks into proxies, server logs and browser history. If the email
+    // failed (emailSent === false) the admin resends the invitation from the team
+    // list; we never surface the secret.
+    return created({
+      invitation,
+      acceptUrl,
+      emailSent,
+      emailError,
+    });
   } catch (error) {
     return handleApiError(error);
   }
