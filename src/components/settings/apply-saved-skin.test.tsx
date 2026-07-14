@@ -35,10 +35,25 @@ describe("ApplySavedSkin precedence", () => {
     expect(document.cookie).not.toMatch(/skin=/);
   });
 
-  it("an existing cookie wins over both user and org", () => {
-    document.cookie = "skin=universe; path=/";
-    render(<ApplySavedSkin skinId="atelier" orgDefaultSkinId="atelier" />);
-    // class untouched (effect early-returns); cookie stays universe
+  // Reproduces the reported bug: a browser previously used by another account
+  // still carries that account's `skin` cookie. The logged-in user's own
+  // resolution (personal pref, else org default) must win over that stale
+  // cross-user cookie — never the other way around.
+  it("the user's own skin wins over a stale cross-user cookie", () => {
+    document.cookie = "skin=atelier; path=/"; // left behind by a PREVIOUS user
+    render(<ApplySavedSkin skinId="ledger" orgDefaultSkinId="atelier" />);
+    expect(document.documentElement.classList.contains("skin-ledger")).toBe(true);
+    expect(document.cookie).toMatch(/skin=ledger/);
+    expect(document.cookie).not.toMatch(/skin=atelier/);
+  });
+
+  it("the org default wins over a stale cross-user cookie when the user has no personal skin", () => {
+    // The exact reported scenario: org owner set the org default to "universe";
+    // a newly-invited user (no personal skinId yet) signs in on a browser that
+    // still holds a previous user's "atelier" cookie.
+    document.cookie = "skin=atelier; path=/";
+    render(<ApplySavedSkin skinId={null} orgDefaultSkinId="universe" />);
+    expect(document.documentElement.classList.contains("skin-universe")).toBe(true);
     expect(document.cookie).toMatch(/skin=universe/);
     expect(document.cookie).not.toMatch(/skin=atelier/);
   });

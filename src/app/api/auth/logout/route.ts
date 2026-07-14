@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
+import { SKIN_COOKIE } from "@/lib/theme/cookie";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 
 async function clearSession(request: NextRequest) {
@@ -18,6 +19,12 @@ async function clearSession(request: NextRequest) {
     303,
   );
   response.cookies.delete(SESSION_COOKIE);
+  // Skin is a USER-scoped preference (UserPreferences.skinId); the `skin`
+  // cookie is only a device-level first-paint cache (see apply-saved-skin.tsx).
+  // On a shared/kiosk browser that cache must not leak into the next person's
+  // session, so it's cleared here alongside the session cookie — the next
+  // sign-in reseeds it from that user's own resolution.
+  response.cookies.delete(SKIN_COOKIE);
   return response;
 }
 
