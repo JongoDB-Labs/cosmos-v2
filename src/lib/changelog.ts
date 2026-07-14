@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.1",
+    date: "2026-07-14",
+    title: "Clearer Foreman console controls",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Every button in the Foreman console now has a hover tooltip spelling out exactly what it does, and every action that changes state asks you to confirm first. Approve's confirmation makes it unmistakable that it merges the PR and deploys to live production (health-gated, with automatic rollback).",
+      },
+      {
+        kind: "improvement",
+        text: "Rework and Rebuild are no longer ambiguous: Rework resumes the existing build with your guidance, while Rebuild throws the current build away and starts fresh — the labels, tooltips, and confirmations now say so plainly. The \"Open PR\" button is now labeled \"Link to PR\" to make clear it just opens the pull request read-only.",
+      },
+    ],
+  },
+  {
     version: "2.204.0",
     date: "2026-07-14",
     title: "Re-add teammates cleanly, and offboard for real",

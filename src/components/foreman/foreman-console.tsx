@@ -27,6 +27,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
@@ -73,6 +79,19 @@ const PHASE_LABEL: Record<InFlightBuild["phase"], string> = {
   shipping: "Shipping",
 };
 
+/** Per-control tooltip copy — states exactly what each button does. Rework and
+ *  Rebuild are deliberately contrasted ("resumes the existing build" vs
+ *  "discards it and starts fresh") so the two are never confused. */
+const CONTROL_TOOLTIP = {
+  pause: "Disables autonomous delivery — the daemon finishes any in-flight work, then stops claiming new tickets until you resume.",
+  resume: "Re-enables autonomous delivery — the daemon starts claiming and shipping tickets again.",
+  approve:
+    "On its next pass, Foreman merges the draft PR to main, tags the version, waits for the signed CI image, and DEPLOYS to live production (health-gated, auto-rollback).",
+  rebuild: "Discards the current build and starts a fresh pass from scratch (does NOT keep your guidance).",
+  rework: "Posts your notes as an @Foreman instruction so the daemon resumes the EXISTING build with your guidance — it does not start over.",
+  linkPr: "Opens the GitHub pull request (read-only).",
+} as const;
+
 const PHASE_VARIANT: Record<InFlightBuild["phase"], BadgeVariant> = {
   building: "progress",
   checks: "discovery",
@@ -93,8 +112,13 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   });
 
   const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
+  const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [rework, setRework] = useState<{ workItemId: string; projectId: string; ticketKey: string | null } | null>(null);
   const [reworkText, setReworkText] = useState("");
+  // Approve/Rebuild each open a proper confirmation Dialog (was window.confirm).
+  // A single shared dialog per action tracks which parked card triggered it.
+  const [approveTarget, setApproveTarget] = useState<{ workItemId: string; projectId: string; ticketKey: string | null } | null>(null);
+  const [rebuildTarget, setRebuildTarget] = useState<{ workItemId: string; ticketKey: string | null } | null>(null);
 
   // Pause/resume PUTs the FULL automation config back (both blocks) — same
   // contract as the settings form — flipping only autonomousDelivery.enabled.
@@ -189,6 +213,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   const pulse: Pulse = data.state?.pulse ?? (data.paused ? "paused" : "stale");
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
         <div className="flex items-start justify-between gap-4">
@@ -199,18 +224,32 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
             </span>
           </div>
           {data.paused ? (
-            <Button size="sm" onClick={() => toggleDelivery.mutate(true)} disabled={toggleDelivery.isPending}>
-              <Play className="size-3.5" /> Resume
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button size="sm" onClick={() => setResumeDialogOpen(true)} disabled={toggleDelivery.isPending} />
+                }
+              >
+                <Play className="size-3.5" /> Resume
+              </TooltipTrigger>
+              <TooltipContent>{CONTROL_TOOLTIP.resume}</TooltipContent>
+            </Tooltip>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setPauseDialogOpen(true)}
-              disabled={toggleDelivery.isPending}
-            >
-              <Pause className="size-3.5" /> Pause
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPauseDialogOpen(true)}
+                    disabled={toggleDelivery.isPending}
+                  />
+                }
+              >
+                <Pause className="size-3.5" /> Pause
+              </TooltipTrigger>
+              <TooltipContent>{CONTROL_TOOLTIP.pause}</TooltipContent>
+            </Tooltip>
           )}
         </div>
         {data.state ? (
@@ -253,6 +292,32 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
               disabled={toggleDelivery.isPending}
             >
               <Pause className="size-3.5" /> Pause
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resumeDialogOpen} onOpenChange={setResumeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Resume autonomous delivery?</DialogTitle>
+            <DialogDescription>
+              Re-enables autonomous delivery — the daemon starts claiming new tickets and shipping
+              builds again on its next pass.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResumeDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                toggleDelivery.mutate(true);
+                setResumeDialogOpen(false);
+              }}
+              disabled={toggleDelivery.isPending}
+            >
+              <Play className="size-3.5" /> Resume
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -378,70 +443,91 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {a.prUrl && (
-                      <a
-                        href={a.prUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                      >
-                        <ExternalLink className="size-3.5" /> Open PR
-                      </a>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <a
+                              href={a.prUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                            />
+                          }
+                        >
+                          <ExternalLink className="size-3.5" /> Link to PR
+                        </TooltipTrigger>
+                        <TooltipContent>{CONTROL_TOOLTIP.linkPr}</TooltipContent>
+                      </Tooltip>
                     )}
                     {/* Steering (Approve / Rebuild) is a BASE OWNER/ADMIN privilege —
                         matches the daemon's own gate. A non-steward sees the card
-                        (Open PR, reason) read-only, no levers. */}
+                        (Link to PR, reason) read-only, no levers. */}
                     {data.actorCanSteer && (
                       <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={rebuild.isPending && rebuild.variables === a.workItemId}
-                          onClick={() => {
-                            if (
-                              !window.confirm(
-                                "Rebuild this ticket? Foreman discards the current build and queues a fresh pass.",
-                              )
-                            )
-                              return;
-                            rebuild.mutate(a.workItemId);
-                          }}
-                        >
-                          <RefreshCw className="size-3.5" /> Rebuild
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setRework({ workItemId: a.workItemId, projectId: a.projectId, ticketKey: a.ticketKey });
-                            setReworkText("");
-                          }}
-                        >
-                          <MessageSquarePlus className="size-3.5" /> Rework
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
-                          title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
-                          onClick={() => {
-                            // Approve deploys to prod — confirm first, mirroring Rebuild.
-                            if (
-                              !window.confirm(
-                                `Merge and deploy ${a.ticketKey ?? "this ticket"}? Foreman handles the rest.`,
-                              )
-                            )
-                              return;
-                            approve.mutate({ workItemId: a.workItemId, projectId: a.projectId });
-                          }}
-                        >
-                          <Check className="size-3.5" /> Approve
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={rebuild.isPending && rebuild.variables === a.workItemId}
+                                onClick={() =>
+                                  setRebuildTarget({ workItemId: a.workItemId, ticketKey: a.ticketKey })
+                                }
+                              />
+                            }
+                          >
+                            <RefreshCw className="size-3.5" /> Rebuild
+                          </TooltipTrigger>
+                          <TooltipContent>{CONTROL_TOOLTIP.rebuild}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setRework({ workItemId: a.workItemId, projectId: a.projectId, ticketKey: a.ticketKey });
+                                  setReworkText("");
+                                }}
+                              />
+                            }
+                          >
+                            <MessageSquarePlus className="size-3.5" /> Rework
+                          </TooltipTrigger>
+                          <TooltipContent>{CONTROL_TOOLTIP.rework}</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="sm"
+                                disabled={!a.prUrl || (approve.isPending && approve.variables?.workItemId === a.workItemId)}
+                                title={!a.prUrl ? "Nothing built yet — comment instructions on the ticket or Rebuild" : undefined}
+                                onClick={() =>
+                                  setApproveTarget({
+                                    workItemId: a.workItemId,
+                                    projectId: a.projectId,
+                                    ticketKey: a.ticketKey,
+                                  })
+                                }
+                              />
+                            }
+                          >
+                            <Check className="size-3.5" /> Approve
+                          </TooltipTrigger>
+                          <TooltipContent>{CONTROL_TOOLTIP.approve}</TooltipContent>
+                        </Tooltip>
                       </>
                     )}
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-[var(--text-muted)]">
-                  Approve merges the built PR and deploys it. Rework sends follow-up instructions —
-                  Foreman resumes right where it left off. Comments on the ticket work too.
+                  <strong>Approve</strong> merges the built PR and deploys it to live production.{" "}
+                  <strong>Rework</strong> sends follow-up instructions — Foreman resumes the existing
+                  build right where it left off. <strong>Rebuild</strong> throws the current build away
+                  and starts a fresh pass from scratch. Comments on the ticket work too.
                 </p>
               </li>
             ))}
@@ -462,8 +548,9 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           <DialogHeader>
             <DialogTitle>Rework {rework?.ticketKey ?? "ticket"}</DialogTitle>
             <DialogDescription>
-              Foreman resumes its previous session on this ticket with your notes and pushes an
-              updated build for approval.
+              Foreman RESUMES the existing build with your notes and pushes an updated build for
+              approval — it does not start over. (To throw the build away and start fresh, use
+              Rebuild instead.)
             </DialogDescription>
           </DialogHeader>
           <textarea
@@ -496,7 +583,77 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={rebuildTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRebuildTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rebuild {rebuildTarget?.ticketKey ?? "ticket"} from scratch?</DialogTitle>
+            <DialogDescription>
+              Foreman DISCARDS the current build and starts a fresh pass from scratch. This is
+              different from Rework: Rework keeps the existing build and layers your guidance on top,
+              while Rebuild throws it away and starts over. Your earlier guidance is not carried
+              across.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRebuildTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={rebuild.isPending}
+              onClick={() => {
+                if (!rebuildTarget) return;
+                rebuild.mutate(rebuildTarget.workItemId);
+                setRebuildTarget(null);
+              }}
+            >
+              <RefreshCw className="size-3.5" /> Rebuild from scratch
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={approveTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setApproveTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Approve {approveTarget?.ticketKey ?? "this ticket"} and deploy to live production?
+            </DialogTitle>
+            <DialogDescription>
+              On its next pass (≤1 min), Foreman merges the draft PR to main, tags the version, waits
+              for the signed CI image, and DEPLOYS it to live production (health-gated, with
+              automatic rollback). This ships to real users.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={approve.isPending}
+              onClick={() => {
+                if (!approveTarget) return;
+                approve.mutate({ workItemId: approveTarget.workItemId, projectId: approveTarget.projectId });
+                setApproveTarget(null);
+              }}
+            >
+              <Check className="size-3.5" /> Approve &amp; deploy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ForemanEventFeed orgId={orgId} />
     </div>
+    </TooltipProvider>
   );
 }

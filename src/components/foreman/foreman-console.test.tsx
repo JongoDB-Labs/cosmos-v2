@@ -32,10 +32,6 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = Element.prototype.hasPointerCapture || (() => false);
   Element.prototype.setPointerCapture = Element.prototype.setPointerCapture || (() => {});
   Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture || (() => {});
-  // Rebuild is a confirm-gated destructive action (same window.confirm
-  // convention as the PM trackers' delete buttons) — stub it to always
-  // proceed so the click can be asserted straight through to the POST.
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatusPayload {
@@ -184,32 +180,36 @@ describe("ForemanConsole — awaiting approval", () => {
     });
   }
 
-  it("renders the rework/comment hint on a parked card", async () => {
+  it("renders the rework/comment hint on a parked card, distinguishing Rework from Rebuild", async () => {
     withOneParked();
     renderConsole();
 
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Approve merges the built PR and deploys it. Rework sends follow-up instructions — Foreman resumes right where it left off. Comments on the ticket work too.",
-      ),
-    ).toBeInTheDocument();
+    // Copy names the live-prod deploy and contrasts Rework (resumes) vs Rebuild (starts fresh).
+    expect(screen.getByText(/deploys it to live production/i)).toBeInTheDocument();
+    expect(screen.getByText(/resumes the existing\s+build/i)).toBeInTheDocument();
+    expect(screen.getByText(/throws the current build away/i)).toBeInTheDocument();
   });
 
-  it("Approve POSTs a comment on the ticket's own thread as the acting user", async () => {
+  it("Approve opens a live-prod deploy confirmation, then POSTs an approve comment on confirm", async () => {
     withOneParked();
     renderConsole();
 
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    // First click opens the confirmation Dialog (no POST yet) — the copy must
+    // spell out that this deploys to live production.
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+    expect(
+      await screen.findByText("Approve COSMOS-9 and deploy to live production?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/waits\s+for the signed CI image/i)).toBeInTheDocument();
 
-    // Approve deploys to prod, so it confirms first (mirrors Rebuild); the
-    // window.confirm stub returns true, so the click proceeds to the POST.
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Merge and deploy COSMOS-9? Foreman handles the rest.",
-    );
     const commentsUrl = "/api/v1/orgs/org-1/projects/proj-1/work-items/wi-1/comments";
+    expect(holder.calls.some((c) => c.url === commentsUrl)).toBe(false);
+
+    // Confirming in the dialog fires the POST.
+    fireEvent.click(screen.getByRole("button", { name: /approve & deploy/i }));
     await waitFor(() => expect(holder.calls.some((c) => c.url === commentsUrl)).toBe(true));
     const call = holder.calls.find((c) => c.url === commentsUrl);
     expect(call?.method).toBe("POST");
@@ -233,24 +233,31 @@ describe("ForemanConsole — awaiting approval", () => {
     });
     renderConsole();
 
-    // The card itself is still rendered (read-only) — reason + Open PR link.
+    // The card itself is still rendered (read-only) — reason + Link to PR.
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /open pr/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /link to pr/i })).toBeInTheDocument();
     // ...but the steering levers are gone.
     expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /rebuild/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /rework/i })).not.toBeInTheDocument();
   });
 
-  it("Rebuild confirms, then POSTs the existing requeue route when Rebuild is clicked", async () => {
+  it("Rebuild opens a from-scratch confirmation, then POSTs the requeue route on confirm", async () => {
     withOneParked();
     renderConsole();
 
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /rebuild/i }));
+    // First click opens the confirmation Dialog (no POST yet). The copy must
+    // distinguish Rebuild (discard/start fresh) from Rework (resume existing).
+    fireEvent.click(screen.getByRole("button", { name: /^rebuild$/i }));
+    expect(
+      await screen.findByText("Rebuild COSMOS-9 from scratch?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/DISCARDS the current build/i)).toBeInTheDocument();
+    expect(holder.calls.some((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue")).toBe(false);
 
-    expect(window.confirm).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /rebuild from scratch/i }));
     await waitFor(() =>
       expect(holder.calls.some((c) => c.url === "/api/v1/orgs/org-1/foreman/requeue")).toBe(true),
     );
@@ -258,6 +265,16 @@ describe("ForemanConsole — awaiting approval", () => {
     expect(call?.method).toBe("POST");
     expect(call?.body).toEqual({ workItemId: "wi-1" });
     expect(toast.success).toHaveBeenCalledWith("Rebuild queued — a fresh pass starts shortly.");
+  });
+
+  it('labels the PR link "Link to PR" (renamed from "Open PR")', async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /link to pr/i });
+    expect(link).toHaveAttribute("href", "https://github.com/jongodb-labs/cosmos-v2/pull/123");
+    expect(screen.queryByRole("link", { name: /^open pr$/i })).not.toBeInTheDocument();
   });
 
   it("renders Approve button disabled when card has no prUrl", async () => {
