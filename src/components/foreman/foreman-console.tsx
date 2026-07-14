@@ -101,6 +101,101 @@ const PHASE_VARIANT: Record<InFlightBuild["phase"], BadgeVariant> = {
   shipping: "progress",
 };
 
+/** Per-item AI recommendation (COSMOS-111): a "Recommend: Approve/Rework/Rebuild"
+ *  badge + one-line rationale on each awaiting-approval card. No-PR items are a
+ *  fixed Rebuild rendered client-side (nothing was built); PR-backed items fetch
+ *  a Claude analysis of the actual PR, cached server-side per PR head SHA. */
+type RecommendationKind = "approve" | "rework" | "rebuild";
+
+interface RecommendationResponse {
+  recommendation: RecommendationKind;
+  rationale: string;
+  cached: boolean;
+}
+
+const REC_LABEL: Record<RecommendationKind, string> = {
+  approve: "Approve",
+  rework: "Rework",
+  rebuild: "Rebuild",
+};
+
+const REC_VARIANT: Record<RecommendationKind, BadgeVariant> = {
+  approve: "done",
+  rework: "review",
+  rebuild: "blocked",
+};
+
+// Mirrors NO_PR_RECOMMENDATION.rationale in src/lib/foreman/approval-recommendation.ts.
+// Kept as a local literal so this client component never imports that server module.
+const NO_PR_REBUILD_RATIONALE = "Nothing was built to approve — the agent produced no pull request.";
+
+function RecRow({
+  recommendation,
+  rationale,
+}: {
+  recommendation: RecommendationKind;
+  rationale: string;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-start gap-x-2 gap-y-1">
+      <Badge variant={REC_VARIANT[recommendation]} showDot={false} className="shrink-0">
+        Recommend: {REC_LABEL[recommendation]}
+      </Badge>
+      <span className="text-xs text-[var(--text-muted)]">{rationale}</span>
+    </div>
+  );
+}
+
+function ApprovalRecommendation({
+  orgId,
+  workItemId,
+  prUrl,
+  canSteer,
+}: {
+  orgId: string;
+  workItemId: string;
+  prUrl: string | null;
+  canSteer: boolean;
+}) {
+  const recKey = useOrgQueryKey("foreman-recommendation", workItemId);
+  // Only PR-backed cards visible to a steward hit the (paid) analysis endpoint —
+  // a no-PR card is a fixed client-side Rebuild, and a non-steward can't run it.
+  const enabled = Boolean(prUrl) && canSteer;
+  const { data, isLoading, isError } = useQuery({
+    queryKey: recKey,
+    queryFn: () =>
+      jsonFetch<RecommendationResponse>(
+        `/api/v1/orgs/${orgId}/foreman/approval-recommendation?workItemId=${workItemId}`,
+      ),
+    enabled,
+    // Cached server-side per PR head SHA; keep the client copy stable across the
+    // 15s status poll rather than re-requesting on every render.
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+
+  // No PR → nothing was built: a fixed Rebuild, no request.
+  if (!prUrl) return <RecRow recommendation="rebuild" rationale={NO_PR_REBUILD_RATIONALE} />;
+  // A non-steward viewer sees the card read-only and can't spend Foreman's tokens.
+  if (!canSteer) return null;
+  if (isLoading) {
+    return (
+      <div className="mt-3">
+        <Skeleton className="h-4 w-56" />
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <RecRow
+        recommendation="rework"
+        rationale="Couldn't analyze the PR automatically — open it and review the diff yourself."
+      />
+    );
+  }
+  return <RecRow recommendation={data.recommendation} rationale={data.rationale} />;
+}
+
 export function ForemanConsole({ orgId }: { orgId: string }) {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const qc = useQueryClient();
@@ -523,12 +618,12 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                     )}
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-[var(--text-muted)]">
-                  <strong>Approve</strong> merges the built PR and deploys it to live production.{" "}
-                  <strong>Rework</strong> sends follow-up instructions — Foreman resumes the existing
-                  build right where it left off. <strong>Rebuild</strong> throws the current build away
-                  and starts a fresh pass from scratch. Comments on the ticket work too.
-                </p>
+                <ApprovalRecommendation
+                  orgId={orgId}
+                  workItemId={a.workItemId}
+                  prUrl={a.prUrl}
+                  canSteer={data.actorCanSteer}
+                />
               </li>
             ))}
           </ul>
