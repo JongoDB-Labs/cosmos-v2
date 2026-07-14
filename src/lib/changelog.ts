@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.202.1",
+    date: "2026-07-13",
+    title: "Your theme follows you, not the browser",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Your theme (\"skin\") is now saved to your account instead of just the browser — so it follows you across devices, and a freshly-invited teammate signing in on a shared computer gets the organization's default theme instead of inheriting the previous person's.",
+      },
+    ],
+  },
+  {
     version: "2.202.0",
     date: "2026-07-13",
     title: "Invite teammates by email + password",
