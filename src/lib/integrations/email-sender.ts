@@ -52,12 +52,18 @@ export async function sendAppEmail(params: {
   html: string;
   replyTo?: string;
   orgId?: string;
+  /** "Send test" only: use the org's saved key/From even if the row isn't yet
+   *  enabled, so an owner can verify a just-saved key before flipping it on. Real
+   *  sends leave this off, so a disabled org never sends via its key. */
+  includeDisabledOrgConfig?: boolean;
 }): Promise<void> {
   let apiKey: string | undefined;
   let from: string | undefined;
 
   if (params.orgId) {
-    const orgConfig = await getOrgEmailConfig(params.orgId);
+    const orgConfig = params.includeDisabledOrgConfig
+      ? await getOrgEmailConfig(params.orgId, { includeDisabled: true })
+      : await getOrgEmailConfig(params.orgId);
     if (orgConfig) {
       apiKey = orgConfig.apiKey;
       from = orgConfig.from;
