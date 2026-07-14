@@ -13,7 +13,6 @@ import {
 import {
   provisionEmailPasswordInvite,
   SIGN_IN_METHODS,
-  EMAIL_PASSWORD_INVITE_EXISTING_USER,
 } from "@/lib/auth/invite-credentials";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { z } from "zod";
@@ -138,19 +137,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           { status: 409, headers: { "Content-Type": "application/json" } }
         );
       }
-      // SECURITY (cross-tenant account takeover): an email/password invite must
-      // never attach an admin-set credential to a PRE-EXISTING account. Sessions
-      // are user-global, so resetting a known email's password would hand the
-      // inviter that user's access everywhere. Existing users join via OAuth (or
-      // sign in with their own password). Reject BEFORE the allowlist upsert so a
-      // rejected invite leaves no trace.
-      if (isEmailPassword) {
-        return new Response(
-          JSON.stringify({ error: EMAIL_PASSWORD_INVITE_EXISTING_USER }),
-          { status: 409, headers: { "Content-Type": "application/json" } }
-        );
-      }
     }
+
+    // An email that already resolves to a User is NEVER a dead end. Whatever
+    // sign-in method the inviter chose, a pre-existing (non-member) account joins
+    // this org through a NORMAL pending invitation — allowlist upsert +
+    // invitation.create, consumed at their next sign-in by
+    // consumePendingInvitations — and NEVER an admin-set password.
+    //
+    // SECURITY (cross-tenant account takeover): `provisionPassword` therefore
+    // gates on BOTH "email_password was chosen" AND "this is a brand-new
+    // account". We must never attach an admin-generated credential
+    // (passwordHash / mustChangePassword / mfaRequired) to a pre-existing (e.g.
+    // OAuth-only) account — sessions are user-global, so that would hand the
+    // inviter that user's access everywhere. An existing account silently falls
+    // back to the OAuth-style invite (see `effectiveSignInMethod`), and the
+    // caller is told via `existingAccount` so the UI can show a friendly
+    // "they'll rejoin on next sign-in" note instead of the old 409.
+    const existingAccount = Boolean(existingUser);
+    const provisionPassword = isEmailPassword && !existingAccount;
+    const effectiveSignInMethod = provisionPassword ? "email_password" : "oauth";
 
     // Auto-allowlist so the recipient's first sign-in passes the gate.
     // The OAuth callback consumes pending invitations on its own.
@@ -171,7 +177,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // (TOCTOU-safe). The returned tempPassword is emailed only, never logged.
     let tempPassword: string | null = null;
     const invitation = await prisma.$transaction(async (tx) => {
-      if (isEmailPassword) {
+      if (provisionPassword) {
         const provisioned = await provisionEmailPasswordInvite({
           email,
           mfaRequired: data.mfaRequired,
@@ -186,7 +192,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           role: data.role,
           workRoleIds,
           expiresAt,
-          signInMethod: data.signInMethod,
+          // For a pre-existing account this is coerced to "oauth" (no credential
+          // was provisioned) so the invariant "signInMethod === email_password ⇒
+          // a temp password exists" holds and the resend flow stays consistent.
+          signInMethod: effectiveSignInMethod,
           mfaRequired: data.mfaRequired,
         },
       });
@@ -196,14 +205,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const origin = getPublicOrigin(request);
     // OAuth invitees accept via a sign-in link; email/password invitees go to the
     // branded login screen and sign in with their credentials.
-    const acceptUrl = isEmailPassword
+    const acceptUrl = provisionPassword
       ? `${origin}/login?org=${encodeURIComponent(org.slug)}`
       : `${origin}/login?invite=${invitation.token}`;
     let emailSent = false;
     let emailError: string | null = null;
     if (inviter) {
       try {
-        if (isEmailPassword) {
+        if (provisionPassword) {
           await sendPasswordInviteEmail({
             fromUserId: ctx.userId,
             orgId,
@@ -241,7 +250,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       metadata: {
         email,
         role: data.role,
-        signInMethod: data.signInMethod,
+        signInMethod: effectiveSignInMethod,
+        existingAccount: String(existingAccount),
         mfaRequired: String(data.mfaRequired),
         emailSent: String(emailSent),
         ...(emailError ? { emailError } : {}),
@@ -259,6 +269,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       acceptUrl,
       emailSent,
       emailError,
+      // True when the invite targeted an email that already has an account: the
+      // UI surfaces a "they'll rejoin on next sign-in" note instead of an error,
+      // and no admin password was set on the pre-existing account.
+      existingAccount,
     });
   } catch (error) {
     return handleApiError(error);

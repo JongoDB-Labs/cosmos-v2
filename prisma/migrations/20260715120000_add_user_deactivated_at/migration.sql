@@ -1,0 +1,17 @@
+-- Member-lifecycle: platform-admin account deletion is implemented as an
+-- in-place ANONYMIZATION + full access revocation, NOT a hard `DELETE FROM users`.
+--
+-- A true row delete is unsafe with the current schema:
+--   * chat_bot_runs.triggered_by_user_id is ON DELETE RESTRICT (added in
+--     20260607030000_prod_parity_reconciliation) → the delete FAILS at the DB for
+--     any user who ever triggered a bot run;
+--   * the authored-content columns (work_items.created_by_id, comments.author_id,
+--     notes.author_id, journal_lines/invoices/payments/time_entries.created_by_id,
+--     documents.uploaded_by_id, chat_messages.author_id, …) are REQUIRED and carry
+--     NO foreign key, so a delete would silently ORPHAN business/financial records.
+--
+-- This additive, nullable column records WHEN an account was deactivated. The
+-- deletion flow (src/lib/internal/delete-user.ts) stamps it while wiping
+-- credentials, revoking every access grant, and rewriting the email to a sentinel
+-- so the original address can be invited fresh. Null for every existing/live user.
+ALTER TABLE "users" ADD COLUMN "deactivated_at" TIMESTAMP(3);
