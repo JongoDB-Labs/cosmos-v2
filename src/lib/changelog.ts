@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.9",
+    date: "2026-07-15",
+    title: "Feedback automation points to the right Claude setup",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On Settings → Feedback Automation, the notice shown when no Claude subscription is connected now links straight to the Foreman connect page — the Claude that actually powers feedback automation — instead of the general AI settings. The prompt reads \"Connect Claude for Foreman\" so it's clear where to go.",
+      },
+    ],
+  },
+  {
     version: "2.204.8",
     date: "2026-07-15",
     title: "Reliable delivery of multi-phase changes",

@@ -83,3 +83,24 @@ describe("FeedbackAutomationForm — delivery checkbox persists across navigatio
     expect(piAgain).not.toBeChecked();
   });
 });
+
+describe("FeedbackAutomationForm — AI-not-connected notice points at Foreman", () => {
+  afterEach(() => {
+    cleanup();
+    initial.aiConnected = true; // restore for other tests
+    putBodies.length = 0;
+  });
+
+  it("links to the Foreman connect page (../foreman → /<orgSlug>/foreman), not Settings → AI", async () => {
+    initial.aiConnected = false; // surface the gate notice with its link
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderForm(qc);
+
+    const link = await screen.findByRole("link", { name: /connect claude for foreman/i });
+    // Relative to /<orgSlug>/settings/feedback-automation, "../foreman" resolves to
+    // /<orgSlug>/foreman. "../../foreman" would (wrongly) resolve to /foreman, and
+    // "../ai" pointed at the org AI settings — both are regressions this guards.
+    expect(link).toHaveAttribute("href", "../foreman");
+    expect(screen.queryByText(/Settings → AI/)).toBeNull();
+  });
+});

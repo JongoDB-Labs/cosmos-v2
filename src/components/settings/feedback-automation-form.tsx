@@ -278,10 +278,10 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
               Connect a Claude subscription to activate auto-triage
             </p>
             <p className="text-[var(--text-muted)]">
-              This runs on your own Claude account. Until a Claude subscription (or
-              model key) is connected in{" "}
-              <a href="../ai" className="underline">
-                Settings → AI
+              This runs on Foreman&apos;s Claude. Until a Claude subscription (or
+              model key) is connected via{" "}
+              <a href="../foreman" className="underline">
+                Connect Claude for Foreman
               </a>
               , the automation stays inert — it won&apos;t deliver on a heuristic guess.
             </p>
