@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.6",
+    date: "2026-07-15",
+    title: "Human triage for lower-trust feedback",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Automatic feedback triage now considers who filed a request before building it. Feedback from lower-trust roles — guests and view-only members — is routed to a teammate for a quick human look first, instead of flowing straight into the automated build queue; ordinary members and above are unaffected. The person who filed it is notified that a teammate will review it, every decision is recorded in the audit log, and which roles are allowed to auto-trigger a build is configurable per organization.",
+      },
+    ],
+  },
+  {
     version: "2.204.5",
     date: "2026-07-15",
     title: "Fair-share limits on automatic feedback triage",
