@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.4",
+    date: "2026-07-15",
+    title: "Sharper eye on risky feedback",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The feedback safety gate now has a second, smarter layer. After the fast automatic checks, a security reviewer takes a closer look at anything that would otherwise be auto-built, so cleverly disguised attempts to manipulate the coding agent or sneak in sabotaging changes get caught and routed to a human instead. It only ever adds caution — it can hold a request for review but never waves one through that the first checks stopped — and if it's ever unavailable your feedback keeps flowing exactly as before. Ordinary requests are unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.204.3",
     date: "2026-07-15",
     title: "Safer feedback intake before auto-triage",
