@@ -435,7 +435,13 @@ async function processOne(
     ...ledgerCandidates(ledgerEntries),
     ...(await db.historyCandidates()),
   ].filter((c) => c.ref !== key);
-  const dup = await dedupGate({ title: brief.title, candidates }, (title, shortlist) => judge(title, shortlist, item.orgId));
+  // A decomposition child (parent_id set) must never dedup against its own parent
+  // epic or a sibling child of that epic — those are intentionally overlapping
+  // scopes, not duplicates (COSMOS-123). The gate excludes them via parentRef.
+  const dup = await dedupGate(
+    { title: brief.title, candidates, parentRef: item.parentRef },
+    (title, shortlist) => judge(title, shortlist, item.orgId),
+  );
   if (dup.dupOf) {
     log(`${key} duplicate of ${dup.dupOf} — ${dup.reason}`);
     if (!DRY) {

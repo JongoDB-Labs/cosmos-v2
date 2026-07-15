@@ -167,9 +167,16 @@ export async function tagAndPush(version: string): Promise<void> {
   await exec("git", ["-C", REPO, "push", "origin", `v${version}`]);
 }
 
+/** One release-workflow run as reported by `gh run list --json`. */
+export interface ReleaseRun {
+  headBranch: string;
+  status: string;
+  conclusion: string | null;
+  displayTitle: string;
+}
+
 /**
- * Poll the release workflow for this version's tagged run until it
- * completes.
+ * Pick THIS version's release run out of the recent list.
  *
  * Matches on BOTH `headBranch` (exact `v<version>`) and `displayTitle`
  * (substring), not `displayTitle` alone. Confirmed live against this repo's
@@ -184,29 +191,138 @@ export async function tagAndPush(version: string): Promise<void> {
  * stays as a fallback for short subjects / any run shape where headBranch
  * doesn't come back as expected.
  */
-export async function waitForImage(version: string, timeoutMs = 25 * 60_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+export function selectReleaseRun(runs: ReleaseRun[], version: string): ReleaseRun | undefined {
+  // Primary: the exact tag ref (untruncated, unambiguous). Only if no run
+  // carries it do we fall back to the (truncatable, substring-collidable)
+  // displayTitle — a true primary→fallback, not an OR that could return a
+  // newer unrelated run whose title merely contains the version.
+  return (
+    runs.find((r) => r.headBranch === `v${version}`) ??
+    runs.find((r) => r.displayTitle.includes(version))
+  );
+}
+
+/**
+ * The deploy gate keys on the IMAGE, not on the whole release run's conclusion.
+ *
+ * release.yml builds + signs the app image in its `build`/`merge` jobs, then a
+ * NON-ESSENTIAL downstream `chart` job publishes the Helm OCI artifact. If only
+ * the chart job fails, the run reports `failure` even though the app image is
+ * built, pushed, and cosign-signed in GHCR. Keying the gate on the run
+ * conclusion (the old bug) treated that image as "not ready" and retried the
+ * deploy forever. So:
+ *
+ *   - a signed image present in GHCR ⇒ `ready` (deploy it, whatever the run said),
+ *   - else a completed+`success` run ⇒ `ready` (the merge job's verify-after-sign
+ *     gate guarantees the image is present+signed on success, no registry hit),
+ *   - else a completed run without a signed image ⇒ `not-ready` (a genuine
+ *     build/sign failure — nothing deployable was produced),
+ *   - else ⇒ `pending` (still building; keep polling).
+ */
+export function imageGate(
+  run: ReleaseRun | undefined,
+  imageSigned: boolean,
+): "ready" | "not-ready" | "pending" {
+  if (imageSigned) return "ready";
+  if (!run || run.status !== "completed") return "pending";
+  return run.conclusion === "success" ? "ready" : "not-ready";
+}
+
+/** `owner/repo` for the checkout (e.g. `JongoDB-Labs/cosmos-v2`), via gh. */
+async function repoSlug(): Promise<string> {
+  const { stdout } = await exec("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
+    cwd: REPO,
+  });
+  return stdout.trim();
+}
+
+/**
+ * True iff the app image for `version` is present in GHCR AND carries a
+ * verifiable keyless (OIDC → Fulcio/Rekor) cosign signature — the exact
+ * contract release.yml's own "Verify signatures landed" gate enforces. `cosign
+ * verify` exits non-zero when the tag is absent OR unsigned, so a single call
+ * answers "built + signed?" and any failure (including cosign not installed)
+ * degrades to `false` — never throws, never falsely reports ready.
+ */
+export async function imageSignedInGhcr(version: string): Promise<boolean> {
+  try {
+    const slug = await repoSlug(); // JongoDB-Labs/cosmos-v2
+    const owner = slug.split("/")[0].toLowerCase(); // GHCR repo names are lowercase
+    const image = `ghcr.io/${owner}/cosmos-v2:${version}`;
+    await exec(
+      "cosign",
+      [
+        "verify",
+        "--certificate-identity-regexp",
+        `^https://github.com/${slug}/`,
+        "--certificate-oidc-issuer",
+        "https://token.actions.githubusercontent.com",
+        image,
+      ],
+      { cwd: REPO },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Injectable I/O for {@link waitForImage} so the gate logic is unit-testable
+ *  without shelling out to `gh`/`cosign`. Defaults hit the real tools. */
+export interface WaitForImageDeps {
+  listReleaseRuns: () => Promise<ReleaseRun[]>;
+  imageSignedInGhcr: (version: string) => Promise<boolean>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+}
+
+const defaultWaitDeps: WaitForImageDeps = {
+  listReleaseRuns: async () => {
     const { stdout } = await exec(
       "gh",
       ["run", "list", "--workflow=release.yml", "--limit", "5", "--json", "headBranch,status,conclusion,displayTitle"],
       { cwd: REPO },
     );
-    const runs = JSON.parse(stdout) as Array<{
-      headBranch: string;
-      status: string;
-      conclusion: string | null;
-      displayTitle: string;
-    }>;
-    // Primary: the exact tag ref (untruncated, unambiguous). Only if no run
-    // carries it do we fall back to the (truncatable, substring-collidable)
-    // displayTitle — a true primary→fallback, not an OR that could return a
-    // newer unrelated run whose title merely contains the version.
-    const mine =
-      runs.find((r) => r.headBranch === `v${version}`) ??
-      runs.find((r) => r.displayTitle.includes(version));
-    if (mine?.status === "completed") return mine.conclusion === "success";
-    await new Promise((r) => setTimeout(r, 20_000));
+    return JSON.parse(stdout) as ReleaseRun[];
+  },
+  imageSignedInGhcr,
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  now: () => Date.now(),
+};
+
+/**
+ * Poll release.yml until this version's app image is deployable, gating on the
+ * signed IMAGE (see {@link imageGate}) rather than the run conclusion — so a
+ * failed non-essential job (e.g. the Helm chart-publish) can't block a deploy
+ * of an image that actually built + got signed. Returns `false` only on a real
+ * build/sign failure or timeout.
+ */
+export async function waitForImage(
+  version: string,
+  timeoutMs = 25 * 60_000,
+  deps: WaitForImageDeps = defaultWaitDeps,
+): Promise<boolean> {
+  const deadline = deps.now() + timeoutMs;
+  while (deps.now() < deadline) {
+    const run = selectReleaseRun(await deps.listReleaseRuns(), version);
+    // Only hit the registry when the run has finished WITHOUT a green
+    // conclusion — the happy path (success) needs no extra call, and a
+    // still-running build is simply `pending`.
+    const needRegistry = run?.status === "completed" && run.conclusion !== "success";
+    const imageSigned = needRegistry ? await deps.imageSignedInGhcr(version) : false;
+    const verdict = imageGate(run, imageSigned);
+    if (verdict === "ready") {
+      if (needRegistry && imageSigned) {
+        // Surfaced-but-non-blocking: the run failed, yet the signed image is
+        // present — an unrelated downstream job (chart-publish) failed. Deploy.
+        console.warn(
+          `[foreman] release run for v${version} concluded '${run?.conclusion}' but the signed app image is present in GHCR — deploying it; the failed non-essential job (e.g. Helm chart-publish) does not gate the app deploy.`,
+        );
+      }
+      return true;
+    }
+    if (verdict === "not-ready") return false;
+    await deps.sleep(20_000); // pending — keep polling
   }
   return false;
 }
