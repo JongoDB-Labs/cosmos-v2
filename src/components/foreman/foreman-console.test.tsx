@@ -70,10 +70,29 @@ const holder: {
   status: ForemanStatusPayload;
   calls: { url: string; method?: string; body?: unknown }[];
   recommendation: { recommendation: string; rationale: string; cached: boolean };
+  analysis: {
+    summary: string;
+    criteria: { criterion: string; status: string; note: string }[];
+    gaps: string[];
+    risks: string[];
+    complete: boolean;
+    cached: boolean;
+  };
 } = {
   status: baseStatus(),
   calls: [],
   recommendation: { recommendation: "approve", rationale: "Diff matches the ticket and checks pass.", cached: false },
+  analysis: {
+    summary: "Covers the main criterion but the added test is thin.",
+    criteria: [
+      { criterion: "Creating a role with permissions succeeds", status: "met", note: "handled in the diff" },
+      { criterion: "A regression test covers it", status: "partial", note: "asserts too little" },
+    ],
+    gaps: ["No docs update"],
+    risks: ["Permission mask could overflow"],
+    complete: false,
+    cached: false,
+  },
 };
 
 vi.mock("@/lib/query/json-fetcher", () => ({
@@ -83,6 +102,9 @@ vi.mock("@/lib/query/json-fetcher", () => ({
       method: opts?.method,
       body: opts?.body ? JSON.parse(opts.body) : undefined,
     });
+    if (url.includes("/foreman/requirements-analysis")) {
+      return Promise.resolve(holder.analysis);
+    }
     if (url.includes("/foreman/approval-recommendation")) {
       return Promise.resolve(holder.recommendation);
     }
@@ -231,6 +253,60 @@ describe("ForemanConsole — awaiting approval", () => {
     expect(screen.getByText("Recommend: Rebuild")).toBeInTheDocument();
     // A no-PR card never calls the analysis endpoint.
     expect(holder.calls.some((c) => c.url.includes("/foreman/approval-recommendation"))).toBe(false);
+  });
+
+  it("clicking AI Analysis on a PR-backed card fetches + shows a per-criterion met/partial report with gaps/risks", async () => {
+    withOneParked();
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+
+    // The report isn't fetched until the button is clicked (it's a paid call).
+    expect(holder.calls.some((c) => c.url.includes("/foreman/requirements-analysis"))).toBe(false);
+    const analysisButton = screen.getByRole("button", { name: /ai analysis/i });
+    expect(analysisButton).toBeEnabled();
+    fireEvent.click(analysisButton);
+
+    // Per-criterion coverage: each criterion's text + its status label.
+    expect(await screen.findByText("Creating a role with permissions succeeds")).toBeInTheDocument();
+    expect(screen.getByText("Met")).toBeInTheDocument();
+    expect(screen.getByText("Partial")).toBeInTheDocument();
+    // Gaps + risks sections.
+    expect(screen.getByText("No docs update")).toBeInTheDocument();
+    expect(screen.getByText("Permission mask could overflow")).toBeInTheDocument();
+    // It hit the analysis endpoint scoped to this item.
+    await waitFor(() =>
+      expect(
+        holder.calls.some((c) => c.url.includes("/foreman/requirements-analysis?workItemId=wi-1")),
+      ).toBe(true),
+    );
+  });
+
+  it("disables AI Analysis on a no-PR card with an explanatory tooltip title (nothing to analyze)", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Agent produced no diff.",
+          prUrl: null,
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Agent feedback improvement")).toBeInTheDocument();
+    const analysisButton = screen.getByRole("button", { name: /ai analysis/i });
+    expect(analysisButton).toBeDisabled();
+    expect(analysisButton).toHaveAttribute(
+      "title",
+      "Nothing to analyze — the agent produced no pull request.",
+    );
+    // A disabled no-PR button never calls the analysis endpoint.
+    expect(holder.calls.some((c) => c.url.includes("/foreman/requirements-analysis"))).toBe(false);
   });
 
   it("Approve opens a live-prod deploy confirmation, then POSTs an approve comment on confirm", async () => {

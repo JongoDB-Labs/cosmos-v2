@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.4",
+    date: "2026-07-15",
+    title: "Per-item AI Analysis in the Foreman console",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each Awaiting-Approval card now has an “AI Analysis” button that checks the built pull request against the original ticket’s requirements and acceptance criteria. Expand it for a per-criterion met / partial / missing breakdown plus notable gaps, risks, and whether the change looks complete — so you can approve, rework, or rebuild with the full picture. The report is cached per pull-request revision, and cards with nothing built yet show the button disabled with an explanation.",
+      },
+    ],
+  },
+  {
     version: "2.204.3",
     date: "2026-07-15",
     title: "Safer feedback intake before auto-triage",
