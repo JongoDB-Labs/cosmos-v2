@@ -109,6 +109,7 @@ export async function getBacklog(): Promise<
       severity: string | null;
       projectKey: string;
       orgId: string;
+      parentRef: string | null;
     }
   >
 > {
@@ -127,8 +128,10 @@ export async function getBacklog(): Promise<
       columnEnteredAt: true,
       title: true,
       description: true,
+      parentId: true,
     },
   });
+  const parentRefs = await parentRefsById(rows.map((r) => r.parentId), poolByProjectId);
 
   const feedback = rows.length
     ? await prisma.feedbackItem.findMany({
@@ -175,6 +178,7 @@ export async function getBacklog(): Promise<
         severity: fb?.severity ?? null,
         projectKey: p.projectKey,
         orgId: p.orgId,
+        parentRef: r.parentId ? (parentRefs.get(r.parentId) ?? null) : null,
       },
     ];
   });
@@ -421,11 +425,34 @@ export async function reclaimStranded(): Promise<Array<{ id: string; ref: string
   });
 }
 
+/** Resolve a set of parent work-item ids to their ticket refs (`<KEY>-<n>`),
+ *  batched (no N+1). A parent outside the delivery pool maps to nothing. Feeds the
+ *  dedup gate so a decomposition child is never judged a duplicate of its own
+ *  parent epic or a sibling child (see src/lib/foreman/dedup.ts excludeFamily). */
+async function parentRefsById(
+  parentIds: Array<string | null | undefined>,
+  poolByProjectId: Map<string, { projectKey: string }>,
+): Promise<Map<string, string>> {
+  const ids = [...new Set(parentIds.filter((x): x is string => !!x))];
+  if (ids.length === 0) return new Map();
+  const parents = await prisma.workItem.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, projectId: true, ticketNumber: true },
+  });
+  const out = new Map<string, string>();
+  for (const p of parents) {
+    const proj = poolByProjectId.get(p.projectId);
+    if (proj) out.set(p.id, buildRef(proj.projectKey, p.ticketNumber));
+  }
+  return out;
+}
+
 /** Items already past TODO, across every project in the delivery pool — dedup
  *  candidates so Foreman doesn't re-file a ticket for something already in
  *  flight or shipped. Ref built per-item via buildRef(<that item's projectKey>,
  *  ticketNumber), so candidates from different projects don't collide on a bare
- *  ticket number. */
+ *  ticket number. Each candidate carries its own `parentRef` (when it is itself a
+ *  decomposition child) so the dedup gate can drop the ticket's siblings. */
 export async function historyCandidates(): Promise<Candidate[]> {
   const pool = await deliveryProjects();
   if (pool.length === 0) return [];
@@ -433,13 +460,20 @@ export async function historyCandidates(): Promise<Candidate[]> {
 
   const rows = await prisma.workItem.findMany({
     where: { projectId: { in: pool.map((p) => p.projectId) }, columnKey: { in: HISTORY_COLUMNS } },
-    select: { projectId: true, ticketNumber: true, title: true },
+    select: { projectId: true, ticketNumber: true, title: true, parentId: true },
   });
+  const parentRefs = await parentRefsById(rows.map((r) => r.parentId), poolByProjectId);
 
   return rows.flatMap((r) => {
     const p = poolByProjectId.get(r.projectId);
     if (!p) return [];
-    return [{ ref: buildRef(p.projectKey, r.ticketNumber), title: r.title }];
+    return [
+      {
+        ref: buildRef(p.projectKey, r.ticketNumber),
+        title: r.title,
+        parentRef: r.parentId ? (parentRefs.get(r.parentId) ?? null) : null,
+      },
+    ];
   });
 }
 
