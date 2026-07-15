@@ -12,6 +12,7 @@ import {
   redactSecrets,
   type GuardrailResult,
 } from "@/lib/feedback/guardrails";
+import { judgeFeedbackSecurity, raiseWithJudge } from "@/lib/feedback/security-judge";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -420,7 +421,25 @@ export async function runFeedbackRemediation(
     // high-risk touch zones are pulled out of the autonomous build path and
     // routed to the human review queue; content-safety violations are rejected.
     // Deterministic + pure, so the security gate holds even when AI triage is down.
-    const guardrail = scanFeedback({ title: item.title, description: item.description });
+    let guardrail = scanFeedback({ title: item.title, description: item.description });
+
+    // SECONDARY, HIGHER-RECALL LAYER (COSMOS-117) — an optional LLM security-judge
+    // on Foreman's own subscription runs AFTER the deterministic gate to catch
+    // sophisticated injection / malicious intent the regex missed, RAISING a
+    // would-be "allow" to "hold". Fail-safe: on model outage / no subscription /
+    // malformed output the verdict is null and the deterministic decision stands
+    // (never fail-open). The structural delimiter remains the primary control.
+    if (guardrail.decision === "allow") {
+      const verdict = await judgeFeedbackSecurity({
+        orgId,
+        tenantClass,
+        title: item.title,
+        description: item.description,
+        feedbackId: item.id,
+      });
+      guardrail = raiseWithJudge(guardrail, verdict);
+    }
+
     if (guardrail.decision !== "allow") {
       await parkFlaggedFeedback(org, item, guardrail, opts.actorUserId);
       flagged.push({
