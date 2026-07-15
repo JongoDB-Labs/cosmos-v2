@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeAll, afterAll } from "vitest";
-import type { Prisma } from "@prisma/client";
+import type { OrgRole, Prisma } from "@prisma/client";
+import { ORG_ROLES } from "./role-gating";
 
 /**
  * Guardrail coverage for the fallback classifier — this is what runs when AI
@@ -717,6 +718,433 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
       const delivered = summary.items.find((i) => i.feedbackId === item.id);
       expect(delivered).toBeDefined();
       expect(summary.flagged.find((f) => f.feedbackId === item.id)).toBeUndefined();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: item.id } });
+      await prisma.workItem.deleteMany({ where: { orgId, title } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+});
+
+/**
+ * Intake rate-limits + abuse throttling (COSMOS-119, Phase 3a) against the real
+ * e2e DB. Each test configures tight `intakeLimits` in the org settings and gives
+ * its feedback items a high `voteCount` so they sort to the FRONT of the org-wide
+ * priority scan (votes desc) — a stray OPEN item left by another session can't
+ * steal the scarce slots under test. Throttled items must stay OPEN (never
+ * delivered, never flagged) so a later run picks them up once capacity frees, and
+ * the submitter is told exactly once. Every item is torn down in a `finally`.
+ */
+describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
+  const TITLE_PREFIX = "[ratelimit-test]";
+  let orgId: string;
+  let userId: string;
+  let secondUserId: string;
+  let mainProjectId: string;
+  let originalSettings: Prisma.JsonValue;
+
+  async function setLimits(intakeLimits: Record<string, number>) {
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: orgId },
+      select: { settings: true },
+    });
+    const settings = (org.settings ?? {}) as Record<string, unknown>;
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        settings: {
+          ...settings,
+          autoRemediation: { enabled: true, projectIds: [mainProjectId], defaultProjectId: mainProjectId },
+          intakeLimits,
+        },
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    getAiProviderStatus.mockResolvedValue({
+      provider: "anthropic",
+      anthropic: { configured: false },
+      openai: { configured: false, baseUrl: undefined, model: undefined },
+      claudeOAuth: { connected: true },
+    });
+    runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
+
+    const org = await prisma.organization.findFirstOrThrow({
+      where: { slug: "test-org" },
+      select: { id: true, settings: true },
+    });
+    orgId = org.id;
+    originalSettings = org.settings;
+
+    const mainProject = await prisma.project.findFirstOrThrow({
+      where: { orgId, key: "TEST" },
+      select: { id: true },
+    });
+    mainProjectId = mainProject.id;
+
+    const users = await prisma.user.findMany({ select: { id: true }, take: 2 });
+    userId = users[0].id;
+    // Fall back to the same user if the seed only has one — the per-user vs
+    // per-org distinction is still exercised by the pure planner tests.
+    secondUserId = users[1]?.id ?? users[0].id;
+  });
+
+  afterAll(async () => {
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
+    });
+    await prisma.feedbackItem.deleteMany({ where: { orgId, title: { startsWith: TITLE_PREFIX } } });
+  });
+
+  it("throttles a single user past the per-user cap; excess stays OPEN and is queued", async () => {
+    await setLimits({ perUserPerRun: 1, perOrgPerRun: 50, maxQueueDepth: 100, buildBudget: 100 });
+    const titleA = `${TITLE_PREFIX} per-user A`;
+    const titleB = `${TITLE_PREFIX} per-user B`;
+    const a = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "FEATURE", title: titleA, voteCount: 1000, projectId: mainProjectId },
+      select: { id: true },
+    });
+    const b = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "FEATURE", title: titleB, voteCount: 999, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      // Highest-vote item admitted; the second from the same user is throttled.
+      expect(summary.items.find((i) => i.feedbackId === a.id)).toBeDefined();
+      expect(summary.items.find((i) => i.feedbackId === b.id)).toBeUndefined();
+      const throttle = summary.throttledItems.find((t) => t.feedbackId === b.id);
+      expect(throttle?.reason).toBe("per-user-cap");
+
+      // The throttled item stays OPEN and undelivered (a later run retries it).
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: b.id },
+        select: { status: true, deliveredAt: true, workItemId: true },
+      });
+      expect(refreshed.status).toBe("OPEN");
+      expect(refreshed.deliveredAt).toBeNull();
+      expect(refreshed.workItemId).toBeNull();
+
+      // The submitter gets a clear "queued" message.
+      const note = await prisma.notification.findFirst({
+        where: { orgId, userId, refId: b.id, type: "feedback.throttled" },
+        select: { title: true },
+      });
+      expect(note).not.toBeNull();
+
+      // The decision is audit-logged.
+      const audit = await prisma.auditLog.findFirst({
+        where: { orgId, entityId: b.id, action: "feedback.intake_throttled" },
+        select: { id: true },
+      });
+      expect(audit).not.toBeNull();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: { in: [a.id, b.id] } } });
+      await prisma.workItem.deleteMany({ where: { orgId, title: { in: [titleA, titleB] } } });
+      await prisma.feedbackItem.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+    }
+  });
+
+  it("throttles past the per-org cap across different users", async () => {
+    await setLimits({ perUserPerRun: 50, perOrgPerRun: 1, maxQueueDepth: 100, buildBudget: 100 });
+    const titleA = `${TITLE_PREFIX} per-org A`;
+    const titleB = `${TITLE_PREFIX} per-org B`;
+    const a = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "FEATURE", title: titleA, voteCount: 1000, projectId: mainProjectId },
+      select: { id: true },
+    });
+    const b = await prisma.feedbackItem.create({
+      data: { orgId, authorId: secondUserId, type: "FEATURE", title: titleB, voteCount: 999, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      expect(summary.items.find((i) => i.feedbackId === a.id)).toBeDefined();
+      expect(summary.items.find((i) => i.feedbackId === b.id)).toBeUndefined();
+      const throttle = summary.throttledItems.find((t) => t.feedbackId === b.id);
+      expect(throttle?.reason).toBe("per-org-cap");
+
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: b.id },
+        select: { status: true, deliveredAt: true },
+      });
+      expect(refreshed.status).toBe("OPEN");
+      expect(refreshed.deliveredAt).toBeNull();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: { in: [a.id, b.id] } } });
+      await prisma.workItem.deleteMany({ where: { orgId, title: { in: [titleA, titleB] } } });
+      await prisma.feedbackItem.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+    }
+  });
+
+  it("throttles when the in-flight build queue is already at the depth ceiling", async () => {
+    await setLimits({ perUserPerRun: 50, perOrgPerRun: 50, maxQueueDepth: 1, buildBudget: 100 });
+    const inflightTitle = `${TITLE_PREFIX} queue inflight`;
+    const freshTitle = `${TITLE_PREFIX} queue fresh`;
+    // An already-delivered item that hasn't reached DONE — it fills the one slot.
+    const inflight = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title: inflightTitle,
+        status: "PLANNED",
+        deliveredAt: new Date(),
+        projectId: mainProjectId,
+      },
+      select: { id: true },
+    });
+    const fresh = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "FEATURE", title: freshTitle, voteCount: 1000, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      expect(summary.items.find((i) => i.feedbackId === fresh.id)).toBeUndefined();
+      const throttle = summary.throttledItems.find((t) => t.feedbackId === fresh.id);
+      expect(throttle?.reason).toBe("queue-depth");
+
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: fresh.id },
+        select: { status: true, deliveredAt: true },
+      });
+      expect(refreshed.status).toBe("OPEN");
+      expect(refreshed.deliveredAt).toBeNull();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: fresh.id } });
+      await prisma.workItem.deleteMany({ where: { orgId, title: { in: [inflightTitle, freshTitle] } } });
+      await prisma.feedbackItem.deleteMany({ where: { id: { in: [inflight.id, fresh.id] } } });
+    }
+  });
+
+  it("throttles a near-duplicate flood, delivering only the first copy", async () => {
+    await setLimits({ perUserPerRun: 50, perOrgPerRun: 50, maxQueueDepth: 100, buildBudget: 100 });
+    const title = `${TITLE_PREFIX} flood`;
+    const description = "The export button is broken and does nothing when clicked.";
+    const a = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "BUG", title, description, voteCount: 1000, projectId: mainProjectId },
+      select: { id: true },
+    });
+    const b = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "BUG", title, description, voteCount: 999, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      // Exactly one copy of the flood is admitted; the rest are throttled.
+      const deliveredCopies = summary.items.filter((i) => i.feedbackId === a.id || i.feedbackId === b.id);
+      expect(deliveredCopies).toHaveLength(1);
+      const floodThrottle = summary.throttledItems.filter(
+        (t) => (t.feedbackId === a.id || t.feedbackId === b.id) && t.reason === "duplicate-flood",
+      );
+      expect(floodThrottle).toHaveLength(1);
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: { in: [a.id, b.id] } } });
+      await prisma.workItem.deleteMany({ where: { orgId, title } });
+      await prisma.feedbackItem.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+    }
+  });
+});
+
+/**
+ * Role-based auto-trigger gating (COSMOS-120, Phase 3b) against the real e2e DB.
+ * Proves the wiring around the pure `role-gating` decision layer: a submitter whose
+ * ORG ROLE isn't in the org's `autoTriggerRoles` set is pulled OUT of the
+ * autonomous build path (no work item, IN_REVIEW, `triage.roleGate` set,
+ * audit-logged, model never called), while a cleared role still delivers. The gate
+ * is driven by config here (flip `autoTriggerRoles` to include / exclude the seed
+ * member's actual role) so the test never has to mutate the shared OrgMember row.
+ */
+describe("runFeedbackRemediation — role-based auto-trigger gating (e2e)", () => {
+  const TITLE_PREFIX = "[rolegate-test]";
+  let orgId: string;
+  let orgSlug: string;
+  let userId: string;
+  let memberRole: OrgRole;
+  let mainProjectId: string;
+  let originalSettings: Prisma.JsonValue;
+
+  async function setConfig(autoTriggerRoles: string[] | undefined) {
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: orgId },
+      select: { settings: true },
+    });
+    const settings = (org.settings ?? {}) as Record<string, unknown>;
+    const next: Record<string, unknown> = {
+      ...settings,
+      autoRemediation: { enabled: true, projectIds: [mainProjectId], defaultProjectId: mainProjectId },
+    };
+    if (autoTriggerRoles === undefined) delete next.autoTriggerRoles;
+    else next.autoTriggerRoles = autoTriggerRoles;
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { settings: next as unknown as Prisma.InputJsonValue },
+    });
+  }
+
+  beforeAll(async () => {
+    getAiProviderStatus.mockResolvedValue({
+      provider: "anthropic",
+      anthropic: { configured: false },
+      openai: { configured: false, baseUrl: undefined, model: undefined },
+      claudeOAuth: { connected: true },
+    });
+    runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
+
+    const org = await prisma.organization.findFirstOrThrow({
+      where: { slug: "test-org" },
+      select: { id: true, slug: true, settings: true },
+    });
+    orgId = org.id;
+    orgSlug = org.slug;
+    originalSettings = org.settings;
+
+    const mainProject = await prisma.project.findFirstOrThrow({
+      where: { orgId, key: "TEST" },
+      select: { id: true },
+    });
+    mainProjectId = mainProject.id;
+
+    // A seeded member of this org, and their actual org role — the gate config is
+    // driven relative to this so we never mutate the shared membership row.
+    const member = await prisma.orgMember.findFirstOrThrow({
+      where: { orgId },
+      select: { userId: true, role: true },
+    });
+    userId = member.userId;
+    memberRole = member.role;
+  });
+
+  afterAll(async () => {
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
+    });
+    await prisma.feedbackItem.deleteMany({ where: { orgId, title: { startsWith: TITLE_PREFIX } } });
+  });
+
+  it("routes a submitter whose role is NOT cleared to human triage: no work item, IN_REVIEW, model never called", async () => {
+    // A valid, non-empty allow-set that EXCLUDES this member's role → they're gated.
+    await setConfig(ORG_ROLES.filter((r) => r !== memberRole));
+    const title = `${TITLE_PREFIX} gated`;
+    const item = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title,
+        description: "Please add a dark mode toggle in settings.",
+        voteCount: 1000,
+        projectId: mainProjectId,
+      },
+      select: { id: true },
+    });
+
+    try {
+      const callsBefore = runModelTurn.mock.calls.length;
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+
+      // Never delivered into the build path; reported in gatedItems.
+      expect(summary.items.find((i) => i.feedbackId === item.id)).toBeUndefined();
+      const gate = summary.gatedItems.find((g) => g.feedbackId === item.id);
+      expect(gate).toBeDefined();
+      expect(gate!.role).toBe(memberRole);
+      // A gated item must not reach the (expensive) AI security-judge / triage call.
+      expect(runModelTurn.mock.calls.length).toBe(callsBefore);
+
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: item.id },
+        select: { status: true, workItemId: true, deliveredAt: true, triage: true },
+      });
+      expect(refreshed.status).toBe("IN_REVIEW");
+      expect(refreshed.workItemId).toBeNull();
+      expect(refreshed.deliveredAt).toBeNull();
+      const roleGate = (refreshed.triage as Record<string, unknown>)?.roleGate as Record<string, unknown>;
+      expect(roleGate?.decision).toBe("human-triage");
+
+      // No work item anywhere for this title.
+      expect(await prisma.workItem.count({ where: { orgId, title } })).toBe(0);
+
+      // The decision is audit-logged for accountability.
+      const audit = await prisma.auditLog.findFirst({
+        where: { orgId, entityId: item.id, action: "feedback.auto_trigger_gated" },
+        select: { id: true },
+      });
+      expect(audit).not.toBeNull();
+
+      // A second run does not re-process it (idempotent via the status change).
+      const second = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      expect(second.gatedItems.find((g) => g.feedbackId === item.id)).toBeUndefined();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: item.id } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+
+  it("notifies the submitter that a gated item went to a human first", async () => {
+    await setConfig(ORG_ROLES.filter((r) => r !== memberRole));
+    const title = `${TITLE_PREFIX} notify`;
+    const item = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "BUG",
+        title,
+        description: "The export button does nothing.",
+        voteCount: 1000,
+        projectId: mainProjectId,
+      },
+      select: { id: true },
+    });
+
+    try {
+      await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      const note = await prisma.notification.findFirst({
+        where: { orgId, userId, refId: item.id, type: "feedback.gated" },
+        select: { url: true, refType: true },
+      });
+      expect(note).not.toBeNull();
+      expect(note!.refType).toBe("feedback_item");
+      expect(note!.url).toContain("/feedback");
+      expect(note!.url).toContain(orgSlug);
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: item.id } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+
+  it("still delivers a benign item when the submitter's role IS cleared to auto-trigger", async () => {
+    // An allow-set that INCLUDES this member's role → normal auto-trigger path.
+    await setConfig([memberRole]);
+    const title = `${TITLE_PREFIX} cleared`;
+    const item = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title,
+        description: "Please add a dark mode toggle in settings.",
+        voteCount: 1000,
+        projectId: mainProjectId,
+      },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      const delivered = summary.items.find((i) => i.feedbackId === item.id);
+      expect(delivered).toBeDefined();
+      expect(summary.gatedItems.find((g) => g.feedbackId === item.id)).toBeUndefined();
     } finally {
       await prisma.notification.deleteMany({ where: { orgId, refId: item.id } });
       await prisma.workItem.deleteMany({ where: { orgId, title } });
