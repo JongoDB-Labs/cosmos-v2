@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.8",
+    date: "2026-07-15",
+    title: "Reliable delivery of multi-phase changes",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When a large feature or fix is split into several linked tickets, approving them one after another now just works. If a later phase was built before an earlier one shipped, the system automatically rebases it onto the latest code and re-numbers the release before merging, instead of stalling on a merge conflict that previously needed a manual rebuild and re-approval. Linked phases can also be grouped into one coordinated release so an epic ships as a single version rather than a string of patches.",
+      },
+    ],
+  },
+  {
     version: "2.204.6",
     date: "2026-07-15",
     title: "Human triage for lower-trust feedback",
