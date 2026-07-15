@@ -6,6 +6,12 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
 import { createNotification } from "@/lib/notifications/create";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
+import {
+  scanFeedback,
+  delimitUntrustedFeedback,
+  redactSecrets,
+  type GuardrailResult,
+} from "@/lib/feedback/guardrails";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -47,7 +53,15 @@ export interface RemediationSummary {
   // run to retry (e.g. once the org adds that project to scope, or gives it a
   // TODO column). Distinct from a plain no-type skip, which stays uncounted.
   skippedNoTarget: number;
+  // Intake-guardrail outcomes (COSMOS-112): items the pre-triage security gate
+  // pulled OUT of the autonomous build path. `held` = routed to the human review
+  // queue (prompt-injection, malicious intent, a pasted secret, or a high-risk
+  // touch zone); `rejected` = content-safety violation. Neither ever produces a
+  // work item.
+  held: number;
+  rejected: number;
   items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
+  flagged: { feedbackId: string; decision: "hold" | "reject"; categories: string[]; score: number }[];
 }
 
 /** A project resolved as a valid delivery destination this run: it's in scope,
@@ -168,11 +182,13 @@ async function triageOne(
         {
           role: "user",
           content:
-            `Title: ${item.title}\n` +
+            // The feedback is untrusted user input; delimit it as DATA so the
+            // triage model classifies it rather than obeying anything embedded in
+            // it (COSMOS-112 §A.2). Secrets are redacted before the model sees them.
             `Reported type: ${item.type}\n` +
-            `Description: ${item.description || "(none)"}\n` +
-            `Client telemetry: ${JSON.stringify(item.telemetry ?? {}).slice(0, 1200)}\n\n` +
-            "Classify this feedback via the classify_feedback tool.",
+            `Client telemetry: ${redactSecrets(JSON.stringify(item.telemetry ?? {}).slice(0, 1200))}\n\n` +
+            delimitUntrustedFeedback(`Title: ${item.title}\nDescription: ${item.description || "(none)"}`) +
+            "\n\nClassify the feedback above via the classify_feedback tool.",
         },
       ],
       tools: [CLASSIFY_TOOL],
@@ -266,8 +282,12 @@ function buildDescription(
   triage: Triage,
   authorName: string | null,
 ): string {
+  // STRUCTURAL DEFENSE (COSMOS-112 §A.2): the submitter's own words end up in the
+  // coding agent's brief, so DELIMIT them as untrusted data with an explicit
+  // instruction hierarchy — the agent must never execute feedback text as
+  // commands. Secrets are redacted inside `delimitUntrustedFeedback`.
   const lines = [
-    item.description || "_(no description provided)_",
+    item.description ? delimitUntrustedFeedback(item.description) : "_(no description provided)_",
     "",
     "---",
     `**Auto-triaged from feedback** · ${triage.classification} · severity **${triage.severity}** · effort **${triage.effort}** · ${triage.source === "ai" ? "AI-classified" : "heuristic"}`,
@@ -300,7 +320,10 @@ export async function runFeedbackRemediation(
     delivered: 0,
     scanned: 0,
     skippedNoTarget: 0,
+    held: 0,
+    rejected: 0,
     items: [],
+    flagged: [],
   });
 
   const org = await prisma.organization.findUnique({
@@ -386,10 +409,29 @@ export async function runFeedbackRemediation(
   const authorNameById = new Map(authors.map((u) => [u.id, u.displayName || u.email]));
 
   const delivered: RemediationSummary["items"] = [];
+  const flagged: RemediationSummary["flagged"] = [];
   const byProject = new Map<string, { key: string; count: number }>();
   let skippedNoTarget = 0;
 
   for (const item of pending) {
+    // INTAKE GUARDRAIL (COSMOS-112 §A, Phase 1) — runs on EVERY item BEFORE it can
+    // become a work item. All feedback is untrusted input: prompt-injection /
+    // agent-manipulation, malicious/sabotage intent, pasted secrets, and
+    // high-risk touch zones are pulled out of the autonomous build path and
+    // routed to the human review queue; content-safety violations are rejected.
+    // Deterministic + pure, so the security gate holds even when AI triage is down.
+    const guardrail = scanFeedback({ title: item.title, description: item.description });
+    if (guardrail.decision !== "allow") {
+      await parkFlaggedFeedback(org, item, guardrail, opts.actorUserId);
+      flagged.push({
+        feedbackId: item.id,
+        decision: guardrail.decision,
+        categories: guardrail.categories,
+        score: guardrail.score,
+      });
+      continue;
+    }
+
     // Route BEFORE triaging: an item with no resolvable target never needs an
     // (expensive) AI call — it's left undelivered for a later run either way.
     const targetId = resolveDeliveryTarget(item.projectId, autoRemediation.projectIds, autoRemediation.defaultProjectId);
@@ -540,5 +582,114 @@ export async function runFeedbackRemediation(
     );
   }
 
-  return { delivered: delivered.length, scanned: pending.length, skippedNoTarget, items: delivered };
+  return {
+    delivered: delivered.length,
+    scanned: pending.length,
+    skippedNoTarget,
+    held: flagged.filter((f) => f.decision === "hold").length,
+    rejected: flagged.filter((f) => f.decision === "reject").length,
+    items: delivered,
+    flagged,
+  };
+}
+
+/**
+ * A feedback item the intake guardrail flagged — pull it OUT of the autonomous
+ * build path and into the human review queue (COSMOS-112 §A/§D). NEVER creates a
+ * work item:
+ *   - `hold`   → status IN_REVIEW (a human security review; distinct from the
+ *                build queue) so it drops out of the OPEN "to-deliver" scan and
+ *                the run is idempotent.
+ *   - `reject` → status DECLINED (content-safety violation; not actionable).
+ * The full guardrail verdict (decision + categories + score + reason) is stored
+ * on `triage.guardrail`, audit-logged for accountability, and surfaced back to
+ * the submitter. Every write is best-effort/guarded — a logging or notify hiccup
+ * must never abort the run or re-flag the item on the next pass.
+ */
+async function parkFlaggedFeedback(
+  org: { id: string; slug: string },
+  item: { id: string; title: string; type: "BUG" | "FEATURE"; authorId: string },
+  guardrail: GuardrailResult,
+  actorUserId: string,
+): Promise<void> {
+  const nextStatus = guardrail.decision === "reject" ? "DECLINED" : "IN_REVIEW";
+  try {
+    await prisma.feedbackItem.update({
+      where: { id: item.id },
+      data: {
+        // The status change alone makes the run idempotent: the poller only ever
+        // scans `status: "OPEN"`, so IN_REVIEW / DECLINED items drop out and are
+        // never re-picked. `deliveredAt` is deliberately LEFT NULL — a flagged
+        // item was never delivered into the backlog, and stamping it would
+        // mis-count it as "delivered" in the Teams digest / metrics.
+        status: nextStatus,
+        triage: {
+          guardrail: {
+            decision: guardrail.decision,
+            categories: guardrail.categories,
+            score: guardrail.score,
+            reason: guardrail.reason,
+            findings: guardrail.findings.map((f) => ({ category: f.category, label: f.label })),
+          },
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } catch {
+    // If we can't persist the decision, do NOT log/notify — a later run will
+    // re-evaluate the still-OPEN item deterministically.
+    return;
+  }
+
+  // Audit EVERY intake decision for accountability (COSMOS-112 §D).
+  try {
+    await logAudit({
+      orgId: org.id,
+      userId: actorUserId,
+      action: guardrail.decision === "reject" ? "feedback.intake_rejected" : "feedback.intake_flagged",
+      entity: "feedback_item",
+      entityId: item.id,
+      metadata: {
+        decision: guardrail.decision,
+        categories: guardrail.categories.join(","),
+        score: String(guardrail.score),
+        reason: guardrail.reason,
+      } as Record<string, string>,
+    });
+  } catch {
+    /* audit is best-effort */
+  }
+
+  try {
+    publishToOrg(org.id, "feedback.flagged", {
+      feedbackId: item.id,
+      decision: guardrail.decision,
+      categories: guardrail.categories,
+    });
+  } catch {
+    /* realtime is best-effort */
+  }
+
+  // Tell the submitter what happened — without echoing their (possibly
+  // secret-bearing) text back. A held item is "under review", a rejected one is
+  // declined for a policy reason.
+  try {
+    await createNotification({
+      orgId: org.id,
+      userId: item.authorId,
+      type: guardrail.decision === "reject" ? "feedback.rejected" : "feedback.flagged",
+      title:
+        guardrail.decision === "reject"
+          ? `Your ${item.type === "BUG" ? "bug report" : "feature request"} couldn't be accepted`
+          : `Your ${item.type === "BUG" ? "bug report" : "feature request"} needs a human review`,
+      message:
+        guardrail.decision === "reject"
+          ? `"${item.title}" was declined by our content-safety check and won't be actioned automatically.`
+          : `"${item.title}" was routed to a human reviewer before any automated work — our intake safety check flagged it for a closer look.`,
+      relatedId: item.id,
+      relatedType: "feedback_item",
+      url: `/${org.slug}/feedback`,
+    });
+  } catch {
+    /* reporter notification is best-effort */
+  }
 }
