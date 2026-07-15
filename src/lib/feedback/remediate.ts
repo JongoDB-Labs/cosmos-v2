@@ -13,6 +13,12 @@ import {
   type GuardrailResult,
 } from "@/lib/feedback/guardrails";
 import { judgeFeedbackSecurity, raiseWithJudge } from "@/lib/feedback/security-judge";
+import {
+  planIntake,
+  readIntakeLimits,
+  throttleMessage,
+  type ThrottleReason,
+} from "@/lib/feedback/rate-limits";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -61,8 +67,14 @@ export interface RemediationSummary {
   // work item.
   held: number;
   rejected: number;
+  // Intake rate-limit / abuse-throttle outcomes (COSMOS-119, Phase 3a): items a
+  // per-user / per-org / queue-depth / build-budget cap or the near-duplicate
+  // flood throttle held BACK this run. They stay OPEN (never delivered, never
+  // flagged) and a later run re-evaluates them once capacity frees.
+  throttled: number;
   items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
   flagged: { feedbackId: string; decision: "hold" | "reject"; categories: string[]; score: number }[];
+  throttledItems: { feedbackId: string; reason: ThrottleReason }[];
 }
 
 /** A project resolved as a valid delivery destination this run: it's in scope,
@@ -323,8 +335,10 @@ export async function runFeedbackRemediation(
     skippedNoTarget: 0,
     held: 0,
     rejected: 0,
+    throttled: 0,
     items: [],
     flagged: [],
+    throttledItems: [],
   });
 
   const org = await prisma.organization.findUnique({
@@ -392,6 +406,9 @@ export async function runFeedbackRemediation(
       voteCount: true,
       projectId: true,
       authorId: true,
+      // Needed to detect whether an item was ALREADY told it's queued, so a
+      // still-throttled item on a later run isn't re-notified every pass.
+      triage: true,
     },
   });
 
@@ -409,12 +426,50 @@ export async function runFeedbackRemediation(
     : [];
   const authorNameById = new Map(authors.map((u) => [u.id, u.displayName || u.email]));
 
+  // INTAKE RATE-LIMITS + ABUSE THROTTLING (COSMOS-119, Phase 3a) — decide which
+  // candidates this run may admit BEFORE any (expensive) triage / security-judge
+  // model call, so a per-user / per-org / queue-depth / build-budget cap or a
+  // near-duplicate flood can't turn the whole OPEN backlog into work items and
+  // starve everyone else of build capacity. Deterministic + pure; the caps hold
+  // even when the model is down. `pending` is already in priority order (votes
+  // desc, age asc), so under contention the highest-signal items win the slots.
+  //
+  // Queue-depth = the org's in-flight build queue: items already delivered into
+  // the backlog (deliveredAt set) that haven't reached DONE/DECLINED yet. Guardrail
+  // -parked items (IN_REVIEW with deliveredAt still null) are NOT counted — they
+  // never entered the build path.
+  const queueDepth = await prisma.feedbackItem.count({
+    where: { orgId, deliveredAt: { not: null }, status: { in: ["PLANNED", "IN_PROGRESS", "IN_REVIEW"] } },
+  });
+  const limits = readIntakeLimits(org.settings);
+  const plan = planIntake(
+    pending.map((i) => ({ id: i.id, authorId: i.authorId, type: i.type, title: i.title, description: i.description })),
+    { queueDepth },
+    limits,
+  );
+  const admittedIds = new Set(plan.admit);
+  const throttleReasonById = new Map(plan.throttled.map((t) => [t.id, t.reason]));
+
+  // Hold the throttled items back: leave them OPEN (a later run re-evaluates once
+  // capacity frees) and tell the submitter ONCE that their request is queued.
+  const throttledItems: RemediationSummary["throttledItems"] = [];
+  for (const item of pending) {
+    const reason = throttleReasonById.get(item.id);
+    if (!reason) continue;
+    throttledItems.push({ feedbackId: item.id, reason });
+    await notifyThrottledFeedback(org, item, reason, opts.actorUserId);
+  }
+
   const delivered: RemediationSummary["items"] = [];
   const flagged: RemediationSummary["flagged"] = [];
   const byProject = new Map<string, { key: string; count: number }>();
   let skippedNoTarget = 0;
 
   for (const item of pending) {
+    // Throttled this run — held back for a later pass (see the rate-limit plan
+    // above). Never runs the guardrail / triage / delivery below.
+    if (!admittedIds.has(item.id)) continue;
+
     // INTAKE GUARDRAIL (COSMOS-112 §A, Phase 1) — runs on EVERY item BEFORE it can
     // become a work item. All feedback is untrusted input: prompt-injection /
     // agent-manipulation, malicious/sabotage intent, pasted secrets, and
@@ -607,9 +662,80 @@ export async function runFeedbackRemediation(
     skippedNoTarget,
     held: flagged.filter((f) => f.decision === "hold").length,
     rejected: flagged.filter((f) => f.decision === "reject").length,
+    throttled: throttledItems.length,
     items: delivered,
     flagged,
+    throttledItems,
   };
+}
+
+/**
+ * An item held back by an intake rate-limit / abuse throttle (COSMOS-119). Unlike
+ * a guardrail park, this is NOT a safety decision and NOT terminal: the item stays
+ * OPEN with `deliveredAt` NULL, so a later run picks it up automatically once
+ * capacity frees. We only tell the submitter ONCE — a `triage.throttle` marker
+ * records that we already did, so a still-throttled item isn't re-notified every
+ * pass. Every write is best-effort/guarded — a notify or audit hiccup must never
+ * abort the run.
+ */
+async function notifyThrottledFeedback(
+  org: { id: string; slug: string },
+  item: { id: string; title: string; type: "BUG" | "FEATURE"; authorId: string; triage: Prisma.JsonValue },
+  reason: ThrottleReason,
+  actorUserId: string,
+): Promise<void> {
+  // Idempotent notification: skip if we already told this submitter it's queued.
+  const existing = (item.triage ?? null) as { throttle?: unknown } | null;
+  const alreadyNotified = !!(existing && typeof existing === "object" && existing.throttle);
+  if (alreadyNotified) return;
+
+  try {
+    await prisma.feedbackItem.update({
+      where: { id: item.id },
+      data: {
+        // Record the throttle WITHOUT changing status or stamping deliveredAt —
+        // the item must remain in the OPEN "to-deliver" scan for the next run.
+        triage: { throttle: { reason } } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } catch {
+    // If we can't persist the marker, don't notify — a later run retries cleanly.
+    return;
+  }
+
+  try {
+    await logAudit({
+      orgId: org.id,
+      userId: actorUserId,
+      action: "feedback.intake_throttled",
+      entity: "feedback_item",
+      entityId: item.id,
+      metadata: { reason } as Record<string, string>,
+    });
+  } catch {
+    /* audit is best-effort */
+  }
+
+  try {
+    publishToOrg(org.id, "feedback.throttled", { feedbackId: item.id, reason });
+  } catch {
+    /* realtime is best-effort */
+  }
+
+  try {
+    await createNotification({
+      orgId: org.id,
+      userId: item.authorId,
+      type: "feedback.throttled",
+      title: `Your ${item.type === "BUG" ? "bug report" : "feature request"} is queued`,
+      message: `"${item.title}" is queued — ${throttleMessage(reason)}.`,
+      relatedId: item.id,
+      relatedType: "feedback_item",
+      url: `/${org.slug}/feedback`,
+    });
+  } catch {
+    /* reporter notification is best-effort */
+  }
 }
 
 /**
