@@ -13,7 +13,18 @@ import {
   type GuardrailResult,
 } from "@/lib/feedback/guardrails";
 import { judgeFeedbackSecurity, raiseWithJudge } from "@/lib/feedback/security-judge";
-import type { Prisma } from "@prisma/client";
+import {
+  planIntake,
+  readIntakeLimits,
+  throttleMessage,
+  type ThrottleReason,
+} from "@/lib/feedback/rate-limits";
+import {
+  canRoleAutoTrigger,
+  readRoleGateConfig,
+  roleGateMessage,
+} from "@/lib/feedback/role-gating";
+import type { OrgRole, Prisma } from "@prisma/client";
 
 /**
  * Auto-remediation loop (FR 695aa097) — the in-app half.
@@ -61,8 +72,20 @@ export interface RemediationSummary {
   // work item.
   held: number;
   rejected: number;
+  // Intake rate-limit / abuse-throttle outcomes (COSMOS-119, Phase 3a): items a
+  // per-user / per-org / queue-depth / build-budget cap or the near-duplicate
+  // flood throttle held BACK this run. They stay OPEN (never delivered, never
+  // flagged) and a later run re-evaluates them once capacity frees.
+  throttled: number;
+  // Role-based auto-trigger gating (COSMOS-120, Phase 3b): items whose submitter's
+  // org role isn't cleared to auto-trigger a build (e.g. GUEST / VIEWER, or a
+  // submitter whose membership no longer resolves). Routed to the human triage
+  // queue (IN_REVIEW) instead of the autonomous build path — never a work item.
+  gated: number;
   items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
   flagged: { feedbackId: string; decision: "hold" | "reject"; categories: string[]; score: number }[];
+  throttledItems: { feedbackId: string; reason: ThrottleReason }[];
+  gatedItems: { feedbackId: string; role: OrgRole | null }[];
 }
 
 /** A project resolved as a valid delivery destination this run: it's in scope,
@@ -323,8 +346,12 @@ export async function runFeedbackRemediation(
     skippedNoTarget: 0,
     held: 0,
     rejected: 0,
+    throttled: 0,
+    gated: 0,
     items: [],
     flagged: [],
+    throttledItems: [],
+    gatedItems: [],
   });
 
   const org = await prisma.organization.findUnique({
@@ -335,6 +362,11 @@ export async function runFeedbackRemediation(
 
   const { autoRemediation } = readAutomationConfig(org.settings);
   if (!autoRemediation.enabled || autoRemediation.projectIds.length === 0) return empty("not-enabled");
+
+  // ROLE-BASED AUTO-TRIGGER GATING (COSMOS-120, Phase 3b) — which submitter roles
+  // may auto-trigger a build vs. route to human triage first. Configurable per
+  // org (settings.autoTriggerRoles); default is members-and-above.
+  const roleGate = readRoleGateConfig(org.settings);
 
   // Gate on a connected model provider (per maintainer directive): the loop must
   // NOT deliver on the heuristic fallback — that produced low-signal tickets when
@@ -392,6 +424,9 @@ export async function runFeedbackRemediation(
       voteCount: true,
       projectId: true,
       authorId: true,
+      // Needed to detect whether an item was ALREADY told it's queued, so a
+      // still-throttled item on a later run isn't re-notified every pass.
+      triage: true,
     },
   });
 
@@ -409,12 +444,65 @@ export async function runFeedbackRemediation(
     : [];
   const authorNameById = new Map(authors.map((u) => [u.id, u.displayName || u.email]));
 
+  // Resolve each submitter's ORG ROLE for the role-based auto-trigger gate
+  // (COSMOS-120). A lean select — `userId` + `role` only — never touches
+  // OrgMember.permissions (the decimal-string bitmask). A submitter with no
+  // membership row (left the org after filing) is absent from the map → treated
+  // as lowest-trust by the gate and routed to human triage.
+  const memberRoleByUserId = new Map<string, OrgRole>();
+  if (authorIds.length) {
+    const members = await prisma.orgMember.findMany({
+      where: { orgId, userId: { in: authorIds } },
+      select: { userId: true, role: true },
+    });
+    for (const m of members) memberRoleByUserId.set(m.userId, m.role);
+  }
+
+  // INTAKE RATE-LIMITS + ABUSE THROTTLING (COSMOS-119, Phase 3a) — decide which
+  // candidates this run may admit BEFORE any (expensive) triage / security-judge
+  // model call, so a per-user / per-org / queue-depth / build-budget cap or a
+  // near-duplicate flood can't turn the whole OPEN backlog into work items and
+  // starve everyone else of build capacity. Deterministic + pure; the caps hold
+  // even when the model is down. `pending` is already in priority order (votes
+  // desc, age asc), so under contention the highest-signal items win the slots.
+  //
+  // Queue-depth = the org's in-flight build queue: items already delivered into
+  // the backlog (deliveredAt set) that haven't reached DONE/DECLINED yet. Guardrail
+  // -parked items (IN_REVIEW with deliveredAt still null) are NOT counted — they
+  // never entered the build path.
+  const queueDepth = await prisma.feedbackItem.count({
+    where: { orgId, deliveredAt: { not: null }, status: { in: ["PLANNED", "IN_PROGRESS", "IN_REVIEW"] } },
+  });
+  const limits = readIntakeLimits(org.settings);
+  const plan = planIntake(
+    pending.map((i) => ({ id: i.id, authorId: i.authorId, type: i.type, title: i.title, description: i.description })),
+    { queueDepth },
+    limits,
+  );
+  const admittedIds = new Set(plan.admit);
+  const throttleReasonById = new Map(plan.throttled.map((t) => [t.id, t.reason]));
+
+  // Hold the throttled items back: leave them OPEN (a later run re-evaluates once
+  // capacity frees) and tell the submitter ONCE that their request is queued.
+  const throttledItems: RemediationSummary["throttledItems"] = [];
+  for (const item of pending) {
+    const reason = throttleReasonById.get(item.id);
+    if (!reason) continue;
+    throttledItems.push({ feedbackId: item.id, reason });
+    await notifyThrottledFeedback(org, item, reason, opts.actorUserId);
+  }
+
   const delivered: RemediationSummary["items"] = [];
   const flagged: RemediationSummary["flagged"] = [];
+  const gatedItems: RemediationSummary["gatedItems"] = [];
   const byProject = new Map<string, { key: string; count: number }>();
   let skippedNoTarget = 0;
 
   for (const item of pending) {
+    // Throttled this run — held back for a later pass (see the rate-limit plan
+    // above). Never runs the guardrail / triage / delivery below.
+    if (!admittedIds.has(item.id)) continue;
+
     // INTAKE GUARDRAIL (COSMOS-112 §A, Phase 1) — runs on EVERY item BEFORE it can
     // become a work item. All feedback is untrusted input: prompt-injection /
     // agent-manipulation, malicious/sabotage intent, pasted secrets, and
@@ -423,22 +511,46 @@ export async function runFeedbackRemediation(
     // Deterministic + pure, so the security gate holds even when AI triage is down.
     let guardrail = scanFeedback({ title: item.title, description: item.description });
 
+    // The deterministic gate is authoritative first: a content-safety reject or a
+    // regex hold pulls the item out of the build path immediately (and records the
+    // specific security reason), before the role gate or the AI judge run.
+    if (guardrail.decision !== "allow") {
+      await parkFlaggedFeedback(org, item, guardrail, opts.actorUserId);
+      flagged.push({
+        feedbackId: item.id,
+        decision: guardrail.decision,
+        categories: guardrail.categories,
+        score: guardrail.score,
+      });
+      continue;
+    }
+
+    // ROLE-BASED AUTO-TRIGGER GATE (COSMOS-120, Phase 3b) — the item is benign, but
+    // a lower-trust submitter (GUEST / VIEWER, or one whose membership no longer
+    // resolves) doesn't get to auto-trigger a build: route it to human triage
+    // (IN_REVIEW) first. Runs BEFORE the (expensive) AI security-judge and delivery,
+    // so a gated item never burns a model call. Configurable per org.
+    const role = memberRoleByUserId.get(item.authorId) ?? null;
+    if (!canRoleAutoTrigger(role, roleGate)) {
+      await parkForHumanTriage(org, item, role, opts.actorUserId);
+      gatedItems.push({ feedbackId: item.id, role });
+      continue;
+    }
+
     // SECONDARY, HIGHER-RECALL LAYER (COSMOS-117) — an optional LLM security-judge
     // on Foreman's own subscription runs AFTER the deterministic gate to catch
     // sophisticated injection / malicious intent the regex missed, RAISING a
     // would-be "allow" to "hold". Fail-safe: on model outage / no subscription /
     // malformed output the verdict is null and the deterministic decision stands
     // (never fail-open). The structural delimiter remains the primary control.
-    if (guardrail.decision === "allow") {
-      const verdict = await judgeFeedbackSecurity({
-        orgId,
-        tenantClass,
-        title: item.title,
-        description: item.description,
-        feedbackId: item.id,
-      });
-      guardrail = raiseWithJudge(guardrail, verdict);
-    }
+    const verdict = await judgeFeedbackSecurity({
+      orgId,
+      tenantClass,
+      title: item.title,
+      description: item.description,
+      feedbackId: item.id,
+    });
+    guardrail = raiseWithJudge(guardrail, verdict);
 
     if (guardrail.decision !== "allow") {
       await parkFlaggedFeedback(org, item, guardrail, opts.actorUserId);
@@ -607,9 +719,162 @@ export async function runFeedbackRemediation(
     skippedNoTarget,
     held: flagged.filter((f) => f.decision === "hold").length,
     rejected: flagged.filter((f) => f.decision === "reject").length,
+    throttled: throttledItems.length,
+    gated: gatedItems.length,
     items: delivered,
     flagged,
+    throttledItems,
+    gatedItems,
   };
+}
+
+/**
+ * An item held back by an intake rate-limit / abuse throttle (COSMOS-119). Unlike
+ * a guardrail park, this is NOT a safety decision and NOT terminal: the item stays
+ * OPEN with `deliveredAt` NULL, so a later run picks it up automatically once
+ * capacity frees. We only tell the submitter ONCE — a `triage.throttle` marker
+ * records that we already did, so a still-throttled item isn't re-notified every
+ * pass. Every write is best-effort/guarded — a notify or audit hiccup must never
+ * abort the run.
+ */
+async function notifyThrottledFeedback(
+  org: { id: string; slug: string },
+  item: { id: string; title: string; type: "BUG" | "FEATURE"; authorId: string; triage: Prisma.JsonValue },
+  reason: ThrottleReason,
+  actorUserId: string,
+): Promise<void> {
+  // Idempotent notification: skip if we already told this submitter it's queued.
+  const existing = (item.triage ?? null) as { throttle?: unknown } | null;
+  const alreadyNotified = !!(existing && typeof existing === "object" && existing.throttle);
+  if (alreadyNotified) return;
+
+  try {
+    await prisma.feedbackItem.update({
+      where: { id: item.id },
+      data: {
+        // Record the throttle WITHOUT changing status or stamping deliveredAt —
+        // the item must remain in the OPEN "to-deliver" scan for the next run.
+        triage: { throttle: { reason } } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } catch {
+    // If we can't persist the marker, don't notify — a later run retries cleanly.
+    return;
+  }
+
+  try {
+    await logAudit({
+      orgId: org.id,
+      userId: actorUserId,
+      action: "feedback.intake_throttled",
+      entity: "feedback_item",
+      entityId: item.id,
+      metadata: { reason } as Record<string, string>,
+    });
+  } catch {
+    /* audit is best-effort */
+  }
+
+  try {
+    publishToOrg(org.id, "feedback.throttled", { feedbackId: item.id, reason });
+  } catch {
+    /* realtime is best-effort */
+  }
+
+  try {
+    await createNotification({
+      orgId: org.id,
+      userId: item.authorId,
+      type: "feedback.throttled",
+      title: `Your ${item.type === "BUG" ? "bug report" : "feature request"} is queued`,
+      message: `"${item.title}" is queued — ${throttleMessage(reason)}.`,
+      relatedId: item.id,
+      relatedType: "feedback_item",
+      url: `/${org.slug}/feedback`,
+    });
+  } catch {
+    /* reporter notification is best-effort */
+  }
+}
+
+/**
+ * A benign feedback item whose submitter's org role isn't cleared to auto-trigger
+ * a build (COSMOS-120, Phase 3b) — pull it OUT of the autonomous build path and
+ * into the HUMAN TRIAGE queue, where a person decides whether it becomes work.
+ * Distinct from a guardrail park: this is a TRUST decision about the submitter, not
+ * a safety decision about the content. NEVER creates a work item and NEVER stamps
+ * `deliveredAt`:
+ *   - status → IN_REVIEW so the item drops out of the OPEN "to-deliver" scan and
+ *     the run stays idempotent (a later run won't re-gate it).
+ * The gate decision (the submitter's role) is recorded on `triage.roleGate`,
+ * audit-logged for accountability, and surfaced to the submitter as "a human will
+ * look first". Every write is best-effort/guarded — a logging or notify hiccup
+ * must never abort the run.
+ */
+async function parkForHumanTriage(
+  org: { id: string; slug: string },
+  item: { id: string; title: string; type: "BUG" | "FEATURE"; authorId: string },
+  role: OrgRole | null,
+  actorUserId: string,
+): Promise<void> {
+  try {
+    await prisma.feedbackItem.update({
+      where: { id: item.id },
+      data: {
+        // The status change alone makes the run idempotent (the poller only scans
+        // status: "OPEN"). deliveredAt is deliberately LEFT NULL — a gated item was
+        // never delivered into the backlog.
+        status: "IN_REVIEW",
+        triage: {
+          roleGate: {
+            decision: "human-triage",
+            role: role ?? "none",
+            reason: `Submitter role ${role ?? "none"} is not cleared to auto-trigger a build.`,
+          },
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } catch {
+    // If we can't persist the decision, do NOT log/notify — a later run re-evaluates
+    // the still-OPEN item deterministically.
+    return;
+  }
+
+  try {
+    await logAudit({
+      orgId: org.id,
+      userId: actorUserId,
+      action: "feedback.auto_trigger_gated",
+      entity: "feedback_item",
+      entityId: item.id,
+      metadata: { role: role ?? "none" } as Record<string, string>,
+    });
+  } catch {
+    /* audit is best-effort */
+  }
+
+  try {
+    publishToOrg(org.id, "feedback.gated", { feedbackId: item.id, role: role ?? null });
+  } catch {
+    /* realtime is best-effort */
+  }
+
+  // Tell the submitter their request went to a human first — without echoing their
+  // (possibly secret-bearing) text back, and without naming internal roles.
+  try {
+    await createNotification({
+      orgId: org.id,
+      userId: item.authorId,
+      type: "feedback.gated",
+      title: `Your ${item.type === "BUG" ? "bug report" : "feature request"} needs a human review`,
+      message: `"${item.title}" was routed to a teammate — ${roleGateMessage()}.`,
+      relatedId: item.id,
+      relatedType: "feedback_item",
+      url: `/${org.slug}/feedback`,
+    });
+  } catch {
+    /* reporter notification is best-effort */
+  }
 }
 
 /**
