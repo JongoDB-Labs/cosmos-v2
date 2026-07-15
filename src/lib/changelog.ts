@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.205.0",
+    date: "2026-07-15",
+    title: "On-demand AI analysis of pending changes + smarter release versioning",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each item awaiting approval now has an AI Analysis action that checks the built change against the original ticket's requirements and acceptance criteria, returning a per-criterion met/partial/missing report with gaps and risks, cached per revision. Items with no built change disable the action.",
+      },
+      {
+        kind: "improvement",
+        text: "Automatic release versioning now follows SemVer intent even when a change has to be rebased before merging: feature work bumps the minor version and bug fixes bump the patch version, instead of defaulting everything to a patch.",
+      },
+    ],
+  },
+  {
     version: "2.204.8",
     date: "2026-07-15",
     title: "Reliable delivery of multi-phase changes",

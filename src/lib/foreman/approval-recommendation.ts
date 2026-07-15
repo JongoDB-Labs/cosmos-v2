@@ -128,8 +128,10 @@ interface PrTarget {
   number: number;
 }
 
-/** GET the PR JSON → its head SHA + title/body (the head SHA is the cache key). */
-async function fetchPr(
+/** GET the PR JSON → its head SHA + title/body (the head SHA is the cache key).
+ *  Exported so the sibling requirements-analysis module (COSMOS-116) reuses the
+ *  exact same read-only GitHub plumbing rather than duplicating it. */
+export async function fetchPr(
   fetchImpl: FetchLike,
   token: string,
   t: PrTarget,
@@ -150,8 +152,9 @@ async function fetchPr(
   };
 }
 
-/** GET the unified diff for the PR (truncated), or "" on failure. */
-async function fetchDiff(fetchImpl: FetchLike, token: string, t: PrTarget): Promise<string> {
+/** GET the unified diff for the PR (truncated), or "" on failure. Exported for
+ *  reuse by the requirements-analysis module (COSMOS-116). */
+export async function fetchDiff(fetchImpl: FetchLike, token: string, t: PrTarget): Promise<string> {
   const res = await fetchImpl(
     `https://api.github.com/repos/${encodeURIComponent(t.owner)}/${encodeURIComponent(t.repo)}/pulls/${t.number}`,
     { method: "GET", headers: ghHeaders(token, "application/vnd.github.diff") },
