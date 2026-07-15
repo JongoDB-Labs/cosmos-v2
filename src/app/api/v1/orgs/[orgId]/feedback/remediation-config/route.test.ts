@@ -251,6 +251,42 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
     expect(JSON.stringify(body)).not.toContain("permissions");
   });
 
+  it("persists the picker's Parallel-builds count (autonomousDelivery.workers = N) — non-default value round-trips", async () => {
+    // COSMOS-110: the picker sends workers=N in the PUT body; the route must
+    // persist exactly that into Organization.settings (not silently fall back to
+    // the zod default). Using a NON-default value (3) is deliberate — a value of
+    // 2 would be masked by `workers: z.number()...default(2)` even if the route
+    // dropped the field, so it couldn't catch the reported "no workers key /
+    // wrong worker cap" regression. 3 can only come from the body.
+    const body = {
+      autoRemediation: { enabled: false, projectIds: [], defaultProjectId: null },
+      autonomousDelivery: { enabled: true, projectIds: [PROJECT_A], notify: { parked: true, shipped: true }, workers: 3 },
+    };
+    const putRes = await PUT(put(body), { params });
+    expect(putRes.status).toBe(200);
+    expect((await putRes.json()).autonomousDelivery.workers).toBe(3);
+
+    // Landed in the stored settings blob…
+    const stored = prisma.organization.update.mock.calls[0][0].data.settings as {
+      autonomousDelivery: { workers: number };
+    };
+    expect(stored.autonomousDelivery.workers).toBe(3);
+
+    // …and a subsequent GET reads it back as 3 (visible in org settings — AC #1).
+    const getRes = await GET(get(), { params });
+    expect((await getRes.json()).autonomousDelivery.workers).toBe(3);
+  });
+
+  it("normalizes a legacy autonomousDelivery body with no workers key to the safe default (2) on GET", async () => {
+    // The exact shape observed in the wild: enabled + projectIds, no `workers`.
+    // GET must surface a finite in-range default (2) rather than undefined/NaN,
+    // so the picker + the daemon's worker target never read a broken value.
+    orgSettings = { autonomousDelivery: { enabled: true, projectIds: [PROJECT_A] } };
+    const res = await GET(get(), { params });
+    expect(res.status).toBe(200);
+    expect((await res.json()).autonomousDelivery.workers).toBe(2);
+  });
+
   it("GET normalizes a legacy single-project settings shape (back-compat via automation-config)", async () => {
     orgSettings = { autoRemediation: { enabled: true, targetProjectId: PROJECT_A } };
     const res = await GET(get(), { params });
