@@ -584,7 +584,11 @@ async function processOne(
       let prUrl: string | undefined;
       if (!DRY) {
         await ship.pushBranch(branch);
-        prUrl = await ship.openPr(
+        // ensurePr, not openPr: on a REBUILD the branch is reused and the prior
+        // park's PR may still be OPEN — a bare `gh pr create` throws ("a pull
+        // request for branch … already exists") and leaves the card stuck
+        // in-progress. ensurePr updates the existing PR instead when one exists.
+        prUrl = await ship.ensurePr(
           branch,
           `auto: ${key} (review — ${reason})`.slice(0, 250),
           `Automated draft for ${key}. Reason parked: ${reason}. Approve = merge; Foreman deploys it on its next pass.`,
@@ -715,14 +719,17 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
     await ship.pushBranch(b.branch).catch(() => undefined);
     let prUrl = "";
     try {
-      prUrl = await ship.openPr(
+      // ensurePr updates an already-open PR (from the build phase or a prior
+      // park) instead of failing on a duplicate create — so the parked card
+      // still records a url for Approve to merge, rather than silently losing it.
+      prUrl = await ship.ensurePr(
         b.branch,
         `auto: ${b.key} (review — ${reason})`.slice(0, 250),
         `Automated draft for ${b.key}. Reason parked: ${reason}. Approve = merge; Foreman deploys it on its next pass.`,
         true,
       );
     } catch {
-      /* PR may already exist from the build phase */
+      /* PR upsert failed (gh/network) — park anyway; reconcile/approve can recover */
     }
     await db.moveColumn(b.itemId, "review");
     await db.comment(
