@@ -69,9 +69,11 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
 const holder: {
   status: ForemanStatusPayload;
   calls: { url: string; method?: string; body?: unknown }[];
+  recommendation: { recommendation: string; rationale: string; cached: boolean };
 } = {
   status: baseStatus(),
   calls: [],
+  recommendation: { recommendation: "approve", rationale: "Diff matches the ticket and checks pass.", cached: false },
 };
 
 vi.mock("@/lib/query/json-fetcher", () => ({
@@ -81,6 +83,9 @@ vi.mock("@/lib/query/json-fetcher", () => ({
       method: opts?.method,
       body: opts?.body ? JSON.parse(opts.body) : undefined,
     });
+    if (url.includes("/foreman/approval-recommendation")) {
+      return Promise.resolve(holder.recommendation);
+    }
     if (url.includes("/foreman/events")) {
       return Promise.resolve({ events: [], nextCursor: null });
     }
@@ -180,15 +185,52 @@ describe("ForemanConsole — awaiting approval", () => {
     });
   }
 
-  it("renders the rework/comment hint on a parked card, distinguishing Rework from Rebuild", async () => {
+  it("renders the AI recommendation badge + rationale on a PR-backed parked card, not the old static explainer", async () => {
     withOneParked();
+    holder.recommendation = {
+      recommendation: "approve",
+      rationale: "Diff matches the ticket and checks pass.",
+      cached: false,
+    };
     renderConsole();
 
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
-    // Copy names the live-prod deploy and contrasts Rework (resumes) vs Rebuild (starts fresh).
-    expect(screen.getByText(/deploys it to live production/i)).toBeInTheDocument();
-    expect(screen.getByText(/resumes the existing\s+build/i)).toBeInTheDocument();
-    expect(screen.getByText(/throws the current build away/i)).toBeInTheDocument();
+    // The AI recommendation (fetched per PR head SHA) replaces the old static
+    // button-description paragraph (button semantics now live in tooltips/
+    // confirmations from COSMOS-109).
+    expect(await screen.findByText("Recommend: Approve")).toBeInTheDocument();
+    expect(screen.getByText("Diff matches the ticket and checks pass.")).toBeInTheDocument();
+    // The removed static explainer text must be gone.
+    expect(screen.queryByText(/throws the current build away/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/resumes the existing\s+build/i)).not.toBeInTheDocument();
+    // It fetched the recommendation endpoint for this item.
+    await waitFor(() =>
+      expect(
+        holder.calls.some((c) => c.url.includes("/foreman/approval-recommendation?workItemId=wi-1")),
+      ).toBe(true),
+    );
+  });
+
+  it("recommends Rebuild (no request) on a card with no PR — nothing was built to approve", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Agent produced no diff.",
+          prUrl: null,
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Agent feedback improvement")).toBeInTheDocument();
+    expect(screen.getByText("Recommend: Rebuild")).toBeInTheDocument();
+    // A no-PR card never calls the analysis endpoint.
+    expect(holder.calls.some((c) => c.url.includes("/foreman/approval-recommendation"))).toBe(false);
   });
 
   it("Approve opens a live-prod deploy confirmation, then POSTs an approve comment on confirm", async () => {

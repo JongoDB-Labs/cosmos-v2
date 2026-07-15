@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.2",
+    date: "2026-07-14",
+    title: "AI approval recommendations in the Foreman console",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every card in the Foreman console's Awaiting-approval list now shows an AI recommendation — Approve, Rework, or Rebuild — with a one-line rationale. For a built change, Foreman reviews the actual pull request (its diff, CI results, and why it was parked) and tells you whether it's ready to ship; for an item that never produced a PR, it recommends Rebuild because there's nothing to approve.",
+      },
+    ],
+  },
+  {
     version: "2.204.1",
     date: "2026-07-14",
     title: "Clearer Foreman console controls",

@@ -14,7 +14,7 @@ import type { EgressContext } from "./types";
 // tracer when no SDK is registered.
 const tracer = trace.getTracer("cosmos.egress");
 
-export type { EgressContext, EgressDecision, TenantClass, ValueKind } from "./types";
+export type { EgressContext, EgressDecision, TenantClass, ValueKind, ModelCredential } from "./types";
 export { isWithheld } from "./types";
 export { projectForModel, sha256Hex } from "./gate";
 export { projectStructural, projectResult, entityTypeForTool, augmentWithHandles, HANDLEABLE_FIELDS } from "./projection";
@@ -43,6 +43,16 @@ export interface RunModelTurnInput {
   model: string;
   maxTokens?: number;
   onTextDelta?: (delta: string) => void;
+  /**
+   * Optional caller-resolved credential. When set, it is used verbatim INSTEAD of
+   * resolving the org's active provider — for callers that must authenticate as a
+   * DEDICATED connection rather than the org/user default (today: Foreman's own
+   * Claude subscription for its console analyses, so its usage doesn't consume a
+   * human seat's token). The value is still passed by value into the stateless
+   * chokepoint; this is not a second egress path — every projection/log step still
+   * runs, only the authentication source differs.
+   */
+  credential?: ModelCredential;
 }
 
 /**
@@ -125,13 +135,19 @@ export async function runModelTurn(input: RunModelTurnInput): Promise<ModelTurnR
       // chokepoint stays stateless + config-blind. A resolution failure must never
       // widen egress: degrade to the env key.
       let credential: ModelCredential | undefined;
-      try {
-        // userId lets the resolver prefer the requesting user's PERSONAL Claude
-        // subscription over the org credential (FR: agent tied to the user's
-        // token). Still resolved here, inside the chokepoint, passed by value.
-        credential = await resolveOrgModelCredential(input.ctx.orgId, input.ctx.userId);
-      } catch {
-        credential = undefined;
+      if (input.credential) {
+        // A caller-supplied credential (e.g. Foreman's own subscription) wins —
+        // authenticate as that connection instead of resolving the org default.
+        credential = input.credential;
+      } else {
+        try {
+          // userId lets the resolver prefer the requesting user's PERSONAL Claude
+          // subscription over the org credential (FR: agent tied to the user's
+          // token). Still resolved here, inside the chokepoint, passed by value.
+          credential = await resolveOrgModelCredential(input.ctx.orgId, input.ctx.userId);
+        } catch {
+          credential = undefined;
+        }
       }
 
       const req: CallModelRequest = {
