@@ -100,9 +100,6 @@ export interface RemediationSummary {
   // feedback that was LINKED to an existing item (votes merged) instead of
   // spawning a second ticket. Never produces a work item.
   duplicates: number;
-  items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
-  flagged: { feedbackId: string; decision: "hold" | "reject"; categories: string[]; score: number }[];
-  throttledItems: { feedbackId: string; reason: ThrottleReason }[];
   duplicateItems: { feedbackId: string; dupOf: string; reason: string }[];
 }
 
@@ -383,9 +380,6 @@ export async function runFeedbackRemediation(
     throttledItems: [],
     gatedItems: [],
     duplicates: 0,
-    items: [],
-    flagged: [],
-    throttledItems: [],
     duplicateItems: [],
   });
 
@@ -861,9 +855,6 @@ export async function runFeedbackRemediation(
     throttledItems,
     gatedItems,
     duplicates: duplicateItems.length,
-    items: delivered,
-    flagged,
-    throttledItems,
     duplicateItems,
   };
 }
