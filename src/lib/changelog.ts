@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.5",
+    date: "2026-07-15",
+    title: "Fair-share limits on automatic feedback triage",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Automatic feedback triage now shares the build queue fairly. Per-person and per-organization limits, an overall queue-depth ceiling, and a build-capacity budget keep any single flurry of requests from monopolizing the automated builders — and re-filing the same request over and over is recognized and collapsed instead of piling up. Anything held back stays open and is picked up automatically as capacity frees, and the person who filed it sees a clear note that their request is queued. Normal-volume feedback is unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.204.4",
     date: "2026-07-15",
     title: "Sharper eye on risky feedback",
