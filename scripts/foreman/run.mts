@@ -33,6 +33,7 @@ import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
+import { aggregateReadiness } from "@/lib/foreman/release-gate";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
@@ -644,6 +645,22 @@ async function processOne(
     processParts.push(`reviewer approved — ${verdict.reason}`);
     const processNote = processParts.join(" · ");
 
+    // ── Coordinated-release gate (COSMOS-118) ────────────────────────────────
+    // If this ticket is a phase child of an epic marked "coordinated", it must NOT
+    // ship on its own — that IS the bug this gate prevents (an epic going out as N
+    // separate version patches). Hold it here: green+approved but parked, with the
+    // epic's aggregate readiness surfaced (never a silent half-release). The batched
+    // single-version release (merge siblings in dependency order, one tag/deploy)
+    // runs via COSMOS-115's decomposition executor once every sibling is ready.
+    // Non-epic tickets and "incremental" epics have no coordinated parent, so they
+    // fall straight through to the ship handoff below and ship per-ticket (AC2).
+    const coord = await db.epicCoordination(item.id).catch(() => null);
+    if (coord && coord.mode === "coordinated") {
+      const summary = aggregateReadiness(coord.mode, coord.siblings);
+      await parkForReview(`held for coordinated release of ${coord.epicKey ?? "its epic"} — ${summary.label}`);
+      return {};
+    }
+
     // SAFE → hand off to the serialized SHIP worker. The agent bumped from the
     // main it branched off; ship re-bumps after rebasing onto CURRENT main.
     log(`${key} SAFE → queued for ship (built v${version})${DRY ? " (DRY)" : ""}`);
@@ -1245,6 +1262,16 @@ async function processResume(
     }
     processParts.push(`reviewer approved — ${verdict.reason}`);
     const processNote = processParts.join(" · ");
+
+    // Coordinated-release gate (COSMOS-118) — same hold as processOne: a phase child
+    // of a "coordinated" epic never ships on its own; re-park it (green+approved,
+    // held) with the epic's aggregate readiness until every sibling is ready.
+    const coord = await db.epicCoordination(m.itemId).catch(() => null);
+    if (coord && coord.mode === "coordinated") {
+      const summary = aggregateReadiness(coord.mode, coord.siblings);
+      await reparkResume(`held for coordinated release of ${coord.epicKey ?? "its epic"} — ${summary.label}`, undefined, processNote);
+      return {};
+    }
 
     // SAFE → hand the EXISTING PR to the serialized ship worker (Built.prUrl set).
     log(`${key} RESUME SAFE → queued for ship (built v${version})`);
