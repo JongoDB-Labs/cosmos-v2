@@ -974,14 +974,29 @@ async function autoRebaseParkedBranch(branch: string): Promise<{ ok: true; versi
       await exec("git", ["-C", wt, "add", "--", ...conflicted]);
       await exec("git", ["-C", wt, "rebase", "--continue"], { env: { ...process.env, GIT_EDITOR: "true" } });
     }
+    // Honor the branch's INTENDED SemVer bump (FEATURE→minor, BUG→patch) rather
+    // than assuming patch — a drifting FEATURE must not be silently downgraded.
+    // The build baked its intent into the branch's version; recover it by comparing
+    // the branch's version to the version at its fork point (merge-base with main).
+    const bumpKind: BumpKind = await (async (): Promise<BumpKind> => {
+      try {
+        const minorOf = (pkg: string): number => parseInt((JSON.parse(pkg) as { version: string }).version.split(".")[1] ?? "0", 10) || 0;
+        const base = (await exec("git", ["-C", REPO, "merge-base", "origin/main", `origin/${ref}`])).stdout.trim();
+        const baseMinor = minorOf((await exec("git", ["-C", REPO, "show", `${base}:package.json`])).stdout);
+        const branchMinor = minorOf((await exec("git", ["-C", REPO, "show", `origin/${ref}:package.json`])).stdout);
+        return branchMinor > baseMinor ? "minor" : "patch";
+      } catch {
+        return "patch";
+      }
+    })();
     // Assign a version strictly above main so the approved change actually ships
     // (a stale/equal version merges but reads "already live" and never deploys —
     // the COSMOS-123 symptom). nextVersion off MAIN, not the branch's stale bump.
     const mainVer = (JSON.parse((await exec("git", ["-C", REPO, "show", "origin/main:package.json"])).stdout) as { version: string }).version;
-    const target = nextVersion(mainVer, "patch");
+    const target = nextVersion(mainVer, bumpKind);
     if (ship.readVersion(wt) !== target) {
       await exec("npm", ["version", target, "--no-git-tag-version"], { cwd: wt });
-      await exec("git", ["-C", wt, "commit", "-aqm", `chore(release): rebase ${ref} onto main → v${target}`]).catch(() => undefined);
+      await exec("git", ["-C", wt, "commit", "-aqm", `chore(release): rebase ${ref} onto main → v${target} (${bumpKind})`]).catch(() => undefined);
     }
     // Tripwire: mechanical version resolution can't change semantics, but a real
     // rebase onto moved code can — tsc is the cheap catch before publish + merge.
