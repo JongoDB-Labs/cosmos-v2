@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus } from "lucide-react";
+import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus, Sparkles } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
 import { ForemanClaudePanel } from "./foreman-claude-panel";
@@ -90,6 +90,9 @@ const CONTROL_TOOLTIP = {
   rebuild: "Discards the current build and starts a fresh pass from scratch (does NOT keep your guidance).",
   rework: "Posts your notes as an @Foreman instruction so the daemon resumes the EXISTING build with your guidance — it does not start over.",
   linkPr: "Opens the GitHub pull request (read-only).",
+  aiAnalysis:
+    "Analyzes this PR's diff against the ticket's requirements and acceptance criteria — per-criterion coverage, gaps, and risks. Runs on Foreman's own subscription.",
+  aiAnalysisDisabled: "Nothing to analyze — the agent produced no pull request.",
 } as const;
 
 const PHASE_VARIANT: Record<InFlightBuild["phase"], BadgeVariant> = {
@@ -196,6 +199,120 @@ function ApprovalRecommendation({
   return <RecRow recommendation={data.recommendation} rationale={data.rationale} />;
 }
 
+/** Per-item AI requirements analysis (COSMOS-116): an expandable report judging
+ *  the PR diff against the ORIGINAL ticket's description + acceptance criteria —
+ *  per-criterion met/partial/missing, gaps, risks, and whether it's complete.
+ *  Fetched on expand and cached server-side per PR head SHA (and client-side for
+ *  5 min) so the 15s status poll never recomputes it. Only mounted for a
+ *  PR-backed card a steward has expanded — no-PR cards disable the trigger. */
+type CriterionStatus = "met" | "partial" | "missing";
+
+interface CriterionAssessment {
+  criterion: string;
+  status: CriterionStatus;
+  note: string;
+}
+
+interface RequirementsAnalysisResponse {
+  summary: string;
+  criteria: CriterionAssessment[];
+  gaps: string[];
+  risks: string[];
+  complete: boolean;
+  cached: boolean;
+}
+
+const CRITERION_LABEL: Record<CriterionStatus, string> = {
+  met: "Met",
+  partial: "Partial",
+  missing: "Missing",
+};
+
+const CRITERION_VARIANT: Record<CriterionStatus, BadgeVariant> = {
+  met: "done",
+  partial: "review",
+  missing: "blocked",
+};
+
+function AnalysisList({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{title}</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-[var(--text-muted)]">
+        {items.map((it, i) => (
+          <li key={i}>{it}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function RequirementsAnalysisPanel({ orgId, workItemId }: { orgId: string; workItemId: string }) {
+  const key = useOrgQueryKey("foreman-requirements-analysis", workItemId);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: key,
+    queryFn: () =>
+      jsonFetch<RequirementsAnalysisResponse>(
+        `/api/v1/orgs/${orgId}/foreman/requirements-analysis?workItemId=${workItemId}`,
+      ),
+    // Cached server-side per PR head SHA; keep the client copy stable across the
+    // 15s status poll rather than re-requesting on every render.
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+
+  const wrap = "mt-3 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 p-3";
+
+  if (isLoading) {
+    return (
+      <div className={cn(wrap, "space-y-2")}>
+        <Skeleton className="h-4 w-64" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <div className={cn(wrap, "text-sm text-[var(--text-muted)]")}>
+        Couldn&apos;t analyze the PR automatically — open it and review the diff against the ticket
+        yourself.
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(wrap, "space-y-3")}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={data.complete ? "done" : "review"} showDot={false} className="shrink-0">
+          {data.complete ? "Complete" : "Incomplete"}
+        </Badge>
+        <span className="text-sm text-[var(--text)]">{data.summary}</span>
+      </div>
+
+      {data.criteria.length > 0 && (
+        <ul className="space-y-1.5">
+          {data.criteria.map((c, i) => (
+            <li key={i} className="flex flex-wrap items-start gap-x-2 gap-y-1">
+              <Badge variant={CRITERION_VARIANT[c.status]} showDot={false} className="shrink-0">
+                {CRITERION_LABEL[c.status]}
+              </Badge>
+              <span className="min-w-0 text-sm text-[var(--text)]">
+                <span className="font-medium">{c.criterion}</span>
+                {c.note ? <span className="text-[var(--text-muted)]"> — {c.note}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <AnalysisList title="Gaps" items={data.gaps} />
+      <AnalysisList title="Risks" items={data.risks} />
+    </div>
+  );
+}
+
 export function ForemanConsole({ orgId }: { orgId: string }) {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const qc = useQueryClient();
@@ -214,6 +331,9 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   // A single shared dialog per action tracks which parked card triggered it.
   const [approveTarget, setApproveTarget] = useState<{ workItemId: string; projectId: string; ticketKey: string | null } | null>(null);
   const [rebuildTarget, setRebuildTarget] = useState<{ workItemId: string; ticketKey: string | null } | null>(null);
+  // Per-card AI Analysis (COSMOS-116): which parked cards have the requirements
+  // report expanded. Keyed by workItemId so several can be open independently.
+  const [analysisOpen, setAnalysisOpen] = useState<Record<string, boolean>>({});
 
   // Pause/resume PUTs the FULL automation config back (both blocks) — same
   // contract as the settings form — flipping only autonomousDelivery.enabled.
@@ -565,6 +685,26 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                               <Button
                                 size="sm"
                                 variant="outline"
+                                disabled={!a.prUrl}
+                                title={!a.prUrl ? CONTROL_TOOLTIP.aiAnalysisDisabled : undefined}
+                                onClick={() =>
+                                  setAnalysisOpen((m) => ({ ...m, [a.workItemId]: !m[a.workItemId] }))
+                                }
+                              />
+                            }
+                          >
+                            <Sparkles className="size-3.5" /> AI Analysis
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {a.prUrl ? CONTROL_TOOLTIP.aiAnalysis : CONTROL_TOOLTIP.aiAnalysisDisabled}
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="sm"
+                                variant="outline"
                                 disabled={rebuild.isPending && rebuild.variables === a.workItemId}
                                 onClick={() =>
                                   setRebuildTarget({ workItemId: a.workItemId, ticketKey: a.ticketKey })
@@ -624,6 +764,9 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                   prUrl={a.prUrl}
                   canSteer={data.actorCanSteer}
                 />
+                {data.actorCanSteer && a.prUrl && analysisOpen[a.workItemId] && (
+                  <RequirementsAnalysisPanel orgId={orgId} workItemId={a.workItemId} />
+                )}
               </li>
             ))}
           </ul>
