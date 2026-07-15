@@ -34,6 +34,7 @@ import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
 import { aggregateReadiness } from "@/lib/foreman/release-gate";
+import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
@@ -90,6 +91,42 @@ const inFlightMeta = new Map<string, InFlightBuild>();
 function setPhase(itemId: string, phase: InFlightBuild["phase"], extra?: { repairRound?: number }): void {
   const cur = inFlightMeta.get(itemId);
   if (cur) inFlightMeta.set(itemId, { ...cur, phase, ...(extra ?? {}) });
+}
+
+// Self-reload after a self-modifying ship (COSMOS-125). tsx loads Foreman's own
+// modules once at boot and never hot-reloads, so a ship that touches
+// scripts/foreman/** or src/lib/foreman/** would keep running the OLD code until
+// a manual restart. When such a ship deploys, `requestSelfRestart` arms this;
+// the control loop then drains in-flight work and exits NON-ZERO so systemd
+// (Restart=on-failure) brings the daemon back on the now-current checkout
+// (mergePr hard-resets the local repo to the merged commit). null = not armed.
+let selfRestart: { version: string; commit: string } | null = null;
+// Restart-loop guard: the commit we last armed a self-restart for, persisted so
+// the guard survives the restart itself and the daemon can't restart-loop on the
+// same shipped commit.
+const RESTART_STAMP = join(REPO, ".deploy/FOREMAN_RESTART_COMMIT");
+
+/** Arm a clean self-restart iff this just-shipped diff touched Foreman's own
+ *  runtime AND we haven't already armed for this commit (once per shipped commit).
+ *  No-op in DRY. Best-effort: a stamp read/write hiccup must never crash a
+ *  completed ship — worst case is one redundant restart, still bounded by the
+ *  idle-gate and the loop guard. */
+function requestSelfRestart(files: string[], version: string, commit: string): void {
+  if (DRY) return;
+  let lastRestartCommit: string | null = null;
+  try {
+    lastRestartCommit = readFileSync(RESTART_STAMP, "utf8").trim() || null;
+  } catch {
+    /* no prior stamp — first self-restart on this host */
+  }
+  if (!shouldArmSelfRestart({ files, shippedCommit: commit, lastRestartCommit })) return;
+  try {
+    writeFileSync(RESTART_STAMP, commit);
+  } catch {
+    /* stamp unwritable — arm anyway; the restart is still idle-gated */
+  }
+  selfRestart = { version, commit };
+  log(`self-restart armed — v${version} (${commit}) touched Foreman runtime; will restart when idle to load the new code`);
 }
 
 function log(msg: string): void {
@@ -883,6 +920,9 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       record({ ticket: b.key, title: b.title, classification: b.classification, resolution: "shipped", version });
       await db.notifyDelivery(b.itemId, "shipped", { key: b.key, title: b.title, version, prUrl: prUrl || undefined });
       log(`${b.key} DONE v${version}`);
+      // If this ship changed Foreman's OWN runtime, the daemon is now serving
+      // stale in-memory code — arm a clean self-restart to reload it (COSMOS-125).
+      requestSelfRestart(finalDiff.files, version, mergedCommit || commit);
       return { deployFailed: false };
     }
     try {
@@ -1656,6 +1696,20 @@ async function main(): Promise<void> {
   try {
     while (!killed()) {
       try {
+        // Self-reload (COSMOS-125): once a self-modifying ship has armed a
+        // restart, stop taking new work and exit the moment the daemon is idle
+        // (in-flight builds AND queued/running ships all drained), so systemd
+        // brings us back on the new code. Deferring on the registry guarantees an
+        // in-flight ship or build is never cut off.
+        if (selfRestart) {
+          if (readyToRestart({ armed: true, inFlightBuilds: inflight.size, inFlightRegistry: inFlightMeta.size })) {
+            log(`self-restart: exiting to load v${selfRestart.version} (${selfRestart.commit}); systemd will bring foreman back on the current code`);
+            break;
+          }
+          // Still draining — wait for a completion (or a short tick) then re-check.
+          await Promise.race([...inflight.values(), shipChain, idleSleep(5_000)]);
+          continue;
+        }
         if (!(await db.autonomyEnabled())) {
           log("autonomy disabled — idle");
           await idleSleep(60_000);
@@ -1893,7 +1947,10 @@ async function main(): Promise<void> {
 // would never exit after a clean shutdown. The lock is already released and
 // "foreman stopped" logged inside main()'s finally before we get here.
 main()
-  .then(() => process.exit(0))
+  // A self-restart exits NON-ZERO on purpose: the systemd unit runs
+  // Restart=on-failure, so exit 0 would stay down (like a graceful/kill/breaker
+  // stop) — only a non-zero exit brings the daemon back, now on the current code.
+  .then(() => process.exit(selfRestart ? 1 : 0))
   .catch((e) => {
     log(`fatal: ${String(e)}`);
     process.exit(1);
