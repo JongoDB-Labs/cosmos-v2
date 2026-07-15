@@ -14,6 +14,16 @@ import {
 } from "@/lib/feedback/guardrails";
 import { judgeFeedbackSecurity, raiseWithJudge } from "@/lib/feedback/security-judge";
 import {
+  detectLowQuality,
+  findFeedbackDuplicate,
+  judgeFeedbackScope,
+  lowQualityResult,
+  duplicateResult,
+  scopeResult,
+  type IntakeResult,
+} from "@/lib/feedback/intake-guardrails";
+import type { Candidate } from "@/lib/foreman/dedup";
+import {
   planIntake,
   readIntakeLimits,
   throttleMessage,
@@ -86,6 +96,26 @@ export interface RemediationSummary {
   flagged: { feedbackId: string; decision: "hold" | "reject"; categories: string[]; score: number }[];
   throttledItems: { feedbackId: string; reason: ThrottleReason }[];
   gatedItems: { feedbackId: string; role: OrgRole | null }[];
+  // Intake duplicate/redundancy outcomes (COSMOS-113, Phase 2): near-duplicate
+  // feedback that was LINKED to an existing item (votes merged) instead of
+  // spawning a second ticket. Never produces a work item.
+  duplicates: number;
+  items: { feedbackId: string; workItemId: string; ticketKey: string; triage: Triage }[];
+  flagged: { feedbackId: string; decision: "hold" | "reject"; categories: string[]; score: number }[];
+  throttledItems: { feedbackId: string; reason: ThrottleReason }[];
+  duplicateItems: { feedbackId: string; dupOf: string; reason: string }[];
+}
+
+/** A dedup candidate — an existing feedback item or an open/recently-shipped work
+ *  item the new feedback is checked against (COSMOS-113). `ref` is a stable token
+ *  echoed by the judge; the discriminator drives how a match is linked/merged. */
+export interface DedupCandidate {
+  ref: string;
+  title: string;
+  kind: "feedback" | "work-item";
+  feedbackId?: string;
+  ticketKey?: string;
+  createdAt: Date;
 }
 
 /** A project resolved as a valid delivery destination this run: it's in scope,
@@ -352,6 +382,11 @@ export async function runFeedbackRemediation(
     flagged: [],
     throttledItems: [],
     gatedItems: [],
+    duplicates: 0,
+    items: [],
+    flagged: [],
+    throttledItems: [],
+    duplicateItems: [],
   });
 
   const org = await prisma.organization.findUnique({
@@ -424,6 +459,10 @@ export async function runFeedbackRemediation(
       voteCount: true,
       projectId: true,
       authorId: true,
+      // Ordering key for intake dedup: a new item is only ever linked to an
+      // OLDER candidate, so two near-duplicate items filed together can't
+      // annihilate each other (the newer one merges into the older).
+      createdAt: true,
       // Needed to detect whether an item was ALREADY told it's queued, so a
       // still-throttled item on a later run isn't re-notified every pass.
       triage: true,
@@ -495,8 +534,63 @@ export async function runFeedbackRemediation(
   const delivered: RemediationSummary["items"] = [];
   const flagged: RemediationSummary["flagged"] = [];
   const gatedItems: RemediationSummary["gatedItems"] = [];
+  const duplicateItems: RemediationSummary["duplicateItems"] = [];
   const byProject = new Map<string, { key: string; count: number }>();
   let skippedNoTarget = 0;
+
+  // INTAKE DUPLICATE POOL (COSMOS-113, Phase 2) — build the candidate set the new
+  // feedback is deduped against ONCE per run: existing feedback (any live status)
+  // plus open / recently-shipped work items. Each carries a stable `ref` the LLM
+  // judge echoes and a discriminator so a match is linked/merged correctly. Only
+  // materialized when something was admitted this run.
+  const dedupPool: DedupCandidate[] = [];
+  if (admittedIds.size > 0) {
+    const recentlyShippedSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const feedbackPool = await prisma.feedbackItem.findMany({
+      where: { orgId, status: { in: ["OPEN", "PLANNED", "IN_PROGRESS", "IN_REVIEW", "DONE"] } },
+      select: { id: true, title: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 400,
+    });
+    const workItemPool = await prisma.workItem.findMany({
+      where: { orgId, updatedAt: { gte: recentlyShippedSince } },
+      // WorkItem has no `project` relation field (only `projectId`), so ticket
+      // keys are resolved via a project-key side lookup below.
+      select: { id: true, title: true, ticketNumber: true, projectId: true, createdAt: true },
+      orderBy: { updatedAt: "desc" },
+      take: 400,
+    });
+    const projectKeyById = new Map<string, string>();
+    if (workItemPool.length > 0) {
+      const keyRows = await prisma.project.findMany({
+        where: { id: { in: [...new Set(workItemPool.map((w) => w.projectId))] } },
+        select: { id: true, key: true },
+      });
+      for (const p of keyRows) projectKeyById.set(p.id, p.key);
+    }
+    for (const f of feedbackPool) {
+      dedupPool.push({ ref: `F:${f.id}`, title: f.title, kind: "feedback", feedbackId: f.id, createdAt: f.createdAt });
+    }
+    for (const w of workItemPool) {
+      const projectKey = projectKeyById.get(w.projectId);
+      if (!projectKey) continue;
+      const ticketKey = `${projectKey}-${w.ticketNumber}`;
+      dedupPool.push({ ref: ticketKey, title: w.title, kind: "work-item", ticketKey, createdAt: w.createdAt });
+    }
+  }
+  const dedupByRef = new Map(dedupPool.map((c) => [c.ref, c]));
+
+  // Candidates for one item: every work item, plus feedback items OLDER than it
+  // (never itself). The older-only rule keeps a duplicate pair deterministic — the
+  // newer of the two is the one linked away.
+  const candidatesFor = (item: { id: string; createdAt: Date }): Candidate[] =>
+    dedupPool
+      .filter(
+        (c) =>
+          c.kind === "work-item" ||
+          (c.feedbackId !== item.id && c.createdAt.getTime() < item.createdAt.getTime()),
+      )
+      .map((c) => ({ ref: c.ref, title: c.title }));
 
   for (const item of pending) {
     // Throttled this run — held back for a later pass (see the rate-limit plan
@@ -563,6 +657,17 @@ export async function runFeedbackRemediation(
       continue;
     }
 
+    // INTAKE QUALITY FLOOR (COSMOS-113, Phase 2) — deterministic reject of empty /
+    // nonsense / spam feedback BEFORE any routing or model call. Pure + free, so
+    // junk never consumes a delivery slot or an AI turn, even when the model is down.
+    const lowQuality = detectLowQuality({ title: item.title, description: item.description });
+    if (lowQuality) {
+      const result = lowQualityResult(lowQuality);
+      await parkFlaggedFeedback(org, item, result, opts.actorUserId);
+      flagged.push({ feedbackId: item.id, decision: "reject", categories: result.categories, score: result.score });
+      continue;
+    }
+
     // Route BEFORE triaging: an item with no resolvable target never needs an
     // (expensive) AI call — it's left undelivered for a later run either way.
     const targetId = resolveDeliveryTarget(item.projectId, autoRemediation.projectIds, autoRemediation.defaultProjectId);
@@ -570,6 +675,36 @@ export async function runFeedbackRemediation(
     if (!target) {
       skippedNoTarget++;
       continue;
+    }
+
+    // INTAKE DUPLICATE + SCOPE (COSMOS-113, Phase 2) — once a target is confirmed,
+    // decide whether this should become a NEW ticket at all. Fail-safe: on model
+    // outage / no Foreman subscription these judges yield unique + actionable, so a
+    // genuine request keeps flowing to normal triage below.
+    //   - duplicate  → link + merge votes into the canonical item (no new ticket)
+    //   - needs-decision / out-of-scope → human review queue (hold)
+    //   - low-quality (LLM-caught nonsense) → reject
+    const intake = await evaluateIntake(item, candidatesFor(item), { orgId, tenantClass });
+    if (intake) {
+      if (intake.duplicateOf) {
+        const match = dedupByRef.get(intake.duplicateOf.ref);
+        if (match) {
+          await mergeDuplicateFeedback(org, item, match, intake.duplicateOf.reason, opts.actorUserId);
+          duplicateItems.push({ feedbackId: item.id, dupOf: intake.duplicateOf.ref, reason: intake.duplicateOf.reason });
+          continue;
+        }
+        // Ref we can't resolve (shouldn't happen — the judge only returns offered
+        // refs) → fall through to normal delivery rather than dropping the item.
+      } else {
+        await parkFlaggedFeedback(org, item, intake, opts.actorUserId);
+        flagged.push({
+          feedbackId: item.id,
+          decision: intake.decision as "hold" | "reject",
+          categories: intake.categories,
+          score: intake.score,
+        });
+        continue;
+      }
     }
 
     const triage = await triageOne(orgId, tenantClass, item);
@@ -725,7 +860,151 @@ export async function runFeedbackRemediation(
     flagged,
     throttledItems,
     gatedItems,
+    duplicates: duplicateItems.length,
+    items: delivered,
+    flagged,
+    throttledItems,
+    duplicateItems,
   };
+}
+
+/**
+ * Run the Phase-2 intake judges (COSMOS-113) over one item that has already
+ * cleared the security gate + quality floor and has a resolvable delivery target.
+ * Returns an `IntakeResult` when the item should NOT become a new ticket (a
+ * duplicate, a decision-required hold, an out-of-scope hold, or an LLM-caught
+ * nonsense reject), or `null` when it's a unique, actionable request that should
+ * proceed to triage. Fail-safe: both judges return unique/actionable on model
+ * outage, so this only ever pulls items OUT of the build path, never blocks a
+ * genuine request on model availability.
+ */
+async function evaluateIntake(
+  item: { id: string; title: string; description: string; createdAt: Date },
+  candidates: Candidate[],
+  ctx: { orgId: string; tenantClass: "gov" | "commercial" },
+): Promise<IntakeResult | null> {
+  const judgeInput = {
+    orgId: ctx.orgId,
+    tenantClass: ctx.tenantClass,
+    feedbackId: item.id,
+    title: item.title,
+    description: item.description,
+  };
+
+  // Duplicate first: a redundant request should be linked, not scope-classified.
+  const dup = await findFeedbackDuplicate(judgeInput, candidates);
+  if (dup) return duplicateResult(dup.dupOf, dup.reason);
+
+  // Necessity / scope / actionability.
+  const scope = await judgeFeedbackScope(judgeInput);
+  if (scope) return scopeResult(scope);
+
+  return null;
+}
+
+/**
+ * Link a near-duplicate feedback item to the canonical item it matched and merge
+ * its votes, instead of spawning a second ticket (COSMOS-113 acceptance §1). The
+ * duplicate is DECLINED (drops out of the OPEN "to-deliver" scan → idempotent),
+ * `deliveredAt` stays NULL (it was never delivered), and the link is recorded on
+ * `triage.duplicate`. When the match is another FEEDBACK item, its distinct voters
+ * are moved onto the canonical item and the denormalized `voteCount` is bumped by
+ * the number actually merged (overlapping voters aren't double-counted). A
+ * work-item match is linked only (work items have no votes). Every post-commit
+ * side-effect is best-effort/guarded — a logging or notify hiccup must never abort
+ * the run or re-process the item.
+ */
+export async function mergeDuplicateFeedback(
+  org: { id: string; slug: string },
+  item: { id: string; title: string; type: "BUG" | "FEATURE"; authorId: string },
+  match: DedupCandidate,
+  reason: string,
+  actorUserId: string,
+): Promise<void> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const data: Prisma.FeedbackItemUpdateInput = {
+        status: "DECLINED",
+        triage: {
+          duplicate: {
+            ref: match.ref,
+            kind: match.kind,
+            reason,
+            targetFeedbackId: match.feedbackId ?? null,
+            ticketKey: match.ticketKey ?? null,
+          },
+        } as unknown as Prisma.InputJsonValue,
+      };
+
+      if (match.kind === "feedback" && match.feedbackId) {
+        const targetId = match.feedbackId;
+        const [dupVotes, targetVotes] = await Promise.all([
+          tx.feedbackVote.findMany({ where: { feedbackItemId: item.id }, select: { userId: true } }),
+          tx.feedbackVote.findMany({ where: { feedbackItemId: targetId }, select: { userId: true } }),
+        ]);
+        const alreadyVoted = new Set(targetVotes.map((v) => v.userId));
+        const toMove = dupVotes.filter((v) => !alreadyVoted.has(v.userId));
+        if (toMove.length > 0) {
+          await tx.feedbackVote.createMany({
+            data: toMove.map((v) => ({ feedbackItemId: targetId, userId: v.userId })),
+            skipDuplicates: true,
+          });
+          await tx.feedbackItem.update({
+            where: { id: targetId },
+            data: { voteCount: { increment: toMove.length } },
+          });
+        }
+        // Votes now live on the canonical item; drop the duplicate's own rows +
+        // zero its denormalized count so nothing is double-represented.
+        await tx.feedbackVote.deleteMany({ where: { feedbackItemId: item.id } });
+        data.voteCount = 0;
+      }
+
+      await tx.feedbackItem.update({ where: { id: item.id }, data });
+    });
+  } catch {
+    // Couldn't persist the merge — leave the item OPEN for a clean retry.
+    return;
+  }
+
+  try {
+    await logAudit({
+      orgId: org.id,
+      userId: actorUserId,
+      action: "feedback.intake_duplicate",
+      entity: "feedback_item",
+      entityId: item.id,
+      metadata: { dupOf: match.ref, kind: match.kind, reason } as Record<string, string>,
+    });
+  } catch {
+    /* audit is best-effort */
+  }
+
+  try {
+    publishToOrg(org.id, "feedback.duplicate", { feedbackId: item.id, dupOf: match.ref });
+  } catch {
+    /* realtime is best-effort */
+  }
+
+  // Tell the submitter what their request matched — and that their vote carried
+  // over — so a duplicate reads as "we already have this" rather than a silent drop.
+  try {
+    const matchedLabel = match.ticketKey ? `${match.ticketKey} ("${match.title}")` : `"${match.title}"`;
+    await createNotification({
+      orgId: org.id,
+      userId: item.authorId,
+      type: "feedback.duplicate",
+      title: `Your ${item.type === "BUG" ? "bug report" : "feature request"} matches an existing one`,
+      message:
+        `"${item.title}" looks like a duplicate of ${matchedLabel}. ` +
+        `We linked it and merged your vote instead of opening a second ticket.`,
+      relatedId: item.id,
+      relatedType: "feedback_item",
+      url: `/${org.slug}/feedback`,
+    });
+  } catch {
+    /* reporter notification is best-effort */
+  }
 }
 
 /**
@@ -967,8 +1246,8 @@ async function parkFlaggedFeedback(
           : `Your ${item.type === "BUG" ? "bug report" : "feature request"} needs a human review`,
       message:
         guardrail.decision === "reject"
-          ? `"${item.title}" was declined by our content-safety check and won't be actioned automatically.`
-          : `"${item.title}" was routed to a human reviewer before any automated work — our intake safety check flagged it for a closer look.`,
+          ? `"${item.title}" was declined at intake and won't be actioned automatically.`
+          : `"${item.title}" was routed to a human reviewer before any automated work — our intake checks flagged it for a closer look.`,
       relatedId: item.id,
       relatedType: "feedback_item",
       url: `/${org.slug}/feedback`,

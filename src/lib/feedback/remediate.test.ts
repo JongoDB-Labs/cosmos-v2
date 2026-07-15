@@ -26,7 +26,12 @@ vi.mock("@/lib/ai/egress", () => ({ runModelTurn }));
 vi.mock("@/lib/integrations/teams-notify", () => ({ teamsNotify: vi.fn(async () => {}) }));
 
 import { prisma } from "@/lib/db/client";
-import { heuristicTriage, resolveDeliveryTarget, runFeedbackRemediation } from "./remediate";
+import {
+  heuristicTriage,
+  mergeDuplicateFeedback,
+  resolveDeliveryTarget,
+  runFeedbackRemediation,
+} from "./remediate";
 
 describe("heuristicTriage — AI-unavailable fallback", () => {
   it("keeps a bug a BUG and raises severity when there's an error signature", () => {
@@ -722,6 +727,143 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
       await prisma.notification.deleteMany({ where: { orgId, refId: item.id } });
       await prisma.workItem.deleteMany({ where: { orgId, title } });
       await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+
+  // ── Phase 2 (COSMOS-113): duplicate + necessity/scope intake ──────────────
+
+  it("rejects nonsense/spam feedback as low-quality DECLINED, before any routing", async () => {
+    const title = `${TITLE_PREFIX} spam`;
+    const item = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title,
+        description: "Buy now! Click here for cheap forex and free money fast.",
+        projectId: mainProjectId,
+      },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      const flag = summary.flagged.find((f) => f.feedbackId === item.id);
+      expect(flag?.decision).toBe("reject");
+      expect(flag?.categories).toContain("low-quality");
+
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: item.id },
+        select: { status: true, workItemId: true, deliveredAt: true },
+      });
+      expect(refreshed.status).toBe("DECLINED");
+      expect(refreshed.workItemId).toBeNull();
+      expect(refreshed.deliveredAt).toBeNull();
+      expect(await prisma.workItem.count({ where: { orgId, title } })).toBe(0);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { orgId, entityId: item.id, action: "feedback.intake_rejected" },
+        select: { id: true },
+      });
+      expect(audit).not.toBeNull();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: item.id } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+
+  it("links a duplicate to the canonical item, merges its distinct votes, and spawns no new ticket", async () => {
+    const voterOverlap = "11111111-1111-4111-8111-111111111111";
+    const voterCanonicalOnly = "22222222-2222-4222-8222-222222222222";
+    const voterDupOnly = "33333333-3333-4333-8333-333333333333";
+    const canonicalTitle = `${TITLE_PREFIX} canonical`;
+    const dupTitle = `${TITLE_PREFIX} duplicate`;
+
+    // FeedbackVote.userId has no FK (no `user` relation on the model), so synthetic
+    // voter UUIDs are safe here; the notification's userId uses the real `userId`.
+    const canonical = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title: canonicalTitle,
+        projectId: mainProjectId,
+        voteCount: 2,
+        votes: { create: [{ userId: voterOverlap }, { userId: voterCanonicalOnly }] },
+      },
+      select: { id: true },
+    });
+    const dup = await prisma.feedbackItem.create({
+      data: {
+        orgId,
+        authorId: userId,
+        type: "FEATURE",
+        title: dupTitle,
+        projectId: mainProjectId,
+        voteCount: 2,
+        votes: { create: [{ userId: voterOverlap }, { userId: voterDupOnly }] },
+      },
+      select: { id: true },
+    });
+
+    try {
+      await mergeDuplicateFeedback(
+        { id: orgId, slug: orgSlug },
+        { id: dup.id, title: dupTitle, type: "FEATURE", authorId: userId },
+        {
+          ref: `F:${canonical.id}`,
+          title: canonicalTitle,
+          kind: "feedback",
+          feedbackId: canonical.id,
+          createdAt: new Date(),
+        },
+        "same underlying request",
+        userId,
+      );
+
+      // The one distinct new voter carried over; the overlap wasn't double-counted.
+      const canonicalAfter = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: canonical.id },
+        select: { voteCount: true },
+      });
+      expect(canonicalAfter.voteCount).toBe(3);
+      const canonicalVoters = await prisma.feedbackVote.findMany({
+        where: { feedbackItemId: canonical.id },
+        select: { userId: true },
+      });
+      expect(new Set(canonicalVoters.map((v) => v.userId))).toEqual(
+        new Set([voterOverlap, voterCanonicalOnly, voterDupOnly]),
+      );
+
+      // The duplicate is DECLINED + linked, its own votes cleared, never delivered.
+      const dupAfter = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: dup.id },
+        select: { status: true, voteCount: true, deliveredAt: true, workItemId: true, triage: true },
+      });
+      expect(dupAfter.status).toBe("DECLINED");
+      expect(dupAfter.voteCount).toBe(0);
+      expect(dupAfter.deliveredAt).toBeNull();
+      expect(dupAfter.workItemId).toBeNull();
+      expect(await prisma.feedbackVote.count({ where: { feedbackItemId: dup.id } })).toBe(0);
+      const link = (dupAfter.triage as Record<string, unknown>)?.duplicate as Record<string, unknown>;
+      expect(link?.ref).toBe(`F:${canonical.id}`);
+      expect(link?.targetFeedbackId).toBe(canonical.id);
+
+      // Audited + the submitter is told what it matched.
+      const audit = await prisma.auditLog.findFirst({
+        where: { orgId, entityId: dup.id, action: "feedback.intake_duplicate" },
+        select: { id: true },
+      });
+      expect(audit).not.toBeNull();
+      const note = await prisma.notification.findFirst({
+        where: { orgId, refId: dup.id, type: "feedback.duplicate" },
+        select: { id: true },
+      });
+      expect(note).not.toBeNull();
+    } finally {
+      await prisma.notification.deleteMany({ where: { orgId, refId: { in: [canonical.id, dup.id] } } });
+      await prisma.feedbackVote.deleteMany({ where: { feedbackItemId: { in: [canonical.id, dup.id] } } });
+      await prisma.feedbackItem.deleteMany({ where: { id: { in: [canonical.id, dup.id] } } });
     }
   });
 });
