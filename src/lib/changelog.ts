@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.5",
+    date: "2026-07-15",
+    title: "Decomposed epics build every phase",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a large ticket is broken down into smaller phases, those child tickets are no longer mistaken for duplicates of the epic they came from — or of one another — and quietly closed. Each phase now gets built as intended, while genuine duplicates across unrelated tickets are still caught and merged.",
+      },
+    ],
+  },
+  {
     version: "2.204.4",
     date: "2026-07-15",
     title: "Sharper eye on risky feedback",
