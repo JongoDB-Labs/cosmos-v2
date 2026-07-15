@@ -13,6 +13,7 @@ import { PARKED_EVENT_KINDS, pickParkEvent } from "@/lib/foreman/observe";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
+import { coordinationModeFromTags, type CoordinationMode, type Sibling } from "@/lib/foreman/release-gate";
 
 /** The Foreman BOT user — the agent's own identity: its comments, board moves,
  *  and notifications are attributed to it, and @-mentioning it in a ticket
@@ -348,6 +349,52 @@ export async function addTag(itemId: string, tag: string): Promise<void> {
   const wi = await prisma.workItem.findUnique({ where: { id: itemId }, select: { tags: true } });
   const tags = new Set([...(wi?.tags ?? []), tag]);
   await prisma.workItem.update({ where: { id: itemId }, data: { tags: [...tags] } });
+}
+
+/** Coordinated-release context for a phase child (COSMOS-118, companion to
+ *  COSMOS-115's epic decomposition). Resolves the item's parent EPIC, reads its
+ *  coordination mode from the epic's tags (safe default `incremental`), and maps
+ *  every sibling phase's board column to a readiness the release-gate engine
+ *  reasons over. Returns null when the item has no parent (a non-epic ticket) —
+ *  the caller then ships per-ticket exactly as today.
+ *
+ *  Readiness mapping is column-based and deliberately conservative: `done` (merged/
+ *  shipped) is `ready`; everything else is `pending`. Precise green+approved and
+ *  terminal-failure detection — plus inter-phase dependency edges for merge order —
+ *  arrive with COSMOS-115's decomposition output; this reads what today's schema
+ *  already carries (parent hierarchy + tags), with no migration. */
+export async function epicCoordination(
+  itemId: string,
+): Promise<{ mode: CoordinationMode; epicKey: string | null; siblings: Sibling[] } | null> {
+  const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { parentId: true } });
+  if (!item?.parentId) return null; // not a phase child → per-ticket (incremental)
+
+  const epic = await prisma.workItem.findUnique({
+    where: { id: item.parentId },
+    select: {
+      projectId: true,
+      ticketNumber: true,
+      tags: true,
+      children: { select: { id: true, projectId: true, ticketNumber: true, columnKey: true } },
+    },
+  });
+  if (!epic) return null;
+
+  // Resolve project keys for the epic + every sibling in one query (WorkItem has no
+  // Prisma relation to Project — projectId is a plain FK), so refs read as <KEY>-<n>.
+  const projectIds = [...new Set([epic.projectId, ...epic.children.map((c) => c.projectId)])];
+  const projects = await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, key: true } });
+  const keyByProject = new Map(projects.map((p) => [p.id, p.key]));
+
+  const siblings: Sibling[] = epic.children.map((c) => ({
+    key: buildRef(keyByProject.get(c.projectId) ?? "", c.ticketNumber),
+    readiness: c.columnKey === "done" ? "ready" : "pending",
+  }));
+  return {
+    mode: coordinationModeFromTags(epic.tags),
+    epicKey: buildRef(keyByProject.get(epic.projectId) ?? "", epic.ticketNumber),
+    siblings,
+  };
 }
 
 /** Post a comment as Foreman. Targets the same table + column shape the

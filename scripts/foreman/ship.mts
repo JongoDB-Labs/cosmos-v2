@@ -70,16 +70,70 @@ export async function pushBranch(branch: string): Promise<void> {
   await exec("git", ["-C", REPO, "push", "--force", "origin", branch]);
 }
 
+/** A shell runner (`gh …`/`git …` → stdout). Only ever the real
+ *  `execFile`-against-`REPO` in production; the parameter exists so the
+ *  create-vs-update decision in `ensurePr`/`openPr` is unit-testable without a
+ *  live `gh` + GitHub. */
+export type PrRunner = (cmd: string, args: string[]) => Promise<string>;
+const defaultRunner: PrRunner = async (cmd, args) =>
+  (await exec(cmd, args, { cwd: REPO, maxBuffer: 32 * 1024 * 1024 })).stdout;
+
 /** Open a PR for the built branch; returns its URL. `draft=true` leaves it for a
  *  human to review + merge (the risky path); `draft=false` is a PR Foreman will
  *  immediately auto-merge (the safe/delivery path) — so EVERY change gets a PR trail. */
-export async function openPr(branch: string, title: string, body: string, draft: boolean): Promise<string> {
+export async function openPr(
+  branch: string,
+  title: string,
+  body: string,
+  draft: boolean,
+  run: PrRunner = defaultRunner,
+): Promise<string> {
   const args = ["pr", "create", "--base", "main", "--head", branch, "--title", title, "--body", body];
   if (draft) args.push("--draft");
-  const { stdout } = await exec("gh", args, { cwd: REPO });
+  const stdout = await run("gh", args);
   // gh prints the created PR's URL on its own line.
   const url = stdout.trim().split(/\s+/).filter((t) => t.startsWith("https://")).pop();
   return url ?? stdout.trim();
+}
+
+/** The OPEN PR on a branch (its number + url), or null if none is open. Best-effort:
+ *  a `gh` hiccup / no-PR both yield null so callers fall through to create. */
+export async function findOpenPr(
+  branch: string,
+  run: PrRunner = defaultRunner,
+): Promise<{ number: number; url: string } | null> {
+  try {
+    const out = await run("gh", ["pr", "list", "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"]);
+    const rows = JSON.parse(out) as Array<{ number: number; url: string }>;
+    return rows.length ? { number: rows[0].number, url: rows[0].url } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Idempotent PR upsert for a branch — the fix for the re-park/rebuild loop.
+ *  Foreman reuses `auto/<KEY>` across attempts, so a rebuild can hit a branch that
+ *  STILL has an open PR from the prior park; `gh pr create` then fails hard with
+ *  "a pull request for branch … already exists", leaving the card stuck in
+ *  in-progress. So: if an open PR already exists, EDIT it (title/body) and — when a
+ *  draft is wanted — convert it back to draft, returning that PR's url; only CREATE
+ *  when none exists. Either way the caller gets a url to record so Approve can merge. */
+export async function ensurePr(
+  branch: string,
+  title: string,
+  body: string,
+  draft: boolean,
+  run: PrRunner = defaultRunner,
+): Promise<string> {
+  const existing = await findOpenPr(branch, run);
+  if (!existing) return openPr(branch, title, body, draft, run);
+  await run("gh", ["pr", "edit", String(existing.number), "--title", title, "--body", body]);
+  if (draft) {
+    // Convert back to draft if a prior ship marked it ready. `--undo` on an
+    // already-draft PR errors ("already in draft state") — best-effort, ignore it.
+    await run("gh", ["pr", "ready", String(existing.number), "--undo"]).catch(() => undefined);
+  }
+  return existing.url;
 }
 
 /** Squash-merge an open (non-draft) PR into main and hard-sync the local checkout
