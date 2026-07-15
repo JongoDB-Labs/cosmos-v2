@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.204.3",
+    date: "2026-07-15",
+    title: "Safer feedback intake before auto-triage",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Feedback now passes a safety gate before it can be auto-triaged into the backlog. Submissions that try to manipulate the coding agent, ask for destructive or sabotaging changes, touch high-risk areas (auth, billing, secrets, dependencies), or paste in a secret are routed to a human reviewer instead of being built automatically — and unsafe content is declined. If your request is held or declined you'll get a notification explaining why, and every intake decision is recorded in the audit log.",
+      },
+    ],
+  },
+  {
     version: "2.204.2",
     date: "2026-07-14",
     title: "AI approval recommendations in the Foreman console",
