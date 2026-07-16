@@ -6,7 +6,7 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
 } from "@/lib/auth/client";
-import { getGoogleLoginClient, resolveGoogleLoginCreds } from "@/lib/auth/google-oauth";
+import { getGoogleLoginClient, googleRedirectUri, resolveGoogleLoginCreds } from "@/lib/auth/google-oauth";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
@@ -51,7 +51,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const { clientId: googleClientId } = await resolveGoogleLoginCreds();
-    const googleClient = await getGoogleLoginClient();
+    // Same per-request redirect the auth-start used — Google requires the token
+    // exchange redirect_uri to match the authorization request's (both derive from
+    // this request's public origin, i.e. the same domain, so they always agree).
+    const googleClient = await getGoogleLoginClient(googleRedirectUri(request));
     const { tokens } = await googleClient.getToken(code);
     if (!tokens.id_token) {
       const res = redirectToLogin(origin, "auth_failed");

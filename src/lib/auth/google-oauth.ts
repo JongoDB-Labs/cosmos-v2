@@ -1,5 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
+import type { NextRequest } from "next/server";
 import { getProviderConfig } from "@/lib/auth/provider-config";
+import { getPublicOrigin } from "@/lib/auth/public-url";
 
 /**
  * Build the Google login OAuth2 client (FR 8a162fe7): resolve the client id +
@@ -22,9 +24,18 @@ export async function resolveGoogleLoginCreds(): Promise<{
   };
 }
 
-export async function getGoogleLoginClient(): Promise<OAuth2Client> {
+/** The Google login redirect URI, derived from the request's public origin (honoring
+ *  the proxy/tunnel forwarded host) so it tracks whatever domain the app is served on
+ *  — no static config, mirroring the Microsoft flow (microsoftRedirectUri). The
+ *  `GOOGLE_REDIRECT_URI` env stays as an OPTIONAL explicit override. */
+export function googleRedirectUri(request: NextRequest): string {
+  return `${getPublicOrigin(request)}/api/auth/google/callback`;
+}
+
+export async function getGoogleLoginClient(redirectUri?: string): Promise<OAuth2Client> {
   const { clientId, clientSecret } = await resolveGoogleLoginCreds();
-  return new OAuth2Client(clientId, clientSecret, process.env.GOOGLE_REDIRECT_URI);
+  // Prefer the per-request redirect (domain-agnostic); fall back to the env override.
+  return new OAuth2Client(clientId, clientSecret, redirectUri ?? process.env.GOOGLE_REDIRECT_URI);
 }
 
 /** True when Google login is usable — configured in the sealed store (and
