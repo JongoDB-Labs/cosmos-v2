@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -279,6 +280,21 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       setLoading(false);
     }
   }, [basePath]);
+
+  // Live updates (COSMOS-129): re-pull the feedback list when the guardrail intake
+  // pipeline records a decision (held/throttled/gated/flagged/duplicate/rejected) or a
+  // delivered FR/BR becomes a work item — so the board reflects submissions, triage,
+  // and delivery in real time without a manual refresh. Handlers are read from a ref
+  // inside the hook, so re-creating this object each render doesn't reopen the stream.
+  useRealtimeEvents(orgId, {
+    "feedback.delivered": () => void fetchItems(),
+    "feedback.throttled": () => void fetchItems(),
+    "feedback.gated": () => void fetchItems(),
+    "feedback.flagged": () => void fetchItems(),
+    "feedback.duplicate": () => void fetchItems(),
+    "feedback.rejected": () => void fetchItems(),
+    "work-item.created": () => void fetchItems(),
+  });
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
