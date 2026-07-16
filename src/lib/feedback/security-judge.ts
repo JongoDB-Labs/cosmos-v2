@@ -35,6 +35,15 @@ export interface SecurityJudgeVerdict {
   reason: string;
 }
 
+/** The judge confidence levels, weakest → strongest. */
+export type JudgeConfidence = "low" | "medium" | "high";
+const CONFIDENCE_RANK: Record<JudgeConfidence, number> = { low: 0, medium: 1, high: 2 };
+
+/** Org-policy default (Phase 3c): a medium-or-higher non-safe verdict raises to a
+ *  hold. Lowering to "low" is STRICTER (acts on weaker signals); raising to
+ *  "high" is more permissive (only firm flags park). */
+export const DEFAULT_JUDGE_MIN_CONFIDENCE: JudgeConfidence = "medium";
+
 export interface JudgeInput {
   orgId: string;
   tenantClass: "gov" | "commercial";
@@ -42,6 +51,9 @@ export interface JudgeInput {
   description?: string | null;
   /** Correlates the egress span/log with the feedback item. */
   feedbackId: string;
+  /** Minimum verdict confidence that raises a would-be "allow" to a "hold"
+   *  (org policy). Defaults to `DEFAULT_JUDGE_MIN_CONFIDENCE`. */
+  minConfidence?: JudgeConfidence;
 }
 
 /** Injectable seams so the judge is unit-testable without a live model. */
@@ -155,11 +167,14 @@ export async function judgeFeedbackSecurity(
     const confidence = judgment.confidence;
     const reason = typeof judgment.reason === "string" ? judgment.reason : "flagged by security-judge";
 
-    // Bound false positives: only a medium/high-confidence non-safe verdict
-    // raises to a hold. A "low"-confidence flag is treated as safe so benign
-    // feedback keeps flowing (acceptance criterion 3).
+    // Bound false positives: only a verdict at or above the org's configured
+    // confidence threshold (default medium) raises to a hold. A weaker flag is
+    // treated as safe so benign feedback keeps flowing (acceptance criterion 3).
+    const minConfidence = input.minConfidence ?? DEFAULT_JUDGE_MIN_CONFIDENCE;
+    const verdictConfidence: JudgeConfidence =
+      confidence === "high" || confidence === "medium" || confidence === "low" ? confidence : "low";
     const isUnsafe = verdict === "injection" || verdict === "malicious";
-    const confident = confidence === "medium" || confidence === "high";
+    const confident = CONFIDENCE_RANK[verdictConfidence] >= CONFIDENCE_RANK[minConfidence];
     if (!isUnsafe || !confident) {
       return { flag: false, category: null, reason };
     }
