@@ -4,9 +4,14 @@ import {
   batchMergeOrder,
   decideRelease,
   aggregateReadiness,
+  childReadiness,
+  phaseIndexFromTags,
   DEFAULT_COORDINATION_MODE,
   DEFAULT_PARTIAL_FAILURE_POLICY,
   COORDINATED_RELEASE_TAG,
+  COORDINATED_READY_TAG,
+  COORDINATED_FAILED_TAG,
+  COORDINATED_PHASE_TAG_PREFIX,
   type Sibling,
 } from "./release-gate";
 
@@ -26,6 +31,42 @@ describe("coordinationModeFromTags", () => {
   it("is coordinated only when the epic carries the opt-in tag", () => {
     expect(coordinationModeFromTags([COORDINATED_RELEASE_TAG])).toBe("coordinated");
     expect(coordinationModeFromTags(["x", COORDINATED_RELEASE_TAG, "y"])).toBe("coordinated");
+  });
+});
+
+describe("childReadiness — approved-held maps to ready (AC8: readiness mapping)", () => {
+  it("a shipped/done child is ready", () => {
+    expect(childReadiness("done", [])).toBe("ready");
+  });
+
+  it("a green+approved child HELD in review is ready via its approval marker (the COSMOS-118 fix)", () => {
+    // The bug: a held-in-review child was only ever 'pending' (column !== done),
+    // so the batch never fired. The approve marker makes it read 'ready'.
+    expect(childReadiness("review", [COORDINATED_READY_TAG])).toBe("ready");
+  });
+
+  it("an in-flight child (not done, no marker) is pending", () => {
+    expect(childReadiness("review", [])).toBe("pending");
+    expect(childReadiness("in-progress", ["some-other-tag"])).toBe("pending");
+  });
+
+  it("a terminally-failed child is failed, and failure wins over a stale ready marker", () => {
+    expect(childReadiness("review", [COORDINATED_FAILED_TAG])).toBe("failed");
+    expect(childReadiness("review", [COORDINATED_READY_TAG, COORDINATED_FAILED_TAG])).toBe("failed");
+  });
+});
+
+describe("phaseIndexFromTags — dependency-order edges", () => {
+  it("reads the 1-based phase index from the phase tag", () => {
+    expect(phaseIndexFromTags([`${COORDINATED_PHASE_TAG_PREFIX}1`])).toBe(1);
+    expect(phaseIndexFromTags(["x", `${COORDINATED_PHASE_TAG_PREFIX}3`, "y"])).toBe(3);
+  });
+
+  it("is null when unphased or malformed", () => {
+    expect(phaseIndexFromTags([])).toBeNull();
+    expect(phaseIndexFromTags(["urgent"])).toBeNull();
+    expect(phaseIndexFromTags([`${COORDINATED_PHASE_TAG_PREFIX}0`])).toBeNull();
+    expect(phaseIndexFromTags([`${COORDINATED_PHASE_TAG_PREFIX}x`])).toBeNull();
   });
 });
 

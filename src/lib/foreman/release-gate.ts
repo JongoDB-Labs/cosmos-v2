@@ -25,6 +25,46 @@ export const DEFAULT_COORDINATION_MODE: CoordinationMode = "incremental";
  *  leaves the epic on the safe `incremental` default. */
 export const COORDINATED_RELEASE_TAG = "coordinated-release";
 
+/** Marker tags a coordinated PHASE CHILD carries to record its delivery state
+ *  WITHOUT a schema migration (WorkItem.tags already exists). The readiness fix
+ *  COSMOS-118 needs: a green+approved coordinated child is HELD in `review` (never
+ *  `done`), so its board column alone can never read `ready`. The approve path
+ *  stamps COORDINATED_READY_TAG instead — an "approved-but-held" marker the gate
+ *  reads as `ready`. COORDINATED_FAILED_TAG marks a child that terminally gave up
+ *  (blocks a hold-all release, AC3/AC5). */
+export const COORDINATED_READY_TAG = "coordinated-ready";
+export const COORDINATED_FAILED_TAG = "coordinated-failed";
+
+/** Tag prefix encoding a phase child's 1-based position in its epic's ordered
+ *  decomposition (COSMOS-115). This is the migration-free dependency edge: the gate
+ *  turns it into Sibling.dependsOn (phase N depends on phase N-1) so the batch
+ *  merges in dependency order. */
+export const COORDINATED_PHASE_TAG_PREFIX = "coordinated-phase-";
+
+/** Map a phase child's board column + tags to its release readiness (the COSMOS-118
+ *  fix). `done` (merged/shipped) OR the approved-but-held marker → `ready`; the
+ *  terminal-failure marker → `failed`; anything else is still in flight → `pending`.
+ *  Failed wins over ready so a child that failed after being marked ready still
+ *  blocks a hold-all release. */
+export function childReadiness(columnKey: string, tags: readonly string[]): SiblingReadiness {
+  if (tags.includes(COORDINATED_FAILED_TAG)) return "failed";
+  if (columnKey === "done" || tags.includes(COORDINATED_READY_TAG)) return "ready";
+  return "pending";
+}
+
+/** The 1-based phase index encoded in a child's tags, or null when unphased (a
+ *  child that predates decomposition, or a hand-added one). Deterministic — the
+ *  first well-formed phase tag wins. */
+export function phaseIndexFromTags(tags: readonly string[]): number | null {
+  for (const t of tags) {
+    if (t.startsWith(COORDINATED_PHASE_TAG_PREFIX)) {
+      const n = Number.parseInt(t.slice(COORDINATED_PHASE_TAG_PREFIX.length), 10);
+      if (Number.isInteger(n) && n > 0) return n;
+    }
+  }
+  return null;
+}
+
 /** Partial-failure policy (AC3). `hold-all` (default) never ships a coordinated
  *  release while any sibling has terminally failed — no silent half-release.
  *  `ship-ready-subset` opts into shipping only the green+approved subset, still

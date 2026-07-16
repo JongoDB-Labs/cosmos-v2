@@ -3,6 +3,13 @@ import { prisma } from "@/lib/db/client";
 import { readAutomationConfig } from "@/lib/feedback/automation-config";
 import { pulseFor, PARKED_EVENT_KINDS, pickParkEvent, type InFlightBuild } from "@/lib/foreman/observe";
 import { PRIORITY_RANK } from "@/lib/foreman/queue";
+import {
+  aggregateReadiness,
+  childReadiness,
+  coordinationModeFromTags,
+  COORDINATED_RELEASE_TAG,
+  type Sibling,
+} from "@/lib/foreman/release-gate";
 
 export type ForemanStatusPayload = {
   state: null | {
@@ -22,6 +29,20 @@ export type ForemanStatusPayload = {
   awaitingApproval: { workItemId: string; projectId: string; ticketKey: string | null; title: string; reason: string | null; prUrl: string | null; parkedAt: string }[];
   config: ReturnType<typeof readAutomationConfig>;
   hasHistory: boolean;
+  /** Coordinated epics (COSMOS-118/-126): each opted-in epic's aggregate phase
+   *  readiness — how many phases are ready/pending/failed and whether the single
+   *  coordinated release is holding, shipping, or blocked. */
+  coordinatedEpics: {
+    epicItemId: string;
+    epicKey: string;
+    title: string;
+    status: "incremental" | "shipping" | "holding" | "blocked";
+    total: number;
+    ready: number;
+    pending: number;
+    failed: number;
+    label: string;
+  }[];
   /** Whether the requesting actor may STEER the autonomous deployer (Approve /
    *  Rebuild). This is the BASE org role (OWNER/ADMIN) — matching the daemon's own
    *  privilegedUserIds gate — NOT the effective ORG_UPDATE permission, which a
@@ -157,6 +178,40 @@ export async function assembleStatus(orgId: string, actorCanSteer = false): Prom
       };
     });
 
+  // Coordinated epics: opted-in parents (COORDINATED_RELEASE_TAG) and their phase
+  // children's aggregate readiness (childReadiness → aggregateReadiness), so the
+  // console shows which phases are ready/pending/failed and whether the single
+  // coordinated release is holding, shipping, or blocked (Part D).
+  const epics = projectIds.length
+    ? await prisma.workItem.findMany({
+        where: { orgId, projectId: { in: projectIds }, tags: { has: COORDINATED_RELEASE_TAG } },
+        select: {
+          id: true, projectId: true, title: true, ticketNumber: true, tags: true,
+          children: { select: { columnKey: true, tags: true, ticketNumber: true, projectId: true } },
+        },
+        take: 25,
+      })
+    : [];
+  const epicProjectIds = [...new Set(epics.flatMap((e) => [e.projectId, ...e.children.map((c) => c.projectId)]))];
+  const epicProjects = epicProjectIds.length
+    ? await prisma.project.findMany({ where: { id: { in: epicProjectIds } }, select: { id: true, key: true } })
+    : [];
+  const epicKeyByProject = new Map(epicProjects.map((p) => [p.id, p.key]));
+  const coordinatedEpics = epics.map((e) => {
+    const mode = coordinationModeFromTags(e.tags);
+    const siblings: Sibling[] = e.children.map((c) => ({
+      key: `${epicKeyByProject.get(c.projectId) ?? ""}-${c.ticketNumber}`,
+      readiness: childReadiness(c.columnKey, c.tags),
+    }));
+    const s = aggregateReadiness(mode, siblings);
+    return {
+      epicItemId: e.id,
+      epicKey: `${epicKeyByProject.get(e.projectId) ?? ""}-${e.ticketNumber}`,
+      title: e.title,
+      status: s.status, total: s.total, ready: s.ready, pending: s.pending, failed: s.failed, label: s.label,
+    };
+  });
+
   const hasHistory = (await prisma.foremanEvent.count({ where: { orgId } })) > 0;
-  return { state, paused, upNext, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory, actorCanSteer };
+  return { state, paused, upNext, inFlight: allInFlight.filter((b) => b.orgId === orgId), awaitingApproval, config, hasHistory, actorCanSteer, coordinatedEpics };
 }

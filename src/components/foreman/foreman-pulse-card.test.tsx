@@ -44,6 +44,7 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
     },
     hasHistory: true,
     actorCanSteer: true,
+    coordinatedEpics: [],
     ...overrides,
   };
 }

@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus, Sparkles, ShieldCheck } from "lucide-react";
+import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus, Sparkles, ShieldCheck, Layers } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
 import { ForemanClaudePanel } from "./foreman-claude-panel";
@@ -94,6 +94,17 @@ const CONTROL_TOOLTIP = {
     "Analyzes this PR's diff against the ticket's requirements and acceptance criteria — per-criterion coverage, gaps, and risks. Runs on Foreman's own subscription.",
   aiAnalysisDisabled: "Nothing to analyze — the agent produced no pull request.",
 } as const;
+
+/** Coordinated-epic aggregate status → badge variant + label (COSMOS-118/-126). */
+const COORD_STATUS: Record<
+  ForemanStatusPayload["coordinatedEpics"][number]["status"],
+  { label: string; variant: BadgeVariant }
+> = {
+  incremental: { label: "Incremental", variant: "discovery" },
+  holding: { label: "Holding", variant: "review" },
+  shipping: { label: "Shipping", variant: "strategic" },
+  blocked: { label: "Blocked", variant: "blocked" },
+};
 
 const PHASE_VARIANT: Record<InFlightBuild["phase"], BadgeVariant> = {
   building: "progress",
@@ -715,6 +726,43 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           </div>
         )}
       </SectionCard>
+
+      {/* Coordinated releases (COSMOS-118/-126): each opted-in epic's phase
+          readiness and whether its single coordinated release is holding,
+          shipping, or blocked. Only rendered when there's at least one. */}
+      {data.coordinatedEpics.length > 0 && (
+        <SectionCard
+          icon={Layers}
+          title="Coordinated releases"
+          description="Epics whose phases ship together as ONE version — held until every phase is green+approved."
+        >
+          <ul className="space-y-3">
+            {data.coordinatedEpics.map((e) => (
+              <li key={e.epicItemId} className="rounded-md border border-[var(--border)] p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/${orgSlug}/issues?item=${e.epicItemId}`}
+                        className="font-mono text-xs text-[var(--primary)] hover:underline"
+                      >
+                        {e.epicKey}
+                      </Link>
+                      <span className="font-medium text-[var(--text)]">{e.title}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--text-muted)]">
+                      {e.ready}/{e.total} ready · {e.pending} pending · {e.failed} failed
+                    </p>
+                  </div>
+                  <Badge variant={COORD_STATUS[e.status].variant} showDot={false} className="shrink-0">
+                    {COORD_STATUS[e.status].label}
+                  </Badge>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      )}
 
       <SectionCard
         icon={UserCheck}

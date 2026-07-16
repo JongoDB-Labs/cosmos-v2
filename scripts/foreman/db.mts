@@ -13,7 +13,19 @@ import { PARKED_EVENT_KINDS, pickParkEvent } from "@/lib/foreman/observe";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
-import { coordinationModeFromTags, type CoordinationMode, type Sibling } from "@/lib/foreman/release-gate";
+import {
+  coordinationModeFromTags,
+  childReadiness,
+  phaseIndexFromTags,
+  COORDINATED_RELEASE_TAG,
+  COORDINATED_READY_TAG,
+  COORDINATED_FAILED_TAG,
+  COORDINATED_PHASE_TAG_PREFIX,
+  type CoordinationMode,
+  type Sibling,
+} from "@/lib/foreman/release-gate";
+import type { BumpKind } from "@/lib/foreman/ship-rebase";
+import type { DecompositionPlan } from "@/lib/foreman/decompose";
 
 /** The Foreman BOT user — the agent's own identity: its comments, board moves,
  *  and notifications are attributed to it, and @-mentioning it in a ticket
@@ -130,6 +142,7 @@ export async function getBacklog(): Promise<
       title: true,
       description: true,
       parentId: true,
+      customFields: true,
     },
   });
   const parentRefs = await parentRefsById(rows.map((r) => r.parentId), poolByProjectId);
@@ -173,7 +186,9 @@ export async function getBacklog(): Promise<
         columnEnteredAt: (r.columnEnteredAt ?? new Date(0)).toISOString(),
         title: r.title,
         description: r.description,
-        triage: fb?.triage ?? null,
+        // A decomposition child has no linked FeedbackItem, so its phase brief
+        // (classification + acceptance criteria) rides in customFields.foremanPhase.
+        triage: fb?.triage ?? phaseTriage(r.customFields),
         voteCount: fb?.voteCount ?? null,
         feedbackType: fb?.feedbackType ?? null,
         severity: fb?.severity ?? null,
@@ -183,6 +198,22 @@ export async function getBacklog(): Promise<
       },
     ];
   });
+}
+
+/** Synthesise a build-brief `triage` blob from a decomposition child's
+ *  customFields.foremanPhase (classification + acceptance criteria), so a child
+ *  with no linked FeedbackItem still builds against its phase's criteria and ships
+ *  with the epic's classification. Null when the field is absent/malformed. */
+function phaseTriage(customFields: unknown): { classification: string; acceptanceCriteria: string[] } | null {
+  const p = (customFields as { foremanPhase?: unknown } | null)?.foremanPhase as
+    | { classification?: unknown; acceptanceCriteria?: unknown }
+    | undefined;
+  if (!p || typeof p !== "object") return null;
+  const classification = p.classification === "FEATURE" ? "FEATURE" : "BUG";
+  const acceptanceCriteria = Array.isArray(p.acceptanceCriteria)
+    ? p.acceptanceCriteria.filter((x): x is string => typeof x === "string")
+    : [];
+  return { classification, acceptanceCriteria };
 }
 
 /** Read `severity` out of a feedback item's AI-triage blob. `severity` is not a
@@ -351,21 +382,34 @@ export async function addTag(itemId: string, tag: string): Promise<void> {
   await prisma.workItem.update({ where: { id: itemId }, data: { tags: [...tags] } });
 }
 
+/** One phase child, resolved for the coordinated-release executor. */
+export interface CoordinationChild {
+  itemId: string;
+  key: string;
+  branch: string;
+  readiness: Sibling["readiness"];
+}
+
 /** Coordinated-release context for a phase child (COSMOS-118, companion to
  *  COSMOS-115's epic decomposition). Resolves the item's parent EPIC, reads its
  *  coordination mode from the epic's tags (safe default `incremental`), and maps
- *  every sibling phase's board column to a readiness the release-gate engine
- *  reasons over. Returns null when the item has no parent (a non-epic ticket) —
- *  the caller then ships per-ticket exactly as today.
+ *  every sibling phase's board column + markers to a readiness the release-gate
+ *  engine reasons over. Returns null when the item has no parent (a non-epic
+ *  ticket) — the caller then ships per-ticket exactly as today.
  *
- *  Readiness mapping is column-based and deliberately conservative: `done` (merged/
- *  shipped) is `ready`; everything else is `pending`. Precise green+approved and
- *  terminal-failure detection — plus inter-phase dependency edges for merge order —
- *  arrive with COSMOS-115's decomposition output; this reads what today's schema
- *  already carries (parent hierarchy + tags), with no migration. */
-export async function epicCoordination(
-  itemId: string,
-): Promise<{ mode: CoordinationMode; epicKey: string | null; siblings: Sibling[] } | null> {
+ *  Readiness (childReadiness, COSMOS-118 fix): `done` OR a green+approved-but-held
+ *  marker (COORDINATED_READY_TAG) → `ready`; the terminal-failure marker → `failed`;
+ *  anything else → `pending`. Dependency edges come from each child's phase tag
+ *  (COORDINATED_PHASE_TAG_PREFIX): phase N dependsOn phase N-1, so the gate merges
+ *  the batch in dependency order. `bumpKind` is the single coordinated release's
+ *  SemVer bump — patch only for an all-bugfix epic, else minor (part C). */
+export async function epicCoordination(itemId: string): Promise<{
+  mode: CoordinationMode;
+  epicKey: string | null;
+  siblings: Sibling[];
+  children: CoordinationChild[];
+  bumpKind: BumpKind;
+} | null> {
   const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { parentId: true } });
   if (!item?.parentId) return null; // not a phase child → per-ticket (incremental)
 
@@ -375,7 +419,7 @@ export async function epicCoordination(
       projectId: true,
       ticketNumber: true,
       tags: true,
-      children: { select: { id: true, projectId: true, ticketNumber: true, columnKey: true } },
+      children: { select: { id: true, projectId: true, ticketNumber: true, columnKey: true, tags: true } },
     },
   });
   if (!epic) return null;
@@ -386,15 +430,123 @@ export async function epicCoordination(
   const projects = await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, key: true } });
   const keyByProject = new Map(projects.map((p) => [p.id, p.key]));
 
-  const siblings: Sibling[] = epic.children.map((c) => ({
+  // First pass: resolve each child's ref, readiness and phase index.
+  const resolved = epic.children.map((c) => ({
+    itemId: c.id,
     key: buildRef(keyByProject.get(c.projectId) ?? "", c.ticketNumber),
-    readiness: c.columnKey === "done" ? "ready" : "pending",
+    readiness: childReadiness(c.columnKey, c.tags),
+    phase: phaseIndexFromTags(c.tags),
+  }));
+  const refByPhase = new Map<number, string>();
+  for (const r of resolved) if (r.phase !== null) refByPhase.set(r.phase, r.key);
+
+  const siblings: Sibling[] = resolved.map((r) => {
+    const pred = r.phase !== null && r.phase > 1 ? refByPhase.get(r.phase - 1) : undefined;
+    return { key: r.key, readiness: r.readiness, ...(pred ? { dependsOn: [pred] } : {}) };
+  });
+  const children: CoordinationChild[] = resolved.map((r) => ({
+    itemId: r.itemId,
+    key: r.key,
+    branch: `auto/${r.key}`,
+    readiness: r.readiness,
   }));
   return {
     mode: coordinationModeFromTags(epic.tags),
     epicKey: buildRef(keyByProject.get(epic.projectId) ?? "", epic.ticketNumber),
     siblings,
+    children,
+    // All-bugfix epic → patch; otherwise (the common multi-phase FEATURE) → minor.
+    bumpKind: epic.tags.includes("feedback:bug") ? "patch" : "minor",
   };
+}
+
+/** Stamp a green+approved coordinated child as "ready-but-held" (COSMOS-118): it
+ *  stays parked in `review` (never solo-merged) but now reads `ready` to the gate.
+ *  Migration-free — a marker tag on WorkItem.tags. */
+export async function markCoordinatedReady(itemId: string): Promise<void> {
+  await addTag(itemId, COORDINATED_READY_TAG);
+}
+
+/** Mark a coordinated child as terminally failed — it blocks a hold-all release
+ *  (AC3/AC5) until a human intervenes. */
+export async function markCoordinatedFailed(itemId: string): Promise<void> {
+  await addTag(itemId, COORDINATED_FAILED_TAG);
+}
+
+/** Decompose an epic-sized FEATURE into ordered phase children (COSMOS-115). Creates
+ *  one child work item per phase (parentId = the epic; org/project/type/priority
+ *  inherited), carrying that phase's acceptance criteria + classification in
+ *  customFields (`foremanPhase`) so the build brief picks them up, and a
+ *  `coordinated-phase-N` tag for the dependency edge. Phase 1 lands in `todo` (built
+ *  first); later phases queue in `backlog`. The epic itself is tagged (optionally
+ *  COORDINATED_RELEASE_TAG) + `decomposed` and moved to `review` so it isn't itself
+ *  built. Returns the created child refs, in phase order. All-or-nothing in one
+ *  transaction so a partial decomposition can never strand an epic. */
+export async function decomposeEpic(epicId: string, plan: DecompositionPlan): Promise<string[]> {
+  return prisma.$transaction(async (tx) => {
+    const epic = await tx.workItem.findUnique({
+      where: { id: epicId },
+      select: { orgId: true, projectId: true, title: true, priority: true, workItemTypeId: true, tags: true },
+    });
+    if (!epic) return [];
+    const project = await tx.project.findUnique({ where: { id: epic.projectId }, select: { key: true } });
+    const projectKey = project?.key ?? "";
+    const bot = await botUserId();
+
+    const maxTicket = await tx.workItem.aggregate({
+      where: { orgId: epic.orgId, projectId: epic.projectId },
+      _max: { ticketNumber: true },
+    });
+    let nextTicket = (maxTicket._max.ticketNumber ?? 0) + 1;
+
+    const refs: string[] = [];
+    for (const phase of plan.phases) {
+      const ticketNumber = nextTicket++;
+      await tx.workItem.create({
+        data: {
+          orgId: epic.orgId,
+          projectId: epic.projectId,
+          workItemTypeId: epic.workItemTypeId,
+          parentId: epicId,
+          title: `${epic.title} — Phase ${phase.phase}`,
+          description: phase.acceptanceCriteria.map((c) => `- ${c}`).join("\n"),
+          columnKey: phase.phase === 1 ? "todo" : "backlog",
+          priority: epic.priority,
+          ticketNumber,
+          columnEnteredAt: new Date(),
+          tags: [`${COORDINATED_PHASE_TAG_PREFIX}${phase.phase}`, `feedback:${plan.childClassification.toLowerCase()}`],
+          // The build brief reads triage from a linked FeedbackItem; a decomposition
+          // child has none, so its phase brief rides in customFields (getBacklog
+          // synthesises `triage` from it — see phaseTriage).
+          customFields: {
+            foremanPhase: { classification: plan.childClassification, acceptanceCriteria: phase.acceptanceCriteria },
+          },
+          createdById: bot,
+        },
+      });
+      refs.push(buildRef(projectKey, ticketNumber));
+    }
+
+    // Tag the epic + move it out of the build pool. Coordinated only for a true
+    // multi-phase FEATURE epic (plan.coordinate) — never forced.
+    const epicTags = new Set([...epic.tags, "decomposed"]);
+    if (plan.coordinate) epicTags.add(COORDINATED_RELEASE_TAG);
+    await tx.workItem.update({
+      where: { id: epicId },
+      data: { tags: [...epicTags], columnKey: "review", columnEnteredAt: new Date() },
+    });
+    return refs;
+  });
+}
+
+/** Mark every phase child of an epic `done` after a coordinated release shipped. */
+export async function markChildrenShipped(itemIds: string[]): Promise<void> {
+  if (itemIds.length === 0) return;
+  await prisma.workItem.updateMany({
+    where: { id: { in: itemIds } },
+    data: { columnKey: "done", columnEnteredAt: new Date() },
+  });
+  await syncFeedbackForWorkItems(itemIds, prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
 }
 
 /** Post a comment as Foreman. Targets the same table + column shape the
