@@ -198,11 +198,23 @@ services:
     # Survive host reboots — the 2026-07-04 reboot left the whole stack Exited for ~19h.
     restart: unless-stopped
     image: caddy@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
+    environment:
+      # Set to your public hostname (e.g. cosmos.example.com) for automatic HTTPS via
+      # Let's Encrypt; leave empty when TLS terminates upstream (proxy/tunnel/LB).
+      COSMOS_SITE_ADDRESS: ${COSMOS_SITE_ADDRESS:-}
     ports:
-      # host 8080 is taken by the v1 stack; expose v2's proxy on 8090.
-      - "8090:80"
+      # Public front door: HTTP (ACME challenge + http→https redirect) and HTTPS.
+      # Override per host (e.g. loopback-only behind an upstream proxy) in
+      # docker-compose.override.yml. Defaults 80/443 for a direct-to-Caddy deploy.
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
     volumes:
       - ./compose/Caddyfile:/etc/caddy/Caddyfile:ro
+      # PERSIST the ACME account + issued certs across container recreation — every
+      # deploy --force-recreates this container, and without a persistent /data Caddy
+      # would re-request a cert each time and hit Let's Encrypt's rate limit.
+      - caddy-data:/data
+      - caddy-config:/config
     depends_on:
       - cosmos
 
@@ -558,6 +570,10 @@ services:
       retries: 10
 
 volumes:
+  # Caddy's ACME account + issued Let's Encrypt certs — MUST persist across the
+  # --force-recreate every deploy does, or certs get re-requested and rate-limited.
+  caddy-data:
+  caddy-config:
   cosmos-pgdata:
   cosmos-minio-data:
   cosmos-minio-certs:
