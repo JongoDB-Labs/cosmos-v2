@@ -22,6 +22,15 @@
 	# redirect on it. No-op in the :80 upstream-TLS mode (no ACME there).
 	tls {
 		issuer acme {
+			# ACME CA directory. Defaults to Let's Encrypt (public internet). For an
+			# AIRGAPPED / offline deploy, set COSMOS_ACME_CA to your INTERNAL CA's ACME
+			# endpoint (e.g. smallstep step-ca) — Caddy then auto-issues AND auto-renews
+			# certs against your internal CA with no public internet required.
+			dir {$COSMOS_ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+			# Trust the internal CA's ACME endpoint (airgap): drop the root PEM into
+			# compose/caddy-certs/ and set COSMOS_ACME_CA_ROOT to its in-container path
+			# (e.g. /etc/caddy/certs/internal-root.pem). Empty = use system roots.
+			trusted_roots {$COSMOS_ACME_CA_ROOT}
 			disable_http_challenge
 		}
 	}

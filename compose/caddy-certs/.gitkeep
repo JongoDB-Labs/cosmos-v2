@@ -1,0 +1,1 @@
+# Drop internal CA root PEM(s) here for airgap ACME trust (COSMOS_ACME_CA_ROOT).
