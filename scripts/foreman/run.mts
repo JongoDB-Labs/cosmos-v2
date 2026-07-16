@@ -735,7 +735,16 @@ async function processOne(
     // runs via COSMOS-115's decomposition executor once every sibling is ready.
     // Non-epic tickets and "incremental" epics have no coordinated parent, so they
     // fall straight through to the ship handoff below and ship per-ticket (AC2).
-    const coord = await db.epicCoordination(item.id).catch(() => null);
+    let coord: Awaited<ReturnType<typeof db.epicCoordination>>;
+    try {
+      coord = await db.epicCoordination(item.id);
+    } catch {
+      // Coordination lookup FAILED. Do NOT fall through to a solo ship — that would
+      // leak a possibly-coordinated phase out as its own version (the exact bug this
+      // gate prevents). Fail SAFE: hold for review.
+      await parkForReview("coordination check failed — holding to avoid an uncoordinated ship");
+      return {};
+    }
     if (coord && coord.mode === "coordinated") {
       const summary = aggregateReadiness(coord.mode, coord.siblings);
       await parkForReview(`held for coordinated release of ${coord.epicKey ?? "its epic"} — ${summary.label}`);
@@ -1128,18 +1137,30 @@ async function shipCoordinatedBatch(
     /* checks tripwire may gate — acceptable, the batch parks for review */
   }
   try {
-    // Merge each phase branch in dependency order. `-X theirs` favours the incoming
-    // phase on the version-race trio (package.json / lock / changelog) — those are
-    // overwritten with ONE final version + ONE combined entry below, so per-phase
-    // conflicts there are irrelevant; a REAL code conflict still fails → abort.
+    // Merge each phase branch in dependency order. A plain merge (NOT `-X theirs`,
+    // which would silently drop an earlier phase's overlapping edits): only the
+    // version-race trio (package.json / lock / changelog) is allowed to conflict —
+    // it's overwritten with ONE final version + combined entry below, so we take the
+    // incoming copy and continue. ANY other conflicted file is a real cross-phase
+    // code clash → abort the whole release (no silent half-release, AC3/AC5).
     for (const ref of batch) {
       const branch = childByKey.get(ref)?.branch ?? `auto/${ref}`;
       await exec("git", ["-C", REPO, "fetch", "origin", branch]);
       try {
-        await exec("git", ["-C", wt, "merge", "-X", "theirs", "--no-edit", "FETCH_HEAD"]);
+        await exec("git", ["-C", wt, "merge", "--no-edit", "FETCH_HEAD"]);
       } catch {
-        await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
-        throw new Error(`code conflict merging phase ${ref} — coordinated release aborted (no half-release)`);
+        const conflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (!conflictsAreMechanical(conflicted)) {
+          await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+          throw new Error(`code conflict merging phase ${ref} (${conflicted.join(", ") || "unknown"}) — coordinated release aborted (no half-release)`);
+        }
+        // Only the version-race trio conflicted — resolved wholesale below anyway.
+        await exec("git", ["-C", wt, "checkout", "--theirs", "--", ...conflicted]);
+        await exec("git", ["-C", wt, "add", "--", ...conflicted]);
+        await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } });
       }
     }
     // ONE coordinated version, strictly above current main (the epic's bumpKind).
@@ -1182,7 +1203,17 @@ async function shipCoordinatedBatch(
     const ok = await ship.deploy(version, finalDiff.files.some((f) => f.startsWith("prisma/migrations/")));
     if (!ok) {
       await ship.rollback(version).catch(() => undefined);
-      throw new Error("deploy health-gate failed; rolled back");
+      // Merged to main but the deploy health-gate failed: the code is ON main, the
+      // running app was rolled back, and the phases are deliberately NOT marked done.
+      // Record the merged-undeployed state on each child so it isn't silently lost
+      // (mirrors shipBuilt's merged-undeployed handling); the shared checkout is
+      // restored to main in the finally below.
+      for (const child of coord.children) {
+        await db
+          .comment(child.itemId, `Coordinated release ${epicKey} v${version} merged to main, but the deploy health-gate failed — the running app was rolled back and this is NOT marked done. Needs a redeploy.`)
+          .catch(() => undefined);
+      }
+      throw new Error("deploy health-gate failed after merge; running app rolled back (merged-undeployed)");
     }
     // Every phase shipped under ONE version — mark them all done.
     await db.markChildrenShipped(coord.children.map((c) => c.itemId)).catch(() => undefined);
@@ -1265,7 +1296,17 @@ async function handleApprove(m: FreshMention, enqueueRepoWork: EnqueueRepoWork, 
   // ready-but-held, then let the release gate decide: hold (wait on siblings),
   // abort (a sibling failed — ship nothing), or release (ship the whole batch as
   // ONE version). Non-coordinated tickets fall through to the normal merge below.
-  const coord = await db.epicCoordination(m.itemId).catch(() => null);
+  let coord: Awaited<ReturnType<typeof db.epicCoordination>>;
+  try {
+    coord = await db.epicCoordination(m.itemId);
+  } catch {
+    // Coordination lookup FAILED. Do NOT fall through to a solo merge of what might
+    // be a coordinated phase child (that would ship the epic out of band). Fail SAFE:
+    // leave it parked and tell the maintainer to retry.
+    log(`${m.key} approve — coordination check failed; holding (won't solo-merge a possible coordinated phase)`);
+    await db.comment(m.itemId, "Approved, but I couldn't verify whether this is part of a coordinated epic release — holding it rather than risk shipping it out of band. Re-approve to retry.").catch(() => undefined);
+    return;
+  }
   if (coord && coord.mode === "coordinated") {
     await handleCoordinatedApprove(m, coord, enqueueRepoWork, author);
     return;
@@ -1601,7 +1642,15 @@ async function processResume(
     // Coordinated-release gate (COSMOS-118) — same hold as processOne: a phase child
     // of a "coordinated" epic never ships on its own; re-park it (green+approved,
     // held) with the epic's aggregate readiness until every sibling is ready.
-    const coord = await db.epicCoordination(m.itemId).catch(() => null);
+    let coord: Awaited<ReturnType<typeof db.epicCoordination>>;
+    try {
+      coord = await db.epicCoordination(m.itemId);
+    } catch {
+      // Fail SAFE (see processOne): a coordination-lookup error must HOLD, not fall
+      // through to a solo ship of a possibly-coordinated phase child.
+      await reparkResume("coordination check failed — holding to avoid an uncoordinated ship", undefined, processNote);
+      return {};
+    }
     if (coord && coord.mode === "coordinated") {
       const summary = aggregateReadiness(coord.mode, coord.siblings);
       await reparkResume(`held for coordinated release of ${coord.epicKey ?? "its epic"} — ${summary.label}`, undefined, processNote);
