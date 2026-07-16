@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt } from "./prompt";
+import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, continuePrompt } from "./prompt";
 
 const brief = {
   key: "COSMOS-2",
@@ -58,6 +58,23 @@ describe("resumePrompt", () => {
     expect(p).toMatch(/current worktree/i);
     expect(p).toMatch(/re-run relevant tests/i);
     expect(p).toMatch(/version\/changelog only if/i);
+  });
+});
+
+describe("continuePrompt (COSMOS-131 turn-budget overflow)", () => {
+  it("names the ticket and tells the agent to continue, not restart", () => {
+    const p = continuePrompt("COSMOS-131");
+    expect(p).toContain("COSMOS-131");
+    expect(p).toMatch(/ran out of your turn budget/i);
+    expect(p).toMatch(/partial work is intact/i);
+    expect(p).toMatch(/do NOT start over/i);
+  });
+  it("keeps the build's hard limits in force (no push/deploy/tag, no attribution)", () => {
+    const p = continuePrompt("COSMOS-131");
+    expect(p).toMatch(/current worktree|CURRENT branch/i);
+    expect(p).toMatch(/typecheck/);
+    expect(p).toMatch(/do not.*(merge|deploy|push)/i);
+    expect(p).toMatch(/no.*attribution/i);
   });
 });
 

@@ -104,6 +104,26 @@ Apply these instructions in the current worktree (your previous session's work i
 - Stay on the CURRENT branch; do not start over or revert unrelated work.`;
 }
 
+/** The turn-budget-overflow continuation (COSMOS-131): the build agent ran out of
+ *  its turn budget mid-implementation (`error_max_turns`) on an un-decomposed epic.
+ *  Its partial work is intact in the worktree and its session is resumed, so this
+ *  tells it to keep going and finish — NEVER discarding what it already built. Pure
+ *  so the wording is tested; the orchestrator owns the session resume + retry bound. */
+export function continuePrompt(key: string): string {
+  return `You were implementing ${key} and ran out of your turn budget before finishing — your partial work is intact in THIS worktree. Keep going from where you left off; do NOT start over or revert what you've already done.
+
+## How to continue
+1. Take stock of what's already changed here (\`git status\`, \`git diff\`) and what still remains from the acceptance criteria.
+2. Finish the remaining work as the SMALLEST correct change, matching surrounding conventions. If the ticket is genuinely too large to finish, land a coherent, self-contained slice and commit it rather than leaving it half-done.
+3. Run \`npm run typecheck && npm run lint && npm test\` and make them pass (the e2e test database is already wired).
+4. Bump the version once if you have not already, and commit to the CURRENT branch when done.
+
+## Hard limits (unchanged)
+- Do NOT push to main, open/merge a PR, deploy, or tag — Foreman does that.
+- Do NOT add any Claude/Anthropic/AI/assistant attribution to commits, code, or messages. Commit under the existing git identity only.
+- Stay on the CURRENT branch; do not start over or revert unrelated work.`;
+}
+
 /** The repair-round instruction: the SAME agent session (resumed, full context of
  *  what it built and why) is told exactly what failed and to fix forward. Pure so
  *  the wording is tested; the orchestrator bounds the number of rounds. */

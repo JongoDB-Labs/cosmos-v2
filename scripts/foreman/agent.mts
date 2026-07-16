@@ -96,12 +96,41 @@ export async function persistRotatedCredsIfChanged(
   }
 }
 
+/** Why an agent run ended — the classification the orchestrator branches on
+ *  (COSMOS-131). `error_max_turns` is deliberately DISTINCT from the generic
+ *  failures: it means the agent was doing correct work and merely overflowed its
+ *  turn budget (an un-decomposed epic), so Foreman SELF-HEALS by resuming rather
+ *  than discarding the partial work. `timeout` (abort) / `error` (SDK-or-spawn
+ *  throw, or any non-success result subtype) stay generic "gate for review". */
+export type AgentEndReason = "success" | "error_max_turns" | "timeout" | "error";
+
 export interface AgentResult {
   ok: boolean;
   log: string;
   /** SDK session id — pass back as `opts.resume` to continue THIS agent's
    *  conversation (the repair loop uses it so the agent keeps its own context). */
   sessionId: string | null;
+  /** How the run ended (COSMOS-131) — see {@link AgentEndReason}. `ok` is just
+   *  `reason === "success"`; the orchestrator reads `reason` to tell a turn-budget
+   *  overflow (self-heal by resume) apart from a generic failure (park). */
+  reason: AgentEndReason;
+}
+
+/** Should Foreman resume the SAME agent session to continue a build that ended in
+ *  a turn-budget overflow (COSMOS-131 AC1)? True only for `error_max_turns` with a
+ *  resumable session and while under the resume cap — every other end reason (and
+ *  an exhausted cap, or a lost session) is a park, never a silent discard. Pure so
+ *  the max-turns branch is unit-tested without the Agent SDK. */
+export function shouldResumeOnOverflow(
+  result: Pick<AgentResult, "reason" | "sessionId">,
+  overflowResumesSoFar: number,
+  maxOverflowResumes: number,
+): boolean {
+  return (
+    result.reason === "error_max_turns" &&
+    !!result.sessionId &&
+    overflowResumesSoFar < maxOverflowResumes
+  );
 }
 
 /** Run an agent turn in `worktreeDir` on the org's Foreman subscription. Resolves
@@ -158,6 +187,9 @@ export async function runAgent(
     let log = "";
     let sessionId: string | null = null;
     let ok = false;
+    // Default to the generic-failure bucket: if the stream ends without a result
+    // message (SDK died early), treat it as a plain error → park (the safe way).
+    let reason: AgentEndReason = "error";
     // Timeout via AbortController: the SDK tears down its subprocess on abort, so
     // a wedged agent can't hold the daemon (the old spawn path needed process-group
     // SIGKILL gymnastics for this; abort is the SDK-native equivalent).
@@ -187,18 +219,31 @@ export async function runAgent(
           }
         } else if (msg.type === "result") {
           ok = msg.subtype === "success";
-          if (msg.subtype === "success") log += msg.result + "\n";
-          else log += `\n[agent result: ${msg.subtype}]\n`;
+          if (msg.subtype === "success") {
+            log += msg.result + "\n";
+            reason = "success";
+          } else {
+            log += `\n[agent result: ${msg.subtype}]\n`;
+            // Keep error_max_turns DISTINCT (COSMOS-131) — it drives the resume
+            // self-heal; every other non-success subtype is a generic failure.
+            reason = msg.subtype === "error_max_turns" ? "error_max_turns" : "error";
+          }
         }
       }
     } catch (e) {
       // SDK throws on some error results and on abort — both are "gate", never a crash.
       ok = false;
-      log += `\n${ctrl.signal.aborted ? "[agent timeout — aborted]" : String(e)}\n`;
+      if (ctrl.signal.aborted) {
+        reason = "timeout";
+        log += "\n[agent timeout — aborted]\n";
+      } else {
+        reason = "error";
+        log += `\n${String(e)}\n`;
+      }
     } finally {
       clearTimeout(timer);
     }
-    return { ok, log, sessionId };
+    return { ok, log, sessionId, reason };
   } finally {
     // A mid-run SDK refresh rotates the token IN PLACE on disk; write any such
     // rotation back to the DB before the throwaway HOME (and the fresh token

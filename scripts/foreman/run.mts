@@ -23,7 +23,7 @@ import { pickNext } from "@/lib/foreman/queue";
 import { plannerPrompt, parsePlannerPicks, isStandingDemotion, rankAndCapCandidates, PLAN_TARGET, PLANNER_MAX_CANDIDATES, type PlannerCandidate } from "@/lib/foreman/planner";
 import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
-import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, type TicketBrief } from "@/lib/foreman/prompt";
+import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, continuePrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
 import { combineIntents, classifyInstruction } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
@@ -34,13 +34,13 @@ import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
 import { aggregateReadiness, decideRelease } from "@/lib/foreman/release-gate";
-import { planDecomposition, alreadyDecomposed } from "@/lib/foreman/decompose";
+import { planDecomposition, alreadyDecomposed, inferAcceptanceCriteria } from "@/lib/foreman/decompose";
 import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
-import { runAgent, NoForemanCredentialError, type AgentResult } from "./agent.mjs";
+import { runAgent, NoForemanCredentialError, shouldResumeOnOverflow, type AgentResult } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
 import { ensureWorkerDbs } from "./worker-db.mjs";
@@ -69,6 +69,11 @@ const DRY = process.env.FOREMAN_DRY_RUN === "1";
 // Bounded fix-forward: how many times a failing build is handed back to the SAME
 // agent session (with the check output) before the ticket gates for a human.
 const MAX_REPAIRS = 2;
+// Turn-budget-overflow self-heal (COSMOS-131): how many times a build that ended
+// in `error_max_turns` is RESUMED (same session, partial work intact) to continue
+// where it left off before it gates for a human with an honest "turn budget
+// exhausted" reason. A generic failure (timeout/spawn/exit) never enters this loop.
+const MAX_OVERFLOW_RESUMES = 2;
 // Parallel build SLOTS (builds concurrent; SHIP stays strictly serialized).
 // The provisioned ceiling — the LIVE target within it comes from org settings
 // (Settings → Feedback automation → Parallel builds) via db.deliveryWorkerTarget,
@@ -329,9 +334,19 @@ async function decomposePass(backlog: Awaited<ReturnType<typeof db.getBacklog>>)
       // again — that would create duplicate phase children.
       if (alreadyDecomposed(item.tags)) continue;
       const brief = briefFrom(item);
+      // COSMOS-131 AC2: an epic filed WITHOUT a structured feedback triage carries no
+      // acceptance criteria, so it could never be decomposed and would overflow the
+      // build's turn budget instead. Recover its criteria from the enumerated list in
+      // the brief text when triage carried none, so a genuinely epic ticket still
+      // splits regardless of whether the triage structured them. Conservative —
+      // judgeScope still requires FEATURE + a real breadth/size signal, so ordinary
+      // prose or a short list in a small feature is never falsely split (COSMOS-128 AC1).
+      const acceptanceCriteria = brief.acceptanceCriteria.length
+        ? brief.acceptanceCriteria
+        : inferAcceptanceCriteria(brief.description);
       const plan = planDecomposition({
         classification: brief.classification,
-        acceptanceCriteria: brief.acceptanceCriteria,
+        acceptanceCriteria,
         // Plan-time breadth proxy: only a genuinely epic (long, multi-deliverable)
         // brief clears the size threshold, so a normal feature that merely lists 4+
         // criteria is never falsely split (COSMOS-128 AC1).
@@ -604,19 +619,43 @@ async function processOne(
     return true;
   };
   try {
-    const agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl });
+    let agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl });
     if (await haltIfKilled()) return {}; // checkpoint 1: right after the agent returns
 
-    // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
-    //     false, usually with no commit). Gate for review — NEVER conflate this
-    //     with "already done" and auto-close a build that actually failed. (I2)
+    // (a0) Turn-budget overflow SELF-HEAL (COSMOS-131). `error_max_turns` is NOT a
+    //      generic failure: the agent was doing correct work and merely overflowed
+    //      its turn budget on an un-decomposed epic (the COSMOS-129 regression). NEVER
+    //      discard that partial work — RESUME the SAME session (its context + partial
+    //      changes are intact in this worktree) to continue where it left off, up to
+    //      MAX_OVERFLOW_RESUMES rounds. A resume that FINISHES flows straight into the
+    //      normal empty-diff/repair/checks/review path below, which surfaces exactly
+    //      what it built; only an EXHAUSTED overflow falls through to the gate — with
+    //      an honest "turn budget exhausted" reason, not "did not complete".
+    let overflowResumes = 0;
+    while (shouldResumeOnOverflow(agent, overflowResumes, MAX_OVERFLOW_RESUMES)) {
+      overflowResumes++;
+      log(`${key} hit turn budget (error_max_turns) — resuming session to continue (round ${overflowResumes}/${MAX_OVERFLOW_RESUMES})`);
+      agent = await runAgent(wt, continuePrompt(key), { orgId: item.orgId, resume: agent.sessionId ?? undefined, testDbUrl: workerOpts.testDbUrl });
+      if (await haltIfKilled()) return {}; // checkpoint 1b: after each overflow resume
+    }
+
+    // (a) Agent infra-failure. A GENERIC failure (timeout, spawn error, or non-zero
+    //     exit → agent.ok false, usually with no commit) gates as "did not complete".
+    //     A turn-budget overflow that survived the resume loop above gates too, but
+    //     with a DISTINCT, honest reason (COSMOS-131 AC1) — it's an epic that needs
+    //     decomposition or a human, not a build that simply failed. NEVER conflate
+    //     either with "already done" and auto-close a build that actually failed. (I2)
     if (!agent.ok) {
-      log(`${key} GATED (agent did not complete) → In Review`);
+      const overflowed = agent.reason === "error_max_turns";
+      const reason = overflowed
+        ? `turn budget exhausted after ${overflowResumes} resume${overflowResumes === 1 ? "" : "s"} — likely an epic too big for one build; needs decomposition or a human`
+        : "agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced";
+      log(`${key} GATED (${overflowed ? "turn budget exhausted" : "agent did not complete"}) → In Review`);
       if (!DRY) {
         await db.moveColumn(item.id, "review");
-        await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
-        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
-        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete", sessionId: agent.sessionId ?? undefined } });
+        await db.comment(item.id, `Needs review — ${reason}. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
+        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason });
+        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: reason, data: { reason, sessionId: agent.sessionId ?? undefined } });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return {};
@@ -1580,7 +1619,7 @@ async function processResume(
     // agent seeded with the ticket brief + current PR diff reconstructs the context.
     let agent: AgentResult = m.parked?.sessionId
       ? await runAgent(wt, resumePrompt(key, instructions), { orgId: m.orgId, resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl })
-      : { ok: false, log: "", sessionId: null };
+      : { ok: false, log: "", sessionId: null, reason: "error" };
     if (!agent.ok) {
       const { stdout: prDiff } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], { maxBuffer: 32 * 1024 * 1024 });
       agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { orgId: m.orgId, testDbUrl: workerOpts.testDbUrl });

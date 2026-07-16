@@ -3,6 +3,7 @@ import {
   judgeScope,
   planDecomposition,
   alreadyDecomposed,
+  inferAcceptanceCriteria,
   EPIC_MIN_ACCEPTANCE_CRITERIA,
   EPIC_DIFF_LINE_THRESHOLD,
   EPIC_MIN_DESCRIPTION_CHARS,
@@ -120,6 +121,58 @@ describe("planDecomposition — output shape, ordering, deps (COSMOS-128 AC2)", 
 
   it("exports the decomposed tag used by the re-decomposition guard", () => {
     expect(DECOMPOSED_TAG).toBe("decomposed");
+  });
+});
+
+describe("inferAcceptanceCriteria — recover criteria from an un-triaged brief (COSMOS-131 AC2)", () => {
+  it("extracts a numbered list of deliverables from the description", () => {
+    const got = inferAcceptanceCriteria(
+      "Overhaul the dashboard:\n1. Add the summary header\n2. Wire the filters\n3. Persist the layout",
+    );
+    expect(got).toEqual(["Add the summary header", "Wire the filters", "Persist the layout"]);
+  });
+
+  it("handles `1)` and bullet (`-` / `*` / `•`) prefixes too", () => {
+    expect(inferAcceptanceCriteria("1) first\n2) second")).toEqual(["first", "second"]);
+    expect(inferAcceptanceCriteria("- alpha\n* beta\n• gamma")).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("returns [] for ordinary prose with no enumerated list (no phantom criteria)", () => {
+    expect(inferAcceptanceCriteria("Just a paragraph describing a small fix. No list here.")).toEqual([]);
+    expect(inferAcceptanceCriteria("")).toEqual([]);
+  });
+
+  it("an epic-sized FEATURE with NO structured triage ACs still auto-decomposes from its brief list", () => {
+    // The AC2 gap: without structured triage, acceptanceCriteria is []. Recovering
+    // them from the enumerated brief lets the (long, multi-deliverable) epic split.
+    const description = [
+      "This epic spans three surfaces and a migration; each is its own deliverable:",
+      "1. Add the new feedback board UI with realtime updates",
+      "2. Build the bulk-import API endpoint and validation",
+      "3. Add the triage settings page and its persistence",
+      "4. Backfill existing rows and add the coordinated migration",
+      // pad so the description clears the long-brief breadth threshold
+      "x".repeat(EPIC_MIN_DESCRIPTION_CHARS),
+    ].join("\n");
+    const criteria = inferAcceptanceCriteria(description);
+    expect(criteria).toHaveLength(4);
+    const plan = planDecomposition({
+      classification: "FEATURE",
+      acceptanceCriteria: criteria,
+      descriptionLength: description.length,
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.phases).toHaveLength(4);
+    expect(plan!.phases[0].acceptanceCriteria).toEqual(["Add the new feedback board UI with realtime updates"]);
+    expect(plan!.coordinate).toBe(true);
+  });
+
+  it("a SMALL un-triaged feature with a short brief list is NOT split (no false split, AC1)", () => {
+    const description = "Quick tweak:\n1. rename the button\n2. update its tooltip";
+    const criteria = inferAcceptanceCriteria(description);
+    expect(criteria).toHaveLength(2);
+    // Short brief, no breadth signal → judgeScope keeps it a single ticket.
+    expect(planDecomposition({ classification: "FEATURE", acceptanceCriteria: criteria, descriptionLength: description.length })).toBeNull();
   });
 });
 

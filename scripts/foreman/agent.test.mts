@@ -10,7 +10,7 @@ import { prisma } from "@/lib/db/client";
 import { openSecret } from "@/lib/crypto/vault";
 import { materializeForemanHome, cleanupForemanHome } from "@/lib/foreman/foreman-creds";
 import { persistForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
-import { assertSubscription, NoForemanCredentialError, persistRotatedCredsIfChanged } from "./agent.mjs";
+import { assertSubscription, NoForemanCredentialError, persistRotatedCredsIfChanged, shouldResumeOnOverflow } from "./agent.mjs";
 
 describe("assertSubscription — metered refusal kept verbatim", () => {
   it("refuses when a metered / cloud-billing var is present", () => {
@@ -35,6 +35,32 @@ describe("NoForemanCredentialError", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.orgId).toBe("org-123");
     expect(e.message).toContain("org-123");
+  });
+});
+
+describe("shouldResumeOnOverflow — turn-budget self-heal, not discard (COSMOS-131 AC1/AC3)", () => {
+  const MAX = 2;
+
+  it("resumes on error_max_turns while a session exists and the cap is not reached", () => {
+    // The regression: a build that overflowed its turn budget must RESUME (continue
+    // the same session, partial work intact), never park as a generic failure.
+    expect(shouldResumeOnOverflow({ reason: "error_max_turns", sessionId: "sess-1" }, 0, MAX)).toBe(true);
+    expect(shouldResumeOnOverflow({ reason: "error_max_turns", sessionId: "sess-1" }, 1, MAX)).toBe(true);
+  });
+
+  it("stops resuming (parks) once the resume cap is exhausted", () => {
+    expect(shouldResumeOnOverflow({ reason: "error_max_turns", sessionId: "sess-1" }, MAX, MAX)).toBe(false);
+    expect(shouldResumeOnOverflow({ reason: "error_max_turns", sessionId: "sess-1" }, MAX + 1, MAX)).toBe(false);
+  });
+
+  it("does NOT resume without a session to continue (nothing to resume → park)", () => {
+    expect(shouldResumeOnOverflow({ reason: "error_max_turns", sessionId: null }, 0, MAX)).toBe(false);
+  });
+
+  it("does NOT resume for a generic failure — timeout / spawn-error-or-exit / success are never the overflow path", () => {
+    expect(shouldResumeOnOverflow({ reason: "timeout", sessionId: "sess-1" }, 0, MAX)).toBe(false);
+    expect(shouldResumeOnOverflow({ reason: "error", sessionId: "sess-1" }, 0, MAX)).toBe(false);
+    expect(shouldResumeOnOverflow({ reason: "success", sessionId: "sess-1" }, 0, MAX)).toBe(false);
   });
 });
 
