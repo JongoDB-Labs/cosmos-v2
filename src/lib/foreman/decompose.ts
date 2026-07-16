@@ -102,6 +102,28 @@ export function judgeScope(s: ScopeSignals): ScopeVerdict {
   return { isEpic: true, phaseCount: acCount, reasons: [`${acCount} acceptance criteria`, ...breadthReasons] };
 }
 
+/** Recover ordered acceptance criteria from a ticket's free-text brief when the
+ *  linked feedback triage carried none (COSMOS-131 AC2). The plan-time
+ *  decomposition keys phases off acceptance criteria, so an epic filed WITHOUT a
+ *  structured triage (empty `acceptanceCriteria`) could never be split and would
+ *  overflow the build's turn budget instead. Many such epics still enumerate their
+ *  deliverables as a numbered/bulleted list in the description — extracting that
+ *  list lets the scope-judge decompose them like any triaged epic.
+ *
+ *  Conservative BY DESIGN (no false splits): ONLY clearly enumerated lines count —
+ *  a `1.` / `1)` / `-` / `*` / `•` prefix — so ordinary prose never yields phantom
+ *  criteria. Returns [] when the brief has no such list; the caller still gates the
+ *  result through {@link judgeScope}, which requires FEATURE + a real breadth/size
+ *  signal, so a short list in a small feature is not enough to split. */
+export function inferAcceptanceCriteria(description: string): string[] {
+  const out: string[] = [];
+  for (const rawLine of description.split(/\r?\n/)) {
+    const m = /^\s*(?:\d+[.)]|[-*•])\s+(.+\S)\s*$/.exec(rawLine);
+    if (m) out.push(m[1].trim());
+  }
+  return out;
+}
+
 /** One ordered phase child of a decomposed epic. */
 export interface PhasePlan {
   /** 1-based position in the ordered decomposition. */
