@@ -59,6 +59,10 @@ interface Detector {
   label: string;
   weight: number;
   re: RegExp;
+  /** Stable identifier for the org-configurable high-risk-zone list (Phase 3c).
+   *  Only set on `high-risk-zone` detectors — the security-critical categories
+   *  (injection / malicious / content-safety / secret) are never disable-able. */
+  key?: string;
 }
 
 /**
@@ -229,41 +233,57 @@ const SECRET_PATTERNS: SecretPattern[] = [
 const HIGH_RISK_ZONE: Detector[] = [
   {
     category: "high-risk-zone",
+    key: "auth",
     label: "auth / session / RBAC / permissions",
     weight: 0.6,
     re: /\b(authentication|authorization|\bauth\b|session\s+(handling|token|cookie)|\brbac\b|\babac\b|permission\s*(model|system|check)|access\s*control|login\s+flow|sso|oauth|role\s*grant)\b/i,
   },
   {
     category: "high-risk-zone",
+    key: "secrets",
     label: "secrets / crypto / audit-chain",
     weight: 0.6,
     re: /\b(secret\s+(store|manager|vault)|encryption\s+(key|at\s+rest)|crypto(graphy|graphic)?|\bworm\b|audit\s*(chain|log)\s+(format|schema|signing))\b/i,
   },
   {
     category: "high-risk-zone",
+    key: "billing",
     label: "payments / billing",
     weight: 0.6,
     re: /\b(payment|payments|billing|invoice\s+charge|stripe|checkout\s+flow|subscription\s+charge|pricing\s+enforcement)\b/i,
   },
   {
     category: "high-risk-zone",
+    key: "data-destructive",
     label: "destructive / irreversible data operation",
     weight: 0.6,
     re: /\b(hard\s*delete|permanently\s+delete|bulk\s+delete|data\s+(deletion|purge)|destructive\s+migration|irreversible\s+migration|drop\s+column)\b/i,
   },
   {
     category: "high-risk-zone",
+    key: "security-egress",
     label: "security headers / CSP / CORS / egress policy",
     weight: 0.6,
     re: /\b(content[\s-]?security[\s-]?policy|\bcsp\b|\bcors\b|security\s+header|egress\s+(policy|allowlist)|\bdlp\b|agent[\s-]?policy)\b/i,
   },
   {
     category: "high-risk-zone",
+    key: "dependencies",
     label: "dependency / lockfile / release pipeline",
     weight: 0.55,
     re: /\b(upgrade|bump|change|pin|add)\b[^.\n]{0,20}\b(dependency|dependencies|lockfile|package-lock|node_modules|deploy\s+pipeline|release\s+pipeline|ci\s+workflow|dockerfile)\b/i,
   },
 ];
+
+/** The org-configurable high-risk-zone catalogue (key + human label), in the
+ *  canonical order. The org policy (Phase 3c) stores which of these are active;
+ *  the security-critical categories above are never part of this list. */
+export const HIGH_RISK_ZONES: readonly { key: string; label: string }[] = HIGH_RISK_ZONE.map(
+  (d) => ({ key: d.key as string, label: d.label }),
+);
+
+/** Every high-risk-zone key, in canonical order. The safe default is "all on". */
+export const HIGH_RISK_ZONE_KEYS: readonly string[] = HIGH_RISK_ZONES.map((z) => z.key);
 
 const ALL_DETECTORS: Detector[] = [
   ...INJECTION,
@@ -317,15 +337,40 @@ function scanSecrets(text: string): GuardrailFinding[] {
   return findings;
 }
 
+/** Per-org tuning of the deterministic gate (Phase 3c org policy). */
+export interface ScanOptions {
+  /** Which high-risk-zone keys are ACTIVE for this org (see `HIGH_RISK_ZONE_KEYS`).
+   *  Omitted ⇒ all zones active (the safe default). A zone that's turned off no
+   *  longer parks a would-be "allow" item on that signal alone. This ONLY tunes
+   *  the advisory high-risk-zone category — the security-critical categories
+   *  (prompt-injection / malicious-intent / content-safety / pii-secret) always
+   *  run and can never be disabled. */
+  enabledHighRiskZones?: readonly string[];
+}
+
 /**
  * Run the full intake guardrail pipeline over one feedback item's user-supplied
  * text. Deterministic — same input, same decision.
  */
-export function scanFeedback(input: { title: string; description?: string | null }): GuardrailResult {
+export function scanFeedback(
+  input: { title: string; description?: string | null },
+  options: ScanOptions = {},
+): GuardrailResult {
   const text = `${input.title ?? ""}\n${input.description ?? ""}`;
 
+  // Filter ONLY the high-risk-zone detectors to the org's active set; every
+  // security-critical detector always runs (safety is not org-configurable).
+  const zoneFilter =
+    options.enabledHighRiskZones !== undefined ? new Set(options.enabledHighRiskZones) : null;
+  const detectors =
+    zoneFilter === null
+      ? ALL_DETECTORS
+      : ALL_DETECTORS.filter(
+          (d) => d.category !== "high-risk-zone" || (d.key !== undefined && zoneFilter.has(d.key)),
+        );
+
   const findings: GuardrailFinding[] = [];
-  for (const d of ALL_DETECTORS) {
+  for (const d of detectors) {
     const m = d.re.exec(text);
     if (m) {
       findings.push({ category: d.category, label: d.label, match: redactSecrets(truncate(m[0])) });

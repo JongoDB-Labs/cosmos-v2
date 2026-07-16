@@ -299,3 +299,64 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
     });
   });
 });
+
+describe("remediation-config — intake policy (Phase 3c)", () => {
+  it("GET returns the safe default policy when nothing is configured", async () => {
+    const res = await GET(get(), { params });
+    const body = await res.json();
+    expect(body.intakePolicy).toEqual({
+      rateLimits: { perUserPerRun: 10, perOrgPerRun: 50, maxQueueDepth: 100, buildBudget: 100 },
+      autoTriggerRoles: ["OWNER", "ADMIN", "BILLING_ADMIN", "MEMBER"],
+      classifier: { judgeMinConfidence: "medium" },
+      highRiskZones: ["auth", "secrets", "billing", "data-destructive", "security-egress", "dependencies"],
+    });
+  });
+
+  it("PUT persists a policy (normalized) and a GET round-trips it", async () => {
+    const body = {
+      ...VALID_BODY,
+      intakePolicy: {
+        rateLimits: { perUserPerRun: 3, perOrgPerRun: 20, maxQueueDepth: 40, buildBudget: 25 },
+        // Deliberately out of canonical order + a bogus role to prove normalization.
+        autoTriggerRoles: ["ADMIN", "OWNER", "NOT_A_ROLE"],
+        classifier: { judgeMinConfidence: "high" },
+        highRiskZones: ["billing", "auth", "made-up-zone"],
+      },
+    };
+    const putRes = await PUT(put(body), { params });
+    expect(putRes.status).toBe(200);
+    const putBody = await putRes.json();
+    expect(putBody.intakePolicy.autoTriggerRoles).toEqual(["OWNER", "ADMIN"]);
+    expect(putBody.intakePolicy.classifier).toEqual({ judgeMinConfidence: "high" });
+    expect(putBody.intakePolicy.highRiskZones).toEqual(["auth", "billing"]);
+
+    // Persisted under the same keys the remediation loop reads (so it takes effect).
+    const stored = prisma.organization.update.mock.calls[0][0].data.settings as Record<string, unknown>;
+    expect(stored.classifierPolicy).toEqual({ judgeMinConfidence: "high" });
+    expect(stored.intakeLimits).toEqual({ perUserPerRun: 3, perOrgPerRun: 20, maxQueueDepth: 40, buildBudget: 25 });
+    expect(stored.autoTriggerRoles).toEqual(["OWNER", "ADMIN"]);
+    expect(stored.highRiskZones).toEqual(["auth", "billing"]);
+    // Untouched pre-existing keys survive.
+    expect(stored.unrelatedKey).toEqual({ keep: "me" });
+
+    const getRes = await GET(get(), { params });
+    const getBody = await getRes.json();
+    expect(getBody.intakePolicy.autoTriggerRoles).toEqual(["OWNER", "ADMIN"]);
+    expect(getBody.intakePolicy.rateLimits.perUserPerRun).toBe(3);
+    expect(getBody.intakePolicy.highRiskZones).toEqual(["auth", "billing"]);
+  });
+
+  it("a PUT WITHOUT intakePolicy (e.g. console pause/resume) leaves an existing policy untouched", async () => {
+    orgSettings = {
+      ...orgSettings,
+      classifierPolicy: { judgeMinConfidence: "low" },
+      autoTriggerRoles: ["OWNER"],
+    };
+    const putRes = await PUT(put(VALID_BODY), { params });
+    expect(putRes.status).toBe(200);
+    const getRes = await GET(get(), { params });
+    const body = await getRes.json();
+    expect(body.intakePolicy.classifier).toEqual({ judgeMinConfidence: "low" });
+    expect(body.intakePolicy.autoTriggerRoles).toEqual(["OWNER"]);
+  });
+});

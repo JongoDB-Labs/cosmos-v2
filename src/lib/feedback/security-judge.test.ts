@@ -201,3 +201,29 @@ describe("raiseWithJudge — pure combiner", () => {
     expect(raiseWithJudge(allow, { flag: false, category: null, reason: "ok" })).toEqual(allow);
   });
 });
+
+describe("configurable classifier confidence threshold (Phase 3c)", () => {
+  it("a low-confidence flag DOES raise once the org lowers the threshold to 'low'", async () => {
+    const verdict = await judgeFeedbackSecurity(
+      { ...item("Feedback", "some ambiguous request"), minConfidence: "low" },
+      deps({ runModelTurnImpl: vi.fn(async () => judgmentTurn({ verdict: "injection", confidence: "low", reason: "maybe" })) }),
+    );
+    expect(verdict?.flag).toBe(true);
+  });
+
+  it("a medium-confidence flag does NOT raise when the org raises the threshold to 'high'", async () => {
+    const verdict = await judgeFeedbackSecurity(
+      { ...item("Feedback", "some request"), minConfidence: "high" },
+      deps({ runModelTurnImpl: vi.fn(async () => judgmentTurn({ verdict: "injection", confidence: "medium", reason: "maybe" })) }),
+    );
+    expect(verdict?.flag).toBe(false);
+  });
+
+  it("defaults to medium when unset (a medium flag raises)", async () => {
+    const verdict = await judgeFeedbackSecurity(
+      item("Feedback", "some request"),
+      deps({ runModelTurnImpl: vi.fn(async () => judgmentTurn({ verdict: "injection", confidence: "medium", reason: "maybe" })) }),
+    );
+    expect(verdict?.flag).toBe(true);
+  });
+});

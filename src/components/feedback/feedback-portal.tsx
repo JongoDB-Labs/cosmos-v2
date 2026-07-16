@@ -66,7 +66,30 @@ interface FeedbackItem {
   // null if the author's User row no longer exists.
   authorName?: string | null;
   authorEmail?: string | null;
+  // Intake decision surfaced by the guardrail pipeline (Phase 3c): accepted /
+  // held / rejected / throttled / gated + reason (+ score). Null until intake ran.
+  intake?: IntakeDecision | null;
 }
+
+type IntakeState = "accepted" | "held" | "rejected" | "throttled" | "gated";
+
+interface IntakeDecision {
+  state: IntakeState;
+  label: string;
+  reason: string;
+  score: number | null;
+  categories?: string[];
+}
+
+// Badge tone per intake state — accepted reads positive, the safety parks read
+// as review/blocked, a throttle is neutral.
+const INTAKE_BADGE_VARIANT: Record<IntakeState, "done" | "review" | "blocked" | "neutral"> = {
+  accepted: "done",
+  held: "review",
+  rejected: "blocked",
+  throttled: "neutral",
+  gated: "review",
+};
 
 /** "Reported by <name>", preferring display name and falling back to email.
  *  Returns null when neither resolved (e.g. the author's User row is gone). */
@@ -555,6 +578,14 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                     >
                       {STATUS_LABELS[item.status]}
                     </Badge>
+                    {item.intake && (
+                      <span title={item.intake.reason} className="inline-flex">
+                        <Badge variant={INTAKE_BADGE_VARIANT[item.intake.state]} className="text-[10px]">
+                          {item.intake.label}
+                          {item.intake.score != null ? ` · ${item.intake.score.toFixed(2)}` : ""}
+                        </Badge>
+                      </span>
+                    )}
                     <h3 className="font-medium text-sm truncate group-hover/fb:underline">
                       {item.title}
                     </h3>
@@ -823,6 +854,22 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
                   <p className="text-sm text-muted-foreground italic">
                     No additional details were provided.
                   </p>
+                )}
+
+                {!editing && detailItem.intake && (
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={INTAKE_BADGE_VARIANT[detailItem.intake.state]} className="text-[10px]">
+                        {detailItem.intake.label}
+                      </Badge>
+                      {detailItem.intake.score != null && (
+                        <span className="text-[11px] text-muted-foreground">
+                          score {detailItem.intake.score.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-xs text-muted-foreground">{detailItem.intake.reason}</p>
+                  </div>
                 )}
 
                 {detailItem.attachments && detailItem.attachments.length > 0 && (

@@ -25,15 +25,11 @@ import {
 import type { Candidate } from "@/lib/foreman/dedup";
 import {
   planIntake,
-  readIntakeLimits,
   throttleMessage,
   type ThrottleReason,
 } from "@/lib/feedback/rate-limits";
-import {
-  canRoleAutoTrigger,
-  readRoleGateConfig,
-  roleGateMessage,
-} from "@/lib/feedback/role-gating";
+import { canRoleAutoTrigger, roleGateMessage } from "@/lib/feedback/role-gating";
+import { readIntakePolicy } from "@/lib/feedback/intake-policy";
 import type { OrgRole, Prisma } from "@prisma/client";
 
 /**
@@ -392,10 +388,13 @@ export async function runFeedbackRemediation(
   const { autoRemediation } = readAutomationConfig(org.settings);
   if (!autoRemediation.enabled || autoRemediation.projectIds.length === 0) return empty("not-enabled");
 
-  // ROLE-BASED AUTO-TRIGGER GATING (COSMOS-120, Phase 3b) — which submitter roles
-  // may auto-trigger a build vs. route to human triage first. Configurable per
-  // org (settings.autoTriggerRoles); default is members-and-above.
-  const roleGate = readRoleGateConfig(org.settings);
+  // ORG INTAKE POLICY (COSMOS-121, Phase 3c) — the single normalized view over
+  // the tunable intake knobs (rate limits, auto-trigger roles, security-judge
+  // confidence threshold, and the active high-risk-zone list), each with a safe
+  // default. Read once; every gate below reads from it, so an admin's saved edit
+  // takes effect on the very next run.
+  const policy = readIntakePolicy(org.settings);
+  const roleGate = { autoTriggerRoles: policy.autoTriggerRoles };
 
   // Gate on a connected model provider (per maintainer directive): the loop must
   // NOT deliver on the heuristic fallback — that produced low-signal tickets when
@@ -506,7 +505,7 @@ export async function runFeedbackRemediation(
   const queueDepth = await prisma.feedbackItem.count({
     where: { orgId, deliveredAt: { not: null }, status: { in: ["PLANNED", "IN_PROGRESS", "IN_REVIEW"] } },
   });
-  const limits = readIntakeLimits(org.settings);
+  const limits = policy.rateLimits;
   const plan = planIntake(
     pending.map((i) => ({ id: i.id, authorId: i.authorId, type: i.type, title: i.title, description: i.description })),
     { queueDepth },
@@ -597,7 +596,10 @@ export async function runFeedbackRemediation(
     // high-risk touch zones are pulled out of the autonomous build path and
     // routed to the human review queue; content-safety violations are rejected.
     // Deterministic + pure, so the security gate holds even when AI triage is down.
-    let guardrail = scanFeedback({ title: item.title, description: item.description });
+    let guardrail = scanFeedback(
+      { title: item.title, description: item.description },
+      { enabledHighRiskZones: policy.highRiskZones },
+    );
 
     // The deterministic gate is authoritative first: a content-safety reject or a
     // regex hold pulls the item out of the build path immediately (and records the
@@ -637,6 +639,7 @@ export async function runFeedbackRemediation(
       title: item.title,
       description: item.description,
       feedbackId: item.id,
+      minConfidence: policy.classifier.judgeMinConfidence,
     });
     guardrail = raiseWithJudge(guardrail, verdict);
 

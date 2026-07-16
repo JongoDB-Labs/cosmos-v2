@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { describeIntakeDecision } from "@/lib/feedback/intake-decision";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -71,6 +72,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         isMine: i.authorId === ctx.userId,
         authorName: authorById.get(i.authorId)?.displayName ?? null,
         authorEmail: authorById.get(i.authorId)?.email ?? null,
+        // Intake decision (Phase 3c): accepted / held / rejected / throttled /
+        // gated + reason (+ score), derived from the recorded triage so the board
+        // can show WHY an item was auto-accepted or pulled aside. `null` until the
+        // item has been through intake.
+        intake: describeIntakeDecision({ triage: i.triage, deliveredAt: i.deliveredAt }),
       })),
     );
   } catch (e) {
