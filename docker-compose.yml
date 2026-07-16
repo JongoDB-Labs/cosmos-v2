@@ -201,11 +201,11 @@ services:
     environment:
       # Set to your public hostname (e.g. cosmos.example.com) for automatic HTTPS via
       # Let's Encrypt; leave empty when TLS terminates upstream (proxy/tunnel/LB).
-      COSMOS_SITE_ADDRESS: ${COSMOS_SITE_ADDRESS:-}
+      COSMOS_SITE_ADDRESS: ${COSMOS_SITE_ADDRESS:-:80}
       # AIRGAP / internal CA: point Caddy at your internal ACME CA (e.g. step-ca) to
       # auto-issue+renew certs with no public internet. COSMOS_ACME_CA_ROOT is the
       # in-container path to the internal CA root PEM (drop it in compose/caddy-certs/).
-      COSMOS_ACME_CA: ${COSMOS_ACME_CA:-}
+      COSMOS_ACME_CA: ${COSMOS_ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
       COSMOS_ACME_CA_ROOT: ${COSMOS_ACME_CA_ROOT:-}
     ports:
       # Public front door: HTTP (ACME challenge + http→https redirect) and HTTPS.
