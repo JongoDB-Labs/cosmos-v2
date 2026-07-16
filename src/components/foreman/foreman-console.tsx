@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus, Sparkles } from "lucide-react";
+import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus, Sparkles, ShieldCheck } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
 import { ForemanClaudePanel } from "./foreman-claude-panel";
@@ -313,6 +313,87 @@ function RequirementsAnalysisPanel({ orgId, workItemId }: { orgId: string; workI
   );
 }
 
+/** Intake decisions surfaced on the console (COSMOS-121, Phase 3c) — mirrors the
+ *  Feedback board's `intake` descriptor so a steward can see, in one place, what
+ *  the guardrail pipeline accepted vs. pulled aside (and why) before anything
+ *  reached the build queue. Reads the org's feedback list (ORG_READ) and shows
+ *  only items that have been through intake, parks first. */
+type IntakeState = "accepted" | "held" | "rejected" | "throttled" | "gated";
+
+interface IntakeDecision {
+  state: IntakeState;
+  label: string;
+  reason: string;
+  score: number | null;
+}
+
+interface FeedbackListItem {
+  id: string;
+  type: "BUG" | "FEATURE";
+  title: string;
+  intake?: IntakeDecision | null;
+}
+
+const INTAKE_VARIANT: Record<IntakeState, BadgeVariant> = {
+  accepted: "done",
+  held: "review",
+  rejected: "blocked",
+  throttled: "neutral",
+  gated: "review",
+};
+
+// Parks (a person may need to act) sort above already-accepted items.
+const INTAKE_SORT: Record<IntakeState, number> = {
+  rejected: 0,
+  held: 1,
+  gated: 2,
+  throttled: 3,
+  accepted: 4,
+};
+
+function IntakeDecisions({ orgId }: { orgId: string }) {
+  const key = useOrgQueryKey("feedback-intake-decisions");
+  const { data } = useQuery({
+    queryKey: key,
+    queryFn: () => jsonFetch<FeedbackListItem[]>(`/api/v1/orgs/${orgId}/feedback`),
+    refetchInterval: 30_000,
+  });
+
+  const decided = (Array.isArray(data) ? data : [])
+    .filter((i): i is FeedbackListItem & { intake: IntakeDecision } => Boolean(i.intake))
+    .sort((a, b) => INTAKE_SORT[a.intake.state] - INTAKE_SORT[b.intake.state])
+    .slice(0, 12);
+
+  return (
+    <SectionCard
+      icon={ShieldCheck}
+      title="Intake decisions"
+      description="What the feedback guardrails accepted or pulled aside before the build queue."
+    >
+      {decided.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">No intake decisions recorded yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {decided.map((i) => (
+            <li key={i.id} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Badge variant={INTAKE_VARIANT[i.intake.state]} showDot={false} className="shrink-0">
+                    {i.intake.label}
+                    {i.intake.score != null ? ` · ${i.intake.score.toFixed(2)}` : ""}
+                  </Badge>
+                  <span className="truncate text-sm text-[var(--text)]">{i.title}</span>
+                </div>
+                <p className="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{i.intake.reason}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
+  );
+}
+
 export function ForemanConsole({ orgId }: { orgId: string }) {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const qc = useQueryClient();
@@ -542,6 +623,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           already OWNER/ADMIN-gated (see foreman/page.tsx's canManage check),
           so no extra permission gate is needed here. */}
       <ForemanClaudePanel orgId={orgId} />
+
+      <IntakeDecisions orgId={orgId} />
 
       <SectionCard
         icon={ListOrdered}

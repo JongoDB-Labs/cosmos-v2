@@ -120,6 +120,11 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     if (url.includes("/foreman/claude-subscription/status")) {
       return Promise.resolve({ connected: false });
     }
+    // The console's Intake-decisions section reads the org feedback list; the
+    // status tests don't exercise it, so return an empty list here.
+    if (url.endsWith("/feedback")) {
+      return Promise.resolve([]);
+    }
     return Promise.resolve(holder.status);
   }),
 }));
