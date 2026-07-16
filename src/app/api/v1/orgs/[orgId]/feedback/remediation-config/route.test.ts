@@ -26,9 +26,14 @@ const { getAuthContext, prisma, getAiProviderStatus } = vi.hoisted(() => ({
   getAiProviderStatus: vi.fn(),
 }));
 
+const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
+
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+// Realtime publish is a best-effort side-effect (COSMOS-130); mock it so we can
+// assert a settings.updated event fires on a valid save (and never on a reject).
+vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
 import { GET, PUT } from "./route";
 
@@ -101,6 +106,8 @@ describe("remediation-config — RBAC", () => {
     const res = await PUT(put(VALID_BODY), { params });
     expect(res.status).toBe(403);
     expect(prisma.organization.update).not.toHaveBeenCalled();
+    // A rejected save must NOT emit a live-update event.
+    expect(publishToOrg).not.toHaveBeenCalled();
   });
 
   it("403 on GET WITHOUT ORG_UPDATE", async () => {
@@ -228,6 +235,14 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
     const putRes = await PUT(put(VALID_BODY), { params });
     expect(putRes.status).toBe(200);
     expect(await putRes.json()).toMatchObject(VALID_BODY);
+
+    // A valid save publishes settings.updated (org-scoped) so open settings
+    // views in another tab refresh live (COSMOS-130).
+    expect(publishToOrg).toHaveBeenCalledWith(
+      ORG_ID,
+      "settings.updated",
+      expect.objectContaining({ orgId: ORG_ID, section: "automation" }),
+    );
 
     const updateArg = prisma.organization.update.mock.calls[0][0];
     expect(updateArg.data.settings).toEqual({

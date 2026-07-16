@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.210.1",
+    date: "2026-07-16",
+    title: "Settings & membership update live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Settings now update in real time. When an admin changes organization settings, feedback automation and intake policy, a member's role, or their work-role assignments, every other open Settings view refreshes the instant it happens — no manual reload — so two admins working at once always see the same, current configuration.",
+      },
+    ],
+  },
+  {
     version: "2.208.1",
     date: "2026-07-16",
     title: "The Foreman console updates live",
