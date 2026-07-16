@@ -17,6 +17,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
+// The console subscribes to the org realtime stream (COSMOS-127), which opens an
+// SSE EventSource jsdom lacks — orthogonal to the pill/controls under test here,
+// so stub it out for a deterministic render (see backlog-view.test for the same).
+vi.mock("@/hooks/use-foreman-realtime", () => ({ useForemanRealtime: () => {} }));
 
 import { toast } from "sonner";
 
