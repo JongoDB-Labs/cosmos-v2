@@ -17,4 +17,12 @@
 		# http:// origin, which would break OAuth redirect_uri matching + email links.
 		header_up X-Forwarded-Proto https
 	}
+	# Certificate issuance uses the TLS-ALPN-01 challenge (over 443), so inbound
+	# port 80 need NOT be open. If 80 IS reachable, Caddy still serves the http→https
+	# redirect on it. No-op in the :80 upstream-TLS mode (no ACME there).
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
 }
