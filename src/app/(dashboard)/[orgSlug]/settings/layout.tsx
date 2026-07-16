@@ -5,6 +5,7 @@ import {
   canViewSettings,
 } from "@/lib/rbac/settings-access";
 import { SettingsNav } from "@/components/settings/settings-nav";
+import { SettingsRealtime } from "@/components/settings/settings-realtime";
 
 export default async function SettingsLayout({
   children,
@@ -24,6 +25,10 @@ export default async function SettingsLayout({
 
   return (
     <div className="flex min-h-full flex-col md:flex-row">
+      {/* App-wide live updates for settings/membership (COSMOS-130): a single
+          org-scoped subscription that refreshes the open settings views when a
+          change lands in another tab/user. */}
+      <SettingsRealtime orgId={ctx.orgId} />
       <SettingsNav visibleHrefs={visibleHrefs} orgSlug={orgSlug} />
       <div className="min-w-0 flex-1">{children}</div>
     </div>

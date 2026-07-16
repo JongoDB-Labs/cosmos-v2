@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
+import { publishToOrg } from "@/lib/realtime/broker";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { pruneToProjects, readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
 import {
@@ -152,6 +153,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       where: { id: orgId },
       data: { settings: nextSettings as never },
     });
+
+    // Live-update every open settings view in this org (COSMOS-130). Best-effort;
+    // org-scoped by the topic so it never leaks across tenants.
+    try {
+      publishToOrg(orgId, "settings.updated", { orgId, section: "automation" });
+    } catch {
+      /* never let a broker error break the update response */
+    }
 
     return success({
       autoRemediation: data.autoRemediation,

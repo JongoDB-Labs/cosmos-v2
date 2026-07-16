@@ -18,18 +18,23 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
 // --- I/O boundary mocks ------------------------------------------------------
-const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
+const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
     orgMember: { findUnique: vi.fn(), update: vi.fn() },
   },
   logAudit: vi.fn(),
+  publishToOrg: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
+// Realtime publish is a best-effort side-effect (COSMOS-130); mock it so we can
+// assert a member.updated event fires on a successful role change and never on a
+// rejected one.
+vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
 import { PUT } from "./route";
 
@@ -113,6 +118,8 @@ describe("PUT /orgs/[orgId]/members/[memberId] — OWNER-escalation guard", () =
 
     expect(res.status).toBe(403);
     expect(prisma.orgMember.update).not.toHaveBeenCalled();
+    // A rejected change must NOT emit a live-update event.
+    expect(publishToOrg).not.toHaveBeenCalled();
   });
 
   it("(b) non-OWNER changing their OWN role (member.userId === ctx.userId) → 403, no update", async () => {
@@ -165,6 +172,13 @@ describe("PUT /orgs/[orgId]/members/[memberId] — OWNER-escalation guard", () =
     expect(prisma.orgMember.update).toHaveBeenCalledTimes(1);
     expect(prisma.orgMember.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { role: "ADMIN" } }),
+    );
+    // A successful role change publishes a member.updated event, org-scoped, so
+    // open members/roles views in another tab refresh live (COSMOS-130).
+    expect(publishToOrg).toHaveBeenCalledWith(
+      ORG_ID,
+      "member.updated",
+      expect.objectContaining({ orgId: ORG_ID, memberId: MEMBER_ID, role: "ADMIN" }),
     );
   });
 });

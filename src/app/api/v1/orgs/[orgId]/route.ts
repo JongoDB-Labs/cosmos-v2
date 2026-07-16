@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress, noContent } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { publishToOrg } from "@/lib/realtime/broker";
 import { revalidateOrg } from "@/lib/cache/queries";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { logoUrlSchema } from "@/lib/security/image-url";
@@ -124,6 +125,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // slug tags — getOrgBySlug is keyed on the slug.
     revalidateOrg({ id: orgId, slug: org.slug });
     if (slugChanged) revalidateOrg({ slug: data.slug });
+
+    // Live-update every open settings view in this org (COSMOS-130). Best-effort:
+    // a broker failure must never break the save. Org-scoped by the topic.
+    try {
+      publishToOrg(orgId, "settings.updated", { orgId, section: "org" });
+    } catch {
+      /* never let a broker error break the update response */
+    }
 
     return success(updated);
   } catch (error) {

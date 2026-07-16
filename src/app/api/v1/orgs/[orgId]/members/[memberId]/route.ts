@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { publishToOrg } from "@/lib/realtime/broker";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
 
@@ -85,6 +86,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    // Live-update the open members/roles views in this org (COSMOS-130).
+    // Best-effort; org-scoped by the topic.
+    try {
+      publishToOrg(orgId, "member.updated", { orgId, memberId, role: data.role });
+    } catch {
+      /* never let a broker error break the update response */
+    }
+
     return success(updated);
   } catch (error) {
     return handleApiError(error);
@@ -135,6 +144,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       metadata: { targetUserId: member.userId } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
+
+    // Live-update the open members/roles views in this org (COSMOS-130).
+    try {
+      publishToOrg(orgId, "member.updated", { orgId, memberId, removed: true });
+    } catch {
+      /* never let a broker error break the delete response */
+    }
 
     return noContent();
   } catch (error) {

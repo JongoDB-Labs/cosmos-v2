@@ -60,6 +60,8 @@ export function useRealtimeEvents(orgId: string, handlers: Handlers) {
         "feedback.flagged",
         "feedback.duplicate",
         "feedback.delivered",
+        "settings.updated",
+        "member.updated",
         "hello",
       ] as const;
 
