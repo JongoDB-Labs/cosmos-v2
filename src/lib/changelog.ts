@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.206.1",
+    date: "2026-07-16",
+    title: "Epics ship as one coordinated release",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Large feature epics are now automatically split into ordered phases before building, and those phases ship together as ONE coordinated release — a single version, tag, and changelog entry in dependency order — instead of a string of separate updates. If any phase can't complete, the whole release holds rather than going out half-finished. Small, incremental tickets are unaffected and still ship on their own.",
+      },
+      {
+        kind: "improvement",
+        text: "The Foreman console now shows each coordinated epic's phase readiness — how many phases are ready, pending, or failed, and whether the release is holding, shipping, or blocked.",
+      },
+    ],
+  },
+  {
     version: "2.206.0",
     date: "2026-07-16",
     title: "Duplicate/scope intake checks + self-updating delivery daemon",
