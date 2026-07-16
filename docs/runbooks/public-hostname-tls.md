@@ -29,6 +29,26 @@ Requirements:
 - Certs persist in the `caddy-data` volume across the `--force-recreate` every deploy
   does (do not remove it, or you will re-request certs and hit Let's Encrypt limits).
 
+### 1b. Airgap / offline — Caddy + your INTERNAL CA (automatic, no public internet)
+When there is no internet, point Caddy at your internal ACME CA (e.g. smallstep
+`step-ca`). Caddy then auto-issues AND auto-renews certs against your own CA — same
+"set it and forget it" as Let's Encrypt, fully offline.
+
+```
+# .env on the host
+COSMOS_SITE_ADDRESS=cosmos.example.internal
+COSMOS_ACME_CA=https://step-ca.internal:9000/acme/acme/directory
+# If your CA's ACME endpoint uses a private root Caddy doesn't already trust,
+# drop the root PEM into compose/caddy-certs/ and point at it:
+COSMOS_ACME_CA_ROOT=/etc/caddy/certs/internal-root.pem
+```
+`compose/caddy-certs/` is bind-mounted read-only into the container at
+`/etc/caddy/certs`. Requirements: the host resolves `cosmos.example.internal` to
+itself and can reach the internal ACME CA; inbound 443 open on the internal network.
+(A statically-issued cert with no renewal works too: mount `cert.pem`/`key.pem` and
+use a `tls <cert> <key>` Caddyfile — but the internal ACME CA above is preferred
+because it auto-renews.)
+
 ### 2. TLS terminates upstream (proxy / tunnel / cloud LB in front)
 Leave `COSMOS_SITE_ADDRESS` unset. Caddy serves plaintext `:80`; the upstream
 terminates TLS and **must** forward `X-Forwarded-Host: <public hostname>` and
