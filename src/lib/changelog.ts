@@ -21,6 +21,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.206.0",
+    date: "2026-07-16",
+    title: "Duplicate/scope intake checks + self-updating delivery daemon",
+    highlights: [
+      { kind: "feature", text: "Feedback intake now detects near-duplicate requests and links them to the existing item (merging votes) instead of opening a second ticket, and routes out-of-scope or decision-required feedback to a human instead of the automated build queue. Nonsense is rejected." },
+      { kind: "improvement", text: "The autonomous delivery daemon now restarts itself after shipping a change to its own code, so fixes to the delivery pipeline take effect immediately instead of waiting for a manual restart." },
+    ],
+  },
+  {
     version: "2.205.0",
     date: "2026-07-15",
     title: "On-demand AI analysis of pending changes + smarter release versioning",
