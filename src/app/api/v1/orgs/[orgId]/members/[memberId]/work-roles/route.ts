@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { publishToOrg } from "@/lib/realtime/broker";
 
 type RouteParams = { params: Promise<{ orgId: string; memberId: string }> };
 
@@ -106,6 +107,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
+
+    // Live-update the open members/roles views in this org (COSMOS-130).
+    try {
+      publishToOrg(orgId, "member.updated", {
+        orgId,
+        memberId,
+        workRolesChanged: true,
+      });
+    } catch {
+      /* never let a broker error break the update response */
+    }
 
     return success({ workRoleIds: requestedIds });
   } catch (error) {
