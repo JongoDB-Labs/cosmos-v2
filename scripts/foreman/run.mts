@@ -33,7 +33,8 @@ import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
-import { aggregateReadiness } from "@/lib/foreman/release-gate";
+import { aggregateReadiness, decideRelease } from "@/lib/foreman/release-gate";
+import { planDecomposition } from "@/lib/foreman/decompose";
 import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
@@ -304,6 +305,49 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
     }
   } catch (e) {
     log(`planner: pass failed — ${String(e)}`);
+  }
+}
+
+/** Auto-decompose epic-sized FEATURE tickets into ordered phase children BEFORE
+ *  building (COSMOS-115). For each non-child backlog/todo ticket, estimate scope
+ *  (acceptance-criteria count is the plan-time signal; breadth / expected-diff /
+ *  the >400-line auto-park backstop are the build-time backstops). An epic is split
+ *  into one child per phase (dependency-ordered), the parent tagged coordinated
+ *  (multi-phase FEATURE only) and moved out of the build pool; phase 1 queues to
+ *  To-do, the rest to Backlog. Non-epics are untouched (AC2/AC6 — no false splits).
+ *  Mutates `backlog` in place, removing any decomposed epic so this pass doesn't
+ *  also try to build it. Fully failure-isolated: any error logs and returns. No
+ *  writes in DRY. */
+async function decomposePass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Promise<void> {
+  try {
+    // Snapshot: decomposing mutates `backlog`, and a child must never itself be
+    // decomposed (parentRef set).
+    for (const item of [...backlog]) {
+      if (item.parentRef) continue;
+      const brief = briefFrom(item);
+      const plan = planDecomposition({ classification: brief.classification, acceptanceCriteria: brief.acceptanceCriteria });
+      if (!plan) continue;
+      if (DRY) {
+        log(`decompose (dry): would split ${brief.key} into ${plan.phases.length} ordered phases${plan.coordinate ? " (coordinated release)" : ""}`);
+        continue;
+      }
+      const refs = await db.decomposeEpic(item.id, plan);
+      if (refs.length === 0) continue; // epic vanished mid-pass (human moved it) — skip
+      const idx = backlog.findIndex((b) => b.id === item.id);
+      if (idx >= 0) backlog.splice(idx, 1); // don't also build the epic this pass
+      await db
+        .comment(
+          item.id,
+          `Auto-decomposed into ${refs.length} ordered phases: ${refs.join(", ")}.${plan.coordinate ? " These ship together as ONE coordinated release." : ""} Building phase 1 first; the rest are queued.`,
+        )
+        .catch(() => undefined);
+      await obs
+        .track({ workItemId: item.id, ticketKey: brief.key, kind: "planned", message: `decomposed ${brief.key} into ${refs.length} phases`, data: { phases: refs, coordinated: plan.coordinate } })
+        .catch(() => undefined);
+      log(`decomposed ${brief.key} into ${refs.length} phases: ${refs.join(", ")}`);
+    }
+  } catch (e) {
+    log(`decompose: pass failed — ${String(e)}`);
   }
 }
 
@@ -1048,6 +1092,153 @@ async function autoRebaseParkedBranch(branch: string): Promise<{ ok: true; versi
   }
 }
 
+/** One combined, USER-FACING changelog entry for a coordinated epic release — ONE
+ *  entry for the whole batch, not one per phase. Authored at ship time; rewritten
+ *  to the assigned version by prependChangelogEntry. */
+function coordinatedChangelogEntry(epicKey: string, batch: string[], version: string): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const text = `${epicKey} shipped as one coordinated release spanning ${batch.length} phases (${batch.join(", ")}), delivered together under a single version rather than a string of separate updates.`;
+  return `{ version: "${version}", date: "${date}", title: "Coordinated release ${epicKey}", highlights: [{ kind: "feature", text: ${JSON.stringify(text)} }] }`;
+}
+
+/** EXECUTE a coordinated epic release (COSMOS-118): merge the ordered batch of
+ *  sibling phase branches onto ONE integration branch, assign ONE version (the
+ *  epic's bumpKind — minor for a feature epic, patch for an all-bugfix one),
+ *  write ONE combined changelog entry, then run the SAME push→PR→merge→tag→
+ *  image→deploy pipeline as a solo ship — but exactly once for the whole batch.
+ *  Every phase child is marked done on success. A real code conflict merging any
+ *  phase aborts the whole release (never a silent half-release, AC3/AC5). MUST run
+ *  inside the ship-chain mutex (the caller wraps it via enqueueRepoWork) so its
+ *  worktree/merge can't race a build's own REPO-mutating steps. */
+async function shipCoordinatedBatch(
+  coord: NonNullable<Awaited<ReturnType<typeof db.epicCoordination>>>,
+  batch: string[],
+): Promise<void> {
+  const epicKey = coord.epicKey ?? "epic";
+  const childByKey = new Map(coord.children.map((c) => [c.key, c]));
+  const safe = epicKey.replace(/[^a-zA-Z0-9]+/g, "-");
+  const integ = `auto/coordinated-${safe}`;
+  const wt = join(tmpdir(), `coordinated-${safe}`);
+  await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
+  await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
+  await exec("git", ["-C", REPO, "worktree", "add", "-B", integ, wt, "origin/main"]);
+  try {
+    symlinkSync(join(REPO, "node_modules"), join(wt, "node_modules"), "dir");
+  } catch {
+    /* checks tripwire may gate — acceptable, the batch parks for review */
+  }
+  try {
+    // Merge each phase branch in dependency order. `-X theirs` favours the incoming
+    // phase on the version-race trio (package.json / lock / changelog) — those are
+    // overwritten with ONE final version + ONE combined entry below, so per-phase
+    // conflicts there are irrelevant; a REAL code conflict still fails → abort.
+    for (const ref of batch) {
+      const branch = childByKey.get(ref)?.branch ?? `auto/${ref}`;
+      await exec("git", ["-C", REPO, "fetch", "origin", branch]);
+      try {
+        await exec("git", ["-C", wt, "merge", "-X", "theirs", "--no-edit", "FETCH_HEAD"]);
+      } catch {
+        await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+        throw new Error(`code conflict merging phase ${ref} — coordinated release aborted (no half-release)`);
+      }
+    }
+    // ONE coordinated version, strictly above current main (the epic's bumpKind).
+    const mainVersion = (JSON.parse((await exec("git", ["-C", REPO, "show", "origin/main:package.json"])).stdout) as { version: string }).version;
+    const version = nextVersion(mainVersion, coord.bumpKind);
+    await exec("npm", ["version", version, "--no-git-tag-version"], { cwd: wt });
+    // ONE combined changelog entry: reset changelog to main's, then prepend a single
+    // entry — dropping any per-phase entries the merges pulled in.
+    await exec("git", ["-C", wt, "checkout", "origin/main", "--", "src/lib/changelog.ts"]).catch(() => undefined);
+    try {
+      const clPath = join(wt, "src/lib/changelog.ts");
+      const cl = readFileSync(clPath, "utf8");
+      writeFileSync(clPath, prependChangelogEntry(cl, coordinatedChangelogEntry(epicKey, batch, version), version));
+    } catch (e) {
+      log(`${epicKey} coordinated changelog rewrite skipped: ${String(e)}`);
+    }
+    await exec("git", ["-C", wt, "commit", "-aqm", `chore(release): coordinated release ${epicKey} → v${version} (${batch.join(", ")})`]).catch(() => undefined);
+    // Tripwire before publish/merge — a real rebase-onto-moved-code break gates here.
+    await exec("npx", ["tsc", "--noEmit"], { cwd: wt, maxBuffer: 32 * 1024 * 1024 });
+    const finalDiff = await diffSummary(wt);
+
+    await ship.pushBranch(integ);
+    const prUrl = await ship.openPr(
+      integ,
+      `auto: coordinated release ${epicKey} — v${version}`.slice(0, 250),
+      `Coordinated release of ${batch.join(", ")} as ONE version (v${version}). Merged in dependency order.`,
+      false,
+    );
+    await ship.mergePr(integ);
+    // TAG GUARD (the v2.174.0 lesson): a pre-existing tag means a version collision.
+    let tagExists = true;
+    try {
+      await exec("git", ["-C", REPO, "rev-parse", `v${version}`]);
+    } catch {
+      tagExists = false;
+    }
+    if (tagExists) throw new Error(`tag v${version} already exists — version collision`);
+    await ship.tagAndPush(version);
+    if (!(await ship.waitForImage(version))) throw new Error("image build failed");
+    const ok = await ship.deploy(version, finalDiff.files.some((f) => f.startsWith("prisma/migrations/")));
+    if (!ok) {
+      await ship.rollback(version).catch(() => undefined);
+      throw new Error("deploy health-gate failed; rolled back");
+    }
+    // Every phase shipped under ONE version — mark them all done.
+    await db.markChildrenShipped(coord.children.map((c) => c.itemId)).catch(() => undefined);
+    for (const child of coord.children) {
+      await db.comment(child.itemId, `Shipped in coordinated release ${epicKey} v${version}${prUrl ? ` (${prUrl})` : ""}.`).catch(() => undefined);
+    }
+    log(`${epicKey} coordinated release DONE v${version} — ${batch.length} phase(s): ${batch.join(", ")}`);
+  } finally {
+    await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
+    await exec("git", ["-C", REPO, "checkout", "-f", "main"]).catch(() => undefined);
+  }
+}
+
+/** Approve on a coordinated phase child (COSMOS-118): mark it ready-but-held (never
+ *  solo-merged), then run the release gate over every sibling. hold → keep holding
+ *  and report how many remain; abort → a sibling terminally failed, ship nothing;
+ *  release → EXECUTE the batch as one coordinated version (shipCoordinatedBatch,
+ *  serialized behind the ship chain). Best-effort comments/events — never throws to
+ *  the mention loop. */
+async function handleCoordinatedApprove(
+  m: FreshMention,
+  coord: NonNullable<Awaited<ReturnType<typeof db.epicCoordination>>>,
+  enqueueRepoWork: EnqueueRepoWork,
+  author: string,
+): Promise<void> {
+  // Mark this green+approved child ready-but-held, then RE-READ so the gate sees it.
+  await db.markCoordinatedReady(m.itemId).catch(() => undefined);
+  const fresh = (await db.epicCoordination(m.itemId).catch(() => null)) ?? coord;
+  const epicKey = fresh.epicKey ?? "its epic";
+  const decision = decideRelease({ mode: fresh.mode, siblings: fresh.siblings });
+  const summary = aggregateReadiness(fresh.mode, fresh.siblings);
+
+  if (decision.action === "hold") {
+    log(`${m.key} approved (coordinated) — holding: ${decision.reason}`);
+    await db.comment(m.itemId, `Approved by ${author} — held for the coordinated release of ${epicKey}. ${summary.label}. ${decision.reason}`).catch(() => undefined);
+    await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "warn", message: `coordinated hold — ${summary.label}`, data: { reason: decision.reason, epicKey } }).catch(() => undefined);
+    return;
+  }
+  if (decision.action === "abort") {
+    log(`${m.key} approved (coordinated) — blocked: ${decision.reason}`);
+    await db.comment(m.itemId, `Approved by ${author}, but the coordinated release of ${epicKey} is BLOCKED — ${decision.reason}. Shipping nothing until it's resolved (no half-release).`).catch(() => undefined);
+    await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "parked", severity: "error", message: `coordinated blocked — ${decision.reason}`, data: { reason: decision.reason, epicKey } }).catch(() => undefined);
+    return;
+  }
+  // release: ship the whole ordered batch as ONE version, behind the ship-chain mutex.
+  log(`${m.key} approved (coordinated) — releasing batch [${decision.batch.join(", ")}] as one version`);
+  await db.comment(m.itemId, `Approved by ${author} — all phases of ${epicKey} are green+approved; shipping them as ONE coordinated version now.`).catch(() => undefined);
+  try {
+    await enqueueRepoWork(() => shipCoordinatedBatch(fresh, decision.batch));
+  } catch (e) {
+    log(`${epicKey} coordinated release failed — ${String(e)}`);
+    await db.comment(m.itemId, `Coordinated release of ${epicKey} failed — ${String(e)}. Left for review.`).catch(() => undefined);
+    await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "ship-failed", severity: "error", message: `coordinated release failed — ${String(e)}`, data: { epicKey } }).catch(() => undefined);
+  }
+}
+
 /** Approve intent on a parked ticket: merge the parked PR now (deploy follows on
  *  the next reconcile pass, exactly as a human-merged draft PR does), or explain
  *  why there's nothing to merge. The merge itself is routed through
@@ -1067,6 +1258,18 @@ async function handleApprove(m: FreshMention, enqueueRepoWork: EnqueueRepoWork, 
   const prMerged = hasPr ? await prIsMerged(prUrl as string) : false;
   const decision = decideApprove({ hasPr, prMerged });
   const author = (await db.displayName(m.askerUserId).catch(() => null)) ?? "maintainer";
+
+  // ── Coordinated-release interception (COSMOS-118 executor) ────────────────────
+  // A green+approved phase child of a "coordinated" epic must NOT solo-merge — that
+  // is the bug this prevents (an epic going out as N patch versions). Mark it
+  // ready-but-held, then let the release gate decide: hold (wait on siblings),
+  // abort (a sibling failed — ship nothing), or release (ship the whole batch as
+  // ONE version). Non-coordinated tickets fall through to the normal merge below.
+  const coord = await db.epicCoordination(m.itemId).catch(() => null);
+  if (coord && coord.mode === "coordinated") {
+    await handleCoordinatedApprove(m, coord, enqueueRepoWork, author);
+    return;
+  }
 
   if (decision === "merge") {
     // Serialized behind the ship chain (same mutex enqueueShip uses for
@@ -1766,6 +1969,11 @@ async function main(): Promise<void> {
         if (killed()) continue;
         // ── fill build slots, then pump on any completion ──
         const backlog = await db.getBacklog();
+        // Auto-decompose epic-sized tickets into ordered phase children BEFORE
+        // planning/claiming (COSMOS-115). Mutates `backlog` in place, removing any
+        // epic it splits so this pass builds phase 1 (queued to To-do) rather than
+        // the epic itself. Never in DRY; failure-isolated.
+        if (!DRY) await decomposePass(backlog).catch((e) => log(`decompose error: ${String(e)}`));
         // Curate To-do to PLAN_TARGET before claiming, on the SAME backlog array
         // the claim loop consumes — a promotion here retiers the item for this
         // pass's pickNext. Failure-isolated: never blocks or crashes the pass.
