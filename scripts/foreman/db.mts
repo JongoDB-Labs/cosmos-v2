@@ -26,6 +26,7 @@ import {
 } from "@/lib/foreman/release-gate";
 import type { BumpKind } from "@/lib/foreman/ship-rebase";
 import type { DecompositionPlan } from "@/lib/foreman/decompose";
+import { DECOMPOSED_TAG } from "@/lib/foreman/decompose";
 
 /** The Foreman BOT user — the agent's own identity: its comments, board moves,
  *  and notifications are attributed to it, and @-mentioning it in a ticket
@@ -123,6 +124,7 @@ export async function getBacklog(): Promise<
       projectKey: string;
       orgId: string;
       parentRef: string | null;
+      tags: string[];
     }
   >
 > {
@@ -143,6 +145,7 @@ export async function getBacklog(): Promise<
       description: true,
       parentId: true,
       customFields: true,
+      tags: true,
     },
   });
   const parentRefs = await parentRefsById(rows.map((r) => r.parentId), poolByProjectId);
@@ -195,6 +198,7 @@ export async function getBacklog(): Promise<
         projectKey: p.projectKey,
         orgId: p.orgId,
         parentRef: r.parentId ? (parentRefs.get(r.parentId) ?? null) : null,
+        tags: r.tags,
       },
     ];
   });
@@ -529,7 +533,7 @@ export async function decomposeEpic(epicId: string, plan: DecompositionPlan): Pr
 
     // Tag the epic + move it out of the build pool. Coordinated only for a true
     // multi-phase FEATURE epic (plan.coordinate) — never forced.
-    const epicTags = new Set([...epic.tags, "decomposed"]);
+    const epicTags = new Set([...epic.tags, DECOMPOSED_TAG]);
     if (plan.coordinate) epicTags.add(COORDINATED_RELEASE_TAG);
     await tx.workItem.update({
       where: { id: epicId },

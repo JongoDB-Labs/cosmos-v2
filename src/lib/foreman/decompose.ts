@@ -28,18 +28,37 @@ export interface ScopeSignals {
   expectedDiffLines?: number;
   /** The >400-line auto-park backstop has already tripped for this ticket. */
   oversizedBackstop?: boolean;
+  /** Length (chars) of the ticket description — the always-available plan-time
+   *  breadth proxy: a genuinely epic feature spells out a long, multi-deliverable
+   *  brief, whereas a normal feature that merely enumerates a few criteria is short. */
+  descriptionLength?: number;
+}
+
+/** The tag an epic carries once it has been decomposed. Its presence short-circuits
+ *  any re-decomposition (COSMOS-128 AC3): if a human drags a decomposed epic back to
+ *  the backlog it must NOT be split a second time into duplicate children. */
+export const DECOMPOSED_TAG = "decomposed";
+
+/** Re-decomposition guard (COSMOS-128 AC3): true once an epic has already been split,
+ *  so the plan pass skips it even if a human moved it back into the build pool. */
+export function alreadyDecomposed(tags: readonly string[]): boolean {
+  return tags.includes(DECOMPOSED_TAG);
 }
 
 /** An epic-sized ticket needs enough acceptance criteria to split into ≥2 ordered
  *  phases; below this there's nothing to decompose (never a false split). */
 export const EPIC_MIN_PHASES = 2;
-/** Acceptance-criteria count that on its own marks a ticket epic-sized. */
+/** Acceptance-criteria count required (necessary, but NOT sufficient on its own —
+ *  see judgeScope) to consider a ticket epic-sized. */
 export const EPIC_MIN_ACCEPTANCE_CRITERIA = 4;
-/** Breadth (distinct touched areas) that on its own marks a ticket epic-sized. */
+/** Breadth (distinct touched areas) that qualifies as a real size signal. */
 export const EPIC_MIN_TOUCHED_AREAS = 3;
 /** Expected-diff size (lines) above which a ticket is epic-sized — the same
  *  >400-line boundary the build-time auto-park backstop uses. */
 export const EPIC_DIFF_LINE_THRESHOLD = 400;
+/** Description length (chars) that qualifies as a real breadth/size signal — a
+ *  genuinely epic feature carries a long, multi-deliverable brief. */
+export const EPIC_MIN_DESCRIPTION_CHARS = 600;
 
 export interface ScopeVerdict {
   isEpic: boolean;
@@ -50,23 +69,37 @@ export interface ScopeVerdict {
 }
 
 /** Estimate whether a ticket is epic-sized and worth decomposing. Conservative by
- *  construction (AC2/AC6 — no false splits): it must have ≥ EPIC_MIN_PHASES
- *  acceptance criteria (so there are ordered phases to form) AND cross at least one
- *  size threshold (AC count, breadth, expected diff, or the auto-park backstop). A
- *  small/incremental ticket — few criteria, narrow, small diff — is never an epic. */
+ *  construction (AC1/AC2 — no false splits): it must have ≥ EPIC_MIN_PHASES
+ *  acceptance criteria (so there are ordered phases to form) AND satisfy BOTH
+ *  a criteria-COUNT signal (≥ EPIC_MIN_ACCEPTANCE_CRITERIA) AND at least one real
+ *  breadth/size signal (touched-area breadth, expected diff, description length, or
+ *  the auto-park backstop). Acceptance-criteria count ALONE is never enough — a
+ *  normal small feature that merely enumerates 4+ criteria stays a single ticket.
+ *  A narrow ticket — few criteria, or many criteria but no breadth — is not an epic. */
 export function judgeScope(s: ScopeSignals): ScopeVerdict {
   const acCount = s.acceptanceCriteria.length;
-  const reasons: string[] = [];
   // Hard precondition: nothing to decompose without ≥2 phases' worth of criteria.
   if (acCount < EPIC_MIN_PHASES) {
     return { isEpic: false, phaseCount: 0, reasons: ["fewer than 2 acceptance criteria — not decomposable"] };
   }
-  if (acCount >= EPIC_MIN_ACCEPTANCE_CRITERIA) reasons.push(`${acCount} acceptance criteria`);
-  if ((s.touchedAreas ?? 0) >= EPIC_MIN_TOUCHED_AREAS) reasons.push(`${s.touchedAreas} touched areas`);
-  if ((s.expectedDiffLines ?? 0) > EPIC_DIFF_LINE_THRESHOLD) reasons.push(`~${s.expectedDiffLines}-line expected diff`);
-  if (s.oversizedBackstop) reasons.push("oversize auto-park backstop tripped");
-  const isEpic = reasons.length > 0;
-  return { isEpic, phaseCount: isEpic ? acCount : 0, reasons };
+  // A criteria-COUNT signal is NECESSARY but not sufficient: it must be corroborated
+  // by a real breadth/size signal, or a normal feature that just lists 4+ criteria
+  // would be falsely split (AC1).
+  const hasCriteriaSignal = acCount >= EPIC_MIN_ACCEPTANCE_CRITERIA;
+  const breadthReasons: string[] = [];
+  if ((s.touchedAreas ?? 0) >= EPIC_MIN_TOUCHED_AREAS) breadthReasons.push(`${s.touchedAreas} touched areas`);
+  if ((s.expectedDiffLines ?? 0) > EPIC_DIFF_LINE_THRESHOLD) breadthReasons.push(`~${s.expectedDiffLines}-line expected diff`);
+  if ((s.descriptionLength ?? 0) >= EPIC_MIN_DESCRIPTION_CHARS) breadthReasons.push(`${s.descriptionLength}-char description`);
+  if (s.oversizedBackstop) breadthReasons.push("oversize auto-park backstop tripped");
+  const hasBreadthSignal = breadthReasons.length > 0;
+  const isEpic = hasCriteriaSignal && hasBreadthSignal;
+  if (!isEpic) {
+    const why = !hasCriteriaSignal
+      ? `only ${acCount} acceptance criteria (need ≥${EPIC_MIN_ACCEPTANCE_CRITERIA})`
+      : "acceptance criteria alone — no breadth/size signal, not epic-sized";
+    return { isEpic: false, phaseCount: 0, reasons: [why] };
+  }
+  return { isEpic: true, phaseCount: acCount, reasons: [`${acCount} acceptance criteria`, ...breadthReasons] };
 }
 
 /** One ordered phase child of a decomposed epic. */
