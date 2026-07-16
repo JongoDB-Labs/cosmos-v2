@@ -6,6 +6,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { runImport } from "@/lib/import/import-engine";
 import type { ImportRequest } from "@/lib/import/work-item-fields";
+import { publishToOrg } from "@/lib/realtime/broker";
 
 const MAX_ROWS = 5000;
 const MAX_CELL = 20_000; // chars per cell — bounds the verbatim sourceRecord
@@ -70,6 +71,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       { orgId, projectId, userId: ctx.userId },
       req,
     );
+    // Live board updates (COSMOS-129): an import creates work items — signal the board
+    // views to refetch without a manual refresh.
+    publishToOrg(orgId, "work-item.created", {});
     return success(report);
   } catch (err) {
     return handleApiError(err);
