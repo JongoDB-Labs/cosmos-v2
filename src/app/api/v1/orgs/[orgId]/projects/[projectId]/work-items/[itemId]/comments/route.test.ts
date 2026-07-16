@@ -36,6 +36,10 @@ vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
 vi.mock("@/lib/mentions/references", () => ({
   syncReferences: vi.fn().mockResolvedValue(undefined),
 }));
+// Realtime publish is a best-effort side-effect; mock it so we can assert the
+// approve/comment path emits a work-item event (COSMOS-127) without a live bus.
+const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
+vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
 import { POST } from "./route";
 
@@ -81,6 +85,7 @@ beforeEach(() => {
     projectId: PROJECT_ID,
     title: "Fix the login",
     assigneeId: null,
+    ticketNumber: 42,
   });
   prisma.project.findUnique.mockResolvedValue({ key: "ACME" });
   prisma.orgMember.findMany.mockResolvedValue([]);
@@ -140,5 +145,31 @@ describe("POST /work-items/[itemId]/comments — author enrichment (COSMOS-4)", 
 
     expect(res.status).toBe(403);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /work-items/[itemId]/comments — live updates (COSMOS-127)", () => {
+  it("publishes a work-item.updated event so open boards + the Foreman console refresh", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE", "COMMENT_READ")));
+    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Ada", avatarUrl: null });
+
+    // The Foreman console Approve button posts exactly this comment on this route.
+    const res = await POST(postRequest("approve"), { params });
+    expect(res.status).toBe(201);
+
+    expect(publishToOrg).toHaveBeenCalledWith(ORG_ID, "work-item.updated", {
+      id: ITEM_ID,
+      projectId: PROJECT_ID,
+      ticketNumber: 42,
+    });
+  });
+
+  it("does not publish when the actor lacks COMMENT_CREATE (403, no write, no event)", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_READ")));
+
+    const res = await POST(postRequest(), { params });
+
+    expect(res.status).toBe(403);
+    expect(publishToOrg).not.toHaveBeenCalled();
   });
 });

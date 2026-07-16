@@ -55,6 +55,11 @@ export function useRealtimeEvents(orgId: string, handlers: Handlers) {
         "work-item.created",
         "work-item.updated",
         "work-item.deleted",
+        "feedback.throttled",
+        "feedback.gated",
+        "feedback.flagged",
+        "feedback.duplicate",
+        "feedback.delivered",
         "hello",
       ] as const;
 

@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
+import { publishToOrg } from "@/lib/realtime/broker";
 import { parseMentions } from "@/lib/chat/mentions";
 import { syncReferences } from "@/lib/mentions/references";
 import { z } from "zod";
@@ -105,6 +106,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       }),
     ]);
+
+    // Live updates (COSMOS-127): a new comment (including a Foreman console
+    // Approve / Rework, which post on this same route) refreshes any open board,
+    // issues list, ticket thread, and the Foreman console's event feed without a
+    // manual refresh. Best-effort — a broker error never breaks the POST.
+    try {
+      publishToOrg(orgId, "work-item.updated", {
+        id: itemId,
+        projectId,
+        ticketNumber: item.ticketNumber,
+      });
+    } catch {
+      /* never let a broker error break the comment response */
+    }
 
     // ── Notification fan-out ────────────────────────────────────────────
     try {

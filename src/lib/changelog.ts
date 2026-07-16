@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.208.1",
+    date: "2026-07-16",
+    title: "The Foreman console updates live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Foreman console now updates in real time. Approving, Reworking, or Rebuilding a parked ticket — and the build-status moves that follow — refresh the Awaiting-approval, In-flight, and event lists the instant they happen, and the change also shows up on the board, with no manual refresh and no waiting on a poll.",
+      },
+    ],
+  },
+  {
     version: "2.206.1",
     date: "2026-07-16",
     title: "Epics ship as one coordinated release",
