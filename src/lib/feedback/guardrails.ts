@@ -28,7 +28,13 @@ export type GuardrailCategory =
   | "malicious-intent"
   | "content-safety"
   | "pii-secret"
-  | "high-risk-zone";
+  | "high-risk-zone"
+  // Phase 2 (COSMOS-113) intake categories, applied AFTER the security gate by
+  // `intake-guardrails.ts` — not by the deterministic `scanFeedback` detectors:
+  | "duplicate" // same underlying request as an existing item → link + merge votes
+  | "needs-decision" // needs a product/scope/UX decision only the author can make → hold
+  | "out-of-scope" // outside what the platform should change automatically → hold
+  | "low-quality"; // empty / nonsense / spam → reject
 
 export interface GuardrailFinding {
   category: GuardrailCategory;

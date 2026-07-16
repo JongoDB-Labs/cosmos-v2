@@ -48,11 +48,21 @@ Each pass:
 | Enable at boot | `sudo systemctl enable foreman` |
 | Per-org opt-in | **Settings → Feedback automation → Autonomous delivery** (choose the projects); the daemon idles when no org has it on |
 
-A graceful/kill/breaker stop exits 0 and stays down; only an unexpected crash
-exits non-zero, which `Restart=on-failure` brings back (a clean restart reclaims
-any stranded ticket). The unit lives at `.deploy/foreman.service` (gitignored,
-host-local); `ExecStartPre` clears a stale `FOREMAN_STOP`/`FOREMAN_LOCK` on every
-(re)start.
+A graceful/kill/breaker stop exits 0 and stays down; an unexpected crash — or a
+deliberate **self-restart** (below) — exits non-zero, which `Restart=on-failure`
+brings back (a clean restart reclaims any stranded ticket). The unit lives at
+`.deploy/foreman.service` (gitignored, host-local); `ExecStartPre` clears a stale
+`FOREMAN_STOP`/`FOREMAN_LOCK` on every (re)start.
+
+**Self-reload after a self-modifying ship** — tsx loads Foreman's modules once at
+boot and never hot-reloads, so after Foreman ships a change touching its own
+runtime (`scripts/foreman/**` or `src/lib/foreman/**`) it would keep executing the
+OLD code until restarted. On such a ship the daemon arms a clean self-restart:
+finishes any in-flight build/ship, then exits non-zero so `Restart=on-failure`
+brings it back on the now-current checkout (`mergePr` hard-resets the local repo to
+the merged commit). It's logged (`self-restart …` with version + commit) and guarded
+to once per shipped commit (stamp: `.deploy/FOREMAN_RESTART_COMMIT`), so it can't
+restart-loop.
 
 ## The audit trail — reworking or rolling back a change
 
