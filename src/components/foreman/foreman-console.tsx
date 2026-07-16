@@ -3,7 +3,7 @@
 // Polls status every 15s; events are cursor-paged on demand (see
 // ForemanEventFeed, split out to keep this file focused).
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { useForemanRealtime } from "@/hooks/use-foreman-realtime";
 import type { ForemanStatusPayload } from "@/lib/foreman/status-read";
 import type { Pulse, InFlightBuild } from "@/lib/foreman/observe";
 import type { AutomationConfig } from "@/lib/feedback/automation-config";
@@ -367,7 +368,9 @@ function IntakeDecisions({ orgId }: { orgId: string }) {
   const { data } = useQuery({
     queryKey: key,
     queryFn: () => jsonFetch<FeedbackListItem[]>(`/api/v1/orgs/${orgId}/feedback`),
-    refetchInterval: 30_000,
+    // Realtime (feedback.* events, see ForemanConsole) drives freshness now — a
+    // slow poll only backstops a dropped SSE / reconnect (COSMOS-127).
+    refetchInterval: 60_000,
   });
 
   const decided = (Array.isArray(data) ? data : [])
@@ -409,10 +412,29 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const qc = useQueryClient();
   const statusKey = useOrgQueryKey("foreman-status");
+  const eventsKey = useOrgQueryKey("foreman-events");
+  const intakeKey = useOrgQueryKey("feedback-intake-decisions");
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: statusKey,
     queryFn: () => jsonFetch<ForemanStatusPayload>(`/api/v1/orgs/${orgId}/foreman/status`),
-    refetchInterval: 15_000,
+    // Realtime keeps the console live (see useForemanRealtime below); the poll is
+    // now just a slow reconnect/backstop for daemon-state-only changes that emit
+    // no work-item event, not the primary freshness path (COSMOS-127).
+    refetchInterval: 60_000,
+  });
+
+  // Live console (COSMOS-127): any board move the daemon drives (Approve /
+  // Rework / Rebuild → next column) or feedback intake decision refreshes the
+  // status payload, event feed, and intake list the instant it publishes — no
+  // waiting on the poll. Debounced so a burst of events coalesces into one pass.
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useForemanRealtime(orgId, () => {
+    if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(() => {
+      void qc.invalidateQueries({ queryKey: statusKey });
+      void qc.invalidateQueries({ queryKey: eventsKey });
+      void qc.invalidateQueries({ queryKey: intakeKey });
+    }, 300);
   });
 
   const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
