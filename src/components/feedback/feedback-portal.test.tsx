@@ -36,6 +36,9 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/test-org/feedback" }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
+// SSE EventSource jsdom lacks — the live-refresh subscription (COSMOS-129) is
+// orthogonal to what these tests exercise, so stub it to a no-op.
+vi.mock("@/hooks/use-realtime-events", () => ({ useRealtimeEvents: () => {} }));
 // The submit dialog's project picker fetches via jsonFetch; the detail flow
 // doesn't need projects, so an empty list keeps that query quiet.
 vi.mock("@/lib/query/json-fetcher", () => ({
