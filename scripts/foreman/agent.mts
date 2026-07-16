@@ -102,6 +102,11 @@ export interface AgentResult {
   /** SDK session id — pass back as `opts.resume` to continue THIS agent's
    *  conversation (the repair loop uses it so the agent keeps its own context). */
   sessionId: string | null;
+  /** The SDK result subtype: "success", an error subtype like "error_max_turns"
+   *  (the agent ran out of turns — the ticket was too big, NOT a failure), or
+   *  "timeout"/"error" for an abort/throw. Lets callers distinguish a resumable
+   *  turn-overflow from a genuine infra failure. */
+  subtype: string | null;
 }
 
 /** Run an agent turn in `worktreeDir` on the org's Foreman subscription. Resolves
@@ -157,6 +162,7 @@ export async function runAgent(
 
     let log = "";
     let sessionId: string | null = null;
+    let subtype: string | null = null;
     let ok = false;
     // Timeout via AbortController: the SDK tears down its subprocess on abort, so
     // a wedged agent can't hold the daemon (the old spawn path needed process-group
@@ -187,6 +193,7 @@ export async function runAgent(
           }
         } else if (msg.type === "result") {
           ok = msg.subtype === "success";
+          subtype = msg.subtype;
           if (msg.subtype === "success") log += msg.result + "\n";
           else log += `\n[agent result: ${msg.subtype}]\n`;
         }
@@ -194,11 +201,12 @@ export async function runAgent(
     } catch (e) {
       // SDK throws on some error results and on abort — both are "gate", never a crash.
       ok = false;
+      subtype = ctrl.signal.aborted ? "timeout" : "error";
       log += `\n${ctrl.signal.aborted ? "[agent timeout — aborted]" : String(e)}\n`;
     } finally {
       clearTimeout(timer);
     }
-    return { ok, log, sessionId };
+    return { ok, log, sessionId, subtype };
   } finally {
     // A mid-run SDK refresh rotates the token IN PLACE on disk; write any such
     // rotation back to the DB before the throwaway HOME (and the fresh token

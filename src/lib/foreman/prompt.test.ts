@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt } from "./prompt";
+import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, maxTurnsResumePrompt } from "./prompt";
 
 const brief = {
   key: "COSMOS-2",
@@ -58,6 +58,21 @@ describe("resumePrompt", () => {
     expect(p).toMatch(/current worktree/i);
     expect(p).toMatch(/re-run relevant tests/i);
     expect(p).toMatch(/version\/changelog only if/i);
+  });
+});
+
+describe("maxTurnsResumePrompt (COSMOS-131)", () => {
+  it("names the ticket and tells the agent to CONTINUE, not restart", () => {
+    const p = maxTurnsResumePrompt("COSMOS-9");
+    expect(p).toContain("COSMOS-9");
+    expect(p).toMatch(/turn limit/i);
+    expect(p).toMatch(/pick up exactly where you left off|continue/i);
+    expect(p).toMatch(/do not restart|not restart/i);
+  });
+  it("keeps the hard limits (no push/PR/deploy/tag, stay on branch)", () => {
+    const p = maxTurnsResumePrompt("COSMOS-9");
+    expect(p).toMatch(/do not push to main/i);
+    expect(p).toMatch(/current branch/i);
   });
 });
 

@@ -23,7 +23,7 @@ import { pickNext } from "@/lib/foreman/queue";
 import { plannerPrompt, parsePlannerPicks, isStandingDemotion, rankAndCapCandidates, PLAN_TARGET, PLANNER_MAX_CANDIDATES, type PlannerCandidate } from "@/lib/foreman/planner";
 import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
-import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, type TicketBrief } from "@/lib/foreman/prompt";
+import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, maxTurnsResumePrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
 import { combineIntents, classifyInstruction } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
@@ -69,6 +69,10 @@ const DRY = process.env.FOREMAN_DRY_RUN === "1";
 // Bounded fix-forward: how many times a failing build is handed back to the SAME
 // agent session (with the check output) before the ticket gates for a human.
 const MAX_REPAIRS = 2;
+// Extra turn budgets granted to a build that overflows its turn limit before giving up
+// (COSMOS-131): a max-turns result means the ticket was too big, not that the agent
+// failed — resume its session to continue rather than discard the partial work.
+const MAX_TURN_RESUMES = 2;
 // Parallel build SLOTS (builds concurrent; SHIP stays strictly serialized).
 // The provisioned ceiling — the LIVE target within it comes from org settings
 // (Settings → Feedback automation → Parallel builds) via db.deliveryWorkerTarget,
@@ -604,19 +608,34 @@ async function processOne(
     return true;
   };
   try {
-    const agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl });
+    let agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl });
     if (await haltIfKilled()) return {}; // checkpoint 1: right after the agent returns
 
-    // (a) Agent infra-failure (timeout, spawn error, or non-zero exit → agent.ok
-    //     false, usually with no commit). Gate for review — NEVER conflate this
-    //     with "already done" and auto-close a build that actually failed. (I2)
+    // Self-heal on turn overflow (COSMOS-131): an "error_max_turns" result means the
+    // ticket was too big for one turn budget — NOT that the agent failed. Its own
+    // commits are already in `wt` and its context is preserved by its session, so
+    // RESUME to continue exactly where it left off, up to a bounded number of extra
+    // budgets, before giving up. A mere turn overflow must never discard partial work.
+    let turnResumes = 0;
+    while (!agent.ok && agent.subtype === "error_max_turns" && agent.sessionId && turnResumes < MAX_TURN_RESUMES) {
+      turnResumes++;
+      log(`${key} hit the turn limit — resuming to continue (extra budget ${turnResumes}/${MAX_TURN_RESUMES})`);
+      agent = await runAgent(wt, maxTurnsResumePrompt(key), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl, resume: agent.sessionId });
+      if (await haltIfKilled()) return {};
+    }
+
+    // (a) Agent infra-failure (timeout, spawn error, non-zero exit, or a still-
+    //     unfinished turn overflow after the resume budget → agent.ok false, usually
+    //     with no/partial commit). Gate for review — NEVER conflate this with
+    //     "already done" and auto-close a build that actually failed. (I2)
     if (!agent.ok) {
-      log(`${key} GATED (agent did not complete) → In Review`);
+      const overflow = agent.subtype === "error_max_turns";
+      log(`${key} GATED (agent did not complete${overflow ? ` — still over turn budget after ${MAX_TURN_RESUMES} resumes; likely too big, decompose` : ""}) → In Review`);
       if (!DRY) {
         await db.moveColumn(item.id, "review");
-        await db.comment(item.id, `Needs review — agent did not complete (timeout, spawn error, or non-zero exit); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
-        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: "agent did not complete" });
-        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: "agent did not complete", sessionId: agent.sessionId ?? undefined } });
+        await db.comment(item.id, `Needs review — agent did not complete (${overflow ? `ran out of turns even after ${MAX_TURN_RESUMES} extra budgets — this ticket is likely too big and should be decomposed into phases` : "timeout, spawn error, or non-zero exit"}); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
+        await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: overflow ? "over turn budget (too big — decompose)" : "agent did not complete" });
+        await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: overflow ? "over turn budget" : "agent did not complete", sessionId: agent.sessionId ?? undefined } });
       }
       record({ ticket: key, title: brief.title, classification: brief.classification, resolution: "gated" });
       return {};
@@ -1580,7 +1599,7 @@ async function processResume(
     // agent seeded with the ticket brief + current PR diff reconstructs the context.
     let agent: AgentResult = m.parked?.sessionId
       ? await runAgent(wt, resumePrompt(key, instructions), { orgId: m.orgId, resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl })
-      : { ok: false, log: "", sessionId: null };
+      : { ok: false, log: "", sessionId: null, subtype: null };
     if (!agent.ok) {
       const { stdout: prDiff } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], { maxBuffer: 32 * 1024 * 1024 });
       agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { orgId: m.orgId, testDbUrl: workerOpts.testDbUrl });

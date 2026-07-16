@@ -70,6 +70,18 @@ Apply these instructions in the current worktree (your previous session's work).
  *  current PR diff so it can reconstruct the context. The diff is capped at
  *  RESUME_DIFF_CAP chars (the agent can still read the full tree from its cwd).
  *  Pure so the framing + truncation note are tested. */
+/** Continue a build that hit the turn limit mid-task (COSMOS-131). The agent's prior
+ *  work is committed in the SAME worktree and its context is preserved by resuming its
+ *  own session — so it must continue where it left off, not restart. */
+export function maxTurnsResumePrompt(key: string): string {
+  return `You were building ${key} and hit the turn limit mid-task. Your work so far is already committed in THIS worktree, and this is a resume of your OWN session — so pick up exactly where you left off. Finish the remaining work for this ticket, run the relevant tests, and commit. Do NOT restart, redo completed work, or revert anything.
+
+## Hard limits (unchanged)
+- Do NOT push to main, open/merge a PR, deploy, or tag — Foreman does that.
+- Do NOT add any Claude/Anthropic/AI/assistant attribution to commits, code, or messages. Commit under the existing git identity only.
+- Stay on the CURRENT branch; continue the existing work.`;
+}
+
 export function resumeContextPrompt(
   brief: { key: string; title: string; description: string },
   prDiff: string,
