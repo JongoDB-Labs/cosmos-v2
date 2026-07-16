@@ -9,6 +9,7 @@ import { createNotification } from "@/lib/notifications/create";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { z } from "zod";
 import { Priority } from "@prisma/client";
+import { publishToOrg } from "@/lib/realtime/broker";
 
 // Bulk ops accept a large selection: "select all N matching" (v2.128.0) spans
 // the ENTIRE result set, not just the visible page, so a project with hundreds
@@ -134,6 +135,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Live board updates (COSMOS-129): bulk edits must publish like single-item edits
+    // so kanban/backlog/issues reflect the change for every connected client.
+    publishToOrg(orgId, "work-item.updated", { ids });
     return success({ updated: result.count });
   } catch (error) {
     return handleApiError(error);
@@ -171,6 +175,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
+    publishToOrg(orgId, "work-item.deleted", { ids });
     return noContent();
   } catch (error) {
     return handleApiError(error);
