@@ -34,7 +34,7 @@ import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
 import { aggregateReadiness, decideRelease } from "@/lib/foreman/release-gate";
-import { planDecomposition } from "@/lib/foreman/decompose";
+import { planDecomposition, alreadyDecomposed } from "@/lib/foreman/decompose";
 import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
@@ -324,8 +324,19 @@ async function decomposePass(backlog: Awaited<ReturnType<typeof db.getBacklog>>)
     // decomposed (parentRef set).
     for (const item of [...backlog]) {
       if (item.parentRef) continue;
+      // Re-decomposition guard (COSMOS-128 AC3): an epic already decomposed carries
+      // the `decomposed` tag. If a human drags it back to the backlog, never split it
+      // again — that would create duplicate phase children.
+      if (alreadyDecomposed(item.tags)) continue;
       const brief = briefFrom(item);
-      const plan = planDecomposition({ classification: brief.classification, acceptanceCriteria: brief.acceptanceCriteria });
+      const plan = planDecomposition({
+        classification: brief.classification,
+        acceptanceCriteria: brief.acceptanceCriteria,
+        // Plan-time breadth proxy: only a genuinely epic (long, multi-deliverable)
+        // brief clears the size threshold, so a normal feature that merely lists 4+
+        // criteria is never falsely split (COSMOS-128 AC1).
+        descriptionLength: brief.description.length,
+      });
       if (!plan) continue;
       if (DRY) {
         log(`decompose (dry): would split ${brief.key} into ${plan.phases.length} ordered phases${plan.coordinate ? " (coordinated release)" : ""}`);
