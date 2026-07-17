@@ -4,6 +4,7 @@
 // project any org has opted into autonomous delivery for (see deliveryProjects
 // below), not a single hardcoded project/org.
 import { prisma } from "@/lib/db/client";
+import { randomUUID } from "node:crypto";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery-notify";
 import type { QueueItem } from "@/lib/foreman/queue";
@@ -315,6 +316,58 @@ export async function notifyDelivery(
   }
 }
 
+/** This daemon's per-process id, tagged on every realtime NOTIFY it emits so an
+ *  app instance never re-fans its OWN events (matches the pg bus adapter's dedup). */
+const FOREMAN_BUS_ID = randomUUID();
+
+/** Build the realtime payload the web app's pg-bus adapter expects on the shared
+ *  `cosmos_events` channel. Pure so the event contract (topic shape + the
+ *  `work-item.updated` type the boards subscribe to) is locked by a test. */
+export function workItemNotifyPayload(
+  instanceId: string,
+  row: { orgId: string; projectId: string; columnKey: string },
+  itemId: string,
+): string {
+  return JSON.stringify({
+    instanceId,
+    topic: `org:${row.orgId}`,
+    type: "work-item.updated",
+    data: { id: itemId, projectId: row.projectId, columnKey: row.columnKey },
+  });
+}
+
+/** Emit the org realtime event for a work item so connected boards and the foreman
+ *  console update live. Foreman is a SEPARATE process from the web app and writes the
+ *  board directly (the app's API routes publish on human moves; the daemon bypasses
+ *  them), so without this its autonomous lifecycle moves are invisible to SSE clients.
+ *  We NOTIFY on foreman's own (already-connected) prisma connection rather than the
+ *  realtime bus's separate LISTEN client — that second client does not reliably
+ *  connect under the daemon's tsx runtime, whereas prisma always does. The app
+ *  instances LISTEN on `cosmos_events` and fan the payload out to their SSE
+ *  subscribers. Best-effort: a realtime hiccup must never fail or block a board move. */
+async function emitWorkItemUpdated(itemId: string): Promise<void> {
+  try {
+    const row = await prisma.workItem.findUnique({
+      where: { id: itemId },
+      select: { orgId: true, projectId: true, columnKey: true },
+    });
+    if (!row) return;
+    await prisma.$executeRawUnsafe(
+      "SELECT pg_notify('cosmos_events', $1)",
+      workItemNotifyPayload(FOREMAN_BUS_ID, row, itemId),
+    );
+  } catch {
+    // Realtime is advisory; never let it break a delivery move.
+  }
+}
+
+/** Shared post-move side effects for every foreman-driven column change: carry the
+ *  linked feedback status AND emit the realtime event so boards move live. */
+async function afterColumnMove(itemId: string): Promise<void> {
+  await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+  await emitWorkItemUpdated(itemId);
+}
+
 /** Atomically claim a ticket for a build worker: flips any ready column
  *  (TODO_COLUMNS — backlog or todo) → in-progress only if it is STILL in one of
  *  them, so two workers can never claim the same ticket (updateMany's count is
@@ -325,7 +378,7 @@ export async function claimTicket(itemId: string): Promise<boolean> {
     data: { columnKey: "in-progress", columnEnteredAt: new Date() },
   });
   if (r.count === 1) {
-    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    await afterColumnMove(itemId);
     return true;
   }
   return false;
@@ -343,7 +396,7 @@ export async function promoteToTodo(itemId: string): Promise<boolean> {
     data: { columnKey: "todo", columnEnteredAt: new Date() },
   });
   if (r.count === 1) {
-    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    await afterColumnMove(itemId);
     return true;
   }
   return false;
@@ -361,7 +414,7 @@ export async function claimParked(itemId: string): Promise<boolean> {
     data: { columnKey: "in-progress", columnEnteredAt: new Date() },
   });
   if (r.count === 1) {
-    await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+    await afterColumnMove(itemId);
     return true;
   }
   return false;
@@ -375,7 +428,7 @@ export async function moveColumn(itemId: string, columnKey: string): Promise<voi
   // The daemon's board moves must carry the source feedback item's status with
   // them — reporters watch feedback (PLANNED/IN_PROGRESS/DONE), not the board.
   // Best-effort inside; a sync hiccup never fails the move.
-  await syncFeedbackForWorkItems([itemId], prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+  await afterColumnMove(itemId);
 }
 
 /** Add a tag if not already present. `tags` is a plain text[] column (no set
@@ -487,7 +540,7 @@ export async function markCoordinatedFailed(itemId: string): Promise<void> {
  *  built. Returns the created child refs, in phase order. All-or-nothing in one
  *  transaction so a partial decomposition can never strand an epic. */
 export async function decomposeEpic(epicId: string, plan: DecompositionPlan): Promise<string[]> {
-  return prisma.$transaction(async (tx) => {
+  const refs = await prisma.$transaction(async (tx) => {
     const epic = await tx.workItem.findUnique({
       where: { id: epicId },
       select: { orgId: true, projectId: true, title: true, priority: true, workItemTypeId: true, tags: true },
@@ -541,6 +594,11 @@ export async function decomposeEpic(epicId: string, plan: DecompositionPlan): Pr
     });
     return refs;
   });
+  // Post-commit realtime: the epic moved to `review` and its phase children
+  // were created; emitting for the epic triggers a board refetch that reveals
+  // them all (a mid-transaction NOTIFY could race the commit).
+  await emitWorkItemUpdated(epicId);
+  return refs;
 }
 
 /** Mark every phase child of an epic `done` after a coordinated release shipped. */
@@ -551,6 +609,7 @@ export async function markChildrenShipped(itemIds: string[]): Promise<void> {
     data: { columnKey: "done", columnEnteredAt: new Date() },
   });
   await syncFeedbackForWorkItems(itemIds, prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
+  for (const id of itemIds) await emitWorkItemUpdated(id);
 }
 
 /** Post a comment as Foreman. Targets the same table + column shape the
@@ -622,6 +681,7 @@ export async function reclaimStranded(): Promise<Array<{ id: string; ref: string
     rows.map((r) => r.id),
     prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1],
   );
+  for (const r of rows) await emitWorkItemUpdated(r.id);
   return rows.flatMap((r) => {
     const p = poolByProjectId.get(r.projectId);
     return p ? [{ id: r.id, ref: buildRef(p.projectKey, r.ticketNumber) }] : [];
