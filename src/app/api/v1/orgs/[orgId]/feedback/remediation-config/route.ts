@@ -5,8 +5,14 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
+import { publishToOrg } from "@/lib/realtime/broker";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { pruneToProjects, readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
+import {
+  normalizeIntakePolicyInput,
+  readIntakePolicy,
+  serializeIntakePolicy,
+} from "@/lib/feedback/intake-policy";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -25,6 +31,11 @@ const configSchema = z.object({
     enabled: z.boolean(),
     projectIds: z.array(z.string().uuid()),
   }),
+  // Org intake policy (Phase 3c) — optional so the console's pause/resume PUT
+  // (which sends only the two automation blocks) never clobbers it. Loosely
+  // typed here and clamped by `normalizeIntakePolicyInput`, which owns the
+  // per-field validation + safe defaults.
+  intakePolicy: z.unknown().optional(),
 });
 
 function badRequest(error: string) {
@@ -65,6 +76,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     return success({
       ...pruneToProjects(readAutomationConfig(org.settings), new Set(projects.map((p) => p.id))),
+      // Normalized org intake policy (Phase 3c) with safe defaults, for the
+      // policy editor.
+      intakePolicy: readIntakePolicy(org.settings),
       projects,
       aiConnected,
       aiProvider: ai.provider,
@@ -124,14 +138,34 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       autoRemediation: data.autoRemediation,
       autonomousDelivery: data.autonomousDelivery,
     };
+
+    // Merge the intake policy only when the caller sent one — the console's
+    // pause/resume omits it, and absent must never reset it to defaults. Stored
+    // under the same keys the remediation loop reads, so the change takes effect
+    // on the next run.
+    let savedPolicy = readIntakePolicy(org.settings);
+    if (data.intakePolicy !== undefined) {
+      savedPolicy = normalizeIntakePolicyInput(data.intakePolicy);
+      Object.assign(nextSettings, serializeIntakePolicy(savedPolicy));
+    }
+
     await prisma.organization.update({
       where: { id: orgId },
       data: { settings: nextSettings as never },
     });
 
+    // Live-update every open settings view in this org (COSMOS-130). Best-effort;
+    // org-scoped by the topic so it never leaks across tenants.
+    try {
+      publishToOrg(orgId, "settings.updated", { orgId, section: "automation" });
+    } catch {
+      /* never let a broker error break the update response */
+    }
+
     return success({
       autoRemediation: data.autoRemediation,
       autonomousDelivery: data.autonomousDelivery,
+      intakePolicy: savedPolicy,
     });
   } catch (error) {
     return handleApiError(error);

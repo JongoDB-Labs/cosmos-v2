@@ -17,6 +17,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
+// The console subscribes to the org realtime stream (COSMOS-127), which opens an
+// SSE EventSource jsdom lacks — orthogonal to the pill/controls under test here,
+// so stub it out for a deterministic render (see backlog-view.test for the same).
+vi.mock("@/hooks/use-foreman-realtime", () => ({ useForemanRealtime: () => {} }));
 
 import { toast } from "sonner";
 
@@ -62,6 +66,7 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
     },
     hasHistory: true,
     actorCanSteer: true,
+    coordinatedEpics: [],
     ...overrides,
   };
 }
@@ -69,9 +74,30 @@ function baseStatus(overrides: Partial<ForemanStatusPayload> = {}): ForemanStatu
 const holder: {
   status: ForemanStatusPayload;
   calls: { url: string; method?: string; body?: unknown }[];
+  recommendation: { recommendation: string; rationale: string; cached: boolean };
+  analysis: {
+    summary: string;
+    criteria: { criterion: string; status: string; note: string }[];
+    gaps: string[];
+    risks: string[];
+    complete: boolean;
+    cached: boolean;
+  };
 } = {
   status: baseStatus(),
   calls: [],
+  recommendation: { recommendation: "approve", rationale: "Diff matches the ticket and checks pass.", cached: false },
+  analysis: {
+    summary: "Covers the main criterion but the added test is thin.",
+    criteria: [
+      { criterion: "Creating a role with permissions succeeds", status: "met", note: "handled in the diff" },
+      { criterion: "A regression test covers it", status: "partial", note: "asserts too little" },
+    ],
+    gaps: ["No docs update"],
+    risks: ["Permission mask could overflow"],
+    complete: false,
+    cached: false,
+  },
 };
 
 vi.mock("@/lib/query/json-fetcher", () => ({
@@ -81,6 +107,12 @@ vi.mock("@/lib/query/json-fetcher", () => ({
       method: opts?.method,
       body: opts?.body ? JSON.parse(opts.body) : undefined,
     });
+    if (url.includes("/foreman/requirements-analysis")) {
+      return Promise.resolve(holder.analysis);
+    }
+    if (url.includes("/foreman/approval-recommendation")) {
+      return Promise.resolve(holder.recommendation);
+    }
     if (url.includes("/foreman/events")) {
       return Promise.resolve({ events: [], nextCursor: null });
     }
@@ -92,6 +124,11 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     // foreman-claude-panel.test.tsx for that card's own behavior.
     if (url.includes("/foreman/claude-subscription/status")) {
       return Promise.resolve({ connected: false });
+    }
+    // The console's Intake-decisions section reads the org feedback list; the
+    // status tests don't exercise it, so return an empty list here.
+    if (url.endsWith("/feedback")) {
+      return Promise.resolve([]);
     }
     return Promise.resolve(holder.status);
   }),
@@ -180,15 +217,106 @@ describe("ForemanConsole — awaiting approval", () => {
     });
   }
 
-  it("renders the rework/comment hint on a parked card, distinguishing Rework from Rebuild", async () => {
+  it("renders the AI recommendation badge + rationale on a PR-backed parked card, not the old static explainer", async () => {
+    withOneParked();
+    holder.recommendation = {
+      recommendation: "approve",
+      rationale: "Diff matches the ticket and checks pass.",
+      cached: false,
+    };
+    renderConsole();
+
+    expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
+    // The AI recommendation (fetched per PR head SHA) replaces the old static
+    // button-description paragraph (button semantics now live in tooltips/
+    // confirmations from COSMOS-109).
+    expect(await screen.findByText("Recommend: Approve")).toBeInTheDocument();
+    expect(screen.getByText("Diff matches the ticket and checks pass.")).toBeInTheDocument();
+    // The removed static explainer text must be gone.
+    expect(screen.queryByText(/throws the current build away/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/resumes the existing\s+build/i)).not.toBeInTheDocument();
+    // It fetched the recommendation endpoint for this item.
+    await waitFor(() =>
+      expect(
+        holder.calls.some((c) => c.url.includes("/foreman/approval-recommendation?workItemId=wi-1")),
+      ).toBe(true),
+    );
+  });
+
+  it("recommends Rebuild (no request) on a card with no PR — nothing was built to approve", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Agent produced no diff.",
+          prUrl: null,
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Agent feedback improvement")).toBeInTheDocument();
+    expect(screen.getByText("Recommend: Rebuild")).toBeInTheDocument();
+    // A no-PR card never calls the analysis endpoint.
+    expect(holder.calls.some((c) => c.url.includes("/foreman/approval-recommendation"))).toBe(false);
+  });
+
+  it("clicking AI Analysis on a PR-backed card fetches + shows a per-criterion met/partial report with gaps/risks", async () => {
     withOneParked();
     renderConsole();
 
     expect(await screen.findByText("Fix the flaky dedup test")).toBeInTheDocument();
-    // Copy names the live-prod deploy and contrasts Rework (resumes) vs Rebuild (starts fresh).
-    expect(screen.getByText(/deploys it to live production/i)).toBeInTheDocument();
-    expect(screen.getByText(/resumes the existing\s+build/i)).toBeInTheDocument();
-    expect(screen.getByText(/throws the current build away/i)).toBeInTheDocument();
+
+    // The report isn't fetched until the button is clicked (it's a paid call).
+    expect(holder.calls.some((c) => c.url.includes("/foreman/requirements-analysis"))).toBe(false);
+    const analysisButton = screen.getByRole("button", { name: /ai analysis/i });
+    expect(analysisButton).toBeEnabled();
+    fireEvent.click(analysisButton);
+
+    // Per-criterion coverage: each criterion's text + its status label.
+    expect(await screen.findByText("Creating a role with permissions succeeds")).toBeInTheDocument();
+    expect(screen.getByText("Met")).toBeInTheDocument();
+    expect(screen.getByText("Partial")).toBeInTheDocument();
+    // Gaps + risks sections.
+    expect(screen.getByText("No docs update")).toBeInTheDocument();
+    expect(screen.getByText("Permission mask could overflow")).toBeInTheDocument();
+    // It hit the analysis endpoint scoped to this item.
+    await waitFor(() =>
+      expect(
+        holder.calls.some((c) => c.url.includes("/foreman/requirements-analysis?workItemId=wi-1")),
+      ).toBe(true),
+    );
+  });
+
+  it("disables AI Analysis on a no-PR card with an explanatory tooltip title (nothing to analyze)", async () => {
+    holder.status = baseStatus({
+      awaitingApproval: [
+        {
+          workItemId: "wi-2",
+          projectId: "proj-1",
+          ticketKey: "COSMOS-10",
+          title: "Agent feedback improvement",
+          reason: "Agent produced no diff.",
+          prUrl: null,
+          parkedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    renderConsole();
+
+    expect(await screen.findByText("Agent feedback improvement")).toBeInTheDocument();
+    const analysisButton = screen.getByRole("button", { name: /ai analysis/i });
+    expect(analysisButton).toBeDisabled();
+    expect(analysisButton).toHaveAttribute(
+      "title",
+      "Nothing to analyze — the agent produced no pull request.",
+    );
+    // A disabled no-PR button never calls the analysis endpoint.
+    expect(holder.calls.some((c) => c.url.includes("/foreman/requirements-analysis"))).toBe(false);
   });
 
   it("Approve opens a live-prod deploy confirmation, then POSTs an approve comment on confirm", async () => {

@@ -26,9 +26,14 @@ const { getAuthContext, prisma, getAiProviderStatus } = vi.hoisted(() => ({
   getAiProviderStatus: vi.fn(),
 }));
 
+const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
+
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+// Realtime publish is a best-effort side-effect (COSMOS-130); mock it so we can
+// assert a settings.updated event fires on a valid save (and never on a reject).
+vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
 import { GET, PUT } from "./route";
 
@@ -101,6 +106,8 @@ describe("remediation-config — RBAC", () => {
     const res = await PUT(put(VALID_BODY), { params });
     expect(res.status).toBe(403);
     expect(prisma.organization.update).not.toHaveBeenCalled();
+    // A rejected save must NOT emit a live-update event.
+    expect(publishToOrg).not.toHaveBeenCalled();
   });
 
   it("403 on GET WITHOUT ORG_UPDATE", async () => {
@@ -229,6 +236,14 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
     expect(putRes.status).toBe(200);
     expect(await putRes.json()).toMatchObject(VALID_BODY);
 
+    // A valid save publishes settings.updated (org-scoped) so open settings
+    // views in another tab refresh live (COSMOS-130).
+    expect(publishToOrg).toHaveBeenCalledWith(
+      ORG_ID,
+      "settings.updated",
+      expect.objectContaining({ orgId: ORG_ID, section: "automation" }),
+    );
+
     const updateArg = prisma.organization.update.mock.calls[0][0];
     expect(updateArg.data.settings).toEqual({
       unrelatedKey: { keep: "me" }, // untouched
@@ -251,6 +266,42 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
     expect(JSON.stringify(body)).not.toContain("permissions");
   });
 
+  it("persists the picker's Parallel-builds count (autonomousDelivery.workers = N) — non-default value round-trips", async () => {
+    // COSMOS-110: the picker sends workers=N in the PUT body; the route must
+    // persist exactly that into Organization.settings (not silently fall back to
+    // the zod default). Using a NON-default value (3) is deliberate — a value of
+    // 2 would be masked by `workers: z.number()...default(2)` even if the route
+    // dropped the field, so it couldn't catch the reported "no workers key /
+    // wrong worker cap" regression. 3 can only come from the body.
+    const body = {
+      autoRemediation: { enabled: false, projectIds: [], defaultProjectId: null },
+      autonomousDelivery: { enabled: true, projectIds: [PROJECT_A], notify: { parked: true, shipped: true }, workers: 3 },
+    };
+    const putRes = await PUT(put(body), { params });
+    expect(putRes.status).toBe(200);
+    expect((await putRes.json()).autonomousDelivery.workers).toBe(3);
+
+    // Landed in the stored settings blob…
+    const stored = prisma.organization.update.mock.calls[0][0].data.settings as {
+      autonomousDelivery: { workers: number };
+    };
+    expect(stored.autonomousDelivery.workers).toBe(3);
+
+    // …and a subsequent GET reads it back as 3 (visible in org settings — AC #1).
+    const getRes = await GET(get(), { params });
+    expect((await getRes.json()).autonomousDelivery.workers).toBe(3);
+  });
+
+  it("normalizes a legacy autonomousDelivery body with no workers key to the safe default (2) on GET", async () => {
+    // The exact shape observed in the wild: enabled + projectIds, no `workers`.
+    // GET must surface a finite in-range default (2) rather than undefined/NaN,
+    // so the picker + the daemon's worker target never read a broken value.
+    orgSettings = { autonomousDelivery: { enabled: true, projectIds: [PROJECT_A] } };
+    const res = await GET(get(), { params });
+    expect(res.status).toBe(200);
+    expect((await res.json()).autonomousDelivery.workers).toBe(2);
+  });
+
   it("GET normalizes a legacy single-project settings shape (back-compat via automation-config)", async () => {
     orgSettings = { autoRemediation: { enabled: true, targetProjectId: PROJECT_A } };
     const res = await GET(get(), { params });
@@ -261,5 +312,66 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
       projectIds: [PROJECT_A],
       defaultProjectId: PROJECT_A,
     });
+  });
+});
+
+describe("remediation-config — intake policy (Phase 3c)", () => {
+  it("GET returns the safe default policy when nothing is configured", async () => {
+    const res = await GET(get(), { params });
+    const body = await res.json();
+    expect(body.intakePolicy).toEqual({
+      rateLimits: { perUserPerRun: 10, perOrgPerRun: 50, maxQueueDepth: 100, buildBudget: 100 },
+      autoTriggerRoles: ["OWNER", "ADMIN", "BILLING_ADMIN", "MEMBER"],
+      classifier: { judgeMinConfidence: "medium" },
+      highRiskZones: ["auth", "secrets", "billing", "data-destructive", "security-egress", "dependencies"],
+    });
+  });
+
+  it("PUT persists a policy (normalized) and a GET round-trips it", async () => {
+    const body = {
+      ...VALID_BODY,
+      intakePolicy: {
+        rateLimits: { perUserPerRun: 3, perOrgPerRun: 20, maxQueueDepth: 40, buildBudget: 25 },
+        // Deliberately out of canonical order + a bogus role to prove normalization.
+        autoTriggerRoles: ["ADMIN", "OWNER", "NOT_A_ROLE"],
+        classifier: { judgeMinConfidence: "high" },
+        highRiskZones: ["billing", "auth", "made-up-zone"],
+      },
+    };
+    const putRes = await PUT(put(body), { params });
+    expect(putRes.status).toBe(200);
+    const putBody = await putRes.json();
+    expect(putBody.intakePolicy.autoTriggerRoles).toEqual(["OWNER", "ADMIN"]);
+    expect(putBody.intakePolicy.classifier).toEqual({ judgeMinConfidence: "high" });
+    expect(putBody.intakePolicy.highRiskZones).toEqual(["auth", "billing"]);
+
+    // Persisted under the same keys the remediation loop reads (so it takes effect).
+    const stored = prisma.organization.update.mock.calls[0][0].data.settings as Record<string, unknown>;
+    expect(stored.classifierPolicy).toEqual({ judgeMinConfidence: "high" });
+    expect(stored.intakeLimits).toEqual({ perUserPerRun: 3, perOrgPerRun: 20, maxQueueDepth: 40, buildBudget: 25 });
+    expect(stored.autoTriggerRoles).toEqual(["OWNER", "ADMIN"]);
+    expect(stored.highRiskZones).toEqual(["auth", "billing"]);
+    // Untouched pre-existing keys survive.
+    expect(stored.unrelatedKey).toEqual({ keep: "me" });
+
+    const getRes = await GET(get(), { params });
+    const getBody = await getRes.json();
+    expect(getBody.intakePolicy.autoTriggerRoles).toEqual(["OWNER", "ADMIN"]);
+    expect(getBody.intakePolicy.rateLimits.perUserPerRun).toBe(3);
+    expect(getBody.intakePolicy.highRiskZones).toEqual(["auth", "billing"]);
+  });
+
+  it("a PUT WITHOUT intakePolicy (e.g. console pause/resume) leaves an existing policy untouched", async () => {
+    orgSettings = {
+      ...orgSettings,
+      classifierPolicy: { judgeMinConfidence: "low" },
+      autoTriggerRoles: ["OWNER"],
+    };
+    const putRes = await PUT(put(VALID_BODY), { params });
+    expect(putRes.status).toBe(200);
+    const getRes = await GET(get(), { params });
+    const body = await getRes.json();
+    expect(body.intakePolicy.classifier).toEqual({ judgeMinConfidence: "low" });
+    expect(body.intakePolicy.autoTriggerRoles).toEqual(["OWNER"]);
   });
 });

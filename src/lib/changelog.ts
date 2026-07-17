@@ -21,13 +21,140 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
-    version: "2.204.2",
-    date: "2026-07-14",
+    version: "2.212.0",
+    date: "2026-07-17",
     title: "Reset a forgotten password",
     highlights: [
       {
         kind: "feature",
         text: "Forgot your password? There's now a \"Forgot password?\" link on the sign-in screen for email & password accounts: we email you a secure link that expires in an hour and can be used once to set a new password. Admins and owners can also send a reset link to a teammate from the Team page. People who sign in with Google or SSO don't have a password to reset, and are told so clearly.",
+      },
+    ],
+  },
+  {
+    version: "2.210.1",
+    date: "2026-07-16",
+    title: "Settings & membership update live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Settings now update in real time. When an admin changes organization settings, feedback automation and intake policy, a member's role, or their work-role assignments, every other open Settings view refreshes the instant it happens — no manual reload — so two admins working at once always see the same, current configuration.",
+      },
+    ],
+  },
+  {
+    version: "2.208.1",
+    date: "2026-07-16",
+    title: "The Foreman console updates live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Foreman console now updates in real time. Approving, Reworking, or Rebuilding a parked ticket — and the build-status moves that follow — refresh the Awaiting-approval, In-flight, and event lists the instant they happen, and the change also shows up on the board, with no manual refresh and no waiting on a poll.",
+      },
+    ],
+  },
+  {
+    version: "2.206.1",
+    date: "2026-07-16",
+    title: "Epics ship as one coordinated release",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Large feature epics are now automatically split into ordered phases before building, and those phases ship together as ONE coordinated release — a single version, tag, and changelog entry in dependency order — instead of a string of separate updates. If any phase can't complete, the whole release holds rather than going out half-finished. Small, incremental tickets are unaffected and still ship on their own.",
+      },
+      {
+        kind: "improvement",
+        text: "The Foreman console now shows each coordinated epic's phase readiness — how many phases are ready, pending, or failed, and whether the release is holding, shipping, or blocked.",
+      },
+    ],
+  },
+  {
+    version: "2.206.0",
+    date: "2026-07-16",
+    title: "Duplicate/scope intake checks + self-updating delivery daemon",
+    highlights: [
+      { kind: "feature", text: "Feedback intake now detects near-duplicate requests and links them to the existing item (merging votes) instead of opening a second ticket, and routes out-of-scope or decision-required feedback to a human instead of the automated build queue. Nonsense is rejected." },
+      { kind: "improvement", text: "The autonomous delivery daemon now restarts itself after shipping a change to its own code, so fixes to the delivery pipeline take effect immediately instead of waiting for a manual restart." },
+    ],
+  },
+  {
+    version: "2.205.0",
+    date: "2026-07-15",
+    title: "On-demand AI analysis of pending changes + smarter release versioning",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Each item awaiting approval now has an AI Analysis action that checks the built change against the original ticket's requirements and acceptance criteria, returning a per-criterion met/partial/missing report with gaps and risks, cached per revision. Items with no built change disable the action.",
+      },
+      {
+        kind: "improvement",
+        text: "Automatic release versioning now follows SemVer intent even when a change has to be rebased before merging: feature work bumps the minor version and bug fixes bump the patch version, instead of defaulting everything to a patch.",
+      },
+    ],
+  },
+  {
+    version: "2.204.8",
+    date: "2026-07-15",
+    title: "Reliable delivery of multi-phase changes",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When a large feature or fix is split into several linked tickets, approving them one after another now just works. If a later phase was built before an earlier one shipped, the system automatically rebases it onto the latest code and re-numbers the release before merging, instead of stalling on a merge conflict that previously needed a manual rebuild and re-approval. Linked phases can also be grouped into one coordinated release so an epic ships as a single version rather than a string of patches.",
+      },
+    ],
+  },
+  {
+    version: "2.204.6",
+    date: "2026-07-15",
+    title: "Human triage for lower-trust feedback",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Automatic feedback triage now considers who filed a request before building it. Feedback from lower-trust roles — guests and view-only members — is routed to a teammate for a quick human look first, instead of flowing straight into the automated build queue; ordinary members and above are unaffected. The person who filed it is notified that a teammate will review it, every decision is recorded in the audit log, and which roles are allowed to auto-trigger a build is configurable per organization.",
+      },
+    ],
+  },
+  {
+    version: "2.204.5",
+    date: "2026-07-15",
+    title: "Fair-share limits on automatic feedback triage",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Automatic feedback triage now shares the build queue fairly. Per-person and per-organization limits, an overall queue-depth ceiling, and a build-capacity budget keep any single flurry of requests from monopolizing the automated builders — and re-filing the same request over and over is recognized and collapsed instead of piling up. Anything held back stays open and is picked up automatically as capacity frees, and the person who filed it sees a clear note that their request is queued. Normal-volume feedback is unaffected.",
+      },
+    ],
+  },
+  {
+    version: "2.204.4",
+    date: "2026-07-15",
+    title: "Sharper eye on risky feedback",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The feedback safety gate now has a second, smarter layer. After the fast automatic checks, a security reviewer takes a closer look at anything that would otherwise be auto-built, so cleverly disguised attempts to manipulate the coding agent or sneak in sabotaging changes get caught and routed to a human instead. It only ever adds caution — it can hold a request for review but never waves one through that the first checks stopped — and if it's ever unavailable your feedback keeps flowing exactly as before. Ordinary requests are unaffected.",
+      },
+    ],
+  },
+  {
+    version: "2.204.3",
+    date: "2026-07-15",
+    title: "Safer feedback intake before auto-triage",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Feedback now passes a safety gate before it can be auto-triaged into the backlog. Submissions that try to manipulate the coding agent, ask for destructive or sabotaging changes, touch high-risk areas (auth, billing, secrets, dependencies), or paste in a secret are routed to a human reviewer instead of being built automatically — and unsafe content is declined. If your request is held or declined you'll get a notification explaining why, and every intake decision is recorded in the audit log.",
+      },
+    ],
+  },
+  {
+    version: "2.204.2",
+    date: "2026-07-14",
+    title: "AI approval recommendations in the Foreman console",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every card in the Foreman console's Awaiting-approval list now shows an AI recommendation — Approve, Rework, or Rebuild — with a one-line rationale. For a built change, Foreman reviews the actual pull request (its diff, CI results, and why it was parked) and tells you whether it's ready to ship; for an item that never produced a PR, it recommends Rebuild because there's nothing to approve.",
       },
     ],
   },

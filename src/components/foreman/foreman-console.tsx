@@ -3,7 +3,7 @@
 // Polls status every 15s; events are cursor-paged on demand (see
 // ForemanEventFeed, split out to keep this file focused).
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { useForemanRealtime } from "@/hooks/use-foreman-realtime";
 import type { ForemanStatusPayload } from "@/lib/foreman/status-read";
 import type { Pulse, InFlightBuild } from "@/lib/foreman/observe";
 import type { AutomationConfig } from "@/lib/feedback/automation-config";
@@ -34,7 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus } from "lucide-react";
+import { RefreshCw, ExternalLink, Pause, Play, Hammer, UserCheck, Check, ListOrdered, MessageSquarePlus, Sparkles, ShieldCheck, Layers } from "lucide-react";
 import { ForemanMark } from "./foreman-mark";
 import { ForemanEventFeed } from "./foreman-event-feed";
 import { ForemanClaudePanel } from "./foreman-claude-panel";
@@ -90,7 +91,21 @@ const CONTROL_TOOLTIP = {
   rebuild: "Discards the current build and starts a fresh pass from scratch (does NOT keep your guidance).",
   rework: "Posts your notes as an @Foreman instruction so the daemon resumes the EXISTING build with your guidance — it does not start over.",
   linkPr: "Opens the GitHub pull request (read-only).",
+  aiAnalysis:
+    "Analyzes this PR's diff against the ticket's requirements and acceptance criteria — per-criterion coverage, gaps, and risks. Runs on Foreman's own subscription.",
+  aiAnalysisDisabled: "Nothing to analyze — the agent produced no pull request.",
 } as const;
+
+/** Coordinated-epic aggregate status → badge variant + label (COSMOS-118/-126). */
+const COORD_STATUS: Record<
+  ForemanStatusPayload["coordinatedEpics"][number]["status"],
+  { label: string; variant: BadgeVariant }
+> = {
+  incremental: { label: "Incremental", variant: "discovery" },
+  holding: { label: "Holding", variant: "review" },
+  shipping: { label: "Shipping", variant: "strategic" },
+  blocked: { label: "Blocked", variant: "blocked" },
+};
 
 const PHASE_VARIANT: Record<InFlightBuild["phase"], BadgeVariant> = {
   building: "progress",
@@ -101,14 +116,325 @@ const PHASE_VARIANT: Record<InFlightBuild["phase"], BadgeVariant> = {
   shipping: "progress",
 };
 
+/** Per-item AI recommendation (COSMOS-111): a "Recommend: Approve/Rework/Rebuild"
+ *  badge + one-line rationale on each awaiting-approval card. No-PR items are a
+ *  fixed Rebuild rendered client-side (nothing was built); PR-backed items fetch
+ *  a Claude analysis of the actual PR, cached server-side per PR head SHA. */
+type RecommendationKind = "approve" | "rework" | "rebuild";
+
+interface RecommendationResponse {
+  recommendation: RecommendationKind;
+  rationale: string;
+  cached: boolean;
+}
+
+const REC_LABEL: Record<RecommendationKind, string> = {
+  approve: "Approve",
+  rework: "Rework",
+  rebuild: "Rebuild",
+};
+
+const REC_VARIANT: Record<RecommendationKind, BadgeVariant> = {
+  approve: "done",
+  rework: "review",
+  rebuild: "blocked",
+};
+
+// Mirrors NO_PR_RECOMMENDATION.rationale in src/lib/foreman/approval-recommendation.ts.
+// Kept as a local literal so this client component never imports that server module.
+const NO_PR_REBUILD_RATIONALE = "Nothing was built to approve — the agent produced no pull request.";
+
+function RecRow({
+  recommendation,
+  rationale,
+}: {
+  recommendation: RecommendationKind;
+  rationale: string;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-start gap-x-2 gap-y-1">
+      <Badge variant={REC_VARIANT[recommendation]} showDot={false} className="shrink-0">
+        Recommend: {REC_LABEL[recommendation]}
+      </Badge>
+      <span className="text-xs text-[var(--text-muted)]">{rationale}</span>
+    </div>
+  );
+}
+
+function ApprovalRecommendation({
+  orgId,
+  workItemId,
+  prUrl,
+  canSteer,
+}: {
+  orgId: string;
+  workItemId: string;
+  prUrl: string | null;
+  canSteer: boolean;
+}) {
+  const recKey = useOrgQueryKey("foreman-recommendation", workItemId);
+  // Only PR-backed cards visible to a steward hit the (paid) analysis endpoint —
+  // a no-PR card is a fixed client-side Rebuild, and a non-steward can't run it.
+  const enabled = Boolean(prUrl) && canSteer;
+  const { data, isLoading, isError } = useQuery({
+    queryKey: recKey,
+    queryFn: () =>
+      jsonFetch<RecommendationResponse>(
+        `/api/v1/orgs/${orgId}/foreman/approval-recommendation?workItemId=${workItemId}`,
+      ),
+    enabled,
+    // Cached server-side per PR head SHA; keep the client copy stable across the
+    // 15s status poll rather than re-requesting on every render.
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+
+  // No PR → nothing was built: a fixed Rebuild, no request.
+  if (!prUrl) return <RecRow recommendation="rebuild" rationale={NO_PR_REBUILD_RATIONALE} />;
+  // A non-steward viewer sees the card read-only and can't spend Foreman's tokens.
+  if (!canSteer) return null;
+  if (isLoading) {
+    return (
+      <div className="mt-3">
+        <Skeleton className="h-4 w-56" />
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <RecRow
+        recommendation="rework"
+        rationale="Couldn't analyze the PR automatically — open it and review the diff yourself."
+      />
+    );
+  }
+  return <RecRow recommendation={data.recommendation} rationale={data.rationale} />;
+}
+
+/** Per-item AI requirements analysis (COSMOS-116): an expandable report judging
+ *  the PR diff against the ORIGINAL ticket's description + acceptance criteria —
+ *  per-criterion met/partial/missing, gaps, risks, and whether it's complete.
+ *  Fetched on expand and cached server-side per PR head SHA (and client-side for
+ *  5 min) so the 15s status poll never recomputes it. Only mounted for a
+ *  PR-backed card a steward has expanded — no-PR cards disable the trigger. */
+type CriterionStatus = "met" | "partial" | "missing";
+
+interface CriterionAssessment {
+  criterion: string;
+  status: CriterionStatus;
+  note: string;
+}
+
+interface RequirementsAnalysisResponse {
+  summary: string;
+  criteria: CriterionAssessment[];
+  gaps: string[];
+  risks: string[];
+  complete: boolean;
+  cached: boolean;
+}
+
+const CRITERION_LABEL: Record<CriterionStatus, string> = {
+  met: "Met",
+  partial: "Partial",
+  missing: "Missing",
+};
+
+const CRITERION_VARIANT: Record<CriterionStatus, BadgeVariant> = {
+  met: "done",
+  partial: "review",
+  missing: "blocked",
+};
+
+function AnalysisList({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{title}</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-[var(--text-muted)]">
+        {items.map((it, i) => (
+          <li key={i}>{it}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function RequirementsAnalysisPanel({ orgId, workItemId }: { orgId: string; workItemId: string }) {
+  const key = useOrgQueryKey("foreman-requirements-analysis", workItemId);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: key,
+    queryFn: () =>
+      jsonFetch<RequirementsAnalysisResponse>(
+        `/api/v1/orgs/${orgId}/foreman/requirements-analysis?workItemId=${workItemId}`,
+      ),
+    // Cached server-side per PR head SHA; keep the client copy stable across the
+    // 15s status poll rather than re-requesting on every render.
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+
+  const wrap = "mt-3 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 p-3";
+
+  if (isLoading) {
+    return (
+      <div className={cn(wrap, "space-y-2")}>
+        <Skeleton className="h-4 w-64" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <div className={cn(wrap, "text-sm text-[var(--text-muted)]")}>
+        Couldn&apos;t analyze the PR automatically — open it and review the diff against the ticket
+        yourself.
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(wrap, "space-y-3")}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={data.complete ? "done" : "review"} showDot={false} className="shrink-0">
+          {data.complete ? "Complete" : "Incomplete"}
+        </Badge>
+        <span className="text-sm text-[var(--text)]">{data.summary}</span>
+      </div>
+
+      {data.criteria.length > 0 && (
+        <ul className="space-y-1.5">
+          {data.criteria.map((c, i) => (
+            <li key={i} className="flex flex-wrap items-start gap-x-2 gap-y-1">
+              <Badge variant={CRITERION_VARIANT[c.status]} showDot={false} className="shrink-0">
+                {CRITERION_LABEL[c.status]}
+              </Badge>
+              <span className="min-w-0 text-sm text-[var(--text)]">
+                <span className="font-medium">{c.criterion}</span>
+                {c.note ? <span className="text-[var(--text-muted)]"> — {c.note}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <AnalysisList title="Gaps" items={data.gaps} />
+      <AnalysisList title="Risks" items={data.risks} />
+    </div>
+  );
+}
+
+/** Intake decisions surfaced on the console (COSMOS-121, Phase 3c) — mirrors the
+ *  Feedback board's `intake` descriptor so a steward can see, in one place, what
+ *  the guardrail pipeline accepted vs. pulled aside (and why) before anything
+ *  reached the build queue. Reads the org's feedback list (ORG_READ) and shows
+ *  only items that have been through intake, parks first. */
+type IntakeState = "accepted" | "held" | "rejected" | "throttled" | "gated";
+
+interface IntakeDecision {
+  state: IntakeState;
+  label: string;
+  reason: string;
+  score: number | null;
+}
+
+interface FeedbackListItem {
+  id: string;
+  type: "BUG" | "FEATURE";
+  title: string;
+  intake?: IntakeDecision | null;
+}
+
+const INTAKE_VARIANT: Record<IntakeState, BadgeVariant> = {
+  accepted: "done",
+  held: "review",
+  rejected: "blocked",
+  throttled: "neutral",
+  gated: "review",
+};
+
+// Parks (a person may need to act) sort above already-accepted items.
+const INTAKE_SORT: Record<IntakeState, number> = {
+  rejected: 0,
+  held: 1,
+  gated: 2,
+  throttled: 3,
+  accepted: 4,
+};
+
+function IntakeDecisions({ orgId }: { orgId: string }) {
+  const key = useOrgQueryKey("feedback-intake-decisions");
+  const { data } = useQuery({
+    queryKey: key,
+    queryFn: () => jsonFetch<FeedbackListItem[]>(`/api/v1/orgs/${orgId}/feedback`),
+    // Realtime (feedback.* events, see ForemanConsole) drives freshness now — a
+    // slow poll only backstops a dropped SSE / reconnect (COSMOS-127).
+    refetchInterval: 60_000,
+  });
+
+  const decided = (Array.isArray(data) ? data : [])
+    .filter((i): i is FeedbackListItem & { intake: IntakeDecision } => Boolean(i.intake))
+    .sort((a, b) => INTAKE_SORT[a.intake.state] - INTAKE_SORT[b.intake.state])
+    .slice(0, 12);
+
+  return (
+    <SectionCard
+      icon={ShieldCheck}
+      title="Intake decisions"
+      description="What the feedback guardrails accepted or pulled aside before the build queue."
+    >
+      {decided.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">No intake decisions recorded yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {decided.map((i) => (
+            <li key={i.id} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Badge variant={INTAKE_VARIANT[i.intake.state]} showDot={false} className="shrink-0">
+                    {i.intake.label}
+                    {i.intake.score != null ? ` · ${i.intake.score.toFixed(2)}` : ""}
+                  </Badge>
+                  <span className="truncate text-sm text-[var(--text)]">{i.title}</span>
+                </div>
+                <p className="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{i.intake.reason}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
+  );
+}
+
 export function ForemanConsole({ orgId }: { orgId: string }) {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const qc = useQueryClient();
   const statusKey = useOrgQueryKey("foreman-status");
+  const eventsKey = useOrgQueryKey("foreman-events");
+  const intakeKey = useOrgQueryKey("feedback-intake-decisions");
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: statusKey,
     queryFn: () => jsonFetch<ForemanStatusPayload>(`/api/v1/orgs/${orgId}/foreman/status`),
-    refetchInterval: 15_000,
+    // Realtime keeps the console live (see useForemanRealtime below); the poll is
+    // now just a slow reconnect/backstop for daemon-state-only changes that emit
+    // no work-item event, not the primary freshness path (COSMOS-127).
+    refetchInterval: 60_000,
+  });
+
+  // Live console (COSMOS-127): any board move the daemon drives (Approve /
+  // Rework / Rebuild → next column) or feedback intake decision refreshes the
+  // status payload, event feed, and intake list the instant it publishes — no
+  // waiting on the poll. Debounced so a burst of events coalesces into one pass.
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useForemanRealtime(orgId, () => {
+    if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(() => {
+      void qc.invalidateQueries({ queryKey: statusKey });
+      void qc.invalidateQueries({ queryKey: eventsKey });
+      void qc.invalidateQueries({ queryKey: intakeKey });
+    }, 300);
   });
 
   const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
@@ -119,6 +445,9 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   // A single shared dialog per action tracks which parked card triggered it.
   const [approveTarget, setApproveTarget] = useState<{ workItemId: string; projectId: string; ticketKey: string | null } | null>(null);
   const [rebuildTarget, setRebuildTarget] = useState<{ workItemId: string; ticketKey: string | null } | null>(null);
+  // Per-card AI Analysis (COSMOS-116): which parked cards have the requirements
+  // report expanded. Keyed by workItemId so several can be open independently.
+  const [analysisOpen, setAnalysisOpen] = useState<Record<string, boolean>>({});
 
   // Pause/resume PUTs the FULL automation config back (both blocks) — same
   // contract as the settings form — flipping only autonomousDelivery.enabled.
@@ -328,6 +657,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           so no extra permission gate is needed here. */}
       <ForemanClaudePanel orgId={orgId} />
 
+      <IntakeDecisions orgId={orgId} />
+
       <SectionCard
         icon={ListOrdered}
         title="Up next"
@@ -418,6 +749,43 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         )}
       </SectionCard>
 
+      {/* Coordinated releases (COSMOS-118/-126): each opted-in epic's phase
+          readiness and whether its single coordinated release is holding,
+          shipping, or blocked. Only rendered when there's at least one. */}
+      {data.coordinatedEpics.length > 0 && (
+        <SectionCard
+          icon={Layers}
+          title="Coordinated releases"
+          description="Epics whose phases ship together as ONE version — held until every phase is green+approved."
+        >
+          <ul className="space-y-3">
+            {data.coordinatedEpics.map((e) => (
+              <li key={e.epicItemId} className="rounded-md border border-[var(--border)] p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/${orgSlug}/issues?item=${e.epicItemId}`}
+                        className="font-mono text-xs text-[var(--primary)] hover:underline"
+                      >
+                        {e.epicKey}
+                      </Link>
+                      <span className="font-medium text-[var(--text)]">{e.title}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--text-muted)]">
+                      {e.ready}/{e.total} ready · {e.pending} pending · {e.failed} failed
+                    </p>
+                  </div>
+                  <Badge variant={COORD_STATUS[e.status].variant} showDot={false} className="shrink-0">
+                    {COORD_STATUS[e.status].label}
+                  </Badge>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      )}
+
       <SectionCard
         icon={UserCheck}
         title="Awaiting approval"
@@ -464,6 +832,26 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                         (Link to PR, reason) read-only, no levers. */}
                     {data.actorCanSteer && (
                       <>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!a.prUrl}
+                                title={!a.prUrl ? CONTROL_TOOLTIP.aiAnalysisDisabled : undefined}
+                                onClick={() =>
+                                  setAnalysisOpen((m) => ({ ...m, [a.workItemId]: !m[a.workItemId] }))
+                                }
+                              />
+                            }
+                          >
+                            <Sparkles className="size-3.5" /> AI Analysis
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {a.prUrl ? CONTROL_TOOLTIP.aiAnalysis : CONTROL_TOOLTIP.aiAnalysisDisabled}
+                          </TooltipContent>
+                        </Tooltip>
                         <Tooltip>
                           <TooltipTrigger
                             render={
@@ -523,12 +911,15 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                     )}
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-[var(--text-muted)]">
-                  <strong>Approve</strong> merges the built PR and deploys it to live production.{" "}
-                  <strong>Rework</strong> sends follow-up instructions — Foreman resumes the existing
-                  build right where it left off. <strong>Rebuild</strong> throws the current build away
-                  and starts a fresh pass from scratch. Comments on the ticket work too.
-                </p>
+                <ApprovalRecommendation
+                  orgId={orgId}
+                  workItemId={a.workItemId}
+                  prUrl={a.prUrl}
+                  canSteer={data.actorCanSteer}
+                />
+                {data.actorCanSteer && a.prUrl && analysisOpen[a.workItemId] && (
+                  <RequirementsAnalysisPanel orgId={orgId} workItemId={a.workItemId} />
+                )}
               </li>
             ))}
           </ul>

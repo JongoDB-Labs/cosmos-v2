@@ -1,11 +1,37 @@
-:80 {
+# Public front door for COSMOS v2.
+#
+# COSMOS_SITE_ADDRESS controls how Caddy is exposed:
+#   • Set it to your public hostname (e.g. cosmos.example.com) → Caddy obtains and
+#     auto-renews a Let's Encrypt certificate and serves HTTPS on :443 (redirecting
+#     :80 → :443). This is the standard single-front-door deploy: NO external nginx,
+#     Cloudflare tunnel, or load balancer needed — just open inbound 80+443 and point
+#     DNS at the host. (Port 80 must be reachable for the ACME HTTP-01 challenge.)
+#   • Leave it UNSET (default ":80") → Caddy serves plaintext :80, for a deploy where
+#     TLS terminates UPSTREAM (a reverse proxy / tunnel / cloud LB in front of Caddy).
+{$COSMOS_SITE_ADDRESS::80} {
 	reverse_proxy cosmos:3000 {
 		header_up X-Forwarded-Host {host}
-		# This caddy is ONLY reached via nginx, which sits behind the Cloudflare
-		# tunnel (TLS terminates at Cloudflare). The caddy<-nginx hop is plaintext
-		# :80, so {scheme} would mislabel the public request as http and make
-		# getPublicOrigin() emit http:// Location headers. The public scheme is
-		# always https for real traffic, so pin it.
+		# The public scheme is ALWAYS https for real traffic — whether Caddy
+		# terminates TLS here (COSMOS_SITE_ADDRESS set) or an upstream terminates it
+		# and forwards over plaintext :80. Pin it so getPublicOrigin() never emits an
+		# http:// origin, which would break OAuth redirect_uri matching + email links.
 		header_up X-Forwarded-Proto https
+	}
+	# Certificate issuance uses the TLS-ALPN-01 challenge (over 443), so inbound
+	# port 80 need NOT be open. If 80 IS reachable, Caddy still serves the http→https
+	# redirect on it. No-op in the :80 upstream-TLS mode (no ACME there).
+	tls {
+		issuer acme {
+			# ACME CA directory. Defaults to Let's Encrypt (public internet). For an
+			# AIRGAPPED / offline deploy, set COSMOS_ACME_CA to your INTERNAL CA's ACME
+			# endpoint (e.g. smallstep step-ca) — Caddy then auto-issues AND auto-renews
+			# certs against your internal CA with no public internet required.
+			dir {$COSMOS_ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+			# Trust the internal CA's ACME endpoint (airgap): drop the root PEM into
+			# compose/caddy-certs/ and set COSMOS_ACME_CA_ROOT to its in-container path
+			# (e.g. /etc/caddy/certs/internal-root.pem). Empty = use system roots.
+			trusted_roots {$COSMOS_ACME_CA_ROOT}
+			disable_http_challenge
+		}
 	}
 }

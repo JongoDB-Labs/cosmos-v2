@@ -29,8 +29,14 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
-const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
+const { getAuthContext, publishToOrg } = vi.hoisted(() => ({
+  getAuthContext: vi.fn(),
+  publishToOrg: vi.fn(),
+}));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+// Realtime publish is a best-effort side-effect (COSMOS-130); mock it so we can
+// assert a member.updated event fires when a member's work-role set changes.
+vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
 
 import { prisma } from "@/lib/db/client";
 import { PUT } from "./work-roles/route";
@@ -200,6 +206,14 @@ describe("PUT /members/[memberId]/work-roles — delta-guarded set", () => {
         select: { workRoleId: true },
       });
       expect(rows.map((r) => r.workRoleId)).toEqual([projectManagerRoleId]);
+
+      // The set change publishes a member.updated event, org-scoped, so open
+      // members/roles views in another tab refresh live (COSMOS-130).
+      expect(publishToOrg).toHaveBeenCalledWith(
+        orgId,
+        "member.updated",
+        expect.objectContaining({ orgId, memberId: targetMemberId, workRolesChanged: true }),
+      );
     } finally {
       await prisma.orgMemberWorkRole.deleteMany({ where: { orgMemberId: targetMemberId } });
     }
