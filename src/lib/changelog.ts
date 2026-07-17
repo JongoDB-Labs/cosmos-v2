@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.213.0",
+    date: "2026-07-17",
+    title: "Watch Foreman work in real time",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Foreman console now shows what the delivery agent is doing as it happens: the in-flight ticket's phase (building, checks, repair, review, shipping) and its live progress update the instant they change, with no refresh. Large tickets that need more than one work session show their segment and elapsed time, so you can watch steady progress.",
+      },
+    ],
+  },
+  {
     version: "2.212.0",
     date: "2026-07-17",
     title: "Reset a forgotten password",
@@ -28,6 +39,17 @@ export const CHANGELOG: Release[] = [
       {
         kind: "feature",
         text: "Forgot your password? There's now a \"Forgot password?\" link on the sign-in screen for email & password accounts: we email you a secure link that expires in an hour and can be used once to set a new password. Admins and owners can also send a reset link to a teammate from the Team page. People who sign in with Google or SSO don't have a password to reset, and are told so clearly.",
+      },
+    ],
+  },
+  {
+    version: "2.211.2",
+    date: "2026-07-17",
+    title: "Boards move in real time during automated delivery",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Your project board now updates live while Foreman works a ticket. Cards move through the columns — In Progress, Review, Done — the moment the daemon advances them, with no manual refresh.",
       },
     ],
   },

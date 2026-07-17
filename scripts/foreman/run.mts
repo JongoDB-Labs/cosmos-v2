@@ -99,9 +99,13 @@ try {
 // foreman_state.inFlight on every heartbeat. setPhase advances an entry through
 // the pipeline; it's a no-op once the entry has been released (build finished).
 const inFlightMeta = new Map<string, InFlightBuild>();
-function setPhase(itemId: string, phase: InFlightBuild["phase"], extra?: { repairRound?: number }): void {
+function setPhase(itemId: string, phase: InFlightBuild["phase"], extra?: { repairRound?: number; detail?: string }): void {
   const cur = inFlightMeta.get(itemId);
-  if (cur) inFlightMeta.set(itemId, { ...cur, phase, ...(extra ?? {}) });
+  if (!cur) return;
+  inFlightMeta.set(itemId, { ...cur, phase, ...(extra ?? {}) });
+  // Push the phase/progress change live so the console reflects it the instant it
+  // happens (visibility), not on the next ~60s poll. Fire-and-forget, best-effort.
+  void obs.pushInFlight([...inFlightMeta.values()], itemId);
 }
 
 // Self-reload after a self-modifying ship (COSMOS-125). tsx loads Foreman's own
@@ -630,6 +634,7 @@ async function processOne(
     ) {
       turnResumes++;
       log(`${key} hit the turn limit — resuming to continue (segment ${turnResumes}, ${Math.round((Date.now() - buildStart) / 60_000)}m/${Math.round(BUILD_BUDGET_MS / 60_000)}m budget)`);
+      setPhase(item.id, "building", { detail: `segment ${turnResumes} \u00b7 ${Math.round((Date.now() - buildStart) / 60_000)}m` });
       agent = await runAgent(wt, maxTurnsResumePrompt(key), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl, resume: agent.sessionId });
       if (await haltIfKilled()) return {};
     }

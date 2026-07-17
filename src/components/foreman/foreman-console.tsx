@@ -736,6 +736,9 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
                       <Badge variant={PHASE_VARIANT[b.phase]} showDot={false}>
                         {PHASE_LABEL[b.phase]}
                       </Badge>
+                      {b.detail ? (
+                        <span className="ml-2 text-xs text-[var(--text-muted)]">{b.detail}</span>
+                      ) : null}
                     </td>
                     <td className="py-2 pr-4 text-[var(--text-muted)]">{rel(b.since)}</td>
                     <td className="py-2 text-right tabular-nums text-[var(--text-muted)]">
