@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.212.0",
+    date: "2026-07-17",
+    title: "Reset a forgotten password",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Forgot your password? There's now a \"Forgot password?\" link on the sign-in screen for email & password accounts: we email you a secure link that expires in an hour and can be used once to set a new password. Admins and owners can also send a reset link to a teammate from the Team page. People who sign in with Google or SSO don't have a password to reset, and are told so clearly.",
+      },
+    ],
+  },
+  {
     version: "2.210.1",
     date: "2026-07-16",
     title: "Settings & membership update live",
