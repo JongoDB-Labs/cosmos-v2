@@ -2,10 +2,14 @@
 // a failed observability write must NEVER take down or delay delivery, so
 // every call swallows its own errors (logged to stderr for journald).
 import { prisma } from "@/lib/db/client";
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { ForemanEventKind, InFlightBuild } from "@/lib/foreman/observe";
 
 const HOST = "host";
+
+// Per-process id tagged on realtime NOTIFYs so an app instance never re-fans its own.
+const REALTIME_ID = randomUUID();
 
 type BreakerSnapshot = { build: number; deploy: number; tripped: boolean };
 
@@ -38,6 +42,33 @@ export async function heartbeat(f: {
       },
       update: { lastPassAt: now, ...f, inFlight: f.inFlight },
     });
+  } catch (e) { swallow(e); }
+}
+
+/** Persist the current in-flight snapshot AND push a realtime event so the console
+ *  reflects a build's phase/progress the INSTANT it changes, rather than on the next
+ *  ~60s poll. Reuses the `work-item.updated` channel the boards already subscribe to
+ *  (payload shape mirrors the app pg-bus adapter's NotifyPayload); the console's
+ *  useForemanRealtime refetches foreman status, which carries inFlight. Best-effort. */
+export async function pushInFlight(inFlight: InFlightBuild[], notifyItemId?: string): Promise<void> {
+  try {
+    await prisma.foremanState.update({
+      where: { id: HOST },
+      data: { inFlight: inFlight as unknown as Prisma.InputJsonValue },
+    });
+    if (!notifyItemId) return;
+    const wi = await prisma.workItem.findUnique({
+      where: { id: notifyItemId },
+      select: { orgId: true, projectId: true, columnKey: true },
+    });
+    if (!wi) return;
+    const payload = JSON.stringify({
+      instanceId: REALTIME_ID,
+      topic: `org:${wi.orgId}`,
+      type: "work-item.updated",
+      data: { id: notifyItemId, projectId: wi.projectId, columnKey: wi.columnKey },
+    });
+    await prisma.$executeRawUnsafe("SELECT pg_notify('cosmos_events', $1)", payload);
   } catch (e) { swallow(e); }
 }
 

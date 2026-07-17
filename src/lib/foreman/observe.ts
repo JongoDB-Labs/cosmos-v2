@@ -63,6 +63,8 @@ export type InFlightBuild = {
   phase: "building" | "checks" | "repair" | "review" | "queued-ship" | "shipping";
   since: string; // ISO
   repairRound?: number;
+  /** Live one-line progress note shown in the console, e.g. "segment 2 \u00b7 12m". */
+  detail?: string;
 };
 
 export type Pulse = "alive" | "idle" | "stale" | "paused" | "breaker";

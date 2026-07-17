@@ -276,6 +276,17 @@ jobs:
       # (b) E2E_TEST_AUTH must never be "1" in the release/prod path. ci.yml's
       # e2e jobs legitimately set it (test runners), so this asserts it is NOT
       # present in release.yml (the prod-image build/publish path).
+      - name: Assert CHANGELOG is current (What's-new per release)
+        run: |
+          set -euo pipefail
+          PKG="$(grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' package.json | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          TOP="$(grep -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' src/lib/changelog.ts | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          if [ "$PKG" != "$TOP" ]; then
+            echo "FAIL: CHANGELOG top ($TOP) != package.json version ($PKG) - every release must add a Whats-new entry" | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            exit 1
+          fi
+          echo "PASS: CHANGELOG top matches $PKG" | tee -a evidence/${{ github.sha }}/config-asserts.txt
+
       - name: Assert E2E_TEST_AUTH != 1 in release path
         run: |
           set -euo pipefail

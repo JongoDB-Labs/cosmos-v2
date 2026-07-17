@@ -31,7 +31,7 @@ ${maintainer}
 3. Implement the SMALLEST correct change that satisfies the criteria, matching surrounding conventions. Stay tightly scoped — a change that touches auth/rbac/abac/ai-egress, prisma schema/migrations, the Dockerfile, next.config, CI workflows, or Foreman's own code (scripts/foreman, src/lib/foreman), or that sprawls across many files/lines, is auto-parked for human review instead of shipping. That gating is correct when warranted; don't sprawl into unrelated files just to avoid it.
 4. Add or update a test that would have caught this. Run \`npm run typecheck && npm run lint && npm test\` and make them pass. (\`npm test\` runs against a seeded e2e database that's already wired for you.)
 5. Bump the version: run \`npm version ${bump} --no-git-tag-version\`.
-6. If the change is user-visible (UI, behavior, a fix a user would notice), prepend a matching entry to \`CHANGELOG\` in src/lib/changelog.ts (newest first — it drives the in-app "What's new" modal). Internal/infra-only changes don't need one.
+6. Prepend a matching entry to \`CHANGELOG\` in src/lib/changelog.ts (newest first — it drives the in-app "What's new" modal). This is REQUIRED on every version bump: CI asserts the newest CHANGELOG entry's version equals package.json version, so a release with no What's-new entry fails the build. Use the SAME version you set in step 5. For a purely internal/infra change, still add one brief user-facing line (a reliability or performance note).
 7. Commit to the CURRENT branch only, with a clear conventional-commit message.
 
 ## Hard limits
