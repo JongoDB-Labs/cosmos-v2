@@ -72,7 +72,13 @@ const MAX_REPAIRS = 2;
 // Extra turn budgets granted to a build that overflows its turn limit before giving up
 // (COSMOS-131): a max-turns result means the ticket was too big, not that the agent
 // failed — resume its session to continue rather than discard the partial work.
-const MAX_TURN_RESUMES = 2;
+// A build resumes on the turn limit until it FINISHES or this overall wall-clock
+// budget (summed across all resume segments) is spent — so a big ticket runs as
+// long as it needs instead of being discarded at an arbitrary segment count.
+// Overridable via FOREMAN_BUILD_BUDGET_MIN (default 90). MAX_TURN_RESUMES is only a
+// backstop against a fast-looping agent; the wall-clock budget is the real bound.
+const BUILD_BUDGET_MS = Math.max(1, Number(process.env.FOREMAN_BUILD_BUDGET_MIN) || 90) * 60_000;
+const MAX_TURN_RESUMES = 30;
 // Parallel build SLOTS (builds concurrent; SHIP stays strictly serialized).
 // The provisioned ceiling — the LIVE target within it comes from org settings
 // (Settings → Feedback automation → Parallel builds) via db.deliveryWorkerTarget,
@@ -617,9 +623,13 @@ async function processOne(
     // RESUME to continue exactly where it left off, up to a bounded number of extra
     // budgets, before giving up. A mere turn overflow must never discard partial work.
     let turnResumes = 0;
-    while (!agent.ok && agent.subtype === "error_max_turns" && agent.sessionId && turnResumes < MAX_TURN_RESUMES) {
+    const buildStart = Date.now();
+    while (
+      !agent.ok && agent.subtype === "error_max_turns" && agent.sessionId &&
+      turnResumes < MAX_TURN_RESUMES && Date.now() - buildStart < BUILD_BUDGET_MS
+    ) {
       turnResumes++;
-      log(`${key} hit the turn limit — resuming to continue (extra budget ${turnResumes}/${MAX_TURN_RESUMES})`);
+      log(`${key} hit the turn limit — resuming to continue (segment ${turnResumes}, ${Math.round((Date.now() - buildStart) / 60_000)}m/${Math.round(BUILD_BUDGET_MS / 60_000)}m budget)`);
       agent = await runAgent(wt, maxTurnsResumePrompt(key), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl, resume: agent.sessionId });
       if (await haltIfKilled()) return {};
     }
@@ -630,10 +640,10 @@ async function processOne(
     //     "already done" and auto-close a build that actually failed. (I2)
     if (!agent.ok) {
       const overflow = agent.subtype === "error_max_turns";
-      log(`${key} GATED (agent did not complete${overflow ? ` — still over turn budget after ${MAX_TURN_RESUMES} resumes; likely too big, decompose` : ""}) → In Review`);
+      log(`${key} GATED (agent did not complete${overflow ? ` — still over turn budget after ${turnResumes} resume segments; likely too big, decompose` : ""}) → In Review`);
       if (!DRY) {
         await db.moveColumn(item.id, "review");
-        await db.comment(item.id, `Needs review — agent did not complete (${overflow ? `ran out of turns even after ${MAX_TURN_RESUMES} extra budgets — this ticket is likely too big and should be decomposed into phases` : "timeout, spawn error, or non-zero exit"}); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
+        await db.comment(item.id, `Needs review — agent did not complete (${overflow ? `ran out of turns even after ${turnResumes} resume segments — this ticket is likely too big and should be decomposed into phases` : "timeout, spawn error, or non-zero exit"}); no automated build produced. Last output:\n\n${agent.log.slice(-1000).trim() || "(no output)"}`);
         await db.notifyDelivery(item.id, "parked", { key, title: brief.title, reason: overflow ? "over turn budget (too big — decompose)" : "agent did not complete" });
         await obs.track({ workItemId: item.id, ticketKey: key, kind: "parked", severity: "warn", message: "agent did not complete", data: { reason: overflow ? "over turn budget" : "agent did not complete", sessionId: agent.sessionId ?? undefined } });
       }
