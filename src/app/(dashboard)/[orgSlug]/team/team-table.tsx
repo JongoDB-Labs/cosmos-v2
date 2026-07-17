@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { TeamRoleDialog } from "./team-role-dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
-import { Shield, UserMinus, Send, Trash2, UserX } from "lucide-react";
+import { Shield, UserMinus, Send, Trash2, UserX, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -139,6 +139,39 @@ export function TeamTable({
     [router],
   );
 
+  // Admin/owner-triggered password reset: emails the member a signed, single-use
+  // reset link. Gracefully no-ops for a Google/SSO-only member (no password to
+  // reset) — the API says so via { sent:false, reason:"sso" } and we surface it.
+  const handleSendPasswordReset = useCallback(
+    async (memberId: string) => {
+      try {
+        const res = await fetch(
+          `/api/v1/orgs/${orgId}/members/${memberId}/password-reset`,
+          { method: "POST" },
+        );
+        if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+        const data = (await res.json().catch(() => null)) as {
+          sent?: boolean;
+          reason?: string;
+          message?: string;
+        } | null;
+        if (data?.sent) {
+          toast.success("Password reset email sent.");
+        } else if (data?.reason === "sso") {
+          toast.info(
+            data.message ??
+              "This member signs in with Google/SSO — no password to reset.",
+          );
+        } else {
+          toast.error("Couldn't send the reset email — try again.");
+        }
+      } catch (err) {
+        notifyError(err, "Couldn't send the reset email.");
+      }
+    },
+    [orgId],
+  );
+
   const handleRevokeInvite = useCallback(
     async (invitationId: string) => {
       try {
@@ -227,6 +260,11 @@ export function TeamTable({
                   icon: Shield,
                   onClick: () => openRoleDialog(r),
                 },
+                {
+                  label: "Send password reset",
+                  icon: KeyRound,
+                  onClick: () => handleSendPasswordReset(r.id),
+                },
               ]
             : [],
         },
@@ -266,7 +304,14 @@ export function TeamTable({
         },
       ];
     },
-    [can, handleResendInvite, openRoleDialog, isPlatformAdmin, currentUserId],
+    [
+      can,
+      handleResendInvite,
+      handleSendPasswordReset,
+      openRoleDialog,
+      isPlatformAdmin,
+      currentUserId,
+    ],
   );
 
   const runConfirm = async () => {
