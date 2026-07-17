@@ -109,6 +109,20 @@ export interface AgentResult {
   subtype: string | null;
 }
 
+/** Resolve the AgentResult `subtype` when the SDK query iterator THROWS. The SDK
+ *  can emit a `result` message (which already set a subtype like "error_max_turns")
+ *  and THEN reject the iterator — so a naive `subtype = "error"` in the catch would
+ *  clobber the real reason and DEFEAT the resume-on-turn-limit self-heal (COSMOS-131).
+ *  Rules: an abort is always our own timeout deadline; else a thrown "maximum number
+ *  of turns" is a turn overflow (belt-and-suspenders for SDK builds that ONLY throw);
+ *  else keep whatever the result message captured; only synthesize "error" when
+ *  nothing was seen. Pure, so it is unit-tested. */
+export function resolveErrorSubtype(aborted: boolean, priorSubtype: string | null, err: unknown): string {
+  if (aborted) return "timeout";
+  if (/maximum number of turns/i.test(String(err))) return "error_max_turns";
+  return priorSubtype ?? "error";
+}
+
 /** Run an agent turn in `worktreeDir` on the org's Foreman subscription. Resolves
  *  (never rejects) `ok:false` on an error result, a timeout, or an SDK/spawn error
  *  — the orchestrator treats any of those as "gate to review", not a crash. The
@@ -201,7 +215,8 @@ export async function runAgent(
     } catch (e) {
       // SDK throws on some error results and on abort — both are "gate", never a crash.
       ok = false;
-      subtype = ctrl.signal.aborted ? "timeout" : "error";
+      // Do NOT clobber a subtype the result message already captured (COSMOS-131).
+      subtype = resolveErrorSubtype(ctrl.signal.aborted, subtype, e);
       log += `\n${ctrl.signal.aborted ? "[agent timeout — aborted]" : String(e)}\n`;
     } finally {
       clearTimeout(timer);
