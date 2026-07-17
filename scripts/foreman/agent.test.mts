@@ -10,7 +10,7 @@ import { prisma } from "@/lib/db/client";
 import { openSecret } from "@/lib/crypto/vault";
 import { materializeForemanHome, cleanupForemanHome } from "@/lib/foreman/foreman-creds";
 import { persistForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
-import { assertSubscription, NoForemanCredentialError, persistRotatedCredsIfChanged } from "./agent.mjs";
+import { assertSubscription, NoForemanCredentialError, persistRotatedCredsIfChanged, resolveErrorSubtype } from "./agent.mjs";
 
 describe("assertSubscription — metered refusal kept verbatim", () => {
   it("refuses when a metered / cloud-billing var is present", () => {
@@ -127,5 +127,22 @@ describe("persistRotatedCredsIfChanged (e2e DB)", () => {
     await expect(
       persistRotatedCredsIfChanged(org.id, "/nonexistent/foreman-home-dir", creds),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("resolveErrorSubtype (COSMOS-131 max-turns detection)", () => {
+  it("preserves an error_max_turns subtype the result message already captured", () => {
+    // The real regression: the SDK yields a result (subtype set) then throws.
+    expect(resolveErrorSubtype(false, "error_max_turns", new Error("boom"))).toBe("error_max_turns");
+  });
+  it("detects a turn overflow from the thrown text even if no subtype was captured", () => {
+    const err = new Error("Claude Code returned an error result: Reached maximum number of turns (80)");
+    expect(resolveErrorSubtype(false, null, err)).toBe("error_max_turns");
+  });
+  it("treats an abort as our timeout deadline regardless of prior subtype", () => {
+    expect(resolveErrorSubtype(true, "error_max_turns", new Error("x"))).toBe("timeout");
+  });
+  it("falls back to error for an unknown throw with no prior subtype", () => {
+    expect(resolveErrorSubtype(false, null, new Error("spawn ENOENT"))).toBe("error");
   });
 });
