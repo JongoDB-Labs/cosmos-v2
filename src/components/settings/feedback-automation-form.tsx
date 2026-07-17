@@ -239,7 +239,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             res.skipped === "not-enabled"
               ? "Enable auto-triage and select at least one project first."
               : res.skipped === "no-ai-credential"
-                ? "Connect a Claude subscription in Settings → AI first — triage won't run on a heuristic guess."
+                ? "Connect Claude for Foreman first — triage won't run on a heuristic guess."
                 : `Skipped: ${res.skipped}`,
         });
       } else {
@@ -357,7 +357,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             disabled={running || !aiConnected}
             variant="outline"
             size="sm"
-            title={aiConnected ? undefined : "Connect a Claude subscription in Settings → AI first"}
+            title={aiConnected ? undefined : "Connect Claude for Foreman first"}
           >
             {running ? "Running…" : "Run now"}
           </Button>

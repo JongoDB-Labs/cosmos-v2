@@ -17,18 +17,18 @@ import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma, getAiProviderStatus } = vi.hoisted(() => ({
+const { getAuthContext, prisma, getForemanClaudeStatus } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn(), update: vi.fn() },
     project: { findMany: vi.fn() },
   },
-  getAiProviderStatus: vi.fn(),
+  getForemanClaudeStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
-vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+vi.mock("@/lib/ai/foreman-claude-subscription", () => ({ getForemanClaudeStatus }));
 
 import { GET, PUT } from "./route";
 
@@ -79,12 +79,7 @@ beforeEach(() => {
     { id: PROJECT_A, key: "AAA", name: "Project A" },
     { id: PROJECT_B, key: "BBB", name: "Project B" },
   ]);
-  getAiProviderStatus.mockResolvedValue({
-    provider: "anthropic",
-    anthropic: { configured: false },
-    openai: { configured: false },
-    claudeOAuth: { connected: false },
-  });
+  getForemanClaudeStatus.mockResolvedValue({ connected: false, email: null });
   getAuthContext.mockResolvedValue(ctx(Permission.ORG_UPDATE));
 });
 
@@ -246,8 +241,8 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
       { id: PROJECT_B, key: "BBB", name: "Project B" },
     ]);
     expect(body.aiConnected).toBe(false);
-    expect(body.aiProvider).toBe("anthropic");
-    expect(body.claudeSubscription).toEqual({ connected: false });
+    expect(body.aiProvider).toBe("claude-oauth");
+    expect(body.claudeSubscription).toEqual({ connected: false, email: null });
     expect(JSON.stringify(body)).not.toContain("permissions");
   });
 

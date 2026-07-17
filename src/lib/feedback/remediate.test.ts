@@ -16,12 +16,12 @@ import { ORG_ROLES } from "./role-gating";
 // below are deterministic and never attempt a real model call. `runModelTurn`
 // is made to reject so every triage exercises the REAL (unmocked)
 // `heuristicTriage` fallback, same as a transient model outage in prod.
-const { getAiProviderStatus, runModelTurn } = vi.hoisted(() => ({
-  getAiProviderStatus: vi.fn(),
+const { getForemanClaudeCreds, runModelTurn } = vi.hoisted(() => ({
+  getForemanClaudeCreds: vi.fn(),
   runModelTurn: vi.fn(),
 }));
 
-vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+vi.mock("@/lib/ai/foreman-claude-subscription", () => ({ getForemanClaudeCreds }));
 vi.mock("@/lib/ai/egress", () => ({ runModelTurn }));
 vi.mock("@/lib/integrations/teams-notify", () => ({ teamsNotify: vi.fn(async () => {}) }));
 
@@ -175,11 +175,10 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
   }
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
+    getForemanClaudeCreds.mockResolvedValue({
+      accessToken: "foreman-oauth-token",
+      refreshToken: "foreman-refresh-token",
+      expiresAt: Date.now() + 3_600_000,
     });
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests — heuristic fallback expected"));
 
@@ -529,11 +528,10 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
   let originalSettings: Prisma.JsonValue;
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
+    getForemanClaudeCreds.mockResolvedValue({
+      accessToken: "foreman-oauth-token",
+      refreshToken: "foreman-refresh-token",
+      expiresAt: Date.now() + 3_600_000,
     });
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 
@@ -762,11 +760,10 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   }
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
+    getForemanClaudeCreds.mockResolvedValue({
+      accessToken: "foreman-oauth-token",
+      refreshToken: "foreman-refresh-token",
+      expiresAt: Date.now() + 3_600_000,
     });
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 
@@ -993,11 +990,10 @@ describe("runFeedbackRemediation — role-based auto-trigger gating (e2e)", () =
   }
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
+    getForemanClaudeCreds.mockResolvedValue({
+      accessToken: "foreman-oauth-token",
+      refreshToken: "foreman-refresh-token",
+      expiresAt: Date.now() + 3_600_000,
     });
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 

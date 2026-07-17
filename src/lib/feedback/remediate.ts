@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
-import { runModelTurn } from "@/lib/ai/egress";
-import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
+import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
+import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
@@ -188,6 +188,7 @@ async function triageOne(
     type: "BUG" | "FEATURE";
     telemetry: Prisma.JsonValue;
   },
+  credential: ModelCredential,
 ): Promise<Triage> {
   try {
     const result = await runModelTurn({
@@ -221,6 +222,9 @@ async function triageOne(
       // classify tool call, so a modest token budget is ample.
       model: "opus",
       maxTokens: 2048,
+      // Foreman's OWN Claude subscription (resolved once by the caller) — the
+      // dedicated connection feedback automation runs on, not the org default.
+      credential,
     });
 
     const input = result.toolUses.find((t) => t.name === "classify_feedback")?.input as
@@ -368,15 +372,18 @@ export async function runFeedbackRemediation(
   // org (settings.autoTriggerRoles); default is members-and-above.
   const roleGate = readRoleGateConfig(org.settings);
 
-  // Gate on a connected model provider (per maintainer directive): the loop must
-  // NOT deliver on the heuristic fallback — that produced low-signal tickets when
-  // no real model was reachable. Require a Claude subscription (OAuth) or a model
-  // key connected via Settings → AI, so every delivery reflects actual AI triage.
-  // The heuristic remains only as a per-item safety net for a transient model error.
-  const ai = await getAiProviderStatus(orgId);
-  const hasAi =
-    ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
-  if (!hasAi) return empty("no-ai-credential");
+  // Gate on FOREMAN's OWN Claude connection (per maintainer directive): feedback
+  // automation runs on Foreman's Claude — the same connection that already powers
+  // the security-judge and approval recommendations — NOT the org's
+  // general-purpose AI provider, because Foreman is what executes the FRs/BRs this
+  // triage feeds, regardless of the org in which a request/report originated. The
+  // loop must NOT deliver on the heuristic fallback (that produced low-signal
+  // tickets when no real model was reachable); the heuristic remains only as a
+  // per-item safety net for a transient model error. Resolve the creds once here
+  // and reuse them for every item's triage call.
+  const foremanCreds = await getForemanClaudeCreds(orgId);
+  if (!foremanCreds) return empty("no-ai-credential");
+  const triageCredential: ModelCredential = { kind: "oauth", token: foremanCreds.accessToken };
 
   // Resolve every project in scope ONCE (not just one hardcoded target): each
   // becomes a delivery target if it's live in this org and has a usable board
@@ -572,7 +579,7 @@ export async function runFeedbackRemediation(
       continue;
     }
 
-    const triage = await triageOne(orgId, tenantClass, item);
+    const triage = await triageOne(orgId, tenantClass, item, triageCredential);
     const typeId = await resolveTypeId(target.projectTemplateId, triage.classification);
     if (!typeId) {
       // No matching built-in type in this sector — skip this item (leave it

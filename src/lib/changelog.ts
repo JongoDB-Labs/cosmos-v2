@@ -23,11 +23,15 @@ export const CHANGELOG: Release[] = [
   {
     version: "2.204.9",
     date: "2026-07-15",
-    title: "Feedback automation points to the right Claude setup",
+    title: "Feedback automation runs on Foreman's Claude",
     highlights: [
       {
         kind: "fix",
-        text: "On Settings → Feedback Automation, the notice shown when no Claude subscription is connected now links straight to the Foreman connect page — the Claude that actually powers feedback automation — instead of the general AI settings. The prompt reads \"Connect Claude for Foreman\" so it's clear where to go.",
+        text: "Feedback auto-triage now runs on Foreman's own Claude connection — the same one that powers autonomous delivery, the security-judge, and approval recommendations — instead of the org's general-purpose AI provider. Foreman is what executes the feature requests and bug reports triage feeds, regardless of the org a report came from, so the connection is now consistent end to end.",
+      },
+      {
+        kind: "fix",
+        text: "On Settings → Feedback Automation, every prompt shown when no Claude is connected (the gate notice, the \"Run now\" tooltip, and the run-skipped message) now points at the Foreman connect page and reads \"Connect Claude for Foreman\" — no more sending admins to the general AI settings, which don't drive feedback automation.",
       },
     ],
   },
