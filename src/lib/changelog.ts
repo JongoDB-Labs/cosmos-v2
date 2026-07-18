@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.214.0",
+    date: "2026-07-18",
+    title: "Connect GitHub for Foreman's PR analysis",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can now connect a GitHub token for Foreman in the console, alongside its Claude subscription. Foreman uses it to read pull requests for the AI analysis and Approve/Rework recommendations. Paste a fine-grained, read-only token; it is validated and stored encrypted. Until one is connected, those panels correctly say they couldn't analyze the PR.",
+      },
+    ],
+  },
+  {
     version: "2.213.0",
     date: "2026-07-17",
     title: "Watch Foreman work in real time",

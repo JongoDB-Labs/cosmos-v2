@@ -21,7 +21,7 @@
  */
 import { runModelTurn, type ModelCredential, type TenantClass } from "@/lib/ai/egress";
 import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
-import { getOrgCredential } from "@/lib/integrations/credentials";
+import { getForemanGithubToken } from "@/lib/ai/foreman-github-pat";
 import { parsePrUrl, fetchPr, fetchDiff, type FetchLike } from "./approval-recommendation";
 
 // Re-export the injected fetch seam so the test (and any future caller) can type
@@ -250,8 +250,7 @@ export async function analyzeRequirements(
 
   const fetchImpl = deps.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
   const getToken =
-    deps.getGitHubTokenImpl ??
-    (async (orgId: string) => (await getOrgCredential(orgId, "github"))?.token ?? null);
+    deps.getGitHubTokenImpl ?? getForemanGithubToken;
 
   const token = await getToken(input.orgId);
   if (!token) return { ...UNAVAILABLE_REPORT, cached: false };
