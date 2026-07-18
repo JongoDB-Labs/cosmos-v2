@@ -17,7 +17,7 @@
  */
 import { runModelTurn, type ModelCredential, type TenantClass } from "@/lib/ai/egress";
 import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
-import { getOrgCredential } from "@/lib/integrations/credentials";
+import { getForemanGithubToken } from "@/lib/ai/foreman-github-pat";
 
 export type RecommendationKind = "approve" | "rework" | "rebuild";
 
@@ -270,8 +270,7 @@ export async function recommendForApproval(
 
   const fetchImpl = deps.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
   const getToken =
-    deps.getGitHubTokenImpl ??
-    (async (orgId: string) => (await getOrgCredential(orgId, "github"))?.token ?? null);
+    deps.getGitHubTokenImpl ?? getForemanGithubToken;
 
   const token = await getToken(input.orgId);
   if (!token) return { ...UNAVAILABLE_RECOMMENDATION, cached: false };
