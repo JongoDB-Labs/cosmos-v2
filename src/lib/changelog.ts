@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.216.2",
+    date: "2026-07-19",
+    title: "Sidebar toggle now reads clearly to screen readers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The sidebar collapse/expand button now has an accessible name that reflects its action and state — screen readers announce “Collapse sidebar” or “Expand sidebar” instead of just “Button”.",
+      },
+    ],
+  },
+  {
     version: "2.216.1",
     date: "2026-07-19",
     title: "Empty Kanban columns no longer look broken",
