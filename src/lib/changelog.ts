@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.216.0",
+    date: "2026-07-18",
+    title: "Foreman authenticates to GitHub with your connected token",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When a GitHub token is connected in Foreman settings, the delivery daemon now uses it for all of its git and pull-request work (fetch, push, open, merge) instead of the host GitHub CLI login. To let Foreman merge its own PRs, the token needs Contents and Pull requests write plus Administration; the settings card lists exactly what to grant.",
+      },
+    ],
+  },
+  {
     version: "2.215.0",
     date: "2026-07-18",
     title: "In-app guidance for the Foreman GitHub token",
