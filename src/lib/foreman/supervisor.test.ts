@@ -160,3 +160,22 @@ describe("selectWithinCap", () => {
     expect(deferred).toHaveLength(1);
   });
 });
+
+import { pickLastRequeuedSha } from "./supervisor";
+
+describe("pickLastRequeuedSha", () => {
+  it("returns the sha of the most recent requeue action (events newest-first)", () => {
+    const events = [
+      { data: { action: "escalate" } },
+      { data: { action: "requeue", sha: "def456" } },
+      { data: { action: "requeue", sha: "abc123" } },
+    ];
+    expect(pickLastRequeuedSha(events)).toBe("def456");
+  });
+  it("returns null when there is no requeue action", () => {
+    expect(pickLastRequeuedSha([{ data: { action: "deliver-close" } }, { data: null }])).toBeNull();
+  });
+  it("skips a requeue event missing its sha", () => {
+    expect(pickLastRequeuedSha([{ data: { action: "requeue" } }, { data: { action: "requeue", sha: "x" } }])).toBe("x");
+  });
+});

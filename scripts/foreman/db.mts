@@ -11,6 +11,7 @@ import type { QueueItem } from "@/lib/foreman/queue";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { buildRef } from "@/lib/foreman/ref";
 import { PARKED_EVENT_KINDS, pickParkEvent } from "@/lib/foreman/observe";
+import { pickLastRequeuedSha } from "@/lib/foreman/supervisor";
 import { readAutomationConfig, MAX_DELIVERY_WORKERS } from "@/lib/feedback/automation-config";
 import { extractInstructions, mentionToken, type TicketComment } from "@/lib/foreman/mention";
 import { createNotification } from "@/lib/notifications/create";
@@ -1149,4 +1150,32 @@ export async function deliveryWorkerTarget(): Promise<number> {
   const envCap = parseInt(process.env.FOREMAN_WORKERS ?? "", 10);
   const cap = Number.isFinite(envCap) && envCap > 0 ? Math.min(envCap, MAX_DELIVERY_WORKERS) : MAX_DELIVERY_WORKERS;
   return Math.min(Math.max(1, target), cap);
+}
+
+/** Most recent supervisor grooming event for an item (or null) — the daemon reads
+ *  this to stay idempotent (skip an action already recorded) and to know when the
+ *  item was last groomed (human-action-respect). */
+export async function lastGroomedEvent(
+  itemId: string,
+): Promise<{ ts: Date; data: Record<string, unknown> } | null> {
+  const ev = await prisma.foremanEvent.findFirst({
+    where: { workItemId: itemId, kind: "groomed" },
+    orderBy: [{ ts: "desc" }, { id: "desc" }],
+    select: { ts: true, data: true },
+  });
+  return ev ? { ts: ev.ts, data: (ev.data ?? {}) as Record<string, unknown> } : null;
+}
+
+/** The main SHA at which this item was last re-queued by the supervisor, or null.
+ *  Reads the item's grooming events (newest-first) and delegates to the pure
+ *  pickLastRequeuedSha (unit-tested in src/lib/foreman/supervisor.ts). */
+export async function lastRequeuedSha(itemId: string): Promise<string | null> {
+  const events = await prisma.foremanEvent.findMany({
+    where: { workItemId: itemId, kind: "groomed" },
+    orderBy: [{ ts: "desc" }, { id: "desc" }],
+    select: { data: true },
+  });
+  return pickLastRequeuedSha(
+    events.map((e) => ({ data: (e.data ?? null) as { action?: string; sha?: string } | null })),
+  );
 }

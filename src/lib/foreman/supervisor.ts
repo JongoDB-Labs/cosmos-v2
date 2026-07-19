@@ -196,3 +196,21 @@ export function selectWithinCap<T>(
   }
   return { act, deferred };
 }
+
+/** A parsed grooming event's data blob (what the daemon writes on each action).
+ *  Only the fields the pure readers need are typed. */
+export interface GroomedEventData {
+  action?: string;
+  sha?: string;
+}
+
+/** From an item's grooming events (newest-first), the main SHA at which it was
+ *  last RE-QUEUED, or null if never. Pure: the daemon supplies the events; this
+ *  picks the first requeue action's sha. */
+export function pickLastRequeuedSha(events: { data: GroomedEventData | null }[]): string | null {
+  for (const e of events) {
+    const d = e.data;
+    if (d && d.action === "requeue" && typeof d.sha === "string") return d.sha;
+  }
+  return null;
+}
