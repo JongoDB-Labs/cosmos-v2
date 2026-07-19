@@ -179,3 +179,27 @@ describe("pickLastRequeuedSha", () => {
     expect(pickLastRequeuedSha([{ data: { action: "requeue" } }, { data: { action: "requeue", sha: "x" } }])).toBe("x");
   });
 });
+
+import { buildGroomingPrompt } from "./supervisor";
+
+describe("buildGroomingPrompt", () => {
+  const base = {
+    ticket: { key: "COSMOS-42", title: "Add a widget", description: "We need a widget on the board." },
+    prDiff: "diff --git a/x b/x\n+widget",
+    parkReason: "9 files changed (> 8)",
+    otherTickets: [{ key: "COSMOS-7", title: "Widget prototype" }],
+  };
+  it("includes the ticket, both judgment questions, other tickets, and a JSON-only instruction", () => {
+    const p = buildGroomingPrompt(base);
+    expect(p).toContain("COSMOS-42: Add a widget");
+    expect(p).toContain("DELIVERED:");
+    expect(p).toContain("DUPLICATE:");
+    expect(p).toContain("COSMOS-7: Widget prototype");
+    expect(p).toContain('"deliveredConfidence"');
+    expect(p).toContain("+widget");
+  });
+  it("renders (none) when there are no other tickets", () => {
+    const p = buildGroomingPrompt({ ...base, otherTickets: [] });
+    expect(p).toContain("Other open/recent tickets:\n(none)");
+  });
+});

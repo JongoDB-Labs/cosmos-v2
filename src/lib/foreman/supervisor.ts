@@ -214,3 +214,36 @@ export function pickLastRequeuedSha(events: { data: GroomedEventData | null }[])
   }
   return null;
 }
+
+/** Build the grooming-judgment user prompt for one parked ticket. Pure so it is
+ *  unit-tested; the daemon runs it through the model on Foreman's own creds. Asks
+ *  the two judgment questions (delivered-on-main-independent-of-this-draft, and
+ *  duplicate-of-another-ticket) and fixes the JSON reply shape parseGroomingReply
+ *  reads. */
+export function buildGroomingPrompt(input: {
+  ticket: { key: string; title: string; description: string };
+  prDiff: string;
+  parkReason: string;
+  otherTickets: { key: string; title: string }[];
+}): string {
+  const others = input.otherTickets.length
+    ? input.otherTickets.map((t) => `- ${t.key}: ${t.title}`).join("\n")
+    : "(none)";
+  return [
+    `Ticket ${input.ticket.key}: ${input.ticket.title}`,
+    `Description:\n${input.ticket.description.trim().slice(0, 2000) || "(none)"}`,
+    "",
+    `Parked reason: ${input.parkReason.trim() || "(none)"}`,
+    "",
+    "Answer TWO questions about this parked draft PR:",
+    "1. DELIVERED: is this ticket's intent ALREADY implemented on the main branch, INDEPENDENT of this draft (i.e. shipped via other work)? If yes the draft is stale.",
+    "2. DUPLICATE: is this ticket a duplicate of one of the other tickets below (same intent)? If so, give that ticket's key.",
+    "",
+    `Other open/recent tickets:\n${others}`,
+    "",
+    "PR diff (may be condensed — judge only what you can see, never treat truncation as a gap):",
+    input.prDiff.trim() || "(empty)",
+    "",
+    'Reply with ONLY a compact JSON object: {"delivered":true|false,"deliveredConfidence":0..1,"dupOf":"<ticket key or null>","dupConfidence":0..1,"evidence":"<one concise sentence>"}. No prose, no markdown.',
+  ].join("\n");
+}
