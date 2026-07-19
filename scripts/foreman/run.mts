@@ -48,6 +48,7 @@ import { ensureWorkerDbs } from "./worker-db.mjs";
 // sibling module — under this tsconfig (`moduleResolution: bundler`) a `.mts`
 // import path fails typecheck with TS5097; `.mjs` resolves to the `.mts` source.
 import * as obs from "./observe.mjs";
+import { configureGithubAuth } from "./github-auth.mjs";
 
 const exec = promisify(execFile);
 
@@ -1888,6 +1889,10 @@ async function main(): Promise<void> {
   // Boot the host row + a boot event. These fire even in DRY (the only feed
   // writes that do) so the status surface shows a live daemon during a preview.
   await obs.boot({ daemonVersion: pkgVersion, pid: process.pid, workerTarget: MAX_SLOTS });
+  // Phase 2: point git + gh at the org's connected GitHub PAT (Foreman settings)
+  // instead of the host gh CLI. No-op + host-gh fallback when none is connected.
+  const ghAuth = await configureGithubAuth();
+  if (ghAuth.configured) log("github: authenticating git + gh with the connected org PAT");
   await obs.track({ kind: "boot", message: `foreman started (pid ${process.pid})` });
   // M3: reclaim anything a prior crash left behind — a leftover staging dir plus
   // the worktree registration that points at it — so the per-ticket `worktree add`
