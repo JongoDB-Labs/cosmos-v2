@@ -31,9 +31,13 @@ interface TopbarProps {
     name: string;
   }[];
   onToggleSidebar: () => void;
+  /** Whether the sidebar is currently expanded — drives the toggle's
+      accessible name so screen readers announce the action AND the state
+      ("Collapse sidebar" when open, "Expand sidebar" when collapsed). */
+  sidebarExpanded: boolean;
 }
 
-export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
+export function Topbar({ orgs, onToggleSidebar, sidebarExpanded }: TopbarProps) {
   const pathname = usePathname();
   // Effective org slug from a MATCHED membership (undefined on /onboarding,
   // /admin, …) so resolveHref() falls back to NO_MATCH and nothing highlights.
@@ -56,7 +60,7 @@ export function Topbar({ orgs, onToggleSidebar }: TopbarProps) {
           size="icon"
           className="h-8 w-8"
           onClick={onToggleSidebar}
-          aria-label="Toggle sidebar"
+          aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
         >
           <Menu className="h-4 w-4" />
         </Button>
