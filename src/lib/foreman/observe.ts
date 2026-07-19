@@ -5,7 +5,7 @@ export const EVENT_KINDS = [
   "boot", "claimed", "duplicate", "needs-input", "gated", "already-done",
   "repair", "queued-ship", "shipped", "parked", "ship-failed",
   "merged-undeployed", "requeued", "mention-reply", "reclaimed", "breaker",
-  "resync", "error", "planned",
+  "resync", "error", "planned", "groomed",
 ] as const;
 export type ForemanEventKind = (typeof EVENT_KINDS)[number];
 
