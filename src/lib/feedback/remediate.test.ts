@@ -24,6 +24,18 @@ const { getForemanClaudeCreds, runModelTurn } = vi.hoisted(() => ({
 vi.mock("@/lib/ai/foreman-claude-subscription", () => ({ getForemanClaudeCreds }));
 vi.mock("@/lib/ai/egress", () => ({ runModelTurn }));
 vi.mock("@/lib/integrations/teams-notify", () => ({ teamsNotify: vi.fn(async () => {}) }));
+// The LLM security-judge (COSMOS-117) runs on the SAME Foreman credential this
+// suite now mocks truthy, so leaving it live would fire a `runModelTurn` for
+// every allowed item BEFORE routing — burning a model call on items this suite
+// deliberately skips (e.g. out-of-scope with no default target). It always
+// resolves to a null verdict here anyway (runModelTurn is made to reject), so
+// stubbing it to null is behaviourally identical while keeping the model-call
+// counts a faithful measure of TRIAGE calls. Its own behaviour is covered in
+// security-judge.test.ts; `raiseWithJudge` stays real (a null verdict is a no-op).
+vi.mock("@/lib/feedback/security-judge", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./security-judge")>()),
+  judgeFeedbackSecurity: vi.fn(async () => null),
+}));
 
 import { prisma } from "@/lib/db/client";
 import { heuristicTriage, resolveDeliveryTarget, runFeedbackRemediation } from "./remediate";
