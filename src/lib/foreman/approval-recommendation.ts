@@ -41,7 +41,7 @@ const UNAVAILABLE_RECOMMENDATION: ApprovalRecommendation = {
 
 const ANALYSIS_MODEL = "sonnet";
 const MAX_TOKENS = 400;
-const MAX_DIFF_CHARS = 12_000;
+const MAX_DIFF_CHARS = 40_000;
 
 const ANALYSIS_SYSTEM =
   "You are reviewing a pull request that an autonomous coding agent produced and " +
@@ -50,6 +50,8 @@ const ANALYSIS_SYSTEM =
   "- approve: the change correctly and safely satisfies its ticket, checks pass, and it's ready to merge & deploy.\n" +
   "- rework: on the right track but has fixable gaps (a bug, missing tests, an unaddressed edge case) — better to resume the existing build with guidance than to start over.\n" +
   "- rebuild: wrong-headed, empty, or off-target enough that starting fresh beats patching it.\n" +
+  "The diff may be CONDENSED to fit — unchanged context lines are removed but every CHANGED line is shown. Never treat condensing or truncation as a deficiency: do NOT cite 'diff truncated', 'cannot confirm from the visible diff', or missing context as a gap or a reason to rework. Judge only the visible changes and assume any omitted context is correct.\n" +
+  "Decision rule: if the visible change satisfies the ticket's requirements and the checks pass, recommend APPROVE — do not withhold approval for hypothetical extra tests, unrelated hardening, or out-of-scope observations. Reserve REWORK for a concrete, IN-SCOPE defect you can point to (a wrong behavior, a red/failing check, or an unmet acceptance criterion), and REBUILD for work that is empty or fundamentally off-target.\n" +
   'Reply with ONLY a compact JSON object: {"recommendation":"approve|rework|rebuild","rationale":"<one concise sentence>"}. ' +
   "No prose, no markdown, no code fences.";
 
@@ -152,8 +154,39 @@ export async function fetchPr(
   };
 }
 
-/** GET the unified diff for the PR (truncated), or "" on failure. Exported for
- *  reuse by the requirements-analysis module (COSMOS-116). */
+/** Signal-first condensing of a unified diff to fit a char budget. A raw diff
+ *  spends most of its bytes on UNCHANGED context lines; when it exceeds `budget`
+ *  we keep every file header, hunk header, and every +/- CHANGED line and drop
+ *  only the context, so the model still sees EVERY actual change across EVERY
+ *  file. A blind head-slice used to cut whole trailing files/tests, which the
+ *  analysis then wrongly reported as a "coverage gap" and downgraded to rework.
+ *  Only if the condensed form is STILL over budget is it hard-capped, with a note
+ *  that the omission is presumed-correct — never a defect. Returns the diff
+ *  unchanged when it already fits. */
+export function condenseDiff(diff: string, budget: number): string {
+  if (diff.length <= budget) return diff;
+  let droppedContext = false;
+  const kept = diff.split("\n").filter((line) => {
+    // Drop pure context (space-prefixed) and "\\ No newline" markers; keep the
+    // headers (diff --git / index / --- / +++ / @@) and the real +/- changes.
+    if (line.startsWith(" ") || line.startsWith("\\")) {
+      droppedContext = true;
+      return false;
+    }
+    return true;
+  });
+  let out = kept.join("\n");
+  if (droppedContext) {
+    out = `[unchanged context lines omitted for length — every CHANGED line is shown below]\n${out}`;
+  }
+  if (out.length > budget) {
+    out = `${out.slice(0, budget)}\n… [diff further condensed to fit — treat the omitted portion as correct, not as a gap]`;
+  }
+  return out;
+}
+
+/** GET the unified diff for the PR, signal-first condensed to fit, or "" on
+ *  failure. Exported for reuse by the requirements-analysis module (COSMOS-116). */
 export async function fetchDiff(fetchImpl: FetchLike, token: string, t: PrTarget): Promise<string> {
   const res = await fetchImpl(
     `https://api.github.com/repos/${encodeURIComponent(t.owner)}/${encodeURIComponent(t.repo)}/pulls/${t.number}`,
@@ -161,9 +194,7 @@ export async function fetchDiff(fetchImpl: FetchLike, token: string, t: PrTarget
   );
   if (!res.ok) return "";
   const diff = await res.text();
-  return diff.length > MAX_DIFF_CHARS
-    ? `${diff.slice(0, MAX_DIFF_CHARS)}\n… [diff truncated]`
-    : diff;
+  return condenseDiff(diff, MAX_DIFF_CHARS);
 }
 
 /** GET the check-runs for the head SHA and summarize their conclusions. */
