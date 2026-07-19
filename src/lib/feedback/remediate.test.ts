@@ -11,17 +11,21 @@ import { ORG_ROLES } from "./role-gating";
  * real e2e DB further down in this file.
  */
 
-// The AI egress + credential gate are the only true I/O boundaries
+// The AI egress + Foreman-subscription gate are the only true I/O boundaries
 // `runFeedbackRemediation` has besides Prisma itself — mocked so the e2e tests
-// below are deterministic and never attempt a real model call. `runModelTurn`
-// is made to reject so every triage exercises the REAL (unmocked)
-// `heuristicTriage` fallback, same as a transient model outage in prod.
-const { getAiProviderStatus, runModelTurn } = vi.hoisted(() => ({
-  getAiProviderStatus: vi.fn(),
+// below are deterministic and never attempt a real model call. Auto-triage gates
+// on (and authenticates as) FOREMAN's own Claude subscription (COSMOS-105):
+// `getForemanClaudeStatus` is mocked "connected" so the loop runs, while
+// `getForemanClaudeCreds` defaults to null so triage falls to the REAL (unmocked)
+// `heuristicTriage` — same as a fresh org with no Foreman token yet. `runModelTurn`
+// is made to reject as a second belt for any path that does reach the model.
+const { getForemanClaudeStatus, getForemanClaudeCreds, runModelTurn } = vi.hoisted(() => ({
+  getForemanClaudeStatus: vi.fn(),
+  getForemanClaudeCreds: vi.fn(),
   runModelTurn: vi.fn(),
 }));
 
-vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+vi.mock("@/lib/ai/foreman-claude-subscription", () => ({ getForemanClaudeStatus, getForemanClaudeCreds }));
 vi.mock("@/lib/ai/egress", () => ({ runModelTurn }));
 vi.mock("@/lib/integrations/teams-notify", () => ({ teamsNotify: vi.fn(async () => {}) }));
 
@@ -180,12 +184,13 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
   }
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
-    });
+    getForemanClaudeStatus.mockResolvedValue({ connected: true });
+    // Foreman creds default to null so triage takes the heuristic path WITHOUT a
+    // model call (the guardrail judges + `triageOne` both short-circuit on missing
+    // creds), keeping the suite's runModelTurn-call profile deterministic — same as
+    // before COSMOS-105, when the real getForemanClaudeCreds returned null in the
+    // test DB. A dedicated test below flips these on to prove the credential wiring.
+    getForemanClaudeCreds.mockResolvedValue(null);
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests — heuristic fallback expected"));
 
     const org = await prisma.organization.findFirstOrThrow({
@@ -515,6 +520,119 @@ describe("runFeedbackRemediation — per-item multi-project routing (e2e)", () =
       await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
     }
   });
+
+  // ── COSMOS-105: gate reads FOREMAN's Claude, not the org's ────────────────
+
+  it("delivers when Foreman's Claude is connected — the org's provider is never consulted for the gate", async () => {
+    // The whole point of the bug fix: with Foreman connected (the suite default)
+    // and NO org provider configured, auto-triage still runs and files the item.
+    // `getForemanClaudeStatus` — not `getAiProviderStatus` — is what the loop reads.
+    await setAutoRemediationConfig({
+      enabled: true,
+      projectIds: [mainProjectId],
+      defaultProjectId: mainProjectId,
+    });
+    const title = `${TITLE_PREFIX} foreman-gated`;
+    const item = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "BUG", title, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      const delivered = summary.items.find((i) => i.feedbackId === item.id);
+      expect(delivered).toBeDefined();
+      expect(delivered!.ticketKey.startsWith(`${mainProjectKey}-`)).toBe(true);
+    } finally {
+      await prisma.workItem.deleteMany({ where: { orgId, title } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
+
+  it("triage authenticates as Foreman's own Claude subscription (passes its OAuth creds)", async () => {
+    // Executor half of COSMOS-105: `triageOne` resolves FOREMAN's creds and passes
+    // them to the egress as the request credential, so the model call runs on
+    // Foreman's connection — not the org's. Flip the creds on + resolve a valid
+    // classify tool call for this run, then restore the suite defaults.
+    getForemanClaudeCreds.mockResolvedValue({
+      accessToken: "FT",
+      refreshToken: "FR",
+      expiresAt: Date.now() + 3_600_000,
+    });
+    runModelTurn.mockResolvedValue({
+      text: "",
+      stopReason: "tool_use",
+      toolUses: [
+        {
+          id: "t1",
+          name: "classify_feedback",
+          input: { classification: "BUG", severity: "high", effort: "M", rationale: "r", acceptanceCriteria: [] },
+        },
+      ],
+    });
+    await setAutoRemediationConfig({
+      enabled: true,
+      projectIds: [mainProjectId],
+      defaultProjectId: mainProjectId,
+    });
+    const title = `${TITLE_PREFIX} foreman-creds`;
+    const item = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "BUG", title, description: "Export button does nothing.", projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      const delivered = summary.items.find((i) => i.feedbackId === item.id);
+      expect(delivered).toBeDefined();
+      // Real AI triage ran (not the heuristic fallback)…
+      expect(delivered!.triage.source).toBe("ai");
+      // …and the triage turn was authenticated with FOREMAN's OAuth credential.
+      const triageCall = runModelTurn.mock.calls.find(
+        ([arg]) => arg?.ctx?.conversationId === `feedback-triage-${item.id}`,
+      );
+      expect(triageCall).toBeDefined();
+      expect(triageCall![0].credential).toEqual({ kind: "oauth", token: "FT" });
+    } finally {
+      await prisma.workItem.deleteMany({ where: { orgId, title } });
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+      // Restore the suite defaults for the tests that follow.
+      getForemanClaudeCreds.mockResolvedValue(null);
+      runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests — heuristic fallback expected"));
+    }
+  });
+
+  it("skips the whole run (no-ai-credential) when Foreman's Claude is NOT connected", async () => {
+    // Foreman disconnected for this single run → the executor gate short-circuits
+    // to `no-ai-credential`; the item stays OPEN and undelivered for a later run.
+    getForemanClaudeStatus.mockResolvedValueOnce({ connected: false });
+    await setAutoRemediationConfig({
+      enabled: true,
+      projectIds: [mainProjectId],
+      defaultProjectId: mainProjectId,
+    });
+    const title = `${TITLE_PREFIX} foreman-disconnected`;
+    const item = await prisma.feedbackItem.create({
+      data: { orgId, authorId: userId, type: "BUG", title, projectId: mainProjectId },
+      select: { id: true },
+    });
+
+    try {
+      const summary = await runFeedbackRemediation(orgId, { actorUserId: userId, limit: 10 });
+      expect(summary.skipped).toBe("no-ai-credential");
+      expect(summary.items.find((i) => i.feedbackId === item.id)).toBeUndefined();
+
+      const refreshed = await prisma.feedbackItem.findUniqueOrThrow({
+        where: { id: item.id },
+        select: { deliveredAt: true, workItemId: true, status: true },
+      });
+      expect(refreshed.deliveredAt).toBeNull();
+      expect(refreshed.workItemId).toBeNull();
+      expect(refreshed.status).toBe("OPEN");
+    } finally {
+      await prisma.feedbackItem.deleteMany({ where: { id: item.id } });
+    }
+  });
 });
 
 /**
@@ -534,12 +652,13 @@ describe("runFeedbackRemediation — intake guardrails (e2e)", () => {
   let originalSettings: Prisma.JsonValue;
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
-    });
+    getForemanClaudeStatus.mockResolvedValue({ connected: true });
+    // Foreman creds default to null so triage takes the heuristic path WITHOUT a
+    // model call (the guardrail judges + `triageOne` both short-circuit on missing
+    // creds), keeping the suite's runModelTurn-call profile deterministic — same as
+    // before COSMOS-105, when the real getForemanClaudeCreds returned null in the
+    // test DB. A dedicated test below flips these on to prove the credential wiring.
+    getForemanClaudeCreds.mockResolvedValue(null);
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 
     const org = await prisma.organization.findFirstOrThrow({
@@ -904,12 +1023,13 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   }
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
-    });
+    getForemanClaudeStatus.mockResolvedValue({ connected: true });
+    // Foreman creds default to null so triage takes the heuristic path WITHOUT a
+    // model call (the guardrail judges + `triageOne` both short-circuit on missing
+    // creds), keeping the suite's runModelTurn-call profile deterministic — same as
+    // before COSMOS-105, when the real getForemanClaudeCreds returned null in the
+    // test DB. A dedicated test below flips these on to prove the credential wiring.
+    getForemanClaudeCreds.mockResolvedValue(null);
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 
     const org = await prisma.organization.findFirstOrThrow({
@@ -1135,12 +1255,13 @@ describe("runFeedbackRemediation — role-based auto-trigger gating (e2e)", () =
   }
 
   beforeAll(async () => {
-    getAiProviderStatus.mockResolvedValue({
-      provider: "anthropic",
-      anthropic: { configured: false },
-      openai: { configured: false, baseUrl: undefined, model: undefined },
-      claudeOAuth: { connected: true },
-    });
+    getForemanClaudeStatus.mockResolvedValue({ connected: true });
+    // Foreman creds default to null so triage takes the heuristic path WITHOUT a
+    // model call (the guardrail judges + `triageOne` both short-circuit on missing
+    // creds), keeping the suite's runModelTurn-call profile deterministic — same as
+    // before COSMOS-105, when the real getForemanClaudeCreds returned null in the
+    // test DB. A dedicated test below flips these on to prove the credential wiring.
+    getForemanClaudeCreds.mockResolvedValue(null);
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 
     const org = await prisma.organization.findFirstOrThrow({

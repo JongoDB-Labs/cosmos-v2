@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.216.3",
+    date: "2026-07-19",
+    title: "Feedback auto-triage activates on Foreman's Claude",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Feedback Automation no longer stays stuck on “Connect a Claude subscription” when Foreman's Claude is connected. Auto-triage now checks — and runs on — Foreman's own subscription, so new feedback is classified and filed into your configured board even when your org hasn't connected its own Claude.",
+      },
+    ],
+  },
+  {
     version: "2.216.2",
     date: "2026-07-19",
     title: "Sidebar toggle now reads clearly to screen readers",

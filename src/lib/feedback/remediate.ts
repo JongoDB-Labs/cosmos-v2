@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
-import { runModelTurn } from "@/lib/ai/egress";
-import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
+import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
+import { getForemanClaudeCreds, getForemanClaudeStatus } from "@/lib/ai/foreman-claude-subscription";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify } from "@/lib/integrations/teams-notify";
@@ -213,6 +213,15 @@ async function triageOne(
   },
 ): Promise<Triage> {
   try {
+    // Triage authenticates as FOREMAN's own Claude subscription (COSMOS-105),
+    // not the org's general-purpose provider — same dedicated connection the
+    // intake guardrails / security judge use, so it never consumes a human seat's
+    // token. Missing creds ⇒ heuristic fallback (delivery must not depend on the
+    // model), consistent with the catch below.
+    const creds = await getForemanClaudeCreds(orgId);
+    if (!creds) return heuristicTriage(item);
+    const credential: ModelCredential = { kind: "oauth", token: creds.accessToken };
+
     const result = await runModelTurn({
       ctx: {
         orgId,
@@ -244,6 +253,7 @@ async function triageOne(
       // classify tool call, so a modest token budget is ample.
       model: "opus",
       maxTokens: 2048,
+      credential,
     });
 
     const input = result.toolUses.find((t) => t.name === "classify_feedback")?.input as
@@ -396,15 +406,15 @@ export async function runFeedbackRemediation(
   const policy = readIntakePolicy(org.settings);
   const roleGate = { autoTriggerRoles: policy.autoTriggerRoles };
 
-  // Gate on a connected model provider (per maintainer directive): the loop must
-  // NOT deliver on the heuristic fallback — that produced low-signal tickets when
-  // no real model was reachable. Require a Claude subscription (OAuth) or a model
-  // key connected via Settings → AI, so every delivery reflects actual AI triage.
-  // The heuristic remains only as a per-item safety net for a transient model error.
-  const ai = await getAiProviderStatus(orgId);
-  const hasAi =
-    ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
-  if (!hasAi) return empty("no-ai-credential");
+  // Gate on FOREMAN's connected Claude subscription (COSMOS-105): triage runs on
+  // Foreman's own connection (see `triageOne`), so the gate must read Foreman's
+  // status — NOT the org's general-purpose provider, which left the loop inert
+  // even when Foreman's Claude was connected. The loop must NOT deliver on the
+  // heuristic fallback (it produced low-signal tickets when no real model was
+  // reachable); the heuristic remains only as a per-item safety net for a
+  // transient model error.
+  const foreman = await getForemanClaudeStatus(orgId);
+  if (!foreman.connected) return empty("no-ai-credential");
 
   // Resolve every project in scope ONCE (not just one hardcoded target): each
   // becomes a delivery target if it's live in this org and has a usable board

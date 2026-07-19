@@ -17,13 +17,14 @@ import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma, getAiProviderStatus } = vi.hoisted(() => ({
+const { getAuthContext, prisma, getAiProviderStatus, getForemanClaudeStatus } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn(), update: vi.fn() },
     project: { findMany: vi.fn() },
   },
   getAiProviderStatus: vi.fn(),
+  getForemanClaudeStatus: vi.fn(),
 }));
 
 const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
@@ -31,6 +32,9 @@ const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+// COSMOS-105: the GET gate reads FOREMAN's Claude connection (getForemanClaudeStatus),
+// not the org's provider — `aiConnected` / `claudeSubscription` come from here.
+vi.mock("@/lib/ai/foreman-claude-subscription", () => ({ getForemanClaudeStatus }));
 // Realtime publish is a best-effort side-effect (COSMOS-130); mock it so we can
 // assert a settings.updated event fires on a valid save (and never on a reject).
 vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
@@ -90,6 +94,9 @@ beforeEach(() => {
     openai: { configured: false },
     claudeOAuth: { connected: false },
   });
+  // Foreman's Claude drives the gate (COSMOS-105); default it disconnected so the
+  // existing round-trip assertions (aiConnected:false, claudeSubscription) hold.
+  getForemanClaudeStatus.mockResolvedValue({ connected: false });
   getAuthContext.mockResolvedValue(ctx(Permission.ORG_UPDATE));
 });
 
@@ -312,6 +319,36 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
       projectIds: [PROJECT_A],
       defaultProjectId: PROJECT_A,
     });
+  });
+});
+
+describe("remediation-config — AI gate reads Foreman's Claude (COSMOS-105)", () => {
+  it("aiConnected is TRUE when Foreman's Claude is connected, even with the org provider disconnected", async () => {
+    // The reported bug: the page stayed inert ("Connect a Claude subscription")
+    // because the gate read the ORG's provider. It must read Foreman's — so with
+    // Foreman connected and the org's Claude/keys NOT connected, aiConnected=true
+    // and no connect-warning is shown.
+    getForemanClaudeStatus.mockResolvedValue({ connected: true, email: "foreman@acme.test" });
+    const res = await GET(get(), { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.aiConnected).toBe(true);
+    expect(body.claudeSubscription).toEqual({ connected: true, email: "foreman@acme.test" });
+  });
+
+  it("aiConnected is FALSE when Foreman's Claude is NOT connected — regardless of the org provider", async () => {
+    // Org Claude "connected" must NOT satisfy the gate — only Foreman's does.
+    getAiProviderStatus.mockResolvedValue({
+      provider: "anthropic",
+      anthropic: { configured: true },
+      openai: { configured: false },
+      claudeOAuth: { connected: true },
+    });
+    getForemanClaudeStatus.mockResolvedValue({ connected: false });
+    const res = await GET(get(), { params });
+    const body = await res.json();
+    expect(body.aiConnected).toBe(false);
+    expect(body.claudeSubscription).toEqual({ connected: false });
   });
 });
 

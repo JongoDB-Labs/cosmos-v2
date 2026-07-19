@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
+import { getForemanClaudeStatus } from "@/lib/ai/foreman-claude-subscription";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { pruneToProjects, readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
@@ -67,12 +68,15 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       orderBy: { key: "asc" },
     });
 
-    // AI-connection gate (per maintainer directive): the loop only runs with a
-    // connected model provider. Surface it so the form can point the admin at
-    // Settings → AI instead of silently no-op'ing on the heuristic.
+    // AI-connection gate (COSMOS-105): auto-triage runs on FOREMAN's own Claude
+    // subscription (getForemanClaudeCreds in the remediation executor), NOT the
+    // org's general-purpose provider — so the gate must read Foreman's
+    // connection, not the org's. Gating on the org left the automation inert
+    // ("Connect a Claude subscription") even when Foreman's Claude was connected.
+    // `ai.provider` is still surfaced purely as a display hint for the form.
     const ai = await getAiProviderStatus(orgId);
-    const aiConnected =
-      ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
+    const foreman = await getForemanClaudeStatus(orgId);
+    const aiConnected = foreman.connected;
 
     return success({
       ...pruneToProjects(readAutomationConfig(org.settings), new Set(projects.map((p) => p.id))),
@@ -82,7 +86,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       projects,
       aiConnected,
       aiProvider: ai.provider,
-      claudeSubscription: ai.claudeOAuth,
+      claudeSubscription: foreman,
     });
   } catch (error) {
     return handleApiError(error);
