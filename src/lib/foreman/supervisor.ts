@@ -92,3 +92,22 @@ export function isRequeueEligible(f: RequeueFacts): boolean {
   if (f.lastInfraFixAtMs !== null && f.lastInfraFixAtMs > f.parkedAtMs) return true;
   return false;
 }
+
+/** A ticket must NOT be re-groomed while a human has acted on it since Foreman's
+ *  last grooming action — mirrors planner.isStandingDemotion. Only meaningful once
+ *  the ticket has been groomed at least once (lastGroomedAtMs set); a never-groomed
+ *  ticket is always eligible. Any edit/comment/human-move after the last groom
+ *  hands control back to the human. */
+export function isHumanSuppressed(f: {
+  lastGroomedAtMs: number | null;
+  updatedAtMs: number;
+  lastCommentAtMs: number | null;
+  lastHumanMoveAtMs: number | null;
+}): boolean {
+  if (f.lastGroomedAtMs === null) return false;
+  const g = f.lastGroomedAtMs;
+  if (f.updatedAtMs > g) return true;
+  if (f.lastCommentAtMs !== null && f.lastCommentAtMs > g) return true;
+  if (f.lastHumanMoveAtMs !== null && f.lastHumanMoveAtMs > g) return true;
+  return false;
+}

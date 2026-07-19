@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { parseGroomingReply } from "./supervisor";
 import { isRequeueEligible, KNOWN_TRANSIENT_SIGNATURES } from "./supervisor";
+import { isHumanSuppressed } from "./supervisor";
 
 describe("parseGroomingReply", () => {
   it("extracts a delivered judgment from a JSON reply with stray prose", () => {
@@ -65,5 +66,24 @@ describe("isRequeueEligible", () => {
   it("exposes the stale-DB and PR-exists signatures", () => {
     expect(KNOWN_TRANSIENT_SIGNATURES.some((s) => "column users.must_change_password does not exist".includes(s))).toBe(true);
     expect(KNOWN_TRANSIENT_SIGNATURES.some((s) => 'a pull request for branch "x" already exists'.includes(s))).toBe(true);
+  });
+});
+
+describe("isHumanSuppressed", () => {
+  const base = { lastGroomedAtMs: 1000, updatedAtMs: 900, lastCommentAtMs: null, lastHumanMoveAtMs: null };
+  it("not suppressed when nothing changed since the last groom", () => {
+    expect(isHumanSuppressed(base)).toBe(false);
+  });
+  it("suppressed when a human edited after the last groom", () => {
+    expect(isHumanSuppressed({ ...base, updatedAtMs: 2000 })).toBe(true);
+  });
+  it("suppressed when a human commented after the last groom", () => {
+    expect(isHumanSuppressed({ ...base, lastCommentAtMs: 1500 })).toBe(true);
+  });
+  it("suppressed when a human moved the card after the last groom", () => {
+    expect(isHumanSuppressed({ ...base, lastHumanMoveAtMs: 1500 })).toBe(true);
+  });
+  it("never suppressed when the ticket has never been groomed", () => {
+    expect(isHumanSuppressed({ ...base, lastGroomedAtMs: null, updatedAtMs: 9e9 })).toBe(false);
   });
 });
