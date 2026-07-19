@@ -4,6 +4,8 @@ import { parseGroomingReply } from "./supervisor";
 import { isRequeueEligible, KNOWN_TRANSIENT_SIGNATURES } from "./supervisor";
 import { isHumanSuppressed } from "./supervisor";
 import { decideVerdict, DEFAULT_CONFIG, type SupervisorFacts } from "./supervisor";
+import { selectWithinCap, type GroomingVerdict } from "./supervisor";
+const mkV = (kind: GroomingVerdict["kind"]): GroomingVerdict => ({ kind, confidence: 1, evidence: "" });
 
 describe("parseGroomingReply", () => {
   it("extracts a delivered judgment from a JSON reply with stray prose", () => {
@@ -141,5 +143,20 @@ describe("decideVerdict", () => {
   it("escalates a confident 'delivered' with no draft PR (surfaced, never silently dropped)", () => {
     const v = decideVerdict(facts({ hasPr: false, judgment: { delivered: true, deliveredConfidence: 0.99, dupOf: null, dupConfidence: 0, evidence: "on main, no draft" }, requeue: { ...facts().requeue, isScopeOrSensitiveGate: true, checkLog: "" } }), DEFAULT_CONFIG);
     expect(v.kind).toBe("escalate");
+  });
+});
+
+describe("selectWithinCap", () => {
+  it("escalate + leave never count against the cap; only mutating verdicts do", () => {
+    const items = [
+      { verdict: mkV("escalate"), item: 1 }, { verdict: mkV("leave"), item: 2 },
+      { verdict: mkV("deliver-close"), item: 3 }, { verdict: mkV("requeue"), item: 4 },
+      { verdict: mkV("dedup-consolidate"), item: 5 },
+    ];
+    const { act, deferred } = selectWithinCap(items, 2);
+    // both non-mutating pass through in `act`; only 2 of the 3 mutating ones act
+    expect(act.filter((a) => a.verdict.kind === "escalate" || a.verdict.kind === "leave")).toHaveLength(2);
+    expect(act.filter((a) => ["deliver-close", "requeue", "dedup-consolidate"].includes(a.verdict.kind))).toHaveLength(2);
+    expect(deferred).toHaveLength(1);
   });
 });

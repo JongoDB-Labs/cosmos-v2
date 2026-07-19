@@ -176,3 +176,23 @@ export function decideVerdict(f: SupervisorFacts, cfg: SupervisorConfig): Groomi
 
   return { kind: "leave", confidence: 1, evidence: "" };
 }
+
+const MUTATING: ReadonlySet<GroomingKind> = new Set(["deliver-close", "requeue", "dedup-consolidate"]);
+
+/** Split verdicts into those to act on now vs deferred to the next pass. Only
+ *  MUTATING verdicts consume the cap; escalate/leave always pass through (they post
+ *  a comment or do nothing, so they can't mass-mutate the board). Deterministic:
+ *  preserves input order. */
+export function selectWithinCap<T>(
+  items: { verdict: GroomingVerdict; item: T }[],
+  cap: number,
+): { act: { verdict: GroomingVerdict; item: T }[]; deferred: { verdict: GroomingVerdict; item: T }[] } {
+  const act: { verdict: GroomingVerdict; item: T }[] = [];
+  const deferred: { verdict: GroomingVerdict; item: T }[] = [];
+  let used = 0;
+  for (const it of items) {
+    if (!MUTATING.has(it.verdict.kind)) { act.push(it); continue; }
+    if (used < cap) { act.push(it); used++; } else deferred.push(it);
+  }
+  return { act, deferred };
+}
