@@ -41,6 +41,62 @@ export function ForemanGithubPanel({ orgId }: { orgId: string }) {
   );
 }
 
+/** Inline setup directions — which token + which permissions. Kept in the UI so
+ *  an admin never has to leave the panel to know exactly what to grant. */
+function TokenDirections() {
+  return (
+    <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+      <summary className="cursor-pointer font-medium text-[var(--text)]">
+        How to create the token & which permissions
+      </summary>
+      <div className="mt-2 space-y-2 text-[var(--text-muted)]">
+        <p>
+          In GitHub go to{" "}
+          <span className="font-medium text-[var(--text)]">Settings → Developer settings → </span>
+          <a
+            href="https://github.com/settings/tokens?type=beta"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-[var(--primary)] underline-offset-2 hover:underline"
+          >
+            Fine-grained tokens
+          </a>
+          <span className="font-medium text-[var(--text)]"> → Generate new token</span>. Set the{" "}
+          <span className="font-medium text-[var(--text)]">Resource owner</span> to the org that owns
+          your repository and limit <span className="font-medium text-[var(--text)]">Repository access</span>{" "}
+          to that one repository.
+        </p>
+        <p className="font-medium text-[var(--text)]">Repository permissions</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <span className="font-medium text-[var(--text)]">Pull requests</span> — Read (required for AI
+            analysis); Read and write if Foreman should open &amp; merge PRs.
+          </li>
+          <li>
+            <span className="font-medium text-[var(--text)]">Contents</span> — Read and write, so Foreman
+            can commit, push branches, and merge.
+          </li>
+          <li>
+            <span className="font-medium text-[var(--text)]">Checks</span> — Read (optional; lets
+            recommendations factor in CI results).
+          </li>
+          <li>
+            <span className="font-medium text-[var(--text)]">Actions</span> — Read (optional), or Read and
+            write if Foreman should cancel / re-run CI.
+          </li>
+        </ul>
+        <p>
+          Metadata (read) is added automatically. You do <span className="font-medium text-[var(--text)]">not</span>{" "}
+          need Administration, Secrets, Environments, or Deployments. If the repository is owned by an
+          organization, that org must allow fine-grained tokens (Settings → Third-party Access); otherwise a{" "}
+          <span className="font-medium text-[var(--text)]">classic token</span> with the{" "}
+          <span className="font-mono text-[var(--text)]">repo</span> scope also works.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 export function ForemanGithubConnect({ orgId }: { orgId: string }) {
   const queryKey = useOrgQueryKey("foreman-github");
   const { data, isLoading, isError, refetch } = useQuery({
@@ -107,26 +163,17 @@ export function ForemanGithubConnect({ orgId }: { orgId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-[var(--text-muted)]">
-        Paste a{" "}
-        <a
-          href="https://github.com/settings/tokens?type=beta"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-[var(--primary)] underline-offset-2 hover:underline"
-        >
-          fine-grained personal access token
-        </a>{" "}
-        scoped to your delivery repository with read-only{" "}
-        <span className="font-medium text-[var(--text)]">Pull requests</span> and{" "}
-        <span className="font-medium text-[var(--text)]">Contents</span> access. It is validated,
-        stored encrypted, and never shown again.
+        Foreman uses this token to read pull requests for AI analysis and approval recommendations
+        (and, as its automation expands, to push branches, open PRs, and merge). Paste a fine-grained,
+        read-only token below — it is validated, stored encrypted, and never shown again.
       </p>
+      <TokenDirections />
       <div className="flex flex-wrap items-center gap-2">
         <Input
           type="password"
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          placeholder="github_pat_..."
+          placeholder="github_pat_... or ghp_..."
           autoComplete="off"
           spellCheck={false}
           className="max-w-sm font-mono"
