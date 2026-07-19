@@ -235,6 +235,7 @@ model Organization {
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
   foremanAiSettings      ForemanAiSettings?
+  foremanSupervisorSettings ForemanSupervisorSettings?
   emailSettings          OrgEmailSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
@@ -2934,6 +2935,27 @@ model ForemanAiSettings {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("foreman_ai_settings")
+}
+
+/// PER-ORG config for the Foreman SUPERVISOR self-grooming loop, set from the
+/// console (ORG_MANAGE_SETTINGS). `mode` off|dry|live gates the whole loop
+/// (default dry so it ships observable-but-safe); the four booleans toggle each
+/// behavior; threshold/cap are advanced knobs. No secrets — plain config.
+model ForemanSupervisorSettings {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String   @unique @map("org_id") @db.Uuid
+  mode                String   @default("dry")
+  deliverClose        Boolean  @default(true)  @map("deliver_close")
+  requeue             Boolean  @default(true)
+  dedup               Boolean  @default(true)
+  escalate            Boolean  @default(true)
+  confidenceThreshold Float    @default(0.8)   @map("confidence_threshold")
+  perPassCap          Int      @default(5)     @map("per_pass_cap")
+  updatedById         String?  @map("updated_by_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  @@map("foreman_supervisor_settings")
 }
 
 /// PER-ORG transactional-email (Resend) delivery config, set by an org OWNER from
