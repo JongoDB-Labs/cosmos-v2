@@ -132,7 +132,7 @@ export function KanbanColumn({
         </SortableContext>
 
         {items.length === 0 && (
-          <div className="py-8 text-center text-xs text-muted-foreground">
+          <div className="flex items-center justify-center py-8 text-center text-xs text-muted-foreground">
             No items
           </div>
         )}

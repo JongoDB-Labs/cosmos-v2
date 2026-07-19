@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.216.1",
+    date: "2026-07-19",
+    title: "Empty Kanban columns no longer look broken",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A project board column with no cards now shows a subtle, centered “No items” placeholder instead of appearing empty and broken.",
+      },
+    ],
+  },
+  {
     version: "2.216.0",
     date: "2026-07-18",
     title: "Foreman authenticates to GitHub with your connected token",
