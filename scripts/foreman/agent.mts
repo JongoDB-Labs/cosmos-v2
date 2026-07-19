@@ -160,16 +160,31 @@ export async function runAgent(
     /** Per-worker e2e database for the agent's own npm test (parallel builds
      *  must not share one test DB — the racy specs collide cross-process). */
     testDbUrl?: string;
+    /** A pre-opened shared HOME (from openForemanHome). When set, runAgent uses it
+     *  and does NOT tear it down, so a build + its repairs/resumes share ONE HOME —
+     *  the SDK keeps session state under HOME, so a `resume` only finds the session
+     *  while its HOME still exists (a per-call throwaway HOME is torn down before the
+     *  next call, which is why resume/repair failed instantly "No conversation
+     *  found"). When unset, runAgent owns a throwaway HOME as before. */
+    home?: string;
   },
 ): Promise<AgentResult> {
   // STRICT: resolve the org's Foreman subscription creds up front. No connection →
   // throw (the orchestrator parks/idles); there is NO fallback to ambient creds.
-  const creds = await getForemanClaudeCreds(opts.orgId);
-  if (!creds) throw new NoForemanCredentialError(opts.orgId);
-  // Materialize a throwaway HOME holding those creds and point the agent's env at
-  // it. The outer finally ALWAYS tears it down — it carries a live OAuth token —
-  // even if env-build / assertSubscription throws before the run starts.
-  const home = materializeForemanHome(creds);
+  // When the caller passes a shared `home` (openForemanHome) reuse it as-is (its
+  // creds are already materialized) and DON'T tear it down — that is what lets a
+  // build's repairs/resumes find the SDK session. Otherwise own a throwaway HOME
+  // (materialized here, torn down in the outer finally — it carries a live token).
+  const ownHome = opts.home === undefined;
+  let creds: ForemanClaudeCreds | null = null;
+  let home: string;
+  if (ownHome) {
+    creds = await getForemanClaudeCreds(opts.orgId);
+    if (!creds) throw new NoForemanCredentialError(opts.orgId);
+    home = materializeForemanHome(creds);
+  } else {
+    home = opts.home as string;
+  }
   try {
     const env = buildAgentEnv(process.env, opts.testDbUrl, home);
     assertSubscription(env);
@@ -224,9 +239,34 @@ export async function runAgent(
     return { ok, log, sessionId, subtype };
   } finally {
     // A mid-run SDK refresh rotates the token IN PLACE on disk; write any such
-    // rotation back to the DB before the throwaway HOME (and the fresh token
-    // living only in it) is torn down. Best-effort — see the doc comment.
-    await persistRotatedCredsIfChanged(opts.orgId, home, creds);
-    cleanupForemanHome(home);
+    // rotation back to the DB before the throwaway HOME (and the fresh token living
+    // only in it) is torn down. Best-effort. A SHARED home is persisted + torn down
+    // by its owner (openForemanHome().close), NOT here — so repairs/resumes on it
+    // keep finding the session.
+    if (ownHome) {
+      await persistRotatedCredsIfChanged(opts.orgId, home, creds as ForemanClaudeCreds);
+      cleanupForemanHome(home);
+    }
   }
+}
+
+/** Open a shared Foreman HOME for a whole build lifecycle so the build + its
+ *  repairs/resumes reuse ONE HOME. The SDK stores conversation/session state under
+ *  HOME, so `resume: sessionId` only works while that HOME still exists — a per-call
+ *  throwaway HOME is torn down before the next runAgent, which made every repair,
+ *  max-turns-resume, and approve-resume fail instantly ("No conversation found").
+ *  Pass the returned `home` to each runAgent in the build; call `close()` in a
+ *  finally to persist any rotated token + tear it down. Throws
+ *  NoForemanCredentialError when the org has no Foreman connection. */
+export async function openForemanHome(orgId: string): Promise<{ home: string; close: () => Promise<void> }> {
+  const creds = await getForemanClaudeCreds(orgId);
+  if (!creds) throw new NoForemanCredentialError(orgId);
+  const home = materializeForemanHome(creds);
+  return {
+    home,
+    close: async () => {
+      await persistRotatedCredsIfChanged(orgId, home, creds);
+      cleanupForemanHome(home);
+    },
+  };
 }

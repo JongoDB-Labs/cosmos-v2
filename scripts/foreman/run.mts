@@ -40,7 +40,7 @@ import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
 import type { Candidate } from "@/lib/foreman/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
-import { runAgent, NoForemanCredentialError, type AgentResult } from "./agent.mjs";
+import { runAgent, openForemanHome, NoForemanCredentialError, type AgentResult } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
 import { ensureWorkerDbs } from "./worker-db.mjs";
@@ -454,6 +454,7 @@ async function repairLoop(
   key: string,
   orgId: string,
   wt: string,
+  home: string,
   sessionId: string | undefined,
   testDbUrl: string | undefined,
   haltIfKilled: () => Promise<boolean>,
@@ -468,6 +469,7 @@ async function repairLoop(
     onRound(repairs);
     const rep = await runAgent(wt, repairPrompt(key, tailLog(checks.log, 3000)), {
       orgId,
+      home,
       resume: sessionId,
       timeoutMs: 25 * 60_000,
       testDbUrl,
@@ -618,8 +620,13 @@ async function processOne(
     }
     return true;
   };
+  // ONE HOME for the whole build so its repairs/resumes find the SDK session (a
+  // per-call throwaway HOME is torn down before the next call → "No conversation found").
+  let agentHome: Awaited<ReturnType<typeof openForemanHome>> | null = null;
   try {
-    let agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl });
+    agentHome = await openForemanHome(item.orgId);
+    const sharedHome = agentHome.home;
+    let agent = await runAgent(wt, foremanPrompt(brief, instructions), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl, home: sharedHome });
     if (await haltIfKilled()) return {}; // checkpoint 1: right after the agent returns
 
     // Self-heal on turn overflow (COSMOS-131): an "error_max_turns" result means the
@@ -636,7 +643,7 @@ async function processOne(
       turnResumes++;
       log(`${key} hit the turn limit — resuming to continue (segment ${turnResumes}, ${Math.round((Date.now() - buildStart) / 60_000)}m/${Math.round(BUILD_BUDGET_MS / 60_000)}m budget)`);
       setPhase(item.id, "building", { detail: `segment ${turnResumes} \u00b7 ${Math.round((Date.now() - buildStart) / 60_000)}m` });
-      agent = await runAgent(wt, maxTurnsResumePrompt(key), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl, resume: agent.sessionId });
+      agent = await runAgent(wt, maxTurnsResumePrompt(key), { orgId: item.orgId, testDbUrl: workerOpts.testDbUrl, resume: agent.sessionId, home: sharedHome });
       if (await haltIfKilled()) return {};
     }
 
@@ -683,6 +690,7 @@ async function processOne(
       key,
       item.orgId,
       wt,
+      sharedHome,
       agent.sessionId ?? undefined,
       workerOpts.testDbUrl,
       haltIfKilled,
@@ -841,6 +849,7 @@ async function processOne(
     };
 
   } finally {
+    if (agentHome) await agentHome.close().catch(() => undefined);
     if (!keepWorktree) await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
     // Armed-only last-resort: never leave the shared checkout on a foreign or
     // dirty branch after a ship, whatever escaped above. DRY never moves REPO off
@@ -1606,19 +1615,22 @@ async function processResume(
     log(`${key} node_modules symlink failed (checks may gate): ${String(e)}`);
   }
 
+  let agentHome: Awaited<ReturnType<typeof openForemanHome>> | null = null;
   try {
     if (await haltIfKilled()) return {};
+    agentHome = await openForemanHome(m.orgId);
+    const sharedHome = agentHome.home;
 
     // Resume the SAME agent session with the notes. No session persisted → skip
     // straight to the context fallback (a bare resumePrompt on a fresh session has
     // no memory of the build). If the resume itself errors, fall back too: a FRESH
     // agent seeded with the ticket brief + current PR diff reconstructs the context.
     let agent: AgentResult = m.parked?.sessionId
-      ? await runAgent(wt, resumePrompt(key, instructions), { orgId: m.orgId, resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl })
+      ? await runAgent(wt, resumePrompt(key, instructions), { orgId: m.orgId, resume: m.parked.sessionId, testDbUrl: workerOpts.testDbUrl, home: sharedHome })
       : { ok: false, log: "", sessionId: null, subtype: null };
     if (!agent.ok) {
       const { stdout: prDiff } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], { maxBuffer: 32 * 1024 * 1024 });
-      agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { orgId: m.orgId, testDbUrl: workerOpts.testDbUrl });
+      agent = await runAgent(wt, resumeContextPrompt({ key, title: m.title, description: m.description }, prDiff, instructions), { orgId: m.orgId, testDbUrl: workerOpts.testDbUrl, home: sharedHome });
     }
     if (await haltIfKilled()) return {};
 
@@ -1656,6 +1668,7 @@ async function processResume(
       key,
       m.orgId,
       wt,
+      sharedHome,
       agent.sessionId ?? undefined,
       workerOpts.testDbUrl,
       haltIfKilled,
@@ -1735,6 +1748,7 @@ async function processResume(
       },
     };
   } finally {
+    if (agentHome) await agentHome.close().catch(() => undefined);
     if (!keepWorktree) await exec("git", ["-C", REPO, "worktree", "remove", "--force", wt]).catch(() => undefined);
     await exec("git", ["-C", REPO, "checkout", "-f", "main"]).catch(() => undefined);
   }
