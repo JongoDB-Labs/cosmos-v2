@@ -130,6 +130,7 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar
           orgs={orgs}
+          sidebarExpanded={isMobile ? mobileOpen : sidebarOpen}
           onToggleSidebar={() =>
             isMobile ? setMobileOpen(!mobileOpen) : setSidebarOpen(!sidebarOpen)
           }
