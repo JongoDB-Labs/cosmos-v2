@@ -41,6 +41,7 @@ import { ForemanEventFeed } from "./foreman-event-feed";
 import { ForemanClaudePanel } from "./foreman-claude-panel";
 import { ForemanGithubPanel } from "./foreman-github-panel";
 import { ForemanSupervisorPanel } from "./foreman-supervisor-panel";
+import { ForemanGroomingFeed } from "./foreman-grooming-feed";
 
 /** "3m ago" / "2h ago" / "5d ago" — the app has no shared relative-time
  *  helper (each consumer defines its own; see activity-feed.tsx /
@@ -660,6 +661,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       <ForemanClaudePanel orgId={orgId} />
       <ForemanGithubPanel orgId={orgId} />
       <ForemanSupervisorPanel orgId={orgId} />
+      <ForemanGroomingFeed orgId={orgId} />
 
       <IntakeDecisions orgId={orgId} />
 
