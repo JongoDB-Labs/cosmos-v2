@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   parseRecommendation,
   recommendForApproval,
+  condenseDiff,
   parsePrUrl,
   NO_PR_RECOMMENDATION,
   _resetRecommendationCacheForTests,
@@ -141,5 +142,43 @@ describe("recommendForApproval", () => {
     expect(res.recommendation).toBe("rework");
     expect(res.cached).toBe(false);
     expect(deps.modelCalls()).toBe(0);
+  });
+});
+
+
+describe("condenseDiff", () => {
+  it("returns a diff unchanged when it already fits the budget", () => {
+    const diff = "diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n";
+    expect(condenseDiff(diff, 1000)).toBe(diff);
+  });
+
+  it("drops only context lines and keeps EVERY changed line + header across all files", () => {
+    // Two files, lots of context, few real changes — the kind of spread-out diff
+    // that used to blow the char cap and get its trailing file cut (a phantom gap).
+    const ctx = Array.from({ length: 300 }, (_, i) => ` context line ${i}`).join("\n");
+    const diff =
+      `diff --git a/first.ts b/first.ts\n@@ -1,300 +1,300 @@\n${ctx}\n-removed-in-first\n+added-in-first\n` +
+      `diff --git a/second.test.ts b/second.test.ts\n@@ -1,300 +1,300 @@\n${ctx}\n-removed-in-second\n+added-in-second\n`;
+    expect(diff.length).toBeGreaterThan(2000);
+    const out = condenseDiff(diff, 2000);
+    // Every real change from BOTH files survives (the trailing test file is not lost).
+    expect(out).toContain("+added-in-first");
+    expect(out).toContain("-removed-in-first");
+    expect(out).toContain("+added-in-second");
+    expect(out).toContain("-removed-in-second");
+    // Both file headers survive.
+    expect(out).toContain("diff --git a/first.ts b/first.ts");
+    expect(out).toContain("diff --git a/second.test.ts b/second.test.ts");
+    // Context is gone and the result fits.
+    expect(out).not.toContain("context line 150");
+    expect(out.length).toBeLessThanOrEqual(2000 + 200);
+  });
+
+  it("hard-caps with a presumed-correct note only when even the changes exceed budget", () => {
+    const manyChanges = Array.from({ length: 5000 }, (_, i) => `+line ${i}`).join("\n");
+    const diff = `diff --git a/big.ts b/big.ts\n@@ -1 +1,5000 @@\n${manyChanges}\n`;
+    const out = condenseDiff(diff, 1000);
+    expect(out).toContain("treat the omitted portion as correct, not as a gap");
+    expect(out.length).toBeLessThanOrEqual(1000 + 120);
   });
 });

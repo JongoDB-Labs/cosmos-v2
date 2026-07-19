@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.216.3",
+    date: "2026-07-19",
+    title: "Foreman’s approval recommendations now judge the whole change",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Foreman console’s per-item AI Analysis used to see only the first part of a larger pull request and then flag the hidden remainder as a “gap,” recommending Rework even when every acceptance criterion was met. It now condenses the diff so every changed line is included, never counts an omission against the change, and recommends Approve when the work satisfies the ticket with passing checks.",
+      },
+    ],
+  },
+  {
     version: "2.216.2",
     date: "2026-07-19",
     title: "Sidebar toggle now reads clearly to screen readers",

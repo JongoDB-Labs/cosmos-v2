@@ -22,7 +22,13 @@
 import { runModelTurn, type ModelCredential, type TenantClass } from "@/lib/ai/egress";
 import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
 import { getForemanGithubToken } from "@/lib/ai/foreman-github-pat";
-import { parsePrUrl, fetchPr, fetchDiff, type FetchLike } from "./approval-recommendation";
+import {
+  parsePrUrl,
+  fetchPr,
+  fetchDiff,
+  condenseDiff,
+  type FetchLike,
+} from "./approval-recommendation";
 
 // Re-export the injected fetch seam so the test (and any future caller) can type
 // its mock against the same contract without reaching into the sibling module.
@@ -73,7 +79,7 @@ const UNAVAILABLE_REPORT: RequirementsReport = {
 
 const ANALYSIS_MODEL = "sonnet";
 const MAX_TOKENS = 900;
-const MAX_DIFF_CHARS = 12_000;
+const MAX_DIFF_CHARS = 40_000;
 const MAX_DESC_CHARS = 4_000;
 
 const ANALYSIS_SYSTEM =
@@ -88,6 +94,7 @@ const ANALYSIS_SYSTEM =
   "If no explicit acceptance criteria are given, derive the concrete requirements from the description " +
   "and assess THOSE. Then list notable gaps between the ticket's intent and the diff, risks the change " +
   "introduces (regressions, security, edge cases), and whether the change is complete.\n" +
+  "The diff may be CONDENSED to fit — unchanged context lines are removed but every CHANGED line is shown. Never treat condensing or truncation as a gap, and never mark a criterion partial or missing because content is 'not visible' or 'cannot be confirmed from the diff': judge only the visible changes and assume omitted context is correct. Gaps and risks must be CONCRETE and IN-SCOPE for THIS ticket — do not list 'could add more tests' or out-of-scope refactor observations as gaps.\n" +
   'Reply with ONLY a compact JSON object: {"summary":"<one sentence>","criteria":[{"criterion":"<text>","status":"met|partial|missing","note":"<one concise sentence>"}],"gaps":["<gap>"],"risks":["<risk>"],"complete":true|false}. ' +
   "No prose, no markdown, no code fences.";
 
@@ -303,5 +310,5 @@ export async function analyzeRequirements(
 /** Belt-and-braces cap: fetchDiff already truncates, but guard the prompt size
  *  in case a caller injects a fetch that doesn't. */
 function diffCap(diff: string): string {
-  return diff.length > MAX_DIFF_CHARS ? `${diff.slice(0, MAX_DIFF_CHARS)}\n… [diff truncated]` : diff;
+  return condenseDiff(diff, MAX_DIFF_CHARS);
 }
