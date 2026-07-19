@@ -6,13 +6,35 @@
 // e2e DB at daemon startup (fresh every boot; intra-run drift is fine because
 // suites self-clean or create isolated orgs).
 import { Client } from "pg";
+import { promisify } from "node:util";
+import { execFile as _execFile } from "node:child_process";
 import { testDatabaseUrl } from "@/lib/foreman/test-db";
+
+const execFile = promisify(_execFile);
+
+/** Bring the e2e template to the CURRENT schema before cloning workers, so worker
+ *  DBs never run the suite against a drift-behind schema (a stale template silently
+ *  fails the full suite and gates EVERY build). `migrate deploy` is non-destructive
+ *  (applies pending migrations only). Best-effort: a failure is logged loudly but
+ *  cloning still proceeds so the daemon always has workers. */
+async function migrateTemplate(templateUrl: string): Promise<void> {
+  try {
+    await execFile("npx", ["prisma", "migrate", "deploy"], {
+      env: { ...process.env, DATABASE_URL: templateUrl },
+      cwd: process.cwd(),
+    });
+  } catch (e) {
+    console.error(`[worker-db] template migrate deploy failed — worker DBs may be schema-stale: ${String((e as { stderr?: string }).stderr ?? e)}`);
+  }
+}
 
 /** DROP + CREATE `foreman_w<i>` (i = 1..n) as clones of the e2e template DB,
  *  returning each worker slot's DATABASE_URL. Throws on any failure — the
  *  caller falls back to a single shared DB rather than running parallel on it. */
 export async function ensureWorkerDbs(n: number): Promise<string[]> {
   const template = new URL(testDatabaseUrl(process.env.DATABASE_URL));
+  // Keep the template current so clones are never schema-stale (see migrateTemplate).
+  await migrateTemplate(template.toString());
   const templateDb = template.pathname.replace(/^\//, "");
   // Admin connection on the SAME server, against the maintenance DB — you
   // cannot DROP/CREATE the database you are connected to.
