@@ -151,10 +151,12 @@ export function decideVerdict(f: SupervisorFacts, cfg: SupervisorConfig): Groomi
 
   if (f.agentAskedForInput) return cfg.escalate ? esc(j.evidence || "build agent asked for input") : { kind: "leave", confidence: 1, evidence: "" };
 
-  // deliver-close
-  if (f.hasPr && j.delivered) {
+  // deliver-close (mirror the dedup block: hasPr gates the ACTION, not the
+  // escalate-downgrade — a confident "delivered" with no draft to close is still
+  // surfaced to a human, never silently dropped)
+  if (j.delivered) {
     const confident = j.deliveredConfidence >= cfg.confidenceThreshold;
-    if (confident && cfg.deliverClose && !f.touchesSensitiveForemanPath) {
+    if (confident && cfg.deliverClose && f.hasPr && !f.touchesSensitiveForemanPath) {
       return { kind: "deliver-close", confidence: j.deliveredConfidence, evidence: j.evidence };
     }
     if (cfg.escalate) return esc(j.evidence || "possibly already delivered — confirm");

@@ -138,8 +138,8 @@ describe("decideVerdict", () => {
     const v = decideVerdict(facts({ judgment: { delivered: true, deliveredConfidence: 0.99, dupOf: null, dupConfidence: 0, evidence: "on main" } }), cfg);
     expect(v.kind).toBe("escalate");
   });
-  it("no-PR delivered => leave (nothing to close) - delivered-close needs a draft", () => {
-    const v = decideVerdict(facts({ hasPr: false, requeue: { ...facts().requeue, isScopeOrSensitiveGate: true, checkLog: "" } }), DEFAULT_CONFIG);
-    expect(v.kind).toBe("leave");
+  it("escalates a confident 'delivered' with no draft PR (surfaced, never silently dropped)", () => {
+    const v = decideVerdict(facts({ hasPr: false, judgment: { delivered: true, deliveredConfidence: 0.99, dupOf: null, dupConfidence: 0, evidence: "on main, no draft" }, requeue: { ...facts().requeue, isScopeOrSensitiveGate: true, checkLog: "" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("escalate");
   });
 });
