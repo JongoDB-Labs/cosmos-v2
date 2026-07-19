@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.217.0",
+    date: "2026-07-19",
+    title: "Foreman supervisor: configurable self-grooming for the board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Foreman now has a supervisor that grooms the parked side of the board — it can close drafts already delivered on main, re-queue builds that failed on since-fixed issues, flag duplicates, and escalate questions to you. Configure it per-org from the Foreman console (off / dry-run / live, plus per-behavior toggles), and watch what it does in the new Supervisor activity feed. Ships in dry-run so it only proposes, never changes anything, until you switch it to live.",
+      },
+    ],
+  },
+  {
     version: "2.216.4",
     date: "2026-07-19",
     title: "Feedback Automation points you to the right Claude setup",

@@ -17,28 +17,17 @@ import {
   buildGroomingPrompt,
   isHumanSuppressed,
   selectWithinCap,
-  DEFAULT_CONFIG,
   type SupervisorConfig,
   type SupervisorFacts,
   type GroomingVerdict,
 } from "@/lib/foreman/supervisor";
+import { getForemanSupervisorSettings } from "@/lib/foreman/supervisor-settings";
 import * as db from "./db.mjs";
 import * as obs from "./observe.mjs";
 
 const exec = promisify(execFile);
 const REPO = process.env.FOREMAN_REPO ?? process.cwd();
 const ANALYSIS_MODEL = "sonnet";
-
-export type SupervisorMode = "off" | "dry" | "live";
-
-/** Read the supervisor mode + config from the environment (Phase 2). Phase 3
- *  replaces this with per-org DB settings. `FOREMAN_SUPERVISOR` = off|dry|live
- *  (default off — the feature ships inert); the rest is DEFAULT_CONFIG. */
-export function readSupervisorConfigFromEnv(): { mode: SupervisorMode; cfg: SupervisorConfig } {
-  const raw = (process.env.FOREMAN_SUPERVISOR ?? "off").toLowerCase().trim();
-  const mode: SupervisorMode = raw === "dry" || raw === "live" ? raw : "off";
-  return { mode, cfg: DEFAULT_CONFIG };
-}
 
 const GROOMING_SYSTEM =
   "You are Foreman's supervisor. A pull request was produced by an autonomous coding " +
@@ -338,15 +327,21 @@ const SUPERVISOR_MIN_INTERVAL_MS = 5 * 60_000;
  *  others. Executes verdicts within the per-pass cap; escalate/leave don't consume
  *  it. `log` is the daemon's logger, threaded in so this file stays I/O-focused. */
 export async function runSupervisorPass(log: (m: string) => void): Promise<void> {
-  const { mode, cfg } = readSupervisorConfigFromEnv();
-  if (mode === "off") return;
+  // Global kill switch (env). When not "off", per-org DB settings govern each org.
+  if ((process.env.FOREMAN_SUPERVISOR ?? "off").toLowerCase().trim() === "off") return;
   if (Date.now() - lastSupervisorPassMs < SUPERVISOR_MIN_INTERVAL_MS) return;
   lastSupervisorPassMs = Date.now();
-  const dry = mode === "dry";
   const sha = await currentMainSha();
   const orgIds = await deliveryOrgIds();
   for (const orgId of orgIds) {
     try {
+      const settings = await getForemanSupervisorSettings(orgId);
+      if (settings.mode === "off") continue;
+      const dry = settings.mode === "dry";
+      const cfg: SupervisorConfig = {
+        deliverClose: settings.deliverClose, requeue: settings.requeue, dedup: settings.dedup,
+        escalate: settings.escalate, confidenceThreshold: settings.confidenceThreshold, perPassCap: settings.perPassCap,
+      };
       const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { tenantClass: true } });
       // Organization.tenantClass is the uppercase Prisma enum (GOV/COMMERCIAL);
       // egress TenantClass is lowercase — normalize so the gov CUI tripwire fires.
