@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.216.4",
+    date: "2026-07-19",
+    title: "Feedback Automation points you to the right Claude setup",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Feedback Automation ‘connect a Claude subscription’ notice now links to the Foreman connect page — where the triage Claude actually lives — instead of Settings → AI, and the copy reads ‘Connect Claude for Foreman.’",
+      },
+    ],
+  },
+  {
     version: "2.216.3",
     date: "2026-07-19",
     title: "Foreman’s approval recommendations now judge the whole change",
