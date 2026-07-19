@@ -16,6 +16,7 @@ import {
   decideVerdict,
   buildGroomingPrompt,
   isHumanSuppressed,
+  selectWithinCap,
   DEFAULT_CONFIG,
   type SupervisorConfig,
   type SupervisorFacts,
@@ -275,3 +276,42 @@ export async function groomOne(
 }
 
 export { currentMainSha };
+
+let lastSupervisorPassMs = 0;
+const SUPERVISOR_MIN_INTERVAL_MS = 5 * 60_000;
+
+/** One supervisor pass over every delivery org's parked tickets. Called from the
+ *  daemon loop on idle ticks (queue drained). No-op when mode=off or the
+ *  min-interval has not elapsed. Per-org isolated: one org's error never aborts the
+ *  others. Executes verdicts within the per-pass cap; escalate/leave don't consume
+ *  it. `log` is the daemon's logger, threaded in so this file stays I/O-focused. */
+export async function runSupervisorPass(log: (m: string) => void): Promise<void> {
+  const { mode, cfg } = readSupervisorConfigFromEnv();
+  if (mode === "off") return;
+  if (Date.now() - lastSupervisorPassMs < SUPERVISOR_MIN_INTERVAL_MS) return;
+  lastSupervisorPassMs = Date.now();
+  const dry = mode === "dry";
+  const sha = await currentMainSha();
+  const orgIds = await deliveryOrgIds();
+  for (const orgId of orgIds) {
+    try {
+      const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { tenantClass: true } });
+      const tenantClass = (org?.tenantClass ?? "COMMERCIAL") as string;
+      const items = await gatherReviewItems(orgId);
+      if (items.length === 0) continue;
+      const index = items.map((i) => ({ key: i.ref, title: i.title }));
+      const verdicts: { verdict: GroomingVerdict; item: ReviewItem }[] = [];
+      for (const item of items) {
+        const others = index.filter((t) => t.key !== item.ref);
+        verdicts.push({ item, verdict: await groomOne(item, others, cfg, sha, tenantClass) });
+      }
+      const { act, deferred } = selectWithinCap(verdicts, cfg.perPassCap);
+      for (const a of act) await executeVerdict(a.item, a.verdict, dry, sha);
+      const acted = act.filter((a) => a.verdict.kind !== "leave").length;
+      if (acted) log(`supervisor: ${dry ? "[dry] " : ""}${acted} action(s) over ${items.length} parked item(s) (org ${orgId})`);
+      if (deferred.length) log(`supervisor: ${deferred.length} action(s) deferred by per-pass cap (org ${orgId})`);
+    } catch (e) {
+      log(`supervisor pass error (org ${orgId}): ${String(e)}`);
+    }
+  }
+}

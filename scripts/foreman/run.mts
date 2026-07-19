@@ -43,6 +43,7 @@ import * as db from "./db.mjs";
 import { runAgent, openForemanHome, NoForemanCredentialError, type AgentResult } from "./agent.mjs";
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
+import { runSupervisorPass } from "./supervisor-run.mjs";
 import { ensureWorkerDbs } from "./worker-db.mjs";
 // Observability writers (Task 3). Imported with the `.mjs` specifier like every
 // sibling module — under this tsconfig (`moduleResolution: bundler`) a `.mts`
@@ -2238,6 +2239,8 @@ async function main(): Promise<void> {
           }
         }
         if (inflight.size === 0) {
+          // Idle tick: groom the parked/outcome side of the board before sleeping.
+          await runSupervisorPass(log).catch((e) => log(`supervisor pass error: ${String(e)}`));
           await idleSleep(60_000);
           continue;
         }
