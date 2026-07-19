@@ -6,7 +6,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { prisma } from "@/lib/db/client";
-import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
+import { runModelTurn, type ModelCredential, type TenantClass } from "@/lib/ai/egress";
 import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
 import { getForemanGithubToken } from "@/lib/ai/foreman-github-pat";
 import { parsePrUrl, fetchPr, fetchDiff, type FetchLike } from "@/lib/foreman/approval-recommendation";
@@ -144,10 +144,40 @@ export async function gatherReviewItems(orgId: string): Promise<ReviewItem[]> {
   return out;
 }
 
-/** Does the PR touch Foreman's own sensitive paths (scripts/foreman, src/lib/foreman)?
- *  Such a change must NEVER be auto-closed as delivered — decideVerdict escalates it. */
-function diffTouchesForemanPath(diff: string): boolean {
-  return /^\+\+\+ b\/(scripts\/foreman\/|src\/lib\/foreman\/)/m.test(diff);
+const FOREMAN_PATH = /^(scripts\/foreman\/|src\/lib\/foreman\/)/;
+
+/** Does the PR touch Foreman's own code (scripts/foreman, src/lib/foreman)? Such a
+ *  change must NEVER be auto-closed as delivered — decideVerdict escalates it. Uses
+ *  the PR FILES list (not the possibly-truncated diff), since a truncated diff could
+ *  hide a sensitive-path header and defeat this hard safety invariant. */
+function filesTouchForemanPath(files: string[]): boolean {
+  return files.some((f) => FOREMAN_PATH.test(f));
+}
+
+/** GET the PR's changed file paths (up to 100), or [] on failure — independent of
+ *  the diff text so truncation can never hide a sensitive path. */
+async function fetchPrFiles(
+  fetchImpl: FetchLike,
+  token: string,
+  t: { owner: string; repo: string; number: number },
+): Promise<string[]> {
+  const res = await fetchImpl(
+    `https://api.github.com/repos/${encodeURIComponent(t.owner)}/${encodeURIComponent(t.repo)}/pulls/${t.number}/files?per_page=100`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "cosmos-foreman",
+      },
+    },
+  );
+  if (!res.ok) return [];
+  const arr = (await res.json()) as unknown;
+  return Array.isArray(arr)
+    ? arr.map((f) => (f as { filename?: string }).filename).filter((x): x is string => typeof x === "string")
+    : [];
 }
 
 /** Run the grooming judgment for one item on Foreman's own creds, and assemble the
@@ -157,23 +187,27 @@ export async function gatherFacts(
   item: ReviewItem,
   otherTickets: { key: string; title: string }[],
   mainSha: string,
-  tenantClass: string,
+  tenantClass: TenantClass,
   fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike,
 ): Promise<SupervisorFacts> {
   let diff = "";
+  let files: string[] = [];
   let judgment = { delivered: false, deliveredConfidence: 0, dupOf: null as string | null, dupConfidence: 0, evidence: "" };
   const token = await getForemanGithubToken(item.orgId);
   const target = item.prUrl ? parsePrUrl(item.prUrl) : null;
   if (token && target) {
     const pr = await fetchPr(fetchImpl, token, target);
-    if (pr) diff = await fetchDiff(fetchImpl, token, target);
+    if (pr) {
+      diff = await fetchDiff(fetchImpl, token, target);
+      files = await fetchPrFiles(fetchImpl, token, target);
+    }
   }
   const creds = await getForemanClaudeCreds(item.orgId);
   if (creds && (diff || !item.prUrl)) {
     try {
       const credential: ModelCredential = { kind: "oauth", token: creds.accessToken };
       const reply = await runModelTurn({
-        ctx: { orgId: item.orgId, conversationId: `foreman-groom-${item.id}`, turn: 0, tenantClass: tenantClass as never, mode: "enforced" },
+        ctx: { orgId: item.orgId, conversationId: `foreman-groom-${item.id}`, turn: 0, tenantClass, mode: "enforced" },
         system: GROOMING_SYSTEM,
         messages: [{ role: "user", content: buildGroomingPrompt({ ticket: { key: item.ref, title: item.title, description: item.description }, prDiff: diff, parkReason: item.parkReason, otherTickets }) }],
         tools: [],
@@ -199,19 +233,24 @@ export async function gatherFacts(
       lastRequeuedSha,
       isScopeOrSensitiveGate: isScopeOrSensitiveGate(item.parkReason),
     },
-    touchesSensitiveForemanPath: diffTouchesForemanPath(diff),
+    touchesSensitiveForemanPath: filesTouchForemanPath(files),
     agentAskedForInput: item.parkKind === "needs-input",
   };
 }
 
 /** Close a draft PR with a comment, using the gh CLI (GH_TOKEN is set in the
  *  daemon env by configureGithubAuth; child inherits it). Best-effort. */
-async function closePr(prUrl: string, comment: string): Promise<void> {
+async function closePr(prUrl: string, comment: string): Promise<boolean> {
   const t = parsePrUrl(prUrl);
-  if (!t) return;
-  await exec("gh", ["pr", "close", String(t.number), "--repo", `${t.owner}/${t.repo}`, "--comment", comment], {
-    env: process.env,
-  }).catch(() => undefined);
+  if (!t) return false;
+  try {
+    await exec("gh", ["pr", "close", String(t.number), "--repo", `${t.owner}/${t.repo}`, "--comment", comment], { env: process.env });
+    return true;
+  } catch (e) {
+    // Already-closed/merged is a benign no-op; any other error is a real failure the
+    // caller records (prClosed:false in the event) so an operator sees it.
+    return /already|not open|closed|merged/i.test(String(e));
+  }
 }
 
 /** Execute a verdict: EVENT FIRST (records action + prior state → idempotent +
@@ -226,18 +265,24 @@ export async function executeVerdict(item: ReviewItem, v: GroomingVerdict, dry: 
     });
     return;
   }
+  // Do the external PR close FIRST (for close/dedup) so the event can record whether
+  // it actually succeeded — no "event says closed but the PR is still open".
+  let prClosed: boolean | undefined;
+  if (v.kind === "deliver-close" && item.prUrl) {
+    prClosed = await closePr(item.prUrl, `Delivered on main (Foreman supervisor): ${v.evidence}`);
+  } else if (v.kind === "dedup-consolidate" && item.prUrl) {
+    prClosed = await closePr(item.prUrl, `Duplicate of ${v.dupOf} (Foreman supervisor): ${v.evidence}`);
+  }
   await obs.trackStrict({
     workItemId: item.id, orgId: item.orgId, ticketKey: item.ref, kind: "groomed",
     message: `${v.kind}: ${v.evidence}`,
-    data: { action: v.kind, evidence: v.evidence, dupOf: v.dupOf ?? null, sha, priorColumn: item.columnKey, prUrl: item.prUrl },
+    data: { action: v.kind, evidence: v.evidence, dupOf: v.dupOf ?? null, sha, priorColumn: item.columnKey, prUrl: item.prUrl, prClosed: prClosed ?? null },
   });
   switch (v.kind) {
     case "deliver-close":
-      if (item.prUrl) await closePr(item.prUrl, `Delivered on main (Foreman supervisor): ${v.evidence}`);
       await db.moveColumn(item.id, "done");
       break;
     case "dedup-consolidate":
-      if (item.prUrl) await closePr(item.prUrl, `Duplicate of ${v.dupOf} (Foreman supervisor): ${v.evidence}`);
       await db.comment(item.id, `Consolidated into ${v.dupOf} by the supervisor: ${v.evidence}`);
       await db.moveColumn(item.id, "done");
       break;
@@ -258,9 +303,16 @@ export async function groomOne(
   otherTickets: { key: string; title: string }[],
   cfg: SupervisorConfig,
   mainSha: string,
-  tenantClass: string,
+  tenantClass: TenantClass,
 ): Promise<GroomingVerdict> {
   const last = await db.lastGroomedEvent(item.id);
+  // Idempotency: if we already groomed this item at the CURRENT main sha, nothing has
+  // advanced — don't re-groom (stops escalate from re-firing every pass). A new sha or
+  // a human action re-opens it.
+  const lastSha = last ? (last.data as { sha?: unknown }).sha : undefined;
+  if (last && typeof lastSha === "string" && lastSha === mainSha) {
+    return { kind: "leave", confidence: 1, evidence: "already groomed at this sha" };
+  }
   if (
     isHumanSuppressed({
       lastGroomedAtMs: last ? last.ts.getTime() : null,
@@ -296,7 +348,9 @@ export async function runSupervisorPass(log: (m: string) => void): Promise<void>
   for (const orgId of orgIds) {
     try {
       const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { tenantClass: true } });
-      const tenantClass = (org?.tenantClass ?? "COMMERCIAL") as string;
+      // Organization.tenantClass is the uppercase Prisma enum (GOV/COMMERCIAL);
+      // egress TenantClass is lowercase — normalize so the gov CUI tripwire fires.
+      const tenantClass: TenantClass = org?.tenantClass === "GOV" ? "gov" : "commercial";
       const items = await gatherReviewItems(orgId);
       if (items.length === 0) continue;
       const index = items.map((i) => ({ key: i.ref, title: i.title }));
