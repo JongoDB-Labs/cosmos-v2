@@ -42,6 +42,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
 }));
 
  
+import { jsonFetch } from "@/lib/query/json-fetcher";
 import { FeedbackAutomationForm } from "./feedback-automation-form";
 
 const renderForm = (qc: QueryClient) =>
@@ -81,5 +82,21 @@ describe("FeedbackAutomationForm — delivery checkbox persists across navigatio
     renderForm(qc);
     const piAgain = await deliveryPi();
     expect(piAgain).not.toBeChecked();
+  });
+});
+
+
+describe("FeedbackAutomationForm — Claude gate links to Foreman, not Settings → AI (COSMOS-106)", () => {
+  afterEach(() => cleanup());
+
+  it("points the connect-notice link at the Foreman page and drops the Settings → AI copy", async () => {
+    // First GET returns a DISCONNECTED org so the amber connect gate renders.
+    vi.mocked(jsonFetch).mockResolvedValueOnce({ ...initial, aiConnected: false });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderForm(qc);
+    const link = await screen.findByRole("link", { name: /Connect Claude for Foreman/i });
+    // "../foreman" from /<orgSlug>/settings/feedback-automation resolves to /<orgSlug>/foreman.
+    expect(link.getAttribute("href")).toBe("../foreman");
+    expect(screen.queryByText(/Settings → AI/)).toBeNull();
   });
 });

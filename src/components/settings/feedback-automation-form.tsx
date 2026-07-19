@@ -239,7 +239,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             res.skipped === "not-enabled"
               ? "Enable auto-triage and select at least one project first."
               : res.skipped === "no-ai-credential"
-                ? "Connect a Claude subscription in Settings → AI first — triage won't run on a heuristic guess."
+                ? "Connect Claude for Foreman first — triage won't run on a heuristic guess."
                 : `Skipped: ${res.skipped}`,
         });
       } else {
@@ -275,15 +275,15 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
           <Info className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="space-y-1">
             <p className="font-medium text-amber-700 dark:text-amber-300">
-              Connect a Claude subscription to activate auto-triage
+              Connect Claude for Foreman to activate auto-triage
             </p>
             <p className="text-[var(--text-muted)]">
-              This runs on your own Claude account. Until a Claude subscription (or
-              model key) is connected in{" "}
-              <a href="../ai" className="underline">
-                Settings → AI
-              </a>
-              , the automation stays inert — it won&apos;t deliver on a heuristic guess.
+              This runs on Foreman&apos;s own Claude account. Until it is connected on
+              the{" "}
+              <a href="../foreman" className="underline">
+                Connect Claude for Foreman
+              </a>{" "}
+              page, the automation stays inert — it won&apos;t deliver on a heuristic guess.
             </p>
           </div>
         </div>
@@ -357,7 +357,7 @@ export function FeedbackAutomationForm({ orgId }: { orgId: string }) {
             disabled={running || !aiConnected}
             variant="outline"
             size="sm"
-            title={aiConnected ? undefined : "Connect a Claude subscription in Settings → AI first"}
+            title={aiConnected ? undefined : "Connect Claude for Foreman first"}
           >
             {running ? "Running…" : "Run now"}
           </Button>
