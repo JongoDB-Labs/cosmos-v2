@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { parseGroomingReply } from "./supervisor";
 import { isRequeueEligible, KNOWN_TRANSIENT_SIGNATURES } from "./supervisor";
 import { isHumanSuppressed } from "./supervisor";
+import { decideVerdict, DEFAULT_CONFIG, type SupervisorFacts } from "./supervisor";
 
 describe("parseGroomingReply", () => {
   it("extracts a delivered judgment from a JSON reply with stray prose", () => {
@@ -85,5 +86,60 @@ describe("isHumanSuppressed", () => {
   });
   it("never suppressed when the ticket has never been groomed", () => {
     expect(isHumanSuppressed({ ...base, lastGroomedAtMs: null, updatedAtMs: 9e9 })).toBe(false);
+  });
+});
+
+const facts = (over: Partial<SupervisorFacts> = {}): SupervisorFacts => ({
+  hasPr: true,
+  judgment: { delivered: false, deliveredConfidence: 0, dupOf: null, dupConfidence: 0, evidence: "" },
+  requeue: {
+    parkReason: "checks failed", checkLog: "must_change_password does not exist",
+    parkedAtMs: 1000, lastInfraFixAtMs: 2000, currentMainSha: "abc",
+    lastRequeuedSha: null, isScopeOrSensitiveGate: false,
+  },
+  touchesSensitiveForemanPath: false,
+  agentAskedForInput: false,
+  ...over,
+});
+
+describe("decideVerdict", () => {
+  it("deliver-close when delivered above threshold", () => {
+    const v = decideVerdict(facts({ judgment: { delivered: true, deliveredConfidence: 0.95, dupOf: null, dupConfidence: 0, evidence: "on main" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("deliver-close");
+    expect(v.evidence).toBe("on main");
+  });
+  it("escalates instead of deliver-close when delivered but below threshold", () => {
+    const v = decideVerdict(facts({ judgment: { delivered: true, deliveredConfidence: 0.5, dupOf: null, dupConfidence: 0, evidence: "maybe" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("escalate");
+  });
+  it("dedup-consolidate when a confident duplicate is found (and not delivered)", () => {
+    const v = decideVerdict(facts({ judgment: { delivered: false, deliveredConfidence: 0, dupOf: "COSMOS-105", dupConfidence: 0.9, evidence: "same as 105" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("dedup-consolidate");
+    expect(v.dupOf).toBe("COSMOS-105");
+  });
+  it("requeue when not delivered/dup but re-queue-eligible", () => {
+    const v = decideVerdict(facts(), DEFAULT_CONFIG);
+    expect(v.kind).toBe("requeue");
+  });
+  it("escalates when the build agent explicitly asked for input", () => {
+    const v = decideVerdict(facts({ agentAskedForInput: true, requeue: { ...facts().requeue, isScopeOrSensitiveGate: true } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("escalate");
+  });
+  it("leaves a scope-gated ticket with nothing actionable", () => {
+    const v = decideVerdict(facts({ requeue: { ...facts().requeue, isScopeOrSensitiveGate: true, checkLog: "" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("leave");
+  });
+  it("escalates (not deliver-close) a sensitive foreman-path ticket even when confident", () => {
+    const v = decideVerdict(facts({ touchesSensitiveForemanPath: true, judgment: { delivered: true, deliveredConfidence: 0.99, dupOf: null, dupConfidence: 0, evidence: "on main" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("escalate");
+  });
+  it("respects a disabled behavior (deliver-close off => escalate)", () => {
+    const cfg = { ...DEFAULT_CONFIG, deliverClose: false };
+    const v = decideVerdict(facts({ judgment: { delivered: true, deliveredConfidence: 0.99, dupOf: null, dupConfidence: 0, evidence: "on main" } }), cfg);
+    expect(v.kind).toBe("escalate");
+  });
+  it("no-PR delivered => leave (nothing to close) - delivered-close needs a draft", () => {
+    const v = decideVerdict(facts({ hasPr: false, requeue: { ...facts().requeue, isScopeOrSensitiveGate: true, checkLog: "" } }), DEFAULT_CONFIG);
+    expect(v.kind).toBe("leave");
   });
 });

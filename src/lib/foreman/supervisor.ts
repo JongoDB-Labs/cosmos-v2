@@ -111,3 +111,66 @@ export function isHumanSuppressed(f: {
   if (f.lastHumanMoveAtMs !== null && f.lastHumanMoveAtMs > g) return true;
   return false;
 }
+
+export interface SupervisorConfig {
+  deliverClose: boolean;
+  requeue: boolean;
+  dedup: boolean;
+  escalate: boolean;
+  /** Confidence at/above which deliver-close and dedup act autonomously. */
+  confidenceThreshold: number;
+  /** Max autonomous mutations executed per pass. */
+  perPassCap: number;
+}
+
+export const DEFAULT_CONFIG: SupervisorConfig = {
+  deliverClose: true,
+  requeue: true,
+  dedup: true,
+  escalate: true,
+  confidenceThreshold: 0.8,
+  perPassCap: 5,
+};
+
+export interface SupervisorFacts {
+  hasPr: boolean;
+  judgment: GroomingJudgment;
+  requeue: RequeueFacts;
+  touchesSensitiveForemanPath: boolean;
+  agentAskedForInput: boolean;
+}
+
+/** Compose the single grooming verdict for one parked ticket. Precedence:
+ *  agent-asked-for-input => escalate; then deliver-close (confident, has a PR, not a
+ *  sensitive foreman-path change); then dedup; then requeue; else leave. A confident
+ *  deliver-close/dedup on a DISABLED behavior, below threshold, or on a sensitive
+ *  foreman path downgrades to escalate (never a silent wrong close). */
+export function decideVerdict(f: SupervisorFacts, cfg: SupervisorConfig): GroomingVerdict {
+  const j = f.judgment;
+  const esc = (evidence: string): GroomingVerdict => ({ kind: "escalate", confidence: 1, evidence });
+
+  if (f.agentAskedForInput) return cfg.escalate ? esc(j.evidence || "build agent asked for input") : { kind: "leave", confidence: 1, evidence: "" };
+
+  // deliver-close
+  if (f.hasPr && j.delivered) {
+    const confident = j.deliveredConfidence >= cfg.confidenceThreshold;
+    if (confident && cfg.deliverClose && !f.touchesSensitiveForemanPath) {
+      return { kind: "deliver-close", confidence: j.deliveredConfidence, evidence: j.evidence };
+    }
+    if (cfg.escalate) return esc(j.evidence || "possibly already delivered — confirm");
+  }
+
+  // dedup
+  if (j.dupOf && j.dupConfidence >= cfg.confidenceThreshold) {
+    if (cfg.dedup && f.hasPr) return { kind: "dedup-consolidate", confidence: j.dupConfidence, evidence: j.evidence, dupOf: j.dupOf };
+    if (cfg.escalate) return esc(j.evidence || `possible duplicate of ${j.dupOf}`);
+  }
+
+  // requeue
+  if (isRequeueEligible(f.requeue)) {
+    if (cfg.requeue) return { kind: "requeue", confidence: 1, evidence: `re-queue: ${f.requeue.parkReason}`.slice(0, 240) };
+    if (cfg.escalate) return esc(`would re-queue: ${f.requeue.parkReason}`);
+  }
+
+  return { kind: "leave", confidence: 1, evidence: "" };
+}
