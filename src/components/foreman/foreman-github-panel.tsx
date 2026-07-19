@@ -84,6 +84,11 @@ function TokenDirections() {
             <span className="font-medium text-[var(--text)]">Actions</span> — Read (optional), or Read and
             write if Foreman should cancel / re-run CI.
           </li>
+          <li>
+            <span className="font-medium text-[var(--text)]">Administration</span> — Read and write, so
+            Foreman can merge to protected branches. Foreman merges with an admin bypass after its own
+            checks pass; without this it can build &amp; open PRs but cannot ship them itself.
+          </li>
         </ul>
         <p>
           Metadata (read) is added automatically. You do <span className="font-medium text-[var(--text)]">not</span>{" "}
@@ -164,8 +169,8 @@ export function ForemanGithubConnect({ orgId }: { orgId: string }) {
     <div className="space-y-3">
       <p className="text-sm text-[var(--text-muted)]">
         Foreman uses this token to read pull requests for AI analysis and approval recommendations
-        (and, as its automation expands, to push branches, open PRs, and merge). Paste a fine-grained,
-        read-only token below — it is validated, stored encrypted, and never shown again.
+        (and, as its automation expands, to push branches, open PRs, and merge). Paste a fine-grained
+        token below — it is validated, stored encrypted, and never shown again.
       </p>
       <TokenDirections />
       <div className="flex flex-wrap items-center gap-2">
