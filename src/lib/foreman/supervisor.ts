@@ -54,3 +54,41 @@ export function parseGroomingReply(raw: string): GroomingJudgment {
     evidence,
   };
 }
+
+/** Substrings that, when found in a parked build's check log / error, mean the
+ *  park was caused by a since-FIXED transient (infra), not by the change itself —
+ *  so a fresh rebuild against current main should now pass. Keep this list in sync
+ *  as infra bugs are fixed and retired. */
+export const KNOWN_TRANSIENT_SIGNATURES: readonly string[] = [
+  "must_change_password does not exist", // #367 stale e2e template DB
+  "already exists", // #342 C124 "a pull request for branch … already exists"
+  "No conversation found with session ID", // #368 shared-HOME resume bug
+  "reviewer agent failed twice", // reviewer infra flake
+  "did not complete in 1 second", // repair/resume infra failure
+];
+
+export interface RequeueFacts {
+  parkReason: string;
+  checkLog: string;
+  parkedAtMs: number;
+  /** ms timestamp of the most recent infra fix relevant to builds, or null. */
+  lastInfraFixAtMs: number | null;
+  currentMainSha: string;
+  /** The main SHA at which THIS ticket was last re-queued, or null if never. */
+  lastRequeuedSha: string | null;
+  /** True when the park was a scope/sensitive risk-gate, not a failure. */
+  isScopeOrSensitiveGate: boolean;
+}
+
+/** A parked ticket is re-queue-eligible when it parked on a FAILURE (not a
+ *  scope/sensitive gate), we have not already re-queued it at the current main SHA
+ *  (loop guard), and EITHER its log matches a known-transient signature OR the park
+ *  predates a since-shipped infra fix (so main has advanced past the cause). */
+export function isRequeueEligible(f: RequeueFacts): boolean {
+  if (f.isScopeOrSensitiveGate) return false;
+  if (f.lastRequeuedSha !== null && f.lastRequeuedSha === f.currentMainSha) return false;
+  const hay = `${f.parkReason}\n${f.checkLog}`;
+  if (KNOWN_TRANSIENT_SIGNATURES.some((sig) => hay.includes(sig))) return true;
+  if (f.lastInfraFixAtMs !== null && f.lastInfraFixAtMs > f.parkedAtMs) return true;
+  return false;
+}
