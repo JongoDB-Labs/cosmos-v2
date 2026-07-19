@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.215.0",
+    date: "2026-07-18",
+    title: "In-app guidance for the Foreman GitHub token",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The GitHub-for-Foreman card now spells out exactly how to create the token and which repository permissions to grant (Pull requests, Contents, and optional Checks/Actions), so you can set it up without leaving the page.",
+      },
+    ],
+  },
+  {
     version: "2.214.0",
     date: "2026-07-18",
     title: "Connect GitHub for Foreman's PR analysis",
