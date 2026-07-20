@@ -25,6 +25,9 @@ export async function loadHarness(orgId: string): Promise<LoadedHarness> {
     prisma.foremanSkill.findMany({
       where: { OR: [{ orgId: null }, { orgId }], enabled: true },
       select: { name: true, body: true },
+      // PROJECT (orgId null) rows first, so an ORG row sharing a slug materializes
+      // last and overwrites it — org overrides project on a slug collision.
+      orderBy: { orgId: { sort: "asc", nulls: "first" } },
     }),
     prisma.foremanMcpServer.findMany({
       where: { OR: [{ orgId: null }, { orgId }], enabled: true },

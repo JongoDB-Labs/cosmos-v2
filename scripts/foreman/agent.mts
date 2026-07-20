@@ -149,8 +149,11 @@ export function resolveErrorSubtype(aborted: boolean, priorSubtype: string | nul
  *  billing vars), with HOME overridden to the per-org creds dir; the feasibility
  *  test's empty-HOME run proved the SDK's `env` option REPLACES the child env
  *  rather than merging, so the allowlist is authoritative. Filesystem settings are
- *  NOT loaded (SDK default) — the agent sees only its prompt, the worktree, and the
- *  tools listed here. */
+ *  NOT loaded by the SDK itself (default), but a WRITING build agent gets them back
+ *  via the harness below (settingSources:["project"]), which additionally loads the
+ *  worktree's materialized `.claude/` skills and the project systemPrompt append —
+ *  the read-only judges/reviewer never get the harness, so they see only their
+ *  prompt, the worktree, and the tools listed here. */
 /** Stable system-prompt append for every harnessed build — the ticket-specific
  *  instructions stay in the query `prompt`; this points the agent at the project
  *  skills/conventions the harness materializes. */

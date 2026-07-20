@@ -25,7 +25,6 @@ export interface HarnessOptions {
   skills?: "all";
   systemPrompt: { type: "preset"; preset: "claude_code"; append: string };
   mcpServers: Record<string, { type: "http"; url: string; headers?: Record<string, string> }>;
-  hooks?: unknown;
   allowedTools: string[];
   permissionMode: HarnessInput["basePermissionMode"];
 }
