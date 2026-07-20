@@ -39,9 +39,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
-    const limit = Math.min(Number(new URL(request.url).searchParams.get("limit") ?? "50") || 50, 200);
+    const sp = new URL(request.url).searchParams;
+    const limit = Math.min(Number(sp.get("limit") ?? "50") || 50, 200);
+    // Optional: scope to one work item (the per-ticket badge on the card detail).
+    const workItemId = sp.get("workItemId") ?? undefined;
     const events = await prisma.foremanEvent.findMany({
-      where: { orgId, kind: "groomed" },
+      where: { orgId, kind: "groomed", ...(workItemId ? { workItemId } : {}) },
       orderBy: [{ ts: "desc" }, { id: "desc" }],
       take: limit,
       select: { id: true, ts: true, ticketKey: true, workItemId: true, data: true },
