@@ -36,6 +36,11 @@ function openMcpJson(stored: string | null): Record<string, string> {
   return out;
 }
 
+/** Public unseal of a sealMcpJson string → the header/env map (or {} when null). */
+export function unsealMcpJson(stored: string | null): Record<string, string> {
+  return openMcpJson(stored);
+}
+
 /** The MCP server's process env map, opened from `env_enc` (or `{}` if unset). */
 export function getMcpEnv(server: Pick<McpServer, "envEnc">): Record<string, string> {
   return openMcpJson(server.envEnc);

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.219.0",
+    date: "2026-07-20",
+    title: "Foreman build agents are now project- and org-aware",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Foreman\u2019s build agents now load project Skills, a project system prompt, in-app tools, and safety guardrails on every build \u2014 so they follow this codebase\u2019s conventions instead of re-deriving them each time. Manage it all from the console: create or import Skills, add remote (https) MCP tool servers, and set a per-org system-prompt addition, with a per-org on/off. Ships with a starter set of cosmos-v2 skills.",
+      },
+    ],
+  },
+  {
     version: "2.218.1",
     date: "2026-07-20",
     title: "Supervisor status right on the ticket",
