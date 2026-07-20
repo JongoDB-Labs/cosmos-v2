@@ -138,32 +138,58 @@ function ForemanSupervisorForm({ orgId }: { orgId: string }) {
           ))}
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Dry proposes actions without changing anything; Live acts autonomously.
+          Off = the supervisor ignores this org. Dry = it evaluates parked tickets and proposes
+          actions in the activity feed but changes nothing (Apply the ones you want). Live = it
+          acts autonomously within the limits below.
         </p>
       </div>
 
       <div>
         <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Behaviors</label>
         <div className="space-y-2">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
-            <Checkbox
-              checked={deliverClose}
-              onChange={(e) => setDeliverClose(e.target.checked)}
-            />
-            Deliver &amp; close
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
-            <Checkbox checked={requeue} onChange={(e) => setRequeue(e.target.checked)} />
-            Requeue
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
-            <Checkbox checked={dedup} onChange={(e) => setDedup(e.target.checked)} />
-            Dedup
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
-            <Checkbox checked={escalate} onChange={(e) => setEscalate(e.target.checked)} />
-            Escalate
-          </label>
+          <div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+              <Checkbox
+                checked={deliverClose}
+                onChange={(e) => setDeliverClose(e.target.checked)}
+              />
+              Deliver &amp; close
+            </label>
+            <p className="ml-6 text-xs text-[var(--text-muted)]">
+              Close a draft whose ticket is already delivered on main via other work, and mark it
+              done.
+            </p>
+          </div>
+          <div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+              <Checkbox checked={requeue} onChange={(e) => setRequeue(e.target.checked)} />
+              Requeue
+            </label>
+            <p className="ml-6 text-xs text-[var(--text-muted)]">
+              Rebuild a ticket that parked on a since-fixed transient issue (fresh build against
+              current main).
+            </p>
+          </div>
+          <div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+              <Checkbox checked={dedup} onChange={(e) => setDedup(e.target.checked)} />
+              Dedup
+            </label>
+            <p className="ml-6 text-xs text-[var(--text-muted)]">
+              Consolidate a ticket that duplicates another — close the draft and link to the
+              original.
+            </p>
+          </div>
+          <div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+              <Checkbox checked={escalate} onChange={(e) => setEscalate(e.target.checked)} />
+              Escalate
+            </label>
+            <p className="ml-6 text-xs text-[var(--text-muted)]">
+              Surface uncertain cases to a human with a comment. Never acts on its own — the safe
+              catch-all.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -187,6 +213,10 @@ function ForemanSupervisorForm({ orgId }: { orgId: string }) {
               onChange={(e) => setConfidenceThreshold(Number(e.target.value))}
               className="w-28"
             />
+            <p className="mt-1 max-w-56 text-xs text-[var(--text-muted)]">
+              Minimum confidence (0–1) to auto-act on close/dedup. Below it, the supervisor
+              escalates instead. Higher = more cautious.
+            </p>
           </div>
           <div>
             <label
@@ -205,6 +235,10 @@ function ForemanSupervisorForm({ orgId }: { orgId: string }) {
               onChange={(e) => setPerPassCap(Number(e.target.value))}
               className="w-28"
             />
+            <p className="mt-1 max-w-56 text-xs text-[var(--text-muted)]">
+              Max autonomous changes per pass — a safety limit so one bad pass can&apos;t
+              mass-change the board. Escalations don&apos;t count.
+            </p>
           </div>
         </div>
       </details>
