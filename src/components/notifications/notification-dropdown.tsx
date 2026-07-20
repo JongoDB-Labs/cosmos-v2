@@ -151,7 +151,11 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
             variant="ghost"
             size="icon"
             className="h-8 w-8 relative"
-            aria-label="Notifications"
+            aria-label={
+              unreadCount > 0
+                ? `Notifications, ${unreadCount} unread`
+                : "Notifications"
+            }
           />
         }
       >
