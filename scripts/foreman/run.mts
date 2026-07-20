@@ -175,7 +175,7 @@ async function judge(
   const prompt = `Ticket: "${title}". Already-known items:\n${list}\nIs the ticket the SAME underlying request as one of them? Reply exactly "DUP <ref>: <reason>" or "UNIQUE: <reason>".`;
   // Read-only tools + scratch cwd (not REPO): this judge reasons over untrusted
   // ticket/feedback text, so it must not be able to shell out or edit the repo. (I3)
-  const r = await runAgent(SCRATCH, prompt, { orgId, maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
+  const r = await runAgent(SCRATCH, prompt, { orgId, maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob", harness: false });
   // Honor the LAST verdict line, anchored to the line start: a hedged mid-sentence
   // "... this is NOT a DUP COSMOS-1 ..." can't register as a duplicate (it doesn't
   // start with "DUP "), and a trailing "UNIQUE:" overrides an earlier "DUP".
@@ -212,7 +212,7 @@ async function clarityCheck(brief: TicketBrief, orgId: string, instructions: str
   const prompt = `A ticket to implement:\nTitle: ${brief.title}\nDescription: ${brief.description || "(none)"}\nAcceptance criteria:\n${criteria}\n${guidance}\nCan a competent engineer implement this CORRECTLY from what's written, WITHOUT a product/scope/UX/business decision that only the author can make (e.g. which metrics, what layout, a business rule, a missing credential, an ambiguous "which one")? Reply exactly "OK" if yes, or "NEEDS_INPUT: <the single most important question to unblock it>" if not.`;
   // Read-only tools + scratch cwd (not REPO): same untrusted-input reasoning as the
   // dedup judge — no shell, no repo writes. (I3)
-  const r = await runAgent(SCRATCH, prompt, { orgId, maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob" });
+  const r = await runAgent(SCRATCH, prompt, { orgId, maxTurns: 2, timeoutMs: 120_000, allowedTools: "Read,Grep,Glob", harness: false });
   const m = r.log.match(/NEEDS_INPUT:\s*(.+)/);
   return m ? { needsInput: true, question: m[1].trim() } : { needsInput: false, question: "" };
 }
@@ -275,7 +275,7 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
       orgId: plannerOrgId,
       maxTurns: 2,
       timeoutMs: PLANNER_TIMEOUT_MS,
-      allowedTools: "Read,Grep,Glob",
+      allowedTools: "Read,Grep,Glob", harness: false,
     });
     if (!r.ok) {
       log(`planner: agent failed — skipping this pass`);
@@ -503,7 +503,7 @@ async function reviewFinalDiff(brief: TicketBrief, orgId: string, wt: string): P
     writeFileSync(diffFile, diffText);
     reviewDiff = { kind: "file", path: diffFile };
   }
-  const reviewOpts = { orgId, allowedTools: "Read,Grep,Glob", maxTurns: 30, timeoutMs: 15 * 60_000 };
+  const reviewOpts = { orgId, allowedTools: "Read,Grep,Glob", harness: false, maxTurns: 30, timeoutMs: 15 * 60_000 };
   let review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
   if (!review.ok) review = await runAgent(wt, reviewerPrompt(brief, reviewDiff), reviewOpts);
   return review.ok
@@ -1516,7 +1516,7 @@ async function processMentions(
             thread: m.thread,
             question: m.question,
           }),
-          { orgId: m.orgId, allowedTools: "Read,Grep,Glob", maxTurns: 15, timeoutMs: 5 * 60_000 },
+          { orgId: m.orgId, allowedTools: "Read,Grep,Glob", harness: false, maxTurns: 15, timeoutMs: 5 * 60_000 },
         );
         const reply = r.ok && r.log.trim() ? r.log.trim().slice(-2000) : "";
         if (!reply) {
