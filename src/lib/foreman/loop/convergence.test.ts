@@ -5,7 +5,7 @@ import { initialState } from "./state";
 import type { TicketBrief } from "@/lib/foreman/prompt";
 
 const brief: TicketBrief = { key: "C-1", title: "t", description: "", classification: "BUG", acceptanceCriteria: [] };
-const B: Budgets = { wallClockMs: 60_000, costUsdCeiling: 5, stallRounds: 3, maxAttempts: 3, maxTurnResumes: 30 };
+const B: Budgets = { wallClockMs: 60_000, costUsdCeiling: 5, stallRounds: 3, maxAttempts: 3, maxTurnResumes: 30, maxIterations: 100 };
 const base = () => initialState("id", "o", brief, 0);
 
 describe("classify", () => {
@@ -23,6 +23,10 @@ describe("classify", () => {
   });
   it("returns iteration_cap at maxTurnResumes", () => {
     expect(classify({ ...base(), phase: "resuming", turnResumes: 30 }, 1000, B)).toMatchObject({ status: "terminal", signal: "iteration_cap" });
+  });
+  it("returns iteration_cap at the hard maxIterations backstop (any-path termination)", () => {
+    // A repair loop advancing NO other counter (distinct failures) still halts here.
+    expect(classify({ ...base(), phase: "repair", iteration: 100 }, 1000, B)).toMatchObject({ status: "terminal", signal: "iteration_cap" });
   });
   it("returns stall once noProgressRounds hits stallRounds", () => {
     expect(classify({ ...base(), phase: "repair", noProgressRounds: 3 }, 1000, B)).toMatchObject({ status: "terminal", signal: "stall" });

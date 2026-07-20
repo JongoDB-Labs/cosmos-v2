@@ -27,6 +27,13 @@ describe("serialize/deserialize", () => {
     const old = { ...s, schemaVersion: 0 };
     expect(deserialize(old).schemaVersion).toBe(SCHEMA_VERSION);
   });
+  it("throws on a non-object blob", () => {
+    expect(() => deserialize(null)).toThrow();
+    expect(() => deserialize("nope")).toThrow();
+  });
+  it("throws on a malformed blob missing loopId/phase", () => {
+    expect(() => deserialize({ orgId: "o" })).toThrow();
+  });
 });
 
 describe("hashString", () => {

@@ -100,9 +100,15 @@ export function serialize(state: LoopState): LoopState {
   return { ...state };
 }
 
-/** Load persisted state, running forward migrations to the current SCHEMA_VERSION. */
+/** Load persisted state, running forward migrations to the current SCHEMA_VERSION.
+ *  Guards against malformed blobs before they enter the engine (defense at the
+ *  DB boundary — a partial row must fail loudly, not masquerade as valid state). */
 export function deserialize(raw: unknown): LoopState {
+  if (!raw || typeof raw !== "object")
+    throw new Error("deserialize: loop state is not an object");
   const o = { ...(raw as Record<string, unknown>) };
+  if (typeof o.loopId !== "string" || typeof o.phase !== "string")
+    throw new Error("deserialize: malformed loop state (missing loopId/phase)");
   // Future: chain version migrations here when SCHEMA_VERSION advances.
   o.schemaVersion = SCHEMA_VERSION;
   return o as unknown as LoopState;
