@@ -21,6 +21,7 @@ CREATE TABLE "foreman_loop_transition" (
 
 -- CreateTable
 CREATE TABLE "foreman_loop_state" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "loop_id" UUID NOT NULL,
     "org_id" UUID NOT NULL,
     "status" TEXT NOT NULL,
@@ -31,7 +32,7 @@ CREATE TABLE "foreman_loop_state" (
     "updated_at" TIMESTAMP(3) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "foreman_loop_state_pkey" PRIMARY KEY ("loop_id")
+    CONSTRAINT "foreman_loop_state_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -57,6 +58,9 @@ CREATE INDEX "foreman_loop_transition_org_id_created_at_idx" ON "foreman_loop_tr
 
 -- CreateIndex
 CREATE INDEX "foreman_loop_transition_loop_id_idx" ON "foreman_loop_transition"("loop_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "foreman_loop_state_loop_id_key" ON "foreman_loop_state"("loop_id");
 
 -- CreateIndex
 CREATE INDEX "foreman_loop_state_org_id_status_idx" ON "foreman_loop_state"("org_id", "status");
