@@ -236,6 +236,9 @@ model Organization {
   aiSettings             OrgAiSettings?
   foremanAiSettings      ForemanAiSettings?
   foremanSupervisorSettings ForemanSupervisorSettings?
+  foremanSkills             ForemanSkill[]
+  foremanMcpServers         ForemanMcpServer[]
+  foremanHarnessSettings    ForemanHarnessSettings?
   emailSettings          OrgEmailSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
@@ -2956,6 +2959,56 @@ model ForemanSupervisorSettings {
   updatedAt           DateTime @updatedAt @map("updated_at")
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   @@map("foreman_supervisor_settings")
+}
+
+/// A build-agent Skill (SKILL.md) managed in the Foreman console. orgId NULL = a
+/// project-wide skill applied to every build; orgId set = an org overlay. `body`
+/// is the full SKILL.md (frontmatter + content), materialized into the ephemeral
+/// build worktree at .claude/skills/<name>/SKILL.md.
+model ForemanSkill {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String?  @map("org_id") @db.Uuid
+  name        String
+  description String
+  body        String
+  enabled     Boolean  @default(true)
+  source      String   @default("authored")
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  org Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  @@unique([orgId, name])
+  @@map("foreman_skills")
+}
+
+/// A remote (http/https ONLY) MCP server the build agents can use, managed in the
+/// console. No local/stdio commands (RCE). `headers` are vault-sealed.
+model ForemanMcpServer {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String?  @map("org_id") @db.Uuid
+  name        String
+  url         String
+  headers     Json?
+  enabled     Boolean  @default(true)
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  org Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  @@unique([orgId, name])
+  @@map("foreman_mcp_servers")
+}
+
+/// Per-org enable + system-prompt append for the build harness.
+model ForemanHarnessSettings {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String   @unique @map("org_id") @db.Uuid
+  enabled            Boolean  @default(true)
+  systemPromptAppend String?  @map("system_prompt_append")
+  updatedById        String?  @map("updated_by_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  @@map("foreman_harness_settings")
 }
 
 /// PER-ORG transactional-email (Resend) delivery config, set by an org OWNER from
