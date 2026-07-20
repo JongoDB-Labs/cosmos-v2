@@ -327,8 +327,8 @@ const SUPERVISOR_MIN_INTERVAL_MS = 5 * 60_000;
  *  others. Executes verdicts within the per-pass cap; escalate/leave don't consume
  *  it. `log` is the daemon's logger, threaded in so this file stays I/O-focused. */
 export async function runSupervisorPass(log: (m: string) => void): Promise<void> {
-  // Global kill switch (env). When not "off", per-org DB settings govern each org.
-  if ((process.env.FOREMAN_SUPERVISOR ?? "off").toLowerCase().trim() === "off") return;
+  // No env toggle — each org's DB `mode` (off/dry/live, set in the console Supervisor
+  // settings card) is the sole control; `mode: "off"` (below) disables it for that org.
   if (Date.now() - lastSupervisorPassMs < SUPERVISOR_MIN_INTERVAL_MS) return;
   lastSupervisorPassMs = Date.now();
   const sha = await currentMainSha();
