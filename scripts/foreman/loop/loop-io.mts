@@ -18,9 +18,7 @@ import { prisma } from "@/lib/db/client";
 import type { TicketBrief } from "@/lib/foreman/prompt";
 import { initialState, serialize, deserialize, type LoopState } from "@/lib/foreman/loop/state";
 import { reduce } from "@/lib/foreman/loop/reduce";
-import { classify } from "@/lib/foreman/loop/convergence";
 import { translate, type DaemonSignal } from "@/lib/foreman/loop/translate";
-import { defaultLoopSettings } from "@/lib/foreman/loop/mode";
 import { getForemanLoopSettings } from "./loop-mode.mjs";
 
 const loopCache = new Map<string, LoopState>();
@@ -120,13 +118,13 @@ export function emit(loopId: string, signal: DaemonSignal, nowMs: number): Promi
       if (!event) return;
 
       const fromPhase = state.phase;
-      let next = reduce(state, event);
-      if (!next.terminationSignal) {
-        const verdict = classify(next, nowMs, defaultLoopSettings().budgets);
-        if (verdict.status === "terminal" && verdict.signal) {
-          next = { ...next, terminationSignal: verdict.signal, terminationReason: verdict.reason };
-        }
-      }
+      // Observer mode records what the daemon ACTUALLY did. A loop terminates only on
+      // a genuine terminal EVENT (shipped/parked/fatal — set by reduce), NEVER on the
+      // engine's own convergence caps (attempts / wall-clock / stall). Applying those
+      // here would prematurely mark a still-running loop terminal and then silently
+      // drop the daemon's real ship. The caps belong to the DRIVER (Phase 6), not the
+      // recorder.
+      const next = reduce(state, event);
       const prevMs = lastTransitionMs.get(loopId) ?? state.startedAtMs;
       const durationMs = Math.max(0, nowMs - prevMs);
       lastTransitionMs.set(loopId, nowMs);
