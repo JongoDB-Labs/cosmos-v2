@@ -216,9 +216,13 @@ export async function runAgent(
         permissionMode: basePermissionMode,
         allowedTools: baseAllowedTools,
       };
+      // Only a WRITING (build) agent gets the harness. The read-only judges and the
+      // adversarial pre-ship reviewer pass Read/Grep/Glob only (no Edit/Write/Bash) to
+      // resist a prompt-injected ticket — they must never gain skills or MCP tools.
+      const isBuildAgent = baseAllowedTools.some((t) => t === "Edit" || t === "Write" || t === "Bash");
       try {
-        const h = await loadHarness(opts.orgId);
-        if (h.settings?.enabled !== false) {
+        const h = isBuildAgent ? await loadHarness(opts.orgId) : null;
+        if (h && h.settings?.enabled !== false) {
           await materializeSkills(worktreeDir, h.skills);
           const frag = assembleHarnessOptions({
             enabled: true,
@@ -239,7 +243,7 @@ export async function runAgent(
           };
         }
       } catch (e) {
-        log += `\n[harness skipped: ${String(e)}]\n`;
+        console.error(`[foreman] harness skipped: ${String(e)}`);
       }
 
       const q = query({
