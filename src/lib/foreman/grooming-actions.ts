@@ -66,14 +66,27 @@ async function addComment(orgId: string, itemId: string, authorId: string, conte
   await prisma.comment.create({ data: { orgId, workItemId: itemId, authorId, content } });
 }
 
-async function latestGroomed(orgId: string, workItemId: string, dry: boolean) {
-  return prisma.foremanEvent.findFirst({
-    where: dry
-      ? { orgId, workItemId, kind: "groomed", data: { path: ["dry"], equals: true } }
-      : { orgId, workItemId, kind: "groomed", NOT: { data: { path: ["dry"], equals: true } } },
+/** From groomed events (newest first), the latest whose dry-ness matches `wantDry`.
+ *  PURE + unit-tested. We filter in JS rather than pushing a boolean-in-JSON check
+ *  into the Prisma WHERE: live events carry NO `dry` key at all, so a
+ *  `NOT data.dry = true` filter matches nothing (missing path → NULL → never true) —
+ *  the sibling GET route sidesteps the same trap the same way. */
+export function pickLatestByDry<T extends { data: unknown }>(events: T[], wantDry: boolean): T | null {
+  for (const e of events) {
+    const isDry = (e.data as { dry?: unknown } | null)?.dry === true;
+    if (isDry === wantDry) return e;
+  }
+  return null;
+}
+
+async function latestGroomed(orgId: string, workItemId: string, wantDry: boolean) {
+  const events = await prisma.foremanEvent.findMany({
+    where: { orgId, workItemId, kind: "groomed" },
     orderBy: [{ ts: "desc" }, { id: "desc" }],
+    take: 30,
     select: { ticketKey: true, data: true },
   });
+  return pickLatestByDry(events, wantDry);
 }
 
 /**
@@ -96,13 +109,17 @@ export async function applyGroomedVerdict(
   let prClosed: boolean | undefined;
   if ((d.action === "deliver-close" || d.action === "dedup-consolidate") && d.prUrl) {
     prClosed = await setPrState(orgId, d.prUrl, "closed");
-    await prComment(
-      orgId,
-      d.prUrl,
-      d.action === "deliver-close"
-        ? `Delivered on main (supervisor, applied by a maintainer): ${d.evidence ?? ""}`
-        : `Duplicate of ${d.dupOf} (supervisor, applied by a maintainer): ${d.evidence ?? ""}`,
-    );
+    // Only leave the "delivered/duplicate" note when the close actually succeeded —
+    // never claim closure on a PR that's still open.
+    if (prClosed) {
+      await prComment(
+        orgId,
+        d.prUrl,
+        d.action === "deliver-close"
+          ? `Delivered on main (supervisor, applied by a maintainer): ${d.evidence ?? ""}`
+          : `Duplicate of ${d.dupOf} (supervisor, applied by a maintainer): ${d.evidence ?? ""}`,
+      );
+    }
   }
   await prisma.foremanEvent.create({
     data: {
@@ -149,15 +166,18 @@ export async function undoGroomedAction(
   const d = (ev.data ?? {}) as GroomedData;
   if (d.action === "undo") return { undone: false }; // already undone
 
+  let prReopened: boolean | undefined;
   if ((d.action === "deliver-close" || d.action === "dedup-consolidate") && d.prUrl && d.prClosed) {
-    await setPrState(orgId, d.prUrl, "open");
-    await prComment(orgId, d.prUrl, "Reopened — a maintainer undid the supervisor's action.");
+    prReopened = await setPrState(orgId, d.prUrl, "open");
+    if (prReopened) await prComment(orgId, d.prUrl, "Reopened — a maintainer undid the supervisor's action.");
   }
   await prisma.foremanEvent.create({
     data: {
       orgId, workItemId, ticketKey: ev.ticketKey, kind: "groomed", severity: "info",
       message: `undo: reversed ${d.action}`,
-      data: { action: "undo", of: d.action ?? null, evidence: `reversed ${d.action ?? "action"}` },
+      // Record the reopen result (like Apply records prClosed) so a failed reopen is
+      // visible in the event history, not silently lost.
+      data: { action: "undo", of: d.action ?? null, prReopened: prReopened ?? null, evidence: `reversed ${d.action ?? "action"}` },
     },
   });
   if (d.priorColumn) await moveColumn(workItemId, d.priorColumn);
