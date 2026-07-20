@@ -10,12 +10,16 @@ const obs = (o: Partial<Observation>): Observation => ({ hasDiff: false, diffHas
 
 describe("decideNext", () => {
   it("builds from queued", () => { expect(decideNext(s("queued"), obs({})).kind).toBe("build"); });
-  it("runs checks after building", () => { expect(decideNext(s("building"), obs({})).kind).toBe("run_checks"); });
-  it("reviews when checks passed", () => { expect(decideNext(s("checks"), obs({ checksPassed: true })).kind).toBe("review"); });
-  it("repairs when checks failed", () => { expect(decideNext(s("checks"), obs({ checksPassed: false })).kind).toBe("repair"); });
-  it("re-runs checks when not yet run", () => { expect(decideNext(s("checks"), obs({ checksPassed: null })).kind).toBe("run_checks"); });
-  it("ships after a passing review", () => { expect(decideNext(s("review"), obs({})).kind).toBe("ship"); });
+  it("runs checks from the checks phase", () => { expect(decideNext(s("checks"), obs({})).kind).toBe("run_checks"); });
+  it("invokes repair from the repair phase (not run_checks)", () => { expect(decideNext(s("repair"), obs({})).kind).toBe("repair"); });
+  it("resumes from the resuming phase (not run_checks)", () => { expect(decideNext(s("resuming"), obs({})).kind).toBe("resume"); });
+  it("reviews from the review phase", () => { expect(decideNext(s("review"), obs({})).kind).toBe("review"); });
+  it("ships from the shipping phase", () => { expect(decideNext(s("shipping"), obs({})).kind).toBe("ship"); });
+  it("noops from terminal phases", () => {
+    expect(decideNext(s("done"), obs({})).kind).toBe("noop");
+    expect(decideNext(s("parked"), obs({})).kind).toBe("noop");
+  });
   it("parks for human input regardless of phase", () => {
-    expect(decideNext(s("building"), obs({ needsHumanInput: true }))).toMatchObject({ kind: "park", signal: "parked_for_human" });
+    expect(decideNext(s("checks"), obs({ needsHumanInput: true }))).toMatchObject({ kind: "park", signal: "parked_for_human" });
   });
 });

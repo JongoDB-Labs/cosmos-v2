@@ -6,6 +6,10 @@ export interface Budgets {
   stallRounds: number;
   maxAttempts: number;
   maxTurnResumes: number;
+  /** Hard backstop on total transitions — guarantees the loop halts on ANY path,
+   *  even one where no other counter advances (e.g. repairs that each produce a
+   *  brand-new failure signature so stall never trips). */
+  maxIterations: number;
 }
 
 export interface Verdict {
@@ -27,6 +31,8 @@ export function classify(state: LoopState, now: number, b: Budgets): Verdict {
   if (b.costUsdCeiling != null && state.costUsd > b.costUsdCeiling)
     return { status: "terminal", signal: "budget_exhausted", reason: `cost $${state.costUsd.toFixed(2)} exceeded ceiling $${b.costUsdCeiling.toFixed(2)}` };
 
+  if (state.iteration >= b.maxIterations)
+    return { status: "terminal", signal: "iteration_cap", reason: `${state.iteration} iterations (hard cap ${b.maxIterations})` };
   if (state.attempts >= b.maxAttempts)
     return { status: "terminal", signal: "iteration_cap", reason: `${state.attempts} attempts (cap ${b.maxAttempts})` };
   if (state.turnResumes >= b.maxTurnResumes)
