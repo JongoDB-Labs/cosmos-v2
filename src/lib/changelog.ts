@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.218.1",
+    date: "2026-07-20",
+    title: "Supervisor status right on the ticket",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A work item\u2019s detail panel now shows the Foreman supervisor\u2019s latest take on that ticket \u2014 close-as-delivered, requeue, dedup, or escalate \u2014 with an Apply button for dry-run proposals and Undo for actions already taken, without leaving the ticket.",
+      },
+    ],
+  },
+  {
     version: "2.218.0",
     date: "2026-07-20",
     title: "Foreman supervisor: apply and undo from the console, fully UI-configured",
