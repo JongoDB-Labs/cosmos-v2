@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.219.1",
+    date: "2026-07-20",
+    title: "Screen readers can find the notifications bell",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The notifications bell in the top bar now has an accessible name, so screen readers announce it as “Notifications” (including your unread count when you have unread items).",
+      },
+    ],
+  },
+  {
     version: "2.219.0",
     date: "2026-07-20",
     title: "Foreman build agents are now project- and org-aware",
