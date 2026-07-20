@@ -96,4 +96,15 @@ describe("ForemanGroomingBadge", () => {
     await waitFor(() => expect(holder.calls.length).toBeGreaterThan(0));
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("shows nothing once the latest event is an undo (no stale Undo on the reversed action)", async () => {
+    holder.rows = [
+      { id: "g-1", ts: "2026-07-18T12:00:00.000Z", ticketKey: "COSMOS-88", workItemId: "wi-88", action: "deliver-close", evidence: "on main", dupOf: null, dry: false, prClosed: true },
+      { id: "g-2", ts: "2026-07-18T12:05:00.000Z", ticketKey: "COSMOS-88", workItemId: "wi-88", action: "undo", evidence: "reversed deliver-close", dupOf: null, dry: false, prClosed: null },
+    ];
+    const { container } = render(<ForemanGroomingBadge orgId="org-1" workItemId="wi-88" />);
+    await waitFor(() => expect(holder.calls.length).toBeGreaterThan(0));
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
+  });
 });

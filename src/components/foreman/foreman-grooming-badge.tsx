@@ -1,33 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 
 /**
- * Per-ticket companion to ForemanGroomingFeed — a compact inline badge for
- * the work-item detail sheet showing what the supervisor last did (or, in
- * dry mode, proposed) for THIS ticket. Same row shape and action semantics
- * as the feed: GET .../foreman/grooming?workItemId=... (the route's
- * per-ticket filter), find the latest ACTIONABLE row (ignore "undo" and
- * "leave" — those never carry an Apply/Undo affordance here), and render a
- * chip + Apply/Undo button using the same jsonFetch/notifyError/button-
- * disable-while-pending idiom as the feed.
+ * Per-ticket companion to ForemanGroomingFeed — a compact inline badge for the
+ * work-item detail sheet showing what the supervisor last did (or, in dry mode,
+ * proposed) for THIS ticket, with an Apply (dry) / Undo (live) affordance.
+ *
+ * Correctness notes:
+ *  - We rank ALL groomed rows by time and look at the TRUE latest one. If that
+ *    most-recent event is an `undo`/`leave` (or otherwise non-actionable), there
+ *    is nothing to show — an earlier actionable row is stale (already reversed or
+ *    superseded). Filtering `undo` out *before* ranking would resurface a stale
+ *    "Undo" on an already-reversed action.
+ *  - The detail sheet is ONE persistent instance whose `item` prop swaps (a user
+ *    can jump to a linked/sub-item without a remount), so every async response is
+ *    guarded: the effect uses a `cancelled` flag, and post-action refetches check
+ *    an `activeItem` ref, so a late response for a previous ticket can't clobber
+ *    the current one.
  *
  * Deliberately plain fetch (jsonFetch + useState/useEffect) rather than
- * react-query/useOrgMutation: this mounts inside CardDetailSheet, which
- * itself does all its data-loading the same way (see the comments/activity/
- * watch effects above) and isn't guaranteed a QueryClientProvider ancestor
- * wherever the sheet is rendered. Reusing useOrgQueryKey/useOrgMutation here
- * would pull in useOrgSlug (via usePathname), which isn't safe to call from
- * every context the sheet mounts in — so this stays self-contained.
+ * react-query/useOrgMutation: this mounts inside CardDetailSheet, which loads all
+ * its data the same way and isn't guaranteed a QueryClientProvider ancestor.
  *
- * Deliberately silent on loading/error: this sits in an already-busy detail
- * sheet, so a slow or failed fetch should never show a skeleton or error
- * state — it should just not be there. `null` is also the correct render
- * when there's no actionable history for this ticket.
+ * Deliberately silent on loading/error: it sits in an already-busy sheet, so a
+ * slow/failed fetch just renders nothing rather than a skeleton or error.
  */
 interface GroomingRow {
   id: string;
@@ -59,110 +60,89 @@ const ACTION_VARIANTS: Record<string, BadgeVariant> = {
   escalate: "critical",
 };
 
-function actionLabel(action: string): string {
-  return ACTION_LABELS[action] ?? action;
-}
-
-function actionVariant(action: string): BadgeVariant {
-  return ACTION_VARIANTS[action] ?? "neutral";
-}
-
-// The rows this badge will ever surface as the "latest" one — mirrors the
-// feed's APPLICABLE_ACTIONS/UNDOABLE_ACTIONS split. "undo" and "leave" rows
-// are never actionable and are skipped when finding the latest row to show.
+// Actions worth surfacing on the badge. The true-latest row must be one of these
+// (else render nothing — undo/leave/unknown carry no affordance).
 const ACTIONABLE_ACTIONS = new Set(["deliver-close", "dedup-consolidate", "requeue", "escalate"]);
-
-// A dry row proposing one of these actions can be carried out via Apply.
-const APPLICABLE_ACTIONS = new Set(["deliver-close", "dedup-consolidate", "requeue", "escalate"]);
-
-// A live (already-acted) row for one of these actions can be reversed via
-// Undo. Escalate never acts on its own, so it's never undoable.
+// A live (already-acted) row for one of these can be reversed via Undo. Escalate
+// never acts on its own, so it is never undoable.
 const UNDOABLE_ACTIONS = new Set(["deliver-close", "dedup-consolidate", "requeue"]);
 
-export function ForemanGroomingBadge({
-  orgId,
-  workItemId,
-}: {
-  orgId: string;
-  workItemId: string;
-}) {
+export function ForemanGroomingBadge({ orgId, workItemId }: { orgId: string; workItemId: string }) {
   const [rows, setRows] = useState<GroomingRow[] | null>(null);
   const [pending, setPending] = useState<null | "apply" | "undo">(null);
+  // The currently-mounted item, so a late async response for a PREVIOUS item
+  // (the sheet is one persistent instance whose item swaps) can't clobber it.
+  // Updated in the effect (never during render — a ref write in render is a lint
+  // error and a correctness smell).
+  const activeItem = useRef(workItemId);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await jsonFetch<GroomingResponse>(
-        `/api/v1/orgs/${orgId}/foreman/grooming?workItemId=${workItemId}`,
-      );
-      setRows(res.rows ?? []);
-    } catch {
-      // Errors render nothing — see file doc. Leave `rows` as-is (null on
-      // first load, or the last-good rows on a refetch failure).
-    }
-  }, [orgId, workItemId]);
-
-  // Reset to the loading (null) state on every workItemId change so a badge
-  // never briefly shows the PREVIOUS ticket's action while the new fetch is
-  // in flight — same "derive state from prop" pattern (and eslint escape
-  // hatch) as the item-sync effect in card-detail-sheet.tsx.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
+    activeItem.current = workItemId;
+    let cancelled = false;
     setRows(null);
-    void load();
-  }, [load]);
+    setPending(null);
+    (async () => {
+      try {
+        const res = await jsonFetch<GroomingResponse>(
+          `/api/v1/orgs/${orgId}/foreman/grooming?workItemId=${workItemId}`,
+        );
+        if (!cancelled) setRows(res.rows ?? []);
+      } catch {
+        if (!cancelled) setRows([]); // render nothing, but leave the loading state
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, workItemId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!rows) return null;
+  // TRUE latest groomed row (any action), then decide if it's worth showing.
+  const latest = [...rows].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())[0];
+  if (!latest || !ACTIONABLE_ACTIONS.has(latest.action)) return null;
 
-  const latest = [...rows]
-    .filter((r) => ACTIONABLE_ACTIONS.has(r.action))
-    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())[0];
-  if (!latest) return null;
-
-  const canApply = latest.dry && APPLICABLE_ACTIONS.has(latest.action);
+  const canApply = latest.dry;
   const canUndo = !latest.dry && UNDOABLE_ACTIONS.has(latest.action);
 
   async function runAction(kind: "apply" | "undo") {
+    const item = workItemId;
     setPending(kind);
     try {
       await jsonFetch(`/api/v1/orgs/${orgId}/foreman/grooming/${kind}`, {
         method: "POST",
-        body: JSON.stringify({ workItemId }),
+        body: JSON.stringify({ workItemId: item }),
       });
-      await load();
+      const res = await jsonFetch<GroomingResponse>(
+        `/api/v1/orgs/${orgId}/foreman/grooming?workItemId=${item}`,
+      );
+      if (activeItem.current === item) setRows(res.rows ?? []);
     } catch (err) {
       notifyError(err);
     } finally {
-      setPending(null);
+      if (activeItem.current === item) setPending(null);
     }
   }
 
   return (
     <div className="flex items-center gap-1.5 text-xs" title={latest.evidence}>
       <span className="text-[var(--text-muted)]">Supervisor:</span>
-      <Badge variant={actionVariant(latest.action)}>{actionLabel(latest.action)}</Badge>
+      <Badge variant={ACTION_VARIANTS[latest.action] ?? "neutral"}>
+        {ACTION_LABELS[latest.action] ?? latest.action}
+      </Badge>
       {latest.dry && (
         <span className="rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
           dry
         </span>
       )}
       {canApply && (
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={pending !== null}
-          onClick={() => void runAction("apply")}
-        >
+        <Button size="xs" variant="outline" disabled={pending !== null} onClick={() => void runAction("apply")}>
           Apply
         </Button>
       )}
       {canUndo && (
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={pending !== null}
-          onClick={() => void runAction("undo")}
-        >
+        <Button size="xs" variant="outline" disabled={pending !== null} onClick={() => void runAction("undo")}>
           Undo
         </Button>
       )}
