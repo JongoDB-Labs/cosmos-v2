@@ -169,6 +169,10 @@ export async function runAgent(
     timeoutMs?: number;
     allowedTools?: string;
     permissionMode?: string;
+    /** Explicitly opt this agent in/out of the per-org build harness (skills/MCP/
+     *  systemPrompt/hooks). When unset, it is inferred from write-capable tools
+     *  (Edit/Write/Bash). Read-only judges/reviewer pass false. */
+    harness?: boolean;
     resume?: string;
     /** Per-worker e2e database for the agent's own npm test (parallel builds
      *  must not share one test DB — the racy specs collide cross-process). */
@@ -225,8 +229,12 @@ export async function runAgent(
       // adversarial pre-ship reviewer pass Read/Grep/Glob only (no Edit/Write/Bash) to
       // resist a prompt-injected ticket — they must never gain skills or MCP tools.
       const isBuildAgent = baseAllowedTools.some((t) => t === "Edit" || t === "Write" || t === "Bash");
+      // Explicit opts.harness wins (intentional per call); else infer from write-capable
+      // tools. Read-only judges/reviewer pass harness:false, so a future read-only agent
+      // that happens to need Bash can't be misclassified into loading skills/MCP.
+      const useHarness = opts.harness ?? isBuildAgent;
       try {
-        const h = isBuildAgent ? await loadHarness(opts.orgId) : null;
+        const h = useHarness ? await loadHarness(opts.orgId) : null;
         if (h && h.settings?.enabled !== false) {
           await materializeSkills(worktreeDir, h.skills);
           const frag = assembleHarnessOptions({
