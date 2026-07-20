@@ -50,8 +50,10 @@ describe("buildModelPlans — classification", () => {
     // Bumped from <110 as later org-scoped additions (incl. foreman_ai_settings,
     // the dedicated Foreman Claude connection — migration 20260713150000; DIRECT
     // via org_id, surrogate `id` PK like org_ai_settings) took the count to 110.
+    // Bumped from <115 as the Foreman harness added foreman_skills / foreman_mcp_servers
+    // / foreman_harness_settings (all org-scoped) — migration 20260720* — reaching 115.
     expect(plans.length).toBeGreaterThan(50);
-    expect(plans.length).toBeLessThan(115);
+    expect(plans.length).toBeLessThan(130);
   });
 
   it("excludes the 5 v2-only models (no v1 source)", () => {

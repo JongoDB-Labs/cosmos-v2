@@ -13,6 +13,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { assembleHarnessOptions } from "@/lib/foreman/harness";
+import { loadHarness, materializeSkills } from "./harness-io.mjs";
+import { buildProjectMcpServer } from "./harness-tools.mjs";
+import { buildProjectHooks } from "./harness-hooks.mjs";
 import { buildAgentEnv } from "@/lib/foreman/env";
 import {
   materializeForemanHome,
@@ -145,8 +149,17 @@ export function resolveErrorSubtype(aborted: boolean, priorSubtype: string | nul
  *  billing vars), with HOME overridden to the per-org creds dir; the feasibility
  *  test's empty-HOME run proved the SDK's `env` option REPLACES the child env
  *  rather than merging, so the allowlist is authoritative. Filesystem settings are
- *  NOT loaded (SDK default) — the agent sees only its prompt, the worktree, and the
- *  tools listed here. */
+ *  NOT loaded by the SDK itself (default), but a WRITING build agent gets them back
+ *  via the harness below (settingSources:["project"]), which additionally loads the
+ *  worktree's materialized `.claude/` skills and the project systemPrompt append —
+ *  the read-only judges/reviewer never get the harness, so they see only their
+ *  prompt, the worktree, and the tools listed here. */
+/** Stable system-prompt append for every harnessed build — the ticket-specific
+ *  instructions stay in the query `prompt`; this points the agent at the project
+ *  skills/conventions the harness materializes. */
+const FOREMAN_BRIEF =
+  "You are Foreman, an autonomous delivery agent for the cosmos-v2 codebase. Load and follow the project skills (architecture, prisma migrations, testing, release discipline, foreman conventions) and the conventions in CLAUDE.md. Keep changes minimal and scoped to the ticket.";
+
 export async function runAgent(
   worktreeDir: string,
   prompt: string,
@@ -199,14 +212,54 @@ export async function runAgent(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 45 * 60_000);
     try {
+      // Per-org build harness (skills/MCP/systemPrompt) — ADDITIVE and GUARDED: any
+      // harness failure falls back to today's options so it can never block a build.
+      // A disabled harness leaves the options exactly as they were before this feature.
+      const baseAllowedTools = (opts.allowedTools ?? "Read,Grep,Glob,Edit,Write,Bash").split(",");
+      const basePermissionMode = (opts.permissionMode ?? "acceptEdits") as "acceptEdits";
+      let harnessOpts: Record<string, unknown> = {
+        permissionMode: basePermissionMode,
+        allowedTools: baseAllowedTools,
+      };
+      // Only a WRITING (build) agent gets the harness. The read-only judges and the
+      // adversarial pre-ship reviewer pass Read/Grep/Glob only (no Edit/Write/Bash) to
+      // resist a prompt-injected ticket — they must never gain skills or MCP tools.
+      const isBuildAgent = baseAllowedTools.some((t) => t === "Edit" || t === "Write" || t === "Bash");
+      try {
+        const h = isBuildAgent ? await loadHarness(opts.orgId) : null;
+        if (h && h.settings?.enabled !== false) {
+          await materializeSkills(worktreeDir, h.skills);
+          const frag = assembleHarnessOptions({
+            enabled: true,
+            baseAllowedTools,
+            basePermissionMode,
+            skills: h.skills.map((sk) => ({ name: sk.name })),
+            mcpServers: h.servers,
+            systemPromptAppend: h.settings?.systemPromptAppend ?? null,
+            foremanBrief: FOREMAN_BRIEF,
+          });
+          const projectServer = buildProjectMcpServer(worktreeDir, opts.orgId);
+          harnessOpts = {
+            ...(frag.settingSources ? { settingSources: frag.settingSources } : {}),
+            ...(frag.skills ? { skills: frag.skills } : {}),
+            systemPrompt: frag.systemPrompt,
+            mcpServers: { ...frag.mcpServers, cosmos: projectServer },
+            hooks: buildProjectHooks(worktreeDir),
+            allowedTools: [...frag.allowedTools, "mcp__cosmos"],
+            permissionMode: frag.permissionMode,
+          };
+        }
+      } catch (e) {
+        console.error(`[foreman] harness skipped: ${String(e)}`);
+      }
+
       const q = query({
         prompt,
         options: {
           cwd: worktreeDir,
           model: "opus",
           maxTurns: opts.maxTurns ?? 80,
-          permissionMode: (opts.permissionMode ?? "acceptEdits") as "acceptEdits",
-          allowedTools: (opts.allowedTools ?? "Read,Grep,Glob,Edit,Write,Bash").split(","),
+          ...harnessOpts,
           env,
           abortController: ctrl,
           ...(opts.resume ? { resume: opts.resume } : {}),
