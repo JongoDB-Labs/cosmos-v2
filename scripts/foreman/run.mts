@@ -116,9 +116,11 @@ function setPhase(itemId: string, phase: InFlightBuild["phase"], extra?: { repai
 // Best-effort, fire-and-forget, per-org mode-gated inside loopIo. Never awaited
 // on the delivery path; a failure here can never affect a build.
 function loopBegin(item: { id: string; orgId: string }, brief: TicketBrief): void {
+  if (DRY) return; // previews never write to the observer tables (mirrors obs.track)
   void loopIo.beginLoop({ id: item.id, orgId: item.orgId, brief }, Date.now());
 }
 function loopEmit(loopId: string, signal: DaemonSignal): void {
+  if (DRY) return; // previews never write to the observer tables (mirrors obs.track)
   void loopIo.emit(loopId, signal, Date.now());
 }
 function loopResolutionSignal(resolution: string): DaemonSignal {

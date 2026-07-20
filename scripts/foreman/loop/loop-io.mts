@@ -59,6 +59,20 @@ export function beginLoop(item: { id: string; orgId: string; brief: TicketBrief 
   return serialize_(item.id, async () => {
     if (!(await recordingEnabled(item.orgId, nowMs))) return;
     try {
+      // Idempotent: a ticket that errors mid-build is re-claimed (up to MAX_ATTEMPTS),
+      // re-firing beginLoop. Do NOT rewind an already-tracked loop to iteration 0 —
+      // that would collide with its prior rows on @@unique([loopId,iteration]) and
+      // wedge recording. Adopt the existing loop (in-memory, else persisted) and
+      // continue; only seed a fresh loop when none exists.
+      if (loopCache.has(item.id)) return;
+      const existing = await prisma.foremanLoopState.findUnique({ where: { loopId: item.id } });
+      if (existing) {
+        try {
+          loopCache.set(item.id, deserialize(existing.state));
+          lastTransitionMs.set(item.id, nowMs);
+        } catch { /* malformed persisted state → leave untracked; emits will drop */ }
+        return;
+      }
       const state = initialState(item.id, item.orgId, item.brief, nowMs);
       loopCache.set(item.id, state);
       lastTransitionMs.set(item.id, nowMs);
@@ -100,6 +114,7 @@ export function emit(loopId: string, signal: DaemonSignal, nowMs: number): Promi
     try {
       const state = await loadState(loopId);
       if (!state) return; // no begun loop → drop (recording was off at begin, or a resume-path build)
+      if (state.terminationSignal) return; // already terminal → don't append past the end (e.g. a resume ship onto a parked loop)
       if (!(await recordingEnabled(state.orgId, nowMs))) return; // org turned recording off
       const event = translate(signal);
       if (!event) return;
