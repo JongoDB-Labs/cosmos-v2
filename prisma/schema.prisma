@@ -3825,3 +3825,55 @@ model ForemanEvent {
   @@index([orgId, ts(sort: Desc)])
   @@map("foreman_events")
 }
+
+model ForemanLoopTransition {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  loopId            String   @map("loop_id") @db.Uuid
+  orgId             String   @map("org_id") @db.Uuid
+  iteration         Int
+  fromPhase         String   @map("from_phase")
+  toPhase           String   @map("to_phase")
+  action            String
+  terminationSignal String?  @map("termination_signal")
+  invariantResults  Json     @map("invariant_results")
+  durationMs        Int      @map("duration_ms")
+  tokensIn          Int      @default(0) @map("tokens_in")
+  tokensOut         Int      @default(0) @map("tokens_out")
+  costUsd           Float    @default(0) @map("cost_usd")
+  stateSnapshot     Json     @map("state_snapshot")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([loopId, iteration])
+  @@index([orgId, createdAt])
+  @@index([loopId])
+  @@map("foreman_loop_transition")
+}
+
+model ForemanLoopState {
+  loopId        String   @id @map("loop_id") @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  status        String
+  phase         String
+  iteration     Int
+  schemaVersion Int      @map("schema_version")
+  state         Json
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([orgId, status])
+  @@map("foreman_loop_state")
+}
+
+model ForemanLoopSettings {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String?  @unique @map("org_id") @db.Uuid
+  mode           String   @default("off")
+  wallClockMin   Int      @default(90) @map("wall_clock_min")
+  costUsdCeiling Float?   @map("cost_usd_ceiling")
+  stallRounds    Int      @default(3) @map("stall_rounds")
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("foreman_loop_settings")
+}
