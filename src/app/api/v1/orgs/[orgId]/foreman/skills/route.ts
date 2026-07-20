@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission, ConflictError } from "@/lib/rbac/check";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { slugify } from "@/lib/templates/slugify";
@@ -100,6 +101,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const scopedOrgId = input.orgScope ? g.orgId : null;
+    // A project-wide skill (orgId null) affects every org's builds ⇒ platform admin only.
+    if (scopedOrgId === null && !(await requireSystemAdmin())) {
+      return new Response("Only a platform admin can create a project-wide skill", { status: 403 });
+    }
     const existing = await prisma.foremanSkill.findFirst({
       where: { orgId: scopedOrgId, name: slug },
     });

@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError } from "@/lib/api-helpers";
+import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 
 /**
  * Update/delete a single Foreman skill by id — sibling of
@@ -41,10 +42,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if ("error" in g) return g.error;
     const data = patchSchema.parse(await request.json());
 
-    const skill = await prisma.foremanSkill.findFirst({
-      where: { id: g.id, OR: [{ orgId: null }, { orgId: g.orgId }] },
-    });
-    if (!skill) return new Response("Not found", { status: 404 });
+    const skill = await prisma.foremanSkill.findUnique({ where: { id: g.id }, select: { orgId: true } });
+    // Another org's skill is invisible ⇒ 404. A PROJECT-WIDE skill (orgId null) is
+    // injected into EVERY org's build agents, so only a platform admin may change it —
+    // never a single tenant's org admin.
+    if (!skill || (skill.orgId !== null && skill.orgId !== g.orgId)) return new Response("Not found", { status: 404 });
+    if (skill.orgId === null && !(await requireSystemAdmin())) {
+      return new Response("Project-wide skills can only be changed by a platform admin", { status: 403 });
+    }
 
     const updated = await prisma.foremanSkill.update({
       where: { id: g.id },
@@ -65,10 +70,14 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const g = await gate(params);
     if ("error" in g) return g.error;
 
-    const skill = await prisma.foremanSkill.findFirst({
-      where: { id: g.id, OR: [{ orgId: null }, { orgId: g.orgId }] },
-    });
-    if (!skill) return new Response("Not found", { status: 404 });
+    const skill = await prisma.foremanSkill.findUnique({ where: { id: g.id }, select: { orgId: true } });
+    // Another org's skill is invisible ⇒ 404. A PROJECT-WIDE skill (orgId null) is
+    // injected into EVERY org's build agents, so only a platform admin may change it —
+    // never a single tenant's org admin.
+    if (!skill || (skill.orgId !== null && skill.orgId !== g.orgId)) return new Response("Not found", { status: 404 });
+    if (skill.orgId === null && !(await requireSystemAdmin())) {
+      return new Response("Project-wide skills can only be changed by a platform admin", { status: 403 });
+    }
 
     await prisma.foremanSkill.delete({ where: { id: g.id } });
     return noContent();

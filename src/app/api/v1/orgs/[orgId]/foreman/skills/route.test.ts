@@ -18,8 +18,9 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 
-const { getAuthContext, prisma } = vi.hoisted(() => ({
+const { getAuthContext, requireSystemAdmin, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
+  requireSystemAdmin: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
     foremanSkill: {
@@ -31,6 +32,7 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
+vi.mock("@/lib/internal/require-system-admin", () => ({ requireSystemAdmin }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
 import { GET, POST } from "./route";
@@ -68,6 +70,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   getAuthContext.mockResolvedValue(ctxWith({}));
+  requireSystemAdmin.mockResolvedValue({ id: "sysadmin" });
   prisma.foremanSkill.findFirst.mockResolvedValue(null);
 });
 
@@ -138,6 +141,16 @@ describe("POST /orgs/[orgId]/foreman/skills — mode:create", () => {
 
     const arg = prisma.foremanSkill.create.mock.calls[0][0] as { data: { orgId: string | null } };
     expect(arg.data.orgId).toBeNull();
+  });
+
+  it("403 for a non-platform-admin creating a PROJECT-wide skill (no write happens)", async () => {
+    requireSystemAdmin.mockResolvedValue(null);
+    const res = await POST(
+      req("POST", { mode: "create", name: "proj-skill", description: "d", body: "body", orgScope: false }),
+      { params },
+    );
+    expect(res.status).toBe(403);
+    expect(prisma.foremanSkill.create).not.toHaveBeenCalled();
   });
 
   it("400 when name or description is missing for mode:create", async () => {
