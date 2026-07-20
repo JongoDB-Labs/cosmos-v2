@@ -71,3 +71,12 @@ export function assembleHarnessOptions(input: HarnessInput): HarnessOptions {
 export function skillDirName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "skill";
 }
+
+/** True when a shell command is a git commit AND the release invariant is already
+ *  violated (package.json version != CHANGELOG top). The project hook denies it so the
+ *  agent must prepend a matching CHANGELOG entry. A normal mid-build commit (no version
+ *  bump yet => the two versions are equal) is allowed. */
+export function shouldDenyCommit(command: string, pkgVersion: string, changelogTopVersion: string): boolean {
+  if (!/git\s+commit/.test(command)) return false;
+  return pkgVersion !== changelogTopVersion;
+}

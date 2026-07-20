@@ -54,3 +54,18 @@ describe("skillDirName", () => {
     expect(skillDirName("")).toBe("skill");
   });
 });
+
+import { shouldDenyCommit } from "./harness";
+
+describe("shouldDenyCommit", () => {
+  it("denies a git commit while package.json and changelog versions differ", () => {
+    expect(shouldDenyCommit("git commit -m x", "2.1.0", "2.0.0")).toBe(true);
+  });
+  it("allows a git commit when the versions match", () => {
+    expect(shouldDenyCommit("git commit -m x", "2.1.0", "2.1.0")).toBe(false);
+  });
+  it("ignores non-commit commands", () => {
+    expect(shouldDenyCommit("git status", "2.1.0", "2.0.0")).toBe(false);
+    expect(shouldDenyCommit("npm test", "1", "2")).toBe(false);
+  });
+});

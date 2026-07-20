@@ -16,6 +16,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { assembleHarnessOptions } from "@/lib/foreman/harness";
 import { loadHarness, materializeSkills } from "./harness-io.mjs";
 import { buildProjectMcpServer } from "./harness-tools.mjs";
+import { buildProjectHooks } from "./harness-hooks.mjs";
 import { buildAgentEnv } from "@/lib/foreman/env";
 import {
   materializeForemanHome,
@@ -240,6 +241,7 @@ export async function runAgent(
             ...(frag.skills ? { skills: frag.skills } : {}),
             systemPrompt: frag.systemPrompt,
             mcpServers: { ...frag.mcpServers, cosmos: projectServer },
+            hooks: buildProjectHooks(worktreeDir),
             allowedTools: [...frag.allowedTools, "mcp__cosmos"],
             permissionMode: frag.permissionMode,
           };
