@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { assembleHarnessOptions } from "./harness";
+import { assembleHarnessOptions, skillDirName } from "./harness";
 
 const base = () => ({
   enabled: true,
@@ -40,5 +40,17 @@ describe("assembleHarnessOptions", () => {
     expect(o.settingSources).toBeUndefined();
     expect(o.mcpServers).toEqual({});
     expect(o.allowedTools).toEqual(["Read", "Grep", "Edit", "Write", "Bash"]);
+  });
+});
+
+describe("skillDirName", () => {
+  it("slugifies a display name", () => {
+    expect(skillDirName("Cosmos Testing!")).toBe("cosmos-testing");
+    expect(skillDirName("  A  B  ")).toBe("a-b");
+    expect(skillDirName("already-a-slug")).toBe("already-a-slug");
+  });
+  it("falls back to 'skill' for an empty result", () => {
+    expect(skillDirName("!!!")).toBe("skill");
+    expect(skillDirName("")).toBe("skill");
   });
 });

@@ -66,3 +66,8 @@ export function assembleHarnessOptions(input: HarnessInput): HarnessOptions {
     permissionMode: input.basePermissionMode,
   };
 }
+
+/** A skill's DB `name` → a safe directory slug for .claude/skills/<slug>/. Pure. */
+export function skillDirName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "skill";
+}
