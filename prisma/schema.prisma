@@ -3850,7 +3850,8 @@ model ForemanLoopTransition {
 }
 
 model ForemanLoopState {
-  loopId        String   @id @map("loop_id") @db.Uuid
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  loopId        String   @unique @map("loop_id") @db.Uuid
   orgId         String   @map("org_id") @db.Uuid
   status        String
   phase         String
