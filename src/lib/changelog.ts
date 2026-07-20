@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.218.0",
+    date: "2026-07-20",
+    title: "Foreman supervisor: apply and undo from the console, fully UI-configured",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Foreman supervisor is now driven entirely from the console — no environment variables. In the activity feed you can Apply a dry-run proposal to act on it, or Undo a live action (it reopens the PR and moves the card back). The settings card now explains what every option does — the three modes, each grooming behavior, and the confidence/limit knobs.",
+      },
+    ],
+  },
+  {
     version: "2.217.0",
     date: "2026-07-19",
     title: "Foreman supervisor: configurable self-grooming for the board",
