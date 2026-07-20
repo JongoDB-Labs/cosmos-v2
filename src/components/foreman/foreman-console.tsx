@@ -43,6 +43,7 @@ import { ForemanGithubPanel } from "./foreman-github-panel";
 import { ForemanSupervisorPanel } from "./foreman-supervisor-panel";
 import { ForemanHarnessPanel } from "./foreman-harness-panel";
 import { ForemanSkillsPanel } from "./foreman-skills-panel";
+import { ForemanMcpPanel } from "./foreman-mcp-panel";
 import { ForemanGroomingFeed } from "./foreman-grooming-feed";
 
 /** "3m ago" / "2h ago" / "5d ago" — the app has no shared relative-time
@@ -665,6 +666,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       <ForemanSupervisorPanel orgId={orgId} />
       <ForemanHarnessPanel orgId={orgId} />
       <ForemanSkillsPanel orgId={orgId} />
+      <ForemanMcpPanel orgId={orgId} />
       <ForemanGroomingFeed orgId={orgId} />
 
       <IntakeDecisions orgId={orgId} />
