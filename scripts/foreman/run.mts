@@ -44,6 +44,8 @@ import { runAgent, openForemanHome, NoForemanCredentialError, type AgentResult }
 import { runChecks, diffSummary } from "./checks.mjs";
 import * as ship from "./ship.mjs";
 import { runSupervisorPass } from "./supervisor-run.mjs";
+import * as loopIo from "./loop/loop-io.mjs";
+import type { DaemonSignal } from "@/lib/foreman/loop/translate";
 import { ensureWorkerDbs } from "./worker-db.mjs";
 // Observability writers (Task 3). Imported with the `.mjs` specifier like every
 // sibling module — under this tsconfig (`moduleResolution: bundler`) a `.mts`
@@ -108,6 +110,27 @@ function setPhase(itemId: string, phase: InFlightBuild["phase"], extra?: { repai
   // Push the phase/progress change live so the console reflects it the instant it
   // happens (visibility), not on the next ~60s poll. Fire-and-forget, best-effort.
   void obs.pushInFlight([...inFlightMeta.values()], itemId);
+}
+
+// ── Loop-graph observer-mode recording (Phase 3, record-only) ──────────────
+// Best-effort, fire-and-forget, per-org mode-gated inside loopIo. Never awaited
+// on the delivery path; a failure here can never affect a build.
+function loopBegin(item: { id: string; orgId: string }, brief: TicketBrief): void {
+  void loopIo.beginLoop({ id: item.id, orgId: item.orgId, brief }, Date.now());
+}
+function loopEmit(loopId: string, signal: DaemonSignal): void {
+  void loopIo.emit(loopId, signal, Date.now());
+}
+function loopResolutionSignal(resolution: string): DaemonSignal {
+  switch (resolution) {
+    case "duplicate":
+    case "already-done":
+      return { kind: "delivered_nooploop" };
+    case "shipped":
+      return { kind: "shipped", version: "shipped" };
+    default: // needs-input, gated, and any future terminal → parked for a human
+      return { kind: "parked", humanReason: resolution };
+  }
 }
 
 // Self-reload after a self-modifying ship (COSMOS-125). tsx loads Foreman's own
@@ -521,6 +544,7 @@ async function processOne(
   // (which would seed the next armed run's dedup). (I5)
   const record = (e: Omit<LedgerEntry, "ts">): void => {
     appendLedger(DRY ? LEDGER_DRY : LEDGER, { ...e, ts: new Date().toISOString() });
+    loopEmit(item.id, loopResolutionSignal(e.resolution));
     // Every durable outcome also lands in the live event feed (best-effort, never
     // awaited — obs.track swallows its own errors). Suppressed in DRY, exactly
     // like the terminal board writes, so a preview never seeds the real feed.
@@ -686,6 +710,7 @@ async function processOne(
     // resumed (full context of what it built) with the failing output and told to
     // fix forward — up to MAX_REPAIRS rounds, then gate. This targets the observed
     // failure mode where a good change's own new test needed one more iteration.
+    loopEmit(item.id, { kind: "built", sha: null, sessionRef: agent.sessionId ?? null, turnOverflow: false });
     setPhase(item.id, "checks");
     const repair = await repairLoop(
       key,
@@ -699,6 +724,7 @@ async function processOne(
     );
     if (repair.halted) return {}; // kill switch fired mid-repair — abandon without shipping
     const { checks, repairs } = repair;
+    loopEmit(item.id, { kind: "checks", passed: checks.ok, signature: checks.ok ? null : checks.log.slice(0, 200) });
     // Recompute the diff after repairs (rounds may add/change files) — the risk
     // classifier and the migration flag must see the FINAL change, not round 0's.
     diff = await diffSummary(wt);
@@ -774,6 +800,7 @@ async function processOne(
     // not open. Same helper the resume path uses.
     setPhase(item.id, "review");
     const verdict = await reviewFinalDiff(brief, item.orgId, wt);
+    loopEmit(item.id, { kind: "reviewed", approved: verdict.approve, reason: verdict.reason });
     if (!verdict.approve) {
       await parkForReview(`reviewer rejected — ${verdict.reason}`);
       return {};
@@ -1022,6 +1049,7 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
     const ok = await ship.deploy(version, finalDiff.files.some((f) => f.startsWith("prisma/migrations/")));
     if (ok) {
       await db.moveColumn(b.itemId, "done");
+      loopEmit(b.itemId, { kind: "shipped", version: "shipped" });
       await db.comment(
         b.itemId,
         formatAudit({ key: b.key, outcome: "shipped", summary: b.subject, process: b.processNote, version, rollbackTo, branch: b.branch, prUrl: prUrl || undefined, commit: mergedCommit || commit }),
@@ -2186,6 +2214,7 @@ async function main(): Promise<void> {
           // event is not — DRY never calls db.claimTicket, so there is no real
           // claim to report. Gate it on !DRY like the other decision events.
           if (!DRY) await obs.track({ workItemId: item.id, orgId: item.orgId, ticketKey: ref, kind: "claimed", message: `claimed ${ref} for build` });
+          loopBegin(item, briefFrom(item));
           const task = (async () => {
             // Kept true once the build hands off to the ship queue, so the finally
             // below leaves the registry entry (phase "queued-ship") in place for the
