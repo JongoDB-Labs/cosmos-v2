@@ -77,6 +77,6 @@ export function skillDirName(name: string): string {
  *  agent must prepend a matching CHANGELOG entry. A normal mid-build commit (no version
  *  bump yet => the two versions are equal) is allowed. */
 export function shouldDenyCommit(command: string, pkgVersion: string, changelogTopVersion: string): boolean {
-  if (!/git\s+commit/.test(command)) return false;
+  if (!/git\s+commit/i.test(command)) return false;
   return pkgVersion !== changelogTopVersion;
 }

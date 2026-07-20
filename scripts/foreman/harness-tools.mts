@@ -63,11 +63,16 @@ export function buildProjectMcpServer(worktreeDir: string, orgId: string) {
         { ticketKey: z.string() },
         async (args) => {
           try {
-            const key = String((args as { ticketKey: string }).ticketKey);
-            const num = Number(key.replace(/\D/g, ""));
-            if (!Number.isFinite(num) || num <= 0) return txt(`not a ticket key: ${key}`);
+            const key = String((args as { ticketKey: string }).ticketKey).trim();
+            const m = key.match(/^([A-Za-z][\w]*)-(\d+)$/);
+            if (!m) return txt(`not a ticket key (expected PREFIX-NUMBER): ${key}`);
+            const project = await prisma.project.findFirst({
+              where: { orgId, key: m[1].toUpperCase() },
+              select: { id: true },
+            });
+            if (!project) return txt(`no project "${m[1]}" in this org`);
             const item = await prisma.workItem.findFirst({
-              where: { orgId, ticketNumber: num },
+              where: { orgId, projectId: project.id, ticketNumber: Number(m[2]) },
               select: { title: true, columnKey: true, description: true },
             });
             if (!item) return txt(`no work item found for ${key}`);

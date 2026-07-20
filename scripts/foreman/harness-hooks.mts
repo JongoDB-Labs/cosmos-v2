@@ -14,7 +14,7 @@ export function buildProjectHooks(worktreeDir: string) {
         hooks: [
           async (input: unknown) => {
             const cmd = (input as { tool_input?: { command?: string } }).tool_input?.command ?? "";
-            if (!/git\s+commit/.test(cmd)) return {};
+            if (!/git\s+commit/i.test(cmd)) return {};
             try {
               const pkg =
                 (JSON.parse(await readFile(join(worktreeDir, "package.json"), "utf8")) as { version?: string }).version ?? "";
