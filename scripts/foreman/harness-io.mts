@@ -34,7 +34,7 @@ export async function loadHarness(orgId: string): Promise<LoadedHarness> {
   const servers: HarnessMcpServer[] = serverRows.map((r) => ({
     name: r.name,
     url: r.url,
-    headers: r.headers ? unsealMcpJson(r.headers as string) : null,
+    headers: typeof r.headers === "string" ? unsealMcpJson(r.headers) : null,
   }));
   return { settings, skills: skillRows, servers };
 }
