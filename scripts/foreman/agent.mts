@@ -13,6 +13,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { assembleHarnessOptions } from "@/lib/foreman/harness";
+import { loadHarness, materializeSkills } from "./harness-io.mjs";
 import { buildAgentEnv } from "@/lib/foreman/env";
 import {
   materializeForemanHome,
@@ -147,6 +149,12 @@ export function resolveErrorSubtype(aborted: boolean, priorSubtype: string | nul
  *  rather than merging, so the allowlist is authoritative. Filesystem settings are
  *  NOT loaded (SDK default) — the agent sees only its prompt, the worktree, and the
  *  tools listed here. */
+/** Stable system-prompt append for every harnessed build — the ticket-specific
+ *  instructions stay in the query `prompt`; this points the agent at the project
+ *  skills/conventions the harness materializes. */
+const FOREMAN_BRIEF =
+  "You are Foreman, an autonomous delivery agent for the cosmos-v2 codebase. Load and follow the project skills (architecture, prisma migrations, testing, release discipline, foreman conventions) and the conventions in CLAUDE.md. Keep changes minimal and scoped to the ticket.";
+
 export async function runAgent(
   worktreeDir: string,
   prompt: string,
@@ -199,14 +207,48 @@ export async function runAgent(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 45 * 60_000);
     try {
+      // Per-org build harness (skills/MCP/systemPrompt) — ADDITIVE and GUARDED: any
+      // harness failure falls back to today's options so it can never block a build.
+      // A disabled harness leaves the options exactly as they were before this feature.
+      const baseAllowedTools = (opts.allowedTools ?? "Read,Grep,Glob,Edit,Write,Bash").split(",");
+      const basePermissionMode = (opts.permissionMode ?? "acceptEdits") as "acceptEdits";
+      let harnessOpts: Record<string, unknown> = {
+        permissionMode: basePermissionMode,
+        allowedTools: baseAllowedTools,
+      };
+      try {
+        const h = await loadHarness(opts.orgId);
+        if (h.settings?.enabled !== false) {
+          await materializeSkills(worktreeDir, h.skills);
+          const frag = assembleHarnessOptions({
+            enabled: true,
+            baseAllowedTools,
+            basePermissionMode,
+            skills: h.skills.map((sk) => ({ name: sk.name })),
+            mcpServers: h.servers,
+            systemPromptAppend: h.settings?.systemPromptAppend ?? null,
+            foremanBrief: FOREMAN_BRIEF,
+          });
+          harnessOpts = {
+            ...(frag.settingSources ? { settingSources: frag.settingSources } : {}),
+            ...(frag.skills ? { skills: frag.skills } : {}),
+            systemPrompt: frag.systemPrompt,
+            mcpServers: frag.mcpServers,
+            allowedTools: frag.allowedTools,
+            permissionMode: frag.permissionMode,
+          };
+        }
+      } catch (e) {
+        log += `\n[harness skipped: ${String(e)}]\n`;
+      }
+
       const q = query({
         prompt,
         options: {
           cwd: worktreeDir,
           model: "opus",
           maxTurns: opts.maxTurns ?? 80,
-          permissionMode: (opts.permissionMode ?? "acceptEdits") as "acceptEdits",
-          allowedTools: (opts.allowedTools ?? "Read,Grep,Glob,Edit,Write,Bash").split(","),
+          ...harnessOpts,
           env,
           abortController: ctrl,
           ...(opts.resume ? { resume: opts.resume } : {}),
