@@ -119,6 +119,15 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     if (url.includes("/foreman/requeue")) {
       return Promise.resolve({ ok: true });
     }
+    // ForemanLoopMetricsPanel self-fetches the convergence metrics; return an
+    // empty (0-loop) payload so it renders null (its silent-at-0 state) rather
+    // than crashing on the status-shaped fallback.
+    if (url.includes("/foreman/loop-metrics")) {
+      return Promise.resolve({
+        metrics: { totalLoops: 0, running: 0, terminal: 0, convergenceRate: null, iterationsToConverge: null, invariantViolationRate: null, costPerConvergence: null, bySignal: {} },
+        shadowDivergences: 0,
+      });
+    }
     // The console also renders ForemanClaudePanel, which self-fetches its own
     // (differently-shaped) status — not connected here; see
     // foreman-claude-panel.test.tsx for that card's own behavior.
