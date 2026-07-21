@@ -6,15 +6,26 @@
 // pill from the top-level `paused` flag when there's no live daemon state —
 // the other three pills come straight from `state.pulse` as the API computes
 // it (see pulseFor in @/lib/foreman/observe).
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ForemanStatusPayload } from "@/lib/foreman/status-read";
 
+// Backs the console's tab strip (useTabParam, see console-tabs.tsx), which reads
+// next/navigation directly rather than through a wrapper hook.
+const searchParams = new URLSearchParams();
+const replaceMock = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => "/acme/foreman",
   useParams: () => ({ orgSlug: "acme" }),
+  useSearchParams: () => searchParams,
+  useRouter: () => ({ replace: replaceMock }),
 }));
+
+beforeEach(() => {
+  searchParams.delete("tab");
+  replaceMock.mockClear();
+});
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 // The console subscribes to the org realtime stream (COSMOS-127), which opens an
@@ -129,6 +140,24 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     // status tests don't exercise it, so return an empty list here.
     if (url.endsWith("/feedback")) {
       return Promise.resolve([]);
+    }
+    // The console renders ForemanLoopMetricsPanel in the default Activity tab
+    // (COSMOS-loop-graph); stub its status fetch so that panel doesn't 404/hang
+    // and drag out (or fail) every test that renders the console.
+    if (url.includes("/foreman/loop-metrics")) {
+      return Promise.resolve({
+        metrics: {
+          totalLoops: 0,
+          running: 0,
+          terminal: 0,
+          convergenceRate: null,
+          iterationsToConverge: null,
+          invariantViolationRate: null,
+          costPerConvergence: null,
+          bySignal: {},
+        },
+        shadowDivergences: 0,
+      });
     }
     return Promise.resolve(holder.status);
   }),
@@ -590,5 +619,49 @@ describe("ForemanConsole — Rework dialog", () => {
     fireEvent.click(reworkButtons[1]);
     expect(await screen.findByText("Rework COSMOS-10")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("What should change?")).toHaveValue("");
+  });
+});
+
+describe("ForemanConsole — tabs", () => {
+  afterEach(() => {
+    cleanup();
+    holder.calls.length = 0;
+  });
+
+  it("renders all four tabs, with Activity selected by default", async () => {
+    holder.status = baseStatus();
+    renderConsole();
+
+    const activityTab = await screen.findByRole("tab", { name: "Activity" });
+    expect(activityTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Connections" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Build behavior" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Automation" })).toHaveAttribute("aria-selected", "false");
+
+    // Activity's own content (default tab) is visible without clicking anything.
+    expect(await screen.findByText("Up next")).toBeInTheDocument();
+  });
+
+  it("selects the tab named by ?tab= on load", async () => {
+    searchParams.set("tab", "connections");
+    holder.status = baseStatus();
+    renderConsole();
+
+    const connectionsTab = await screen.findByRole("tab", { name: "Connections" });
+    expect(connectionsTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it('clicking "Build behavior" updates the URL via router.replace, without a scroll jump', async () => {
+    holder.status = baseStatus();
+    renderConsole();
+
+    const buildTab = await screen.findByRole("tab", { name: "Build behavior" });
+    fireEvent.click(buildTab);
+
+    expect(replaceMock).toHaveBeenCalledWith(
+      expect.stringContaining("tab=build"),
+      { scroll: false },
+    );
   });
 });
