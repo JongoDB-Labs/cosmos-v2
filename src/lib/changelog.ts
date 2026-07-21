@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.222.2",
+    date: "2026-07-21",
+    title: "A cleaner “What’s new” dialog",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening “What’s new” no longer shows a stray highlight ring around the release notes — focus now lands on the button, so you can dismiss it in one click.",
+      },
+    ],
+  },
+  {
     version: "2.222.0",
     date: "2026-07-21",
     title: "The Foreman console is easier to navigate",
