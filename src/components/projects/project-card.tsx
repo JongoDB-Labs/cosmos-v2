@@ -187,7 +187,7 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
               <div className="h-7 w-7 rounded bg-[var(--primary-tint)] flex items-center justify-center text-xs font-semibold text-[var(--primary)]">
                 {project.name.charAt(0).toUpperCase()}
               </div>
-              <h3 className="font-medium truncate flex-1">{project.name}</h3>
+              <h3 className="font-medium truncate flex-1 text-[var(--text)]">{project.name}</h3>
               {project.lead && (
                 <Avatar size="sm" title={`Lead: ${project.lead.displayName}`}>
                   {project.lead.avatarUrl && (

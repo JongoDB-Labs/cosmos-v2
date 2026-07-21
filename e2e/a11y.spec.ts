@@ -126,7 +126,7 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
         serious,
         `serious/critical a11y violations on ${name}:\n` +
           serious
-            .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
+            .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]} :: ${v.detail ?? ""}`)
             .join("\n"),
       ).toHaveLength(0);
     });

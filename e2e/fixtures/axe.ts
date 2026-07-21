@@ -13,6 +13,7 @@ export interface AxeViolation {
   help: string;
   nodes: number;
   targets: string[];
+  detail?: string; // TEMP: axe color-contrast fg/bg/ratio for diagnosis
 }
 
 /**
@@ -55,13 +56,14 @@ export async function runAxe(
       id: string;
       impact: string | null;
       help: string;
-      nodes: Array<{ target: string[] }>;
+      nodes: Array<{ target: string[]; any?: Array<{ data?: unknown }> }>;
     }>).map((v) => ({
       id: v.id,
       impact: v.impact,
       help: v.help,
       nodes: v.nodes.length,
       targets: v.nodes.slice(0, 3).map((n) => n.target.join(" ")),
+      detail: JSON.stringify(v.nodes.slice(0, 3).map((n) => n.any?.[0]?.data ?? null)),
     }));
   }, tags);
 }
