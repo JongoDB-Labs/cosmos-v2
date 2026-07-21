@@ -105,11 +105,11 @@ describe("ForemanSkillsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /add skill/i }));
 
     await waitFor(() =>
-      expect(postCalls().some((c) => (c.body as any)?.name === "cosmos-x" && (c.body as any)?.body === "# X")).toBe(
+      expect(postCalls().some((c) => (c.body as { name?: string; description?: string; body?: string })?.name === "cosmos-x" && (c.body as { name?: string; description?: string; body?: string })?.body === "# X")).toBe(
         true,
       ),
     );
-    const call = postCalls().find((c) => (c.body as any)?.name === "cosmos-x");
+    const call = postCalls().find((c) => (c.body as { name?: string; description?: string; body?: string })?.name === "cosmos-x");
     expect(call?.body).toMatchObject({
       mode: "create",
       name: "cosmos-x",
@@ -132,7 +132,7 @@ describe("ForemanSkillsPanel", () => {
     expect((screen.getByLabelText(/name/i) as HTMLInputElement).value).toBe("pasted-skill");
 
     fireEvent.click(screen.getByRole("button", { name: /add skill/i }));
-    await waitFor(() => expect(postCalls().some((c) => (c.body as any)?.name === "pasted-skill")).toBe(true));
+    await waitFor(() => expect(postCalls().some((c) => (c.body as { name?: string; description?: string; body?: string })?.name === "pasted-skill")).toBe(true));
   });
 
   it("Paste mode: an invalid SKILL.md (no name) shows an inline error and does not fill", async () => {
