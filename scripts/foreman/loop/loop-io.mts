@@ -19,6 +19,8 @@ import type { TicketBrief } from "@/lib/foreman/prompt";
 import { initialState, serialize, deserialize, type LoopState } from "@/lib/foreman/loop/state";
 import { reduce } from "@/lib/foreman/loop/reduce";
 import { translate, type DaemonSignal } from "@/lib/foreman/loop/translate";
+import { classify } from "@/lib/foreman/loop/convergence";
+import type { LoopSettings } from "@/lib/foreman/loop/mode";
 import { getForemanLoopSettings } from "./loop-mode.mjs";
 
 const loopCache = new Map<string, LoopState>();
@@ -34,16 +36,21 @@ function serialize_(loopId: string, fn: () => Promise<void>): Promise<void> {
   return tracked;
 }
 
-// Mode gate with a 60s TTL cache (keyed by orgId).
-const MODE_TTL_MS = 60_000;
-const modeCache = new Map<string, { on: boolean; at: number }>();
-async function recordingEnabled(orgId: string, nowMs: number): Promise<boolean> {
-  const hit = modeCache.get(orgId);
-  if (hit && nowMs - hit.at < MODE_TTL_MS) return hit.on;
-  let on = false;
-  try { on = (await getForemanLoopSettings(orgId)).mode !== "off"; } catch { on = false; }
-  modeCache.set(orgId, { on, at: nowMs });
-  return on;
+// Settings gate with a 60s TTL cache (keyed by orgId). Returns the org's loop
+// settings when recording is on (mode shadow|live), else null ("off" records
+// nothing). Cached so enabling an org is picked up without a daemon restart.
+const SETTINGS_TTL_MS = 60_000;
+const settingsCache = new Map<string, { settings: LoopSettings | null; at: number }>();
+async function getSettings(orgId: string, nowMs: number): Promise<LoopSettings | null> {
+  const hit = settingsCache.get(orgId);
+  if (hit && nowMs - hit.at < SETTINGS_TTL_MS) return hit.settings;
+  let settings: LoopSettings | null = null;
+  try {
+    const s = await getForemanLoopSettings(orgId);
+    settings = s.mode === "off" ? null : s;
+  } catch { settings = null; }
+  settingsCache.set(orgId, { settings, at: nowMs });
+  return settings;
 }
 
 const asJson = (v: unknown): Prisma.InputJsonValue => v as unknown as Prisma.InputJsonValue;
@@ -55,7 +62,7 @@ function warn(msg: string): void {
  *  iteration 0 — only if the org opts in. Ordered ahead of that loop's signals. */
 export function beginLoop(item: { id: string; orgId: string; brief: TicketBrief }, nowMs: number): Promise<void> {
   return serialize_(item.id, async () => {
-    if (!(await recordingEnabled(item.orgId, nowMs))) return;
+    if (!(await getSettings(item.orgId, nowMs))) return;
     try {
       // Idempotent: a ticket that errors mid-build is re-claimed (up to MAX_ATTEMPTS),
       // re-firing beginLoop. Do NOT rewind an already-tracked loop to iteration 0 —
@@ -113,7 +120,8 @@ export function emit(loopId: string, signal: DaemonSignal, nowMs: number): Promi
       const state = await loadState(loopId);
       if (!state) return; // no begun loop → drop (recording was off at begin, or a resume-path build)
       if (state.terminationSignal) return; // already terminal → don't append past the end (e.g. a resume ship onto a parked loop)
-      if (!(await recordingEnabled(state.orgId, nowMs))) return; // org turned recording off
+      const settings = await getSettings(state.orgId, nowMs);
+      if (!settings) return; // org turned recording off
       const event = translate(signal);
       if (!event) return;
 
@@ -125,6 +133,27 @@ export function emit(loopId: string, signal: DaemonSignal, nowMs: number): Promi
       // drop the daemon's real ship. The caps belong to the DRIVER (Phase 6), not the
       // recorder.
       const next = reduce(state, event);
+
+      // Phase 5 shadow: run the convergence contract WITHOUT acting on it. The
+      // dangerous divergence for live-driving (Phase 6) is a premature terminate —
+      // classify would stop a loop the daemon is still progressing (and may go on to
+      // ship). Surface those as `loop_shadow_divergence` events so the engine's
+      // agreement with reality is measurable BEFORE it is ever allowed to drive.
+      if (!next.terminationSignal) {
+        const verdict = classify(next, nowMs, settings.budgets);
+        if (verdict.status === "terminal") {
+          warn(`[shadow] ${loopId}: engine would ${verdict.signal} at iter ${next.iteration} (${verdict.reason}) — daemon still running`);
+          await prisma.foremanEvent
+            .create({
+              data: {
+                orgId: next.orgId, workItemId: loopId, kind: "loop_shadow_divergence", severity: "info",
+                message: `engine would ${verdict.signal} at iteration ${next.iteration} but the daemon continued`,
+                data: asJson({ signal: verdict.signal, reason: verdict.reason, iteration: next.iteration, phase: next.phase }),
+              },
+            })
+            .catch(() => undefined);
+        }
+      }
       const prevMs = lastTransitionMs.get(loopId) ?? state.startedAtMs;
       const durationMs = Math.max(0, nowMs - prevMs);
       lastTransitionMs.set(loopId, nowMs);
