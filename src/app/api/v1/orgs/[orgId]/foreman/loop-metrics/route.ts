@@ -53,9 +53,13 @@ export async function GET(_request: Request, { params }: RouteParams) {
     // Phase 5 shadow: how often the convergence contract would have terminated a
     // loop the daemon was still progressing (recorded by loop-io in shadow/live).
     // 0 = the engine agrees with reality — the gate to trust before it drives (Phase 6).
-    const shadowDivergences = await prisma.foremanEvent.count({
-      where: { orgId, kind: "loop_shadow_divergence" },
-    });
+    const shadowDivergences = (
+      await prisma.foremanEvent.findMany({
+        where: { orgId, kind: "loop_shadow_divergence" },
+        distinct: ["workItemId"],
+        select: { workItemId: true },
+      })
+    ).length; // distinct LOOPS, not transitions — the card reads it as loops
     return success({ metrics, shadowDivergences });
   } catch (error) {
     return handleApiError(error);

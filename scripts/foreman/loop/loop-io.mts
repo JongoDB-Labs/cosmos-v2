@@ -25,6 +25,9 @@ import { getForemanLoopSettings } from "./loop-mode.mjs";
 
 const loopCache = new Map<string, LoopState>();
 const lastTransitionMs = new Map<string, number>();
+// Loops that have already emitted a shadow-divergence event — at most one per loop
+// (else a loop stuck past a cap would spam one event per subsequent transition).
+const shadowFlagged = new Set<string>();
 
 // Per-loop promise chain: preserves fold order for concurrent fire-and-forget emits.
 const chains = new Map<string, Promise<void>>();
@@ -137,11 +140,16 @@ export function emit(loopId: string, signal: DaemonSignal, nowMs: number): Promi
       // Phase 5 shadow: run the convergence contract WITHOUT acting on it. The
       // dangerous divergence for live-driving (Phase 6) is a premature terminate —
       // classify would stop a loop the daemon is still progressing (and may go on to
-      // ship). Surface those as `loop_shadow_divergence` events so the engine's
-      // agreement with reality is measurable BEFORE it is ever allowed to drive.
-      if (!next.terminationSignal) {
+      // ship). Surface those as `loop_shadow_divergence` events (at most one per loop)
+      // so the engine's agreement with reality is measurable BEFORE it is ever allowed
+      // to drive. NOTE: this over-counts conservatively by up to one transition — when
+      // the daemon is itself about to terminate (e.g. hits wall-clock then parks next
+      // signal), classify fires one transition earlier, so both sides agree on the
+      // outcome yet it's flagged. Erring toward caution before Phase 6 is intended.
+      if (!next.terminationSignal && !shadowFlagged.has(loopId)) {
         const verdict = classify(next, nowMs, settings.budgets);
         if (verdict.status === "terminal") {
+          shadowFlagged.add(loopId); // one divergence per loop, not per transition
           warn(`[shadow] ${loopId}: engine would ${verdict.signal} at iter ${next.iteration} (${verdict.reason}) — daemon still running`);
           await prisma.foremanEvent
             .create({
@@ -183,6 +191,7 @@ export function emit(loopId: string, signal: DaemonSignal, nowMs: number): Promi
       if (terminal) {
         loopCache.delete(loopId);
         lastTransitionMs.delete(loopId);
+        shadowFlagged.delete(loopId);
       } else {
         loopCache.set(loopId, next);
       }

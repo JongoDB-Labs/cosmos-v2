@@ -35,6 +35,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: {
         OR: enabled ? [{ orgId }, { orgId: null }] : [{ orgId }],
         ...(kind && (EVENT_KINDS as readonly string[]).includes(kind) ? { kind } : {}),
+        // Internal loop-graph diagnostics (loop_*) feed the convergence dashboard,
+        // not the human operator stream — keep them out of the default feed.
+        NOT: { kind: { startsWith: "loop_" } },
       },
       orderBy: [{ ts: "desc" }, { id: "desc" }],
       take: limit,
