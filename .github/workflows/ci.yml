@@ -188,6 +188,16 @@ jobs:
       ALLOWED_EMAILS: ci@example.com
       # Enables the /api/testenv/sign-in route the Playwright fixtures use.
       E2E_TEST_AUTH: "1"
+      # Use the PRODUCTION realtime adapter (Postgres LISTEN/NOTIFY) in e2e. The
+      # default in dev/test is the in-process memory bus, whose module-level
+      # singleton is NOT reliably shared across next-dev's per-route module graphs
+      # (the "bus-under-tsx" gotcha) — so a message published by the send route
+      # never reaches the SSE route's subscriber, realtime silently doesn't
+      # deliver, and chat specs sit on their 55-70s visibility fallbacks (the
+      # dominant e2e cost). pg bridges routes via the shared CI Postgres, so
+      # realtime delivers in <1s and the suite runs fast. Also faithfully
+      # exercises the adapter production actually uses.
+      REALTIME_BUS: pg
       # The dev server can exceed the runner's ~2GB Node default on this codebase.
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
