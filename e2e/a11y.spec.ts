@@ -120,6 +120,12 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
         `${name} rendered an error boundary instead of content`,
       ).toHaveCount(0);
 
+      // Freeze animations/transitions so the scan sees FINAL states. Card fade-ins
+      // (opacity 0->1) and other entrance transitions otherwise get caught mid-flight,
+      // where partial opacity transiently drops text contrast below AA — a scan-timing
+      // artifact, not a real regression (the settled UI meets contrast).
+      await page.addStyleTag({ content: "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}" });
+      await page.waitForTimeout(100);
       const violations = await runAxe(page);
       const serious = blocking(violations);
       expect(
