@@ -125,6 +125,21 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
       // where partial opacity transiently drops text contrast below AA — a scan-timing
       // artifact, not a real regression (the settled UI meets contrast).
       await page.addStyleTag({ content: "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}" });
+      // Also wait for any JS-driven entrance animation (inline opacity ramped by a
+      // script, which the CSS override above cannot touch) to SETTLE — poll until no
+      // element on the page is stuck at partial opacity, so the scan sees final state.
+      await page
+        .waitForFunction(
+          () => {
+            for (const el of Array.from(document.querySelectorAll("body *"))) {
+              const o = parseFloat(getComputedStyle(el).opacity || "1");
+              if (o > 0 && o < 0.99) return false;
+            }
+            return true;
+          },
+          { timeout: 5000 },
+        )
+        .catch(() => {});
       await page.waitForTimeout(100);
       const violations = await runAxe(page);
       const serious = blocking(violations);
