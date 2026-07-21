@@ -45,6 +45,7 @@ import { ForemanHarnessPanel } from "./foreman-harness-panel";
 import { ForemanSkillsPanel } from "./foreman-skills-panel";
 import { ForemanMcpPanel } from "./foreman-mcp-panel";
 import { ForemanGroomingFeed } from "./foreman-grooming-feed";
+import { ForemanLoopMetricsPanel } from "./foreman-loop-metrics-panel";
 
 /** "3m ago" / "2h ago" / "5d ago" — the app has no shared relative-time
  *  helper (each consumer defines its own; see activity-feed.tsx /
@@ -668,6 +669,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       <ForemanSkillsPanel orgId={orgId} />
       <ForemanMcpPanel orgId={orgId} />
       <ForemanGroomingFeed orgId={orgId} />
+      <ForemanLoopMetricsPanel orgId={orgId} />
 
       <IntakeDecisions orgId={orgId} />
 
