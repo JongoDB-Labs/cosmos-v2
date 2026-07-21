@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.221.0",
+    date: "2026-07-21",
+    title: "Roll straight into your next sprint",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When you complete a sprint, we now offer to start the next one right away — pre-filled with the same duration and an incremented name (e.g. two-week Sprint 1 → two-week Sprint 2). Tweak the details or start it as-is.",
+      },
+    ],
+  },
+  {
     version: "2.220.0",
     date: "2026-07-20",
     title: "Groundwork for a self-monitoring build engine",
