@@ -29,12 +29,14 @@ export function ForemanLoopMetricsPanel({ orgId }: { orgId: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: useOrgQueryKey("foreman-loop-metrics"),
     queryFn: () =>
-      jsonFetch<{ metrics: LoopMetrics }>(`/api/v1/orgs/${orgId}/foreman/loop-metrics`),
+      jsonFetch<{ metrics: LoopMetrics; shadowDivergences: number }>(
+        `/api/v1/orgs/${orgId}/foreman/loop-metrics`,
+      ),
     refetchInterval: 60_000,
   });
 
   if (isLoading || isError || !data) return null;
-  const { metrics } = data;
+  const { metrics, shadowDivergences } = data;
   if (metrics.totalLoops === 0) return null;
 
   return (
@@ -76,6 +78,12 @@ export function ForemanLoopMetricsPanel({ orgId }: { orgId: string }) {
         </div>
       </div>
       <p className="mt-3 text-xs text-[var(--text-muted)]">{fmtBySignal(metrics.bySignal)}</p>
+      <p className="mt-1 text-xs text-[var(--text-muted)]">
+        Shadow:{" "}
+        {shadowDivergences === 0
+          ? "convergence contract agrees with reality (0 premature-terminate divergences)"
+          : `${shadowDivergences} premature-terminate divergence${shadowDivergences === 1 ? "" : "s"} — the engine would have stopped a loop the daemon completed`}
+      </p>
     </SectionCard>
   );
 }

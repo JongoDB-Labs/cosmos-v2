@@ -50,7 +50,13 @@ export async function GET(_request: Request, { params }: RouteParams) {
       transitions as unknown as LoopTransitionRow[],
     );
 
-    return success({ metrics });
+    // Phase 5 shadow: how often the convergence contract would have terminated a
+    // loop the daemon was still progressing (recorded by loop-io in shadow/live).
+    // 0 = the engine agrees with reality — the gate to trust before it drives (Phase 6).
+    const shadowDivergences = await prisma.foremanEvent.count({
+      where: { orgId, kind: "loop_shadow_divergence" },
+    });
+    return success({ metrics, shadowDivergences });
   } catch (error) {
     return handleApiError(error);
   }
