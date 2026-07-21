@@ -87,6 +87,16 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
       signInAs,
     }) => {
       await signInAs(EMAIL);
+
+      // Scan the SETTLED UI: emulate "reduce motion" so entrance animations don't
+      // run under the scan. framer's app-wide `reducedMotion="user"` only drops
+      // transform/layout animations — it deliberately keeps opacity/color fades —
+      // so fade-in wrappers (e.g. StaggeredGrid) explicitly honor reduce and
+      // render at final opacity. Without this, axe catches muted text mid-fade at
+      // partial opacity (a transient ~3.5:1 that isn't a real, settled violation)
+      // and the job flakes/retries across many surfaces until it times out.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+
       await page.goto(`/${ORG}${path}`, { waitUntil: "domcontentloaded" });
 
       // Fail loudly if we didn't land on the authenticated org page. Without
