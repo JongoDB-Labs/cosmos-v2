@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.220.0",
+    date: "2026-07-20",
+    title: "Groundwork for a self-monitoring build engine",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Behind the scenes: Foreman now keeps a durable, replayable record of each ticket's build loop. There is no user-facing change yet -- it quietly observes what the build engine does so we can measure and improve delivery reliability over time.",
+      },
+    ],
+  },
+  {
     version: "2.219.1",
     date: "2026-07-20",
     title: "Screen readers can find the notifications bell",
