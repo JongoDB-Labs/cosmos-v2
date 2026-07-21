@@ -675,7 +675,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       </Dialog>
 
       {tab === "connections" && (
-        <div role="tabpanel" id="tabpanel-connections" aria-labelledby="tab-connections" className="space-y-6">
+        <div role="tabpanel" tabIndex={0} id="tabpanel-connections" aria-labelledby="tab-connections" className="space-y-6">
           {/* Admin section — Foreman's own Claude subscription. This page is
               already OWNER/ADMIN-gated (see foreman/page.tsx's canManage check),
               so no extra permission gate is needed here. */}
@@ -685,7 +685,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       )}
 
       {tab === "build" && (
-        <div role="tabpanel" id="tabpanel-build" aria-labelledby="tab-build" className="space-y-6">
+        <div role="tabpanel" tabIndex={0} id="tabpanel-build" aria-labelledby="tab-build" className="space-y-6">
           <ForemanHarnessPanel orgId={orgId} />
           <ForemanSkillsPanel orgId={orgId} />
           <ForemanMcpPanel orgId={orgId} />
@@ -693,13 +693,13 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
       )}
 
       {tab === "automation" && (
-        <div role="tabpanel" id="tabpanel-automation" aria-labelledby="tab-automation" className="space-y-6">
+        <div role="tabpanel" tabIndex={0} id="tabpanel-automation" aria-labelledby="tab-automation" className="space-y-6">
           <ForemanSupervisorPanel orgId={orgId} />
         </div>
       )}
 
       {tab === "activity" && (
-      <div role="tabpanel" id="tabpanel-activity" aria-labelledby="tab-activity" className="space-y-6">
+      <div role="tabpanel" tabIndex={0} id="tabpanel-activity" aria-labelledby="tab-activity" className="space-y-6">
 
       <IntakeDecisions orgId={orgId} />
 
