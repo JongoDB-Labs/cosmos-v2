@@ -84,7 +84,7 @@
   --text: #0F172A;
   /* a11y: darkened from #64748B (~4.4:1 on --surface, fails WCAG AA) so small
      muted text clears 4.5:1. Dark mode already passes, so only light changes. */
-  --text-muted: #475569;
+  --text-muted: #5A6678;
 
   --primary: #0F172A;
   --primary-hover: #1E293B;
@@ -129,7 +129,7 @@
     --overlay: #1B2034;
     --border: #252B40;
     --text: #E8EAF2;
-    --text-muted: #A6ABC2;
+    --text-muted: #8B8FA8;
 
     /* Brighter status text for legible badge labels on dark tints (AA). */
     --status-progress-text: #60A5FA;
@@ -159,7 +159,7 @@
   --overlay: #1B2034;
   --border: #252B40;
   --text: #E8EAF2;
-  --text-muted: #A6ABC2;
+  --text-muted: #8B8FA8;
 
   /* Brighter status text for legible badge labels on dark tints (AA). */
   --status-progress-text: #60A5FA;
