@@ -125,6 +125,20 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
         return { skin: document.documentElement.className, muted: cs.getPropertyValue("--text-muted").trim(), surface: cs.getPropertyValue("--surface").trim() };
       });
       console.log(`A11Y-THEME ${name}: ${JSON.stringify(theme)}`);
+      if (name === "projects") {
+        const chain = await page.evaluate(() => {
+          const el = document.querySelector(".text-\\[var\\(--text-muted\\)\\]");
+          if (!el) return "no muted el";
+          const out: string[] = [];
+          let n: Element | null = el;
+          for (let i = 0; n && i < 8; i++, n = n.parentElement) {
+            const cs = getComputedStyle(n as Element);
+            out.push((n as Element).tagName + "." + ((n as Element).className || "").toString().slice(0,40) + " op=" + cs.opacity + " color=" + cs.color);
+          }
+          return out.join(" | ");
+        });
+        console.log(`A11Y-CHAIN: ${chain}`);
+      }
       const violations = await runAxe(page);
       const serious = blocking(violations);
       expect(
