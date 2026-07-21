@@ -46,6 +46,15 @@ import { ForemanSkillsPanel } from "./foreman-skills-panel";
 import { ForemanMcpPanel } from "./foreman-mcp-panel";
 import { ForemanGroomingFeed } from "./foreman-grooming-feed";
 import { ForemanLoopMetricsPanel } from "./foreman-loop-metrics-panel";
+import { useTabParam, TabList, type TabDef } from "./console-tabs";
+
+const CONSOLE_TABS: TabDef[] = [
+  { id: "activity", label: "Activity" },
+  { id: "connections", label: "Connections" },
+  { id: "build", label: "Build behavior" },
+  { id: "automation", label: "Automation" },
+];
+const TAB_IDS = CONSOLE_TABS.map((t) => t.id);
 
 /** "3m ago" / "2h ago" / "5d ago" — the app has no shared relative-time
  *  helper (each consumer defines its own; see activity-feed.tsx /
@@ -456,6 +465,10 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
   // report expanded. Keyed by workItemId so several can be open independently.
   const [analysisOpen, setAnalysisOpen] = useState<Record<string, boolean>>({});
 
+  // Hook (not a plain derivation) — must be called unconditionally, ahead of
+  // the isLoading/isError early returns below (Rules of Hooks).
+  const [tab, setTab] = useTabParam("activity", TAB_IDS);
+
   // Pause/resume PUTs the FULL automation config back (both blocks) — same
   // contract as the settings form — flipping only autonomousDelivery.enabled.
   const toggleDelivery = useOrgMutation<AutomationConfig, Error, boolean>({
@@ -607,6 +620,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         </p>
       </div>
 
+      <TabList tabs={CONSOLE_TABS} active={tab} onSelect={setTab} />
+
       <Dialog open={pauseDialogOpen} onOpenChange={setPauseDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -659,17 +674,32 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Admin section — Foreman's own Claude subscription. This page is
-          already OWNER/ADMIN-gated (see foreman/page.tsx's canManage check),
-          so no extra permission gate is needed here. */}
-      <ForemanClaudePanel orgId={orgId} />
-      <ForemanGithubPanel orgId={orgId} />
-      <ForemanSupervisorPanel orgId={orgId} />
-      <ForemanHarnessPanel orgId={orgId} />
-      <ForemanSkillsPanel orgId={orgId} />
-      <ForemanMcpPanel orgId={orgId} />
-      <ForemanGroomingFeed orgId={orgId} />
-      <ForemanLoopMetricsPanel orgId={orgId} />
+      {tab === "connections" && (
+        <div role="tabpanel" id="tabpanel-connections" aria-labelledby="tab-connections" className="space-y-6">
+          {/* Admin section — Foreman's own Claude subscription. This page is
+              already OWNER/ADMIN-gated (see foreman/page.tsx's canManage check),
+              so no extra permission gate is needed here. */}
+          <ForemanClaudePanel orgId={orgId} />
+          <ForemanGithubPanel orgId={orgId} />
+        </div>
+      )}
+
+      {tab === "build" && (
+        <div role="tabpanel" id="tabpanel-build" aria-labelledby="tab-build" className="space-y-6">
+          <ForemanHarnessPanel orgId={orgId} />
+          <ForemanSkillsPanel orgId={orgId} />
+          <ForemanMcpPanel orgId={orgId} />
+        </div>
+      )}
+
+      {tab === "automation" && (
+        <div role="tabpanel" id="tabpanel-automation" aria-labelledby="tab-automation" className="space-y-6">
+          <ForemanSupervisorPanel orgId={orgId} />
+        </div>
+      )}
+
+      {tab === "activity" && (
+      <div role="tabpanel" id="tabpanel-activity" aria-labelledby="tab-activity" className="space-y-6">
 
       <IntakeDecisions orgId={orgId} />
 
@@ -943,6 +973,12 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         )}
       </SectionCard>
 
+      <ForemanLoopMetricsPanel orgId={orgId} />
+      <ForemanGroomingFeed orgId={orgId} />
+      <ForemanEventFeed orgId={orgId} />
+      </div>
+      )}
+
       <Dialog
         open={rework !== null}
         onOpenChange={(open) => {
@@ -1060,7 +1096,6 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         </DialogContent>
       </Dialog>
 
-      <ForemanEventFeed orgId={orgId} />
     </div>
     </TooltipProvider>
   );
