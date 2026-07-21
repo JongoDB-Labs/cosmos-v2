@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.221.0",
+    date: "2026-07-21",
+    title: "See how reliably Foreman is delivering",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Foreman console has a new \"Delivery convergence\" card: convergence rate, iterations to converge, invariant-violation rate, and cost per convergence \u2014 computed from a durable, replayable record of every build loop. It answers \"is Foreman getting better or worse at shipping?\" at a glance.",
+      },
+      {
+        kind: "improvement",
+        text: "Behind the scenes: in shadow mode Foreman now measures whether its convergence logic agrees with what the build daemon actually does, so we can trust it before it ever drives builds itself.",
+      },
+    ],
+  },
+  {
     version: "2.220.0",
     date: "2026-07-20",
     title: "Groundwork for a self-monitoring build engine",
