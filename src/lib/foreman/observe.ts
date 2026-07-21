@@ -1,6 +1,9 @@
 // Pure vocabulary + math for Foreman observability, shared by the daemon
 // writer (scripts/foreman/observe.mts), the status API, and the UI. No I/O.
 
+// Operator-facing event taxonomy. Internal loop-graph diagnostic kinds (loop_*,
+// e.g. loop_shadow_divergence) are deliberately NOT listed here: they power the
+// convergence dashboard, not the human event feed, which filters them out.
 export const EVENT_KINDS = [
   "boot", "claimed", "duplicate", "needs-input", "gated", "already-done",
   "repair", "queued-ship", "shipped", "parked", "ship-failed",
