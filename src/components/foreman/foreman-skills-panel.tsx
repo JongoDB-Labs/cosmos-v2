@@ -17,14 +17,21 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { parseSkillMarkdown } from "@/lib/foreman/skill-import";
 
 /**
- * Foreman skills manager — create/import/manage the SKILL.md-style build
- * skills the build agent reads every pass (see ForemanHarnessPanel). Mirrors
+ * Foreman skills manager — create/manage the SKILL.md-style build skills the
+ * build agent reads every pass (see ForemanHarnessPanel). Mirrors
  * ForemanSupervisorPanel's fetch/save idioms: GET the list on mount, mutate
  * via direct jsonFetch calls (no react-query mutations, thin), refetch after.
  * A skill with `orgId: null` is project-wide (applies to every org's
  * builds); one with `orgId` is scoped to this org only.
+ *
+ * "Add skill" is a single flow with a Compose | Paste toggle: Compose edits
+ * name/description/body directly; Paste lets you drop in a whole SKILL.md
+ * and "Fill from paste" runs it through the pure `parseSkillMarkdown` parser
+ * to populate the same Compose fields, then one "Add skill" button submits
+ * either way via `createSkill`.
  */
 interface SkillRow {
   id: string;
@@ -60,8 +67,9 @@ function ForemanSkillsBody({ orgId }: { orgId: string }) {
   const [createDescription, setCreateDescription] = useState("");
   const [createBody, setCreateBody] = useState("");
   const [creating, setCreating] = useState(false);
-  const [importBody, setImportBody] = useState("");
-  const [importing, setImporting] = useState(false);
+  const [addMode, setAddMode] = useState<"compose" | "paste">("compose");
+  const [pasteBody, setPasteBody] = useState("");
+  const [pasteError, setPasteError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
   if (isLoading) return <Skeleton className="h-48 w-full" />;
@@ -129,6 +137,9 @@ function ForemanSkillsBody({ orgId }: { orgId: string }) {
       setCreateName("");
       setCreateDescription("");
       setCreateBody("");
+      setPasteBody("");
+      setPasteError(null);
+      setAddMode("compose");
       qc.invalidateQueries({ queryKey });
       await refetch();
     } catch (err) {
@@ -138,22 +149,17 @@ function ForemanSkillsBody({ orgId }: { orgId: string }) {
     }
   }
 
-  async function importSkill() {
-    if (!importBody.trim()) return;
-    setImporting(true);
+  function fillFromPaste() {
+    setPasteError(null);
     try {
-      await jsonFetch(`/api/v1/orgs/${orgId}/foreman/skills`, {
-        method: "POST",
-        body: JSON.stringify({ mode: "import", body: importBody, orgScope }),
-      });
-      toast.success("Skill imported.");
-      setImportBody("");
-      qc.invalidateQueries({ queryKey });
-      await refetch();
-    } catch (err) {
-      notifyError(err, "Couldn't import the skill.");
-    } finally {
-      setImporting(false);
+      const parsed = parseSkillMarkdown(pasteBody);
+      setCreateName(parsed.name);
+      setCreateDescription(parsed.description);
+      setCreateBody(parsed.body);
+      setPasteBody("");
+      setAddMode("compose");
+    } catch (e) {
+      setPasteError(e instanceof Error ? e.message : "Couldn't parse SKILL.md");
     }
   }
 
@@ -210,45 +216,74 @@ function ForemanSkillsBody({ orgId }: { orgId: string }) {
       </div>
 
       <div className="rounded-lg border border-[var(--border)] p-3">
-        <h4 className="mb-2 text-xs font-medium text-[var(--text-muted)]">Create a skill</h4>
+        <div className="mb-2 flex items-center justify-between">
+          <h4 className="text-xs font-medium text-[var(--text-muted)]">Add skill</h4>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="xs"
+              variant={addMode === "compose" ? "secondary" : "ghost"}
+              aria-pressed={addMode === "compose"}
+              onClick={() => setAddMode("compose")}
+            >
+              Compose
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant={addMode === "paste" ? "secondary" : "ghost"}
+              aria-pressed={addMode === "paste"}
+              onClick={() => setAddMode("paste")}
+            >
+              Paste
+            </Button>
+          </div>
+        </div>
+
         <div className="space-y-2">
+          {addMode === "paste" && (
+            <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2">
+              <Textarea
+                aria-label="Paste a SKILL.md"
+                placeholder={
+                  "Paste a SKILL.md — with `---\\nname: ...\\ndescription: ...\\n---` frontmatter, or a leading `# Heading`…"
+                }
+                value={pasteBody}
+                onChange={(e) => setPasteBody(e.target.value)}
+                rows={6}
+              />
+              {pasteError && (
+                <p className="text-xs text-[var(--status-critical-text,var(--status-critical))]">
+                  {pasteError}
+                </p>
+              )}
+              <Button type="button" onClick={fillFromPaste} size="sm" variant="outline">
+                Fill from paste
+              </Button>
+            </div>
+          )}
+
           <Input
-            aria-label="Skill name"
+            aria-label="Name"
             placeholder="Name"
             value={createName}
             onChange={(e) => setCreateName(e.target.value)}
           />
           <Input
-            aria-label="Skill description"
+            aria-label="Description"
             placeholder="Description"
             value={createDescription}
             onChange={(e) => setCreateDescription(e.target.value)}
           />
           <Textarea
-            aria-label="Skill body"
+            aria-label="Body"
             placeholder="SKILL.md body — the instructions the build agent reads…"
             value={createBody}
             onChange={(e) => setCreateBody(e.target.value)}
             rows={5}
           />
           <Button onClick={createSkill} disabled={creating} size="sm">
-            {creating ? "Creating…" : "Create"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-[var(--border)] p-3">
-        <h4 className="mb-2 text-xs font-medium text-[var(--text-muted)]">Import a SKILL.md</h4>
-        <div className="space-y-2">
-          <Textarea
-            aria-label="SKILL.md to import"
-            placeholder={"Paste a SKILL.md — with `---\\nname: ...\\ndescription: ...\\n---` frontmatter, or a leading `# Heading`…"}
-            value={importBody}
-            onChange={(e) => setImportBody(e.target.value)}
-            rows={6}
-          />
-          <Button onClick={importSkill} disabled={importing} size="sm" variant="outline">
-            {importing ? "Importing…" : "Import"}
+            {creating ? "Adding…" : "Add skill"}
           </Button>
         </div>
       </div>
