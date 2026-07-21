@@ -23,7 +23,7 @@ const SEEN_KEY = "cosmos:whatsNewSeen";
 
 const KIND_META: Record<
   ChangeKind,
-  { label: string; color: string; Icon: React.ComponentType<{ className?: string }> }
+  { label: string; color: string; Icon: React.ComponentType<{ className?: string; color?: string }> }
 > = {
   feature: { label: "New", color: "var(--primary)", Icon: Sparkles },
   improvement: { label: "Improved", color: "var(--status-progress)", Icon: ArrowUpCircle },
@@ -101,7 +101,7 @@ export function WhatsNew() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[60vh] space-y-6 overflow-y-auto pr-1">
+        <div className="max-h-[60vh] space-y-6 overflow-y-auto pr-1" tabIndex={0} role="region" aria-label="Release notes">
           {releases.map((r) => (
             <div key={r.version}>
               <div className="flex items-baseline justify-between gap-2">
@@ -118,11 +118,11 @@ export function WhatsNew() {
                       <span
                         className="mt-0.5 inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium"
                         style={{
-                          color: m.color,
+                          color: "var(--text)",
                           backgroundColor: `color-mix(in srgb, ${m.color} 14%, transparent)`,
                         }}
                       >
-                        <m.Icon className="size-3" />
+                        <m.Icon className="size-3" color={m.color} />
                         {m.label}
                       </span>
                       <span className="text-[var(--text-muted)]">{h.text}</span>
