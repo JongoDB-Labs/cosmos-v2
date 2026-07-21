@@ -127,7 +127,7 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
       console.log(`A11Y-THEME ${name}: ${JSON.stringify(theme)}`);
       if (name === "projects") {
         const chain = await page.evaluate(() => {
-          const el = document.querySelector(".text-\\[var\\(--text-muted\\)\\]");
+          const el = document.querySelector("a[href\$=\"FAL\"] .text-\\[var\\(--text-muted\\)\\]");
           if (!el) return "no muted el";
           const out: string[] = [];
           let n: Element | null = el;
