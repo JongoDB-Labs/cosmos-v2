@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
+import { computeNextSprintDefaults } from "@/lib/cycles/next-sprint";
 
 interface CycleReport {
   velocity?: number;
@@ -163,6 +164,16 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
   const [completeTarget, setCompleteTarget] = useState<Cycle | null>(null);
   const [moveToCycleId, setMoveToCycleId] = useState<string>(BACKLOG_OPTION);
+
+  // "Start the next sprint?" prompt (Phase 4): after a sprint completes, offer to
+  // auto-start the following one pre-filled with the same duration and an
+  // incremented title. Open only for SPRINT cycles when the user can create them.
+  const [nextSprintOpen, setNextSprintOpen] = useState(false);
+  const [nextSprintParentId, setNextSprintParentId] = useState<string | null>(null);
+  const [nextName, setNextName] = useState("");
+  const [nextStart, setNextStart] = useState("");
+  const [nextEnd, setNextEnd] = useState("");
+  const [startingNext, setStartingNext] = useState(false);
 
   const fetchCycles = useCallback(async () => {
     setLoading(true);
@@ -297,10 +308,10 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
 
   // moveIncompleteToCycleId: null → incomplete items return to the backlog;
   // a cycle id → they roll over into that (planned) cycle.
-  async function completeCycle(id: string, moveIncompleteToCycleId: string | null) {
-    setBusyId(id);
+  async function completeCycle(cycle: Cycle, moveIncompleteToCycleId: string | null) {
+    setBusyId(cycle.id);
     try {
-      const res = await fetch(`${basePath}/cycles/${id}/complete`, {
+      const res = await fetch(`${basePath}/cycles/${cycle.id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ moveIncompleteToCycleId }),
@@ -308,10 +319,62 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
       if (!res.ok) throw new Error("Failed to complete cycle");
       setCompleteTarget(null);
       await fetchCycles();
+      // Phase 4: offer to auto-start the next sprint, pre-filled with the same
+      // duration and an incremented title. Sprints only — other cycle kinds
+      // (phases, releases…) don't roll forward this way.
+      if (cycle.cycleKind === "SPRINT" && canCreate) {
+        const defaults = computeNextSprintDefaults(cycle);
+        setNextName(defaults.name);
+        setNextStart(defaults.startDate);
+        setNextEnd(defaults.endDate);
+        setNextSprintParentId(cycle.parentId);
+        setNextSprintOpen(true);
+      }
     } catch (err) {
       notifyError(err, "Couldn't complete the cycle.");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  // Create the next sprint from the prompt's (editable) defaults and immediately
+  // activate it — the "auto-start" of Phase 4. Inherits the completed sprint's PI.
+  async function startNextSprint() {
+    if (!nextName.trim() || !nextStart || !nextEnd) return;
+    if (new Date(nextEnd) < new Date(nextStart)) {
+      notifyError(
+        new Error("End before start"),
+        "End date must be on or after the start date.",
+      );
+      return;
+    }
+    setStartingNext(true);
+    try {
+      const createRes = await fetch(`${basePath}/cycles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nextName.trim(),
+          startDate: new Date(nextStart).toISOString(),
+          endDate: new Date(nextEnd).toISOString(),
+          cycleKind: "SPRINT",
+          parentId: nextSprintParentId,
+        }),
+      });
+      if (!createRes.ok) throw new Error("Failed to create the next sprint");
+      const newCycle: Cycle = await createRes.json();
+      const startRes = await fetch(`${basePath}/cycles/${newCycle.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ACTIVE" }),
+      });
+      if (!startRes.ok) throw new Error("Sprint created but couldn't be started");
+      setNextSprintOpen(false);
+      await fetchCycles();
+    } catch (err) {
+      notifyError(err, "Couldn't start the next sprint.");
+    } finally {
+      setStartingNext(false);
     }
   }
 
@@ -655,13 +718,77 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               onClick={() =>
                 completeTarget &&
                 completeCycle(
-                  completeTarget.id,
+                  completeTarget,
                   moveToCycleId === BACKLOG_OPTION ? null : moveToCycleId,
                 )
               }
               disabled={busyId === completeTarget?.id}
             >
               {busyId === completeTarget?.id ? "Completing…" : "Complete cycle"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Start the next sprint (Phase 4) — pre-filled with the same duration and
+          an incremented title after the previous sprint is completed. */}
+      <Dialog
+        open={nextSprintOpen}
+        onOpenChange={(o) => {
+          if (!o && !startingNext) setNextSprintOpen(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start the next sprint?</DialogTitle>
+            <DialogDescription>
+              Roll straight into the next sprint. We&apos;ve pre-filled the same
+              duration and bumped the name — adjust anything, then start.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="next-sprint-name">Name</Label>
+              <Input
+                id="next-sprint-name"
+                value={nextName}
+                onChange={(e) => setNextName(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="next-sprint-start">Start date</Label>
+                <Input
+                  id="next-sprint-start"
+                  type="date"
+                  value={nextStart}
+                  onChange={(e) => setNextStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="next-sprint-end">End date</Label>
+                <Input
+                  id="next-sprint-end"
+                  type="date"
+                  value={nextEnd}
+                  onChange={(e) => setNextEnd(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setNextSprintOpen(false)}
+              disabled={startingNext}
+            >
+              Not now
+            </Button>
+            <Button
+              onClick={startNextSprint}
+              disabled={startingNext || !nextName.trim() || !nextStart || !nextEnd}
+            >
+              {startingNext ? "Starting…" : "Start sprint"}
             </Button>
           </DialogFooter>
         </DialogContent>
