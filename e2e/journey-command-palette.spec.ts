@@ -30,11 +30,11 @@ test.describe("journey — command palette", () => {
       .getByRole("button", { name: /search/i })
       .first()
       .click();
-    const input = page.getByPlaceholder(/Search projects/);
+    const input = page.getByPlaceholder(/Search everything/i);
     await expect(input).toBeVisible({ timeout: 10_000 });
 
     await input.fill(QUERY);
-    const result = page.getByRole("option").first();
+    const result = page.getByRole("option").filter({ hasText: /Test Project/i }).first();
     await expect(result).toBeVisible({ timeout: 10_000 });
     await result.click();
 

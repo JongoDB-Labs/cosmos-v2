@@ -61,7 +61,16 @@ export function WhatsNew() {
       /* private mode / disabled storage — just don't auto-open */
     }
     const fresh = releasesSince(lastSeen);
-    if (fresh.length > 0 && lastSeen !== CURRENT_VERSION) {
+    // Skip the AUTO-open under browser automation (Playwright et al. set
+    // navigator.webdriver=true; real users are always false). The modal's
+    // full-screen backdrop otherwise intercepts pointer events and hangs any
+    // e2e spec that clicks through the page (chat channel selection, etc.).
+    // The explicit "What's new" menu trigger (cosmos:open-whats-new) still works.
+    if (
+      !navigator.webdriver &&
+      fresh.length > 0 &&
+      lastSeen !== CURRENT_VERSION
+    ) {
       setReleases(fresh);
       setOpen(true);
     }
