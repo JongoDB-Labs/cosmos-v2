@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles, ArrowUpCircle, Bug } from "lucide-react";
 import {
   Dialog,
@@ -87,11 +87,13 @@ export function WhatsNew() {
     }
   }
 
+  const gotItRef = useRef<HTMLButtonElement>(null);
+
   if (releases.length === 0) return null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg" initialFocus={gotItRef}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-5 text-[var(--primary)]" /> What&apos;s new
@@ -135,7 +137,7 @@ export function WhatsNew() {
         </div>
 
         <DialogFooter>
-          <Button onClick={() => handleOpenChange(false)}>Got it</Button>
+          <Button ref={gotItRef} onClick={() => handleOpenChange(false)}>Got it</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
