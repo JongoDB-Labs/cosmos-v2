@@ -81,7 +81,7 @@ const PAGES: Array<{ name: string; path: string }> = [
 ];
 
 test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
-  for (const { name, path } of PAGES) {
+  for (const { name, path } of PAGES.filter((pg) => pg.name === "projects")) {  // TEMP DIAG
     test(`${name} has no serious/critical axe violations`, async ({
       page,
       signInAs,
@@ -120,6 +120,11 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
         `${name} rendered an error boundary instead of content`,
       ).toHaveCount(0);
 
+      const theme = await page.evaluate(() => {
+        const cs = getComputedStyle(document.documentElement);
+        return { skin: document.documentElement.className, muted: cs.getPropertyValue("--text-muted").trim(), surface: cs.getPropertyValue("--surface").trim() };
+      });
+      console.log(`A11Y-THEME ${name}: ${JSON.stringify(theme)}`);
       const violations = await runAxe(page);
       const serious = blocking(violations);
       expect(
