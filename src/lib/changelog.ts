@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.222.0",
+    date: "2026-07-21",
+    title: "The Foreman console is easier to navigate",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Foreman console is now organized into tabs \u2014 Activity, Connections, Build behavior, and Automation \u2014 so you land on what Foreman is doing and find configuration where you expect it. Each tab is deep-linkable.",
+      },
+      {
+        kind: "improvement",
+        text: "Adding a skill is now one form: compose it with fields, or switch to Paste to drop in a SKILL.md and review the parsed fields before saving \u2014 no more separate create and import.",
+      },
+    ],
+  },
+  {
     version: "2.221.0",
     date: "2026-07-21",
     title: "See how reliably Foreman is delivering",
