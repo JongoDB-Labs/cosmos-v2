@@ -148,3 +148,16 @@ export function planDecomposition(s: ScopeSignals): DecompositionPlan | null {
     bumpKind: "minor",
   };
 }
+
+/** The base branch a phase child is BUILT on under stacked coordinated builds (#1):
+ *  phase 1 branches off `origin/main`; phase N branches off phase N-1's branch, so
+ *  each later phase already contains every earlier phase's changes and same-file
+ *  cross-phase conflicts vanish by construction. When the predecessor branch isn't
+ *  known yet (not built), the caller falls back to `origin/main` and the sequential
+ *  build gate holds phase N until N-1 exists. `phaseBranches` maps a 1-based phase
+ *  index to its branch name (e.g. `auto/COSMOS-119`). Pure — the daemon supplies the
+ *  live branch map and does the git checkout. */
+export function stackedBase(phase: number, phaseBranches: ReadonlyMap<number, string>): string {
+  if (phase <= 1) return "origin/main";
+  return phaseBranches.get(phase - 1) ?? "origin/main";
+}
