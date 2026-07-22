@@ -77,6 +77,8 @@ export interface WorkItem {
   /** Gantt baseline (frozen planned dates); the ghost bar draws from these. */
   baselineStart: string | null;
   baselineEnd: string | null;
+  /** Unified date model: actual start (auto-captured on first in-progress). */
+  actualStart: string | null;
   completedAt: string | null;
   /** SAFe classification: main-effort value vs enabling work. */
   workCategory: "BUSINESS" | "ENABLER";
