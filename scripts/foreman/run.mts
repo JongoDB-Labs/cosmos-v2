@@ -27,7 +27,7 @@ import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, maxTurn
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
 import { combineIntents, classifyInstruction, honorPhaseCommand } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
-import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, describeMergeFailure, type BumpKind } from "@/lib/foreman/ship-rebase";
+import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, classifyConflict, describeMergeFailure, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
@@ -1240,6 +1240,106 @@ function coordinatedChangelogEntry(epicKey: string, batch: string[], version: st
   return `{ version: "${version}", date: "${date}", title: "Coordinated release ${epicKey}", highlights: [{ kind: "feature", text: ${JSON.stringify(text)} }] }`;
 }
 
+/** NARROW prompt for the bounded AI-assisted conflict fallback (#1, Task 7). The
+ *  build agent is asked to resolve ONLY the listed conflicted files, preserving both
+ *  sides' intent, and to leave version/changelog/lockfile alone (those are resolved
+ *  mechanically afterward). Deliberately terse and scoped so a prompt-injected ticket
+ *  can't widen it. */
+function coordinatedConflictPrompt(epicKey: string, tipRef: string, conflictedPaths: string[]): string {
+  return [
+    `You are resolving git MERGE CONFLICTS in the working tree for the coordinated release of ${epicKey} (phase stack tip ${tipRef}).`,
+    `The phase stack was merged onto the latest main and these files conflict:`,
+    ...conflictedPaths.map((p) => `  - ${p}`),
+    ``,
+    `Resolve EACH conflict by combining BOTH sides' intent — never drop either the stacked phases' changes or main's changes. Edit ONLY the conflicted files listed above.`,
+    `Remove every conflict marker (<<<<<<<, =======, >>>>>>>). Do NOT edit package.json, package-lock.json, or src/lib/changelog.ts (those are handled separately). Do NOT run git commit. When done, the files must contain valid, compiling code with no markers left.`,
+  ].join("\n");
+}
+
+/** BOUNDED, GATED AI-assisted resolution of the ONE residual case stacking can't
+ *  remove — a real stack-vs-`main` code conflict (#1, Task 7). This is the ONLY
+ *  non-mechanical step in the coordinated release path and it CANNOT ship anything
+ *  the normal gates haven't approved: on the conflicted integration worktree it asks
+ *  the build agent to resolve markers, then verifies HARD and ABORTS on ANY failure —
+ *  no residual markers (`git diff --check`) → commit → `tsc --noEmit` → full
+ *  `npm run check` → adversarial `reviewFinalDiff` over the resolved diff. All-green →
+ *  the caller ships the ONE coordinated version; any failure resets the worktree to
+ *  origin/main and returns `{ ok:false }`, so the epic is held for a human (never a
+ *  half-release). Runs inside the ship mutex (its caller already holds it). */
+async function resolveStackVsMainFallback(input: {
+  wt: string;
+  epicKey: string;
+  tipRef: string;
+  conflicted: string[];
+  orgId: string;
+  testDbUrl?: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { wt, epicKey, tipRef, conflicted, orgId } = input;
+  const resetHard = async (): Promise<void> => {
+    await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+    await exec("git", ["-C", wt, "reset", "--hard", "origin/main"]).catch(() => undefined);
+  };
+  let home: Awaited<ReturnType<typeof openForemanHome>> | null = null;
+  try {
+    home = await openForemanHome(orgId);
+    const res = await runAgent(wt, coordinatedConflictPrompt(epicKey, tipRef, conflicted), {
+      orgId,
+      home: home.home,
+      timeoutMs: 25 * 60_000,
+      allowedTools: "Read,Grep,Glob,Edit,Write",
+      harness: true,
+      testDbUrl: input.testDbUrl,
+    });
+    if (!res.ok) {
+      await resetHard();
+      return { ok: false, reason: `AI conflict resolver did not complete for phase ${tipRef}` };
+    }
+    // 1) No unresolved conflicts / markers remain.
+    const stillConflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
+      .split("\n").map((l) => l.trim()).filter(Boolean);
+    const markersClean = await exec("git", ["-C", wt, "diff", "--check"]).then(() => true).catch(() => false);
+    if (stillConflicted.length > 0 || !markersClean) {
+      await resetHard();
+      return { ok: false, reason: describeMergeFailure({ phaseRef: tipRef, conflictedPaths: stillConflicted.length ? stillConflicted : conflicted }) + " — AI resolution left conflicts" };
+    }
+    // 2) Commit the resolved merge (version/changelog are overwritten by the caller).
+    await exec("git", ["-C", wt, "add", "-A"]);
+    await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } }).catch(() => undefined);
+    // 3) tsc tripwire.
+    const tscOk = await exec("npx", ["tsc", "--noEmit"], { cwd: wt, maxBuffer: 32 * 1024 * 1024 }).then(() => true).catch(() => false);
+    if (!tscOk) {
+      await resetHard();
+      return { ok: false, reason: `post-resolution tsc failed for phase ${tipRef}` };
+    }
+    // 4) Full checks — the SAME gate a normal ship must pass.
+    const checks = await runChecks(wt, { testDbUrl: input.testDbUrl });
+    if (!checks.ok) {
+      await resetHard();
+      return { ok: false, reason: `post-resolution checks failed for phase ${tipRef}` };
+    }
+    // 5) Adversarial review over the resolved diff vs. current main — the SAME
+    //    reviewer that guards a solo auto-ship. Fail-closed.
+    const brief: TicketBrief = {
+      key: epicKey,
+      title: `Coordinated release ${epicKey} — stack-vs-main resolution`,
+      description: `Automated resolution of stack-vs-main merge conflicts for the coordinated release of ${epicKey}.`,
+      classification: "FEATURE",
+      acceptanceCriteria: [],
+    };
+    const verdict = await reviewFinalDiff(brief, orgId, wt, "origin/main");
+    if (!verdict.approve) {
+      await resetHard();
+      return { ok: false, reason: `adversarial review rejected the resolved diff for phase ${tipRef} — ${verdict.reason}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    await resetHard();
+    return { ok: false, reason: `AI-assisted resolution errored for phase ${tipRef}: ${String(e)}` };
+  } finally {
+    if (home) await home.close().catch(() => undefined);
+  }
+}
+
 /** EXECUTE a coordinated epic release (COSMOS-118 / #1): under STACKED builds the
  *  tip phase branch already contains the whole ordered stack, so shipping is a
  *  single mechanical step — verify stack integrity, merge the TIP branch onto ONE
@@ -1334,17 +1434,32 @@ async function shipCoordinatedBatch(
       }
     }
     if (!mechanical) {
-      // Residual case: a broken stack, or a real stack-vs-main code conflict — the
-      // ONLY non-mechanical case. Task 7 inserts a GATED AI-assisted resolution here
-      // (isolated worktree → tsc → full check → adversarial review → ship, else
-      // abort). Until then, and whenever that fallback declines, ABORT to a human —
-      // NEVER a silent half-release. #4: name the phase/files (or raw git stderr).
-      await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
-      const detail = describeMergeFailure({ phaseRef: tip.ref, conflictedPaths: conflicted, gitStderr: mergeStderr });
-      const why = stackIntact
-        ? detail
-        : `phase stack for ${tip.ref} is broken (a predecessor is not an ancestor — an earlier phase was rebuilt; re-stack the later phases)`;
-      throw new Error(`${why} — coordinated release aborted (no half-release)`);
+      // Residual case: a real stack-vs-main CODE conflict (stack intact) is the ONE
+      // case stacking can't remove → the bounded, GATED AI fallback (Task 7) resolves
+      // it on the conflicted worktree and re-verifies through the SAME gates as a
+      // normal ship; anything else (a broken stack — the Task 6 cascade will
+      // re-stack — or an opaque git failure with no markers to fix) ABORTS to a human.
+      // Either way, NEVER a silent half-release. #4: name the phase/files (or stderr).
+      const cls = classifyConflict(conflicted);
+      if (stackIntact && cls === "cross-phase") {
+        const orgId = await db.primaryDeliveryOrgId().catch(() => null);
+        if (!orgId) {
+          await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+          throw new Error(`${describeMergeFailure({ phaseRef: tip.ref, conflictedPaths: conflicted, gitStderr: mergeStderr })} — no Foreman-connected org for the resolution fallback — coordinated release aborted (no half-release)`);
+        }
+        log(`${epicKey} stack-vs-main conflict on ${tip.ref} — attempting gated AI resolution (${conflicted.join(", ")})`);
+        const fb = await resolveStackVsMainFallback({ wt, epicKey, tipRef: tip.ref, conflicted, orgId });
+        if (!fb.ok) throw new Error(`${fb.reason} — coordinated release aborted (no half-release)`);
+        log(`${epicKey} stack-vs-main conflict on ${tip.ref} resolved + re-verified via gated fallback`);
+        mechanical = true;
+      } else {
+        await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+        const detail = describeMergeFailure({ phaseRef: tip.ref, conflictedPaths: conflicted, gitStderr: mergeStderr });
+        const why = stackIntact
+          ? detail
+          : `phase stack for ${tip.ref} is broken (a predecessor is not an ancestor — an earlier phase was rebuilt; the later phases will re-stack)`;
+        throw new Error(`${why} — coordinated release aborted (no half-release)`);
+      }
     }
     // ONE coordinated version, strictly above current main (the epic's bumpKind).
     const mainVersion = (JSON.parse((await exec("git", ["-C", REPO, "show", "origin/main:package.json"])).stdout) as { version: string }).version;
