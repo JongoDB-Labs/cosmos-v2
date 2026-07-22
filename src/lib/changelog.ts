@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.222.3",
+    date: "2026-07-22",
+    title: "Edit or delete a sprint before it starts",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Planning a sprint? You can rename it, adjust its dates and goal, or delete it any time before it starts — no need to start it first. This is now guarded by regression tests so it stays that way.",
+      },
+    ],
+  },
+  {
     version: "2.222.2",
     date: "2026-07-21",
     title: "A cleaner “What’s new” dialog",
