@@ -20,8 +20,8 @@ async function projectInOrg(projectId: string, orgId: string): Promise<boolean> 
 
 const MILESTONE_SELECT = {
   id: true, projectId: true, ownerId: true, branchId: true, status: true, dueDate: true,
-  autoStatus: true, completedAt: true, scheduleEscalate: true, baselineDate: true,
-  projectedDate: true, actualDate: true, sortOrder: true, title: true, createdAt: true, updatedAt: true,
+  autoStatus: true, completedAt: true, scheduleEscalate: true,
+  actualDate: true, sortOrder: true, title: true, createdAt: true, updatedAt: true,
 } as const;
 
 // ── list_milestones ─────────────────────────────────────────────────────────
