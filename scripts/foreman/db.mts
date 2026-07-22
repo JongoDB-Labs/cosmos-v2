@@ -562,6 +562,41 @@ export async function reopenPhaseForRebuild(itemId: string): Promise<void> {
   await afterColumnMove(itemId);
 }
 
+/** The branch a coordinated phase child STACKS on when built (#1): its predecessor
+ *  phase's `auto/<KEY>` branch, resolved via the epic's dependency edge
+ *  (epicCoordination → this child's dependsOn → predecessor's branch). Null when the
+ *  item is phase 1, not a coordinated phase child, or has no resolvable predecessor
+ *  — the caller then builds off origin/main. DB-only: existence-on-origin is verified
+ *  by the daemon (git) before use. */
+export async function predecessorBranch(itemId: string): Promise<string | null> {
+  const coord = await epicCoordination(itemId).catch(() => null);
+  if (!coord || coord.mode !== "coordinated") return null;
+  const me = coord.children.find((c) => c.itemId === itemId);
+  if (!me) return null;
+  const predKey = coord.siblings.find((s) => s.key === me.key)?.dependsOn?.[0];
+  if (!predKey) return null;
+  return coord.children.find((c) => c.key === predKey)?.branch ?? null;
+}
+
+/** Whether a coordinated phase child's PREDECESSOR has been built (#1 sequential
+ *  stacking gate): true when there is no predecessor (phase 1 / non-coordinated), or
+ *  the predecessor phase has been built + pushed (it is in `review` or `done`, so its
+ *  `auto/<KEY>` branch exists on origin for the successor to stack on). The planner
+ *  holds phase N out of the promotable pool until this is true, so a later phase can
+ *  never build off a stale main and diverge from its stack. */
+export async function predecessorBuilt(itemId: string): Promise<boolean> {
+  const coord = await epicCoordination(itemId).catch(() => null);
+  if (!coord || coord.mode !== "coordinated") return true; // not gated
+  const me = coord.children.find((c) => c.itemId === itemId);
+  if (!me) return true;
+  const predKey = coord.siblings.find((s) => s.key === me.key)?.dependsOn?.[0];
+  if (!predKey) return true; // phase 1 — nothing to wait on
+  const predItemId = coord.children.find((c) => c.key === predKey)?.itemId;
+  if (!predItemId) return true;
+  const pred = await prisma.workItem.findUnique({ where: { id: predItemId }, select: { columnKey: true } });
+  return pred?.columnKey === "review" || pred?.columnKey === "done";
+}
+
 /** Decompose an epic-sized FEATURE into ordered phase children (COSMOS-115). Creates
  *  one child work item per phase (parentId = the epic; org/project/type/priority
  *  inherited), carrying that phase's acceptance criteria + classification in
