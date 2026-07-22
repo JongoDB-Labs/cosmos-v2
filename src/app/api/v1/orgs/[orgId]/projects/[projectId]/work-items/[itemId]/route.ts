@@ -30,6 +30,8 @@ const updateItemSchema = z.object({
   sortOrder: z.number().int().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
+  actualStart: z.string().datetime().nullable().optional(),
+  completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
@@ -146,6 +148,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
       if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
       if (data.startDate !== undefined) updateData.startDate = data.startDate ? new Date(data.startDate) : null;
+      if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
+      if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
       if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
       if (data.tags !== undefined) updateData.tags = data.tags;
       if (data.customFields !== undefined) {
@@ -166,10 +170,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       const doneColumn = data.columnKey && ["done", "completed", "closed"].some(
         (k) => data.columnKey!.toLowerCase().includes(k)
       );
-      if (doneColumn && !existing.completedAt) {
-        updateData.completedAt = new Date();
-      } else if (data.columnKey && !doneColumn && existing.completedAt) {
-        updateData.completedAt = null;
+      // Actual End auto-capture (skipped when the request sets completedAt manually).
+      if (data.completedAt === undefined) {
+        if (doneColumn && !existing.completedAt) {
+          updateData.completedAt = new Date();
+        } else if (data.columnKey && !doneColumn && existing.completedAt) {
+          updateData.completedAt = null;
+        }
+      }
+      // Actual Start auto-capture: first time the item enters a started (in-progress
+      // or done) column. Mirrors the completedAt capture; never overwritten once set;
+      // a manual actualStart in this request wins.
+      const startedColumn =
+        data.columnKey != null &&
+        !["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase());
+      if (data.actualStart === undefined && startedColumn && !existing.actualStart) {
+        updateData.actualStart = new Date();
       }
 
       // Sync the assignee SET before the row update reads it back:
