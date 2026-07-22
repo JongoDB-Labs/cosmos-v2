@@ -169,6 +169,8 @@ export function CardDetailSheet({
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
   const [dueDate, setDueDate] = useState<string>("");
+  const [actualStart, setActualStart] = useState<string>("");
+  const [actualEnd, setActualEnd] = useState<string>("");
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
@@ -237,6 +239,8 @@ export function CardDetailSheet({
       setStoryPoints(item.storyPoints);
       setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
       setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
+      setActualStart(item.actualStart ? item.actualStart.split("T")[0] : "");
+      setActualEnd(item.completedAt ? item.completedAt.split("T")[0] : "");
       setParentId(item.parentId);
       setChildren(item.children ?? []);
       setChildTitle("");
@@ -450,6 +454,12 @@ export function CardDetailSheet({
             break;
           case "dueDate":
             setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
+            break;
+          case "actualStart":
+            setActualStart(item.actualStart ? item.actualStart.split("T")[0] : "");
+            break;
+          case "completedAt":
+            setActualEnd(item.completedAt ? item.completedAt.split("T")[0] : "");
             break;
           case "parentId":
             setParentId(item.parentId);
@@ -1057,7 +1067,10 @@ export function CardDetailSheet({
               />
             </MetadataField>
 
-            <MetadataField icon={Calendar} label="Start date">
+            <h3 className="col-span-2 text-xs font-medium text-muted-foreground">
+              Planned
+            </h3>
+            <MetadataField icon={Calendar} label="Start">
               <DatePicker
                 value={startDate}
                 onValueChange={(val) => {
@@ -1067,12 +1080,12 @@ export function CardDetailSheet({
                     : null;
                   void patchField("startDate", isoVal);
                 }}
-                aria-label="Start date"
+                aria-label="Planned start"
                 className="h-7 text-xs"
               />
             </MetadataField>
 
-            <MetadataField icon={Calendar} label="Due date">
+            <MetadataField icon={Calendar} label="End">
               <DatePicker
                 value={dueDate}
                 onValueChange={(val) => {
@@ -1083,7 +1096,40 @@ export function CardDetailSheet({
                     : null;
                   void patchField("dueDate", isoVal);
                 }}
-                aria-label="Due date"
+                aria-label="Projected end"
+                className="h-7 text-xs"
+              />
+            </MetadataField>
+
+            <h3 className="col-span-2 text-xs font-medium text-muted-foreground">
+              Actual
+            </h3>
+            <MetadataField icon={Calendar} label="Start">
+              <DatePicker
+                value={actualStart}
+                onValueChange={(val) => {
+                  setActualStart(val);
+                  const isoVal = val
+                    ? new Date(val + "T00:00:00Z").toISOString()
+                    : null;
+                  void patchField("actualStart", isoVal);
+                }}
+                aria-label="Actual start"
+                className="h-7 text-xs"
+              />
+            </MetadataField>
+
+            <MetadataField icon={Calendar} label="End">
+              <DatePicker
+                value={actualEnd}
+                onValueChange={(val) => {
+                  setActualEnd(val);
+                  const isoVal = val
+                    ? new Date(val + "T00:00:00Z").toISOString()
+                    : null;
+                  void patchField("completedAt", isoVal);
+                }}
+                aria-label="Actual end"
                 className="h-7 text-xs"
               />
             </MetadataField>
