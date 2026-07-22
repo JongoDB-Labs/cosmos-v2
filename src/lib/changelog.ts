@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.223.0",
+    date: "2026-07-22",
+    title: "Review your sprint before you close it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Completing a sprint now opens a quick review step first: see the retrospective at a glance — efficiency (how much of the committed work got done), burn rate (work finished per day), and pacing (whether you tracked ahead of or behind the ideal burndown) — plus items and points completed. Review it, then continue to finalize and rehome any unfinished work as before.",
+      },
+    ],
+  },
+  {
     version: "2.222.2",
     date: "2026-07-21",
     title: "A cleaner “What’s new” dialog",
