@@ -1415,8 +1415,15 @@ async function shipCoordinatedBatch(
     let mechanical = false;
     if (stackIntact) {
       await exec("git", ["-C", REPO, "fetch", "origin", tip.branch]);
+      // FETCH_HEAD is per-git-dir: the fetch above wrote REPO's FETCH_HEAD, but the
+      // merge runs in the linked worktree `wt`, whose OWN FETCH_HEAD
+      // (.git/worktrees/<wt>/FETCH_HEAD) is absent — so `merge FETCH_HEAD` there dies
+      // with "could not open ... FETCH_HEAD". Resolve the tip to a SHA in REPO and
+      // merge THAT; worktrees share the object store, so the SHA is present without a
+      // second fetch into `wt`.
+      const tipSha = (await exec("git", ["-C", REPO, "rev-parse", "FETCH_HEAD"])).stdout.trim();
       try {
-        await exec("git", ["-C", wt, "merge", "--no-edit", "FETCH_HEAD"]);
+        await exec("git", ["-C", wt, "merge", "--no-edit", tipSha]);
         mechanical = true;
       } catch (mergeErr) {
         mergeStderr = (mergeErr as { stderr?: string }).stderr ?? "";
