@@ -25,7 +25,7 @@ import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, maxTurnsResumePrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
-import { combineIntents, classifyInstruction } from "@/lib/foreman/intent";
+import { combineIntents, classifyInstruction, honorPhaseCommand } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
 import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, describeMergeFailure, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
@@ -1538,6 +1538,35 @@ async function processMentions(
           }
         }
       } else {
+        // #2: a coordinated phase child is routinely held OUTSIDE `review` (in
+        // `done` after merging, or `backlog`/`todo` while siblings finish), so an
+        // @foreman rebuild/approve on it must ACT rather than fall through to the
+        // read-only Q&A path. Only honored for a coordinated phase child, off
+        // `review`, on an approve|rebuild intent (a bare instruct/question stays
+        // Q&A). A rebuild re-opens the phase to `backlog` and clears its ready/
+        // failed markers so the release gate HOLDS (no half-release) until it — and
+        // every later phase, via the Task 6 cascade — is green again; the reconcile
+        // pass (#3) then re-fires the batch once the whole stack is ready.
+        const texts = group.map((g) => g.question).filter((q) => q.trim().length > 0);
+        const { intent } = combineIntents(texts);
+        const isPhaseChild =
+          (intent === "approve" || intent === "rebuild") && (await db.isCoordinatedPhaseChild(m.itemId).catch(() => false));
+        if (honorPhaseCommand(m.columnKey, intent, isPhaseChild)) {
+          if (intent === "rebuild") {
+            log(`${m.key} @Foreman rebuild on coordinated phase child (${m.columnKey}) — re-opening to backlog`);
+            await db.reopenPhaseForRebuild(m.itemId);
+            await db.comment(
+              m.itemId,
+              `Got it — re-opening ${m.key} for a rebuild. Its coordinated release is HELD until this phase (and any later phases that build on it) are green again.`,
+            );
+          } else {
+            // approve: honor it exactly like the review-column approve path, which
+            // routes a coordinated child through handleCoordinatedApprove.
+            log(`${m.key} @Foreman approve on coordinated phase child (${m.columnKey}) — honoring`);
+            await handleApprove(m, enqueueRepoWork, false);
+          }
+          continue;
+        }
         log(`${m.key} @Foreman question (${m.columnKey}) — drafting reply`);
         const r = await runAgent(
           REPO,

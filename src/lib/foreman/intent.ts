@@ -86,3 +86,25 @@ export function combineIntents(texts: string[]): { intent: CommentIntent; instru
 
   return { intent: "instruct", instructions: texts };
 }
+
+/** Whether a maintainer's @foreman command on a COORDINATED PHASE CHILD should be
+ *  honored as an ACTION even though the child is NOT in the `review` column (#2).
+ *  A coordinated phase child is routinely held OUTSIDE `review` — in `done`
+ *  (already-merged/marked-ready) or `backlog`/`todo` while its siblings finish — so
+ *  an approve/rebuild comment on it would otherwise fall through to the read-only
+ *  Q&A path and never act. True only when ALL hold: the child is off `review`, it
+ *  IS a coordinated phase child, and the combined intent is an actionable `approve`
+ *  or `rebuild`. A bare `instruct` (a question / steering note) off `review` stays
+ *  Q&A — we never resume-build a non-review ticket from this path. In `review` the
+ *  normal router already handles every intent, so this returns false there (no
+ *  double-handling). Pure — the caller (run.mts) supplies isCoordinatedPhaseChild
+ *  from db.isCoordinatedPhaseChild. */
+export function honorPhaseCommand(
+  columnKey: string,
+  intent: CommentIntent,
+  isCoordinatedPhaseChild: boolean,
+): boolean {
+  if (columnKey === "review") return false;
+  if (!isCoordinatedPhaseChild) return false;
+  return intent === "approve" || intent === "rebuild";
+}
