@@ -255,6 +255,16 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
     if (slots <= 0) return;
     const pool = backlog.filter((b) => b.columnKey === "backlog");
     if (pool.length === 0) return;
+    // Sequential stacking gate (#1): a coordinated phase N builds ON phase N-1's
+    // branch, so it must not promote until its predecessor is built + pushed. Hold
+    // such a child out of the promotable pool until then; phase 1 and every non-phase
+    // ticket are unaffected (predecessorBuilt → true).
+    const buildableIds = new Set<string>();
+    await Promise.all(
+      pool.map(async (p) => {
+        if (await db.predecessorBuilt(p.id).catch(() => true)) buildableIds.add(p.id);
+      }),
+    );
     // The planner ranks the shared pool but runAgent must authenticate as ONE org's
     // Foreman subscription. Resolve the single Foreman-connected delivery org; with
     // none (or an ambiguous multiple) there's nothing to run the ranking on, so skip
@@ -267,6 +277,7 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
     const facts = await db.getDemotionFacts(pool.map((p) => p.id));
     const now = new Date();
     const eligible = pool.filter((p) => {
+      if (!buildableIds.has(p.id)) return false; // #1 stacking gate: predecessor not built yet
       const f = facts.get(p.id);
       if (!f) return true;
       return !isStandingDemotion({
@@ -515,8 +526,11 @@ async function repairLoop(
  *  the worktree, so it can't enter the change under review (in a linked worktree
  *  `.git` is a FILE, so the path is resolved via rev-parse). Fail-closed: an
  *  unreadable/failed reviewer yields {approve:false}; one retry absorbs infra flakes. */
-async function reviewFinalDiff(brief: TicketBrief, orgId: string, wt: string): Promise<{ approve: boolean; reason: string }> {
-  const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
+async function reviewFinalDiff(brief: TicketBrief, orgId: string, wt: string, base = "origin/main"): Promise<{ approve: boolean; reason: string }> {
+  // `base` defaults to origin/main (a solo ticket / phase 1), but a stacked
+  // coordinated phase passes its predecessor's base SHA so the reviewer sees ONLY
+  // this phase's delta, not the whole accumulated stack (#1).
+  const { stdout: diffText } = await exec("git", ["-C", wt, "diff", `${base}...HEAD`], {
     maxBuffer: 32 * 1024 * 1024,
   });
   let reviewDiff: ReviewDiff;
@@ -616,8 +630,32 @@ async function processOne(
   // add` fails hard on "'<dir>' already exists", which strands the ticket in-progress.
   rmSync(wt, { recursive: true, force: true });
   await exec("git", ["-C", REPO, "worktree", "prune"]).catch(() => undefined);
+  // Stacked build base (#1): a coordinated phase N builds ON its predecessor's branch
+  // (which already contains phases 1..N-1), so two phases editing the same file never
+  // diverge — at ship time the tip branch IS the whole stack, rebased once as one
+  // version. Phase 1 and every non-phase ticket build off origin/main exactly as
+  // before. The predecessor SHA is captured immediately after its fetch (the next
+  // `fetch origin main` overwrites FETCH_HEAD); if it can't be resolved we fall back
+  // to main and the batch's stack-integrity check will hold the release. `reviewBase`
+  // scopes the pre-ship reviewer to THIS phase's delta (not the whole stack).
+  let baseRef = "origin/main";
+  let reviewBase = "origin/main";
+  const predBranch = await db.predecessorBranch(item.id).catch(() => null);
+  if (predBranch) {
+    const predSha = await exec("git", ["-C", REPO, "fetch", "origin", predBranch])
+      .then(() => exec("git", ["-C", REPO, "rev-parse", "FETCH_HEAD"]))
+      .then((r) => r.stdout.trim())
+      .catch(() => "");
+    if (predSha) {
+      baseRef = predSha;
+      reviewBase = predSha;
+      log(`${key} stacking on predecessor ${predBranch} (${predSha.slice(0, 8)})`);
+    } else {
+      log(`${key} predecessor ${predBranch} not resolvable on origin — building off main (release will hold on the stack check)`);
+    }
+  }
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
-  await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, "origin/main"]);
+  await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, baseRef]);
   // A worktree checks out only tracked files — node_modules is gitignored, so it's
   // absent, and `npx tsc/eslint/vitest` in checks.mts (and the agent's own
   // self-verification) would resolve to a stray global stub and fail EVERY ticket,
@@ -801,7 +839,7 @@ async function processOne(
     // returns {approve:false} → parked, because a ship gate that can't run must
     // not open. Same helper the resume path uses.
     setPhase(item.id, "review");
-    const verdict = await reviewFinalDiff(brief, item.orgId, wt);
+    const verdict = await reviewFinalDiff(brief, item.orgId, wt, reviewBase);
     loopEmit(item.id, { kind: "reviewed", approved: verdict.approve, reason: verdict.reason });
     if (!verdict.approve) {
       await parkForReview(`reviewer rejected — ${verdict.reason}`);
