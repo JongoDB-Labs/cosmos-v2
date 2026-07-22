@@ -4,6 +4,7 @@
 // project any org has opted into autonomous delivery for (see deliveryProjects
 // below), not a single hardcoded project/org.
 import { prisma } from "@/lib/db/client";
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery-notify";
@@ -641,6 +642,77 @@ export async function markChildrenShipped(itemIds: string[]): Promise<void> {
   });
   await syncFeedbackForWorkItems(itemIds, prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
   for (const id of itemIds) await emitWorkItemUpdated(id);
+}
+
+/** A coordinated-release epic that is NOT yet fully shipped (some phase child is
+ *  not `done`) — a candidate the reconcile pass re-checks each loop (#3). Carries a
+ *  representative child id (to resolve full coordination via epicCoordination) and
+ *  the epic's last release-attempt fingerprint (the storm guard). */
+export interface CoordinatedReleaseCandidate {
+  epicId: string;
+  sampleChildId: string;
+  epicKey: string;
+  lastAttemptFingerprint: string | null;
+}
+
+/** Read an epic's last coordinated-release-attempt fingerprint (#3), stored
+ *  migration-free in customFields.coordinatedReleaseAttempt. Null when none yet. */
+export async function readReleaseAttempt(epicId: string): Promise<string | null> {
+  const wi = await prisma.workItem.findUnique({ where: { id: epicId }, select: { customFields: true } });
+  const cf = (wi?.customFields ?? {}) as { coordinatedReleaseAttempt?: { fingerprint?: string } };
+  return cf.coordinatedReleaseAttempt?.fingerprint ?? null;
+}
+
+/** Record an epic's coordinated-release-attempt fingerprint BEFORE firing the batch
+ *  (#3 storm guard): the reconcile pass writes this, then enqueues the ship, so an
+ *  unchanged ready-state never re-fires. Merged into existing customFields so it
+ *  never clobbers sibling keys (e.g. foremanPhase). */
+export async function writeReleaseAttempt(epicId: string, fingerprint: string): Promise<void> {
+  const wi = await prisma.workItem.findUnique({ where: { id: epicId }, select: { customFields: true } });
+  const cf = { ...((wi?.customFields ?? {}) as Record<string, unknown>) };
+  cf.coordinatedReleaseAttempt = { fingerprint, at: new Date().toISOString() };
+  await prisma.workItem.update({
+    where: { id: epicId },
+    data: { customFields: cf as Prisma.InputJsonValue },
+  });
+}
+
+/** Enumerate coordinated-release epics in the delivery pool that are NOT fully
+ *  shipped (#3) — the reconcile pass then resolves each one's full coordination
+ *  (epicCoordination), computes the current fingerprint from live branch tips, and
+ *  re-fires the batch iff the gate says release AND the fingerprint changed since
+ *  the last attempt. An epic whose every child is `done` already shipped and is
+ *  skipped. Migration-free: the opt-in tag + customFields already exist. */
+export async function coordinatedReleasesReady(): Promise<CoordinatedReleaseCandidate[]> {
+  const pool = await deliveryProjects();
+  if (pool.length === 0) return [];
+  const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
+  const epics = await prisma.workItem.findMany({
+    where: {
+      projectId: { in: pool.map((p) => p.projectId) },
+      tags: { has: COORDINATED_RELEASE_TAG },
+    },
+    select: {
+      id: true,
+      projectId: true,
+      ticketNumber: true,
+      customFields: true,
+      children: { select: { id: true, columnKey: true } },
+    },
+  });
+  const out: CoordinatedReleaseCandidate[] = [];
+  for (const epic of epics) {
+    if (epic.children.length === 0) continue; // nothing decomposed yet
+    if (epic.children.every((c) => c.columnKey === "done")) continue; // already shipped
+    const cf = (epic.customFields ?? {}) as { coordinatedReleaseAttempt?: { fingerprint?: string } };
+    out.push({
+      epicId: epic.id,
+      sampleChildId: epic.children[0].id,
+      epicKey: buildRef(keyByProject.get(epic.projectId) ?? "", epic.ticketNumber),
+      lastAttemptFingerprint: cf.coordinatedReleaseAttempt?.fingerprint ?? null,
+    });
+  }
+  return out;
 }
 
 /** Post a comment as Foreman. Targets the same table + column shape the
