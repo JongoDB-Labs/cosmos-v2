@@ -4,6 +4,7 @@
 // project any org has opted into autonomous delivery for (see deliveryProjects
 // below), not a single hardcoded project/org.
 import { prisma } from "@/lib/db/client";
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery-notify";
@@ -531,6 +532,106 @@ export async function markCoordinatedFailed(itemId: string): Promise<void> {
   await addTag(itemId, COORDINATED_FAILED_TAG);
 }
 
+/** True when `itemId` is a phase child of an epic that opted into COORDINATED
+ *  release (#2). Used by the mention router to decide whether an @foreman
+ *  rebuild/approve OFF the `review` column is an action to honor (a coordinated
+ *  phase child is routinely held in `done`/`backlog`) rather than a Q&A. Reuses
+ *  the tested epicCoordination resolver (which already requires a parentId and
+ *  reads the parent's mode from its tags); an ordinary ticket or a child of an
+ *  incremental epic returns false. */
+export async function isCoordinatedPhaseChild(itemId: string): Promise<boolean> {
+  const coord = await epicCoordination(itemId).catch(() => null);
+  return coord?.mode === "coordinated";
+}
+
+/** Re-open a coordinated phase child for a rebuild from ANY column (#2): move it
+ *  back to `backlog` (so the build pool picks it up next pass), reset
+ *  columnEnteredAt, and clear its delivery markers (COORDINATED_READY_TAG /
+ *  COORDINATED_FAILED_TAG) so the release gate reads it `pending` again and HOLDS
+ *  the coordinated release until it (and, via the cascade, every later phase) is
+ *  green again — the no-half-release invariant. The phase tag is preserved so the
+ *  dependency edge and stacking order survive the rebuild. */
+export async function reopenPhaseForRebuild(itemId: string): Promise<void> {
+  const wi = await prisma.workItem.findUnique({ where: { id: itemId }, select: { tags: true } });
+  const cleared = new Set([COORDINATED_READY_TAG, COORDINATED_FAILED_TAG]);
+  const tags = (wi?.tags ?? []).filter((t) => !cleared.has(t));
+  await prisma.workItem.update({
+    where: { id: itemId },
+    data: { columnKey: "backlog", columnEnteredAt: new Date(), tags },
+  });
+  await afterColumnMove(itemId);
+}
+
+/** The branch a coordinated phase child STACKS on when built (#1): its predecessor
+ *  phase's `auto/<KEY>` branch, resolved via the epic's dependency edge
+ *  (epicCoordination → this child's dependsOn → predecessor's branch). Null when the
+ *  item is phase 1, not a coordinated phase child, or has no resolvable predecessor
+ *  — the caller then builds off origin/main. DB-only: existence-on-origin is verified
+ *  by the daemon (git) before use. */
+export async function predecessorBranch(itemId: string): Promise<string | null> {
+  const coord = await epicCoordination(itemId).catch(() => null);
+  if (!coord || coord.mode !== "coordinated") return null;
+  const me = coord.children.find((c) => c.itemId === itemId);
+  if (!me) return null;
+  const predKey = coord.siblings.find((s) => s.key === me.key)?.dependsOn?.[0];
+  if (!predKey) return null;
+  return coord.children.find((c) => c.key === predKey)?.branch ?? null;
+}
+
+/** Whether a coordinated phase child's PREDECESSOR has been built (#1 sequential
+ *  stacking gate): true when there is no predecessor (phase 1 / non-coordinated), or
+ *  the predecessor phase has been built + pushed (it is in `review` or `done`, so its
+ *  `auto/<KEY>` branch exists on origin for the successor to stack on). The planner
+ *  holds phase N out of the promotable pool until this is true, so a later phase can
+ *  never build off a stale main and diverge from its stack. */
+export async function predecessorBuilt(itemId: string): Promise<boolean> {
+  const coord = await epicCoordination(itemId).catch(() => null);
+  if (!coord || coord.mode !== "coordinated") return true; // not gated
+  const me = coord.children.find((c) => c.itemId === itemId);
+  if (!me) return true;
+  const predKey = coord.siblings.find((s) => s.key === me.key)?.dependsOn?.[0];
+  if (!predKey) return true; // phase 1 — nothing to wait on
+  const predItemId = coord.children.find((c) => c.key === predKey)?.itemId;
+  if (!predItemId) return true;
+  const pred = await prisma.workItem.findUnique({ where: { id: predItemId }, select: { columnKey: true } });
+  return pred?.columnKey === "review" || pred?.columnKey === "done";
+}
+
+/** Cascade-rebuild every LATER phase after phase K's branch tip changed (#1): a
+ *  fresh build or a rebuild of phase K supersedes the base that phases K+1…N were
+ *  stacked on, so they must re-stack. Requeue each later sibling to `backlog`, reset
+ *  columnEnteredAt, and clear its COORDINATED_READY_TAG / COORDINATED_FAILED_TAG
+ *  markers — the sequential stacking gate (predecessorBuilt) plus the cleared markers
+ *  then make the release gate HOLD until the whole stack is green again (no
+ *  half-release). Phase index comes from each sibling's coordinated-phase tag; a
+ *  sibling with no phase tag, or at phase ≤ K, is left untouched. Returns the
+ *  requeued item ids. */
+export async function cascadeRebuildLaterPhases(itemId: string): Promise<string[]> {
+  const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { parentId: true, tags: true } });
+  if (!item?.parentId) return [];
+  const k = phaseIndexFromTags(item.tags);
+  if (k === null) return [];
+  const siblings = await prisma.workItem.findMany({
+    where: { parentId: item.parentId },
+    select: { id: true, tags: true, columnKey: true },
+  });
+  const cleared = new Set([COORDINATED_READY_TAG, COORDINATED_FAILED_TAG]);
+  const requeued: string[] = [];
+  for (const s of siblings) {
+    const p = phaseIndexFromTags(s.tags);
+    if (p === null || p <= k) continue; // only strictly-later phases re-stack
+    if (s.columnKey === "backlog" && !s.tags.some((t) => cleared.has(t))) continue; // already clean & queued
+    const tags = s.tags.filter((t) => !cleared.has(t));
+    await prisma.workItem.update({
+      where: { id: s.id },
+      data: { columnKey: "backlog", columnEnteredAt: new Date(), tags },
+    });
+    await afterColumnMove(s.id);
+    requeued.push(s.id);
+  }
+  return requeued;
+}
+
 /** Decompose an epic-sized FEATURE into ordered phase children (COSMOS-115). Creates
  *  one child work item per phase (parentId = the epic; org/project/type/priority
  *  inherited), carrying that phase's acceptance criteria + classification in
@@ -611,6 +712,77 @@ export async function markChildrenShipped(itemIds: string[]): Promise<void> {
   });
   await syncFeedbackForWorkItems(itemIds, prisma as unknown as Parameters<typeof syncFeedbackForWorkItems>[1]);
   for (const id of itemIds) await emitWorkItemUpdated(id);
+}
+
+/** A coordinated-release epic that is NOT yet fully shipped (some phase child is
+ *  not `done`) — a candidate the reconcile pass re-checks each loop (#3). Carries a
+ *  representative child id (to resolve full coordination via epicCoordination) and
+ *  the epic's last release-attempt fingerprint (the storm guard). */
+export interface CoordinatedReleaseCandidate {
+  epicId: string;
+  sampleChildId: string;
+  epicKey: string;
+  lastAttemptFingerprint: string | null;
+}
+
+/** Read an epic's last coordinated-release-attempt fingerprint (#3), stored
+ *  migration-free in customFields.coordinatedReleaseAttempt. Null when none yet. */
+export async function readReleaseAttempt(epicId: string): Promise<string | null> {
+  const wi = await prisma.workItem.findUnique({ where: { id: epicId }, select: { customFields: true } });
+  const cf = (wi?.customFields ?? {}) as { coordinatedReleaseAttempt?: { fingerprint?: string } };
+  return cf.coordinatedReleaseAttempt?.fingerprint ?? null;
+}
+
+/** Record an epic's coordinated-release-attempt fingerprint BEFORE firing the batch
+ *  (#3 storm guard): the reconcile pass writes this, then enqueues the ship, so an
+ *  unchanged ready-state never re-fires. Merged into existing customFields so it
+ *  never clobbers sibling keys (e.g. foremanPhase). */
+export async function writeReleaseAttempt(epicId: string, fingerprint: string): Promise<void> {
+  const wi = await prisma.workItem.findUnique({ where: { id: epicId }, select: { customFields: true } });
+  const cf = { ...((wi?.customFields ?? {}) as Record<string, unknown>) };
+  cf.coordinatedReleaseAttempt = { fingerprint, at: new Date().toISOString() };
+  await prisma.workItem.update({
+    where: { id: epicId },
+    data: { customFields: cf as Prisma.InputJsonValue },
+  });
+}
+
+/** Enumerate coordinated-release epics in the delivery pool that are NOT fully
+ *  shipped (#3) — the reconcile pass then resolves each one's full coordination
+ *  (epicCoordination), computes the current fingerprint from live branch tips, and
+ *  re-fires the batch iff the gate says release AND the fingerprint changed since
+ *  the last attempt. An epic whose every child is `done` already shipped and is
+ *  skipped. Migration-free: the opt-in tag + customFields already exist. */
+export async function coordinatedReleasesReady(): Promise<CoordinatedReleaseCandidate[]> {
+  const pool = await deliveryProjects();
+  if (pool.length === 0) return [];
+  const keyByProject = new Map(pool.map((p) => [p.projectId, p.projectKey] as const));
+  const epics = await prisma.workItem.findMany({
+    where: {
+      projectId: { in: pool.map((p) => p.projectId) },
+      tags: { has: COORDINATED_RELEASE_TAG },
+    },
+    select: {
+      id: true,
+      projectId: true,
+      ticketNumber: true,
+      customFields: true,
+      children: { select: { id: true, columnKey: true } },
+    },
+  });
+  const out: CoordinatedReleaseCandidate[] = [];
+  for (const epic of epics) {
+    if (epic.children.length === 0) continue; // nothing decomposed yet
+    if (epic.children.every((c) => c.columnKey === "done")) continue; // already shipped
+    const cf = (epic.customFields ?? {}) as { coordinatedReleaseAttempt?: { fingerprint?: string } };
+    out.push({
+      epicId: epic.id,
+      sampleChildId: epic.children[0].id,
+      epicKey: buildRef(keyByProject.get(epic.projectId) ?? "", epic.ticketNumber),
+      lastAttemptFingerprint: cf.coordinatedReleaseAttempt?.fingerprint ?? null,
+    });
+  }
+  return out;
 }
 
 /** Post a comment as Foreman. Targets the same table + column shape the
@@ -780,6 +952,11 @@ export interface FreshMention {
   title: string;
   description: string;
   columnKey: string;
+  /** The item's own tags — lets the mention router tell a coordinated phase child
+   *  from an ordinary ticket without a second query (#2). */
+  tags: string[];
+  /** The parent epic's ref when this item is a decomposition child, else null (#2). */
+  parentRef: string | null;
   askerUserId: string;
   question: string;
   thread: { author: string; text: string }[];
@@ -856,6 +1033,8 @@ export async function freshMentions(): Promise<FreshMention[]> {
       description: true,
       columnEnteredAt: true,
       ticketNumber: true,
+      tags: true,
+      parentId: true,
     },
   });
   const reviewItemById = new Map(reviewItems.map((r) => [r.id, r] as const));
@@ -924,11 +1103,22 @@ export async function freshMentions(): Promise<FreshMention[]> {
           columnKey: true,
           columnEnteredAt: true,
           ticketNumber: true,
+          tags: true,
+          parentId: true,
         },
       },
     },
     orderBy: { createdAt: "asc" },
   });
+  // Resolve each mentioned item's parent-epic ref once (batched, no N+1) so a
+  // coordinated phase child's mention carries its parentRef (#2). The parent epic
+  // shares its children's project, which is in the delivery pool, so keyByProject
+  // covers it.
+  const poolByProjectId = new Map(pool.map((p) => [p.projectId, { projectKey: p.projectKey }] as const));
+  const mentionParentRefs = await parentRefsById(
+    [...mentions.map((m) => m.workItem?.parentId ?? null), ...reviewItems.map((r) => r.parentId)],
+    poolByProjectId,
+  );
   // Each candidate is kept alongside its own comment's createdAt so the two
   // sources below (token mentions, then bare parked-ticket replies) can be
   // merged into one createdAt-ascending stream before returning — see the sort
@@ -985,6 +1175,8 @@ export async function freshMentions(): Promise<FreshMention[]> {
         title: wi.title,
         description: wi.description,
         columnKey: wi.columnKey,
+        tags: wi.tags,
+        parentRef: wi.parentId ? (mentionParentRefs.get(wi.parentId) ?? null) : null,
         askerUserId: m.authorId,
         question: m.content.split(token).join("").trim(),
         thread: thread
@@ -1058,6 +1250,8 @@ export async function freshMentions(): Promise<FreshMention[]> {
         title: wi.title,
         description: wi.description,
         columnKey: "review",
+        tags: wi.tags,
+        parentRef: wi.parentId ? (mentionParentRefs.get(wi.parentId) ?? null) : null,
         askerUserId: c.authorId,
         question: c.content.trim(),
         thread: thread

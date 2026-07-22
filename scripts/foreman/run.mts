@@ -25,15 +25,15 @@ import { classifyRisk } from "@/lib/foreman/risk";
 import { formatAudit, tailLog } from "@/lib/foreman/audit";
 import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, maxTurnsResumePrompt, type TicketBrief } from "@/lib/foreman/prompt";
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
-import { combineIntents, classifyInstruction } from "@/lib/foreman/intent";
+import { combineIntents, classifyInstruction, honorPhaseCommand } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
-import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, type BumpKind } from "@/lib/foreman/ship-rebase";
+import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, classifyConflict, describeMergeFailure, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
-import { aggregateReadiness, decideRelease } from "@/lib/foreman/release-gate";
+import { aggregateReadiness, decideRelease, coordinatedReleaseFingerprint, shouldRefireCoordinatedRelease, type FingerprintSibling } from "@/lib/foreman/release-gate";
 import { planDecomposition, alreadyDecomposed } from "@/lib/foreman/decompose";
 import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
@@ -255,6 +255,16 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
     if (slots <= 0) return;
     const pool = backlog.filter((b) => b.columnKey === "backlog");
     if (pool.length === 0) return;
+    // Sequential stacking gate (#1): a coordinated phase N builds ON phase N-1's
+    // branch, so it must not promote until its predecessor is built + pushed. Hold
+    // such a child out of the promotable pool until then; phase 1 and every non-phase
+    // ticket are unaffected (predecessorBuilt → true).
+    const buildableIds = new Set<string>();
+    await Promise.all(
+      pool.map(async (p) => {
+        if (await db.predecessorBuilt(p.id).catch(() => true)) buildableIds.add(p.id);
+      }),
+    );
     // The planner ranks the shared pool but runAgent must authenticate as ONE org's
     // Foreman subscription. Resolve the single Foreman-connected delivery org; with
     // none (or an ambiguous multiple) there's nothing to run the ranking on, so skip
@@ -267,6 +277,7 @@ async function planPass(backlog: Awaited<ReturnType<typeof db.getBacklog>>): Pro
     const facts = await db.getDemotionFacts(pool.map((p) => p.id));
     const now = new Date();
     const eligible = pool.filter((p) => {
+      if (!buildableIds.has(p.id)) return false; // #1 stacking gate: predecessor not built yet
       const f = facts.get(p.id);
       if (!f) return true;
       return !isStandingDemotion({
@@ -515,8 +526,11 @@ async function repairLoop(
  *  the worktree, so it can't enter the change under review (in a linked worktree
  *  `.git` is a FILE, so the path is resolved via rev-parse). Fail-closed: an
  *  unreadable/failed reviewer yields {approve:false}; one retry absorbs infra flakes. */
-async function reviewFinalDiff(brief: TicketBrief, orgId: string, wt: string): Promise<{ approve: boolean; reason: string }> {
-  const { stdout: diffText } = await exec("git", ["-C", wt, "diff", "origin/main...HEAD"], {
+async function reviewFinalDiff(brief: TicketBrief, orgId: string, wt: string, base = "origin/main"): Promise<{ approve: boolean; reason: string }> {
+  // `base` defaults to origin/main (a solo ticket / phase 1), but a stacked
+  // coordinated phase passes its predecessor's base SHA so the reviewer sees ONLY
+  // this phase's delta, not the whole accumulated stack (#1).
+  const { stdout: diffText } = await exec("git", ["-C", wt, "diff", `${base}...HEAD`], {
     maxBuffer: 32 * 1024 * 1024,
   });
   let reviewDiff: ReviewDiff;
@@ -616,8 +630,32 @@ async function processOne(
   // add` fails hard on "'<dir>' already exists", which strands the ticket in-progress.
   rmSync(wt, { recursive: true, force: true });
   await exec("git", ["-C", REPO, "worktree", "prune"]).catch(() => undefined);
+  // Stacked build base (#1): a coordinated phase N builds ON its predecessor's branch
+  // (which already contains phases 1..N-1), so two phases editing the same file never
+  // diverge — at ship time the tip branch IS the whole stack, rebased once as one
+  // version. Phase 1 and every non-phase ticket build off origin/main exactly as
+  // before. The predecessor SHA is captured immediately after its fetch (the next
+  // `fetch origin main` overwrites FETCH_HEAD); if it can't be resolved we fall back
+  // to main and the batch's stack-integrity check will hold the release. `reviewBase`
+  // scopes the pre-ship reviewer to THIS phase's delta (not the whole stack).
+  let baseRef = "origin/main";
+  let reviewBase = "origin/main";
+  const predBranch = await db.predecessorBranch(item.id).catch(() => null);
+  if (predBranch) {
+    const predSha = await exec("git", ["-C", REPO, "fetch", "origin", predBranch])
+      .then(() => exec("git", ["-C", REPO, "rev-parse", "FETCH_HEAD"]))
+      .then((r) => r.stdout.trim())
+      .catch(() => "");
+    if (predSha) {
+      baseRef = predSha;
+      reviewBase = predSha;
+      log(`${key} stacking on predecessor ${predBranch} (${predSha.slice(0, 8)})`);
+    } else {
+      log(`${key} predecessor ${predBranch} not resolvable on origin — building off main (release will hold on the stack check)`);
+    }
+  }
   await exec("git", ["-C", REPO, "fetch", "origin", "main"]);
-  await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, "origin/main"]);
+  await exec("git", ["-C", REPO, "worktree", "add", "-B", branch, wt, baseRef]);
   // A worktree checks out only tracked files — node_modules is gitignored, so it's
   // absent, and `npx tsc/eslint/vitest` in checks.mts (and the agent's own
   // self-verification) would resolve to a stray global stub and fail EVERY ticket,
@@ -801,7 +839,7 @@ async function processOne(
     // returns {approve:false} → parked, because a ship gate that can't run must
     // not open. Same helper the resume path uses.
     setPhase(item.id, "review");
-    const verdict = await reviewFinalDiff(brief, item.orgId, wt);
+    const verdict = await reviewFinalDiff(brief, item.orgId, wt, reviewBase);
     loopEmit(item.id, { kind: "reviewed", approved: verdict.approve, reason: verdict.reason });
     if (!verdict.approve) {
       await parkForReview(`reviewer rejected — ${verdict.reason}`);
@@ -832,6 +870,12 @@ async function processOne(
     if (coord && coord.mode === "coordinated") {
       const summary = aggregateReadiness(coord.mode, coord.siblings);
       await parkForReview(`held for coordinated release of ${coord.epicKey ?? "its epic"} — ${summary.label}`);
+      // #1 cascade: this phase's branch tip just changed (fresh build OR rebuild) and
+      // is now pushed, so any LATER phase that was stacked on a superseded tip must
+      // re-stack. Requeue K+1…N to backlog + clear their ready/failed markers so the
+      // gate HOLDS until the whole stack is green again. No-op when no later phase has
+      // been built yet (the common in-order first build).
+      await db.cascadeRebuildLaterPhases(item.id).catch(() => undefined);
       return {};
     }
 
@@ -1196,15 +1240,119 @@ function coordinatedChangelogEntry(epicKey: string, batch: string[], version: st
   return `{ version: "${version}", date: "${date}", title: "Coordinated release ${epicKey}", highlights: [{ kind: "feature", text: ${JSON.stringify(text)} }] }`;
 }
 
-/** EXECUTE a coordinated epic release (COSMOS-118): merge the ordered batch of
- *  sibling phase branches onto ONE integration branch, assign ONE version (the
- *  epic's bumpKind — minor for a feature epic, patch for an all-bugfix one),
- *  write ONE combined changelog entry, then run the SAME push→PR→merge→tag→
- *  image→deploy pipeline as a solo ship — but exactly once for the whole batch.
- *  Every phase child is marked done on success. A real code conflict merging any
- *  phase aborts the whole release (never a silent half-release, AC3/AC5). MUST run
- *  inside the ship-chain mutex (the caller wraps it via enqueueRepoWork) so its
- *  worktree/merge can't race a build's own REPO-mutating steps. */
+/** NARROW prompt for the bounded AI-assisted conflict fallback (#1, Task 7). The
+ *  build agent is asked to resolve ONLY the listed conflicted files, preserving both
+ *  sides' intent, and to leave version/changelog/lockfile alone (those are resolved
+ *  mechanically afterward). Deliberately terse and scoped so a prompt-injected ticket
+ *  can't widen it. */
+function coordinatedConflictPrompt(epicKey: string, tipRef: string, conflictedPaths: string[]): string {
+  return [
+    `You are resolving git MERGE CONFLICTS in the working tree for the coordinated release of ${epicKey} (phase stack tip ${tipRef}).`,
+    `The phase stack was merged onto the latest main and these files conflict:`,
+    ...conflictedPaths.map((p) => `  - ${p}`),
+    ``,
+    `Resolve EACH conflict by combining BOTH sides' intent — never drop either the stacked phases' changes or main's changes. Edit ONLY the conflicted files listed above.`,
+    `Remove every conflict marker (<<<<<<<, =======, >>>>>>>). Do NOT edit package.json, package-lock.json, or src/lib/changelog.ts (those are handled separately). Do NOT run git commit. When done, the files must contain valid, compiling code with no markers left.`,
+  ].join("\n");
+}
+
+/** BOUNDED, GATED AI-assisted resolution of the ONE residual case stacking can't
+ *  remove — a real stack-vs-`main` code conflict (#1, Task 7). This is the ONLY
+ *  non-mechanical step in the coordinated release path and it CANNOT ship anything
+ *  the normal gates haven't approved: on the conflicted integration worktree it asks
+ *  the build agent to resolve markers, then verifies HARD and ABORTS on ANY failure —
+ *  no residual markers (`git diff --check`) → commit → `tsc --noEmit` → full
+ *  `npm run check` → adversarial `reviewFinalDiff` over the resolved diff. All-green →
+ *  the caller ships the ONE coordinated version; any failure resets the worktree to
+ *  origin/main and returns `{ ok:false }`, so the epic is held for a human (never a
+ *  half-release). Runs inside the ship mutex (its caller already holds it). */
+async function resolveStackVsMainFallback(input: {
+  wt: string;
+  epicKey: string;
+  tipRef: string;
+  conflicted: string[];
+  orgId: string;
+  testDbUrl?: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { wt, epicKey, tipRef, conflicted, orgId } = input;
+  const resetHard = async (): Promise<void> => {
+    await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+    await exec("git", ["-C", wt, "reset", "--hard", "origin/main"]).catch(() => undefined);
+  };
+  let home: Awaited<ReturnType<typeof openForemanHome>> | null = null;
+  try {
+    home = await openForemanHome(orgId);
+    const res = await runAgent(wt, coordinatedConflictPrompt(epicKey, tipRef, conflicted), {
+      orgId,
+      home: home.home,
+      timeoutMs: 25 * 60_000,
+      allowedTools: "Read,Grep,Glob,Edit,Write",
+      harness: true,
+      testDbUrl: input.testDbUrl,
+    });
+    if (!res.ok) {
+      await resetHard();
+      return { ok: false, reason: `AI conflict resolver did not complete for phase ${tipRef}` };
+    }
+    // 1) No unresolved conflicts / markers remain.
+    const stillConflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
+      .split("\n").map((l) => l.trim()).filter(Boolean);
+    const markersClean = await exec("git", ["-C", wt, "diff", "--check"]).then(() => true).catch(() => false);
+    if (stillConflicted.length > 0 || !markersClean) {
+      await resetHard();
+      return { ok: false, reason: describeMergeFailure({ phaseRef: tipRef, conflictedPaths: stillConflicted.length ? stillConflicted : conflicted }) + " — AI resolution left conflicts" };
+    }
+    // 2) Commit the resolved merge (version/changelog are overwritten by the caller).
+    await exec("git", ["-C", wt, "add", "-A"]);
+    await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } }).catch(() => undefined);
+    // 3) tsc tripwire.
+    const tscOk = await exec("npx", ["tsc", "--noEmit"], { cwd: wt, maxBuffer: 32 * 1024 * 1024 }).then(() => true).catch(() => false);
+    if (!tscOk) {
+      await resetHard();
+      return { ok: false, reason: `post-resolution tsc failed for phase ${tipRef}` };
+    }
+    // 4) Full checks — the SAME gate a normal ship must pass.
+    const checks = await runChecks(wt, { testDbUrl: input.testDbUrl });
+    if (!checks.ok) {
+      await resetHard();
+      return { ok: false, reason: `post-resolution checks failed for phase ${tipRef}` };
+    }
+    // 5) Adversarial review over the resolved diff vs. current main — the SAME
+    //    reviewer that guards a solo auto-ship. Fail-closed.
+    const brief: TicketBrief = {
+      key: epicKey,
+      title: `Coordinated release ${epicKey} — stack-vs-main resolution`,
+      description: `Automated resolution of stack-vs-main merge conflicts for the coordinated release of ${epicKey}.`,
+      classification: "FEATURE",
+      acceptanceCriteria: [],
+    };
+    const verdict = await reviewFinalDiff(brief, orgId, wt, "origin/main");
+    if (!verdict.approve) {
+      await resetHard();
+      return { ok: false, reason: `adversarial review rejected the resolved diff for phase ${tipRef} — ${verdict.reason}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    await resetHard();
+    return { ok: false, reason: `AI-assisted resolution errored for phase ${tipRef}: ${String(e)}` };
+  } finally {
+    if (home) await home.close().catch(() => undefined);
+  }
+}
+
+/** EXECUTE a coordinated epic release (COSMOS-118 / #1): under STACKED builds the
+ *  tip phase branch already contains the whole ordered stack, so shipping is a
+ *  single mechanical step — verify stack integrity, merge the TIP branch onto ONE
+ *  integration branch off current main, assign ONE version (the epic's bumpKind —
+ *  minor for a feature epic, patch for an all-bugfix one), write ONE combined
+ *  changelog entry, then run the SAME push→PR→merge→tag→image→deploy pipeline as a
+ *  solo ship — but exactly once for the whole batch. Every phase child is marked
+ *  done on success. The happy path is purely mechanical (cross-phase conflicts
+ *  vanish by construction); the ONLY residual case — a broken stack or a real
+ *  stack-vs-main code conflict — aborts to a human (Task 7 will gate an AI-assisted
+ *  fallback here), never a silent half-release (AC3/AC5). MUST run inside the
+ *  ship-chain mutex (the caller wraps it via enqueueRepoWork) so its worktree/merge
+ *  can't race a build's own REPO-mutating steps. */
 async function shipCoordinatedBatch(
   coord: NonNullable<Awaited<ReturnType<typeof db.epicCoordination>>>,
   batch: string[],
@@ -1223,30 +1371,94 @@ async function shipCoordinatedBatch(
     /* checks tripwire may gate — acceptable, the batch parks for review */
   }
   try {
-    // Merge each phase branch in dependency order. A plain merge (NOT `-X theirs`,
-    // which would silently drop an earlier phase's overlapping edits): only the
-    // version-race trio (package.json / lock / changelog) is allowed to conflict —
-    // it's overwritten with ONE final version + combined entry below, so we take the
-    // incoming copy and continue. ANY other conflicted file is a real cross-phase
-    // code clash → abort the whole release (no silent half-release, AC3/AC5).
-    for (const ref of batch) {
-      const branch = childByKey.get(ref)?.branch ?? `auto/${ref}`;
-      await exec("git", ["-C", REPO, "fetch", "origin", branch]);
+    // ── Stacked coordinated batch (#1) ──────────────────────────────────────────
+    // With stacked builds (phase N branches off phase N-1), the TIP phase branch
+    // already contains the WHOLE stack, so shipping degenerates to merging that ONE
+    // branch onto current main and assigning ONE version — cross-phase conflicts
+    // vanish by construction, keeping the happy path purely mechanical (no AI). First
+    // VERIFY the stack is intact (each predecessor tip is an ancestor of its successor
+    // tip); a broken stack (a phase not rebuilt on its predecessor) or a real
+    // stack-vs-main code conflict is the ONLY residual case → aborts here (Task 7
+    // gates an AI-assisted resolution in its place), never a silent half-release.
+    const phaseBranches = batch.map((ref) => ({ ref, branch: childByKey.get(ref)?.branch ?? `auto/${ref}` }));
+    // Fetch every phase branch and capture its tip SHA (FETCH_HEAD is overwritten per
+    // fetch, so rev-parse right after each).
+    const tipShaByRef = new Map<string, string>();
+    for (const p of phaseBranches) {
+      await exec("git", ["-C", REPO, "fetch", "origin", p.branch]);
+      tipShaByRef.set(p.ref, (await exec("git", ["-C", REPO, "rev-parse", "FETCH_HEAD"])).stdout.trim());
+    }
+    // Stack integrity: each predecessor tip must be an ancestor of its successor tip.
+    let stackIntact = true;
+    for (let i = 1; i < phaseBranches.length; i++) {
+      const pred = tipShaByRef.get(phaseBranches[i - 1].ref);
+      const succ = tipShaByRef.get(phaseBranches[i].ref);
+      if (!pred || !succ) {
+        stackIntact = false;
+        break;
+      }
+      const isAncestor = await exec("git", ["-C", REPO, "merge-base", "--is-ancestor", pred, succ])
+        .then(() => true)
+        .catch(() => false);
+      if (!isAncestor) {
+        stackIntact = false;
+        break;
+      }
+    }
+    const tip = phaseBranches[phaseBranches.length - 1];
+    // Merge the TIP (the whole stack) onto current main in ONE step, only when the
+    // stack is intact. Plain `--no-edit` 3-way merge: non-overlapping main advances
+    // merge cleanly; the version-race trio always conflicts and is resolved wholesale
+    // below; a REAL overlapping code conflict (stack vs. main) routes to the fallback.
+    let conflicted: string[] = [];
+    let mergeStderr = "";
+    let mechanical = false;
+    if (stackIntact) {
+      await exec("git", ["-C", REPO, "fetch", "origin", tip.branch]);
       try {
         await exec("git", ["-C", wt, "merge", "--no-edit", "FETCH_HEAD"]);
-      } catch {
-        const conflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
+        mechanical = true;
+      } catch (mergeErr) {
+        mergeStderr = (mergeErr as { stderr?: string }).stderr ?? "";
+        conflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
           .split("\n")
           .map((l) => l.trim())
           .filter(Boolean);
-        if (!conflictsAreMechanical(conflicted)) {
-          await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
-          throw new Error(`code conflict merging phase ${ref} (${conflicted.join(", ") || "unknown"}) — coordinated release aborted (no half-release)`);
+        if (conflictsAreMechanical(conflicted)) {
+          // Only the version-race trio conflicted — overwritten wholesale below anyway.
+          await exec("git", ["-C", wt, "checkout", "--theirs", "--", ...conflicted]);
+          await exec("git", ["-C", wt, "add", "--", ...conflicted]);
+          await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } });
+          mechanical = true;
         }
-        // Only the version-race trio conflicted — resolved wholesale below anyway.
-        await exec("git", ["-C", wt, "checkout", "--theirs", "--", ...conflicted]);
-        await exec("git", ["-C", wt, "add", "--", ...conflicted]);
-        await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } });
+      }
+    }
+    if (!mechanical) {
+      // Residual case: a real stack-vs-main CODE conflict (stack intact) is the ONE
+      // case stacking can't remove → the bounded, GATED AI fallback (Task 7) resolves
+      // it on the conflicted worktree and re-verifies through the SAME gates as a
+      // normal ship; anything else (a broken stack — the Task 6 cascade will
+      // re-stack — or an opaque git failure with no markers to fix) ABORTS to a human.
+      // Either way, NEVER a silent half-release. #4: name the phase/files (or stderr).
+      const cls = classifyConflict(conflicted);
+      if (stackIntact && cls === "cross-phase") {
+        const orgId = await db.primaryDeliveryOrgId().catch(() => null);
+        if (!orgId) {
+          await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+          throw new Error(`${describeMergeFailure({ phaseRef: tip.ref, conflictedPaths: conflicted, gitStderr: mergeStderr })} — no Foreman-connected org for the resolution fallback — coordinated release aborted (no half-release)`);
+        }
+        log(`${epicKey} stack-vs-main conflict on ${tip.ref} — attempting gated AI resolution (${conflicted.join(", ")})`);
+        const fb = await resolveStackVsMainFallback({ wt, epicKey, tipRef: tip.ref, conflicted, orgId });
+        if (!fb.ok) throw new Error(`${fb.reason} — coordinated release aborted (no half-release)`);
+        log(`${epicKey} stack-vs-main conflict on ${tip.ref} resolved + re-verified via gated fallback`);
+        mechanical = true;
+      } else {
+        await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+        const detail = describeMergeFailure({ phaseRef: tip.ref, conflictedPaths: conflicted, gitStderr: mergeStderr });
+        const why = stackIntact
+          ? detail
+          : `phase stack for ${tip.ref} is broken (a predecessor is not an ancestor — an earlier phase was rebuilt; the later phases will re-stack)`;
+        throw new Error(`${why} — coordinated release aborted (no half-release)`);
       }
     }
     // ONE coordinated version, strictly above current main (the epic's bumpKind).
@@ -1353,6 +1565,73 @@ async function handleCoordinatedApprove(
     log(`${epicKey} coordinated release failed — ${String(e)}`);
     await db.comment(m.itemId, `Coordinated release of ${epicKey} failed — ${String(e)}. Left for review.`).catch(() => undefined);
     await obs.track({ workItemId: m.itemId, ticketKey: m.key, kind: "ship-failed", severity: "error", message: `coordinated release failed — ${String(e)}`, data: { epicKey } }).catch(() => undefined);
+  }
+}
+
+/** Resolve a branch's remote tip SHA (origin/<branch>), or null when the branch
+ *  doesn't exist yet (a phase not built). Used to fingerprint a coordinated epic's
+ *  live state for the reconcile pass (#3). */
+async function remoteTipSha(branch: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["-C", REPO, "ls-remote", "origin", branch]);
+    const sha = stdout.split(/\s+/)[0]?.trim();
+    return sha && sha.length > 0 ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reconcile-pass re-fire of a ready-but-unshipped coordinated release (#3). The
+ *  ONLY caller of shipCoordinatedBatch other than an approval event: a coordinated
+ *  epic can become "all phases green+approved" via something OTHER than a fresh
+ *  approve — most importantly a rebuild (#2) completing — and there was no path to
+ *  notice it. Each pass: enumerate coordinated epics not yet fully shipped; for each,
+ *  read its live coordination + branch tips, decide the gate, and re-fire iff the
+ *  gate says release AND the fingerprint (readiness + tips) changed since the last
+ *  attempt (shouldRefireCoordinatedRelease) — so a ready release fires ONCE and an
+ *  unchanged state never storms. The attempt fingerprint is written BEFORE firing
+ *  (storm guard). Serialized behind the ship mutex via enqueueRepoWork, exactly like
+ *  handleCoordinatedApprove. Best-effort per epic — a git/db hiccup skips it and the
+ *  next pass retries; never a half-release (shipCoordinatedBatch owns that). */
+async function reconcileCoordinatedReleases(enqueueRepoWork: EnqueueRepoWork): Promise<void> {
+  if (DRY) return; // ships to prod — never in a dry preview
+  let candidates: Awaited<ReturnType<typeof db.coordinatedReleasesReady>>;
+  try {
+    candidates = await db.coordinatedReleasesReady();
+  } catch (e) {
+    log(`coordinated-release reconcile scan failed (${String(e)}) — skipping this pass`);
+    return;
+  }
+  for (const cand of candidates) {
+    try {
+      const coord = await db.epicCoordination(cand.sampleChildId).catch(() => null);
+      if (!coord || coord.mode !== "coordinated") continue;
+      const decision = decideRelease({ mode: coord.mode, siblings: coord.siblings });
+      // Fingerprint the live state: each sibling's readiness + its branch tip SHA.
+      const branchByKey = new Map(coord.children.map((c) => [c.key, c.branch] as const));
+      const fpSiblings: FingerprintSibling[] = [];
+      for (const s of coord.siblings) {
+        const branch = branchByKey.get(s.key) ?? `auto/${s.key}`;
+        fpSiblings.push({ key: s.key, readiness: s.readiness, tipSha: await remoteTipSha(branch) });
+      }
+      const fingerprint = coordinatedReleaseFingerprint(fpSiblings);
+      if (!shouldRefireCoordinatedRelease({ decision, currentFingerprint: fingerprint, lastAttemptFingerprint: cand.lastAttemptFingerprint })) {
+        continue;
+      }
+      // Storm guard: record the attempt BEFORE firing, so a slow/failed ship can't be
+      // re-fired on the next pass against the SAME state (only a changed tip re-arms).
+      await db.writeReleaseAttempt(cand.epicId, fingerprint);
+      log(`${cand.epicKey} coordinated release ready via reconcile — firing batch [${decision.batch.join(", ")}] as one version`);
+      try {
+        await enqueueRepoWork(() => shipCoordinatedBatch(coord, decision.batch));
+      } catch (e) {
+        log(`${cand.epicKey} coordinated release (reconcile) failed — ${String(e)}`);
+        await db.comment(cand.epicId, `Coordinated release of ${cand.epicKey} (re-fired after a phase became ready) failed — ${String(e)}. Left for review.`).catch(() => undefined);
+        await obs.track({ workItemId: cand.epicId, ticketKey: cand.epicKey, kind: "ship-failed", severity: "error", message: `coordinated release (reconcile) failed — ${String(e)}`, data: { epicKey: cand.epicKey } }).catch(() => undefined);
+      }
+    } catch (e) {
+      log(`${cand.epicKey} coordinated-release reconcile skipped: ${String(e)}`);
+    }
   }
 }
 
@@ -1535,6 +1814,39 @@ async function processMentions(
           }
         }
       } else {
+        // #2: a coordinated phase child is routinely held OUTSIDE `review` (in
+        // `done` after merging, or `backlog`/`todo` while siblings finish), so an
+        // @foreman rebuild/approve on it must ACT rather than fall through to the
+        // read-only Q&A path. Only honored for a coordinated phase child, off
+        // `review`, on an approve|rebuild intent (a bare instruct/question stays
+        // Q&A). A rebuild re-opens the phase to `backlog` and clears its ready/
+        // failed markers so the release gate HOLDS (no half-release) until it — and
+        // every later phase, via the Task 6 cascade — is green again; the reconcile
+        // pass (#3) then re-fires the batch once the whole stack is ready.
+        const texts = group.map((g) => g.question).filter((q) => q.trim().length > 0);
+        const { intent } = combineIntents(texts);
+        const isPhaseChild =
+          (intent === "approve" || intent === "rebuild") && (await db.isCoordinatedPhaseChild(m.itemId).catch(() => false));
+        if (honorPhaseCommand(m.columnKey, intent, isPhaseChild)) {
+          if (intent === "rebuild") {
+            log(`${m.key} @Foreman rebuild on coordinated phase child (${m.columnKey}) — re-opening to backlog`);
+            await db.reopenPhaseForRebuild(m.itemId);
+            // Rebuilding this phase invalidates every later phase stacked on it — the
+            // Task 6 cascade requeues K+1…N so the whole stack re-stacks in order and
+            // the release gate HOLDS until it's green again (no half-release).
+            await db.cascadeRebuildLaterPhases(m.itemId).catch(() => undefined);
+            await db.comment(
+              m.itemId,
+              `Got it — re-opening ${m.key} for a rebuild. Its coordinated release is HELD until this phase (and any later phases that build on it) are green again.`,
+            );
+          } else {
+            // approve: honor it exactly like the review-column approve path, which
+            // routes a coordinated child through handleCoordinatedApprove.
+            log(`${m.key} @Foreman approve on coordinated phase child (${m.columnKey}) — honoring`);
+            await handleApprove(m, enqueueRepoWork, false);
+          }
+          continue;
+        }
         log(`${m.key} @Foreman question (${m.columnKey}) — drafting reply`);
         const r = await runAgent(
           REPO,
@@ -2101,6 +2413,15 @@ async function main(): Promise<void> {
           } else {
             log(`reconcile skipped: ${String(e)}`); // transient gh/git/db — not a deploy failure
           }
+        }
+        // #3: re-fire a coordinated release that became all-green via something OTHER
+        // than a fresh approval (e.g. a rebuild completing). Runs AFTER reconcileGated
+        // (solo ships first), serialized behind the same ship mutex; best-effort so a
+        // git/db hiccup skips it without tripping the deploy breaker.
+        try {
+          await reconcileCoordinatedReleases(enqueueRepoWork);
+        } catch (e) {
+          log(`coordinated-release reconcile skipped: ${String(e)}`);
         }
         if (killed()) continue; // breaker may have just fired — don't start a build
 
