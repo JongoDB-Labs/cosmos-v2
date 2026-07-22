@@ -134,3 +134,24 @@ describe("alreadyDecomposed — re-decomposition guard (COSMOS-128 AC3)", () => 
     expect(alreadyDecomposed(["feedback:feature", "priority:high"])).toBe(false);
   });
 });
+
+import { stackedBase } from "./decompose";
+
+describe("stackedBase", () => {
+  it("bases phase 1 on origin/main", () => {
+    expect(stackedBase(1, new Map())).toBe("origin/main");
+    expect(stackedBase(1, new Map([[1, "auto/COSMOS-119"]]))).toBe("origin/main");
+  });
+  it("bases phase N on phase N-1's branch", () => {
+    const branches = new Map([
+      [1, "auto/COSMOS-119"],
+      [2, "auto/COSMOS-120"],
+    ]);
+    expect(stackedBase(2, branches)).toBe("auto/COSMOS-119");
+    expect(stackedBase(3, new Map([[2, "auto/COSMOS-120"]]))).toBe("auto/COSMOS-120");
+  });
+  it("falls back to origin/main when the predecessor branch isn't built yet", () => {
+    expect(stackedBase(3, new Map([[1, "auto/COSMOS-119"]]))).toBe("origin/main");
+    expect(stackedBase(2, new Map())).toBe("origin/main");
+  });
+});
