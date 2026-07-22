@@ -287,3 +287,29 @@ describe("combineIntents", () => {
     });
   });
 });
+
+import { honorPhaseCommand } from "./intent";
+
+describe("honorPhaseCommand", () => {
+  it("honors a rebuild on a coordinated phase child in `done`", () => {
+    expect(honorPhaseCommand("done", "rebuild", true)).toBe(true);
+  });
+  it("honors an approve on a coordinated phase child in `done`", () => {
+    expect(honorPhaseCommand("done", "approve", true)).toBe(true);
+  });
+  it("honors a rebuild on a coordinated phase child in any non-review column", () => {
+    expect(honorPhaseCommand("backlog", "rebuild", true)).toBe(true);
+    expect(honorPhaseCommand("todo", "rebuild", true)).toBe(true);
+  });
+  it("does NOT honor a bare instruct off review (stays Q&A)", () => {
+    expect(honorPhaseCommand("done", "instruct", true)).toBe(false);
+  });
+  it("does NOT honor when the ticket is in `review` (the normal router owns it)", () => {
+    expect(honorPhaseCommand("review", "rebuild", true)).toBe(false);
+    expect(honorPhaseCommand("review", "approve", true)).toBe(false);
+  });
+  it("does NOT honor on a non-coordinated-phase ticket", () => {
+    expect(honorPhaseCommand("done", "rebuild", false)).toBe(false);
+    expect(honorPhaseCommand("done", "approve", false)).toBe(false);
+  });
+});

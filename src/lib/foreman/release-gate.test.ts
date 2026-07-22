@@ -212,3 +212,68 @@ describe("aggregateReadiness — console surface", () => {
     expect(r.status).toBe("incremental");
   });
 });
+
+import {
+  coordinatedReleaseFingerprint,
+  shouldRefireCoordinatedRelease,
+  type FingerprintSibling,
+} from "./release-gate";
+
+describe("coordinatedReleaseFingerprint", () => {
+  const sib = (over: Partial<FingerprintSibling>): FingerprintSibling => ({
+    key: "COSMOS-1",
+    readiness: "ready",
+    tipSha: "aaa",
+    ...over,
+  });
+
+  it("is order-independent", () => {
+    const a = [sib({ key: "COSMOS-1" }), sib({ key: "COSMOS-2", tipSha: "bbb" })];
+    const b = [sib({ key: "COSMOS-2", tipSha: "bbb" }), sib({ key: "COSMOS-1" })];
+    expect(coordinatedReleaseFingerprint(a)).toBe(coordinatedReleaseFingerprint(b));
+  });
+  it("changes when a phase's tip SHA changes (a rebuild pushed a new tip)", () => {
+    const before = [sib({ key: "COSMOS-1", tipSha: "aaa" })];
+    const after = [sib({ key: "COSMOS-1", tipSha: "zzz" })];
+    expect(coordinatedReleaseFingerprint(before)).not.toBe(coordinatedReleaseFingerprint(after));
+  });
+  it("changes when a phase's readiness changes", () => {
+    const pending = [sib({ readiness: "pending" })];
+    const ready = [sib({ readiness: "ready" })];
+    expect(coordinatedReleaseFingerprint(pending)).not.toBe(coordinatedReleaseFingerprint(ready));
+  });
+  it("is identical for the same state (no spurious re-fire)", () => {
+    const s = [sib({ key: "COSMOS-1" }), sib({ key: "COSMOS-2", tipSha: "bbb" })];
+    expect(coordinatedReleaseFingerprint(s)).toBe(coordinatedReleaseFingerprint([...s]));
+  });
+});
+
+describe("shouldRefireCoordinatedRelease", () => {
+  const release = { action: "release" as const, batch: ["COSMOS-1"], reason: "" };
+  const hold = { action: "hold" as const, batch: [], reason: "" };
+  const abort = { action: "abort" as const, batch: [], reason: "" };
+
+  it("fires when gate=release and the fingerprint changed", () => {
+    expect(
+      shouldRefireCoordinatedRelease({ decision: release, currentFingerprint: "b", lastAttemptFingerprint: "a" }),
+    ).toBe(true);
+  });
+  it("fires the first time (no prior attempt)", () => {
+    expect(
+      shouldRefireCoordinatedRelease({ decision: release, currentFingerprint: "a", lastAttemptFingerprint: null }),
+    ).toBe(true);
+  });
+  it("does NOT re-fire when the fingerprint is unchanged (no storm)", () => {
+    expect(
+      shouldRefireCoordinatedRelease({ decision: release, currentFingerprint: "a", lastAttemptFingerprint: "a" }),
+    ).toBe(false);
+  });
+  it("never fires on hold or abort even if the fingerprint changed", () => {
+    expect(
+      shouldRefireCoordinatedRelease({ decision: hold, currentFingerprint: "b", lastAttemptFingerprint: "a" }),
+    ).toBe(false);
+    expect(
+      shouldRefireCoordinatedRelease({ decision: abort, currentFingerprint: "b", lastAttemptFingerprint: "a" }),
+    ).toBe(false);
+  });
+});

@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.223.1",
+    date: "2026-07-22",
+    title: "Coordinated multi-phase releases that touch the same files now ship",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman can now autonomously ship a coordinated release whose phases edit the same file. Phases build as a stack — each on top of the previous — so the final merge composes cleanly instead of aborting on a conflict, and the safe “no half-release” guarantee holds throughout.",
+      },
+      {
+        kind: "improvement",
+        text: "Asking Foreman to rebuild a phase now works from any board column, and a rebuild that makes a release ready re-fires the coordinated ship on its own instead of waiting for another approval.",
+      },
+    ],
+  },
+  {
     version: "2.223.0",
     date: "2026-07-22",
     title: "Schedules now show slippage on their own",

@@ -67,9 +67,61 @@ export function prependChangelogEntry(source: string, entry: string, newVersion:
   return `${source.slice(0, insertAt)}\n  ${withComma.trim()}${source.slice(insertAt)}`;
 }
 
+/** The ONLY files the ship worker resolves mechanically at merge/rebase time — the
+ *  "version-race trio". Two builds that both bumped from the same main collide on
+ *  exactly these three files; every OTHER conflicted path is real code and must
+ *  abort (never a silent half-release). Defined once here and shared by
+ *  conflictsAreMechanical / classifyConflict so the mechanical set has ONE source
+ *  of truth. */
+export const VERSION_RACE_TRIO = ["package.json", "package-lock.json", "src/lib/changelog.ts"] as const;
+
 /** True when every conflicted path is one the ship worker knows how to resolve
  *  mechanically (the version-race trio). Anything else must abort → park. */
 export function conflictsAreMechanical(conflictedPaths: string[]): boolean {
-  const known = new Set(["package.json", "package-lock.json", "src/lib/changelog.ts"]);
+  const known = new Set<string>(VERSION_RACE_TRIO);
   return conflictedPaths.length > 0 && conflictedPaths.every((p) => known.has(p));
+}
+
+/** How a merge/rebase failure classifies by its conflicted-path set (#4). */
+export type ConflictClass = "mechanical" | "cross-phase" | "opaque";
+
+/** Classify a merge/rebase failure by the paths git reported as content-conflicted
+ *  (`git diff --name-only --diff-filter=U`):
+ *   - `opaque`      — git failed but reported NO conflicted paths (e.g. a rebase
+ *                     that errored before producing a textual conflict). The caller
+ *                     must surface the raw git stderr, NEVER "(unknown)".
+ *   - `mechanical`  — every conflicted path is the version-race trio; resolved
+ *                     wholesale into ONE final version + combined changelog entry.
+ *   - `cross-phase` — at least one conflicted path is real code (outside the trio):
+ *                     two phases (or the stack vs. main) edited the same file. Under
+ *                     stacked builds this only remains for the stack-vs-main case,
+ *                     which routes to the gated AI fallback (never a half-release). */
+export function classifyConflict(conflictedPaths: string[]): ConflictClass {
+  if (conflictedPaths.length === 0) return "opaque";
+  return conflictsAreMechanical(conflictedPaths) ? "mechanical" : "cross-phase";
+}
+
+/** A precise, human-actionable description of a coordinated merge/rebase failure
+ *  (#4) — the replacement for the old `(unknown)` degradation. Always names the
+ *  phase, and either the conflicting files (when git reported them) or the raw git
+ *  stderr (when it did not), so a maintainer can always tell what to fix. Never
+ *  returns an empty or "unknown" attribution. Pure — the orchestrator appends the
+ *  standing "— coordinated release aborted (no half-release)" suffix. */
+export function describeMergeFailure(input: {
+  phaseRef: string;
+  conflictedPaths: string[];
+  gitStderr?: string;
+}): string {
+  const { phaseRef, conflictedPaths } = input;
+  const cls = classifyConflict(conflictedPaths);
+  if (cls === "opaque") {
+    const stderr = (input.gitStderr ?? "").trim();
+    return stderr
+      ? `merge of phase ${phaseRef} failed with no content conflicts — git: ${stderr}`
+      : `merge of phase ${phaseRef} failed with no content conflicts and no git stderr`;
+  }
+  const files = conflictedPaths.join(", ");
+  return cls === "mechanical"
+    ? `phase ${phaseRef} conflicts only on the version-race trio (${files})`
+    : `code conflict merging phase ${phaseRef} (${files})`;
 }

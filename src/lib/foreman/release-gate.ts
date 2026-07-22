@@ -234,3 +234,37 @@ export function aggregateReadiness(mode: CoordinationMode, siblings: readonly Si
   }
   return { ...base, status: "shipping", label: `ready — all ${total} phase(s) green+approved` };
 }
+
+/** A sibling phase reduced to the inputs a release fingerprint depends on (#3):
+ *  its ref, its current readiness, and its branch tip SHA (null when the branch
+ *  doesn't exist yet). A rebuild (#2) pushes a new tip → a new SHA → a changed
+ *  fingerprint → the reconcile pass re-fires the batch exactly once. */
+export interface FingerprintSibling {
+  key: string;
+  readiness: SiblingReadiness;
+  tipSha: string | null;
+}
+
+/** A stable, order-independent fingerprint of a coordinated epic's phase state
+ *  (#3): sorted `key:readiness:tipSha` over every sibling. Two reconcile passes
+ *  over the SAME state produce the SAME fingerprint (so a ready-but-already-attempted
+ *  release does NOT re-fire — no retry storm); ANY change to a phase's readiness or
+ *  branch tip changes it (so a rebuild re-arms the batch). */
+export function coordinatedReleaseFingerprint(siblings: readonly FingerprintSibling[]): string {
+  return [...siblings]
+    .map((s) => `${s.key}:${s.readiness}:${s.tipSha ?? "-"}`)
+    .sort()
+    .join("|");
+}
+
+/** Whether the reconcile pass should re-fire a coordinated batch (#3). Fires ONLY
+ *  when the gate says `release` AND the current fingerprint differs from the last
+ *  attempt's — so a release fires once per distinct ready-state and never loops on
+ *  an unchanged one. A `hold`/`abort` decision never fires. */
+export function shouldRefireCoordinatedRelease(input: {
+  decision: GateDecision;
+  currentFingerprint: string;
+  lastAttemptFingerprint: string | null;
+}): boolean {
+  return input.decision.action === "release" && input.currentFingerprint !== input.lastAttemptFingerprint;
+}
