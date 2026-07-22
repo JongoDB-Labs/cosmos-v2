@@ -870,6 +870,12 @@ async function processOne(
     if (coord && coord.mode === "coordinated") {
       const summary = aggregateReadiness(coord.mode, coord.siblings);
       await parkForReview(`held for coordinated release of ${coord.epicKey ?? "its epic"} — ${summary.label}`);
+      // #1 cascade: this phase's branch tip just changed (fresh build OR rebuild) and
+      // is now pushed, so any LATER phase that was stacked on a superseded tip must
+      // re-stack. Requeue K+1…N to backlog + clear their ready/failed markers so the
+      // gate HOLDS until the whole stack is green again. No-op when no later phase has
+      // been built yet (the common in-order first build).
+      await db.cascadeRebuildLaterPhases(item.id).catch(() => undefined);
       return {};
     }
 
@@ -1710,6 +1716,10 @@ async function processMentions(
           if (intent === "rebuild") {
             log(`${m.key} @Foreman rebuild on coordinated phase child (${m.columnKey}) — re-opening to backlog`);
             await db.reopenPhaseForRebuild(m.itemId);
+            // Rebuilding this phase invalidates every later phase stacked on it — the
+            // Task 6 cascade requeues K+1…N so the whole stack re-stacks in order and
+            // the release gate HOLDS until it's green again (no half-release).
+            await db.cascadeRebuildLaterPhases(m.itemId).catch(() => undefined);
             await db.comment(
               m.itemId,
               `Got it — re-opening ${m.key} for a rebuild. Its coordinated release is HELD until this phase (and any later phases that build on it) are green again.`,

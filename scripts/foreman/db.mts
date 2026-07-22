@@ -597,6 +597,41 @@ export async function predecessorBuilt(itemId: string): Promise<boolean> {
   return pred?.columnKey === "review" || pred?.columnKey === "done";
 }
 
+/** Cascade-rebuild every LATER phase after phase K's branch tip changed (#1): a
+ *  fresh build or a rebuild of phase K supersedes the base that phases K+1…N were
+ *  stacked on, so they must re-stack. Requeue each later sibling to `backlog`, reset
+ *  columnEnteredAt, and clear its COORDINATED_READY_TAG / COORDINATED_FAILED_TAG
+ *  markers — the sequential stacking gate (predecessorBuilt) plus the cleared markers
+ *  then make the release gate HOLD until the whole stack is green again (no
+ *  half-release). Phase index comes from each sibling's coordinated-phase tag; a
+ *  sibling with no phase tag, or at phase ≤ K, is left untouched. Returns the
+ *  requeued item ids. */
+export async function cascadeRebuildLaterPhases(itemId: string): Promise<string[]> {
+  const item = await prisma.workItem.findUnique({ where: { id: itemId }, select: { parentId: true, tags: true } });
+  if (!item?.parentId) return [];
+  const k = phaseIndexFromTags(item.tags);
+  if (k === null) return [];
+  const siblings = await prisma.workItem.findMany({
+    where: { parentId: item.parentId },
+    select: { id: true, tags: true, columnKey: true },
+  });
+  const cleared = new Set([COORDINATED_READY_TAG, COORDINATED_FAILED_TAG]);
+  const requeued: string[] = [];
+  for (const s of siblings) {
+    const p = phaseIndexFromTags(s.tags);
+    if (p === null || p <= k) continue; // only strictly-later phases re-stack
+    if (s.columnKey === "backlog" && !s.tags.some((t) => cleared.has(t))) continue; // already clean & queued
+    const tags = s.tags.filter((t) => !cleared.has(t));
+    await prisma.workItem.update({
+      where: { id: s.id },
+      data: { columnKey: "backlog", columnEnteredAt: new Date(), tags },
+    });
+    await afterColumnMove(s.id);
+    requeued.push(s.id);
+  }
+  return requeued;
+}
+
 /** Decompose an epic-sized FEATURE into ordered phase children (COSMOS-115). Creates
  *  one child work item per phase (parentId = the epic; org/project/type/priority
  *  inherited), carrying that phase's acceptance criteria + classification in
