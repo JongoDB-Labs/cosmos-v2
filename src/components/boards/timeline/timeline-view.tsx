@@ -890,8 +890,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           {showActuals && (
             <>
               <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-1 w-5 rounded-sm bg-muted-foreground/60" />
-                Actual (start → finish/today)
+                <span
+                  className="inline-block h-1 w-5 rounded-sm"
+                  style={{ backgroundColor: "var(--status-done)", opacity: 0.8 }}
+                />
+                Actual — on/ahead
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="inline-block h-1 w-5 rounded-sm"
+                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
+                />
+                Actual — slipped
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
@@ -1282,8 +1292,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <polygon
                       points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
                       fill={colors.fill}
-                      stroke={isCrit ? "var(--status-critical)" : colors.stroke}
-                      strokeWidth={isCrit ? 2.5 : 1.5}
+                      stroke={
+                        isCrit
+                          ? "var(--status-critical)"
+                          : health === "red"
+                            ? "var(--status-critical)"
+                            : colors.stroke
+                      }
+                      strokeWidth={isCrit || health === "red" ? 2.5 : 1.5}
                     />
                   </g>
                 );
@@ -1309,7 +1325,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         width={actual.w}
                         height={overlayH}
                         rx={2}
-                        fill={health === "red" ? "var(--status-critical)" : "var(--status-done)"}
+                        fill={
+                          health === "red"
+                            ? "var(--status-critical)"
+                            : health === "green"
+                              ? "var(--status-done)"
+                              : "var(--text-muted)"
+                        }
                         opacity={0.8}
                       />
                     </g>

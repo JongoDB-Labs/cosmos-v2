@@ -194,7 +194,7 @@ const STATUS_RANK: Record<DeliverableStatus, number> = Object.fromEntries(
   STATUS_OPTIONS.map((s, i) => [s, i]),
 ) as Record<DeliverableStatus, number>;
 
-// Baseline-due timestamp — missing dates sort last.
+// Due (Projected) timestamp — missing dates sort last.
 function baselineTime(d: Deliverable): number {
   return d.baselineDue ? new Date(d.baselineDue).getTime() : Infinity;
 }
@@ -212,7 +212,7 @@ function earlyLateDays(baselineDue: string | null, actualSubmission: string | nu
 
 // Sortable columns (headers sort on click via the shared DataTable). Pure — no
 // component state, so defined at module scope. Status sorts by workflow rank;
-// Baseline Due + Early/Late sort numerically (not by their rendered strings).
+// Due (Projected) + Early/Late sort numerically (not by their rendered strings).
 const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
   {
     accessorKey: "code",
@@ -263,7 +263,6 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
       return av - bv;
     },
     cell: ({ row }) => {
-      const earlyLate = computeEarlyLate(row.original.baselineDue, row.original.actualSubmission);
       const health = healthOf({
         projectedEnd: row.original.baselineDue ? new Date(row.original.baselineDue) : null,
         actualEnd: row.original.actualSubmission ? new Date(row.original.actualSubmission) : null,
@@ -271,6 +270,13 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
       });
       const isLate = health === "red";
       const isEarly = health === "green" && row.original.actualSubmission != null;
+      // Open + past due (no actualSubmission yet, but already red) — show the
+      // live overdue count instead of computeEarlyLate's "—", which otherwise
+      // renders blank-but-red and disagrees with the sort.
+      const earlyLate =
+        !row.original.actualSubmission && isLate
+          ? `${earlyLateDays(row.original.baselineDue, row.original.actualSubmission)}d overdue`
+          : computeEarlyLate(row.original.baselineDue, row.original.actualSubmission);
       return (
         <span
           className={

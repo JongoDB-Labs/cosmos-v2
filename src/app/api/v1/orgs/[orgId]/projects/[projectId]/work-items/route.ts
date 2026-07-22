@@ -204,7 +204,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             : ["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase())
               ? null
               : new Date(),
-          completedAt: data.completedAt ? new Date(data.completedAt) : null,
+          completedAt: data.completedAt
+            ? new Date(data.completedAt)
+            : ["done", "completed", "closed"].some((k) => data.columnKey.toLowerCase().includes(k))
+              ? new Date()
+              : null,
           columnEnteredAt: new Date(),
           tags: data.tags ?? [],
           customFields: (data.customFields ?? {}) as Prisma.InputJsonValue,
