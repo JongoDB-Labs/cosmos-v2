@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.222.3",
+    date: "2026-07-22",
+    title: "Tables no longer shake on hover",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Fixed a jitter where hovering near the boundary between two rows in a table (Deliverables and other data tables) made the row flicker/shake rapidly. The hover highlight no longer nudges the layout.",
+      },
+    ],
+  },
+  {
     version: "2.222.2",
     date: "2026-07-21",
     title: "A cleaner “What’s new” dialog",
