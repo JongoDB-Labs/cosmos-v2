@@ -561,7 +561,16 @@ export function DataTable<T>({
                         onClick={
                           isControlCell ? (e) => e.stopPropagation() : undefined
                         }
-                        className="block px-0 py-1 before:mb-0.5 before:block before:text-xs before:font-semibold before:uppercase before:tracking-wider before:text-[var(--text-muted)] before:content-[attr(data-label)] first:group-hover:md:pl-[14px] group-hover:md:border-l-2 group-hover:md:border-l-[var(--primary)] md:table-cell md:px-4 md:py-3 md:before:hidden"
+                        // The primary left-accent on hover is a 2px border that
+                        // is ALWAYS present (transparent at rest, colored on
+                        // hover) — never a border that appears on hover. A
+                        // hover-only border changed the cell's box width, which
+                        // re-laid-out the row and, when the cursor rested on a
+                        // row boundary, flipped hover on/off every frame (the
+                        // "jitter/shake between rows" bug). pl-[14px] + the 2px
+                        // border == the original 16px, so at-rest layout is
+                        // unchanged.
+                        className="block px-0 py-1 before:mb-0.5 before:block before:text-xs before:font-semibold before:uppercase before:tracking-wider before:text-[var(--text-muted)] before:content-[attr(data-label)] md:table-cell md:border-l-2 md:border-l-transparent md:py-3 md:pl-[14px] md:pr-4 group-hover:md:border-l-[var(--primary)] md:before:hidden"
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
