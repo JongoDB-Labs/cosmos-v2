@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
+import { StartSprintDialog } from "./start-sprint-dialog";
 
 interface CycleReport {
   velocity?: number;
@@ -131,6 +132,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   // Capacity planning dialog.
   const [capacityTarget, setCapacityTarget] = useState<Cycle | null>(null);
 
+  // Start Sprint planning flow (sprint-kind cycles only).
+  const [startTarget, setStartTarget] = useState<Cycle | null>(null);
+
   // "Add issues to this cycle" picker (FR 0e31d1ef).
   const [addIssuesTarget, setAddIssuesTarget] = useState<Cycle | null>(null);
   // cycleId → name, for the "currently in X" badge in the picker.
@@ -147,7 +151,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     canUpdate,
     canComplete,
     pis,
-    onStart: () => activateCycle(cycle.id),
+    // Sprints launch the planning flow; other cycle kinds activate directly.
+    onStart: () =>
+      cycle.cycleKind === "SPRINT" ? setStartTarget(cycle) : activateCycle(cycle.id),
     onComplete: () => {
       setMoveToCycleId(BACKLOG_OPTION);
       setCompleteTarget(cycle);
@@ -577,6 +583,24 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
           cycleName={capacityTarget.name}
           canEdit={canUpdate}
           onClose={() => setCapacityTarget(null)}
+        />
+      )}
+
+      {/* Start Sprint planning flow — capacity, goal, committed-vs-capacity. */}
+      {startTarget && (
+        <StartSprintDialog
+          orgId={orgId}
+          projectId={projectId}
+          cycle={{
+            id: startTarget.id,
+            name: startTarget.name,
+            goal: startTarget.goal,
+          }}
+          onClose={() => setStartTarget(null)}
+          onStarted={() => {
+            setStartTarget(null);
+            fetchCycles();
+          }}
         />
       )}
 
