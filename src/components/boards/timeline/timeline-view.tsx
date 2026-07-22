@@ -891,24 +891,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             <>
               <span className="inline-flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1 w-5 rounded-sm"
-                  style={{ backgroundColor: "var(--status-done)", opacity: 0.8 }}
+                  className="inline-block h-2.5 w-2 rounded-sm"
+                  style={{ backgroundColor: "var(--status-done)", opacity: 0.85 }}
                 />
-                Actual — on/ahead
+                Ahead of schedule
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1 w-5 rounded-sm"
-                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
+                  className="inline-block h-2.5 w-2 rounded-sm"
+                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.85 }}
                 />
-                Actual — slipped
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="inline-block h-1 w-5 rounded-sm"
-                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
-                />
-                Slipped past projected end
+                Slipped
               </span>
             </>
           )}
@@ -1239,21 +1232,28 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
 
-              // Actual overlay: from actualStart to (completedAt or today). Drawn as a
-              // thin track beneath the planned bar so slippage past the planned end reads
-              // at a glance. Positioned from un-dragged dates so it stays put while the
-              // live bar is dragged, widening the visible gap.
-              const aStart = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
-              const aEndRaw = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
-              let actual: { x: number; w: number } | null = null;
-              if (showActuals && aStart) {
-                const ax = diffDays(timelineStart, aStart) * DAY_WIDTH;
-                const aw = Math.max(diffDays(aStart, aEndRaw) * DAY_WIDTH, 2);
-                actual = { x: ax, w: aw };
-              }
-              const overlayY = y + h + 2;
-              const overlayH = 4;
+              // Schedule-health delta: a full-height segment appended to the bar
+              // showing how far the item slipped past — or beat — its projected end.
+              // Red trails to the LEFT of the bar for a slip (finished late, or still
+              // open past due); green extends to the RIGHT for an early finish. Width =
+              // whole days late/early. Anchored to the live bar so it reads as part of it.
               const health = barHealth(item, today);
+              const projEnd = item.dueDate ? startOfDay(new Date(item.dueDate)) : null;
+              const actEnd = item.completedAt ? startOfDay(new Date(item.completedAt)) : null;
+              let delta: { x: number; w: number; fill: string } | null = null;
+              if (showActuals && projEnd) {
+                const slip = slipDays({ projectedEnd: projEnd, actualEnd: actEnd, now: today });
+                // Green only when actually FINISHED early; an open item that simply
+                // isn't due yet shows nothing (slip is clamped to >= 0 while open).
+                const days = slip == null ? 0 : actEnd ? slip : Math.max(slip, 0);
+                if (days > 0) {
+                  const dw = Math.max(days * DAY_WIDTH, 3);
+                  delta = { x: x - dw, w: dw, fill: "var(--status-critical)" };
+                } else if (days < 0) {
+                  const dw = Math.max(-days * DAY_WIDTH, 3);
+                  delta = { x: x + w, w: dw, fill: "var(--status-done)" };
+                }
+              }
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -1316,25 +1316,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Actual overlay — planned bar sits above it. Non-interactive. */}
-                  {actual && (
-                    <g style={{ pointerEvents: "none" }}>
-                      <rect
-                        x={actual.x}
-                        y={overlayY}
-                        width={actual.w}
-                        height={overlayH}
-                        rx={2}
-                        fill={
-                          health === "red"
-                            ? "var(--status-critical)"
-                            : health === "green"
-                              ? "var(--status-done)"
-                              : "var(--text-muted)"
-                        }
-                        opacity={0.8}
-                      />
-                    </g>
+                  {/* Schedule-health delta — full-height slip (red, left of bar) or
+                      ahead (green, right of bar). Non-interactive. */}
+                  {delta && (
+                    <rect
+                      x={delta.x}
+                      y={y}
+                      width={delta.w}
+                      height={h}
+                      rx={2}
+                      fill={delta.fill}
+                      opacity={0.85}
+                      style={{ pointerEvents: "none" }}
+                    />
                   )}
                   <rect
                     x={x}
