@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.223.0",
+    date: "2026-07-22",
+    title: "Schedules now show slippage on their own",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Every work item, milestone, and deliverable now has one clear set of dates — Planned Start/End and Actual Start/End — and the Gantt, Schedule, and Deliverables views color themselves by whether the actual finish beat the projected date. No more “Set baseline” step.",
+      },
+      {
+        kind: "improvement",
+        text: "Actual start is captured automatically the first time an item moves into an in-progress column, and you can always correct any of the four dates from the card’s new Planned / Actual groups.",
+      },
+      {
+        kind: "fix",
+        text: "Milestone schedule variance now compares the actual date against the current projected date (it previously ignored the actual date), so slipped milestones read correctly.",
+      },
+    ],
+  },
+  {
     version: "2.222.3",
     date: "2026-07-22",
     title: "Tables no longer shake on hover",
