@@ -28,6 +28,8 @@ const createItemSchema = z.object({
   storyPoints: z.number().int().min(0).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
+  actualStart: z.string().datetime().nullable().optional(),
+  completedAt: z.string().datetime().nullable().optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
 });
@@ -197,6 +199,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           sortOrder,
           dueDate: data.dueDate ? new Date(data.dueDate) : null,
           startDate: data.startDate ? new Date(data.startDate) : null,
+          actualStart: data.actualStart
+            ? new Date(data.actualStart)
+            : ["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase())
+              ? null
+              : new Date(),
+          completedAt: data.completedAt ? new Date(data.completedAt) : null,
           columnEnteredAt: new Date(),
           tags: data.tags ?? [],
           customFields: (data.customFields ?? {}) as Prisma.InputJsonValue,
