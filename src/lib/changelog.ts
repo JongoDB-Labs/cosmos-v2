@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.223.2",
+    date: "2026-07-22",
+    title: "Coordinated same-file releases now actually ship",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Fixed a git plumbing bug that stopped a coordinated multi-phase release from finishing its final merge — the merge ran in a temporary worktree but referenced a fetch marker that only exists in the main checkout, so it aborted every time (safely, never a half-release). Coordinated releases whose phases touch the same file now merge and ship as one version.",
+      },
+    ],
+  },
+  {
     version: "2.223.1",
     date: "2026-07-22",
     title: "Coordinated multi-phase releases that touch the same files now ship",
