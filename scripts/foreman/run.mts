@@ -1196,15 +1196,19 @@ function coordinatedChangelogEntry(epicKey: string, batch: string[], version: st
   return `{ version: "${version}", date: "${date}", title: "Coordinated release ${epicKey}", highlights: [{ kind: "feature", text: ${JSON.stringify(text)} }] }`;
 }
 
-/** EXECUTE a coordinated epic release (COSMOS-118): merge the ordered batch of
- *  sibling phase branches onto ONE integration branch, assign ONE version (the
- *  epic's bumpKind — minor for a feature epic, patch for an all-bugfix one),
- *  write ONE combined changelog entry, then run the SAME push→PR→merge→tag→
- *  image→deploy pipeline as a solo ship — but exactly once for the whole batch.
- *  Every phase child is marked done on success. A real code conflict merging any
- *  phase aborts the whole release (never a silent half-release, AC3/AC5). MUST run
- *  inside the ship-chain mutex (the caller wraps it via enqueueRepoWork) so its
- *  worktree/merge can't race a build's own REPO-mutating steps. */
+/** EXECUTE a coordinated epic release (COSMOS-118 / #1): under STACKED builds the
+ *  tip phase branch already contains the whole ordered stack, so shipping is a
+ *  single mechanical step — verify stack integrity, merge the TIP branch onto ONE
+ *  integration branch off current main, assign ONE version (the epic's bumpKind —
+ *  minor for a feature epic, patch for an all-bugfix one), write ONE combined
+ *  changelog entry, then run the SAME push→PR→merge→tag→image→deploy pipeline as a
+ *  solo ship — but exactly once for the whole batch. Every phase child is marked
+ *  done on success. The happy path is purely mechanical (cross-phase conflicts
+ *  vanish by construction); the ONLY residual case — a broken stack or a real
+ *  stack-vs-main code conflict — aborts to a human (Task 7 will gate an AI-assisted
+ *  fallback here), never a silent half-release (AC3/AC5). MUST run inside the
+ *  ship-chain mutex (the caller wraps it via enqueueRepoWork) so its worktree/merge
+ *  can't race a build's own REPO-mutating steps. */
 async function shipCoordinatedBatch(
   coord: NonNullable<Awaited<ReturnType<typeof db.epicCoordination>>>,
   batch: string[],
@@ -1223,34 +1227,80 @@ async function shipCoordinatedBatch(
     /* checks tripwire may gate — acceptable, the batch parks for review */
   }
   try {
-    // Merge each phase branch in dependency order. A plain merge (NOT `-X theirs`,
-    // which would silently drop an earlier phase's overlapping edits): only the
-    // version-race trio (package.json / lock / changelog) is allowed to conflict —
-    // it's overwritten with ONE final version + combined entry below, so we take the
-    // incoming copy and continue. ANY other conflicted file is a real cross-phase
-    // code clash → abort the whole release (no silent half-release, AC3/AC5).
-    for (const ref of batch) {
-      const branch = childByKey.get(ref)?.branch ?? `auto/${ref}`;
-      await exec("git", ["-C", REPO, "fetch", "origin", branch]);
+    // ── Stacked coordinated batch (#1) ──────────────────────────────────────────
+    // With stacked builds (phase N branches off phase N-1), the TIP phase branch
+    // already contains the WHOLE stack, so shipping degenerates to merging that ONE
+    // branch onto current main and assigning ONE version — cross-phase conflicts
+    // vanish by construction, keeping the happy path purely mechanical (no AI). First
+    // VERIFY the stack is intact (each predecessor tip is an ancestor of its successor
+    // tip); a broken stack (a phase not rebuilt on its predecessor) or a real
+    // stack-vs-main code conflict is the ONLY residual case → aborts here (Task 7
+    // gates an AI-assisted resolution in its place), never a silent half-release.
+    const phaseBranches = batch.map((ref) => ({ ref, branch: childByKey.get(ref)?.branch ?? `auto/${ref}` }));
+    // Fetch every phase branch and capture its tip SHA (FETCH_HEAD is overwritten per
+    // fetch, so rev-parse right after each).
+    const tipShaByRef = new Map<string, string>();
+    for (const p of phaseBranches) {
+      await exec("git", ["-C", REPO, "fetch", "origin", p.branch]);
+      tipShaByRef.set(p.ref, (await exec("git", ["-C", REPO, "rev-parse", "FETCH_HEAD"])).stdout.trim());
+    }
+    // Stack integrity: each predecessor tip must be an ancestor of its successor tip.
+    let stackIntact = true;
+    for (let i = 1; i < phaseBranches.length; i++) {
+      const pred = tipShaByRef.get(phaseBranches[i - 1].ref);
+      const succ = tipShaByRef.get(phaseBranches[i].ref);
+      if (!pred || !succ) {
+        stackIntact = false;
+        break;
+      }
+      const isAncestor = await exec("git", ["-C", REPO, "merge-base", "--is-ancestor", pred, succ])
+        .then(() => true)
+        .catch(() => false);
+      if (!isAncestor) {
+        stackIntact = false;
+        break;
+      }
+    }
+    const tip = phaseBranches[phaseBranches.length - 1];
+    // Merge the TIP (the whole stack) onto current main in ONE step, only when the
+    // stack is intact. Plain `--no-edit` 3-way merge: non-overlapping main advances
+    // merge cleanly; the version-race trio always conflicts and is resolved wholesale
+    // below; a REAL overlapping code conflict (stack vs. main) routes to the fallback.
+    let conflicted: string[] = [];
+    let mergeStderr = "";
+    let mechanical = false;
+    if (stackIntact) {
+      await exec("git", ["-C", REPO, "fetch", "origin", tip.branch]);
       try {
         await exec("git", ["-C", wt, "merge", "--no-edit", "FETCH_HEAD"]);
+        mechanical = true;
       } catch (mergeErr) {
-        const conflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
+        mergeStderr = (mergeErr as { stderr?: string }).stderr ?? "";
+        conflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
           .split("\n")
           .map((l) => l.trim())
           .filter(Boolean);
-        if (!conflictsAreMechanical(conflicted)) {
-          // #4: name the phase + files (or surface raw git stderr when git reported
-          // NO conflicted paths) — never the old "(unknown)" degradation.
-          const gitStderr = (mergeErr as { stderr?: string }).stderr ?? "";
-          await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
-          throw new Error(`${describeMergeFailure({ phaseRef: ref, conflictedPaths: conflicted, gitStderr })} — coordinated release aborted (no half-release)`);
+        if (conflictsAreMechanical(conflicted)) {
+          // Only the version-race trio conflicted — overwritten wholesale below anyway.
+          await exec("git", ["-C", wt, "checkout", "--theirs", "--", ...conflicted]);
+          await exec("git", ["-C", wt, "add", "--", ...conflicted]);
+          await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } });
+          mechanical = true;
         }
-        // Only the version-race trio conflicted — resolved wholesale below anyway.
-        await exec("git", ["-C", wt, "checkout", "--theirs", "--", ...conflicted]);
-        await exec("git", ["-C", wt, "add", "--", ...conflicted]);
-        await exec("git", ["-C", wt, "commit", "--no-edit"], { env: { ...process.env, GIT_EDITOR: "true" } });
       }
+    }
+    if (!mechanical) {
+      // Residual case: a broken stack, or a real stack-vs-main code conflict — the
+      // ONLY non-mechanical case. Task 7 inserts a GATED AI-assisted resolution here
+      // (isolated worktree → tsc → full check → adversarial review → ship, else
+      // abort). Until then, and whenever that fallback declines, ABORT to a human —
+      // NEVER a silent half-release. #4: name the phase/files (or raw git stderr).
+      await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
+      const detail = describeMergeFailure({ phaseRef: tip.ref, conflictedPaths: conflicted, gitStderr: mergeStderr });
+      const why = stackIntact
+        ? detail
+        : `phase stack for ${tip.ref} is broken (a predecessor is not an ancestor — an earlier phase was rebuilt; re-stack the later phases)`;
+      throw new Error(`${why} — coordinated release aborted (no half-release)`);
     }
     // ONE coordinated version, strictly above current main (the epic's bumpKind).
     const mainVersion = (JSON.parse((await exec("git", ["-C", REPO, "show", "origin/main:package.json"])).stdout) as { version: string }).version;
