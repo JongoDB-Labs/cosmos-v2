@@ -77,3 +77,61 @@ describe("conflictsAreMechanical", () => {
     expect(conflictsAreMechanical([])).toBe(false);
   });
 });
+
+import { classifyConflict, describeMergeFailure, VERSION_RACE_TRIO } from "./ship-rebase";
+
+describe("VERSION_RACE_TRIO", () => {
+  it("is exactly the three mechanically-resolvable files", () => {
+    expect([...VERSION_RACE_TRIO].sort()).toEqual(
+      ["package-lock.json", "package.json", "src/lib/changelog.ts"].sort(),
+    );
+  });
+});
+
+describe("classifyConflict", () => {
+  it("classifies the exact version-race trio as mechanical", () => {
+    expect(classifyConflict(["package.json", "src/lib/changelog.ts"])).toBe("mechanical");
+    expect(classifyConflict([...VERSION_RACE_TRIO])).toBe("mechanical");
+  });
+  it("classifies any real code path as cross-phase", () => {
+    expect(classifyConflict(["src/app/board/sprint-board.tsx"])).toBe("cross-phase");
+    expect(classifyConflict(["package.json", "src/lib/foo.ts"])).toBe("cross-phase");
+  });
+  it("classifies an empty conflicted set (git failed with no conflicts) as opaque", () => {
+    expect(classifyConflict([])).toBe("opaque");
+  });
+});
+
+describe("describeMergeFailure", () => {
+  it("names the phase and files on a cross-phase code conflict", () => {
+    const msg = describeMergeFailure({
+      phaseRef: "COSMOS-120",
+      conflictedPaths: ["src/app/board/sprint-board.tsx"],
+    });
+    expect(msg).toContain("COSMOS-120");
+    expect(msg).toContain("src/app/board/sprint-board.tsx");
+    expect(msg).not.toContain("unknown");
+  });
+  it("surfaces raw git stderr (never 'unknown') when git reported no conflicted paths", () => {
+    const msg = describeMergeFailure({
+      phaseRef: "COSMOS-121",
+      conflictedPaths: [],
+      gitStderr: "fatal: refusing to merge unrelated histories",
+    });
+    expect(msg).toContain("COSMOS-121");
+    expect(msg).toContain("refusing to merge unrelated histories");
+    expect(msg).not.toContain("unknown");
+  });
+  it("still attributes the phase when git gave no conflicts and no stderr", () => {
+    const msg = describeMergeFailure({ phaseRef: "COSMOS-122", conflictedPaths: [] });
+    expect(msg).toContain("COSMOS-122");
+    expect(msg).not.toContain("unknown");
+  });
+  it("labels a trio-only conflict as mechanical (not a hard abort)", () => {
+    const msg = describeMergeFailure({
+      phaseRef: "COSMOS-123",
+      conflictedPaths: ["package.json", "src/lib/changelog.ts"],
+    });
+    expect(msg).toContain("version-race trio");
+  });
+});

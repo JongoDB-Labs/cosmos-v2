@@ -27,7 +27,7 @@ import { foremanPrompt, repairPrompt, resumePrompt, resumeContextPrompt, maxTurn
 import { reviewerPrompt, parseReviewVerdict, type ReviewDiff } from "@/lib/foreman/review";
 import { combineIntents, classifyInstruction } from "@/lib/foreman/intent";
 import { decideApprove } from "@/lib/foreman/approve-decision";
-import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, type BumpKind } from "@/lib/foreman/ship-rebase";
+import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, describeMergeFailure, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
 import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
@@ -1234,14 +1234,17 @@ async function shipCoordinatedBatch(
       await exec("git", ["-C", REPO, "fetch", "origin", branch]);
       try {
         await exec("git", ["-C", wt, "merge", "--no-edit", "FETCH_HEAD"]);
-      } catch {
+      } catch (mergeErr) {
         const conflicted = (await exec("git", ["-C", wt, "diff", "--name-only", "--diff-filter=U"])).stdout
           .split("\n")
           .map((l) => l.trim())
           .filter(Boolean);
         if (!conflictsAreMechanical(conflicted)) {
+          // #4: name the phase + files (or surface raw git stderr when git reported
+          // NO conflicted paths) — never the old "(unknown)" degradation.
+          const gitStderr = (mergeErr as { stderr?: string }).stderr ?? "";
           await exec("git", ["-C", wt, "merge", "--abort"]).catch(() => undefined);
-          throw new Error(`code conflict merging phase ${ref} (${conflicted.join(", ") || "unknown"}) — coordinated release aborted (no half-release)`);
+          throw new Error(`${describeMergeFailure({ phaseRef: ref, conflictedPaths: conflicted, gitStderr })} — coordinated release aborted (no half-release)`);
         }
         // Only the version-race trio conflicted — resolved wholesale below anyway.
         await exec("git", ["-C", wt, "checkout", "--theirs", "--", ...conflicted]);
