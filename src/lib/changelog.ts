@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.223.0",
+    date: "2026-07-22",
+    title: "Plan capacity when you start a sprint",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Starting a sprint now opens a planning flow: set each member's capacity (in story points for software projects, hours for everything else) and their availability %, watch the running team total, name a sprint goal, and see committed scope versus capacity with an over-commitment warning — all before the sprint begins.",
+      },
+    ],
+  },
+  {
     version: "2.222.2",
     date: "2026-07-21",
     title: "A cleaner “What’s new” dialog",
