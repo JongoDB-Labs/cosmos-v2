@@ -93,4 +93,27 @@ describe("stacked coordinated release — git mechanics (#1)", () => {
     expect(conflicts).toContain("sprint-board.tsx"); // → routes to the gated AI fallback
     await git(["checkout", "-q", "main"]);
   });
+
+  it("(4) merging the stack tip from a LINKED WORKTREE uses a SHA, not FETCH_HEAD", async () => {
+    // Regression for the prod bug: shipCoordinatedBatch merges in a linked worktree
+    // `wt`, but the tip was fetched into REPO, so `git -C wt merge FETCH_HEAD` reads
+    // the worktree's OWN (absent) FETCH_HEAD and dies with "could not open ...
+    // FETCH_HEAD". The fix resolves the tip to a SHA in REPO (worktrees share the
+    // object store) and merges THAT.
+    const wt = mkdtempSync(join(tmpdir(), "coord-wt-"));
+    try {
+      await git(["worktree", "add", "-q", "-B", "integ-wt", wt, "main"]);
+      const tipSha = (await git(["rev-parse", "auto/COSMOS-P2"])).stdout.trim();
+      // OLD path — merge FETCH_HEAD in the worktree — fails (no FETCH_HEAD there).
+      await expect(git(["merge", "--no-edit", "FETCH_HEAD"], wt)).rejects.toThrow();
+      // FIX — merge the SHA — composes both same-file edits.
+      await git(["merge", "--no-edit", tipSha], wt);
+      const { stdout } = await git(["show", "integ-wt:sprint-board.tsx"], wt);
+      expect(stdout).toContain("line2-phaseA");
+      expect(stdout).toContain("line3-phaseB");
+    } finally {
+      await git(["worktree", "remove", "--force", wt]).catch(() => undefined);
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
 });
