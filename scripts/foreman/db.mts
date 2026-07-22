@@ -531,6 +531,36 @@ export async function markCoordinatedFailed(itemId: string): Promise<void> {
   await addTag(itemId, COORDINATED_FAILED_TAG);
 }
 
+/** True when `itemId` is a phase child of an epic that opted into COORDINATED
+ *  release (#2). Used by the mention router to decide whether an @foreman
+ *  rebuild/approve OFF the `review` column is an action to honor (a coordinated
+ *  phase child is routinely held in `done`/`backlog`) rather than a Q&A. Reuses
+ *  the tested epicCoordination resolver (which already requires a parentId and
+ *  reads the parent's mode from its tags); an ordinary ticket or a child of an
+ *  incremental epic returns false. */
+export async function isCoordinatedPhaseChild(itemId: string): Promise<boolean> {
+  const coord = await epicCoordination(itemId).catch(() => null);
+  return coord?.mode === "coordinated";
+}
+
+/** Re-open a coordinated phase child for a rebuild from ANY column (#2): move it
+ *  back to `backlog` (so the build pool picks it up next pass), reset
+ *  columnEnteredAt, and clear its delivery markers (COORDINATED_READY_TAG /
+ *  COORDINATED_FAILED_TAG) so the release gate reads it `pending` again and HOLDS
+ *  the coordinated release until it (and, via the cascade, every later phase) is
+ *  green again — the no-half-release invariant. The phase tag is preserved so the
+ *  dependency edge and stacking order survive the rebuild. */
+export async function reopenPhaseForRebuild(itemId: string): Promise<void> {
+  const wi = await prisma.workItem.findUnique({ where: { id: itemId }, select: { tags: true } });
+  const cleared = new Set([COORDINATED_READY_TAG, COORDINATED_FAILED_TAG]);
+  const tags = (wi?.tags ?? []).filter((t) => !cleared.has(t));
+  await prisma.workItem.update({
+    where: { id: itemId },
+    data: { columnKey: "backlog", columnEnteredAt: new Date(), tags },
+  });
+  await afterColumnMove(itemId);
+}
+
 /** Decompose an epic-sized FEATURE into ordered phase children (COSMOS-115). Creates
  *  one child work item per phase (parentId = the epic; org/project/type/priority
  *  inherited), carrying that phase's acceptance criteria + classification in
@@ -780,6 +810,11 @@ export interface FreshMention {
   title: string;
   description: string;
   columnKey: string;
+  /** The item's own tags — lets the mention router tell a coordinated phase child
+   *  from an ordinary ticket without a second query (#2). */
+  tags: string[];
+  /** The parent epic's ref when this item is a decomposition child, else null (#2). */
+  parentRef: string | null;
   askerUserId: string;
   question: string;
   thread: { author: string; text: string }[];
@@ -856,6 +891,8 @@ export async function freshMentions(): Promise<FreshMention[]> {
       description: true,
       columnEnteredAt: true,
       ticketNumber: true,
+      tags: true,
+      parentId: true,
     },
   });
   const reviewItemById = new Map(reviewItems.map((r) => [r.id, r] as const));
@@ -924,11 +961,22 @@ export async function freshMentions(): Promise<FreshMention[]> {
           columnKey: true,
           columnEnteredAt: true,
           ticketNumber: true,
+          tags: true,
+          parentId: true,
         },
       },
     },
     orderBy: { createdAt: "asc" },
   });
+  // Resolve each mentioned item's parent-epic ref once (batched, no N+1) so a
+  // coordinated phase child's mention carries its parentRef (#2). The parent epic
+  // shares its children's project, which is in the delivery pool, so keyByProject
+  // covers it.
+  const poolByProjectId = new Map(pool.map((p) => [p.projectId, { projectKey: p.projectKey }] as const));
+  const mentionParentRefs = await parentRefsById(
+    [...mentions.map((m) => m.workItem?.parentId ?? null), ...reviewItems.map((r) => r.parentId)],
+    poolByProjectId,
+  );
   // Each candidate is kept alongside its own comment's createdAt so the two
   // sources below (token mentions, then bare parked-ticket replies) can be
   // merged into one createdAt-ascending stream before returning — see the sort
@@ -985,6 +1033,8 @@ export async function freshMentions(): Promise<FreshMention[]> {
         title: wi.title,
         description: wi.description,
         columnKey: wi.columnKey,
+        tags: wi.tags,
+        parentRef: wi.parentId ? (mentionParentRefs.get(wi.parentId) ?? null) : null,
         askerUserId: m.authorId,
         question: m.content.split(token).join("").trim(),
         thread: thread
@@ -1058,6 +1108,8 @@ export async function freshMentions(): Promise<FreshMention[]> {
         title: wi.title,
         description: wi.description,
         columnKey: "review",
+        tags: wi.tags,
+        parentRef: wi.parentId ? (mentionParentRefs.get(wi.parentId) ?? null) : null,
         askerUserId: c.authorId,
         question: c.content.trim(),
         thread: thread
