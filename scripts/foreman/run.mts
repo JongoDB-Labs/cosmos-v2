@@ -33,7 +33,7 @@ import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
-import { aggregateReadiness, decideRelease } from "@/lib/foreman/release-gate";
+import { aggregateReadiness, decideRelease, coordinatedReleaseFingerprint, shouldRefireCoordinatedRelease, type FingerprintSibling } from "@/lib/foreman/release-gate";
 import { planDecomposition, alreadyDecomposed } from "@/lib/foreman/decompose";
 import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
@@ -1359,6 +1359,73 @@ async function handleCoordinatedApprove(
   }
 }
 
+/** Resolve a branch's remote tip SHA (origin/<branch>), or null when the branch
+ *  doesn't exist yet (a phase not built). Used to fingerprint a coordinated epic's
+ *  live state for the reconcile pass (#3). */
+async function remoteTipSha(branch: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("git", ["-C", REPO, "ls-remote", "origin", branch]);
+    const sha = stdout.split(/\s+/)[0]?.trim();
+    return sha && sha.length > 0 ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reconcile-pass re-fire of a ready-but-unshipped coordinated release (#3). The
+ *  ONLY caller of shipCoordinatedBatch other than an approval event: a coordinated
+ *  epic can become "all phases green+approved" via something OTHER than a fresh
+ *  approve — most importantly a rebuild (#2) completing — and there was no path to
+ *  notice it. Each pass: enumerate coordinated epics not yet fully shipped; for each,
+ *  read its live coordination + branch tips, decide the gate, and re-fire iff the
+ *  gate says release AND the fingerprint (readiness + tips) changed since the last
+ *  attempt (shouldRefireCoordinatedRelease) — so a ready release fires ONCE and an
+ *  unchanged state never storms. The attempt fingerprint is written BEFORE firing
+ *  (storm guard). Serialized behind the ship mutex via enqueueRepoWork, exactly like
+ *  handleCoordinatedApprove. Best-effort per epic — a git/db hiccup skips it and the
+ *  next pass retries; never a half-release (shipCoordinatedBatch owns that). */
+async function reconcileCoordinatedReleases(enqueueRepoWork: EnqueueRepoWork): Promise<void> {
+  if (DRY) return; // ships to prod — never in a dry preview
+  let candidates: Awaited<ReturnType<typeof db.coordinatedReleasesReady>>;
+  try {
+    candidates = await db.coordinatedReleasesReady();
+  } catch (e) {
+    log(`coordinated-release reconcile scan failed (${String(e)}) — skipping this pass`);
+    return;
+  }
+  for (const cand of candidates) {
+    try {
+      const coord = await db.epicCoordination(cand.sampleChildId).catch(() => null);
+      if (!coord || coord.mode !== "coordinated") continue;
+      const decision = decideRelease({ mode: coord.mode, siblings: coord.siblings });
+      // Fingerprint the live state: each sibling's readiness + its branch tip SHA.
+      const branchByKey = new Map(coord.children.map((c) => [c.key, c.branch] as const));
+      const fpSiblings: FingerprintSibling[] = [];
+      for (const s of coord.siblings) {
+        const branch = branchByKey.get(s.key) ?? `auto/${s.key}`;
+        fpSiblings.push({ key: s.key, readiness: s.readiness, tipSha: await remoteTipSha(branch) });
+      }
+      const fingerprint = coordinatedReleaseFingerprint(fpSiblings);
+      if (!shouldRefireCoordinatedRelease({ decision, currentFingerprint: fingerprint, lastAttemptFingerprint: cand.lastAttemptFingerprint })) {
+        continue;
+      }
+      // Storm guard: record the attempt BEFORE firing, so a slow/failed ship can't be
+      // re-fired on the next pass against the SAME state (only a changed tip re-arms).
+      await db.writeReleaseAttempt(cand.epicId, fingerprint);
+      log(`${cand.epicKey} coordinated release ready via reconcile — firing batch [${decision.batch.join(", ")}] as one version`);
+      try {
+        await enqueueRepoWork(() => shipCoordinatedBatch(coord, decision.batch));
+      } catch (e) {
+        log(`${cand.epicKey} coordinated release (reconcile) failed — ${String(e)}`);
+        await db.comment(cand.epicId, `Coordinated release of ${cand.epicKey} (re-fired after a phase became ready) failed — ${String(e)}. Left for review.`).catch(() => undefined);
+        await obs.track({ workItemId: cand.epicId, ticketKey: cand.epicKey, kind: "ship-failed", severity: "error", message: `coordinated release (reconcile) failed — ${String(e)}`, data: { epicKey: cand.epicKey } }).catch(() => undefined);
+      }
+    } catch (e) {
+      log(`${cand.epicKey} coordinated-release reconcile skipped: ${String(e)}`);
+    }
+  }
+}
+
 /** Approve intent on a parked ticket: merge the parked PR now (deploy follows on
  *  the next reconcile pass, exactly as a human-merged draft PR does), or explain
  *  why there's nothing to merge. The merge itself is routed through
@@ -2133,6 +2200,15 @@ async function main(): Promise<void> {
           } else {
             log(`reconcile skipped: ${String(e)}`); // transient gh/git/db — not a deploy failure
           }
+        }
+        // #3: re-fire a coordinated release that became all-green via something OTHER
+        // than a fresh approval (e.g. a rebuild completing). Runs AFTER reconcileGated
+        // (solo ships first), serialized behind the same ship mutex; best-effort so a
+        // git/db hiccup skips it without tripping the deploy breaker.
+        try {
+          await reconcileCoordinatedReleases(enqueueRepoWork);
+        } catch (e) {
+          log(`coordinated-release reconcile skipped: ${String(e)}`);
         }
         if (killed()) continue; // breaker may have just fired — don't start a build
 
