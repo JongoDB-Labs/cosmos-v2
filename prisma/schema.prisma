@@ -720,11 +720,6 @@ model WorkItem {
   sortOrder       Int                         @default(0) @map("sort_order")
   dueDate         DateTime?                   @map("due_date")
   startDate       DateTime?                   @map("start_date")
-  // Gantt baseline (FR gantt-enh): the PLANNED start/end frozen by a "Set
-  // baseline" snapshot. The Gantt draws a ghost bar from these behind the real
-  // start/due so schedule slippage is visible. Null until a baseline is set.
-  baselineStart   DateTime?                   @map("baseline_start")
-  baselineEnd     DateTime?                   @map("baseline_end")
   // Unified item date model: the ACTUAL start — auto-captured the first time the
   // item enters an in-progress/done column (mirrors completedAt), editable for
   // correction. Null until started.
@@ -2447,8 +2442,6 @@ model Milestone {
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   branchId      String?       @map("branch_id") @db.Uuid
   programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
-  baselineDate     DateTime?     @map("baseline_date")
-  projectedDate    DateTime?     @map("projected_date")
   actualDate       DateTime?     @map("actual_date")
   rootCause        String?       @map("root_cause")
   recoveryPlan     String?       @map("recovery_plan")
