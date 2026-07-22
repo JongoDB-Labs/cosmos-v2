@@ -23,8 +23,6 @@ function ms(
     createdAt: NOW,
     updatedAt: NOW,
     branchId: null,
-    baselineDate: null,
-    projectedDate: null,
     actualDate: null,
     rootCause: null,
     recoveryPlan: null,
