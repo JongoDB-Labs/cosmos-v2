@@ -21,7 +21,6 @@ const updateSchema = z.object({
   description: z.string().nullish(),
   phase: z.string().max(120).nullish(),
   branchId: z.string().uuid().nullish(),
-  baselineDate: z.string().nullish(),
   dueDate: z.string().optional(),
   actualDate: z.string().nullish(),
   status: z.nativeEnum(MilestoneStatus).optional(),
@@ -58,8 +57,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.description !== undefined) update.description = data.description ?? null;
     if (data.phase !== undefined) update.phase = data.phase ?? null;
     if (data.branchId !== undefined) update.branchId = data.branchId ?? null;
-    if (data.baselineDate !== undefined)
-      update.baselineDate = data.baselineDate ? new Date(data.baselineDate) : null;
     if (data.dueDate !== undefined) update.dueDate = new Date(data.dueDate);
     if (data.actualDate !== undefined)
       update.actualDate = data.actualDate ? new Date(data.actualDate) : null;
@@ -82,9 +79,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
 
     // Audit field changes (best-effort). Label-keyed maps so the Activity log
-    // reads "changed status: UPCOMING → COMPLETED". Date fields (dueDate,
-    // baselineDate) are Date objects — actVal slices them to yyyy-mm-dd. Only the
-    // audited fields below are diffed; logPmFieldChanges skips before === after.
+    // reads "changed status: UPCOMING → COMPLETED". Date fields (dueDate) are
+    // Date objects — actVal slices them to yyyy-mm-dd. Only the audited fields
+    // below are diffed; logPmFieldChanges skips before === after.
     await logPmFieldChanges(
       { orgId, subjectType: "milestone", subjectId: milestoneId, userId: ctx.userId },
       {
@@ -93,7 +90,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         phase: existing.phase,
         branchId: existing.branchId,
         dueDate: existing.dueDate,
-        baselineDate: existing.baselineDate,
         scheduleEscalate: existing.scheduleEscalate,
         autoStatus: existing.autoStatus,
         milestoneType: existing.milestoneType,
@@ -104,7 +100,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         phase: updated.phase,
         branchId: updated.branchId,
         dueDate: updated.dueDate,
-        baselineDate: updated.baselineDate,
         scheduleEscalate: updated.scheduleEscalate,
         autoStatus: updated.autoStatus,
         milestoneType: updated.milestoneType,

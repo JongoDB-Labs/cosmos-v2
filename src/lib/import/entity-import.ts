@@ -370,7 +370,6 @@ async function createEntityRow(
           dueDate: dt(fields, "dueDate")!,
           phase: s(fields, "phase"),
           status: (s(fields, "status") as MilestoneStatus | null) ?? undefined,
-          baselineDate: dt(fields, "baselineDate"),
           notes: s(fields, "notes"),
           autoStatus: false,
         },
@@ -580,7 +579,7 @@ async function updateEntityRow(
     case "milestone": {
       const data = patch(fields, [
         ["title", "title"], ["description", "description"], ["dueDate", "dueDate"],
-        ["phase", "phase"], ["status", "status"], ["baselineDate", "baselineDate"], ["notes", "notes"],
+        ["phase", "phase"], ["status", "status"], ["notes", "notes"],
       ]);
       if (Object.keys(data).length) await prisma.milestone.update({ where: { id }, data });
       return;

@@ -91,11 +91,11 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // linkKeyResultItem returns id/keyResultId/workItemId/createdAt — all structural FKs.
   key_result_link: ["id", "keyResultId", "workItemId", "createdAt"],
   // listMilestones/create/update return id/projectId/ownerId/branchId/status/dueDate/
-  // autoStatus/completedAt/scheduleEscalate/baseline|projected|actualDate/sortOrder(+title).
+  // autoStatus/completedAt/scheduleEscalate/actualDate/sortOrder(+title).
   // `title`/`description` are content → dropped.
   milestone: [
     "id", "projectId", "ownerId", "branchId", "status", "dueDate", "autoStatus",
-    "completedAt", "scheduleEscalate", "baselineDate", "projectedDate", "actualDate",
+    "completedAt", "scheduleEscalate", "actualDate",
     "sortOrder", "createdAt", "updatedAt",
   ],
   // create/updateBlocker return id/code/title/type/status/owner/projectId/branchId/

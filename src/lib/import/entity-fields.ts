@@ -164,7 +164,6 @@ export const ENTITY_DEFS: EntityDef[] = [
       { key: "dueDate", label: "Due date", required: true, kind: "date", synonyms: ["due date", "due", "date", "target date", "target"] },
       { key: "phase", label: "Phase", kind: "text", synonyms: ["phase", "stage", "gate"] },
       { key: "status", label: "Status", kind: "enum", enum: MILESTONE_STATUS, synonyms: ["status", "state"] },
-      { key: "baselineDate", label: "Baseline date", kind: "date", synonyms: ["baseline date", "baseline", "planned date"] },
       { key: "notes", label: "Notes", kind: "text", synonyms: notes.synonyms },
     ],
   },

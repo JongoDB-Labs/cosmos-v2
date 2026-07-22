@@ -34,6 +34,7 @@ import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entit
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
+import { healthOf, slipDays } from "@/lib/schedule/health";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -56,8 +57,7 @@ interface Milestone {
   phase: string | null;
   branchId: string | null;
   programBranch: BranchLite | null;
-  baselineDate: string | null;
-  dueDate: string; // required, labelled "Projected / current date"
+  dueDate: string; // required, labelled "Projected end"
   actualDate: string | null;
   status: MilestoneStatus;
   rootCause: string | null;
@@ -104,7 +104,6 @@ interface MilestoneForm {
   description: string;
   phase: string;
   branchId: string;
-  baselineDate: string;
   dueDate: string;
   actualDate: string;
   status: MilestoneStatus;
@@ -124,7 +123,6 @@ const emptyForm: MilestoneForm = {
   description: "",
   phase: "",
   branchId: "",
-  baselineDate: "",
   dueDate: "",
   actualDate: "",
   status: "UPCOMING",
@@ -149,7 +147,6 @@ function milestoneToForm(m: Milestone): MilestoneForm {
     description: m.description ?? "",
     phase: m.phase ?? "",
     branchId: m.branchId ?? "",
-    baselineDate: toDateInput(m.baselineDate),
     dueDate: toDateInput(m.dueDate),
     actualDate: toDateInput(m.actualDate),
     status: m.status,
@@ -171,7 +168,6 @@ function formToBody(f: MilestoneForm) {
     description: f.description.trim() || null,
     phase: f.phase.trim() || null,
     branchId: f.branchId || null,
-    baselineDate: f.baselineDate ? new Date(f.baselineDate).toISOString() : null,
     dueDate: new Date(f.dueDate).toISOString(),
     actualDate: f.actualDate ? new Date(f.actualDate).toISOString() : null,
     status: f.status,
@@ -187,12 +183,13 @@ function formToBody(f: MilestoneForm) {
   };
 }
 
-/** Compute variance in days: dueDate - baselineDate. Positive = slipped. */
-function computeVariance(baselineDate: string | null, dueDate: string): number | null {
-  if (!baselineDate) return null;
-  const base = new Date(baselineDate).getTime();
-  const due = new Date(dueDate).getTime();
-  return Math.round((due - base) / 86_400_000);
+/** Schedule variance in days: Actual End vs current Projected End. Positive = slipped. */
+function computeVariance(dueDate: string, actualDate: string | null): number | null {
+  return slipDays({
+    projectedEnd: new Date(dueDate),
+    actualEnd: actualDate ? new Date(actualDate) : null,
+    now: new Date(),
+  });
 }
 
 function dateMs(iso: string | null | undefined): number {
@@ -219,19 +216,8 @@ const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
     ),
   },
   {
-    id: "baselineDate",
-    header: "Baseline",
-    accessorFn: (m) => dateMs(m.baselineDate),
-    sortingFn: (a, b) => dateMs(a.original.baselineDate) - dateMs(b.original.baselineDate),
-    cell: ({ row }) => (
-      <span className="tabular-nums text-[var(--text-muted)]">
-        {row.original.baselineDate ? new Date(row.original.baselineDate).toLocaleDateString() : "—"}
-      </span>
-    ),
-  },
-  {
     id: "dueDate",
-    header: "Projected",
+    header: "Projected End",
     accessorFn: (m) => dateMs(m.dueDate),
     sortingFn: (a, b) => dateMs(a.original.dueDate) - dateMs(b.original.dueDate),
     cell: ({ row }) => (
@@ -241,15 +227,36 @@ const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
   {
     id: "variance",
     header: "Variance",
-    accessorFn: (m) => computeVariance(m.baselineDate, m.dueDate) ?? -Infinity,
+    accessorFn: (m) => computeVariance(m.dueDate, m.actualDate) ?? -Infinity,
     sortingFn: (a, b) => {
-      const va = computeVariance(a.original.baselineDate, a.original.dueDate) ?? -Infinity;
-      const vb = computeVariance(b.original.baselineDate, b.original.dueDate) ?? -Infinity;
+      const va = computeVariance(a.original.dueDate, a.original.actualDate) ?? -Infinity;
+      const vb = computeVariance(b.original.dueDate, b.original.actualDate) ?? -Infinity;
       return va - vb;
     },
     cell: ({ row }) => (
-      <VariancePill variance={computeVariance(row.original.baselineDate, row.original.dueDate)} />
+      <VariancePill variance={computeVariance(row.original.dueDate, row.original.actualDate)} />
     ),
+  },
+  {
+    id: "actualDate",
+    header: "Actual End",
+    accessorFn: (m) => dateMs(m.actualDate),
+    sortingFn: (a, b) => dateMs(a.original.actualDate) - dateMs(b.original.actualDate),
+    cell: ({ row }) => {
+      const health = healthOf({
+        projectedEnd: new Date(row.original.dueDate),
+        actualEnd: row.original.actualDate ? new Date(row.original.actualDate) : null,
+        now: new Date(),
+      });
+      const cls = health === "red"
+        ? "text-red-600 dark:text-red-400"
+        : health === "green" ? "text-green-600 dark:text-green-400" : "text-[var(--text-muted)]";
+      return (
+        <span className={`tabular-nums ${cls}`}>
+          {row.original.actualDate ? new Date(row.original.actualDate).toLocaleDateString() : "—"}
+        </span>
+      );
+    },
   },
   {
     accessorKey: "status",
@@ -445,22 +452,15 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         placeholder: "Select branch",
       },
       {
-        key: "baselineDate",
-        label: "Baseline date",
-        type: "date",
-        value: m.baselineDate,
-        editable: canEdit,
-      },
-      {
         key: "dueDate",
-        label: "Projected / current date",
+        label: "Projected end",
         type: "date",
         value: m.dueDate,
         editable: canEdit,
       },
       {
         key: "actualDate",
-        label: "Actual date",
+        label: "Actual end",
         type: "date",
         value: m.actualDate,
         editable: canEdit,
@@ -588,7 +588,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
     <>
       <PmDataTable
         title="Schedule Tracker"
-        subtitle={`${milestones.length} milestone${milestones.length === 1 ? "" : "s"} · variance = projected − baseline`}
+        subtitle={`${milestones.length} milestone${milestones.length === 1 ? "" : "s"} · health = actual vs projected end`}
         rows={milestones}
         columns={MILESTONE_COLUMNS}
         search={filter}
@@ -771,7 +771,7 @@ function MilestoneDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Baseline vs. projected date drives the schedule variance column.
+            Projected end vs. actual end drives schedule health.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
@@ -820,18 +820,8 @@ function MilestoneDialog({
           </div>
 
           {/* Dates */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <FormField label="Baseline date">
-              {(p) => (
-                <Input
-                  {...p}
-                  type="date"
-                  value={form.baselineDate}
-                  onChange={(e) => setForm((f) => ({ ...f, baselineDate: e.target.value }))}
-                />
-              )}
-            </FormField>
-            <FormField label="Projected / current date" required>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Projected end" required>
               {(p) => (
                 <Input
                   {...p}
@@ -841,7 +831,7 @@ function MilestoneDialog({
                 />
               )}
             </FormField>
-            <FormField label="Actual date">
+            <FormField label="Actual end">
               {(p) => (
                 <Input
                   {...p}

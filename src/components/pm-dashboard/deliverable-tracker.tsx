@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import { healthOf, slipDays } from "@/lib/schedule/health";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -193,21 +194,25 @@ const STATUS_RANK: Record<DeliverableStatus, number> = Object.fromEntries(
   STATUS_OPTIONS.map((s, i) => [s, i]),
 ) as Record<DeliverableStatus, number>;
 
-// Baseline-due timestamp — missing dates sort last.
+// Due (Projected) timestamp — missing dates sort last.
 function baselineTime(d: Deliverable): number {
   return d.baselineDue ? new Date(d.baselineDue).getTime() : Infinity;
 }
 
-// Signed day delta between actual submission and baseline due (negative = early,
-// positive = late). null when either date is missing — sorts last.
+// Signed day delta from the shared schedule-health rule (negative = early,
+// positive = late; falls back to today vs. due date while still open). null
+// when there's no due date — sorts last.
 function earlyLateDays(baselineDue: string | null, actualSubmission: string | null): number | null {
-  if (!actualSubmission || !baselineDue) return null;
-  return Math.round((new Date(actualSubmission).getTime() - new Date(baselineDue).getTime()) / 86400000);
+  return slipDays({
+    projectedEnd: baselineDue ? new Date(baselineDue) : null,
+    actualEnd: actualSubmission ? new Date(actualSubmission) : null,
+    now: new Date(),
+  });
 }
 
 // Sortable columns (headers sort on click via the shared DataTable). Pure — no
 // component state, so defined at module scope. Status sorts by workflow rank;
-// Baseline Due + Early/Late sort numerically (not by their rendered strings).
+// Due (Projected) + Early/Late sort numerically (not by their rendered strings).
 const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
   {
     accessorKey: "code",
@@ -239,7 +244,7 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
   },
   {
     id: "baselineDue",
-    header: "Baseline Due",
+    header: "Due (Projected)",
     accessorFn: (d) => baselineTime(d),
     sortingFn: (a, b) => baselineTime(a.original) - baselineTime(b.original),
     cell: ({ row }) => (
@@ -258,9 +263,20 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
       return av - bv;
     },
     cell: ({ row }) => {
-      const earlyLate = computeEarlyLate(row.original.baselineDue, row.original.actualSubmission);
-      const isLate = earlyLate.endsWith("d late");
-      const isEarly = earlyLate.endsWith("d early");
+      const health = healthOf({
+        projectedEnd: row.original.baselineDue ? new Date(row.original.baselineDue) : null,
+        actualEnd: row.original.actualSubmission ? new Date(row.original.actualSubmission) : null,
+        now: new Date(),
+      });
+      const isLate = health === "red";
+      const isEarly = health === "green" && row.original.actualSubmission != null;
+      // Open + past due (no actualSubmission yet, but already red) — show the
+      // live overdue count instead of computeEarlyLate's "—", which otherwise
+      // renders blank-but-red and disagrees with the sort.
+      const earlyLate =
+        !row.original.actualSubmission && isLate
+          ? `${earlyLateDays(row.original.baselineDue, row.original.actualSubmission)}d overdue`
+          : computeEarlyLate(row.original.baselineDue, row.original.actualSubmission);
       return (
         <span
           className={
@@ -460,7 +476,7 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         editable: canEdit,
         options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
       },
-      { key: "baselineDue", label: "Baseline due", type: "date", value: d.baselineDue, editable: canEdit },
+      { key: "baselineDue", label: "Due (Projected)", type: "date", value: d.baselineDue, editable: canEdit },
       {
         key: "internalReview",
         label: "Internal review date",
@@ -808,7 +824,7 @@ function DeliverableDialog({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Baseline due">
+            <FormField label="Due (Projected)">
               {(p) => (
                 <Input
                   {...p}

@@ -95,7 +95,7 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
           title: m.title,
           status: m.status,
           dueDate: m.dueDate.toISOString(),
-          baselineDate: m.baselineDate ? m.baselineDate.toISOString() : null,
+          actualDate: m.actualDate ? m.actualDate.toISOString() : null,
           completionPercent: m.completionPercent,
         })),
         kpis: kpis.map((k) => ({

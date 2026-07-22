@@ -40,8 +40,6 @@ interface Milestone {
   title: string;
   name?: string;
   dueDate?: string | null;
-  baselineDate?: string | null;
-  projectedDate?: string | null;
   status?: string;
 }
 
@@ -111,7 +109,7 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
 
   const loading = cyclesQ.isLoading || deliverablesQ.isLoading || milestonesQ.isLoading;
 
-  const milestoneDate = (m: Milestone) => m.dueDate ?? m.baselineDate ?? m.projectedDate ?? null;
+  const milestoneDate = (m: Milestone) => m.dueDate ?? null;
 
   // Build the month axis from every dated thing we might show.
   const axis = useMemo(() => {

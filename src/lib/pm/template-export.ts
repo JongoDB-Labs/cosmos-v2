@@ -193,7 +193,6 @@ const REGISTERS: Record<Exclude<Tracker, "burn">, RegisterSpec> = {
       { headerMatch: "milestone name", value: (x) => str(x.title) },
       { headerMatch: "milestone type", value: (x) => str(x.milestoneType) },
       { headerMatch: "branch", value: (x) => branchCode(x) },
-      { headerMatch: "baseline date", value: (x) => fmtDate(x.baselineDate as Date) },
       { headerMatch: "current projected", value: (x) => fmtDate(x.dueDate as Date) },
       // I/J (days variance, direction) are AUTO formulas — skip.
       { headerMatch: "status", value: (x) => statusLabel(str(x.status)) },

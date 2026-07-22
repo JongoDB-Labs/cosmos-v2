@@ -83,8 +83,8 @@ export async function buildProjectWorkbook(
     Escalated: b.escalate ? "Yes" : "", Status: b.status, Notes: b.notes ?? "",
   })));
   if (want("schedule")) addSheet("Schedule", milestones.map((m) => ({
-    Title: m.title, Type: m.milestoneType ?? "", Branch: m.programBranch?.code ?? "", Baseline: fmtDate(m.baselineDate),
-    Projected: fmtDate(m.dueDate), Status: m.status, "Progress %": m.completionPercent ?? "",
+    Title: m.title, Type: m.milestoneType ?? "", Branch: m.programBranch?.code ?? "",
+    "Projected End": fmtDate(m.dueDate), Actual: fmtDate(m.actualDate), Status: m.status, "Progress %": m.completionPercent ?? "",
     "Root Cause": m.rootCause ?? "", "Downstream Impact": m.downstreamImpact ?? "",
     "Related Ref": m.relatedRef ?? "", Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
   })));

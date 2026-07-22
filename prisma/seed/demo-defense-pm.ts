@@ -166,13 +166,9 @@ async function main() {
   for (const m of milestones) {
     const cfg = milestoneBaselines.find((x) => m.title.includes(x.match));
     if (!cfg) continue;
-    const baseline = new Date(m.dueDate);
-    baseline.setDate(baseline.getDate() - cfg.slipDays);
     await prisma.milestone.update({
       where: { id: m.id },
       data: {
-        baselineDate: baseline,
-        projectedDate: m.dueDate,
         scheduleEscalate: cfg.slipDays >= 15,
         ...(cfg.rootCause ? { rootCause: cfg.rootCause } : {}),
         ...(cfg.recoveryPlan ? { recoveryPlan: cfg.recoveryPlan } : {}),

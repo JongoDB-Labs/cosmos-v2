@@ -20,6 +20,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { ExportDialog } from "./export-dialog";
+import { slipDays } from "@/lib/schedule/health";
 
 // ---------------------------------------------------------------------------
 // Public shape — scope-aware (project now; org / sub-element reuse the surface)
@@ -65,8 +66,8 @@ export interface MilestoneLite {
   id: string;
   title: string;
   status: MilestoneStatus;
-  dueDate: string; // ISO — the projected / current date
-  baselineDate?: string | null; // ISO — original committed date (for variance)
+  dueDate: string; // ISO — the projected end date
+  actualDate?: string | null; // ISO — actual end date (for variance/health)
   completionPercent?: number | null; // derived from linked work items
 }
 export type ChangeStatus =
@@ -982,12 +983,13 @@ const CHANGE_META: Record<ChangeStatus, { label: string; color: string }> = {
   WITHDRAWN: { label: "Withdrawn", color: "var(--text-muted, #6b7280)" },
 };
 
-/** Schedule variance in whole days (projected − baseline). Positive = slipped right. */
+/** Schedule variance in whole days: Actual End vs current Projected End. Positive = slipped. */
 function milestoneVariance(m: MilestoneLite): number | null {
-  if (!m.baselineDate) return null;
-  return Math.round(
-    (new Date(m.dueDate).getTime() - new Date(m.baselineDate).getTime()) / 86400000,
-  );
+  return slipDays({
+    projectedEnd: new Date(m.dueDate),
+    actualEnd: m.actualDate ? new Date(m.actualDate) : null,
+    now: new Date(),
+  });
 }
 
 // Pin locale (and, for dates, timezone) so server-render and client-hydration

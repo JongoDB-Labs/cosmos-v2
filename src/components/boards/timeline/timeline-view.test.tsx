@@ -52,8 +52,7 @@ const item = (n: number, start: string, due: string) => ({
   children: [],
   assigneeId: null,
   assignees: [],
-  baselineStart: null,
-  baselineEnd: null,
+  actualStart: null,
   storyPoints: null,
   completedAt: null,
 });

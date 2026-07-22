@@ -40,7 +40,6 @@ const createSchema = z.object({
   description: z.string().nullish(),
   phase: z.string().max(120).nullish(),
   branchId: z.string().uuid().nullish(),
-  baselineDate: z.string().nullish(),
   dueDate: z.string().min(1), // required
   actualDate: z.string().nullish(),
   status: z.nativeEnum(MilestoneStatus).default(MilestoneStatus.UPCOMING),
@@ -69,8 +68,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const data = createSchema.parse(await request.json());
     const dueDate = new Date(data.dueDate);
-    // baselineDate defaults to dueDate if omitted
-    const baselineDate = data.baselineDate ? new Date(data.baselineDate) : dueDate;
 
     const created = await prisma.milestone.create({
       data: {
@@ -80,7 +77,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         description: data.description ?? null,
         phase: data.phase ?? null,
         branchId: data.branchId ?? null,
-        baselineDate,
         dueDate,
         actualDate: data.actualDate ? new Date(data.actualDate) : null,
         status: data.status,
