@@ -14,7 +14,6 @@ import {
   Loader2,
   GitCompareArrows,
   Wrench,
-  Flag,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -24,6 +23,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
+import { healthOf, slipDays } from "@/lib/schedule/health";
 import type { WorkItem, OrgMember, Cycle, Board, BoardColumn, CustomField } from "@/types/models";
 import {
   bareTypeKey,
@@ -112,6 +112,21 @@ function diffDays(a: Date, b: Date): number {
 
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** Schedule health for a bar — the ONE shared rule (@/lib/schedule/health),
+ *  comparing the item's actual end (or "now" while open) against its current
+ *  projected (due) date. Drives both the bar stroke and the actual-overlay
+ *  color below. */
+function barHealth(
+  item: { dueDate: string | null; completedAt: string | null },
+  now: Date,
+): "green" | "red" | "neutral" {
+  return healthOf({
+    projectedEnd: item.dueDate ? startOfDay(new Date(item.dueDate)) : null,
+    actualEnd: item.completedAt ? startOfDay(new Date(item.completedAt)) : null,
+    now,
+  });
 }
 
 /** The effective [start, end] a bar is drawn from — the SAME fallback the bar
@@ -275,7 +290,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
   const [showCritical, setShowCritical] = useState(false);
-  const [showBaseline, setShowBaseline] = useState(true);
+  const [showActuals, setShowActuals] = useState(true);
   const [showEnablers, setShowEnablers] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -715,27 +730,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       return { start: newStart, end: newEnd };
     });
 
-  // Freeze the current schedule as the baseline (FR gantt-enh). Every dated
-  // item's start/due is snapshotted server-side; the timeline then draws a ghost
-  // track behind each bar so any later slip reads at a glance. Auto-enables the
-  // baseline lens so the snapshot is immediately visible.
-  const setBaseline = useCallback(async () => {
-    if (!canEdit || busy) return;
-    setBusy(true);
-    try {
-      const res = await jsonFetch<{ baselined: number }>(`${basePath}/timeline/baseline`, {
-        method: "POST",
-      });
-      setShowBaseline(true);
-      toast.success(`Baseline set on ${res.baselined} item${res.baselined === 1 ? "" : "s"}`);
-      qc.invalidateQueries({ queryKey: itemsKey });
-    } catch (e) {
-      notifyError(e, "Couldn't set the baseline");
-    } finally {
-      setBusy(false);
-    }
-  }, [canEdit, busy, basePath, qc, itemsKey]);
-
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
@@ -794,11 +788,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             accent="var(--status-critical)"
           />
           <LensToggle
-            active={showBaseline}
-            onClick={() => setShowBaseline((v) => !v)}
+            active={showActuals}
+            onClick={() => setShowActuals((v) => !v)}
             icon={<GitCompareArrows className="size-3.5" />}
-            label="Baselines"
-            title="Show the planned schedule as a ghost track behind each bar, with slippage in red"
+            label="Actuals"
+            title="Overlay the actual start→finish and color bars by schedule health"
             accent="var(--status-blocked)"
           />
           <LensToggle
@@ -809,17 +803,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
             accent="var(--type-enabler, #0891b2)"
           />
-          {canEdit && (
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={busy}
-              onClick={() => void setBaseline()}
-              title="Freeze the current start/due dates as the baseline to measure slippage against"
-            >
-              <Flag className="size-3" /> Set baseline
-            </Button>
-          )}
           <div className="mx-1 h-5 w-px bg-border" />
           {parentIds.size > 0 && (
             <button
@@ -902,20 +885,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         </div>
       </div>
       {/* Contextual legend — only the keys for what's actually on screen. */}
-      {(showBaseline || hasEnablers) && (
+      {(showActuals || hasEnablers) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
-          {showBaseline && (
+          {showActuals && (
             <>
               <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-1 w-5 rounded-sm bg-muted-foreground/40" />
-                Planned baseline
+                <span className="inline-block h-1 w-5 rounded-sm bg-muted-foreground/60" />
+                Actual (start → finish/today)
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
                   className="inline-block h-1 w-5 rounded-sm"
                   style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
                 />
-                Slipped past plan
+                Slipped past projected end
               </span>
             </>
           )}
@@ -1246,28 +1229,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
 
-              // Baseline (planned) track: a thin sub-bar beneath the live bar
-              // drawn from the snapshotted dates. If the actual end runs past the
-              // planned end, a red slip segment extends to it — the delay, at a
-              // glance. Positioned from un-dragged geometry so it stays put while
-              // the live bar is dragged, widening the visible gap.
-              const bStart = item.baselineStart ? startOfDay(new Date(item.baselineStart)) : null;
-              const bEnd = item.baselineEnd ? startOfDay(new Date(item.baselineEnd)) : null;
-              let ghost: { x: number; w: number; slipX: number; slipW: number } | null = null;
-              if (showBaseline && bStart && bEnd) {
-                const gx = diffDays(timelineStart, bStart) * DAY_WIDTH;
-                const gw = Math.max(diffDays(bStart, bEnd) * DAY_WIDTH, 2);
-                const plannedEndX = gx + gw;
-                const actualEndX = baseX + baseW;
-                ghost = {
-                  x: gx,
-                  w: gw,
-                  slipX: plannedEndX,
-                  slipW: actualEndX > plannedEndX + 0.5 ? actualEndX - plannedEndX : 0,
-                };
+              // Actual overlay: from actualStart to (completedAt or today). Drawn as a
+              // thin track beneath the planned bar so slippage past the planned end reads
+              // at a glance. Positioned from un-dragged dates so it stays put while the
+              // live bar is dragged, widening the visible gap.
+              const aStart = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
+              const aEndRaw = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
+              let actual: { x: number; w: number } | null = null;
+              if (showActuals && aStart) {
+                const ax = diffDays(timelineStart, aStart) * DAY_WIDTH;
+                const aw = Math.max(diffDays(aStart, aEndRaw) * DAY_WIDTH, 2);
+                actual = { x: ax, w: aw };
               }
-              const ghostY = y + h + 2;
-              const ghostH = 4;
+              const overlayY = y + h + 2;
+              const overlayH = 4;
+              const health = barHealth(item, today);
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -1324,30 +1300,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Baseline (planned) track + red slip segment, drawn first so
-                      the live bar sits above it. Non-interactive. */}
-                  {ghost && (
+                  {/* Actual overlay — planned bar sits above it. Non-interactive. */}
+                  {actual && (
                     <g style={{ pointerEvents: "none" }}>
                       <rect
-                        x={ghost.x}
-                        y={ghostY}
-                        width={ghost.w}
-                        height={ghostH}
+                        x={actual.x}
+                        y={overlayY}
+                        width={actual.w}
+                        height={overlayH}
                         rx={2}
-                        className="fill-muted-foreground"
-                        opacity={0.4}
+                        fill={health === "red" ? "var(--status-critical)" : "var(--status-done)"}
+                        opacity={0.8}
                       />
-                      {ghost.slipW > 0 && (
-                        <rect
-                          x={ghost.slipX}
-                          y={ghostY}
-                          width={ghost.slipW}
-                          height={ghostH}
-                          rx={2}
-                          fill="var(--status-critical)"
-                          opacity={0.8}
-                        />
-                      )}
                     </g>
                   )}
                   <rect
@@ -1360,11 +1324,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     stroke={
                       isCrit
                         ? "var(--status-critical)"
-                        : isEnabler && showEnablers
-                          ? "var(--type-enabler, #0891b2)"
-                          : colors.stroke
+                        : health === "red"
+                          ? "var(--status-critical)"
+                          : isEnabler && showEnablers
+                            ? "var(--type-enabler, #0891b2)"
+                            : colors.stroke
                     }
-                    strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                    strokeWidth={isCrit || health === "red" ? 2.5 : isEnabler ? 1.5 : 1}
                     strokeDasharray={isEnabler ? "5 3" : undefined}
                     opacity={(preview ? 1 : 0.85) * dimForEnablerLens}
                     onPointerDown={(e) => beginDrag(item, "move", e)}
@@ -1504,21 +1470,30 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {hoveredItem.dueDate && (
                   <p>Due: {new Date(hoveredItem.dueDate).toLocaleDateString()}</p>
                 )}
-                {/* Slippage vs. baseline — the delay this bar's red tail shows. */}
-                {hoveredItem.baselineEnd &&
-                  hoveredItem.dueDate &&
+                {/* Slippage — Actual End (or today) vs Projected End. */}
+                {hoveredItem.dueDate &&
                   (() => {
-                    const slip = diffDays(
-                      startOfDay(new Date(hoveredItem.baselineEnd)),
-                      startOfDay(new Date(hoveredItem.dueDate)),
-                    );
-                    if (slip === 0) return <p>On baseline</p>;
+                    const slip = slipDays({
+                      projectedEnd: startOfDay(new Date(hoveredItem.dueDate)),
+                      actualEnd: hoveredItem.completedAt
+                        ? startOfDay(new Date(hoveredItem.completedAt))
+                        : null,
+                      now: today,
+                    });
+                    if (slip === null) return null;
+                    if (slip === 0) return <p>On schedule</p>;
                     return (
                       <p className={slip > 0 ? "text-[var(--status-critical)]" : "text-[var(--status-done)]"}>
-                        {slip > 0 ? `Slipped ${slip}d late` : `${-slip}d ahead of baseline`}
+                        {slip > 0 ? `Slipped ${slip}d late` : `${-slip}d ahead of plan`}
                       </p>
                     );
                   })()}
+                {hoveredItem.actualStart && (
+                  <p>Actual start: {new Date(hoveredItem.actualStart).toLocaleDateString()}</p>
+                )}
+                {hoveredItem.completedAt && (
+                  <p>Actual end: {new Date(hoveredItem.completedAt).toLocaleDateString()}</p>
+                )}
                 {hoveredItem.storyPoints != null && (
                   <p>Points: {hoveredItem.storyPoints}</p>
                 )}
