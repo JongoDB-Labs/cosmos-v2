@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.231.0",
+    date: "2026-07-23",
+    title: "Sprints: cleaner navigation + manage-in-context",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Sprints moved off the crowded board tab strip. There's now a top-level Sprints link in the project header, and a Manage button on the Sprint Board opens a drawer with the full sprint lifecycle (create/start/complete) so you can run sprints without leaving the board.",
+      },
+      {
+        kind: "improvement",
+        text: "Renamed the “Sprint Dashboard” board to “Sprint Health” — it's a health/metrics view (workload, burn rate, status), not a management surface.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint date ranges in the Sprint Board detail popup now show the exact calendar days entered (previously a day early in western timezones).",
+      },
+    ],
+  },
+  {
     version: "2.230.2",
     date: "2026-07-23",
     title: "Type filter now lists only the types on the board",

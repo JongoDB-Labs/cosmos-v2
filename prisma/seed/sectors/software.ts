@@ -70,7 +70,7 @@ const SOFTWARE_BOARD_TEMPLATES = [
   },
   {
     slug: "software.dashboard",
-    name: "Sprint Dashboard",
+    name: "Sprint Health",
     category: "analytics",
     boardType: "DASHBOARD",
     sortOrder: 6,
