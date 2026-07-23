@@ -10,6 +10,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WorkItemTypeIcon } from "@/components/work-items/work-item-type-icon";
 import { cn } from "@/lib/utils";
 
 export interface IssueDetailRow {
@@ -175,7 +176,7 @@ export function IssueDetailSheet({
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
               <span className="font-mono">{row.ticketKey}</span>
               <span className="inline-flex items-center gap-1">
-                {row.type.icon && <span aria-hidden>{row.type.icon}</span>}
+                <WorkItemTypeIcon icon={row.type.icon} />
                 {row.type.name}
               </span>
             </div>

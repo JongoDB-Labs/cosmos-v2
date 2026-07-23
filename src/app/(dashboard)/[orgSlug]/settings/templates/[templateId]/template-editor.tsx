@@ -4,15 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import {
-  ArrowLeft,
-  Loader2,
-  Copy,
-  Layout,
-  Tag,
-  GripVertical,
-  Circle,
-} from "lucide-react";
+import { ArrowLeft, Loader2, Copy, Layout, GripVertical } from "lucide-react";
+import { WorkItemTypeIcon } from "@/components/work-items/work-item-type-icon";
 import { cn } from "@/lib/utils";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
@@ -324,16 +317,12 @@ function WorkItemTypesList({ types }: { types: WorkItemTypeSummary[] }) {
       {types.map((wit) => (
         <li key={wit.id} className="flex items-center gap-3 py-3">
           <GripVertical className="h-4 w-4 text-[var(--text-muted)] shrink-0 opacity-40" />
-          {wit.color ? (
-            <Circle
-              className="h-4 w-4 shrink-0"
-              style={{ color: wit.color, fill: wit.color }}
-            />
-          ) : (
-            <Tag className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-          )}
+          <WorkItemTypeIcon
+            icon={wit.icon}
+            color={wit.color}
+            className="h-4 w-4 shrink-0"
+          />
           <span className="flex-1 text-sm font-medium text-[var(--text)]">
-            {wit.icon ? `${wit.icon} ` : ""}
             {wit.name}
           </span>
           {wit.pluralName && (

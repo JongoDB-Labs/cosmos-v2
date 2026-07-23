@@ -48,6 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
+import { WorkItemTypeIcon } from "@/components/work-items/work-item-type-icon";
 import { toast } from "sonner";
 
 /** Best-effort human reason from a rejected bulk request — the server message
@@ -582,7 +583,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         header: "Type",
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5 text-sm">
-            {row.original.type.icon && <span aria-hidden>{row.original.type.icon}</span>}
+            <WorkItemTypeIcon icon={row.original.type.icon} color={row.original.type.color} />
             {row.original.type.name}
           </span>
         ),
