@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.9",
+    date: "2026-07-23",
+    title: "Work-item type icons show their glyph, not raw text",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Fixed work-item types (Story, Milestone, Bug, and the rest) showing their icon name as literal text — e.g. “BookOpen Story” — instead of the icon. The Issues list, the issue detail panel, and the template editor now render the proper SVG glyph.",
+      },
+    ],
+  },
+  {
     version: "2.224.8",
     date: "2026-07-23",
     title: "Foreman reuses an open PR instead of failing to ship",
