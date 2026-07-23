@@ -199,16 +199,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           sortOrder,
           dueDate: data.dueDate ? new Date(data.dueDate) : null,
           startDate: data.startDate ? new Date(data.startDate) : null,
-          actualStart: data.actualStart
-            ? new Date(data.actualStart)
-            : ["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase())
-              ? null
-              : new Date(),
-          completedAt: data.completedAt
-            ? new Date(data.completedAt)
-            : ["done", "completed", "closed"].some((k) => data.columnKey.toLowerCase().includes(k))
-              ? new Date()
-              : null,
+          // No auto-capture on CREATE: placing an item directly in an in-progress/
+          // done column is usually backfilling existing state (import, board setup),
+          // NOT a real transition — stamping actualStart/completedAt = now there
+          // produced misleading "everything finished today" clusters. Only an explicit
+          // value is honored here; a genuine drag-to-done later auto-captures in PUT.
+          actualStart: data.actualStart ? new Date(data.actualStart) : null,
+          completedAt: data.completedAt ? new Date(data.completedAt) : null,
           columnEnteredAt: new Date(),
           tags: data.tags ?? [],
           customFields: (data.customFields ?? {}) as Prisma.InputJsonValue,
