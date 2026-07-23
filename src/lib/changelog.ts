@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.8",
+    date: "2026-07-23",
+    title: "Foreman reuses an open PR instead of failing to ship",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Fixed Foreman getting stuck re-parking a ticket that had a leftover open PR from an earlier review: the deliver/merge step now REUSES (and readies) the existing PR instead of trying to create a duplicate and erroring “a pull request already exists” (e.g. COSMOS-90). Same fix applied to the coordinated-release path.",
+      },
+    ],
+  },
+  {
     version: "2.224.7",
     date: "2026-07-23",
     title: "Undo/redo for Gantt reschedules",

@@ -1049,12 +1049,17 @@ async function shipBuilt(b: Built): Promise<{ deployFailed: boolean }> {
       if (b.prUrl) {
         await exec("gh", ["pr", "ready", b.branch], { cwd: REPO }).catch(() => undefined);
       } else {
-        prUrl = await ship.openPr(
+        // ensurePr, NOT openPr: a ticket parked earlier already has an OPEN draft PR
+        // on this branch, so a bare `gh pr create` throws "a pull request ... already
+        // exists" and the ship dies (COSMOS-90). ensurePr reuses the existing PR;
+        // then mark it ready so the squash-merge can land (no-op if already ready).
+        prUrl = await ship.ensurePr(
           b.branch,
           `auto: ${b.key} — ${b.title}`.slice(0, 250),
           `Automated fix for ${b.key} (v${version}). Auto-merged by Foreman after green checks.`,
           false,
         );
+        await exec("gh", ["pr", "ready", b.branch], { cwd: REPO }).catch(() => undefined);
       }
       await ship.mergePr(b.branch);
       merged = true;
@@ -1488,12 +1493,15 @@ async function shipCoordinatedBatch(
     const finalDiff = await diffSummary(wt);
 
     await ship.pushBranch(integ);
-    const prUrl = await ship.openPr(
+    // ensurePr, NOT openPr: a prior aborted coordinated attempt may have left an
+    // open PR on this integ branch — reuse it instead of throwing "already exists".
+    const prUrl = await ship.ensurePr(
       integ,
       `auto: coordinated release ${epicKey} — v${version}`.slice(0, 250),
       `Coordinated release of ${batch.join(", ")} as ONE version (v${version}). Merged in dependency order.`,
       false,
     );
+    await exec("gh", ["pr", "ready", integ], { cwd: REPO }).catch(() => undefined);
     await ship.mergePr(integ);
     // TAG GUARD (the v2.174.0 lesson): a pre-existing tag means a version collision.
     let tagExists = true;
