@@ -42,6 +42,7 @@ import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { computeSprintReview, type SprintReview } from "@/lib/cycles/sprint-review";
+import { computeNextSprintDefaults } from "@/lib/cycles/next-sprint";
 
 interface CycleReport {
   velocity?: number;
@@ -181,6 +182,15 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   const [completeStep, setCompleteStep] = useState<"review" | "finalize">("review");
   const [review, setReview] = useState<SprintReview | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  // Roll-over (COSMOS-19 Phase 4): after a SPRINT completes, offer to start the
+  // next one, pre-filled with the same duration + incremented name, inheriting
+  // the completed sprint's Program Increment.
+  const [nextSprintOpen, setNextSprintOpen] = useState(false);
+  const [nextSprintParentId, setNextSprintParentId] = useState<string | null>(null);
+  const [nextName, setNextName] = useState("");
+  const [nextStart, setNextStart] = useState("");
+  const [nextEnd, setNextEnd] = useState("");
+  const [startingNext, setStartingNext] = useState(false);
 
   // Load the cycle's items and derive its retrospective metrics for the review
   // step. Metrics are computed on read (never persisted before finalization).
@@ -341,10 +351,48 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     }
   }
 
+  // Create the next sprint from the (editable) roll-over defaults and activate
+  // it immediately — the "auto-start". Inherits the completed sprint's PI.
+  async function startNextSprint() {
+    if (!nextName.trim() || !nextStart || !nextEnd) return;
+    setStartingNext(true);
+    try {
+      const createRes = await fetch(`${basePath}/cycles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nextName.trim(),
+          startDate: new Date(nextStart).toISOString(),
+          endDate: new Date(nextEnd).toISOString(),
+          cycleKind: "SPRINT",
+          parentId: nextSprintParentId,
+        }),
+      });
+      if (!createRes.ok) throw new Error("Failed to create the next sprint");
+      const createdCycle = await createRes.json();
+      const actRes = await fetch(`${basePath}/cycles/${createdCycle.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ACTIVE" }),
+      });
+      if (!actRes.ok)
+        throw new Error(
+          "Created the sprint, but couldn't start it — activate it manually.",
+        );
+      setNextSprintOpen(false);
+      await fetchCycles();
+    } catch (err) {
+      notifyError(err, "Couldn't start the next sprint.");
+    } finally {
+      setStartingNext(false);
+    }
+  }
+
   // moveIncompleteToCycleId: null → incomplete items return to the backlog;
   // a cycle id → they roll over into that (planned) cycle.
   async function completeCycle(id: string, moveIncompleteToCycleId: string | null) {
     setBusyId(id);
+    const finished = completeTarget; // capture before we clear it below
     try {
       const res = await fetch(`${basePath}/cycles/${id}/complete`, {
         method: "POST",
@@ -355,6 +403,15 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
       setCompleteTarget(null);
       setReview(null);
       await fetchCycles();
+      // Only SPRINTs roll over — phases / PIs / releases don't prompt a "next".
+      if (finished && finished.cycleKind === "SPRINT") {
+        const d = computeNextSprintDefaults(finished);
+        setNextName(d.name);
+        setNextStart(d.startDate);
+        setNextEnd(d.endDate);
+        setNextSprintParentId(finished.parentId);
+        setNextSprintOpen(true);
+      }
     } catch (err) {
       notifyError(err, "Couldn't complete the cycle.");
     } finally {
@@ -809,6 +866,66 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
                 </Button>
               </>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Roll-over: start the next sprint, pre-filled from the one just completed. */}
+      <Dialog
+        open={nextSprintOpen}
+        onOpenChange={(o) => {
+          if (!o && !startingNext) setNextSprintOpen(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start the next sprint?</DialogTitle>
+            <DialogDescription>
+              Roll straight into the next sprint. We&apos;ve pre-filled the same
+              duration and the next name — edit anything, or skip for now.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="next-name">Name</Label>
+              <Input
+                id="next-name"
+                value={nextName}
+                onChange={(e) => setNextName(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="next-start">Start</Label>
+                <Input
+                  id="next-start"
+                  type="date"
+                  value={nextStart}
+                  onChange={(e) => setNextStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="next-end">End</Label>
+                <Input
+                  id="next-end"
+                  type="date"
+                  value={nextEnd}
+                  onChange={(e) => setNextEnd(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setNextSprintOpen(false)}
+              disabled={startingNext}
+            >
+              Not now
+            </Button>
+            <Button onClick={startNextSprint} disabled={startingNext}>
+              {startingNext ? "Starting…" : "Start sprint"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

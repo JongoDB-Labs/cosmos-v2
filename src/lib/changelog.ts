@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.232.0",
+    date: "2026-07-23",
+    title: "Roll straight into the next sprint on completion",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When you complete a sprint, you're now offered a pre-filled next sprint — same duration, incremented name, inheriting the same Program Increment — so you can start the following sprint in one click. Edit the details or skip it entirely.",
+      },
+    ],
+  },
+  {
     version: "2.231.0",
     date: "2026-07-23",
     title: "Sprints: cleaner navigation + manage-in-context",
