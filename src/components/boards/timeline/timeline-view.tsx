@@ -346,8 +346,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return set;
   }, [links]);
   const visibleRows = useMemo(
-    () => (showDeps ? treeRows.filter((r) => linkedIds.has(r.item.id)) : treeRows),
-    [showDeps, treeRows, linkedIds],
+    () =>
+      showDeps
+        ? // Dependencies view: show EVERY linked item flat, off the full filtered
+          // list — not treeRows, whose collapse/hierarchy would hide a linked
+          // collapsed child (or a linked child of a collapsed parent).
+          filteredItems
+            .filter((it) => linkedIds.has(it.id))
+            .map((item) => ({ item, depth: 0 }))
+        : treeRows,
+    [showDeps, filteredItems, treeRows, linkedIds],
   );
 
   // Apply a change to the collapse set and persist it in one step, so the
@@ -495,11 +503,24 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // item id; only items with a visible row appear.
   const barPositions = useMemo(() => {
     const map = new Map<string, { x: number; y: number; w: number; h: number }>();
+    const nowDay = startOfDay(new Date());
     sortedItems.forEach((item, i) => {
-      const start = item.startDate
-        ? startOfDay(new Date(item.startDate))
-        : startOfDay(new Date(item.createdAt));
-      const end = item.dueDate ? startOfDay(new Date(item.dueDate)) : addDays(start, 7);
+      // Anchor arrows to the SOLID (primary) bar: the ACTUAL span when it exists
+      // (what's drawn solid), else the planned span — never the faded planned trail
+      // ("phantom"). Hover/detail are unaffected.
+      const aStart = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
+      const start = aStart
+        ? aStart
+        : item.startDate
+          ? startOfDay(new Date(item.startDate))
+          : startOfDay(new Date(item.createdAt));
+      const end = aStart
+        ? item.completedAt
+          ? startOfDay(new Date(item.completedAt))
+          : nowDay
+        : item.dueDate
+          ? startOfDay(new Date(item.dueDate))
+          : addDays(start, 7);
       const startOffset = diffDays(timelineStart, start);
       const duration = Math.max(diffDays(start, end), 1);
       map.set(item.id, {
@@ -890,7 +911,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           />
           <LensToggle
             active={showDeps}
-            onClick={() => setShowDeps((v) => !v)}
+            onClick={() => {
+              setShowDeps((v) => !v);
+              void qc.invalidateQueries({ queryKey: linksKey });
+            }}
             icon={<Waypoints className="size-3.5" />}
             label="Dependencies"
             title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
