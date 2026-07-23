@@ -1239,39 +1239,32 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
 
-              // Schedule-health delta: a full-height segment appended to the bar
-              // showing how far the item slipped past — or beat — its projected end.
-              // Red trails to the LEFT of the bar for a slip (finished late, or still
-              // open past due); green extends to the RIGHT for an early finish. Width =
-              // whole days late/early. Anchored to the live bar so it reads as part of it.
+              // Actuals at REAL dates: a slim track beneath the planned bar running
+              // actualStart -> (completedAt | today), colored by finish health, with an
+              // amber lead-in for the delay before work began (planned start -> actual
+              // start). Real-date positioning stays legible for large slips — the old
+              // symbolic delta clipped weeks-long slips off the chart edge.
               const health = barHealth(item, today);
-              const projEnd = item.dueDate ? startOfDay(new Date(item.dueDate)) : null;
-              const actEnd = item.completedAt ? startOfDay(new Date(item.completedAt)) : null;
-              let delta: { x: number; w: number; fill: string } | null = null;
-              if (showActuals && projEnd) {
-                const slip = slipDays({ projectedEnd: projEnd, actualEnd: actEnd, now: today });
-                // Green only when actually FINISHED early; an open item that simply
-                // isn't due yet shows nothing (slip is clamped to >= 0 while open).
-                const days = slip == null ? 0 : actEnd ? slip : Math.max(slip, 0);
-                if (days > 0) {
-                  const dw = Math.max(days * DAY_WIDTH, 3);
-                  delta = { x: x - dw, w: dw, fill: "var(--status-critical)" };
-                } else if (days < 0) {
-                  const dw = Math.max(-days * DAY_WIDTH, 3);
-                  delta = { x: x + w, w: dw, fill: "var(--status-done)" };
-                }
-              }
-
-              // Late-start lead-in: planned start -> actual start. Marks a slow start
-              // (work began after the planned start). Amber over the front of the bar;
-              // paired with the finish color it reads "started late but finished on/
-              // ahead = recovered".
               const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
               const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
-              let lateStartW: number | null = null;
-              if (showActuals && plannedStartD && actualStartD) {
-                const sd = diffDays(plannedStartD, actualStartD);
-                if (sd > 0) lateStartW = Math.min(Math.max(sd * DAY_WIDTH, 3), w);
+              const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
+              const actualH = Math.max(Math.round(h * 0.42), 5);
+              const actualY = y + h - actualH;
+              let actualBar: { x: number; w: number } | null = null;
+              let lateStartConn: { x: number; w: number } | null = null;
+              if (showActuals && actualStartD) {
+                const ax = diffDays(timelineStart, actualStartD) * DAY_WIDTH;
+                const aw = Math.max(diffDays(actualStartD, actualEndD) * DAY_WIDTH, 3);
+                actualBar = { x: ax, w: aw };
+                if (plannedStartD) {
+                  const sd = diffDays(plannedStartD, actualStartD);
+                  if (sd > 0) {
+                    lateStartConn = {
+                      x: diffDays(timelineStart, plannedStartD) * DAY_WIDTH,
+                      w: Math.max(sd * DAY_WIDTH, 2),
+                    };
+                  }
+                }
               }
 
               // Check if this is a milestone (same start and due date or type hint)
@@ -1335,20 +1328,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Schedule-health delta — full-height slip (red, left of bar) or
-                      ahead (green, right of bar). Non-interactive. */}
-                  {delta && (
-                    <rect
-                      x={delta.x}
-                      y={y}
-                      width={delta.w}
-                      height={h}
-                      rx={2}
-                      fill={delta.fill}
-                      opacity={0.85}
-                      style={{ pointerEvents: "none" }}
-                    />
-                  )}
                   <rect
                     x={x}
                     y={y}
@@ -1411,17 +1390,36 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {/* Late-start lead-in — amber over the front of the bar (planned
-                      start -> actual start). Non-interactive. */}
-                  {lateStartW != null && (
+                  {/* Late-start lead-in — amber, planned start -> actual start (the
+                      delay before work began), on the actual track. Non-interactive. */}
+                  {lateStartConn && (
                     <rect
-                      x={x}
-                      y={y}
-                      width={lateStartW}
-                      height={h}
-                      rx={4}
+                      x={lateStartConn.x}
+                      y={actualY}
+                      width={lateStartConn.w}
+                      height={actualH}
+                      rx={2}
                       fill="#f59e0b"
-                      opacity={0.5}
+                      opacity={0.45}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  )}
+                  {/* Actual track — real dates, colored by finish health. Non-interactive. */}
+                  {actualBar && (
+                    <rect
+                      x={actualBar.x}
+                      y={actualY}
+                      width={actualBar.w}
+                      height={actualH}
+                      rx={2}
+                      fill={
+                        health === "red"
+                          ? "var(--status-critical)"
+                          : health === "green"
+                            ? "var(--status-done)"
+                            : "var(--text-muted)"
+                      }
+                      opacity={0.9}
                       style={{ pointerEvents: "none" }}
                     />
                   )}
