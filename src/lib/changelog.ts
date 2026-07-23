@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.225.1",
+    date: "2026-07-23",
+    title: "Dependencies view: show every linked item; arrows on the actual bars",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Dependencies lens now shows EVERY linked item (built off the full item list, so a linked collapsed child no longer disappears) and refetches links when toggled so items you just linked appear without a hard refresh. Dependency arrows now connect the SOLID actual bars, not the faded planned “phantom” trails; hover/detail unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.225.0",
     date: "2026-07-23",
     title: "Foreman console: split the Activity tab into Pipeline + Activity",
