@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.2",
+    date: "2026-07-23",
+    title: "Gantt shows a late start — and when you recovered from it",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the timeline, an item that started later than its planned start now shows an amber lead-in at the front of its bar. Paired with the finish color, a bar that starts amber but stays green reads at a glance as “started late, recovered, delivered on time.” The tooltip spells it out (e.g. “Started 7d late — recovered ✓”).",
+      },
+    ],
+  },
+  {
     version: "2.224.1",
     date: "2026-07-23",
     title: "Clearer schedule slippage on the Gantt",
