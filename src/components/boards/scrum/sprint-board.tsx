@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Target, CalendarDays, Plus } from "lucide-react";
+import { Target, CalendarDays, Plus, ListChecks } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { CyclesWorkspace } from "@/components/cycles/cycles-workspace";
 import { cn } from "@/lib/utils";
 import type { Cycle } from "@/types/models";
 
@@ -43,6 +50,7 @@ export function SprintBoard({
 }: SprintBoardProps) {
   const [cycles, setCycles] = useState<CycleWithCount[] | null>(null);
   const [detailSprint, setDetailSprint] = useState<CycleWithCount | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
   const cyclesHref = `/${orgSlug}/projects/${projectKey}/cycles`;
@@ -95,6 +103,14 @@ export function SprintBoard({
           <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
             Sprints
           </span>
+          <button
+            type="button"
+            onClick={() => setManageOpen(true)}
+            className="mr-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-0.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--primary-tint)] hover:text-[var(--primary)]"
+            title="Create, start, and complete sprints"
+          >
+            <ListChecks className="h-3 w-3" /> Manage
+          </button>
           {(cycles.some((c) => c.cycleKind === "SPRINT")
             ? cycles.filter((c) => c.cycleKind === "SPRINT")
             : cycles
@@ -142,6 +158,25 @@ export function SprintBoard({
         )}
       </div>
 
+      {/* Manage-sprints drawer — the full sprint lifecycle (create/start/complete)
+          without leaving the board. Embeds the same CyclesWorkspace as the
+          top-level Sprints page. */}
+      <Sheet open={manageOpen} onOpenChange={setManageOpen}>
+        <SheetContent
+          side="right"
+          className="w-full gap-0 overflow-y-auto p-0 sm:max-w-3xl"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>Manage sprints</SheetTitle>
+          </SheetHeader>
+          <CyclesWorkspace
+            orgId={orgId}
+            projectId={projectId}
+            projectKey={projectKey}
+          />
+        </SheetContent>
+      </Sheet>
+
       {/* Sprint detail modal (FR: "click any sprint → a modal shows its details"). */}
       <Dialog
         open={detailSprint !== null}
@@ -160,8 +195,13 @@ export function SprintBoard({
                   </Badge>
                 </div>
                 <DialogDescription>
-                  {new Date(detailSprint.startDate).toLocaleDateString()} –{" "}
-                  {new Date(detailSprint.endDate).toLocaleDateString()}
+                  {new Date(detailSprint.startDate).toLocaleDateString(undefined, {
+                    timeZone: "UTC",
+                  })}{" "}
+                  –{" "}
+                  {new Date(detailSprint.endDate).toLocaleDateString(undefined, {
+                    timeZone: "UTC",
+                  })}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2 text-sm">
