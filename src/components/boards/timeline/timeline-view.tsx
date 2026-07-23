@@ -293,7 +293,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
   const [showCritical, setShowCritical] = useState(false);
-  const [showActuals, setShowActuals] = useState(true);
+  const [showPlanDrift, setShowPlanDrift] = useState(false);
   const [showEnablers, setShowEnablers] = useState(false);
   const [showDeps, setShowDeps] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -934,11 +934,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             accent="var(--status-critical)"
           />
           <LensToggle
-            active={showActuals}
-            onClick={() => setShowActuals((v) => !v)}
+            active={showPlanDrift}
+            onClick={() => setShowPlanDrift((v) => !v)}
             icon={<GitCompareArrows className="size-3.5" />}
-            label="Actuals"
-            title="Overlay the actual start→finish and color bars by schedule health"
+            label="Plan drift"
+            title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
             accent="var(--status-blocked)"
           />
           <LensToggle
@@ -1061,21 +1061,22 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         </div>
       </div>
       {/* Contextual legend — only the keys for what's actually on screen. */}
-      {(showActuals || hasEnablers) && (
+      {(showPlanDrift || hasEnablers) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
-          {showActuals && (
+          {showPlanDrift && (
             <>
+              <span className="text-[var(--text-muted)]">Plan ghost:</span>
               <span className="inline-flex items-center gap-1.5">
                 <span
                   className="inline-block h-2.5 w-2 rounded-sm"
-                  style={{ backgroundColor: "var(--status-done)", opacity: 0.85 }}
+                  style={{ backgroundColor: "var(--status-done)", opacity: 0.5 }}
                 />
-                Ahead of schedule
+                On/ahead
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
                   className="inline-block h-2.5 w-2 rounded-sm"
-                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.85 }}
+                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.5 }}
                 />
                 Slipped
               </span>
@@ -1470,7 +1471,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
               const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
               let actualBar: { x: number; w: number } | null = null;
-              if (showActuals && actualStartD) {
+              if (actualStartD) {
                 const ax = diffDays(timelineStart, actualStartD) * DAY_WIDTH;
                 const aw = Math.max(diffDays(actualStartD, actualEndD) * DAY_WIDTH, 3);
                 actualBar = { x: ax, w: aw };
@@ -1546,45 +1547,58 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Planned TRAIL — the reschedule target (draggable). Faded +
-                      health-colored (red slipped · amber late start · green on/ahead)
-                      when actuals exist; the solid bar itself when they don't. No red
-                      outline. */}
-                  <rect
-                    x={x}
-                    y={y}
-                    width={w}
-                    height={h}
-                    rx={4}
-                    fill={actualBar ? trailColor : colors.fill}
-                    stroke={
-                      isCrit
-                        ? "var(--status-critical)"
-                        : isEnabler && showEnablers
-                          ? "var(--type-enabler, #0891b2)"
-                          : actualBar
-                            ? "transparent"
+                  {/* Planned bar. No actuals → it IS the item: solid + draggable.
+                      Actuals exist → it becomes a faded, NON-interactive "Plan drift"
+                      ghost, shown only when that lens is on (so you see how the plan
+                      shifted). */}
+                  {!actualBar ? (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={w}
+                      height={h}
+                      rx={4}
+                      fill={colors.fill}
+                      stroke={
+                        isCrit
+                          ? "var(--status-critical)"
+                          : isEnabler && showEnablers
+                            ? "var(--type-enabler, #0891b2)"
                             : colors.stroke
-                    }
-                    strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
-                    strokeDasharray={isEnabler ? "5 3" : undefined}
-                    opacity={(preview ? 1 : actualBar ? 0.32 : 0.85) * dimForEnablerLens * depDim}
-                    onPointerDown={(e) => beginDrag(item, "move", e)}
-                    onPointerMove={onDragMove}
-                    onPointerUp={onDragEnd}
-                    onPointerCancel={onDragCancel}
-                    onClick={() => openDetail(item)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setHoveredItem(null);
-                      setDetailId(item.id);
-                    }}
-                    style={{ touchAction: canEdit ? "none" : undefined }}
-                    className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
-                  />
-                  {/* Actual bar — the SOLID primary at real dates. Visual only
-                      (pointerEvents none), so drag/click passes through to the planned
-                      trail beneath. */}
+                      }
+                      strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim}
+                      onPointerDown={(e) => beginDrag(item, "move", e)}
+                      onPointerMove={onDragMove}
+                      onPointerUp={onDragEnd}
+                      onPointerCancel={onDragCancel}
+                      onClick={() => openDetail(item)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setHoveredItem(null);
+                        setDetailId(item.id);
+                      }}
+                      style={{ touchAction: canEdit ? "none" : undefined }}
+                      className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
+                    />
+                  ) : showPlanDrift ? (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={w}
+                      height={h}
+                      rx={4}
+                      fill={trailColor}
+                      stroke={isCrit ? "var(--status-critical)" : "transparent"}
+                      strokeWidth={isCrit ? 2.5 : 1}
+                      strokeDasharray="3 3"
+                      opacity={0.3 * dimForEnablerLens * depDim}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  ) : null}
+                  {/* Actual bar — the SOLID primary (real dates). Click opens the
+                      detail panel; started/done items reschedule there, not by drag. */}
                   {actualBar && (
                     <rect
                       x={primaryX}
@@ -1603,18 +1617,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
                       opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim}
-                      onPointerDown={(e) => beginDrag(item, "move", e)}
-                      onPointerMove={onDragMove}
-                      onPointerUp={onDragEnd}
-                      onPointerCancel={onDragCancel}
                       onClick={() => openDetail(item)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         setHoveredItem(null);
                         setDetailId(item.id);
                       }}
-                      style={{ touchAction: canEdit ? "none" : undefined }}
-                      className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
+                      className="cursor-pointer"
                     />
                   )}
                   {/* Progress fill on the primary — % complete. Non-interactive. */}
@@ -1643,7 +1652,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {canEdit && (
+                  {canEdit && !actualBar && (
                     <>
                       {/* Left edge → move start date */}
                       <rect
