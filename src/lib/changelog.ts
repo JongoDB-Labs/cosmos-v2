@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.229.0",
+    date: "2026-07-23",
+    title: "Gantt: Dependencies view keeps epic/feature/story nesting",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Turning on the Dependencies lens on the timeline now keeps the same epic → feature → story nesting as the normal view, instead of flattening every linked item into a single list. Parents in the chain are shown for structure, and collapse works the same as when the lens is off.",
+      },
+    ],
+  },
+  {
     version: "2.228.0",
     date: "2026-07-23",
     title: "Cosmo: date awareness, day-safe dates, larger action budget",
