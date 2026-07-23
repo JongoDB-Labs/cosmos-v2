@@ -40,6 +40,8 @@ import {
 } from "lucide-react";
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
+import { StartSprintDialog } from "./start-sprint-dialog";
+import { computeSprintReview, type SprintReview } from "@/lib/cycles/sprint-review";
 
 interface CycleReport {
   velocity?: number;
@@ -131,6 +133,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   // Capacity planning dialog.
   const [capacityTarget, setCapacityTarget] = useState<Cycle | null>(null);
 
+  // Start Sprint planning flow (sprint-kind cycles only).
+  const [startTarget, setStartTarget] = useState<Cycle | null>(null);
+
   // "Add issues to this cycle" picker (FR 0e31d1ef).
   const [addIssuesTarget, setAddIssuesTarget] = useState<Cycle | null>(null);
   // cycleId → name, for the "currently in X" badge in the picker.
@@ -147,10 +152,14 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     canUpdate,
     canComplete,
     pis,
-    onStart: () => activateCycle(cycle.id),
+    // Sprints launch the planning flow; other cycle kinds activate directly.
+    onStart: () =>
+      cycle.cycleKind === "SPRINT" ? setStartTarget(cycle) : activateCycle(cycle.id),
     onComplete: () => {
       setMoveToCycleId(BACKLOG_OPTION);
+      setCompleteStep("review");
       setCompleteTarget(cycle);
+      loadReview(cycle);
     },
     onEdit: () => openEdit(cycle),
     onDelete: () => setDeleteTarget(cycle),
@@ -161,8 +170,42 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
 
   // Sprint-review / completion dialog: which cycle is being completed, and where
   // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
+  // Completing runs in two steps: a "review" step surfaces retrospective metrics
+  // (efficiency, burn rate, pacing), then a "finalize" step locks it and rehomes
+  // any unfinished work (COSMOS-139).
   const [completeTarget, setCompleteTarget] = useState<Cycle | null>(null);
   const [moveToCycleId, setMoveToCycleId] = useState<string>(BACKLOG_OPTION);
+  const [completeStep, setCompleteStep] = useState<"review" | "finalize">("review");
+  const [review, setReview] = useState<SprintReview | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+
+  // Load the cycle's items and derive its retrospective metrics for the review
+  // step. Metrics are computed on read (never persisted before finalization).
+  async function loadReview(cycle: Cycle) {
+    setReviewLoading(true);
+    setReview(null);
+    try {
+      const res = await fetch(`${basePath}/cycles/${cycle.id}`);
+      if (!res.ok) throw new Error("Failed to load sprint review");
+      const detail = await res.json();
+      setReview(
+        computeSprintReview({
+          startDate: cycle.startDate,
+          endDate: cycle.endDate,
+          items: (detail.workItems ?? []).map(
+            (i: { storyPoints: number | null; columnKey: string }) => ({
+              storyPoints: i.storyPoints,
+              columnKey: i.columnKey,
+            }),
+          ),
+        }),
+      );
+    } catch (err) {
+      notifyError(err, "Couldn't load the sprint review.");
+    } finally {
+      setReviewLoading(false);
+    }
+  }
 
   const fetchCycles = useCallback(async () => {
     setLoading(true);
@@ -307,6 +350,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
       });
       if (!res.ok) throw new Error("Failed to complete cycle");
       setCompleteTarget(null);
+      setReview(null);
       await fetchCycles();
     } catch (err) {
       notifyError(err, "Couldn't complete the cycle.");
@@ -580,6 +624,24 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         />
       )}
 
+      {/* Start Sprint planning flow — capacity, goal, committed-vs-capacity. */}
+      {startTarget && (
+        <StartSprintDialog
+          orgId={orgId}
+          projectId={projectId}
+          cycle={{
+            id: startTarget.id,
+            name: startTarget.name,
+            goal: startTarget.goal,
+          }}
+          onClose={() => setStartTarget(null)}
+          onStarted={() => {
+            setStartTarget(null);
+            fetchCycles();
+          }}
+        />
+      )}
+
       {/* Add issues to a cycle (FR 0e31d1ef) — bulk-move project issues in. */}
       <AddIssuesDialog
         orgId={orgId}
@@ -592,80 +654,178 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         cycleNames={cycleNames}
       />
 
-      {/* Sprint review / completion — choose where incomplete items go. */}
+      {/* Sprint review / completion — step 1 shows retrospective metrics, step 2
+          finalizes and rehomes unfinished items. */}
       <Dialog
         open={completeTarget !== null}
-        onOpenChange={(o) => !o && setCompleteTarget(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCompleteTarget(null);
+            setReview(null);
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Complete {completeTarget ? completeTarget.name : "cycle"}
+              {completeStep === "review" ? "Sprint review" : "Complete"}{" "}
+              {completeTarget ? completeTarget.name : "cycle"}
             </DialogTitle>
             <DialogDescription>
-              Completing locks the cycle and records its velocity. Any unfinished
-              work items need a new home — choose where they go.
+              {completeStep === "review"
+                ? "How this sprint went. Review the retrospective metrics, then finalize."
+                : "Completing locks the cycle and records its velocity. Any unfinished work items need a new home — choose where they go."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            {completeTarget?._count?.workItems != null && (
-              <p className="text-sm text-muted-foreground">
-                This cycle has{" "}
-                <span className="font-medium text-foreground">
-                  {completeTarget._count.workItems}
-                </span>{" "}
-                item{completeTarget._count.workItems === 1 ? "" : "s"}. Completed
-                ones stay; unfinished ones move below.
-              </p>
-            )}
-            <div className="space-y-1.5">
-              <Label>Move unfinished items to</Label>
-              <Select
-                value={moveToCycleId}
-                onValueChange={(v) => setMoveToCycleId(v ?? BACKLOG_OPTION)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Backlog" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={BACKLOG_OPTION}>Backlog (no cycle)</SelectItem>
-                  {cycles
-                    .filter(
-                      (c) =>
-                        c.status === "PLANNED" && c.id !== completeTarget?.id,
-                    )
-                    .map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+          {completeStep === "review" ? (
+            <div className="space-y-4">
+              {reviewLoading || !review ? (
+                <div className="grid grid-cols-3 gap-3">
+                  <Skeleton className="h-20 w-full" />
+                  <Skeleton className="h-20 w-full" />
+                  <Skeleton className="h-20 w-full" />
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <ReviewStat
+                      label="Efficiency"
+                      value={`${review.efficiency}%`}
+                      hint={
+                        review.basis === "points"
+                          ? `${review.completedPoints}/${review.totalPoints} pts`
+                          : `${review.completedItems}/${review.totalItems} items`
+                      }
+                    />
+                    <ReviewStat
+                      label="Burn rate"
+                      value={`${review.burnRate}`}
+                      hint={`${review.basis === "points" ? "pts" : "items"}/day`}
+                    />
+                    <ReviewStat
+                      label="Pacing"
+                      value={review.pacingStatus}
+                      hint={`${review.pacing}× ideal`}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Completed{" "}
+                    <span className="font-medium text-foreground">
+                      {review.completedItems}
+                    </span>{" "}
+                    of {review.totalItems} item{review.totalItems === 1 ? "" : "s"}
+                    {review.totalPoints > 0 && (
+                      <>
+                        {" · "}
+                        <span className="font-medium text-foreground">
+                          {review.completedPoints}
+                        </span>{" "}
+                        of {review.totalPoints} pts
+                      </>
+                    )}{" "}
+                    · {review.elapsedDays}/{review.plannedDays} days
+                  </p>
+                </>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              {completeTarget?._count?.workItems != null && (
+                <p className="text-sm text-muted-foreground">
+                  This cycle has{" "}
+                  <span className="font-medium text-foreground">
+                    {completeTarget._count.workItems}
+                  </span>{" "}
+                  item{completeTarget._count.workItems === 1 ? "" : "s"}. Completed
+                  ones stay; unfinished ones move below.
+                </p>
+              )}
+              <div className="space-y-1.5">
+                <Label>Move unfinished items to</Label>
+                <Select
+                  value={moveToCycleId}
+                  onValueChange={(v) => setMoveToCycleId(v ?? BACKLOG_OPTION)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Backlog" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={BACKLOG_OPTION}>Backlog (no cycle)</SelectItem>
+                    {cycles
+                      .filter(
+                        (c) =>
+                          c.status === "PLANNED" && c.id !== completeTarget?.id,
+                      )
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCompleteTarget(null)}
-              disabled={busyId === completeTarget?.id}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                completeTarget &&
-                completeCycle(
-                  completeTarget.id,
-                  moveToCycleId === BACKLOG_OPTION ? null : moveToCycleId,
-                )
-              }
-              disabled={busyId === completeTarget?.id}
-            >
-              {busyId === completeTarget?.id ? "Completing…" : "Complete cycle"}
-            </Button>
+            {completeStep === "review" ? (
+              <>
+                <Button variant="outline" onClick={() => setCompleteTarget(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => setCompleteStep("finalize")}
+                  disabled={reviewLoading}
+                >
+                  Continue
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setCompleteStep("review")}
+                  disabled={busyId === completeTarget?.id}
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={() =>
+                    completeTarget &&
+                    completeCycle(
+                      completeTarget.id,
+                      moveToCycleId === BACKLOG_OPTION ? null : moveToCycleId,
+                    )
+                  }
+                  disabled={busyId === completeTarget?.id}
+                >
+                  {busyId === completeTarget?.id ? "Completing…" : "Complete cycle"}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// A single retrospective metric tile in the sprint-review step.
+function ReviewStat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-3 text-center">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-semibold capitalize">{value}</p>
+      <p className="text-[11px] text-muted-foreground">{hint}</p>
     </div>
   );
 }
