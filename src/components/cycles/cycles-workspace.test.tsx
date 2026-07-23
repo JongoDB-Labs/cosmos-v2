@@ -228,3 +228,41 @@ describe("CyclesWorkspace — sprint review step on completion (COSMOS-139)", ()
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
   });
 });
+
+// An empty sprint has nothing to pace against — pacing must read "—", not a
+// misleading "On track / 1× ideal" (live-validation finding, v2.230.1).
+const ACTIVE_EMPTY = {
+  ...ACTIVE_SPRINT,
+  name: "Sprint 3 (empty)",
+  _count: { workItems: 0 },
+};
+
+function installFetchEmptyActive() {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    if (method === "GET" && url.endsWith("/cycles/cyc-1")) {
+      return { ok: true, json: async () => ({ workItems: [] }) } as Response;
+    }
+    if (method === "GET" && url.endsWith("/cycles")) {
+      return { ok: true, json: async () => [ACTIVE_EMPTY] } as Response;
+    }
+    return { ok: true, json: async () => ({}) } as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+}
+
+describe("CyclesWorkspace — sprint review pacing on an empty sprint (v2.230.1)", () => {
+  it("reads pacing as — (not On track) when the sprint has no items", async () => {
+    installFetchEmptyActive();
+    const user = userEvent.setup();
+    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+
+    await screen.findByText("Sprint 3 (empty)");
+    await user.click(screen.getByRole("button", { name: "Complete" }));
+
+    // Tiles still render, but pacing is neutralized for an empty sprint.
+    expect(await screen.findByText("Pacing")).toBeInTheDocument();
+    expect(screen.getByText("no items yet")).toBeInTheDocument();
+    expect(screen.queryByText("On Track")).not.toBeInTheDocument();
+  });
+});

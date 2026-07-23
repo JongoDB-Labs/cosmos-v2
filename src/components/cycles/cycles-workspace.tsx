@@ -91,7 +91,10 @@ const STATUS_GROUPS: { status: Cycle["status"]; label: string }[] = [
 ];
 
 function fmtDate(iso: string) {
+  // Cycle start/end are calendar days stored at UTC midnight; format in UTC so a
+  // viewer west of UTC doesn't see the previous day (the off-by-one on cards).
   return new Date(iso).toLocaleDateString(undefined, {
+    timeZone: "UTC",
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -704,8 +707,12 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
                     />
                     <ReviewStat
                       label="Pacing"
-                      value={review.pacingStatus}
-                      hint={`${review.pacing}× ideal`}
+                      value={review.totalItems === 0 ? "—" : review.pacingStatus}
+                      hint={
+                        review.totalItems === 0
+                          ? "no items yet"
+                          : `${review.pacing}× ideal`
+                      }
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
