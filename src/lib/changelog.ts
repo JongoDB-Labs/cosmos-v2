@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.7",
+    date: "2026-07-23",
+    title: "Undo/redo for Gantt reschedules",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Rescheduling items on the timeline (dragging bars or resizing edges) can now be undone and redone — Undo/Redo buttons in the toolbar plus the usual ⌘/Ctrl-Z and ⌘/Ctrl-Y (or ⌘/Ctrl-Shift-Z) shortcuts.",
+      },
+    ],
+  },
+  {
     version: "2.224.6",
     date: "2026-07-23",
     title: "Dependencies lens: focus to just the linked items, cleaner arrows",
