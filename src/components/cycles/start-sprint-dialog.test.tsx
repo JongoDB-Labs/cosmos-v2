@@ -52,7 +52,8 @@ function jsonResponse(data: unknown, status = 200) {
 
 /** Route fetch by URL; record every call so we can assert what was sent. */
 function installFetch() {
-  const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    void init; // 2-arg signature so mock.calls[n][1] carries RequestInit (see bodyOf)
     const u = String(url);
     if (u.endsWith("/planning")) return jsonResponse(PLANNING);
     if (u.endsWith("/capacity")) return jsonResponse([]);
