@@ -330,13 +330,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setCollapsedIds(readCollapsedIds(boardId));
   }, [boardId]);
 
-  const { treeRows, parentIds } = useMemo(
+  const fullTree = useMemo(
     () => buildTimelineTree(filteredItems, collapsedIds),
     [filteredItems, collapsedIds],
   );
 
-  // When the Dependencies lens is on, collapse the board to ONLY the items that
-  // participate in a link — so users focus purely on the interdependent set.
+  // When the Dependencies lens is on, focus on the interdependent set.
   const linkedIds = useMemo(() => {
     const set = new Set<string>();
     for (const l of links) {
@@ -345,18 +344,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     }
     return set;
   }, [links]);
-  const visibleRows = useMemo(
-    () =>
-      showDeps
-        ? // Dependencies view: show EVERY linked item flat, off the full filtered
-          // list — not treeRows, whose collapse/hierarchy would hide a linked
-          // collapsed child (or a linked child of a collapsed parent).
-          filteredItems
-            .filter((it) => linkedIds.has(it.id))
-            .map((item) => ({ item, depth: 0 }))
-        : treeRows,
-    [showDeps, filteredItems, treeRows, linkedIds],
-  );
+
+  // Dependencies view: keep the SAME epic/feature/story nesting as the normal
+  // view, just restricted to the linked set. Include every linked item AND its
+  // ancestor chain (ancestors are shown for structure even when not themselves
+  // linked), then build the identical depth-first tree so nesting and collapse
+  // behave exactly as when the lens is off — no more flat, depth-0 list.
+  const depsTree = useMemo(() => {
+    if (!showDeps) return { treeRows: [], parentIds: new Set<string>() };
+    const byId = new Map(filteredItems.map((i) => [i.id, i]));
+    const keep = new Set<string>();
+    for (const it of filteredItems) {
+      if (!linkedIds.has(it.id)) continue;
+      keep.add(it.id);
+      let pid = it.parentId;
+      while (pid && byId.has(pid) && !keep.has(pid)) {
+        keep.add(pid);
+        pid = byId.get(pid)!.parentId;
+      }
+    }
+    return buildTimelineTree(
+      filteredItems.filter((it) => keep.has(it.id)),
+      collapsedIds,
+    );
+  }, [showDeps, filteredItems, linkedIds, collapsedIds]);
+
+  const { treeRows, parentIds } = showDeps ? depsTree : fullTree;
+  const visibleRows = treeRows;
 
   // Apply a change to the collapse set and persist it in one step, so the
   // session-restored state always matches what's on screen.
