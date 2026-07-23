@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.226.0",
+    date: "2026-07-23",
+    title: "Gantt: resizable Work Items column + status-dropdown fix",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Work Items column on the timeline is now resizable — drag the handle on its right edge to show more or less of the name column; the width is remembered.",
+      },
+      {
+        kind: "fix",
+        text: "Fixed the status dropdown not opening when you open an item’s detail from a Gantt bar — a tap on a bar no longer holds the pointer, so the detail panel’s controls receive their clicks.",
+      },
+    ],
+  },
+  {
     version: "2.225.1",
     date: "2026-07-23",
     title: "Dependencies view: show every linked item; arrows on the actual bars",
