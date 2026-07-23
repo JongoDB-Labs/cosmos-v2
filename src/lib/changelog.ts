@@ -34,7 +34,7 @@ export const CHANGELOG: Release[] = [
         text: "The old Actuals toggle is now Plan drift: turn it on to overlay the original planned dates as a faded ghost behind each actual bar, so you can see exactly how the schedule moved.",
       },
       {
-        kind: "change",
+        kind: "improvement",
         text: "Items that have already started or finished reschedule from their detail panel rather than by dragging the bar, keeping recorded actuals stable; not-yet-started items still drag on the Gantt as before.",
       },
     ],
