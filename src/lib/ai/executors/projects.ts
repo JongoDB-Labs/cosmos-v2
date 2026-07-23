@@ -3,6 +3,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { CycleKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
+import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 
 const listProjectsSchema = z.object({
   includeArchived: z.boolean().optional(),
@@ -52,8 +53,8 @@ const listCyclesSchema = z.object({
 const createCycleSchema = z.object({
   projectId: z.string().uuid(),
   name: z.string().min(1).max(100),
-  startDate: z.string().min(1),
-  endDate: z.string().min(1),
+  startDate: calendarDateInput,
+  endDate: calendarDateInput,
   goal: z.string().optional(),
   cycleKind: z.nativeEnum(CycleKind).optional(),
 });
@@ -171,8 +172,8 @@ export async function createCycle(
       number,
       name: data.name,
       goal: data.goal ?? "",
-      startDate: new Date(data.startDate),
-      endDate: new Date(data.endDate),
+      startDate: toCalendarNoonUTC(data.startDate)!,
+      endDate: toCalendarNoonUTC(data.endDate)!,
       cycleKind: data.cycleKind ?? CycleKind.SPRINT,
     },
   });
@@ -302,8 +303,8 @@ const updateCycleSchema = z.object({
   cycleId: z.string().uuid(),
   name: z.string().min(1).max(100).optional(),
   goal: z.string().nullish(),
-  startDate: z.string().datetime().nullish(),
-  endDate: z.string().datetime().nullish(),
+  startDate: calendarDateInput.nullish(),
+  endDate: calendarDateInput.nullish(),
   status: z.nativeEnum(SprintStatus).optional(),
   parentId: z.string().uuid().nullable().optional(),
 });
@@ -358,8 +359,8 @@ export async function updateCycle(input: Record<string, unknown>, ctx: ToolConte
     data: {
       ...(data.name !== undefined && { name: data.name }),
       ...(data.goal !== undefined && { goal: data.goal ?? "" }),
-      ...(data.startDate !== undefined && data.startDate !== null && { startDate: new Date(data.startDate) }),
-      ...(data.endDate !== undefined && data.endDate !== null && { endDate: new Date(data.endDate) }),
+      ...(data.startDate !== undefined && data.startDate !== null && { startDate: toCalendarNoonUTC(data.startDate)! }),
+      ...(data.endDate !== undefined && data.endDate !== null && { endDate: toCalendarNoonUTC(data.endDate)! }),
       ...(data.status !== undefined && { status: data.status }),
       ...(data.parentId !== undefined && { parentId: data.parentId }),
     },

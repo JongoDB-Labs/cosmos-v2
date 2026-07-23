@@ -69,8 +69,8 @@ export const projectTools: ToolDefinition[] = [
       properties: {
         projectId: { type: "string" },
         name: { type: "string", description: "Cycle name" },
-        startDate: { type: "string", description: "ISO datetime" },
-        endDate: { type: "string", description: "ISO datetime" },
+        startDate: { type: "string", description: "Start date as a calendar day YYYY-MM-DD" },
+        endDate: { type: "string", description: "End date as a calendar day YYYY-MM-DD" },
         goal: { type: "string" },
         cycleKind: {
           type: "string",
@@ -92,8 +92,8 @@ export const projectTools: ToolDefinition[] = [
         cycleId: { type: "string", description: "Cycle ID to update" },
         name: { type: "string" },
         goal: { type: "string" },
-        startDate: { type: "string", description: "ISO datetime" },
-        endDate: { type: "string", description: "ISO datetime" },
+        startDate: { type: "string", description: "Start date as a calendar day YYYY-MM-DD" },
+        endDate: { type: "string", description: "End date as a calendar day YYYY-MM-DD" },
         status: { type: "string", enum: ["PLANNED", "ACTIVE", "COMPLETED"] },
         parentId: {
           type: "string",
