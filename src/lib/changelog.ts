@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.5",
+    date: "2026-07-23",
+    title: "Trace dependencies on the Gantt — without the spaghetti",
+    highlights: [
+      {
+        kind: "feature",
+        text: "New Dependencies lens on the timeline. Off by default; turn it on and hover any bar to light up just that item’s links — upstream/blockers in amber, downstream/dependents in blue — while everything unrelated fades, so you trace one chain at a time instead of a web of lines.",
+      },
+      {
+        kind: "improvement",
+        text: "The solid actual bar is now clickable to open an item’s detail (previously only the faded planned trail was).",
+      },
+    ],
+  },
+  {
     version: "2.224.4",
     date: "2026-07-23",
     title: "Gantt: actual work is the solid bar, the plan is the trail",

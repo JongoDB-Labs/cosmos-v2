@@ -14,6 +14,7 @@ import {
   Loader2,
   GitCompareArrows,
   Wrench,
+  Waypoints,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -292,6 +293,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [showCritical, setShowCritical] = useState(false);
   const [showActuals, setShowActuals] = useState(true);
   const [showEnablers, setShowEnablers] = useState(false);
+  const [showDeps, setShowDeps] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
@@ -669,6 +671,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return set;
   }, [showCritical, filteredItems, links]);
 
+  // Dependency focus: when the Dependencies lens is on and a bar is hovered,
+  // resolve its DIRECT upstream (blockers) + downstream (dependents) so the
+  // render can light that neighborhood and fade everything else (anti-spaghetti).
+  const depFocus = useMemo(() => {
+    if (!showDeps || !hoveredItem) return null;
+    const up = new Set<string>();
+    const down = new Set<string>();
+    for (const l of links) {
+      if (l.targetItemId === hoveredItem.id) up.add(l.sourceItemId);
+      if (l.sourceItemId === hoveredItem.id) down.add(l.targetItemId);
+    }
+    return { id: hoveredItem.id, up, down, all: new Set<string>([hoveredItem.id, ...up, ...down]) };
+  }, [showDeps, hoveredItem, links]);
+
   // ── Bulk schedule ops ────────────────────────────────────────────────────
   // The "adjust schedules / time compression in real-time" workspace: shift
   // moves every VISIBLE item by N days; compress/expand scales each item's
@@ -802,6 +818,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             label="Enablers"
             title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
             accent="var(--type-enabler, #0891b2)"
+          />
+          <LensToggle
+            active={showDeps}
+            onClick={() => setShowDeps((v) => !v)}
+            icon={<Waypoints className="size-3.5" />}
+            label="Dependencies"
+            title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
+            accent="#0ea5e9"
           />
           <div className="mx-1 h-5 w-px bg-border" />
           {parentIds.size > 0 && (
@@ -1104,6 +1128,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--status-critical)" />
               </marker>
+              {/* Directional dependency arrows for the hover-focus view. */}
+              <marker id="timeline-dep-arrow-up" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
+              </marker>
+              <marker id="timeline-dep-arrow-down" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#0ea5e9" />
+              </marker>
               {/* Diagonal hatch overlay marking ENABLER work (architecture,
                   infra, compliance) — a texture that reads regardless of the
                   bar's type color. */}
@@ -1166,36 +1197,61 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 source bar's right edge to the target bar's left edge, with an
                 arrowhead at the target. Rendered UNDER the bars. Endpoints whose
                 bar isn't currently on a visible row are skipped. */}
-            {links.map((link) => {
-              const from = barPositions.get(link.sourceItemId);
-              const to = barPositions.get(link.targetItemId);
-              if (!from || !to) return null;
-              const x1 = from.x + from.w;
-              const y1 = from.y + from.h / 2;
-              const x2 = to.x;
-              const y2 = to.y + to.h / 2;
-              const midX = (x1 + x2) / 2;
-              const crit =
-                showCritical &&
-                criticalSet.has(link.sourceItemId) &&
-                criticalSet.has(link.targetItemId);
-              return (
-                <path
-                  key={link.id}
-                  d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
-                  className={crit ? undefined : "stroke-muted-foreground/60"}
-                  stroke={crit ? "var(--status-critical)" : undefined}
-                  strokeWidth={crit ? 2.5 : 1.5}
-                  fill="none"
-                  markerEnd={crit ? "url(#timeline-dep-arrow-crit)" : "url(#timeline-dep-arrow)"}
-                >
-                  <title>
-                    {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
-                    {projectKey}-{link.targetTicketNumber}
-                  </title>
-                </path>
-              );
-            })}
+            {(showDeps || showCritical) &&
+              links.map((link) => {
+                const from = barPositions.get(link.sourceItemId);
+                const to = barPositions.get(link.targetItemId);
+                if (!from || !to) return null;
+                const x1 = from.x + from.w;
+                const y1 = from.y + from.h / 2;
+                const x2 = to.x;
+                const y2 = to.y + to.h / 2;
+                const midX = (x1 + x2) / 2;
+                const crit =
+                  showCritical &&
+                  criticalSet.has(link.sourceItemId) &&
+                  criticalSet.has(link.targetItemId);
+                const downstream = !!depFocus && link.sourceItemId === depFocus.id;
+                const upstream = !!depFocus && link.targetItemId === depFocus.id;
+                // deps off: only the critical chain shows (when that lens is on).
+                if (!crit && !showDeps) return null;
+                let stroke = "#94a3b8";
+                let sw = 1.25;
+                let opacity = 0.34;
+                let marker = "url(#timeline-dep-arrow)";
+                if (crit) {
+                  stroke = "var(--status-critical)";
+                  sw = 2.5;
+                  opacity = 1;
+                  marker = "url(#timeline-dep-arrow-crit)";
+                } else if (depFocus) {
+                  if (downstream || upstream) {
+                    stroke = downstream ? "#0ea5e9" : "#f59e0b";
+                    sw = 2.5;
+                    opacity = 1;
+                    marker = downstream ? "url(#timeline-dep-arrow-down)" : "url(#timeline-dep-arrow-up)";
+                  } else {
+                    opacity = 0.06;
+                    sw = 1;
+                  }
+                }
+                return (
+                  <path
+                    key={link.id}
+                    d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+                    stroke={stroke}
+                    strokeWidth={sw}
+                    opacity={opacity}
+                    fill="none"
+                    markerEnd={marker}
+                  >
+                    <title>
+                      {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
+                      {projectKey}-{link.targetTicketNumber}
+                    </title>
+                  </path>
+                );
+              })}
 
             {/* Work item bars */}
             {sortedItems.map((item, i) => {
@@ -1238,6 +1294,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // Business items dim slightly while the Enabler lens is on so the
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
+              // Dependency hover-focus: fade bars outside the hovered item neighborhood.
+              const depDim = depFocus && !depFocus.all.has(item.id) ? 0.22 : 1;
 
               // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
               // (startDate -> dueDate) renders behind it as a faded, health-colored
@@ -1347,7 +1405,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     }
                     strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                     strokeDasharray={isEnabler ? "5 3" : undefined}
-                    opacity={(preview ? 1 : actualBar ? 0.32 : 0.85) * dimForEnablerLens}
+                    opacity={(preview ? 1 : actualBar ? 0.32 : 0.85) * dimForEnablerLens * depDim}
                     onPointerDown={(e) => beginDrag(item, "move", e)}
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
@@ -1381,8 +1439,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens}
-                      style={{ pointerEvents: "none" }}
+                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim}
+                      onPointerDown={(e) => beginDrag(item, "move", e)}
+                      onPointerMove={onDragMove}
+                      onPointerUp={onDragEnd}
+                      onPointerCancel={onDragCancel}
+                      onClick={() => openDetail(item)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setHoveredItem(null);
+                        setDetailId(item.id);
+                      }}
+                      style={{ touchAction: canEdit ? "none" : undefined }}
+                      className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                     />
                   )}
                   {/* Progress fill on the primary — % complete. Non-interactive. */}
