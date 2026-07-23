@@ -161,3 +161,70 @@ describe("CyclesWorkspace — a not-started sprint can be edited or deleted (COS
     ).toBe(false);
   });
 });
+
+// ── COSMOS-139, Phase 3 — the sprint-review step renders on Complete ──────────
+// An ACTIVE sprint's "Complete" opens a review step FIRST (before finalize),
+// showing retrospective tiles derived from the cycle's items via
+// computeSprintReview. This locks that the step renders with real metrics — a
+// regression that dropped the review step (or its wiring to the compute) fails
+// here. Dates are in the past so elapsed time is fully clamped and the figures
+// are deterministic regardless of when CI runs.
+const ACTIVE_SPRINT = {
+  id: "cyc-1",
+  number: 2,
+  name: "Sprint 2",
+  goal: "Deliver",
+  startDate: "2026-07-01T00:00:00.000Z",
+  endDate: "2026-07-11T00:00:00.000Z", // plannedDays = 10, fully elapsed
+  status: "ACTIVE" as const,
+  cycleKind: "SPRINT",
+  parentId: null,
+  report: null,
+  _count: { workItems: 3 },
+};
+
+// 3 items, 2 done; points 5 + 3 done of 5 + 3 + 2 committed → 8/10 pts = 80%.
+const REVIEW_ITEMS = [
+  { storyPoints: 5, columnKey: "done" },
+  { storyPoints: 3, columnKey: "done" },
+  { storyPoints: 2, columnKey: "todo" },
+];
+
+/** fetch stub: list GET returns the ACTIVE sprint; the detail GET (loadReview)
+ *  returns its work items so computeSprintReview has real input. */
+function installFetchActive() {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    if (method === "GET" && url.endsWith("/cycles/cyc-1")) {
+      return { ok: true, json: async () => ({ workItems: REVIEW_ITEMS }) } as Response;
+    }
+    if (method === "GET" && url.endsWith("/cycles")) {
+      return { ok: true, json: async () => [ACTIVE_SPRINT] } as Response;
+    }
+    return { ok: true, json: async () => ({}) } as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+}
+
+describe("CyclesWorkspace — sprint review step on completion (COSMOS-139)", () => {
+  it("shows retrospective tiles (efficiency, burn rate, pacing) when completing an ACTIVE sprint", async () => {
+    installFetchActive();
+    const user = userEvent.setup();
+    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+
+    await screen.findByText("Sprint 2");
+    // Complete opens the review step FIRST (not straight to finalize).
+    await user.click(screen.getByRole("button", { name: "Complete" }));
+
+    // The three retrospective tiles render, derived from the items above.
+    expect(await screen.findByText("Efficiency")).toBeInTheDocument();
+    expect(screen.getByText("Burn rate")).toBeInTheDocument();
+    expect(screen.getByText("Pacing")).toBeInTheDocument();
+    // 8 of 10 committed points completed → 80%.
+    expect(screen.getByText("80%")).toBeInTheDocument();
+    // Only 0.8× the ideal burndown by now → behind.
+    expect(screen.getByText("behind")).toBeInTheDocument();
+    // Advancing to finalize is a separate step (review is shown before it).
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+  });
+});
