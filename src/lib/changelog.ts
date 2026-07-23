@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.227.0",
+    date: "2026-07-23",
+    title: "Gantt: actuals shown by default, new Plan drift lens",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The timeline now shows each item at its actual dates by default — solid bars colored by schedule health (green on/ahead, red slipped, amber started-late). No toggle needed to see reality.",
+      },
+      {
+        kind: "feature",
+        text: "The old Actuals toggle is now Plan drift: turn it on to overlay the original planned dates as a faded ghost behind each actual bar, so you can see exactly how the schedule moved.",
+      },
+      {
+        kind: "change",
+        text: "Items that have already started or finished reschedule from their detail panel rather than by dragging the bar, keeping recorded actuals stable; not-yet-started items still drag on the Gantt as before.",
+      },
+    ],
+  },
+  {
     version: "2.226.0",
     date: "2026-07-23",
     title: "Gantt: resizable Work Items column + status-dropdown fix",
