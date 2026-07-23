@@ -15,6 +15,8 @@ import {
   GitCompareArrows,
   Wrench,
   Waypoints,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -381,6 +383,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // A real drag (movement) also fires a trailing click — suppress it so a
   // reschedule/resize doesn't pop the detail sheet.
   const justDraggedRef = useRef(false);
+
+  // Undo/redo for drag reschedules (the Gantt's mutating action). Each edit stores
+  // the item's full before/after date range so undo/redo just re-commits a snapshot.
+  type ScheduleEdit = {
+    id: string;
+    before: { startDate: string; dueDate: string };
+    after: { startDate: string; dueDate: string };
+  };
+  const [undoStack, setUndoStack] = useState<ScheduleEdit[]>([]);
+  const [redoStack, setRedoStack] = useState<ScheduleEdit[]>([]);
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
@@ -570,6 +582,30 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setDetailId(item.id);
   }, []);
 
+  // Persist a date snapshot (optimistic cache write + PUT). Shared by drag commit
+  // and undo/redo so they behave identically.
+  const commitDates = useCallback(
+    (id: string, body: { startDate: string; dueDate: string }) => {
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        prev?.map((it) => (it.id === id ? { ...it, ...body } : it)),
+      );
+      void (async () => {
+        try {
+          await jsonFetch(`${basePath}/work-items/${id}`, {
+            method: "PUT",
+            body: JSON.stringify(body),
+          });
+          toast.success("Schedule updated");
+          qc.invalidateQueries({ queryKey: itemsKey });
+        } catch (err) {
+          notifyError(err, "Couldn't reschedule the item.");
+          qc.invalidateQueries({ queryKey: itemsKey });
+        }
+      })();
+    },
+    [qc, itemsKey, basePath],
+  );
+
   const onDragEnd = useCallback(
     (e: React.PointerEvent) => {
       const d = dragRef.current;
@@ -595,35 +631,53 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         if (newEnd < newStart) newEnd = newStart; // can't precede the start
       }
 
-      const body: { startDate?: string; dueDate?: string } =
-        d.mode === "start"
-          ? { startDate: newStart.toISOString() }
-          : d.mode === "end"
-            ? { dueDate: newEnd.toISOString() }
-            : { startDate: newStart.toISOString(), dueDate: newEnd.toISOString() };
-
-      // Optimistic: patch the cached item so the bar settles at its new spot
-      // immediately, then persist.
-      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-        prev?.map((it) => (it.id === d.id ? { ...it, ...body } : it)),
-      );
-
-      void (async () => {
-        try {
-          await jsonFetch(`${basePath}/work-items/${d.id}`, {
-            method: "PUT",
-            body: JSON.stringify(body),
-          });
-          toast.success("Schedule updated");
-          qc.invalidateQueries({ queryKey: itemsKey });
-        } catch (err) {
-          notifyError(err, "Couldn't reschedule the item.");
-          qc.invalidateQueries({ queryKey: itemsKey }); // revert to server truth
-        }
-      })();
+      const before = {
+        startDate: d.origStart.toISOString(),
+        dueDate: d.origEnd.toISOString(),
+      };
+      const after = {
+        startDate: newStart.toISOString(),
+        dueDate: newEnd.toISOString(),
+      };
+      setUndoStack((prev) => [...prev, { id: d.id, before, after }]);
+      setRedoStack([]);
+      commitDates(d.id, after);
     },
-    [qc, itemsKey, basePath],
+    [commitDates],
   );
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const op = undoStack[undoStack.length - 1];
+    commitDates(op.id, op.before);
+    setUndoStack((s) => s.slice(0, -1));
+    setRedoStack((r) => [...r, op]);
+  }, [undoStack, commitDates]);
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const op = redoStack[redoStack.length - 1];
+    commitDates(op.id, op.after);
+    setRedoStack((s) => s.slice(0, -1));
+    setUndoStack((u) => [...u, op]);
+  }, [redoStack, commitDates]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+        return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   // ── Critical path ────────────────────────────────────────────────────────
   // The longest dependency chain (by summed bar duration) through the currently
@@ -904,6 +958,25 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 title="Expand the schedule 10% (push dates out from the start)"
               >
                 <Maximize2 className="size-3" /> Expand
+              </Button>
+              <div className="mx-1 h-5 w-px bg-border" />
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={undoStack.length === 0}
+                onClick={undo}
+                title="Undo reschedule (⌘/Ctrl-Z)"
+              >
+                <Undo2 className="size-3" /> Undo
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={redoStack.length === 0}
+                onClick={redo}
+                title="Redo reschedule (⌘/Ctrl-Y)"
+              >
+                <Redo2 className="size-3" /> Redo
               </Button>
               {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
             </>
