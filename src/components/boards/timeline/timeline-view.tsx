@@ -1239,33 +1239,30 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
 
-              // Actuals at REAL dates: a slim track beneath the planned bar running
-              // actualStart -> (completedAt | today), colored by finish health, with an
-              // amber lead-in for the delay before work began (planned start -> actual
-              // start). Real-date positioning stays legible for large slips — the old
-              // symbolic delta clipped weeks-long slips off the chart edge.
+              // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
+              // (startDate -> dueDate) renders behind it as a faded, health-colored
+              // TRAIL — red when slipped, amber when it started late, green when
+              // on/ahead. No red outline; the trail carries the signal. With no actuals
+              // yet, the planned span IS the solid bar (future/planning items).
               const health = barHealth(item, today);
               const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
               const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
               const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
-              const actualH = Math.max(Math.round(h * 0.42), 5);
-              const actualY = y + h - actualH;
               let actualBar: { x: number; w: number } | null = null;
-              let lateStartConn: { x: number; w: number } | null = null;
               if (showActuals && actualStartD) {
                 const ax = diffDays(timelineStart, actualStartD) * DAY_WIDTH;
                 const aw = Math.max(diffDays(actualStartD, actualEndD) * DAY_WIDTH, 3);
                 actualBar = { x: ax, w: aw };
-                if (plannedStartD) {
-                  const sd = diffDays(plannedStartD, actualStartD);
-                  if (sd > 0) {
-                    lateStartConn = {
-                      x: diffDays(timelineStart, plannedStartD) * DAY_WIDTH,
-                      w: Math.max(sd * DAY_WIDTH, 2),
-                    };
-                  }
-                }
               }
+              const primaryX = actualBar ? actualBar.x : x;
+              const primaryW = actualBar ? actualBar.w : w;
+              const lateStart = !!(plannedStartD && actualStartD && diffDays(plannedStartD, actualStartD) > 0);
+              const trailColor =
+                health === "red"
+                  ? "var(--status-critical)"
+                  : lateStart
+                    ? "#f59e0b"
+                    : "var(--status-done)";
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -1328,25 +1325,29 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
+                  {/* Planned TRAIL — the reschedule target (draggable). Faded +
+                      health-colored (red slipped · amber late start · green on/ahead)
+                      when actuals exist; the solid bar itself when they don't. No red
+                      outline. */}
                   <rect
                     x={x}
                     y={y}
                     width={w}
                     height={h}
                     rx={4}
-                    fill={colors.fill}
+                    fill={actualBar ? trailColor : colors.fill}
                     stroke={
                       isCrit
                         ? "var(--status-critical)"
-                        : health === "red"
-                          ? "var(--status-critical)"
-                          : isEnabler && showEnablers
-                            ? "var(--type-enabler, #0891b2)"
+                        : isEnabler && showEnablers
+                          ? "var(--type-enabler, #0891b2)"
+                          : actualBar
+                            ? "transparent"
                             : colors.stroke
                     }
-                    strokeWidth={isCrit || health === "red" ? 2.5 : isEnabler ? 1.5 : 1}
+                    strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                     strokeDasharray={isEnabler ? "5 3" : undefined}
-                    opacity={(preview ? 1 : 0.85) * dimForEnablerLens}
+                    opacity={(preview ? 1 : actualBar ? 0.32 : 0.85) * dimForEnablerLens}
                     onPointerDown={(e) => beginDrag(item, "move", e)}
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
@@ -1360,14 +1361,36 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   />
-                  {/* Progress fill — a darker inset showing % complete (child
-                      roll-up, or done/not-done for a leaf). Non-interactive so it
-                      never intercepts a drag on the bar. */}
+                  {/* Actual bar — the SOLID primary at real dates. Visual only
+                      (pointerEvents none), so drag/click passes through to the planned
+                      trail beneath. */}
+                  {actualBar && (
+                    <rect
+                      x={primaryX}
+                      y={y}
+                      width={primaryW}
+                      height={h}
+                      rx={4}
+                      fill={colors.fill}
+                      stroke={
+                        isCrit
+                          ? "var(--status-critical)"
+                          : isEnabler && showEnablers
+                            ? "var(--type-enabler, #0891b2)"
+                            : colors.stroke
+                      }
+                      strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  )}
+                  {/* Progress fill on the primary — % complete. Non-interactive. */}
                   {prog > 0 && (
                     <rect
-                      x={x}
+                      x={primaryX}
                       y={y}
-                      width={Math.max(w * prog, 2)}
+                      width={Math.max(primaryW * prog, 2)}
                       height={h}
                       rx={4}
                       fill={colors.stroke}
@@ -1375,51 +1398,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {/* Enabler texture — diagonal hatch marking this as enabler
-                      work regardless of type color. Always on so classification
-                      is legible; the Enabler lens dims business bars around it. */}
+                  {/* Enabler texture on the primary. */}
                   {isEnabler && (
                     <rect
-                      x={x}
+                      x={primaryX}
                       y={y}
-                      width={w}
+                      width={primaryW}
                       height={h}
                       rx={4}
                       fill="url(#timeline-enabler-hatch)"
                       opacity={showEnablers ? 1 : 0.6}
-                      style={{ pointerEvents: "none" }}
-                    />
-                  )}
-                  {/* Late-start lead-in — amber, planned start -> actual start (the
-                      delay before work began), on the actual track. Non-interactive. */}
-                  {lateStartConn && (
-                    <rect
-                      x={lateStartConn.x}
-                      y={actualY}
-                      width={lateStartConn.w}
-                      height={actualH}
-                      rx={2}
-                      fill="#f59e0b"
-                      opacity={0.45}
-                      style={{ pointerEvents: "none" }}
-                    />
-                  )}
-                  {/* Actual track — real dates, colored by finish health. Non-interactive. */}
-                  {actualBar && (
-                    <rect
-                      x={actualBar.x}
-                      y={actualY}
-                      width={actualBar.w}
-                      height={actualH}
-                      rx={2}
-                      fill={
-                        health === "red"
-                          ? "var(--status-critical)"
-                          : health === "green"
-                            ? "var(--status-done)"
-                            : "var(--text-muted)"
-                      }
-                      opacity={0.9}
                       style={{ pointerEvents: "none" }}
                     />
                   )}
@@ -1455,15 +1443,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       />
                     </>
                   )}
-                  {w > 60 && (
+                  {primaryW > 60 && (
                     <text
-                      x={x + 6}
+                      x={primaryX + 6}
                       y={y + h / 2 + 3.5}
                       className={cn("text-[10px]", colors.text)}
                       style={{ fontSize: 10, fill: "white", pointerEvents: "none" }}
                     >
-                      {item.title.length > Math.floor(w / 6)
-                        ? item.title.slice(0, Math.floor(w / 6)) + "..."
+                      {item.title.length > Math.floor(primaryW / 6)
+                        ? item.title.slice(0, Math.floor(primaryW / 6)) + "..."
                         : item.title}
                     </text>
                   )}

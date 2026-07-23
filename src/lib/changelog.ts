@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.4",
+    date: "2026-07-23",
+    title: "Gantt: actual work is the solid bar, the plan is the trail",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the timeline the SOLID bar is now an item’s actual work at its real dates; its plan renders behind as a faded trail — red if it slipped, amber if it started late, green if on/ahead. A slip reads as the solid actual bar sitting past a faded planned trail, instead of the whole bar being outlined red.",
+      },
+    ],
+  },
+  {
     version: "2.224.3",
     date: "2026-07-23",
     title: "Gantt shows planned vs actual at real dates",
