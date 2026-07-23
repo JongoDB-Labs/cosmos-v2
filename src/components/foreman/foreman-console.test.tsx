@@ -628,17 +628,18 @@ describe("ForemanConsole — tabs", () => {
     holder.calls.length = 0;
   });
 
-  it("renders all four tabs, with Activity selected by default", async () => {
+  it("renders all five tabs, with Pipeline selected by default", async () => {
     holder.status = baseStatus();
     renderConsole();
 
-    const activityTab = await screen.findByRole("tab", { name: "Activity" });
-    expect(activityTab).toHaveAttribute("aria-selected", "true");
+    const pipelineTab = await screen.findByRole("tab", { name: "Pipeline" });
+    expect(pipelineTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "Connections" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "Build behavior" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "Automation" })).toHaveAttribute("aria-selected", "false");
 
-    // Activity's own content (default tab) is visible without clicking anything.
+    // Pipeline's own content (default tab) is visible without clicking anything.
     expect(await screen.findByText("Up next")).toBeInTheDocument();
   });
 

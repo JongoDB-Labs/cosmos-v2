@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.225.0",
+    date: "2026-07-23",
+    title: "Foreman console: split the Activity tab into Pipeline + Activity",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The long Foreman console Activity tab is split in two: a new default “Pipeline” tab for the live ticket flow (intake, up-next queue, in-flight builds, coordinated releases, awaiting-approval), and “Activity” for the browseable feeds (loop metrics, grooming suggestions, event log). Much less scrolling.",
+      },
+    ],
+  },
+  {
     version: "2.224.8",
     date: "2026-07-23",
     title: "Foreman reuses an open PR instead of failing to ship",

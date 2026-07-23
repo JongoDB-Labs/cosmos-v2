@@ -49,6 +49,7 @@ import { ForemanLoopMetricsPanel } from "./foreman-loop-metrics-panel";
 import { useTabParam, TabList, type TabDef } from "./console-tabs";
 
 const CONSOLE_TABS: TabDef[] = [
+  { id: "pipeline", label: "Pipeline" },
   { id: "activity", label: "Activity" },
   { id: "connections", label: "Connections" },
   { id: "build", label: "Build behavior" },
@@ -467,7 +468,7 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
 
   // Hook (not a plain derivation) — must be called unconditionally, ahead of
   // the isLoading/isError early returns below (Rules of Hooks).
-  const [tab, setTab] = useTabParam("activity", TAB_IDS);
+  const [tab, setTab] = useTabParam("pipeline", TAB_IDS);
 
   // Pause/resume PUTs the FULL automation config back (both blocks) — same
   // contract as the settings form — flipping only autonomousDelivery.enabled.
@@ -698,8 +699,8 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
         </div>
       )}
 
-      {tab === "activity" && (
-      <div role="tabpanel" tabIndex={0} id="tabpanel-activity" aria-labelledby="tab-activity" className="space-y-6">
+      {tab === "pipeline" && (
+      <div role="tabpanel" tabIndex={0} id="tabpanel-pipeline" aria-labelledby="tab-pipeline" className="space-y-6">
 
       <IntakeDecisions orgId={orgId} />
 
@@ -972,7 +973,11 @@ export function ForemanConsole({ orgId }: { orgId: string }) {
           </ul>
         )}
       </SectionCard>
+      </div>
+      )}
 
+      {tab === "activity" && (
+      <div role="tabpanel" tabIndex={0} id="tabpanel-activity" aria-labelledby="tab-activity" className="space-y-6">
       <ForemanLoopMetricsPanel orgId={orgId} />
       <ForemanGroomingFeed orgId={orgId} />
       <ForemanEventFeed orgId={orgId} />
