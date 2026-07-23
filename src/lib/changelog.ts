@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.230.1",
+    date: "2026-07-23",
+    title: "Sprint planning polish: correct card dates, member emails, empty-sprint pacing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Sprint/cycle cards showed dates one day early in western timezones — the start/end dates now render as the exact calendar days you entered.",
+      },
+      {
+        kind: "improvement",
+        text: "The start-sprint capacity list now shows each member's email under their name, so two people with the same display name are no longer indistinguishable.",
+      },
+      {
+        kind: "fix",
+        text: "The sprint-review Pacing tile now reads “—” for a sprint with no items, instead of a misleading “On track / 1× ideal.”",
+      },
+    ],
+  },
+  {
     version: "2.230.0",
     date: "2026-07-23",
     title: "Sprint planning: capacity-aware start + sprint review",

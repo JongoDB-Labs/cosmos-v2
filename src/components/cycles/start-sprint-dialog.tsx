@@ -233,7 +233,14 @@ export function StartSprintDialog({
                           key={m.id}
                           className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3"
                         >
-                          <span className="truncate text-sm">{m.displayName}</span>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm">{m.displayName}</div>
+                            {m.email && (
+                              <div className="truncate text-xs text-muted-foreground">
+                                {m.email}
+                              </div>
+                            )}
+                          </div>
                           <Input
                             type="number"
                             min={0}
