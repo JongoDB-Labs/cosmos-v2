@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { isDoneColumnKey } from "@/lib/cycles/sprint-review";
 import { z } from "zod";
 
 const completeSchema = z.object({
@@ -42,12 +43,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const completed = await prisma.$transaction(async (tx) => {
       const items = cycle.workItems;
-      const doneItems = items.filter((i) =>
-        ["done", "completed", "closed"].some((k) => i.columnKey.toLowerCase().includes(k))
-      );
-      const incompleteItems = items.filter((i) =>
-        !["done", "completed", "closed"].some((k) => i.columnKey.toLowerCase().includes(k))
-      );
+      const doneItems = items.filter((i) => isDoneColumnKey(i.columnKey));
+      const incompleteItems = items.filter((i) => !isDoneColumnKey(i.columnKey));
 
       const totalPoints = items.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
       const completedPoints = doneItems.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);

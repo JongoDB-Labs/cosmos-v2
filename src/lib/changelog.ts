@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.230.0",
+    date: "2026-07-23",
+    title: "Sprint planning: capacity-aware start + sprint review",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Starting a sprint now opens a planning dialog first: set each member's capacity and availability, a sprint goal, and see committed scope vs. team capacity live with an over-commitment warning — instead of the sprint jumping straight to active.",
+      },
+      {
+        kind: "feature",
+        text: "Completing a sprint now runs a review step — efficiency, burn rate, pacing against the ideal burndown, and items/points completed — before the finalize/rehome step.",
+      },
+      {
+        kind: "improvement",
+        text: "A planned sprint can be edited or deleted freely before it starts, with regression tests locking the behavior in.",
+      },
+    ],
+  },
+  {
     version: "2.229.0",
     date: "2026-07-23",
     title: "Gantt: Dependencies view keeps epic/feature/story nesting",
