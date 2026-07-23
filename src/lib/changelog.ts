@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.6",
+    date: "2026-07-23",
+    title: "Dependencies lens: focus to just the linked items, cleaner arrows",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Turning on the Dependencies lens now filters the timeline down to ONLY the items that participate in a dependency, so you focus on the interdependent set. Connectors are drawn as clean right-angle (orthogonal) elbows instead of free-form curves.",
+      },
+    ],
+  },
+  {
     version: "2.224.5",
     date: "2026-07-23",
     title: "Trace dependencies on the Gantt — without the spaghetti",

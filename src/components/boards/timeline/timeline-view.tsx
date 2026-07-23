@@ -333,6 +333,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     [filteredItems, collapsedIds],
   );
 
+  // When the Dependencies lens is on, collapse the board to ONLY the items that
+  // participate in a link — so users focus purely on the interdependent set.
+  const linkedIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of links) {
+      set.add(l.sourceItemId);
+      set.add(l.targetItemId);
+    }
+    return set;
+  }, [links]);
+  const visibleRows = useMemo(
+    () => (showDeps ? treeRows.filter((r) => linkedIds.has(r.item.id)) : treeRows),
+    [showDeps, treeRows, linkedIds],
+  );
+
   // Apply a change to the collapse set and persist it in one step, so the
   // session-restored state always matches what's on screen.
   const commitCollapsed = useCallback(
@@ -409,7 +424,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return { timelineStart: padStart, totalDays: days };
   }, [filteredItems]);
 
-  const sortedItems = useMemo(() => treeRows.map((r) => r.item), [treeRows]);
+  const sortedItems = useMemo(() => visibleRows.map((r) => r.item), [visibleRows]);
 
   // Generate date headers
   const dateHeaders = useMemo(() => {
@@ -982,7 +997,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           >
             Work Items
           </div>
-          {treeRows.map(({ item, depth }) => {
+          {visibleRows.map(({ item, depth }) => {
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             const isParent = parentIds.has(item.id);
             const isCollapsed = collapsedIds.has(item.id);
@@ -1238,7 +1253,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 return (
                   <path
                     key={link.id}
-                    d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+                    d={`M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`}
                     stroke={stroke}
                     strokeWidth={sw}
                     opacity={opacity}
