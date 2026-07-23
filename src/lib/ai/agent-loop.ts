@@ -49,7 +49,7 @@ export interface AgentLoopResult {
   toolCalls: AgentToolCall[];
 }
 
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 30;
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
 export interface RunAgentLoopOptions {
@@ -328,7 +328,10 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   }
 
   if (!finalText) {
-    finalText = "I couldn't finish that within the tool-call budget — please narrow the request.";
+    finalText =
+      toolCalls.length > 0
+        ? `I applied ${toolCalls.length} action${toolCalls.length === 1 ? "" : "s"} (shown above) but reached the tool-call limit before I could wrap up. They were applied — tell me to continue and I'll pick up where I left off, or narrow the request.`
+        : "I couldn't complete that within the tool-call budget — please narrow the request.";
   }
   return { text: finalText, toolCalls };
 }

@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.228.0",
+    date: "2026-07-23",
+    title: "Cosmo: date awareness, day-safe dates, larger action budget",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo now knows the current date and time (US Eastern), so 'due tomorrow', 'by Friday', and 'end of the sprint' resolve to the right calendar date instead of a guessed one.",
+      },
+      {
+        kind: "fix",
+        text: "Fixed the off-by-one where a date you asked for (e.g. July 24) was saved as the day before — due dates, start dates, and sprint windows are now stored as whole calendar days and show the same day in every timezone.",
+      },
+      {
+        kind: "feature",
+        text: "Cosmo can set a due date and start date at creation time (not just afterward), so 'create these stories due tomorrow' lands the dates in one step.",
+      },
+      {
+        kind: "feature",
+        text: "Raised Cosmo's per-message action budget so it can carry out org- and project-wide bulk actions without stopping early; if it does hit the limit it now tells you exactly how many actions it applied and offers to continue.",
+      },
+      {
+        kind: "improvement",
+        text: "Cosmo asks before proceeding when a request is ambiguous rather than guessing or half-finishing — and when new items fall inside a sprint's dates it offers to add them to that sprint.",
+      },
+    ],
+  },
+  {
     version: "2.227.0",
     date: "2026-07-23",
     title: "Gantt: actuals shown by default, new Plan drift lens",
