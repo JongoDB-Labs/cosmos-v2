@@ -385,6 +385,37 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // Click a bar → open the shared work-item detail (same as other board views).
   // Tracked by id + derived from the live items so edits/deletes stay in sync.
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // Resizable Work Items column (persisted) — drag the handle on its right edge.
+  const [nameColW, setNameColW] = useState<number>(() => {
+    if (typeof window === "undefined") return 260;
+    const n = Number(window.localStorage.getItem("gantt-name-col-w"));
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 160), 640) : 260;
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("gantt-name-col-w", String(nameColW));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [nameColW]);
+  const nameResizeRef = useRef<{ startX: number; startW: number } | null>(null);
+  const onNameResizeDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      nameResizeRef.current = { startX: e.clientX, startW: nameColW };
+    },
+    [nameColW],
+  );
+  const onNameResizeMove = useCallback((e: React.PointerEvent) => {
+    const d = nameResizeRef.current;
+    if (!d) return;
+    setNameColW(Math.min(Math.max(d.startW + (e.clientX - d.startX), 160), 640));
+  }, []);
+  const onNameResizeUp = useCallback(() => {
+    nameResizeRef.current = null;
+  }, []);
   const detailItem = detailId
     ? items.find((i) => i.id === detailId) ?? null
     : null;
@@ -547,6 +578,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     startClientX: number;
     origStart: Date;
     origEnd: Date;
+    captured: boolean;
   } | null>(null);
   const [dragPreview, setDragPreview] = useState<{
     id: string;
@@ -566,10 +598,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         startClientX: e.clientX,
         origStart: start,
         origEnd: end,
+        captured: false,
       };
       setDragPreview({ id: item.id, mode, deltaDays: 0 });
       setHoveredItem(null);
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     },
     [canEdit],
   );
@@ -577,6 +609,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const onDragMove = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
+    // Capture the pointer only once a real drag starts (>3px) — NEVER on a tap.
+    // A tap that opens the detail sheet must not hold pointer capture, or the
+    // sheet's controls (e.g. the status Select) won't get their clicks — the
+    // Gantt-only "status dropdown won't open" bug.
+    if (!d.captured && Math.abs(e.clientX - d.startClientX) > 3) {
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      d.captured = true;
+    }
     const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
     setDragPreview((p) =>
       p && p.deltaDays === deltaDays ? p : { id: d.id, mode: d.mode, deltaDays },
@@ -1086,7 +1126,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             crowded off-screen; the SVG rows align by height, not this width. */}
         <div
           data-testid="gantt-left"
-          className="sticky left-0 z-20 shrink-0 border-r bg-background w-[140px] sm:w-[260px]"
+          className="sticky left-0 z-20 shrink-0 border-r bg-background"
+          style={{ width: nameColW }}
         >
           <div
             className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
@@ -1141,6 +1182,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </div>
             );
           })}
+          {/* Drag handle — resize the Work Items column (persisted). */}
+          <div
+            onPointerDown={onNameResizeDown}
+            onPointerMove={onNameResizeMove}
+            onPointerUp={onNameResizeUp}
+            onPointerCancel={onNameResizeUp}
+            className="absolute right-0 top-0 bottom-0 z-30 w-1.5 translate-x-1/2 cursor-col-resize hover:bg-[var(--primary)]/40"
+            style={{ touchAction: "none" }}
+            title="Drag to resize the Work Items column"
+          />
         </div>
 
         {/* Right column - the chart. Sized to its full content; the shared outer
