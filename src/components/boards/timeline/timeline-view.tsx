@@ -903,6 +903,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 />
                 Slipped
               </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="inline-block h-2.5 w-2 rounded-sm"
+                  style={{ backgroundColor: "#f59e0b", opacity: 0.5 }}
+                />
+                Started late
+              </span>
             </>
           )}
           {hasEnablers && (
@@ -1255,6 +1262,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 }
               }
 
+              // Late-start lead-in: planned start -> actual start. Marks a slow start
+              // (work began after the planned start). Amber over the front of the bar;
+              // paired with the finish color it reads "started late but finished on/
+              // ahead = recovered".
+              const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
+              const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
+              let lateStartW: number | null = null;
+              if (showActuals && plannedStartD && actualStartD) {
+                const sd = diffDays(plannedStartD, actualStartD);
+                if (sd > 0) lateStartW = Math.min(Math.max(sd * DAY_WIDTH, 3), w);
+              }
+
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
                 item.startDate &&
@@ -1392,6 +1411,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
+                  {/* Late-start lead-in — amber over the front of the bar (planned
+                      start -> actual start). Non-interactive. */}
+                  {lateStartW != null && (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={lateStartW}
+                      height={h}
+                      rx={4}
+                      fill="#f59e0b"
+                      opacity={0.5}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  )}
                   {canEdit && (
                     <>
                       {/* Left edge → move start date */}
@@ -1501,6 +1534,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     return (
                       <p className={slip > 0 ? "text-[var(--status-critical)]" : "text-[var(--status-done)]"}>
                         {slip > 0 ? `Slipped ${slip}d late` : `${-slip}d ahead of plan`}
+                      </p>
+                    );
+                  })()}
+                {/* Start delta — Actual Start later than Planned Start (slow start). */}
+                {hoveredItem.startDate &&
+                  hoveredItem.actualStart &&
+                  (() => {
+                    const sd = Math.round(
+                      (startOfDay(new Date(hoveredItem.actualStart)).getTime() -
+                        startOfDay(new Date(hoveredItem.startDate)).getTime()) /
+                        86_400_000,
+                    );
+                    if (sd <= 0) return null;
+                    const fSlip = hoveredItem.dueDate
+                      ? slipDays({
+                          projectedEnd: startOfDay(new Date(hoveredItem.dueDate)),
+                          actualEnd: hoveredItem.completedAt
+                            ? startOfDay(new Date(hoveredItem.completedAt))
+                            : null,
+                          now: today,
+                        })
+                      : null;
+                    const recovered =
+                      hoveredItem.completedAt != null && fSlip != null && fSlip <= 0;
+                    return (
+                      <p className="text-[#f59e0b]">
+                        Started {sd}d late{recovered ? " — recovered ✓" : ""}
                       </p>
                     );
                   })()}
