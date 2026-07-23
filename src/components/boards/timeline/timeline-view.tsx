@@ -276,6 +276,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   });
 
   const items = useMemo<WorkItem[]>(() => itemsQ.data ?? [], [itemsQ.data]);
+  // Distinct bare type keys present on this board — scopes the Type filter to
+  // what's actually here (see FilterBar.presentTypeKeys).
+  const presentTypeKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      if (it.workItemType?.key) s.add(bareTypeKey(it.workItemType.key));
+    }
+    return [...s];
+  }, [items]);
   const members = useMemo<OrgMember[]>(() => membersQ.data ?? [], [membersQ.data]);
   const links = useMemo<WorkItemLink[]>(() => linksQ.data ?? [], [linksQ.data]);
   const columns = useMemo<BoardColumn[]>(() => boardQ.data?.columns ?? [], [boardQ.data]);
@@ -932,6 +941,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         cycles={cycles}
         orgId={orgId}
         customFields={projectCustomFields}
+        presentTypeKeys={presentTypeKeys}
       />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex flex-wrap items-center gap-1.5">

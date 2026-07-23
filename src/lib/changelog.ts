@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.230.2",
+    date: "2026-07-23",
+    title: "Type filter now lists only the types on the board",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Type filter on the Timeline and Kanban boards now shows only the work-item types actually present on that board, instead of the org's entire type catalog — so a software project no longer sees construction/manufacturing/event types it never uses. (The Table view already worked this way.) An active type selection stays visible so you can always clear it.",
+      },
+    ],
+  },
+  {
     version: "2.230.1",
     date: "2026-07-23",
     title: "Sprint planning polish: correct card dates, member emails, empty-sprint pacing",

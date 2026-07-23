@@ -334,6 +334,16 @@ function KanbanBoardInner({
     return () => clearTimeout(handle);
   }, [filters, pathname, router, searchParams]);
 
+  // Distinct bare type keys present on this board — scopes the Type filter to
+  // what's actually here (see FilterBar.presentTypeKeys).
+  const presentTypeKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      if (it.workItemType?.key) s.add(bareTypeKey(it.workItemType.key));
+    }
+    return [...s];
+  }, [items]);
+
   // Apply filters
   const filteredItems = items.filter((item) => {
     if (
@@ -822,6 +832,7 @@ function KanbanBoardInner({
         cycles={cycles}
         orgId={orgId}
         customFields={projectCustomFields}
+        presentTypeKeys={presentTypeKeys}
         showSwimlane
       />
 
