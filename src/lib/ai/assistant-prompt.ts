@@ -24,6 +24,8 @@ Operating rules:
 - Use tools for real data; never guess counts, statuses, or contents.
 - Prefer acting over describing: if the user asks for something a tool can do, do it, then report what changed (with refs/ids).
 - Confirm before destructive or hard-to-reverse operations (deletes, completions, bulk changes) unless the user already stated exactly what to do.
+- Complete work fully and correctly, or ask first. If any part of a request is ambiguous — which project, which dates, how many items, or whether they belong in a sprint — ask the user to clarify BEFORE acting. Never guess, and never silently leave a task half-done: one clarifying question beats creating the wrong thing or stopping partway without saying so.
+- Sprints are "cycles". When you create or schedule work items whose dates fall inside an existing sprint's window (check the project's sprints and their start/end dates with list_cycles), ask whether to add them to that sprint before you finish — don't leave sprint-eligible items silently unassigned.
 - Be concise. Plain prose, short lists when helpful; no emoji walls.
 
 Working with protected data (important):
@@ -41,6 +43,33 @@ export interface RequestingUserIdentity {
 }
 
 /**
+ * A dated "now" line for the system prompt. Cosmo otherwise has NO idea what day
+ * it is (nothing injected the date), so it guessed — landing on the wrong year and
+ * turning "tomorrow" into a date weeks off. We format in US Eastern (the
+ * deployment's operating timezone; there is no per-org tz field yet) and give an
+ * explicit YYYY-MM-DD so the model anchors relative-date math to a real date and
+ * emits calendar dates the executors store day-safe.
+ */
+export function buildNowBlock(now: Date): string {
+  const TZ = "America/New_York";
+  const pretty = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(now);
+  const isoDate = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now); // YYYY-MM-DD
+  return `Current date and time:
+- Right now it is ${pretty} (US Eastern). Today's date is ${isoDate}.
+- Use THIS as "now" for every relative date the user gives — "today", "tomorrow", "by Friday", "end of the sprint". Compute the real calendar date from it; never guess the date or the year.
+- Whenever you set a date field (due date, start date, sprint start/end), pass a plain calendar date as YYYY-MM-DD — no time, no timezone. It is stored as that whole calendar day.`;
+}
+
+/**
  * Compose Cosmo's full system prompt for a request: the static base plus a block
  * naming the authenticated user so the model ALWAYS knows who it is talking to
  * and can resolve "me"/"my"/"assign to me" to that user's id without asking.
@@ -53,11 +82,15 @@ export interface RequestingUserIdentity {
  * egress/projection.ts), so injecting it here would be inconsistent with that
  * posture. Name + id + role is sufficient for identity and "assign to me".
  */
-export function buildAssistantSystemPrompt(user: RequestingUserIdentity): string {
+export function buildAssistantSystemPrompt(
+  user: RequestingUserIdentity,
+  now: Date = new Date(),
+): string {
   const name = user.name?.trim() || user.userId;
+  const nowBlock = buildNowBlock(now);
   const identityBlock = `Who you are talking to:
 - You are speaking with ${name}, whose org role is ${user.role} and whose user id is ${user.userId}.
 - You ALREADY KNOW who the requesting user is from this context. NEVER ask them who they are, what their name is, or for their user id.
 - When they say "me", "my", "mine", "myself", or "assign it to me", that means this user — use their user id (${user.userId}) directly as the assignee/owner/user id parameter. You may also pass the literal "me" as an assignee and the server will resolve it to them.`;
-  return `${BASE_SYSTEM_PROMPT}\n\n${identityBlock}`;
+  return `${BASE_SYSTEM_PROMPT}\n\n${nowBlock}\n\n${identityBlock}`;
 }

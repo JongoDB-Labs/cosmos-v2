@@ -10,6 +10,7 @@ import {
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
+import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
 
@@ -25,6 +26,8 @@ const createWorkItemSchema = z.object({
   cycleId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
+  dueDate: calendarDateInput.nullable().optional(),
+  startDate: calendarDateInput.nullable().optional(),
 });
 
 const updateWorkItemSchema = z.object({
@@ -37,8 +40,8 @@ const updateWorkItemSchema = z.object({
   columnKey: z.string().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
-  dueDate: z.string().datetime().nullable().optional(),
-  startDate: z.string().datetime().nullable().optional(),
+  dueDate: calendarDateInput.nullable().optional(),
+  startDate: calendarDateInput.nullable().optional(),
   tags: z.array(z.string()).optional(),
 });
 
@@ -196,6 +199,8 @@ export async function createWorkItem(
         parentId: data.parentId ?? null,
         ticketNumber,
         storyPoints: data.storyPoints ?? null,
+        dueDate: toCalendarNoonUTC(data.dueDate),
+        startDate: toCalendarNoonUTC(data.startDate),
         sortOrder,
         columnEnteredAt: new Date(),
         createdById: ctx.userId,
@@ -264,8 +269,8 @@ export async function updateWorkItem(
       : { disconnect: true };
   }
   if (data.storyPoints !== undefined) update.storyPoints = data.storyPoints;
-  if (data.dueDate !== undefined) update.dueDate = data.dueDate ? new Date(data.dueDate) : null;
-  if (data.startDate !== undefined) update.startDate = data.startDate ? new Date(data.startDate) : null;
+  if (data.dueDate !== undefined) update.dueDate = toCalendarNoonUTC(data.dueDate);
+  if (data.startDate !== undefined) update.startDate = toCalendarNoonUTC(data.startDate);
   if (data.tags !== undefined) update.tags = data.tags;
 
   const columnChanged = data.columnKey !== undefined && data.columnKey !== existing.columnKey;

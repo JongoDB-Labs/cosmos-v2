@@ -53,3 +53,36 @@ describe("BASE_SYSTEM_PROMPT — CUI-blind operating guidance (bug #3 symptom fi
     expect(BASE_SYSTEM_PROMPT.toLowerCase()).toMatch(/query|semantic_search|resolve/);
   });
 });
+
+describe("buildAssistantSystemPrompt — date awareness (relative-date fix)", () => {
+  it("injects the current date so the model does relative-date math from a real anchor", () => {
+    const now = new Date("2026-07-23T18:00:00Z"); // 2:00 PM US Eastern (EDT)
+    const p = buildAssistantSystemPrompt(
+      { userId: "u1", name: "Jon", role: "OWNER" },
+      now,
+    );
+    expect(p).toContain("2026-07-23");
+    expect(p.toLowerCase()).toMatch(/current date|today's date/);
+    // and tells the model to emit day-safe calendar dates
+    expect(p).toContain("YYYY-MM-DD");
+  });
+
+  it("defaults `now` to the real clock when not supplied (no crash, one-arg call)", () => {
+    const p = buildAssistantSystemPrompt({ userId: "u1", name: "", role: "MEMBER" });
+    expect(p.toLowerCase()).toContain("today's date");
+  });
+});
+
+describe("BASE_SYSTEM_PROMPT — ask-when-unsure + sprint assignment", () => {
+  it("tells the model to clarify under ambiguity instead of guessing or half-finishing", () => {
+    const lower = BASE_SYSTEM_PROMPT.toLowerCase();
+    expect(lower).toMatch(/ambiguous|clarify/);
+    expect(lower).toMatch(/never guess|half-done|half-finish/);
+  });
+
+  it("tells the model to offer sprint assignment for items inside a sprint window", () => {
+    const lower = BASE_SYSTEM_PROMPT.toLowerCase();
+    expect(lower).toContain("list_cycles");
+    expect(lower).toMatch(/sprint/);
+  });
+});
