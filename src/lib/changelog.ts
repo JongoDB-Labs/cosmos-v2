@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.3",
+    date: "2026-07-23",
+    title: "Gantt shows planned vs actual at real dates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The timeline now draws each item’s actual work as a slim track at its true calendar dates beneath the planned bar — green if it finished on/ahead, red if it slipped, with an amber lead-in for the delay before a late start. A month-late item reads as its actual bar sitting a month to the right, instead of a red smear clipped at the chart’s left edge.",
+      },
+      {
+        kind: "fix",
+        text: "New items created directly in an in-progress or done column no longer auto-stamp an actual start/finish of “now” — that was backfilling misleading completion dates during board setup and import. A genuine drag-to-done move still captures the date.",
+      },
+    ],
+  },
+  {
     version: "2.224.2",
     date: "2026-07-23",
     title: "Gantt shows a late start — and when you recovered from it",
