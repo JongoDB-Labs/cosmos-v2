@@ -98,6 +98,14 @@ interface FilterBarProps {
    * CHECKBOX / TEXT). Omitted ⇒ no custom-field controls (backward compatible).
    */
   customFields?: CustomField[];
+  /**
+   * The bare type keys actually present in THIS board's items (e.g.
+   * ["STORY","TASK","BUG"]). When provided, the Type filter lists only these —
+   * what the board can actually display — instead of the org's whole catalog. An
+   * active selection is always kept visible so it stays removable. Omitted ⇒ full
+   * catalog (backward compatible). Mirrors table-view's existing behavior.
+   */
+  presentTypeKeys?: string[];
 }
 
 /**
@@ -276,6 +284,7 @@ export function FilterBar({
   orgId,
   showSwimlane = false,
   customFields = [],
+  presentTypeKeys,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const currentUserId = useCurrentUserId();
@@ -289,6 +298,16 @@ export function FilterBar({
     for (const t of typeOptions) map[t] = colorFor(t);
     return map;
   }, [typeOptions]);
+  // Scope the Type filter to the types actually on this board (what it can
+  // display), not the org's whole catalog — but always keep an active selection
+  // visible so it stays removable. No prop ⇒ full catalog (backward compatible).
+  const shownTypeOptions = useMemo(() => {
+    const base = typeOptions.length > 0 ? typeOptions : WORK_ITEM_TYPES;
+    if (!presentTypeKeys || presentTypeKeys.length === 0) return base;
+    const present = new Set(presentTypeKeys);
+    for (const t of filters.types) present.add(t);
+    return base.filter((t) => present.has(t));
+  }, [typeOptions, presentTypeKeys, filters.types]);
   // FR "Assigned to me": one-click filter to the current user on any board view.
   const assignedToMe =
     currentUserId !== null && filters.assigneeId === currentUserId;
@@ -357,7 +376,7 @@ export function FilterBar({
 
       <MultiSelectMenu
         label="Type"
-        options={typeOptions.length > 0 ? typeOptions : WORK_ITEM_TYPES}
+        options={shownTypeOptions}
         selected={filters.types}
         onChange={(types) => onFilterChange({ ...filters, types })}
         colorMap={typeColorMap}
