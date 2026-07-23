@@ -20,6 +20,17 @@ export interface Release {
 }
 
 export const CHANGELOG: Release[] = [
+  {
+    version: "2.224.1",
+    date: "2026-07-23",
+    title: "Clearer schedule slippage on the Gantt",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the timeline, an item that finished late (or is still open past its projected end) now shows a full-height red bar trailing to the LEFT, and one that finished early shows a green bar extending to the RIGHT — the length is how many days late or early. Replaces the thin, hard-to-read line under the bar.",
+      },
+    ],
+  },
   { version: "2.224.0", date: "2026-07-23", title: "Coordinated release COSMOS-141", highlights: [{ kind: "feature", text: "COSMOS-141 shipped as one coordinated release spanning 2 phases (COSMOS-142, COSMOS-143), delivered together under a single version rather than a string of separate updates." }] },
   {
     version: "2.223.2",
