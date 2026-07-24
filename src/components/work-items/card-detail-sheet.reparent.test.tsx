@@ -77,7 +77,7 @@ function makeItem(over: Partial<WorkItem> & { id: string; ticketNumber: number; 
     storyPoints: null,
     startDate: null,
     dueDate: null,
-    cycleId: null,
+    intervalId: null,
     assigneeId: null,
     assignees: [],
     workItemTypeId: "wt",
@@ -113,7 +113,7 @@ function BoardHarness({ initial, openId }: { initial: WorkItem[]; openId: string
         orgId="o1"
         projectId="pr1"
         members={[]}
-        cycles={[]}
+        intervals={[]}
         columns={[{ key: "todo", name: "To Do" } as never]}
         onUpdate={handleItemUpdate}
         projectItems={items}

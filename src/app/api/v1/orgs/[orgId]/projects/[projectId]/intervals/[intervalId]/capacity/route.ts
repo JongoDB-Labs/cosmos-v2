@@ -6,11 +6,11 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
-type RouteParams = { params: Promise<{ orgId: string; projectId: string; cycleId: string }> };
+type RouteParams = { params: Promise<{ orgId: string; projectId: string; intervalId: string }> };
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, cycleId } = await params;
+    const { orgId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -18,8 +18,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_READ);
 
-    const capacities = await prisma.cycleCapacity.findMany({
-      where: { cycleId },
+    const capacities = await prisma.intervalCapacity.findMany({
+      where: { intervalId },
       include: {
         user: { select: { id: true, displayName: true, email: true, avatarUrl: true } },
       },
@@ -42,7 +42,7 @@ const upsertSchema = z.object({
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, cycleId } = await params;
+    const { orgId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -50,10 +50,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_UPDATE);
 
-    const cycle = await prisma.cycle.findFirst({
-      where: { id: cycleId, orgId: ctx.orgId },
+    const interval = await prisma.interval.findFirst({
+      where: { id: intervalId, orgId: ctx.orgId },
     });
-    if (!cycle) return new Response("Cycle not found", { status: 404 });
+    if (!interval) return new Response("Interval not found", { status: 404 });
 
     const body = upsertSchema.parse(await request.json());
 
@@ -61,20 +61,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const userIds = body.entries.map((e) => e.userId);
 
     await prisma.$transaction([
-      prisma.cycleCapacity.deleteMany({
-        where: { cycleId, NOT: { userId: { in: userIds.length > 0 ? userIds : ["00000000-0000-0000-0000-000000000000"] } } },
+      prisma.intervalCapacity.deleteMany({
+        where: { intervalId, NOT: { userId: { in: userIds.length > 0 ? userIds : ["00000000-0000-0000-0000-000000000000"] } } },
       }),
       ...body.entries.map((e) =>
-        prisma.cycleCapacity.upsert({
-          where: { cycleId_userId: { cycleId, userId: e.userId } },
-          create: { cycleId, userId: e.userId, capacity: e.capacity, notes: e.notes ?? "" },
+        prisma.intervalCapacity.upsert({
+          where: { intervalId_userId: { intervalId, userId: e.userId } },
+          create: { intervalId, userId: e.userId, capacity: e.capacity, notes: e.notes ?? "" },
           update: { capacity: e.capacity, notes: e.notes ?? "" },
         })
       ),
     ]);
 
-    const updated = await prisma.cycleCapacity.findMany({
-      where: { cycleId },
+    const updated = await prisma.intervalCapacity.findMany({
+      where: { intervalId },
       include: {
         user: { select: { id: true, displayName: true, email: true, avatarUrl: true } },
       },

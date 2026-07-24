@@ -72,8 +72,8 @@ const CONSULTING_PROJECT_TEMPLATE = {
   name: "Client Engagement",
   description: "Professional services with workstreams, deliverables, and milestone tracking.",
   defaultConfig: {
-    cycleKinds: ["PHASE"],
-    cycleNavLabel: "Phases",
+    intervalKinds: ["PHASE"],
+    intervalNavLabel: "Phases",
     enabledFeatures: ["goal", "milestone", "kpi", "risk", "decision", "meeting_note"],
   },
 };

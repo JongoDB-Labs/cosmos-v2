@@ -95,7 +95,7 @@ function workItemRow(projectId: string, id: string, ticketNumber: number) {
     priority: "MEDIUM",
     assigneeId: null,
     parentId: null,
-    cycleId: null,
+    intervalId: null,
     storyPoints: null,
     tags: [],
     startDate: null,

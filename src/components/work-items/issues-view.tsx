@@ -73,7 +73,7 @@ interface IssueRow {
   /** Full assignee set (multi-assign), primary first. */
   assignees?: { id: string; displayName: string; avatarUrl: string | null }[];
   parent: { id: string; ticketKey: string; title: string } | null;
-  cycleId: string | null;
+  intervalId: string | null;
   storyPoints: number | null;
   tags: string[];
   startDate: string | null;
@@ -92,7 +92,7 @@ interface Facets {
   statusesByProject: Record<string, { key: string; name: string; category: string }[]>;
   members: { id: string; displayName: string; avatarUrl: string | null }[];
   labels: string[];
-  cycles: { id: string; name: string; number: number; projectId: string; status: string }[];
+  intervals: { id: string; name: string; number: number; projectId: string; status: string }[];
   /** Projects the actor can administer (org PROJECT_MANAGE or project MANAGER).
    *  Lets a project manager who lacks org-wide BOARD_CREATE still save a board. */
   managedProjectIds: string[];
@@ -377,7 +377,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // Issues rows span projects, but the bulk API is per-project — so we bucket
   // the selected ids by their project and fan out one request per project. We
   // only expose project-AGNOSTIC ops here (assignee/priority/tags/delete);
-  // status + cycle are project-scoped and stay in the per-project table view.
+  // status + interval are project-scoped and stay in the per-project table view.
   const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
   const selectedCount = selectedIds.length;
 

@@ -32,7 +32,7 @@ describe("ingestItems — structured item-import (all types)", () => {
         { type: "MILESTONE", title: "Ingest milestone" },
         { type: "OBJECTIVE", title: "Ingest objective" },
         { type: "GOAL", title: "Ingest goal" },
-        { type: "CYCLE", name: "Ingest cycle" },
+        { type: "INTERVAL", name: "Ingest interval" },
       ],
     });
 
@@ -83,15 +83,15 @@ describe("ingestItems — structured item-import (all types)", () => {
     expect(goal!.progressMode).toBe("MANUAL");
     expect(goal!.progress).toBe(0);
 
-    // CYCLE — number > 0, ~2-week window, SPRINT kind, default empty goal.
-    const cycle = await prisma.cycle.findUnique({
-      where: { id: byType.CYCLE.id },
-      select: { number: true, startDate: true, endDate: true, cycleKind: true, goal: true },
+    // INTERVAL — number > 0, ~2-week window, SPRINT kind, default empty goal.
+    const interval = await prisma.interval.findUnique({
+      where: { id: byType.INTERVAL.id },
+      select: { number: true, startDate: true, endDate: true, intervalKind: true, goal: true },
     });
-    expect(cycle!.number).toBeGreaterThan(0);
-    expect(cycle!.cycleKind).toBe("SPRINT");
-    expect(cycle!.goal).toBe("");
-    const windowDays = (cycle!.endDate.getTime() - cycle!.startDate.getTime()) / 86_400_000;
+    expect(interval!.number).toBeGreaterThan(0);
+    expect(interval!.intervalKind).toBe("SPRINT");
+    expect(interval!.goal).toBe("");
+    const windowDays = (interval!.endDate.getTime() - interval!.startDate.getTime()) / 86_400_000;
     expect(windowDays).toBeGreaterThan(13);
     expect(windowDays).toBeLessThan(15);
 
@@ -100,7 +100,7 @@ describe("ingestItems — structured item-import (all types)", () => {
     await prisma.milestone.delete({ where: { id: byType.MILESTONE.id } });
     await prisma.objective.delete({ where: { id: byType.OBJECTIVE.id } });
     await prisma.goal.delete({ where: { id: byType.GOAL.id } });
-    await prisma.cycle.delete({ where: { id: byType.CYCLE.id } });
+    await prisma.interval.delete({ where: { id: byType.INTERVAL.id } });
   });
 
   it("honors provided values over defaults", async () => {

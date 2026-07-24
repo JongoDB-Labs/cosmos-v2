@@ -64,7 +64,7 @@ const MILESTONES = [
 
 vi.mock("@/lib/query/json-fetcher", () => ({
   jsonFetch: vi.fn((url: string) => {
-    if (url.endsWith("/cycles")) return Promise.resolve(CYCLES);
+    if (url.endsWith("/intervals")) return Promise.resolve(CYCLES);
     if (url.endsWith("/deliverables")) return Promise.resolve(DELIVERABLES);
     if (url.endsWith("/milestones")) return Promise.resolve(MILESTONES);
     return Promise.resolve([]);
@@ -104,10 +104,10 @@ describe("ReleaseTimelineView — clickable references (COSMOS-45)", () => {
     );
   });
 
-  it("renders each increment as a link to the cycles workspace", async () => {
+  it("renders each increment as a link to the intervals workspace", async () => {
     renderView();
     const link = await screen.findByRole("link", { name: /PI-1/ });
-    expect(link).toHaveAttribute("href", "/acme/projects/FSC/cycles");
+    expect(link).toHaveAttribute("href", "/acme/projects/FSC/intervals");
   });
 
   it("deep-links milestone chips once the milestones level is shown", async () => {

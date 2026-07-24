@@ -59,7 +59,7 @@ const item = (
   columnKey: "todo",
   priority: "MEDIUM" as const,
   assigneeId: null,
-  cycleId: null,
+  intervalId: null,
   sortOrder: 0,
   ...extra,
 });
@@ -87,7 +87,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     if (url.endsWith("/boards/b1")) return Promise.resolve(BOARD);
     if (url.endsWith("/work-items")) return Promise.resolve(ITEMS);
     if (url.endsWith("/members")) return Promise.resolve(MEMBERS);
-    if (url.endsWith("/cycles")) return Promise.resolve([]);
+    if (url.endsWith("/intervals")) return Promise.resolve([]);
     return Promise.resolve([]);
   }),
 }));

@@ -23,7 +23,7 @@ const createWorkItemSchema = z.object({
   description: z.string().optional(),
   priority: z.nativeEnum(Priority).optional(),
   assigneeId: z.string().uuid().nullable().optional(),
-  cycleId: z.string().uuid().nullable().optional(),
+  intervalId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   dueDate: calendarDateInput.nullable().optional(),
@@ -36,7 +36,7 @@ const updateWorkItemSchema = z.object({
   description: z.string().optional(),
   priority: z.nativeEnum(Priority).optional(),
   assigneeId: z.string().uuid().nullable().optional(),
-  cycleId: z.string().uuid().nullable().optional(),
+  intervalId: z.string().uuid().nullable().optional(),
   columnKey: z.string().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
@@ -195,7 +195,7 @@ export async function createWorkItem(
         columnKey,
         assigneeId: data.assigneeId ?? null,
         priority: data.priority ?? Priority.MEDIUM,
-        cycleId: data.cycleId ?? null,
+        intervalId: data.intervalId ?? null,
         parentId: data.parentId ?? null,
         ticketNumber,
         storyPoints: data.storyPoints ?? null,
@@ -258,9 +258,9 @@ export async function updateWorkItem(
   if (data.description !== undefined) update.description = data.description;
   if (data.priority !== undefined) update.priority = data.priority;
   if (data.assigneeId !== undefined) update.assigneeId = data.assigneeId;
-  if (data.cycleId !== undefined) {
-    update.cycle = data.cycleId
-      ? { connect: { id: data.cycleId } }
+  if (data.intervalId !== undefined) {
+    update.interval = data.intervalId
+      ? { connect: { id: data.intervalId } }
       : { disconnect: true };
   }
   if (data.parentId !== undefined) {
@@ -371,7 +371,7 @@ export async function listWorkItems(
       columnKey: true,
       priority: true,
       assigneeId: true,
-      cycleId: true,
+      intervalId: true,
       storyPoints: true,
       dueDate: true,
       workItemTypeId: true,
@@ -469,7 +469,7 @@ export async function linkItems(input: Record<string, unknown>, ctx: ToolContext
 
   // Same invalid-state guard as the REST route: reject an exact duplicate link
   // or a directed link that would form a circular dependency. Keeps the
-  // no-cycles invariant true no matter who creates the link (UI or Cosmo).
+  // no-intervals invariant true no matter who creates the link (UI or Cosmo).
   const existingLinks = await prisma.workItemLink.findMany({
     where: { orgId: ctx.orgId, sourceItem: { projectId } },
     select: { type: true, sourceItemId: true, targetItemId: true },

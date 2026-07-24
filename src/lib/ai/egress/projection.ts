@@ -29,13 +29,13 @@ const _connectorEgress = connectorEgressMaps();
  */
 const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // listWorkItems/queryWorkItems return `id, ticketNumber, columnKey?, priority,
-  // assigneeId, cycleId, storyPoints, dueDate, workItemTypeId, completedAt?, tags`.
+  // assigneeId, intervalId, storyPoints, dueDate, workItemTypeId, completedAt?, tags`.
   // `columnKey` (FIX A) is unconstrained free text → dropped (orchestrate via id/status).
   // `title`/`description`/`tags` are content/arrays → never allowlisted/kept.
   work_item: [
     "id", "ticketNumber", "status", "priority", "storyPoints",
     "dueDate", "startDate", "completedAt", "assigneeId", "projectId",
-    "workItemTypeId", "cycleId", "createdAt", "updatedAt",
+    "workItemTypeId", "intervalId", "createdAt", "updatedAt",
   ],
   // createNote/updateNote/deleteNote return `id, title, visibility`. The Note model
   // has NO projectId column (executor ignores the arg) → projectId removed (FIX C).
@@ -54,9 +54,9 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // createdAt, updatedAt`. `name`/`key`/`description` are name-derived/content and
   // sensitive for gov → dropped (FIX C: id + timestamps + structural `archived` only).
   project: ["id", "archived", "createdAt", "updatedAt"],
-  // listCycles/createCycle return `id, number, status, cycleKind, startDate, endDate,
+  // listIntervals/createInterval return `id, number, status, intervalKind, startDate, endDate,
   // projectId, createdAt` (+ nested `_count` object, dropped). `name`/`goal`/`report` excluded.
-  cycle: ["id", "number", "status", "cycleKind", "startDate", "endDate", "projectId", "createdAt"],
+  interval: ["id", "number", "status", "intervalKind", "startDate", "endDate", "projectId", "createdAt"],
   // queryCrm returns full CrmContact rows. Structural scalars only; `name`/`value`/
   // `dealValue`/`contactInfo`/`notes`/`customFields` are PII/money/content → excluded.
   crm_contact: ["id", "stage", "ownerId", "createdAt", "updatedAt"],
@@ -223,7 +223,7 @@ const NATIVE_HANDLEABLE_FIELDS: Record<string, readonly string[]> = {
   crm_contact: ["name", "notes"],
   // semantic_search hits carry `title` + `snippet` (both derive CUI content).
   search_result: ["title", "snippet"],
-  // No entry (⇒ no handles) for: project/cycle/time_entry/org_member/
+  // No entry (⇒ no handles) for: project/interval/time_entry/org_member/
   // compliance_control/github_* and all unmapped (finance/google/...) — either
   // their content fields aren't surfaced or referencing them isn't in scope yet.
   // EXTERNAL connectors may contribute handleable fields via the registry; they
@@ -243,14 +243,14 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",
   log_time: "time_entry", list_time_entries: "time_entry",
   list_projects: "project",
-  query_cycles: "cycle", list_cycles: "cycle", create_cycle: "cycle",
+  query_intervals: "interval", list_intervals: "interval", create_interval: "interval",
   query_crm: "crm_contact",
   list_org_members: "org_member",
   query_compliance_controls: "compliance_control", update_compliance_control: "compliance_control",
   semantic_search: "search_result",
-  // Projects + cycles (writes reuse the existing project/cycle structural entities).
+  // Projects + intervals (writes reuse the existing project/interval structural entities).
   create_project: "project", update_project: "project",
-  update_cycle: "cycle", complete_cycle: "cycle",
+  update_interval: "interval", complete_interval: "interval",
   // PM register writes (blocker/deliverable/change_request structural-only).
   create_blocker: "blocker", update_blocker: "blocker",
   create_deliverable: "deliverable", update_deliverable: "deliverable",
@@ -283,7 +283,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   // titles/bodies) are merged in from the registry (github.descriptor.ts).
   // No mapping ⇒ undefined ⇒ full withhold: query_finance, get_finance_summary,
   // log_revenue, log_expense, get_trial_balance, get_profit_and_loss,
-  // generate_cycle_brief, fetch_url, process_transcript, and all google_* tools.
+  // generate_interval_brief, fetch_url, process_transcript, and all google_* tools.
 };
 
 /**
@@ -350,7 +350,7 @@ export function projectStructural(value: unknown, entityType: string | undefined
  *   listComments         → { count, comments: [...] }
  *   listTimeEntries      → { count, totalHours, entries: [...] }
  *   listProjects         → { count, projects: [...] }
- *   list/queryCycles     → { count, cycles: [...] }
+ *   list/queryIntervals     → { count, intervals: [...] }
  *   queryCrm             → { count, contacts: [...] }
  *   queryComplianceCtrls → { total, summary, count, controls: [...] }
  *   semanticSearch       → { query, count, results: [...] }

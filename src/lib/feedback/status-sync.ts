@@ -29,7 +29,7 @@ export interface StatusSyncClient {
 
 /** Map a board column to the status a feedback reporter should see. `null` =
  *  no opinion (an unknown/custom column never touches feedback). Matches the
- *  same done-detection heuristics the cycle-complete report uses, so "Done",
+ *  same done-detection heuristics the interval-complete report uses, so "Done",
  *  "Completed ✅", "closed-wont-fix" style custom columns all resolve sanely. */
 export function feedbackStatusForColumn(columnKey: string): "PLANNED" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | null {
   const k = columnKey.toLowerCase();

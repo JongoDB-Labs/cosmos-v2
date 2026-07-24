@@ -8,7 +8,7 @@ export type ConvertItemType =
   | "MILESTONE"
   | "OBJECTIVE"
   | "GOAL"
-  | "CYCLE"
+  | "INTERVAL"
   | "ROADMAP_NODE";
 
 /** A block's text, scoped to org + project (shared by the single-block creators). */
@@ -356,11 +356,11 @@ export async function convertBlockToGoal(input: {
 }
 
 /**
- * Convert a DocumentBlock into a Sprint/Cycle (+ link). `number` is the next per
+ * Convert a DocumentBlock into a Sprint/Interval (+ link). `number` is the next per
  * project, dates default to a two-week window from now, and the block text seeds
  * the sprint goal. The Scrum view lets the user adjust dates afterward.
  */
-export async function convertBlockToCycle(input: {
+export async function convertBlockToInterval(input: {
   orgId: string;
   projectId: string;
   blockId: string;
@@ -373,11 +373,11 @@ export async function convertBlockToCycle(input: {
   const endDate = new Date(Date.now() + 14 * 86_400_000);
 
   return prisma.$transaction(async (tx) => {
-    const maxNum = await tx.cycle.aggregate({
+    const maxNum = await tx.interval.aggregate({
       where: { orgId: input.orgId, projectId: input.projectId },
       _max: { number: true },
     });
-    const cycle = await tx.cycle.create({
+    const interval = await tx.interval.create({
       data: {
         orgId: input.orgId,
         projectId: input.projectId,
@@ -394,12 +394,12 @@ export async function convertBlockToCycle(input: {
         orgId: input.orgId,
         projectId: input.projectId,
         blockId: block.id,
-        itemType: "CYCLE",
-        itemId: cycle.id,
+        itemType: "INTERVAL",
+        itemId: interval.id,
       },
       select: { id: true, blockId: true, itemType: true, itemId: true },
     });
-    return { cycle, link };
+    return { interval, link };
   });
 }
 
@@ -495,9 +495,9 @@ export async function convertBlockToItem(input: {
       const { goal } = await convertBlockToGoal(input);
       return { itemType: "GOAL", id: goal.id, title: goal.title, ticketNumber: null };
     }
-    case "CYCLE": {
-      const { cycle } = await convertBlockToCycle(input);
-      return { itemType: "CYCLE", id: cycle.id, title: cycle.name, ticketNumber: null };
+    case "INTERVAL": {
+      const { interval } = await convertBlockToInterval(input);
+      return { itemType: "INTERVAL", id: interval.id, title: interval.name, ticketNumber: null };
     }
     case "ROADMAP_NODE": {
       const { node } = await convertBlockToRoadmapNode(input);

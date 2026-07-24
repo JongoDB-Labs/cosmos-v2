@@ -37,7 +37,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       members: await prisma.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: true } }),
       projects: await prisma.project.findMany({ where: { orgId: ctx.orgId } }),
       workItems: await prisma.workItem.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      cycles: await prisma.cycle.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
+      intervals: await prisma.interval.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       crmContacts: await prisma.crmContact.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       partners: await prisma.partner.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       products: await prisma.product.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),

@@ -4,7 +4,7 @@ import { activityFieldLabel, activityValueLabel } from "./activity-label";
 const UUID = "118ec485-9938-4146-9d0b-943c007ffc64";
 const resolvers = {
   user: (id: string) => (id === UUID ? "Ben Okoro" : undefined),
-  cycle: (id: string) => (id === "cyc-1" ? "Sprint 3" : undefined),
+  interval: (id: string) => (id === "cyc-1" ? "Sprint 3" : undefined),
   type: (id: string) => (id === "typ-1" ? "Bug" : undefined),
   column: (key: string) => (key === "in_progress" ? "In Progress" : undefined),
 };
@@ -13,7 +13,7 @@ describe("activityFieldLabel", () => {
   it("humanizes the id-valued field names", () => {
     expect(activityFieldLabel("assigneeId")).toBe("assignee");
     expect(activityFieldLabel("columnKey")).toBe("status");
-    expect(activityFieldLabel("cycleId")).toBe("cycle");
+    expect(activityFieldLabel("intervalId")).toBe("interval");
     expect(activityFieldLabel("workItemTypeId")).toBe("type");
   });
   it("passes unknown fields through", () => {
@@ -35,8 +35,8 @@ describe("activityValueLabel", () => {
     expect(out).not.toContain("-"); // not a GUID
   });
 
-  it("resolves cycle and type ids", () => {
-    expect(activityValueLabel("cycleId", "cyc-1", resolvers)).toBe("Sprint 3");
+  it("resolves interval and type ids", () => {
+    expect(activityValueLabel("intervalId", "cyc-1", resolvers)).toBe("Sprint 3");
     expect(activityValueLabel("workItemTypeId", "typ-1", resolvers)).toBe("Bug");
   });
 
@@ -56,7 +56,7 @@ describe("activityValueLabel", () => {
   });
 
   it("falls back to Unknown for an unresolved GUID on any id field", () => {
-    expect(activityValueLabel("cycleId", UUID, {})).toBe("Unknown");
+    expect(activityValueLabel("intervalId", UUID, {})).toBe("Unknown");
     expect(activityValueLabel("workItemTypeId", UUID, {})).toBe("Unknown");
   });
 });

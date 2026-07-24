@@ -105,7 +105,7 @@ type KpiAutoSource =
 
 const AUTO_SOURCE_OPTIONS: { value: KpiAutoSource; label: string }[] = [
   { value: "MANUAL", label: "Manual entry" },
-  { value: "VELOCITY", label: "Velocity — pts / completed cycle" },
+  { value: "VELOCITY", label: "Velocity — pts / completed interval" },
   { value: "COMPLETION_PCT", label: "Work items complete (%)" },
   { value: "THROUGHPUT", label: "Throughput — items / window" },
   { value: "OPEN_ITEMS", label: "Open work items (count)" },
