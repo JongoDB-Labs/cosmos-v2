@@ -13,7 +13,7 @@ type RouteParams = { params: Promise<{ orgId: string; entity: string }> };
 const FETCHERS: Record<string, (orgId: string) => Promise<unknown[]>> = {
   projects: (orgId) => prisma.project.findMany({ where: { orgId } }),
   "work-items": (orgId) => prisma.workItem.findMany({ where: { orgId } }).catch(() => []),
-  cycles: (orgId) => prisma.cycle.findMany({ where: { orgId } }).catch(() => []),
+  intervals: (orgId) => prisma.interval.findMany({ where: { orgId } }).catch(() => []),
   "crm-contacts": (orgId) => prisma.crmContact.findMany({ where: { orgId } }).catch(() => []),
   partners: (orgId) => prisma.partner.findMany({ where: { orgId } }).catch(() => []),
   products: (orgId) => prisma.product.findMany({ where: { orgId } }).catch(() => []),

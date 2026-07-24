@@ -44,7 +44,7 @@ export interface ChatArtifact {
  * Mutating tools that produce a chat artifact, mapped to the mentions
  * `EntityType` used for deep-linking. Only create/update/delete tools whose
  * entity has a detail surface are listed; read tools (list_ and query_ prefixes)
- * and non-navigable entities (cycles, comments, time entries) are intentionally
+ * and non-navigable entities (intervals, comments, time entries) are intentionally
  * omitted so we don't spam cards for queries.
  */
 const TOOL_ARTIFACT_TYPE: Record<string, EntityType> = {

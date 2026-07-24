@@ -83,7 +83,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         const completionPercentage =
           totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
-        const activeCycle = await prisma.cycle.findFirst({
+        const activeInterval = await prisma.interval.findFirst({
           where: { orgId, projectId: project.id, status: "ACTIVE" },
           select: { name: true },
         });
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           // consumes this response unmapped, so a name drift renders as a bare
           // "%" with no number and a NaN-width progress bar.
           completionPercent: completionPercentage,
-          activeSprint: activeCycle?.name ?? null,
+          activeSprint: activeInterval?.name ?? null,
         };
       })
     );

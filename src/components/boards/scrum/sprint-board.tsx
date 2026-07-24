@@ -21,9 +21,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { CyclesWorkspace } from "@/components/cycles/cycles-workspace";
+import { IntervalsWorkspace } from "@/components/intervals/intervals-workspace";
 import { cn } from "@/lib/utils";
-import type { Cycle } from "@/types/models";
+import type { Interval } from "@/types/models";
 
 interface SprintBoardProps {
   orgId: string;
@@ -32,14 +32,14 @@ interface SprintBoardProps {
   boardId: string;
 }
 
-type CycleWithCount = Cycle & { _count?: { workItems: number } };
+type IntervalWithCount = Interval & { _count?: { workItems: number } };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * A SCRUM board = the proven Kanban scoped to the active sprint, with a sprint
  * context header (name, goal, dates, days remaining, progress). The Kanban is
- * seeded with the active sprint via `initialCycleId`; the user can still widen
+ * seeded with the active sprint via `initialIntervalId`; the user can still widen
  * the scope from the board's filter bar.
  */
 export function SprintBoard({
@@ -48,33 +48,33 @@ export function SprintBoard({
   projectKey,
   boardId,
 }: SprintBoardProps) {
-  const [cycles, setCycles] = useState<CycleWithCount[] | null>(null);
-  const [detailSprint, setDetailSprint] = useState<CycleWithCount | null>(null);
+  const [intervals, setIntervals] = useState<IntervalWithCount[] | null>(null);
+  const [detailSprint, setDetailSprint] = useState<IntervalWithCount | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
-  const cyclesHref = `/${orgSlug}/projects/${projectKey}/cycles`;
+  const intervalsHref = `/${orgSlug}/projects/${projectKey}/intervals`;
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/cycles`)
+    fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/intervals`)
       .then((r) => (r.ok ? r.json() : []))
-      .then((data: CycleWithCount[]) => {
-        if (!cancelled) setCycles(Array.isArray(data) ? data : []);
+      .then((data: IntervalWithCount[]) => {
+        if (!cancelled) setIntervals(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        if (!cancelled) setCycles([]);
+        if (!cancelled) setIntervals([]);
       });
     return () => {
       cancelled = true;
     };
   }, [orgId, projectId]);
 
-  const active = useMemo(() => pickActiveSprint(cycles ?? []), [cycles]);
+  const active = useMemo(() => pickActiveSprint(intervals ?? []), [intervals]);
 
   return (
     <div className="flex h-full flex-col">
-      {cycles === null ? (
+      {intervals === null ? (
         <div className="border-b border-[var(--border)] px-6 py-4">
           <Skeleton className="h-5 w-48" />
           <Skeleton className="mt-2 h-3 w-72" />
@@ -88,7 +88,7 @@ export function SprintBoard({
             planning into time-boxed iterations.
           </p>
           <Link
-            href={cyclesHref}
+            href={intervalsHref}
             className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
           >
             <Plus className="h-3.5 w-3.5" /> New sprint
@@ -98,7 +98,7 @@ export function SprintBoard({
 
       {/* All sprints — click any to see its details (FR). The board itself stays
           scoped to the active sprint; this is a quick read/jump-off. */}
-      {cycles && cycles.length > 0 && (
+      {intervals && intervals.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--border)] px-6 py-2">
           <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
             Sprints
@@ -111,9 +111,9 @@ export function SprintBoard({
           >
             <ListChecks className="h-3 w-3" /> Manage
           </button>
-          {(cycles.some((c) => c.cycleKind === "SPRINT")
-            ? cycles.filter((c) => c.cycleKind === "SPRINT")
-            : cycles
+          {(intervals.some((c) => c.intervalKind === "SPRINT")
+            ? intervals.filter((c) => c.intervalKind === "SPRINT")
+            : intervals
           )
             .slice()
             .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
@@ -137,15 +137,15 @@ export function SprintBoard({
       )}
 
       <div className="min-h-0 flex-1">
-        {/* Gate the Kanban mount until cycles resolve. The board seeds its
-            sprint scope ONCE, from initialCycleId in a useState initializer
+        {/* Gate the Kanban mount until intervals resolve. The board seeds its
+            sprint scope ONCE, from initialIntervalId in a useState initializer
             (kanban-board.tsx) — so mounting before the active sprint is known
-            would pass initialCycleId=undefined and the board would show every
+            would pass initialIntervalId=undefined and the board would show every
             item, never re-scoping when the sprint resolves a tick later. Waiting
             for the fetch means a SCRUM board opens already focused on its active
-            sprint. (cycles===null only on the very first load; the fetch always
+            sprint. (intervals===null only on the very first load; the fetch always
             resolves to an array, so this can't hang.) */}
-        {cycles === null ? (
+        {intervals === null ? (
           <KanbanBoardMountSkeleton />
         ) : (
           <KanbanBoard
@@ -153,13 +153,13 @@ export function SprintBoard({
             projectId={projectId}
             projectKey={projectKey}
             boardId={boardId}
-            initialCycleId={active?.id}
+            initialIntervalId={active?.id}
           />
         )}
       </div>
 
       {/* Manage-sprints drawer — the full sprint lifecycle (create/start/complete)
-          without leaving the board. Embeds the same CyclesWorkspace as the
+          without leaving the board. Embeds the same IntervalsWorkspace as the
           top-level Sprints page. */}
       <Sheet open={manageOpen} onOpenChange={setManageOpen}>
         <SheetContent
@@ -169,7 +169,7 @@ export function SprintBoard({
           <SheetHeader className="sr-only">
             <SheetTitle>Manage sprints</SheetTitle>
           </SheetHeader>
-          <CyclesWorkspace
+          <IntervalsWorkspace
             orgId={orgId}
             projectId={projectId}
             projectKey={projectKey}
@@ -249,7 +249,7 @@ export function SprintBoard({
                     );
                   })()}
                 <Link
-                  href={cyclesHref}
+                  href={intervalsHref}
                   className={cn(buttonVariants({ size: "sm", variant: "outline" }), "mt-1 gap-1.5")}
                 >
                   Manage sprints
@@ -263,7 +263,7 @@ export function SprintBoard({
   );
 }
 
-/** Column skeleton shown while the cycles fetch resolves (so the Kanban can
+/** Column skeleton shown while the intervals fetch resolves (so the Kanban can
  *  mount already seeded with the active sprint — see the gate above). */
 function KanbanBoardMountSkeleton() {
   return (
@@ -279,7 +279,7 @@ function KanbanBoardMountSkeleton() {
   );
 }
 
-function SprintHeader({ sprint }: { sprint: CycleWithCount }) {
+function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
   const start = new Date(sprint.startDate);
   const end = new Date(sprint.endDate);
   const now = new Date();
@@ -350,7 +350,7 @@ function SprintHeader({ sprint }: { sprint: CycleWithCount }) {
   );
 }
 
-function statusBadge(status: Cycle["status"]): {
+function statusBadge(status: Interval["status"]): {
   label: string;
   variant: "progress" | "done" | "neutral";
 } {
@@ -367,13 +367,13 @@ function statusBadge(status: Cycle["status"]): {
 /**
  * Pick the sprint to focus: prefer an ACTIVE one, else one whose date range
  * brackets today, else the next upcoming PLANNED, else the most recent. Only
- * considers SPRINT-kind cycles when any exist (a SCRUM board is sprint-driven),
- * otherwise falls back to any cycle.
+ * considers SPRINT-kind intervals when any exist (a SCRUM board is sprint-driven),
+ * otherwise falls back to any interval.
  */
-function pickActiveSprint(cycles: CycleWithCount[]): CycleWithCount | null {
-  if (!cycles.length) return null;
-  const sprints = cycles.filter((c) => c.cycleKind === "SPRINT");
-  const pool = sprints.length ? sprints : cycles;
+function pickActiveSprint(intervals: IntervalWithCount[]): IntervalWithCount | null {
+  if (!intervals.length) return null;
+  const sprints = intervals.filter((c) => c.intervalKind === "SPRINT");
+  const pool = sprints.length ? sprints : intervals;
   const now = Date.now();
 
   const activeStatus = pool.find((c) => c.status === "ACTIVE");

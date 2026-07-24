@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import { CycleKind, SprintStatus } from "@prisma/client";
+import { IntervalKind, SprintStatus } from "@prisma/client";
 import {
   IGNORE,
   parseDurationSeconds,
@@ -30,9 +30,9 @@ interface ValidSets {
   memberByToken: Map<string, string>;
   typeIds: Set<string>;
   columnKeys: Set<string>;
-  /** Lowercased cycle name, its bare number ("3"), and "sprint 3" → cycle id,
-   *  for the Sprint/Cycle column. */
-  cycleByToken: Map<string, string>;
+  /** Lowercased interval name, its bare number ("3"), and "sprint 3" → interval id,
+   *  for the Sprint/Interval column. */
+  intervalByToken: Map<string, string>;
   /**
    * Provenance + idempotency source, scoped PER PROJECT. The DB unique is
    * org-scoped (orgId, externalSource, externalId); encoding the projectId here
@@ -43,7 +43,7 @@ interface ValidSets {
 }
 
 async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
-  const [members, types, project, cycles] = await Promise.all([
+  const [members, types, project, intervals] = await Promise.all([
     prisma.orgMember.findMany({
       where: { orgId: ctx.orgId },
       select: {
@@ -59,7 +59,7 @@ async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
       where: { id: ctx.projectId },
       select: { boards: { select: { columns: { select: { key: true } } } } },
     }),
-    prisma.cycle.findMany({
+    prisma.interval.findMany({
       where: { projectId: ctx.projectId },
       select: { id: true, name: true, number: true },
     }),
@@ -75,14 +75,14 @@ async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
     if (name && !memberByToken.has(name)) memberByToken.set(name, m.userId);
   }
 
-  const cycleByToken = new Map<string, string>();
-  for (const c of cycles) {
+  const intervalByToken = new Map<string, string>();
+  for (const c of intervals) {
     const name = c.name.trim().toLowerCase();
-    if (name && !cycleByToken.has(name)) cycleByToken.set(name, c.id);
+    if (name && !intervalByToken.has(name)) intervalByToken.set(name, c.id);
     const num = String(c.number);
-    if (!cycleByToken.has(num)) cycleByToken.set(num, c.id);
+    if (!intervalByToken.has(num)) intervalByToken.set(num, c.id);
     const sprintN = `sprint ${c.number}`;
-    if (!cycleByToken.has(sprintN)) cycleByToken.set(sprintN, c.id);
+    if (!intervalByToken.has(sprintN)) intervalByToken.set(sprintN, c.id);
   }
 
   return {
@@ -90,7 +90,7 @@ async function loadValidSets(ctx: EngineCtx): Promise<ValidSets> {
     memberByToken,
     typeIds: new Set(types.map((t) => t.id)),
     columnKeys,
-    cycleByToken,
+    intervalByToken,
     source: `import:${ctx.projectId}`,
   };
 }
@@ -107,10 +107,10 @@ interface NormalizedRow {
   /** Resolved multi-assignee set (null when the column wasn't mapped — a
    *  re-import without the column must never clobber an existing set). */
   assigneeIds: string[] | null;
-  cycleId: string | null;
-  /** Raw Sprint/Cycle value that matched no existing cycle — auto-created at
-   *  commit (FR 1fe31122). null when the cycle already resolved or none given. */
-  cycleToken: string | null;
+  intervalId: string | null;
+  /** Raw Sprint/Interval value that matched no existing interval — auto-created at
+   *  commit (FR 1fe31122). null when the interval already resolved or none given. */
+  intervalToken: string | null;
   tags: string[];
   storyPoints: number | null;
   dueDate: Date | null;
@@ -228,13 +228,13 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       if (assigneeId && !assigneeIds.includes(assigneeId)) assigneeIds.unshift(assigneeId);
     }
 
-    // Sprint/Cycle: resolve by name, bare number, or "sprint N" (case-insensitive).
-    // An unmatched value is NOT dropped — it's carried as `cycleToken` and the
+    // Sprint/Interval: resolve by name, bare number, or "sprint N" (case-insensitive).
+    // An unmatched value is NOT dropped — it's carried as `intervalToken` and the
     // sprint is auto-created at commit (FR 1fe31122), so importing tickets can
     // stand up sprints that don't exist yet without pre-creating them.
-    const cycleRaw = get(row, "cycle").trim();
-    const cycleId = cycleRaw ? (sets.cycleByToken.get(cycleRaw.toLowerCase()) ?? null) : null;
-    const cycleToken = cycleRaw && !cycleId ? cycleRaw : null;
+    const intervalRaw = get(row, "interval").trim();
+    const intervalId = intervalRaw ? (sets.intervalByToken.get(intervalRaw.toLowerCase()) ?? null) : null;
+    const intervalToken = intervalRaw && !intervalId ? intervalRaw : null;
 
     const customFields: Record<string, string> = {};
     for (const h of customHeaders) {
@@ -258,8 +258,8 @@ function normalizeRows(req: ImportRequest, sets: ValidSets): NormalizedRow[] {
       priority,
       assigneeId,
       assigneeIds,
-      cycleId,
-      cycleToken,
+      intervalId,
+      intervalToken,
       tags: splitTags(get(row, "tags")),
       storyPoints: num(get(row, "storyPoints")),
       dueDate: date(get(row, "dueDate")),
@@ -337,15 +337,15 @@ export async function runImport(
 
   // Sprints referenced by the import that don't exist yet (FR 1fe31122): dedupe
   // the unmatched Sprint tokens case-insensitively (keeping first-seen casing
-  // for the new cycle's name). Reported at validate time, created at commit.
-  const missingCycles = new Map<string, string>();
+  // for the new interval's name). Reported at validate time, created at commit.
+  const missingIntervals = new Map<string, string>();
   for (const n of valid) {
-    if (n.cycleId === null && n.cycleToken) {
-      const k = n.cycleToken.toLowerCase();
-      if (!missingCycles.has(k)) missingCycles.set(k, n.cycleToken);
+    if (n.intervalId === null && n.intervalToken) {
+      const k = n.intervalToken.toLowerCase();
+      if (!missingIntervals.has(k)) missingIntervals.set(k, n.intervalToken);
     }
   }
-  for (const name of missingCycles.values()) {
+  for (const name of missingIntervals.values()) {
     warnings.push({ row: 0, message: `Sprint "${name}" will be created` });
   }
 
@@ -363,35 +363,35 @@ export async function runImport(
   // Auto-create the missing sprints, then link every row that referenced one.
   // Dates default to a two-week window from today — they're editable on the
   // sprint/dashboards afterward, so the import never has to supply them.
-  let createdCycles = 0;
-  if (missingCycles.size > 0) {
-    const maxCycle = await prisma.cycle.aggregate({
+  let createdIntervals = 0;
+  if (missingIntervals.size > 0) {
+    const maxInterval = await prisma.interval.aggregate({
       where: { orgId: ctx.orgId, projectId: ctx.projectId },
       _max: { number: true },
     });
-    let nextNum = (maxCycle._max.number ?? 0) + 1;
+    let nextNum = (maxInterval._max.number ?? 0) + 1;
     const start = new Date();
     const end = new Date(start.getTime() + 14 * 24 * 3600 * 1000);
     const tokenToId = new Map<string, string>();
-    for (const [key, name] of missingCycles) {
-      const c = await prisma.cycle.create({
+    for (const [key, name] of missingIntervals) {
+      const c = await prisma.interval.create({
         data: {
           orgId: ctx.orgId,
           projectId: ctx.projectId,
           name,
           number: nextNum++,
-          cycleKind: CycleKind.SPRINT,
+          intervalKind: IntervalKind.SPRINT,
           status: SprintStatus.PLANNED,
           startDate: start,
           endDate: end,
         },
       });
       tokenToId.set(key, c.id);
-      createdCycles++;
+      createdIntervals++;
     }
     for (const n of valid) {
-      if (n.cycleId === null && n.cycleToken) {
-        n.cycleId = tokenToId.get(n.cycleToken.toLowerCase()) ?? null;
+      if (n.intervalId === null && n.intervalToken) {
+        n.intervalId = tokenToId.get(n.intervalToken.toLowerCase()) ?? null;
       }
     }
   }
@@ -419,7 +419,7 @@ export async function runImport(
       workItemTypeId: n.workItemTypeId!,
       priority: n.priority,
       assigneeId: n.assigneeId,
-      cycleId: n.cycleId,
+      intervalId: n.intervalId,
       tags: n.tags,
       storyPoints: n.storyPoints,
       dueDate: n.dueDate,
@@ -569,7 +569,7 @@ export async function runImport(
     }
 
     // Batch parentKey graph for cycle detection (childKey → parentKey). Only
-    // keyed rows can participate in an in-batch cycle — a keyless row can't be
+    // keyed rows can participate in an in-batch interval — a keyless row can't be
     // referenced as a parent within the file, so it can't close a loop.
     const parentOf = new Map<string, string>();
     for (const n of linkRows) if (n.externalKey) parentOf.set(n.externalKey, n.parentKey!);
@@ -600,7 +600,7 @@ export async function runImport(
 
   report.created = created;
   report.updated = updated;
-  if (createdCycles > 0) report.createdCycles = createdCycles;
+  if (createdIntervals > 0) report.createdIntervals = createdIntervals;
   if (commitErrors.length) {
     report.errors = [...report.errors, ...commitErrors].slice(0, 200);
     report.skipped += commitErrors.length;

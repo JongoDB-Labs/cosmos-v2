@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       links.filter((l) => l.itemType === type).map((l) => l.itemId);
     const where = (ids: string[]) => ({ id: { in: ids }, orgId, projectId });
 
-    const [workItems, milestones, objectives, goals, cycles, roadmapNodes] = await Promise.all([
+    const [workItems, milestones, objectives, goals, intervals, roadmapNodes] = await Promise.all([
       idsFor("WORK_ITEM").length
         ? prisma.workItem.findMany({ where: where(idsFor("WORK_ITEM")), select: { id: true, title: true, ticketNumber: true } })
         : Promise.resolve([]),
@@ -43,8 +43,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       idsFor("GOAL").length
         ? prisma.goal.findMany({ where: where(idsFor("GOAL")), select: { id: true, title: true } })
         : Promise.resolve([]),
-      idsFor("CYCLE").length
-        ? prisma.cycle.findMany({ where: where(idsFor("CYCLE")), select: { id: true, name: true } })
+      idsFor("INTERVAL").length
+        ? prisma.interval.findMany({ where: where(idsFor("INTERVAL")), select: { id: true, name: true } })
         : Promise.resolve([]),
       idsFor("ROADMAP_NODE").length
         ? prisma.roadmapNode.findMany({ where: where(idsFor("ROADMAP_NODE")), select: { id: true, title: true } })
@@ -56,8 +56,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       ...milestones.map((i) => [i.id, i] as const),
       ...objectives.map((i) => [i.id, i] as const),
       ...goals.map((i) => [i.id, i] as const),
-      // Cycles expose `name`, not `title` — normalize so the UI reads one shape.
-      ...cycles.map((c) => [c.id, { id: c.id, title: c.name }] as const),
+      // Intervals expose `name`, not `title` — normalize so the UI reads one shape.
+      ...intervals.map((c) => [c.id, { id: c.id, title: c.name }] as const),
       ...roadmapNodes.map((i) => [i.id, i] as const),
     ]);
 

@@ -65,9 +65,9 @@ const NOTETAKER_TOOLS = new Set([
   "query_work_items",
   "list_work_items",
   "list_projects",
-  "list_cycles",
-  "query_cycles",
-  "generate_cycle_brief",
+  "list_intervals",
+  "query_intervals",
+  "generate_interval_brief",
   "semantic_search",
 ]);
 

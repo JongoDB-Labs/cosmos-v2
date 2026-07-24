@@ -9,22 +9,22 @@ import { z } from "zod";
 import { SprintStatus } from "@prisma/client";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 
-const updateCycleSchema = z.object({
+const updateIntervalSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   goal: z.string().nullish(),
   startDate: z.string().datetime().nullish(),
   endDate: z.string().datetime().nullish(),
   status: z.nativeEnum(SprintStatus).optional(),
-  // Program Increment to nest this sprint under (a PI cycle id), or null to
+  // Program Increment to nest this sprint under (a PI interval id), or null to
   // detach it back to top level. Validated same-project + must be a PI.
   parentId: z.string().uuid().nullable().optional(),
 });
 
-type RouteParams = { params: Promise<{ orgId: string; projectId: string; cycleId: string }> };
+type RouteParams = { params: Promise<{ orgId: string; projectId: string; intervalId: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, cycleId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -32,8 +32,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_READ);
 
-    const cycle = await prisma.cycle.findFirst({
-      where: { id: cycleId, projectId, orgId },
+    const interval = await prisma.interval.findFirst({
+      where: { id: intervalId, projectId, orgId },
       include: {
         workItems: {
           include: {
@@ -45,9 +45,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    if (!cycle) return new Response("Not found", { status: 404 });
+    if (!interval) return new Response("Not found", { status: 404 });
 
-    return success(cycle);
+    return success(interval);
   } catch (error) {
     return handleApiError(error);
   }
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, cycleId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -63,26 +63,26 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_UPDATE);
 
-    const existing = await prisma.cycle.findFirst({ where: { id: cycleId, projectId, orgId } });
+    const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
 
     const body = await request.json();
-    const data = updateCycleSchema.parse(body);
+    const data = updateIntervalSchema.parse(body);
 
     // Validate a PI re-parent: target must be a PROGRAM_INCREMENT in this
-    // project, and a cycle can't be its own parent (no 1-level self-nesting).
+    // project, and an interval can't be its own parent (no 1-level self-nesting).
     if (data.parentId !== undefined && data.parentId !== null) {
-      if (data.parentId === cycleId) {
-        return new Response(JSON.stringify({ error: "A cycle can't be its own Program Increment" }), {
+      if (data.parentId === intervalId) {
+        return new Response(JSON.stringify({ error: "An interval can't be its own Program Increment" }), {
           status: 400,
           headers: { "Content-Type": "application/json" },
         });
       }
-      const parent = await prisma.cycle.findFirst({
+      const parent = await prisma.interval.findFirst({
         where: { id: data.parentId, projectId },
-        select: { cycleKind: true },
+        select: { intervalKind: true },
       });
-      if (!parent || parent.cycleKind !== "PROGRAM_INCREMENT") {
+      if (!parent || parent.intervalKind !== "PROGRAM_INCREMENT") {
         return new Response(
           JSON.stringify({ error: "A sprint can only be nested under a Program Increment" }),
           { status: 400, headers: { "Content-Type": "application/json" } },
@@ -91,19 +91,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     if (data.status === "ACTIVE") {
-      const activeCycle = await prisma.cycle.findFirst({
-        where: { projectId, status: "ACTIVE", id: { not: cycleId } },
+      const activeInterval = await prisma.interval.findFirst({
+        where: { projectId, status: "ACTIVE", id: { not: intervalId } },
       });
-      if (activeCycle) {
+      if (activeInterval) {
         return new Response(
-          JSON.stringify({ error: "Another cycle is already active" }),
+          JSON.stringify({ error: "Another interval is already active" }),
           { status: 409, headers: { "Content-Type": "application/json" } }
         );
       }
     }
 
-    const updated = await prisma.cycle.update({
-      where: { id: cycleId },
+    const updated = await prisma.interval.update({
+      where: { id: intervalId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.goal !== undefined && { goal: data.goal ?? "" }),
@@ -135,9 +135,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: "cycle.updated",
-      entity: "cycle",
-      entityId: cycleId,
+      action: "interval.updated",
+      entity: "interval",
+      entityId: intervalId,
       metadata: { changes: Object.keys(data).join(", ") } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
@@ -150,7 +150,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, cycleId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -158,30 +158,30 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_UPDATE);
 
-    const existing = await prisma.cycle.findFirst({ where: { id: cycleId, projectId, orgId } });
+    const existing = await prisma.interval.findFirst({ where: { id: intervalId, projectId, orgId } });
     if (!existing) return new Response("Not found", { status: 404 });
 
     if (existing.status === "ACTIVE") {
       return new Response(
-        JSON.stringify({ error: "Cannot delete an active cycle. Complete it first." }),
+        JSON.stringify({ error: "Cannot delete an active interval. Complete it first." }),
         { status: 409, headers: { "Content-Type": "application/json" } }
       );
     }
 
     await prisma.$transaction([
       prisma.workItem.updateMany({
-        where: { cycleId },
-        data: { cycleId: null },
+        where: { intervalId },
+        data: { intervalId: null },
       }),
-      prisma.cycle.delete({ where: { id: cycleId } }),
+      prisma.interval.delete({ where: { id: intervalId } }),
     ]);
 
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: "cycle.deleted",
-      entity: "cycle",
-      entityId: cycleId,
+      action: "interval.deleted",
+      entity: "interval",
+      entityId: intervalId,
       metadata: { name: existing.name, number: String(existing.number) } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });

@@ -51,7 +51,7 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     columnKey: "todo",
     assigneeId: null,
     priority: "MEDIUM",
-    cycleId: null,
+    intervalId: null,
     parentId: null,
     ticketNumber: 42,
     storyPoints: null,

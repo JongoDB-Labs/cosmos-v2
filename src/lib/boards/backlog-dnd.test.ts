@@ -39,7 +39,7 @@ describe("resolveDrag — reassign across containers (the Jira move)", () => {
     expect(resolveDrag("a", "d", containers)).toEqual({
       kind: "reassign",
       itemId: "a",
-      toCycleId: "cyc-1",
+      toIntervalId: "cyc-1",
       toIndex: 0,
     });
   });
@@ -47,16 +47,16 @@ describe("resolveDrag — reassign across containers (the Jira move)", () => {
     expect(resolveDrag("a", "cyc-2", containers)).toEqual({
       kind: "reassign",
       itemId: "a",
-      toCycleId: "cyc-2",
+      toIntervalId: "cyc-2",
       toIndex: 0,
     });
   });
-  it("moves a sprint item back to the backlog → clears the cycle (toCycleId null)", () => {
+  it("moves a sprint item back to the backlog → clears the interval (toIntervalId null)", () => {
     const move = resolveDrag("d", "b", containers);
     expect(move).toEqual({
       kind: "reassign",
       itemId: "d",
-      toCycleId: null,
+      toIntervalId: null,
       toIndex: 1,
     });
   });
@@ -64,7 +64,7 @@ describe("resolveDrag — reassign across containers (the Jira move)", () => {
     expect(resolveDrag("d", "cyc-1", { [BACKLOG_CONTAINER]: [], "cyc-1": ["x"], "cyc-3": ["d"] })).toEqual({
       kind: "reassign",
       itemId: "d",
-      toCycleId: "cyc-1",
+      toIntervalId: "cyc-1",
       toIndex: 1,
     });
   });

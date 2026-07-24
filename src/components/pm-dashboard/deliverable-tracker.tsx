@@ -728,7 +728,7 @@ function DeliverableDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Track CDRL submission dates, status, and government review cycle.
+            Track CDRL submission dates, status, and government review interval.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">

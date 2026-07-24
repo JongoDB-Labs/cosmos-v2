@@ -84,8 +84,8 @@ const SOFTWARE_PROJECT_TEMPLATE = {
   name: "Software Project",
   description: "Agile development with sprints, boards, and releases",
   defaultConfig: {
-    cycleKinds: ["SPRINT", "RELEASE"],
-    cycleNavLabel: "Sprints",
+    intervalKinds: ["SPRINT", "RELEASE"],
+    intervalNavLabel: "Sprints",
     enabledFeatures: ["goal", "milestone", "risk"],
   },
 };

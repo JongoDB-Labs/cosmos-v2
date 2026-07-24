@@ -77,7 +77,7 @@ import type {
   WorkItem,
   WorkItemRef,
   OrgMember,
-  Cycle,
+  Interval,
   Comment,
   Activity,
   BoardColumn,
@@ -94,7 +94,7 @@ interface CardDetailSheetProps {
   orgId: string;
   projectId: string;
   members: OrgMember[];
-  cycles: Cycle[];
+  intervals: Interval[];
   columns: BoardColumn[];
   onUpdate: (updated: WorkItem) => void;
   /** Remove the item from the parent's local state after a successful delete. */
@@ -122,7 +122,7 @@ export function CardDetailSheet({
   orgId,
   projectId,
   members,
-  cycles,
+  intervals,
   columns,
   onUpdate,
   onDelete,
@@ -164,7 +164,7 @@ export function CardDetailSheet({
   // Multi-assign (FR 1d38496a): the full set, primary first. assigneeId above
   // mirrors the set's head so single-assignee displays stay consistent.
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
-  const [cycleId, setCycleId] = useState<string | null>(null);
+  const [intervalId, setIntervalId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
@@ -199,15 +199,15 @@ export function CardDetailSheet({
     comments.map((c) => c.content),
     commentUserSeed,
   );
-  // Resolve id-valued activity fields (assignee/cycle/status) to names so the
+  // Resolve id-valued activity fields (assignee/interval/status) to names so the
   // Activity tab never shows a raw GUID (FR 545f81b1).
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
-      cycle: (id: string) => cycles.find((c) => c.id === id)?.name,
+      interval: (id: string) => intervals.find((c) => c.id === id)?.name,
       column: (key: string) => columns.find((c) => c.key === key)?.name,
     }),
-    [members, cycles, columns],
+    [members, intervals, columns],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -234,7 +234,7 @@ export function CardDetailSheet({
         item.assignees?.map((a) => a.userId) ??
           (item.assigneeId ? [item.assigneeId] : []),
       );
-      setCycleId(item.cycleId);
+      setIntervalId(item.intervalId);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
       setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
@@ -440,8 +440,8 @@ export function CardDetailSheet({
           case "assigneeId":
             setAssigneeId(item.assigneeId);
             break;
-          case "cycleId":
-            setCycleId(item.cycleId);
+          case "intervalId":
+            setIntervalId(item.intervalId);
             break;
           case "columnKey":
             setColumnKey(item.columnKey);
@@ -536,8 +536,8 @@ export function CardDetailSheet({
       case "assigneeId":
         setAssigneeId(value as string | null);
         break;
-      case "cycleId":
-        setCycleId(value as string | null);
+      case "intervalId":
+        setIntervalId(value as string | null);
         break;
       case "columnKey":
         setColumnKey(value as string);
@@ -831,7 +831,7 @@ export function CardDetailSheet({
 
   // Candidate parents: every other item in the project, minus this item's own
   // direct children (a shallow guard against the most obvious parent/child
-  // cycle; the server still owns deeper integrity).
+  // interval; the server still owns deeper integrity).
   const childIds = new Set(children.map((c) => c.id));
   const parentCandidates = (projectItems ?? []).filter(
     (p) => p.id !== item.id && !childIds.has(p.id),
@@ -1134,27 +1134,27 @@ export function CardDetailSheet({
               />
             </MetadataField>
 
-            {cycles.length > 0 && (
-              <MetadataField icon={Target} label="Cycle">
+            {intervals.length > 0 && (
+              <MetadataField icon={Target} label="Interval">
                 <Select
                   items={{
                     __none__: "None",
-                    ...Object.fromEntries(cycles.map((s) => [s.id, s.name])),
+                    ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
                   }}
-                  value={cycleId ?? "__none__"}
+                  value={intervalId ?? "__none__"}
                   onValueChange={(v) =>
                     handleFieldChange(
-                      "cycleId",
+                      "intervalId",
                       (v === "__none__" ? null : v) as string | null
                     )
                   }
                 >
-                  <SelectTrigger size="sm" aria-label="Cycle" className="w-full text-xs">
+                  <SelectTrigger size="sm" aria-label="Interval" className="w-full text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
-                    {cycles.map((s) => (
+                    {intervals.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
                       </SelectItem>

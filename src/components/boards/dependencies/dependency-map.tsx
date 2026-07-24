@@ -275,7 +275,7 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
     const item = itemById.get(id);
     if (!p || !item) return null;
     const color = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
-    const inCycle = graph.cycleNodes.has(id);
+    const inInterval = graph.cycleNodes.has(id);
     const status = statusColor(item);
     const isSelected = selected === id;
     // When a node is focused, fade everything outside its chain.
@@ -294,8 +294,8 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
           height={NODE_H}
           rx={8}
           className="fill-[var(--surface)]"
-          stroke={isSelected ? "var(--primary)" : inCycle ? "var(--status-critical)" : "var(--border)"}
-          strokeWidth={isSelected || inCycle ? 2 : 1}
+          stroke={isSelected ? "var(--primary)" : inInterval ? "var(--status-critical)" : "var(--border)"}
+          strokeWidth={isSelected || inInterval ? 2 : 1}
         />
         <rect width={4} height={NODE_H} rx={2} fill={color} />
         <text x={14} y={19} className="fill-[var(--text-muted)] text-[10px]" style={{ fontSize: 10 }}>
@@ -308,7 +308,7 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
         <circle cx={NODE_W - 12} cy={12} r={4} fill={status.color}>
           <title>{status.label}</title>
         </circle>
-        {inCycle && (
+        {inInterval && (
           <text x={NODE_W - 26} y={NODE_H - 8} style={{ fontSize: 11 }} fill="var(--status-critical)">
             ⟳
           </text>

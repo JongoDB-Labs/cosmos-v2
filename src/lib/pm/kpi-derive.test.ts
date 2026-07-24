@@ -13,7 +13,7 @@ describe("applyKpiAutoValue", () => {
   it("MANUAL → null so the stored value is kept", () => {
     expect(applyKpiAutoValue("MANUAL", null, metrics)).toBeNull();
   });
-  it("VELOCITY → avg points per cycle", () => {
+  it("VELOCITY → avg points per interval", () => {
     expect(applyKpiAutoValue("VELOCITY", null, metrics)).toBe(41);
   });
   it("COMPLETION_PCT → percent done", () => {

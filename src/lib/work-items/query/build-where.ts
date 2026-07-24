@@ -12,7 +12,7 @@ import type { Prisma } from "@prisma/client";
 import {
   type WorkItemFilter,
   type WorkItemSort,
-  NO_CYCLE,
+  NO_INTERVAL,
   UNASSIGNED,
 } from "./filter";
 
@@ -109,14 +109,14 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
     where.watchers = { some: { userId: filter.watchedByUserId } };
   }
 
-  // ── Cycle / sprint (supports the "none" sentinel, OR-combined) ───────
-  const cycleIds = clean(filter.cycleIds);
-  if (cycleIds.length > 0) {
-    const wantsNone = cycleIds.includes(NO_CYCLE);
-    const realIds = cycleIds.filter((id) => id !== NO_CYCLE);
+  // ── Interval / sprint (supports the "none" sentinel, OR-combined) ───────
+  const intervalIds = clean(filter.intervalIds);
+  if (intervalIds.length > 0) {
+    const wantsNone = intervalIds.includes(NO_INTERVAL);
+    const realIds = intervalIds.filter((id) => id !== NO_INTERVAL);
     const or: Prisma.WorkItemWhereInput[] = [];
-    if (realIds.length > 0) or.push({ cycleId: { in: realIds } });
-    if (wantsNone) or.push({ cycleId: null });
+    if (realIds.length > 0) or.push({ intervalId: { in: realIds } });
+    if (wantsNone) or.push({ intervalId: null });
     if (or.length === 1) {
       Object.assign(where, or[0]);
     } else if (or.length > 1) {
