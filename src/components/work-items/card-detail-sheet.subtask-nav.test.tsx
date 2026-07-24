@@ -18,6 +18,7 @@ vi.mock("@/components/mentions/entity-mention-picker", () => ({
   EntityMentionPicker: () => null,
 }));
 vi.mock("@/components/mentions/hooks", () => ({ useRefResolver: () => new Map() }));
+vi.mock("@/components/notes/editor/rich-text-editor", () => ({ NoteRichTextEditor: () => null }));
 vi.mock("@/components/chat/markdown-content", () => ({
   MarkdownContent: ({ content }: { content: string }) => <div>{content}</div>,
 }));
