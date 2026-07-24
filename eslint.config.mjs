@@ -50,6 +50,32 @@ const eslintConfig = defineConfig([
       }],
     },
   },
+  // Plugin isolation (ADR 0003): shared code may import src/plugins/** ONLY via
+  // the two composition files (src/lib/plugins/registry/{index,server}.ts) and
+  // the thin (plugin-*) route shims under src/app. This is the editor-time half;
+  // plugin-isolation.arch.test.ts is the test half (which also enforces shim
+  // thinness and bans prisma.pontis* outside the plugin).
+  //
+  // Flat-config note: same-rule options REPLACE (never merge) across matching
+  // config objects, so this block re-states the egress-provider pattern above —
+  // for files both blocks match, this later value wins and must carry both.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/plugins/**",
+      "src/lib/plugins/registry/**",
+      "src/app/**",
+      "src/lib/ai/egress/**",
+    ],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [
+          { group: ["**/ai/egress/provider", "@/lib/ai/egress/provider"], message: "Reach the model only via runModelTurn() from @/lib/ai/egress — never the provider directly." },
+          { group: ["@/plugins/**", "**/src/plugins/**"], message: "Shared code must not import plugin code directly — plugins register through @/lib/plugins/registry/{index,server} (ADR 0003)." },
+        ],
+      }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

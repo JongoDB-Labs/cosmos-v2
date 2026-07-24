@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/client";
 import { DashboardShell } from "@/components/layouts/dashboard-shell";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { getEnabledModulesByOrg } from "@/lib/entitlements";
+import { getEnabledPluginsByOrg } from "@/lib/plugins/enablement";
+import "@/lib/plugins/registry/index";
 import { CommandPalette } from "@/components/search/command-palette";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
@@ -58,9 +60,11 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
     select: { bgDarkUrl: true, bgLightUrl: true, skinId: true },
   });
 
-  const moduleMap = await getEnabledModulesByOrg(
-    user.memberships.map((m) => m.org.id),
-  );
+  const orgIds = user.memberships.map((m) => m.org.id);
+  const [moduleMap, pluginMap] = await Promise.all([
+    getEnabledModulesByOrg(orgIds),
+    getEnabledPluginsByOrg(orgIds),
+  ]);
 
   const orgs = user.memberships.map((m) => ({
     id: m.org.id,
@@ -70,6 +74,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
     logoUrl: m.org.logoUrl,
     role: m.role,
     enabledModules: moduleMap.get(m.org.id) ?? null,
+    enabledPlugins: pluginMap.get(m.org.id) ?? [],
     // Walkthrough/demo tenants (seeded by demo-defense) carry settings.isDemo so
     // the shell can show a "demo data" banner and the data reads as deletable.
     isDemo:

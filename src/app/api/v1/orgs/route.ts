@@ -8,6 +8,8 @@ import { ensureGeneralChannel, autoJoinGeneral } from "@/lib/chat/seed-general";
 import { z } from "zod";
 import { provisionComplianceBaseline } from "@/lib/compliance/provision";
 import { provisionEntitlements } from "@/lib/entitlements";
+import { provisionPlugins } from "@/lib/plugins/enablement";
+import "@/lib/plugins/registry/server";
 import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
 import { isReservedSlug } from "@/lib/org/reserved-slugs";
 import { isInternalAdmin } from "@/lib/internal/access";
@@ -136,6 +138,15 @@ export async function POST(request: NextRequest) {
       await provisionEntitlements(org.id);
     } catch (err) {
       console.warn("[entitlements] failed to provision defaults for new org", org.id, err);
+    }
+
+    // Apply the active product's default plugins (fail-closed axis: cosmos → none,
+    // pontis → the Pontis bundle when composed in). Same outcome as an admin
+    // enabling them in Settings → Plugins, including first-enable provisioning hooks.
+    try {
+      await provisionPlugins(org.id, user.id);
+    } catch (err) {
+      console.warn("[plugins] failed to provision defaults for new org", org.id, err);
     }
 
     // Regulated (GOV) orgs get the NIST 800-171 / CMMC L2 control baseline
