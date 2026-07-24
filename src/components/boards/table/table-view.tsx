@@ -242,6 +242,36 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     return map;
   }, [intervals]);
 
+  const typeNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const it of items) {
+      if (it.workItemType?.id) map.set(it.workItemType.id, it.workItemType.name);
+    }
+    return map;
+  }, [items]);
+
+  // Group-header labels: resolve the raw grouping value (a UUID for assignee /
+  // type / interval, a key for status) to a human name. Without this the header
+  // shows the raw id — the reported "UUID instead of username" bug.
+  const getGroupLabel = useCallback(
+    (columnId: string, value: unknown): ReactNode => {
+      const v = value == null || value === "" ? null : String(value);
+      switch (columnId) {
+        case "assigneeId":
+          return v ? (memberMap.get(v) ?? "Unknown") : "Unassigned";
+        case "workItemTypeId":
+          return v ? (typeNameMap.get(v) ?? v) : "No type";
+        case "columnKey":
+          return v ? (columnMap.get(v) ?? v) : "No status";
+        case "intervalId":
+          return v ? (intervalMap.get(v) ?? v) : "No interval";
+        default:
+          return v ?? "None";
+      }
+    },
+    [memberMap, typeNameMap, columnMap, intervalMap],
+  );
+
   const saveEdit = useCallback(
     async (rowId: string, field: string, value: string) => {
       let payload: Record<string, unknown> = {};
@@ -960,6 +990,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           onRowSelectionChange={setRowSelection}
           grouping={grouping}
           onGroupingChange={setGrouping}
+          getGroupLabel={getGroupLabel}
           rowActions={rowActions}
           pagination={{ pageSize: 50 }}
           stickyHeader
