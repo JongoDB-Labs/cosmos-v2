@@ -30,6 +30,7 @@ import { healthOf, slipDays } from "@/lib/schedule/health";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn, CustomField } from "@/types/models";
 import {
   bareTypeKey,
+  customFieldHasValue,
   FilterBar,
   emptyFilters,
   matchesCustomFieldFilters,
@@ -282,6 +283,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     const s = new Set<string>();
     for (const it of items) {
       if (it.workItemType?.key) s.add(bareTypeKey(it.workItemType.key));
+    }
+    return [...s];
+  }, [items]);
+  // Custom-field keys actually populated on this board — scopes the field
+  // filters (see FilterBar.presentCustomFieldKeys).
+  const presentCustomFieldKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      const cf = it.customFields;
+      if (cf) {
+        for (const [k, v] of Object.entries(cf)) {
+          if (customFieldHasValue(v)) s.add(k);
+        }
+      }
     }
     return [...s];
   }, [items]);
@@ -942,6 +957,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
+        presentCustomFieldKeys={presentCustomFieldKeys}
       />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
