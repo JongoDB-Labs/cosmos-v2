@@ -71,6 +71,12 @@ const categories = [
   "analytics",
   "tracking",
   "enterprise",
+  "construction",
+  "consulting",
+  "education",
+  "events",
+  "manufacturing",
+  "operations",
 ] as const;
 
 const categoryLabels: Record<string, string> = {
@@ -81,6 +87,12 @@ const categoryLabels: Record<string, string> = {
   analytics: "Analytics",
   tracking: "Tracking",
   enterprise: "Enterprise",
+  construction: "Construction",
+  consulting: "Consulting",
+  education: "Education",
+  events: "Events",
+  manufacturing: "Manufacturing",
+  operations: "Operations",
 };
 
 interface TemplateGalleryProps {
