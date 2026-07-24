@@ -85,7 +85,7 @@ const SOFTWARE_PROJECT_TEMPLATE = {
   description: "Agile development with sprints, boards, and releases",
   defaultConfig: {
     intervalKinds: ["SPRINT", "RELEASE"],
-    intervalNavLabel: "Sprints",
+    cycleNavLabel: "Sprints",
     enabledFeatures: ["goal", "milestone", "risk"],
   },
 };
