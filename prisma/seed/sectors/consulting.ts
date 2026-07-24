@@ -73,7 +73,7 @@ const CONSULTING_PROJECT_TEMPLATE = {
   description: "Professional services with workstreams, deliverables, and milestone tracking.",
   defaultConfig: {
     intervalKinds: ["PHASE"],
-    intervalNavLabel: "Phases",
+    cycleNavLabel: "Phases",
     enabledFeatures: ["goal", "milestone", "kpi", "risk", "decision", "meeting_note"],
   },
 };
