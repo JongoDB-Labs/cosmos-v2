@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { notifyDeliveryEvent, type DeliveryEvent } from "@/lib/feedback/delivery-notify";
 import type { QueueItem } from "@/lib/foreman/queue";
-import type { Candidate } from "@/lib/foreman/dedup";
+import type { Candidate } from "@/lib/dedup/dedup";
 import { buildRef } from "@/lib/foreman/ref";
 import { PARKED_EVENT_KINDS, pickParkEvent } from "@/lib/foreman/observe";
 import { pickLastRequeuedSha } from "@/lib/foreman/supervisor";
@@ -864,7 +864,7 @@ export async function reclaimStranded(): Promise<Array<{ id: string; ref: string
 /** Resolve a set of parent work-item ids to their ticket refs (`<KEY>-<n>`),
  *  batched (no N+1). A parent outside the delivery pool maps to nothing. Feeds the
  *  dedup gate so a decomposition child is never judged a duplicate of its own
- *  parent epic or a sibling child (see src/lib/foreman/dedup.ts excludeFamily). */
+ *  parent epic or a sibling child (see src/lib/dedup/dedup.ts excludeFamily). */
 async function parentRefsById(
   parentIds: Array<string | null | undefined>,
   poolByProjectId: Map<string, { projectKey: string }>,

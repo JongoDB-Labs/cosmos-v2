@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Candidate } from "@/lib/foreman/dedup";
+import type { Candidate } from "@/lib/dedup/dedup";
 import type { ModelTurnResult } from "@/lib/ai/egress";
 import {
   detectLowQuality,
@@ -36,7 +36,7 @@ function turn(name: string, toolInput: Record<string, unknown>): ModelTurnResult
 
 function deps(run: () => Promise<ModelTurnResult>, over: Partial<IntakeJudgeDeps> = {}): IntakeJudgeDeps {
   return {
-    getForemanCredsImpl: vi.fn(async () => FOREMAN_CREDS),
+    resolveCredentialImpl: vi.fn(async () => FOREMAN_CREDS),
     runModelTurnImpl: vi.fn(run),
     ...over,
   };
@@ -156,7 +156,7 @@ describe("judgeFeedbackScope + scopeResult — scope classes", () => {
     const run = vi.fn();
     const verdict = await judgeFeedbackScope(
       input("add dark mode"),
-      { getForemanCredsImpl: vi.fn(async () => null), runModelTurnImpl: run },
+      { resolveCredentialImpl: vi.fn(async () => null), runModelTurnImpl: run },
     );
     expect(verdict).toBeNull();
     expect(run).not.toHaveBeenCalled();
@@ -248,7 +248,7 @@ describe("findFeedbackDuplicate — dup match via prefilter + judge", () => {
     const match = await findFeedbackDuplicate(
       input("Please add dark mode to the settings page"),
       candidates,
-      { getForemanCredsImpl: vi.fn(async () => null), runModelTurnImpl: run },
+      { resolveCredentialImpl: vi.fn(async () => null), runModelTurnImpl: run },
     );
     expect(match).toBeNull();
     expect(run).not.toHaveBeenCalled();

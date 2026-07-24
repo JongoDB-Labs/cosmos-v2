@@ -10,7 +10,7 @@
  *      feedback item or an open / recently-shipped work item? If so we link + merge
  *      votes into the canonical item and DON'T spawn a second ticket. Reuses
  *      Foreman's own duplicate machinery (`prefilter` + `dedupGate`) with an LLM
- *      judge on Foreman's subscription — the same shape as the security-judge.
+ *      judge on the registered model-credential provider — the same shape as the security-judge.
  *
  *   2. NECESSITY / SCOPE / ACTIONABILITY — classify the request as one of
  *      {actionable | needs-clarification | out-of-scope | reject}. Anything that
@@ -26,7 +26,7 @@
  *   - actionable           → allow (proceed to triage + delivery)
  *
  * Fail-safe by construction (same contract as the security-judge): the LLM layers
- * are ADDITIVE. On model outage / no Foreman subscription / malformed output the
+ * are ADDITIVE. On model outage / no credential provider / malformed output the
  * dedup + scope judges return null and the item is treated as unique + actionable
  * (it keeps flowing to normal triage) — an intake-judge failure must never turn a
  * genuine request into a silent drop. The deterministic low-quality check is pure,
@@ -34,9 +34,9 @@
  */
 
 import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
-import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
-import { dedupGate, type Judge } from "@/lib/foreman/dedup-gate";
-import type { Candidate } from "@/lib/foreman/dedup";
+import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
+import { dedupGate, type Judge } from "@/lib/dedup/dedup-gate";
+import type { Candidate } from "@/lib/dedup/dedup";
 import {
   delimitUntrustedFeedback,
   type GuardrailFinding,
@@ -60,7 +60,7 @@ export interface IntakeJudgeInput extends FeedbackText {
 /** Injectable seams so the judges are unit-testable without a live model. */
 export interface IntakeJudgeDeps {
   runModelTurnImpl?: typeof runModelTurn;
-  getForemanCredsImpl?: typeof getForemanClaudeCreds;
+  resolveCredentialImpl?: typeof resolveModelCredential;
 }
 
 /** A Phase-1 `GuardrailResult` augmented with an optional duplicate link. When
@@ -143,7 +143,7 @@ export function detectLowQuality(input: FeedbackText): GuardrailFinding | null {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Duplicate / redundancy — Foreman's `dedupGate` (cheap token prefilter) + an
-//    LLM confirmation judge on Foreman's own subscription.
+//    LLM confirmation judge on the registered model-credential provider.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEDUP_MODEL = "sonnet";
@@ -183,10 +183,10 @@ const DEDUP_TOOL = {
 } as const;
 
 /** The semantic duplicate judge for `dedupGate`, backed by an LLM turn on
- *  Foreman's subscription. Fail-safe: any error / missing creds / malformed
+ *  the registered model-credential provider. Fail-safe: any error / missing creds / malformed
  *  output resolves to "unique" so a genuine request is never dropped. */
 function buildDedupJudge(input: IntakeJudgeInput, deps: IntakeJudgeDeps): Judge {
-  const getCreds = deps.getForemanCredsImpl ?? getForemanClaudeCreds;
+  const getCreds = deps.resolveCredentialImpl ?? resolveModelCredential;
   const runTurn = deps.runModelTurnImpl ?? runModelTurn;
 
   return async (title, shortlist) => {
@@ -335,7 +335,7 @@ export async function judgeFeedbackScope(
   input: IntakeJudgeInput,
   deps: IntakeJudgeDeps = {},
 ): Promise<ScopeVerdict | null> {
-  const getCreds = deps.getForemanCredsImpl ?? getForemanClaudeCreds;
+  const getCreds = deps.resolveCredentialImpl ?? resolveModelCredential;
   const runTurn = deps.runModelTurnImpl ?? runModelTurn;
 
   try {

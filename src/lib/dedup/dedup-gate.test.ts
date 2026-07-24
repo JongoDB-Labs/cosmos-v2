@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dedupGate, ledgerCandidates } from "./dedup-gate";
+import { dedupGate } from "./dedup-gate";
 
 describe("dedupGate", () => {
   it("returns unique with no prefilter matches (judge never called)", async () => {
@@ -66,12 +66,5 @@ describe("dedupGate", () => {
     // The judge only ever sees the eligible (non-family) shortlist.
     expect(judge.mock.calls[0][1].map((c: { ref: string }) => c.ref)).toEqual(["COSMOS-2"]);
     expect(r.dupOf).toBe("COSMOS-2");
-  });
-  it("ledgerCandidates keeps only resolved entries", () => {
-    const c = ledgerCandidates([
-      { ticket: "COSMOS-1", title: "A", classification: "BUG", resolution: "shipped", ts: "" },
-      { ticket: "COSMOS-9", title: "B", classification: "BUG", resolution: "gated", ts: "" },
-    ]);
-    expect(c.map((x) => x.ref)).toEqual(["COSMOS-1", "COSMOS-9"]);
   });
 });

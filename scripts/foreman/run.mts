@@ -29,7 +29,8 @@ import { combineIntents, classifyInstruction, honorPhaseCommand } from "@/lib/fo
 import { decideApprove } from "@/lib/foreman/approve-decision";
 import { nextVersion, extractTopChangelogEntry, prependChangelogEntry, conflictsAreMechanical, classifyConflict, describeMergeFailure, type BumpKind } from "@/lib/foreman/ship-rebase";
 import { replyPrompt } from "@/lib/foreman/mention";
-import { dedupGate, ledgerCandidates } from "@/lib/foreman/dedup-gate";
+import { dedupGate } from "@/lib/dedup/dedup-gate";
+import { ledgerCandidates } from "@/lib/foreman/dedup-ledger";
 import { appendLedger, readLedger, type LedgerEntry } from "@/lib/foreman/ledger";
 import { pendingGated } from "@/lib/foreman/reconcile";
 import { buildRef, parseRef } from "@/lib/foreman/ref";
@@ -37,7 +38,7 @@ import { aggregateReadiness, decideRelease, coordinatedReleaseFingerprint, shoul
 import { planDecomposition, alreadyDecomposed } from "@/lib/foreman/decompose";
 import { shouldArmSelfRestart, readyToRestart } from "@/lib/foreman/self-restart";
 import { LEDGER_KIND_MAP, type InFlightBuild } from "@/lib/foreman/observe";
-import type { Candidate } from "@/lib/foreman/dedup";
+import type { Candidate } from "@/lib/dedup/dedup";
 import { compareVersions } from "@/lib/changelog";
 import * as db from "./db.mjs";
 import { runAgent, openForemanHome, NoForemanCredentialError, type AgentResult } from "./agent.mjs";
