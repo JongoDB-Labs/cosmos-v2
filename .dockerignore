@@ -21,3 +21,7 @@ deploy/secrets
 *.p12
 *.pfx
 id_rsa*
+
+# plugin checkouts (composed into src/plugins by scripts/plugins/sync.mjs; the raw
+# checkout + its .git must not bake into the image)
+plugins/
