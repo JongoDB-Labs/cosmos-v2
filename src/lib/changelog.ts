@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.237.0",
+    date: "2026-07-24",
+    title: "Plugins: opt-in capability bundles per organization",
+    highlights: [
+      {
+        kind: "feature",
+        text: "New Settings → Plugins tab: organization admins can enable, disable, and configure optional capability bundles for their org. Plugins are off until you turn them on, and disabling one hides its surfaces while keeping its data so re-enabling restores everything.",
+      },
+    ],
+  },
+  {
     version: "2.236.0",
     date: "2026-07-24",
     title: "Comments: rich mention input (name chips, not raw tokens)",

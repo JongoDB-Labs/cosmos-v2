@@ -42,6 +42,10 @@ export interface NavLeaf {
   href: string;
   /** Visible only if the user holds at least one of these permissions. */
   anyOf?: bigint[];
+  /** Set (by composeSidebarNav, never by hand) on entries a plugin contributes.
+   *  Plugin entries are governed by applyPluginEnablement (fail-closed), NOT by
+   *  the fail-open module entitlements — see applyEntitlements. */
+  pluginSlug?: string;
 }
 
 export interface NavGroupDef {
@@ -54,6 +58,8 @@ export interface NavGroupDef {
    * A group is shown when the user can see at least one child. This is derived,
    * not declared, so a group never out-grants its members.
    */
+  /** See NavLeaf.pluginSlug. */
+  pluginSlug?: string;
 }
 
 export type NavEntry = NavLeaf | NavGroupDef;
@@ -294,6 +300,27 @@ export function applyEntitlements(
   if (enabledModules === null) return entries;
   const allowed = new Set(enabledModules);
   return entries.filter(
-    (e) => (FIXED_NAV_IDS as readonly string[]).includes(e.id) || allowed.has(e.id),
+    (e) =>
+      (FIXED_NAV_IDS as readonly string[]).includes(e.id) ||
+      // Plugin-contributed entries pass through: they are governed by the
+      // fail-closed plugin axis (applyPluginEnablement), not the module
+      // allowlist — an org with a restricted allowlist must not need it
+      // edited to see a plugin it explicitly enabled.
+      e.pluginSlug !== undefined ||
+      allowed.has(e.id),
+  );
+}
+
+/**
+ * Plugin-enablement filter — the FAIL-CLOSED counterpart of applyEntitlements.
+ * Drops every plugin-tagged entry whose plugin is not explicitly enabled for
+ * the org. Entries without a pluginSlug (the core IA) pass through untouched.
+ */
+export function applyPluginEnablement(
+  entries: NavEntry[],
+  enabledPluginSlugs: ReadonlySet<string>,
+): NavEntry[] {
+  return entries.filter(
+    (e) => e.pluginSlug === undefined || enabledPluginSlugs.has(e.pluginSlug),
   );
 }

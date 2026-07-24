@@ -206,6 +206,7 @@ model Organization {
   securitySettings       OrgSecuritySettings?
   runtimeConfig          OrgRuntimeConfig?
   entitlements           OrgEntitlements?
+  pluginStates           OrgPluginState[]
   agentPolicy            AgentPolicy?
   assistantConversations AssistantConversation[]
   chatChannels           ChatChannel[]
@@ -1883,6 +1884,36 @@ model OrgEntitlements {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_entitlements")
+}
+
+/// PLUGIN enablement (Settings → Plugins). One row PER (org, plugin). The ABSENCE of a
+/// row — or enabled=false — means the plugin is OFF. This is deliberately the OPPOSITE
+/// default of OrgEntitlements' fail-open tri-state: a plugin is customer/sector-specific
+/// capability that must never appear for an org that didn't opt in (ADR 0001: "OFF for
+/// existing orgs until explicitly enabled"; ADR 0003). Disabling flips `enabled` and
+/// KEEPS the row — per-plugin config and all plugin domain data are retained so
+/// re-enabling restores everything.
+model OrgPluginState {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String  @map("org_id") @db.Uuid
+  pluginSlug String  @map("plugin_slug")
+  enabled    Boolean @default(false)
+
+  /// Per-plugin settings blob, validated by the plugin's zod configSchema in the PATCH route.
+  config Json @default("{}")
+
+  /// Manifest version at last enable — null drives onFirstEnable, an older value onUpgrade.
+  enabledVersion String?   @map("enabled_version")
+  enabledById    String?   @map("enabled_by_id") @db.Uuid
+  enabledAt      DateTime? @map("enabled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, pluginSlug])
+  @@index([orgId])
+  @@map("org_plugin_state")
 }
 
 /// AGENT POLICY (design D9/§8) — the MIDDLE gate of `RBAC ∩ AgentPolicy ∩ Classification`

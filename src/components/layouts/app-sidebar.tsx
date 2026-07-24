@@ -32,12 +32,13 @@ import {
 import { motion } from "@/lib/motion";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import {
-  SIDEBAR_NAV,
   visibleNav,
   applyAdminLayout,
   applyEntitlements,
+  applyPluginEnablement,
   type NavEntry,
 } from "./nav-config";
+import { composeSidebarNav } from "./nav-plugins";
 import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 import { NavGroup } from "./nav-group";
 import { visibleTopbarNav } from "./topbar-nav";
@@ -65,6 +66,8 @@ interface AppSidebarProps {
     logoUrl: string | null;
     role: string;
     enabledModules?: string[] | null;
+    /** Fail-closed plugin axis: absent/empty = no plugin surfaces. */
+    enabledPlugins?: string[];
   }[];
   user: {
     id: string;
@@ -107,10 +110,17 @@ export function AppSidebar({
   const { can } = usePermissions();
   const { openDrawer } = useDrawers();
 
-  // RBAC/ABAC-gated: drop items + groups the user can't access (item 4),
+  // RBAC/ABAC-gated: drop items + groups the user can't access (item 4), gate
+  // by module entitlements (fail-open) and plugin enablement (fail-closed),
   // then apply any admin-defined order/visibility (item 12).
   const entries = applyAdminLayout(
-    applyEntitlements(visibleNav(SIDEBAR_NAV, can), currentOrg?.enabledModules ?? null),
+    applyPluginEnablement(
+      applyEntitlements(
+        visibleNav(composeSidebarNav(), can),
+        currentOrg?.enabledModules ?? null,
+      ),
+      new Set(currentOrg?.enabledPlugins ?? []),
+    ),
     navLayout,
   );
 
