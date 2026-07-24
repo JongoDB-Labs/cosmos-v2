@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.235.0",
+    date: "2026-07-24",
+    title: "Every board preset available in New Board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The New Board gallery now offers all the preset boards from every project type — RFI Tracker, Submittal Log, Deliverable Tracker, Vendor Tracker, Work-Order Kanban, Incident Board, Grading Board, and more (32 in all) — not just your project type's. They slot into the existing category tabs, so any team can adopt another discipline's board when it's useful. Kanban presets bring their column setup.",
+      },
+    ],
+  },
+  {
     version: "2.234.0",
     date: "2026-07-24",
     title: "Intervals: consistent label, project-type default kind",
