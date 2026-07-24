@@ -207,6 +207,7 @@ model Organization {
   runtimeConfig          OrgRuntimeConfig?
   entitlements           OrgEntitlements?
   pluginStates           OrgPluginState[]
+  // @plugin-backrel:Organization
   agentPolicy            AgentPolicy?
   assistantConversations AssistantConversation[]
   chatChannels           ChatChannel[]
@@ -642,6 +643,7 @@ model Project {
   blockers            Blocker[]
   changeRequests      ChangeRequest[]
   feedbackItems       FeedbackItem[]
+  // @plugin-backrel:Project
 
   @@unique([orgId, key])
   @@map("projects")
@@ -3906,3 +3908,5 @@ model ForemanLoopSettings {
 
   @@map("foreman_loop_settings")
 }
+
+// @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
