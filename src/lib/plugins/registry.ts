@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { SectorKey } from "@/lib/entitlements/modules";
 // TYPE-ONLY import — erased at compile time, so no runtime cycle with nav-config
@@ -76,6 +77,27 @@ export type PluginManifest = {
   /** Display hint only ("looks best with the Atelier skin"). Never auto-applied —
    *  skins/brand stay owned by resolveBrand()/Organization.defaultSkinId. */
   recommendedSkinId?: string;
+  /** Components this plugin renders into core UI slots (see PluginSlotProps). Rendered
+   *  by <PluginSlot> ONLY when the plugin is enabled for the org (fail-closed). */
+  slots?: PluginSlots;
+};
+
+/**
+ * CORE-OWNED UI slot vocabulary. Core embeds `<PluginSlot name="..." {...props}/>` at
+ * these named extension points; an ENABLED plugin may contribute a component that
+ * renders there. Client-safe (components, like `icon`). Fail-closed: a slot with no
+ * enabled contributor renders nothing. Add a slot name here (with its prop shape) to
+ * open a new extension point — the same closed-vocabulary discipline as MODULES.
+ */
+export type PluginSlotProps = {
+  /** Compact status card on the org dashboard/overview. */
+  "overview.card": { orgId: string };
+  /** Inline badge inside the work-item detail sheet. */
+  "workItem.detailBadge": { orgId: string; workItemId: string };
+};
+export type PluginSlotName = keyof PluginSlotProps;
+export type PluginSlots = {
+  [K in PluginSlotName]?: ComponentType<PluginSlotProps[K]>;
 };
 
 /** Context handed to plugin AI-tool executors. */
