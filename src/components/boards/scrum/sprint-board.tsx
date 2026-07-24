@@ -164,7 +164,7 @@ export function SprintBoard({
       <Sheet open={manageOpen} onOpenChange={setManageOpen}>
         <SheetContent
           side="right"
-          className="w-full gap-0 overflow-y-auto p-0 sm:max-w-3xl"
+          className="w-full gap-0 overflow-y-auto p-0 data-[side=right]:sm:max-w-4xl"
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Manage sprints</SheetTitle>

@@ -85,7 +85,7 @@ const OPS_PROJECT_TEMPLATE = {
   description: "Incident management, change requests, runbooks, and SLA tracking.",
   defaultConfig: {
     intervalKinds: ["RELEASE"],
-    intervalNavLabel: "Releases",
+    cycleNavLabel: "Releases",
     enabledFeatures: ["kpi", "risk", "decision", "meeting_note"],
   },
 };

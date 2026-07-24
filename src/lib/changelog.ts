@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.233.1",
+    date: "2026-07-24",
+    title: "Fix: Sprints nav link + wider Manage-sprints drawer",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Restored the top-level Sprints link in the project header — the cycle→interval rename accidentally changed an internal feature-flag key, hiding it. The internal key is a stored identifier and stays as-is; only the user-facing wording changed.",
+      },
+      {
+        kind: "fix",
+        text: "The Manage-sprints drawer on the Sprint Board now opens to a comfortable width instead of a narrow strip.",
+      },
+    ],
+  },
+  {
     version: "2.233.0",
     date: "2026-07-24",
     title: "“Cycles” are now “Intervals”",

@@ -75,9 +75,9 @@ export default async function ProjectLayout({
   const intervalCfg = project.projectTemplate?.defaultConfig as
     | Record<string, unknown>
     | null;
-  const intervalEnabled = project.enabledFeatures.includes("interval");
+  const intervalEnabled = project.enabledFeatures.includes("cycle");
   const intervalNavLabel =
-    typeof intervalCfg?.intervalNavLabel === "string" ? intervalCfg.intervalNavLabel : "Sprints";
+    typeof intervalCfg?.cycleNavLabel === "string" ? intervalCfg.cycleNavLabel : "Sprints";
   const allTabPrefs =
     userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
       ? (userPrefs.tabPrefs as Record<string, unknown>)
