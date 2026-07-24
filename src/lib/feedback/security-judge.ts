@@ -12,7 +12,7 @@
  * Fail-safe by construction:
  *   - The judge is purely ADDITIVE — it can only turn "allow" → "hold", never
  *     the reverse. It never downgrades a deterministic "hold"/"reject".
- *   - On model-unavailable / error / no Foreman subscription / malformed output,
+ *   - On model-unavailable / error / no the registered model-credential provider / malformed output,
  *     `judgeFeedbackSecurity` returns `null` and `raiseWithJudge` keeps the
  *     deterministic decision verbatim. There is NO path where a judge failure
  *     turns a deterministic "hold" into an "allow" (never fail-open).
@@ -23,7 +23,7 @@
  */
 
 import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
-import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
+import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { delimitUntrustedFeedback, type GuardrailCategory, type GuardrailResult } from "./guardrails";
 
 export interface SecurityJudgeVerdict {
@@ -59,7 +59,7 @@ export interface JudgeInput {
 /** Injectable seams so the judge is unit-testable without a live model. */
 export interface JudgeDeps {
   runModelTurnImpl?: typeof runModelTurn;
-  getForemanCredsImpl?: typeof getForemanClaudeCreds;
+  resolveCredentialImpl?: typeof resolveModelCredential;
 }
 
 // Sonnet is ample for a single safe/unsafe judgment and keeps the secondary
@@ -122,11 +122,11 @@ export async function judgeFeedbackSecurity(
   input: JudgeInput,
   deps: JudgeDeps = {},
 ): Promise<SecurityJudgeVerdict | null> {
-  const getCreds = deps.getForemanCredsImpl ?? getForemanClaudeCreds;
+  const getCreds = deps.resolveCredentialImpl ?? resolveModelCredential;
   const runTurn = deps.runModelTurnImpl ?? runModelTurn;
 
   try {
-    // Optional layer: without a Foreman subscription on this org, silently skip
+    // Optional layer: without a the registered model-credential provider on this org, silently skip
     // the judge and let the deterministic decision stand.
     const creds = await getCreds(input.orgId);
     if (!creds) return null;
