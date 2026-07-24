@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.235.1",
+    date: "2026-07-24",
+    title: "New Board: discipline tabs for the sector presets",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The New Board gallery now has category tabs for each discipline — Construction, Consulting, Education, Events, Manufacturing, Operations — so the sector presets are browsable by field instead of crowding the Tracking tab. The functional tabs (Agile, Planning, Analytics, …) keep the generic board types.",
+      },
+    ],
+  },
+  {
     version: "2.235.0",
     date: "2026-07-24",
     title: "Every board preset available in New Board",
