@@ -54,8 +54,16 @@ RUN npx prisma generate && npm run build
 # ship a silently telemetry-blind image: (1) the instrumentation.js hook artifact is missing,
 # or (2) its NFT manifest is missing — both mean a future Next/Turbopack layout change that
 # this replay no longer matches. Per-traced-file misses stay lenient (the NFT can reference
-# files outside .next/server that legitimately aren't present).
-RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel,strict)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy]'+(strict?' FATAL':'')+' missing source',s); if(strict)process.exit(1); return;} fs.mkdirSync(p.dirname(d),{recursive:true}); fs.copyFileSync(s,d); console.log('[instr-copy]',rel);}; cp('instrumentation.js',true); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''),false);}} else {console.error('[instr-copy] FATAL no nft manifest — instrumentation hook would not run'); process.exit(1);}"
+# files outside .next/server that legitimately aren't present). Entries ALREADY in the
+# standalone tree (placed there by the route/app trace) are SKIPPED — this step only fills
+# the instrumentation-specific GAP and must never clobber what the app trace already wrote.
+# That skip also sidesteps Prisma 7's generated client, a DIRECTORY (`.next/node_modules/
+# @prisma/client-<hash>`) that enters instrumentation's trace once a plugin server hook
+# (loaded via registry/server) touches prisma in a composed image: copyFileSync throws
+# EISDIR on it, and even cpSync cannot overwrite the file the app trace already placed there
+# — but the app trace HAS placed it, so there is nothing to fill. cpSync (recursive) then
+# copies a genuinely-missing entry whether it is a file or a dir.
+RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel,strict)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy]'+(strict?' FATAL':'')+' missing source',s); if(strict)process.exit(1); return;} if(fs.existsSync(d))return; fs.mkdirSync(p.dirname(d),{recursive:true}); fs.cpSync(s,d,{recursive:true}); console.log('[instr-copy]',rel);}; cp('instrumentation.js',true); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''),false);}} else {console.error('[instr-copy] FATAL no nft manifest — instrumentation hook would not run'); process.exit(1);}"
 # --- migrate: one-shot job image with the FULL prisma toolchain ---
 # The slim standalone runtime omits the `prisma` CLI and its hoisted deps (effect, etc.),
 # so migrations run from the build stage (complete node_modules).
