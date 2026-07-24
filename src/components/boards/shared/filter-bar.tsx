@@ -106,6 +106,12 @@ interface FilterBarProps {
    * catalog (backward compatible). Mirrors table-view's existing behavior.
    */
   presentTypeKeys?: string[];
+  /**
+   * Custom-field keys actually POPULATED on this board's items. When provided,
+   * only custom-field filters whose field is used on the board are shown (plus
+   * any with an active filter). Omitted ⇒ show all filterable fields.
+   */
+  presentCustomFieldKeys?: string[];
 }
 
 /**
@@ -285,6 +291,7 @@ export function FilterBar({
   showSwimlane = false,
   customFields = [],
   presentTypeKeys,
+  presentCustomFieldKeys,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const currentUserId = useCurrentUserId();
@@ -312,9 +319,16 @@ export function FilterBar({
   const assignedToMe =
     currentUserId !== null && filters.assigneeId === currentUserId;
 
-  const filterableCustomFields = customFields.filter((f) =>
-    FILTERABLE_CUSTOM_KINDS.has(f.fieldType),
-  );
+  const filterableCustomFields = customFields.filter((f) => {
+    if (!FILTERABLE_CUSTOM_KINDS.has(f.fieldType)) return false;
+    // Scope to fields the board's items actually use (plus any active filter so
+    // it stays clearable). No scoping info ⇒ show all (backward compatible).
+    if (!presentCustomFieldKeys) return true;
+    return (
+      presentCustomFieldKeys.includes(f.key) ||
+      Boolean(filters.customFields?.[f.key])
+    );
+  });
 
   const hasActiveCustom = Object.values(filters.customFields ?? {}).some(Boolean);
 
@@ -570,6 +584,13 @@ export function FilterBar({
  *   - CHECKBOX → the stored value is exactly `true` (filter value "true").
  * An unknown key or a field kind we don't filter on is treated as a pass-through.
  */
+/** True when a custom-field value counts as "set"/used on an item. */
+export function customFieldHasValue(v: unknown): boolean {
+  if (v === null || v === undefined || v === "" || v === false) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+}
+
 export function matchesCustomFieldFilters(
   itemCustomFields: Record<string, unknown> | null | undefined,
   active: Record<string, string>,
