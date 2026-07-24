@@ -22,7 +22,7 @@ import {
   scopeResult,
   type IntakeResult,
 } from "@/lib/feedback/intake-guardrails";
-import type { Candidate } from "@/lib/foreman/dedup";
+import type { Candidate } from "@/lib/dedup/dedup";
 import {
   planIntake,
   throttleMessage,

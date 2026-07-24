@@ -19,5 +19,16 @@ export async function register(): Promise<void> {
   // trace wiring (no-op when no endpoint is configured).
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./instrumentation.node");
+    // Interim (P1.5): register in-core Foreman's server-side contributions (the
+    // feedback-intake model-credential provider) into the neutral core registries.
+    // Deleted when Foreman becomes a plugin (P3) — see src/lib/foreman/server-boot.ts.
+    // Isolated in try/catch: a registration failure must NEVER break server boot —
+    // worst case the provider stays unregistered and the intake judges degrade
+    // gracefully (fail-safe), exactly like Foreman being absent.
+    try {
+      await import("./src/lib/foreman/server-boot");
+    } catch (err) {
+      console.error("[boot] foreman server-boot registration failed (intake AI degrades):", err);
+    }
   }
 }

@@ -28,7 +28,7 @@ function judgmentTurn(input: Record<string, unknown>): ModelTurnResult {
 
 function deps(over: Partial<JudgeDeps> = {}): JudgeDeps {
   return {
-    getForemanCredsImpl: vi.fn(async () => FOREMAN_CREDS),
+    resolveCredentialImpl: vi.fn(async () => FOREMAN_CREDS),
     runModelTurnImpl: vi.fn(async () => judgmentTurn({ verdict: "safe", confidence: "high", reason: "ok" })),
     ...over,
   };
@@ -118,7 +118,7 @@ describe("model-outage fallback — never fail-open", () => {
     const run = vi.fn();
     const verdict = await judgeFeedbackSecurity(
       item("t", "d"),
-      deps({ getForemanCredsImpl: vi.fn(async () => null), runModelTurnImpl: run }),
+      deps({ resolveCredentialImpl: vi.fn(async () => null), runModelTurnImpl: run }),
     );
     expect(verdict).toBeNull();
     expect(run).not.toHaveBeenCalled(); // never reaches the model without creds
