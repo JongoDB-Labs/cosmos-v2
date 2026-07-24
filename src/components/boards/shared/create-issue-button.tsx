@@ -31,7 +31,7 @@ import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { DatePicker } from "@/components/ui/date-picker";
-import type { WorkItem, BoardColumn, OrgMember, Cycle } from "@/types/models";
+import type { WorkItem, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 const PRIORITIES = [
   { value: "CRITICAL", label: "Critical" },
@@ -58,7 +58,7 @@ export interface CreateIssueFields {
   columnKey: string;
   priority: string;
   assigneeIds: string[];
-  cycleId: string | null;
+  intervalId: string | null;
   startDate: string; // yyyy-mm-dd (empty = unset)
   dueDate: string; // yyyy-mm-dd (empty = unset)
   /** Preset tags applied at creation — e.g. the RAID category (COSMOS-80). */
@@ -80,7 +80,7 @@ export function buildCreateBody(f: CreateIssueFields): Record<string, unknown> {
     columnKey: f.columnKey,
     priority: f.priority,
     ...(f.assigneeIds.length > 0 ? { assigneeIds: f.assigneeIds } : {}),
-    ...(f.cycleId ? { cycleId: f.cycleId } : {}),
+    ...(f.intervalId ? { intervalId: f.intervalId } : {}),
     ...(f.startDate
       ? { startDate: new Date(f.startDate + "T00:00:00Z").toISOString() }
       : {}),
@@ -138,7 +138,7 @@ export function CreateIssueButton({
   const [priority, setPriority] = useState<string>("MEDIUM");
   // Multi-assign (FR 1d38496a): full set; the first pick becomes the primary.
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
-  const [cycleId, setCycleId] = useState<string | null>(null);
+  const [intervalId, setIntervalId] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   // RAID category preset (COSMOS-80): seeded to the caller's default so a new
@@ -146,17 +146,17 @@ export function CreateIssueButton({
   const [presetTag, setPresetTag] = useState(categoryPreset?.defaultValue ?? "");
 
   const membersKey = useOrgQueryKey("members");
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
   const { data: members = [] } = useQuery({
     queryKey: membersKey,
     queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
     enabled: open,
     staleTime: 60_000,
   });
-  const { data: cycles = [] } = useQuery({
-    queryKey: cyclesKey,
+  const { data: intervals = [] } = useQuery({
+    queryKey: intervalsKey,
     queryFn: () =>
-      jsonFetch<Cycle[]>(`/api/v1/orgs/${orgId}/projects/${projectId}/cycles`),
+      jsonFetch<Interval[]>(`/api/v1/orgs/${orgId}/projects/${projectId}/intervals`),
     enabled: open,
     staleTime: 60_000,
   });
@@ -220,7 +220,7 @@ export function CreateIssueButton({
               columnKey,
               priority,
               assigneeIds,
-              cycleId,
+              intervalId,
               startDate,
               dueDate,
               // Only tag when a preset is active (RAID log); other views send none.
@@ -237,7 +237,7 @@ export function CreateIssueButton({
       setWorkItemTypeId(defaultTypeId(workItemTypes));
       setPriority("MEDIUM");
       setAssigneeIds([]);
-      setCycleId(null);
+      setIntervalId(null);
       setStartDate("");
       setDueDate("");
       setPresetTag(categoryPreset?.defaultValue ?? "");
@@ -366,7 +366,7 @@ export function CreateIssueButton({
               )}
             </div>
 
-            {/* Optional details (FR fc20e6da) — assignees/cycle/dates at creation.
+            {/* Optional details (FR fc20e6da) — assignees/interval/dates at creation.
                 Assignees is a MULTI-select (FR 1d38496a): first pick = primary. */}
             <div className="flex flex-wrap items-center gap-2">
               <DropdownMenu>
@@ -408,23 +408,23 @@ export function CreateIssueButton({
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {cycles.length > 0 && (
+              {intervals.length > 0 && (
                 <Select
                   items={{
-                    __none__: "No cycle",
-                    ...Object.fromEntries(cycles.map((c) => [c.id, c.name])),
+                    __none__: "No interval",
+                    ...Object.fromEntries(intervals.map((c) => [c.id, c.name])),
                   }}
-                  value={cycleId ?? "__none__"}
+                  value={intervalId ?? "__none__"}
                   onValueChange={(v) =>
-                    setCycleId(v === "__none__" ? null : (v as string))
+                    setIntervalId(v === "__none__" ? null : (v as string))
                   }
                 >
-                  <SelectTrigger size="sm" aria-label="Cycle" className="w-36 text-xs">
-                    <SelectValue placeholder="Cycle" />
+                  <SelectTrigger size="sm" aria-label="Interval" className="w-36 text-xs">
+                    <SelectValue placeholder="Interval" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">No cycle</SelectItem>
-                    {cycles.map((c) => (
+                    <SelectItem value="__none__">No interval</SelectItem>
+                    {intervals.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.name}
                       </SelectItem>

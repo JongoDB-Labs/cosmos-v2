@@ -98,7 +98,7 @@ async function ProjectGrid({
 }) {
   // Fetch the full set (including archived) so the client-side Active/Archived/
   // All filter can switch scope without a refetch. Rollups (item counts,
-  // %complete, lead, active cycle, next due) come batched from the cache query.
+  // %complete, lead, active interval, next due) come batched from the cache query.
   const projects = await getActiveProjectsForOrg(orgId, true);
 
   if (projects.length === 0) {

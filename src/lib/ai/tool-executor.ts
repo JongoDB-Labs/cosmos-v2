@@ -18,12 +18,12 @@ import { logRevenue, logExpense, getFinanceSummary } from "./executors/finance";
 import { getTrialBalance, getProfitAndLoss } from "./executors/accounting";
 import {
   listProjects,
-  listCycles,
-  createCycle,
+  listIntervals,
+  createInterval,
   createProject,
   updateProject,
-  updateCycle,
-  completeCycle,
+  updateInterval,
+  completeInterval,
 } from "./executors/projects";
 import { fetchUrl } from "./executors/utility";
 import { semanticSearch } from "./executors/rag";
@@ -258,14 +258,14 @@ async function dispatchTool(
     // ── Legacy read-only tools (live in this file below) ───────────────
     case "query_work_items":
       return queryWorkItems(input, ctx);
-    case "query_cycles":
-      return queryCycles(input, ctx);
+    case "query_intervals":
+      return queryIntervals(input, ctx);
     case "query_crm":
       return queryCrm(input, ctx);
     case "query_finance":
       return queryFinance(input, ctx);
-    case "generate_cycle_brief":
-      return generateCycleBrief(input, ctx);
+    case "generate_interval_brief":
+      return generateIntervalBrief(input, ctx);
     case "process_transcript":
       return { message: "Transcript processing requires AI — handled at the chat level" };
 
@@ -312,10 +312,10 @@ async function dispatchTool(
 
     case "list_projects":
       return listProjects(input, ctx);
-    case "list_cycles":
-      return listCycles(input, ctx);
-    case "create_cycle":
-      return createCycle(input, ctx);
+    case "list_intervals":
+      return listIntervals(input, ctx);
+    case "create_interval":
+      return createInterval(input, ctx);
 
     case "fetch_url":
       return fetchUrl(input, ctx);
@@ -359,15 +359,15 @@ async function dispatchTool(
     case "update_change_request":
       return updateChangeRequest(input, ctx);
 
-    // Projects + cycles (writes)
+    // Projects + intervals (writes)
     case "create_project":
       return createProject(input, ctx);
     case "update_project":
       return updateProject(input, ctx);
-    case "update_cycle":
-      return updateCycle(input, ctx);
-    case "complete_cycle":
-      return completeCycle(input, ctx);
+    case "update_interval":
+      return updateInterval(input, ctx);
+    case "complete_interval":
+      return completeInterval(input, ctx);
 
     // Work-item dependency links
     case "list_item_links":
@@ -475,7 +475,7 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   log_time: { action: "assistant.time_entry.logged", entity: "time_entry" },
   log_revenue: { action: "assistant.revenue.logged", entity: "revenue" },
   log_expense: { action: "assistant.expense.logged", entity: "expense" },
-  create_cycle: { action: "assistant.cycle.created", entity: "cycle" },
+  create_interval: { action: "assistant.interval.created", entity: "interval" },
   update_compliance_control: { action: "assistant.compliance_control.updated", entity: "compliance_control" },
   create_risk: { action: "assistant.risk.created", entity: "risk" },
   update_risk: { action: "assistant.risk.updated", entity: "risk" },
@@ -488,8 +488,8 @@ const ASSISTANT_AUDIT_ACTIONS: Record<string, { action: string; entity: string }
   update_change_request: { action: "assistant.change_request.updated", entity: "change_request" },
   create_project: { action: "assistant.project.created", entity: "project" },
   update_project: { action: "assistant.project.updated", entity: "project" },
-  update_cycle: { action: "assistant.cycle.updated", entity: "cycle" },
-  complete_cycle: { action: "assistant.cycle.completed", entity: "cycle" },
+  update_interval: { action: "assistant.interval.updated", entity: "interval" },
+  complete_interval: { action: "assistant.interval.completed", entity: "interval" },
   link_items: { action: "assistant.work_item_link.created", entity: "work_item_link" },
   unlink_items: { action: "assistant.work_item_link.deleted", entity: "work_item_link" },
   create_objective: { action: "assistant.objective.created", entity: "objective" },
@@ -525,7 +525,7 @@ function pickEntityId(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   const r = result as Record<string, unknown>;
   if (typeof r.id === "string") return r.id;
-  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "cycle", "event", "item", "risk", "project", "blocker", "deliverable", "changeRequest", "objective", "keyResult", "checkin", "link", "milestone", "feedback", "meeting", "goal", "kpi", "contact"]) {
+  for (const key of ["workItem", "note", "comment", "timeEntry", "revenue", "expense", "interval", "event", "item", "risk", "project", "blocker", "deliverable", "changeRequest", "objective", "keyResult", "checkin", "link", "milestone", "feedback", "meeting", "goal", "kpi", "contact"]) {
     const nested = r[key];
     if (nested && typeof nested === "object" && typeof (nested as Record<string, unknown>).id === "string") {
       return (nested as Record<string, unknown>).id as string;
@@ -582,7 +582,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
   if (input.projectId) where.projectId = input.projectId as string;
   if (input.assigneeId) where.assigneeId = input.assigneeId as string;
   if (input.priority) where.priority = input.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
-  if (input.cycleId) where.cycleId = input.cycleId as string;
+  if (input.intervalId) where.intervalId = input.intervalId as string;
   if (input.workItemTypeId) where.workItemTypeId = input.workItemTypeId as string;
   if (input.query) where.title = { contains: input.query as string, mode: "insensitive" };
 
@@ -592,7 +592,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
     orderBy: { updatedAt: "desc" },
     select: {
       id: true, title: true, workItemTypeId: true, columnKey: true,
-      priority: true, assigneeId: true, cycleId: true,
+      priority: true, assigneeId: true, intervalId: true,
       storyPoints: true, dueDate: true, completedAt: true,
       ticketNumber: true, tags: true,
     },
@@ -604,22 +604,22 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
 // (with permission gating + sector-aware type resolution). The legacy inline
 // versions were removed when Phase 3b landed.
 
-async function queryCycles(input: Record<string, unknown>, ctx: ToolContext) {
+async function queryIntervals(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
-  const where: Prisma.CycleWhereInput = {
+  const where: Prisma.IntervalWhereInput = {
     orgId: ctx.orgId,
     projectId: input.projectId as string,
   };
   if (input.status) where.status = input.status as "PLANNED" | "ACTIVE" | "COMPLETED";
 
-  const cycles = await prisma.cycle.findMany({
+  const intervals = await prisma.interval.findMany({
     where,
     take: Math.min((input.limit as number) || 10, 20),
     orderBy: { number: "desc" },
     include: { _count: { select: { workItems: true } } },
   });
-  return { count: cycles.length, cycles };
+  return { count: intervals.length, intervals };
 }
 
 async function queryCrm(input: Record<string, unknown>, ctx: ToolContext) {
@@ -665,36 +665,36 @@ async function queryFinance(input: Record<string, unknown>, ctx: ToolContext) {
   };
 }
 
-async function generateCycleBrief(input: Record<string, unknown>, ctx: ToolContext) {
+async function generateIntervalBrief(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
   const projectId = input.projectId as string;
-  let cycle;
+  let interval;
 
-  if (input.cycleId) {
-    cycle = await prisma.cycle.findFirst({ where: { id: input.cycleId as string, orgId: ctx.orgId } });
+  if (input.intervalId) {
+    interval = await prisma.interval.findFirst({ where: { id: input.intervalId as string, orgId: ctx.orgId } });
   } else {
-    cycle = await prisma.cycle.findFirst({ where: { orgId: ctx.orgId, projectId, status: "ACTIVE" } });
+    interval = await prisma.interval.findFirst({ where: { orgId: ctx.orgId, projectId, status: "ACTIVE" } });
   }
-  if (!cycle) return { error: "No active cycle found" };
+  if (!interval) return { error: "No active interval found" };
 
-  const items = await prisma.workItem.findMany({ where: { orgId: ctx.orgId, projectId, cycleId: cycle.id } });
+  const items = await prisma.workItem.findMany({ where: { orgId: ctx.orgId, projectId, intervalId: interval.id } });
   const totalPoints = items.reduce((s, i) => s + (i.storyPoints ?? 1), 0);
   const completedItems = items.filter((i) => i.completedAt);
   const completedPoints = completedItems.reduce((s, i) => s + (i.storyPoints ?? 1), 0);
   const blockedOrOverdue = items.filter((i) => !i.completedAt && i.dueDate && new Date(i.dueDate) < new Date());
 
   const now = new Date();
-  const cycleStart = new Date(cycle.startDate);
-  const cycleEnd = new Date(cycle.endDate);
-  const totalDays = Math.max((cycleEnd.getTime() - cycleStart.getTime()) / 86400000, 1);
-  const elapsed = Math.max((now.getTime() - cycleStart.getTime()) / 86400000, 0);
+  const intervalStart = new Date(interval.startDate);
+  const intervalEnd = new Date(interval.endDate);
+  const totalDays = Math.max((intervalEnd.getTime() - intervalStart.getTime()) / 86400000, 1);
+  const elapsed = Math.max((now.getTime() - intervalStart.getTime()) / 86400000, 0);
   const percentTimeElapsed = Math.round((elapsed / totalDays) * 100);
   const percentComplete = totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0;
 
   return {
-    cycle: { id: cycle.id, name: cycle.name, number: cycle.number, goal: cycle.goal },
-    dates: { start: cycle.startDate, end: cycle.endDate, percentTimeElapsed },
+    interval: { id: interval.id, name: interval.name, number: interval.number, goal: interval.goal },
+    dates: { start: interval.startDate, end: interval.endDate, percentTimeElapsed },
     progress: { totalItems: items.length, completedItems: completedItems.length, totalPoints, completedPoints, percentComplete },
     overdueItems: blockedOrOverdue.map((i) => ({ id: i.id, title: i.title, dueDate: i.dueDate })),
     onTrack: percentComplete >= percentTimeElapsed,

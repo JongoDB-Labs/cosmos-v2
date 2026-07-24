@@ -77,7 +77,7 @@ function makeItem(id: string, ticketNumber: number, children: WorkItemRef[] = []
     storyPoints: null,
     startDate: null,
     dueDate: null,
-    cycleId: null,
+    intervalId: null,
     assigneeId: null,
     assignees: [],
     workItemTypeId: "wt",
@@ -92,7 +92,7 @@ const baseProps = {
   orgId: "o1",
   projectId: "pr1",
   members: [] as never[],
-  cycles: [] as never[],
+  intervals: [] as never[],
   columns: [{ key: "todo", name: "To Do" } as never],
   onUpdate: () => {},
 };

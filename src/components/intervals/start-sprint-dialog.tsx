@@ -23,7 +23,7 @@ import {
   unitAbbrev,
   unitNoun,
   isOverCommitted,
-} from "@/lib/cycles/sprint-planning";
+} from "@/lib/intervals/sprint-planning";
 
 interface PlanningData {
   unit: CapacityUnit;
@@ -37,7 +37,7 @@ interface PlanningData {
 interface StartSprintDialogProps {
   orgId: string;
   projectId: string;
-  cycle: { id: string; name: string; goal: string | null };
+  interval: { id: string; name: string; goal: string | null };
   onClose: () => void;
   onStarted: () => void;
 }
@@ -55,21 +55,21 @@ interface Row {
  * committed-scope vs capacity indicator with an over-commitment warning.
  *
  * On confirm it saves capacity (effective = base × availability), persists the
- * goal, then flips the cycle to ACTIVE.
+ * goal, then flips the interval to ACTIVE.
  */
 export function StartSprintDialog({
   orgId,
   projectId,
-  cycle,
+  interval,
   onClose,
   onStarted,
 }: StartSprintDialogProps) {
-  const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/cycles/${cycle.id}`;
+  const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${interval.id}`;
   const { data: members } = useOrgMembers(orgId);
 
   const [plan, setPlan] = useState<PlanningData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [goal, setGoal] = useState(cycle.goal ?? "");
+  const [goal, setGoal] = useState(interval.goal ?? "");
   const [rows, setRows] = useState<Record<string, Row>>({});
   const [starting, setStarting] = useState(false);
 
@@ -147,7 +147,7 @@ export function StartSprintDialog({
       if (!capRes.ok) throw new Error("Failed to save capacity");
 
       // 2. Persist the goal (if changed) and activate the sprint in one PUT.
-      const goalChanged = goal.trim() !== (cycle.goal ?? "").trim();
+      const goalChanged = goal.trim() !== (interval.goal ?? "").trim();
       const res = await fetch(basePath, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -157,7 +157,7 @@ export function StartSprintDialog({
         }),
       });
       if (res.status === 409)
-        throw new Error("Another cycle is already active — complete it first.");
+        throw new Error("Another interval is already active — complete it first.");
       if (!res.ok) throw new Error("Failed to start sprint");
 
       onStarted();
@@ -175,7 +175,7 @@ export function StartSprintDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Start {cycle.name}</DialogTitle>
+          <DialogTitle>Start {interval.name}</DialogTitle>
           <DialogDescription>
             Plan capacity and commitment in {unitNoun(unit)} before the sprint
             begins.

@@ -30,16 +30,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       50
     );
 
-    const cycles = await prisma.cycle.findMany({
+    const intervals = await prisma.interval.findMany({
       where: { orgId, projectId, status: "COMPLETED" },
       orderBy: { number: "desc" },
       take: limit,
     });
 
     const analytics = await Promise.all(
-      cycles.map(async (cycle) => {
+      intervals.map(async (interval) => {
         const items = await prisma.workItem.findMany({
-          where: { orgId, projectId, cycleId: cycle.id },
+          where: { orgId, projectId, intervalId: interval.id },
           select: {
             id: true,
             storyPoints: true,
@@ -84,9 +84,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         }
 
         return {
-          cycleId: cycle.id,
-          cycleName: cycle.name,
-          cycleNumber: cycle.number,
+          intervalId: interval.id,
+          intervalName: interval.name,
+          intervalNumber: interval.number,
           velocity,
           totalItems: items.length,
           completedItems: completedItems.length,

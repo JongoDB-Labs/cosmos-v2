@@ -5,18 +5,18 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { isDoneColumnKey } from "@/lib/cycles/sprint-review";
+import { isDoneColumnKey } from "@/lib/intervals/sprint-review";
 import { z } from "zod";
 
 const completeSchema = z.object({
-  moveIncompleteToCycleId: z.string().uuid().nullable().optional(),
+  moveIncompleteToIntervalId: z.string().uuid().nullable().optional(),
 });
 
-type RouteParams = { params: Promise<{ orgId: string; projectId: string; cycleId: string }> };
+type RouteParams = { params: Promise<{ orgId: string; projectId: string; intervalId: string }> };
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, cycleId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -24,16 +24,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_COMPLETE);
 
-    const cycle = await prisma.cycle.findFirst({
-      where: { id: cycleId, projectId, orgId },
+    const interval = await prisma.interval.findFirst({
+      where: { id: intervalId, projectId, orgId },
       include: { workItems: true },
     });
 
-    if (!cycle) return new Response("Not found", { status: 404 });
+    if (!interval) return new Response("Not found", { status: 404 });
 
-    if (cycle.status !== "ACTIVE") {
+    if (interval.status !== "ACTIVE") {
       return new Response(
-        JSON.stringify({ error: "Only active cycles can be completed" }),
+        JSON.stringify({ error: "Only active intervals can be completed" }),
         { status: 409, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const data = completeSchema.parse(body);
 
     const completed = await prisma.$transaction(async (tx) => {
-      const items = cycle.workItems;
+      const items = interval.workItems;
       const doneItems = items.filter((i) => isDoneColumnKey(i.columnKey));
       const incompleteItems = items.filter((i) => !isDoneColumnKey(i.columnKey));
 
@@ -63,20 +63,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }, {} as Record<string, number>),
       };
 
-      if (incompleteItems.length > 0 && data.moveIncompleteToCycleId) {
+      if (incompleteItems.length > 0 && data.moveIncompleteToIntervalId) {
         await tx.workItem.updateMany({
           where: { id: { in: incompleteItems.map((i) => i.id) } },
-          data: { cycleId: data.moveIncompleteToCycleId },
+          data: { intervalId: data.moveIncompleteToIntervalId },
         });
       } else if (incompleteItems.length > 0) {
         await tx.workItem.updateMany({
           where: { id: { in: incompleteItems.map((i) => i.id) } },
-          data: { cycleId: null },
+          data: { intervalId: null },
         });
       }
 
-      return tx.cycle.update({
-        where: { id: cycleId },
+      return tx.interval.update({
+        where: { id: intervalId },
         data: { status: "COMPLETED", report },
         include: { _count: { select: { workItems: true } } },
       });
@@ -85,13 +85,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: "cycle.completed",
-      entity: "cycle",
-      entityId: cycleId,
+      action: "interval.completed",
+      entity: "interval",
+      entityId: intervalId,
       metadata: {
-        name: cycle.name,
-        number: String(cycle.number),
-        totalItems: String(cycle.workItems.length),
+        name: interval.name,
+        number: String(interval.number),
+        totalItems: String(interval.workItems.length),
       } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });

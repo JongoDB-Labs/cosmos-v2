@@ -140,7 +140,7 @@ async function main() {
 
   const changes: ChangeSeed[] = [
     { code: "CR-001", title: "Add CMMC L2 scope to Increment 2", description: "Expand Increment 2 to include CMMC Level 2 controls per customer direction.", type: "Scope", branchCode: "3.0", status: "APPROVED", costImpact: 45000, scheduleDaysImpact: 14, modRequired: true },
-    { code: "CR-002", title: "Adjust delivery cadence to monthly", description: "Move from bi-weekly to monthly formal deliveries to align with MSR cycle.", type: "Schedule", branchCode: "1.0", status: "SUBMITTED", costImpact: 0, scheduleDaysImpact: 0, modRequired: false },
+    { code: "CR-002", title: "Adjust delivery cadence to monthly", description: "Move from bi-weekly to monthly formal deliveries to align with MSR interval.", type: "Schedule", branchCode: "1.0", status: "SUBMITTED", costImpact: 0, scheduleDaysImpact: 0, modRequired: false },
   ];
   for (const c of changes) {
     await prisma.changeRequest.upsert({
@@ -177,17 +177,17 @@ async function main() {
     mUpdated++;
   }
 
-  // One revision cycle on the SSP (CDRL-A001) to exercise the DeliverableRevision table.
+  // One revision interval on the SSP (CDRL-A001) to exercise the DeliverableRevision table.
   let revAdded = 0;
   const ssp = await prisma.deliverable.findFirst({ where: { orgId: org.id, code: "CDRL-A001" } });
   if (ssp) {
     const existing = await prisma.deliverableRevision.findFirst({
-      where: { deliverableId: ssp.id, cycle: 1 },
+      where: { deliverableId: ssp.id, interval: 1 },
     });
     if (!existing) {
       await prisma.deliverableRevision.create({
         data: {
-          orgId: org.id, deliverableId: ssp.id, cycle: 1,
+          orgId: org.id, deliverableId: ssp.id, interval: 1,
           title: "Gov review — Rev 1 comments",
           dateReturned: d(-6),
           commentSummary: "12 comments: tighten control-inheritance narrative; add an authorization-boundary diagram; clarify FIPS-validated crypto modules.",

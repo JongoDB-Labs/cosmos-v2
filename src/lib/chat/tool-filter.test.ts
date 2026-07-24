@@ -12,13 +12,13 @@ function tool(name: string): ToolDefinition {
 
 const READ_TOOLS = [
   "query_work_items",
-  "query_cycles",
+  "query_intervals",
   "query_crm",
   "query_finance",
   "query_compliance_controls",
   "list_work_items",
   "list_projects",
-  "list_cycles",
+  "list_intervals",
   "list_comments",
   "list_time_entries",
   "list_org_members",
@@ -32,7 +32,7 @@ const READ_TOOLS = [
   "read_email",
   "read_google_doc",
   "semantic_search",
-  "generate_cycle_brief",
+  "generate_interval_brief",
   "fetch_url",
 ];
 
@@ -40,7 +40,7 @@ const MUTATION_TOOLS = [
   "create_work_item",
   "update_work_item",
   "delete_work_item",
-  "create_cycle",
+  "create_interval",
   "create_note",
   "update_note",
   "delete_note",
@@ -92,7 +92,7 @@ describe("filterToolsByScope", () => {
   it("READONLY keeps the explicitly-allowed read tools without a read prefix", () => {
     const out = new Set(filterToolsByScope("READONLY", ALL).map((t) => t.name));
     expect(out.has("semantic_search")).toBe(true);
-    expect(out.has("generate_cycle_brief")).toBe(true);
+    expect(out.has("generate_interval_brief")).toBe(true);
     expect(out.has("fetch_url")).toBe(true);
   });
 

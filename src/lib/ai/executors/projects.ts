@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
-import { CycleKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
+import { IntervalKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
@@ -44,19 +44,19 @@ function scoreProjectMatch(name: string, key: string, query: string): number {
   return score;
 }
 
-const listCyclesSchema = z.object({
+const listIntervalsSchema = z.object({
   projectId: z.string().uuid(),
   status: z.enum(["PLANNED", "ACTIVE", "COMPLETED"]).optional(),
   limit: z.number().int().positive().optional(),
 });
 
-const createCycleSchema = z.object({
+const createIntervalSchema = z.object({
   projectId: z.string().uuid(),
   name: z.string().min(1).max(100),
   startDate: calendarDateInput,
   endDate: calendarDateInput,
   goal: z.string().optional(),
-  cycleKind: z.nativeEnum(CycleKind).optional(),
+  intervalKind: z.nativeEnum(IntervalKind).optional(),
 });
 
 export async function listProjects(
@@ -105,14 +105,14 @@ export async function listProjects(
   return { count: ranked.length, projects: ranked };
 }
 
-export async function listCycles(
+export async function listIntervals(
   input: Record<string, unknown>,
   ctx: ToolContext
 ) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
 
-  const parsed = listCyclesSchema.safeParse(input);
+  const parsed = listIntervalsSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
@@ -124,30 +124,30 @@ export async function listCycles(
   });
   if (!project) return { error: "Project not found" };
 
-  const where: Prisma.CycleWhereInput = {
+  const where: Prisma.IntervalWhereInput = {
     orgId: ctx.orgId,
     projectId: data.projectId,
   };
   if (data.status) where.status = data.status;
 
-  const cycles = await prisma.cycle.findMany({
+  const intervals = await prisma.interval.findMany({
     where,
     orderBy: { number: "desc" },
     take: Math.min(data.limit ?? 20, 50),
     include: { _count: { select: { workItems: true } } },
   });
 
-  return { count: cycles.length, cycles };
+  return { count: intervals.length, intervals };
 }
 
-export async function createCycle(
+export async function createInterval(
   input: Record<string, unknown>,
   ctx: ToolContext
 ) {
   const denied = await assertPermission(ctx, Permission.SPRINT_CREATE);
   if (denied) return denied;
 
-  const parsed = createCycleSchema.safeParse(input);
+  const parsed = createIntervalSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
@@ -159,13 +159,13 @@ export async function createCycle(
   });
   if (!project) return { error: "Project not found" };
 
-  const maxNumber = await prisma.cycle.aggregate({
+  const maxNumber = await prisma.interval.aggregate({
     where: { projectId: data.projectId },
     _max: { number: true },
   });
   const number = (maxNumber._max.number ?? 0) + 1;
 
-  const cycle = await prisma.cycle.create({
+  const interval = await prisma.interval.create({
     data: {
       orgId: ctx.orgId,
       projectId: data.projectId,
@@ -174,17 +174,17 @@ export async function createCycle(
       goal: data.goal ?? "",
       startDate: toCalendarNoonUTC(data.startDate)!,
       endDate: toCalendarNoonUTC(data.endDate)!,
-      cycleKind: data.cycleKind ?? CycleKind.SPRINT,
+      intervalKind: data.intervalKind ?? IntervalKind.SPRINT,
     },
   });
 
   return {
     created: true,
-    id: cycle.id,
-    number: cycle.number,
-    name: cycle.name,
-    startDate: cycle.startDate,
-    endDate: cycle.endDate,
+    id: interval.id,
+    number: interval.number,
+    name: interval.name,
+    startDate: interval.startDate,
+    endDate: interval.endDate,
   };
 }
 
@@ -297,10 +297,10 @@ export async function updateProject(input: Record<string, unknown>, ctx: ToolCon
   return { updated: true, id: updated.id, project: updated };
 }
 
-// ── update_cycle ──────────────────────────────────────────────────────────
-const updateCycleSchema = z.object({
+// ── update_interval ──────────────────────────────────────────────────────────
+const updateIntervalSchema = z.object({
   projectId: z.string().uuid(),
-  cycleId: z.string().uuid(),
+  intervalId: z.string().uuid(),
   name: z.string().min(1).max(100).optional(),
   goal: z.string().nullish(),
   startDate: calendarDateInput.nullish(),
@@ -310,51 +310,51 @@ const updateCycleSchema = z.object({
 });
 
 const CYCLE_SELECT = {
-  id: true, number: true, status: true, cycleKind: true, startDate: true,
+  id: true, number: true, status: true, intervalKind: true, startDate: true,
   endDate: true, projectId: true, parentId: true, name: true, createdAt: true,
 } as const;
 
-export async function updateCycle(input: Record<string, unknown>, ctx: ToolContext) {
+export async function updateInterval(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_UPDATE);
   if (denied) return denied;
 
-  const parsed = updateCycleSchema.safeParse(input);
+  const parsed = updateIntervalSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
   const data = parsed.data;
 
-  const existing = await prisma.cycle.findFirst({
-    where: { id: data.cycleId, orgId: ctx.orgId, projectId: data.projectId },
+  const existing = await prisma.interval.findFirst({
+    where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
     select: { id: true },
   });
-  if (!existing) return { error: "Cycle not found" };
+  if (!existing) return { error: "Interval not found" };
 
   // Re-parent validation: target must be a PROGRAM_INCREMENT in this project,
-  // and a cycle can't be its own parent (mirrors the PUT route).
+  // and an interval can't be its own parent (mirrors the PUT route).
   if (data.parentId !== undefined && data.parentId !== null) {
-    if (data.parentId === data.cycleId) {
-      return { error: "A cycle can't be its own Program Increment" };
+    if (data.parentId === data.intervalId) {
+      return { error: "An interval can't be its own Program Increment" };
     }
-    const parent = await prisma.cycle.findFirst({
+    const parent = await prisma.interval.findFirst({
       where: { id: data.parentId, projectId: data.projectId },
-      select: { cycleKind: true },
+      select: { intervalKind: true },
     });
-    if (!parent || parent.cycleKind !== "PROGRAM_INCREMENT") {
+    if (!parent || parent.intervalKind !== "PROGRAM_INCREMENT") {
       return { error: "A sprint can only be nested under a Program Increment" };
     }
   }
 
-  // Only one ACTIVE cycle per project.
+  // Only one ACTIVE interval per project.
   if (data.status === "ACTIVE") {
-    const active = await prisma.cycle.findFirst({
-      where: { projectId: data.projectId, status: "ACTIVE", id: { not: data.cycleId } },
+    const active = await prisma.interval.findFirst({
+      where: { projectId: data.projectId, status: "ACTIVE", id: { not: data.intervalId } },
       select: { id: true },
     });
-    if (active) return { error: "Another cycle is already active" };
+    if (active) return { error: "Another interval is already active" };
   }
 
-  const updated = await prisma.cycle.update({
+  const updated = await prisma.interval.update({
     where: { id: existing.id },
     data: {
       ...(data.name !== undefined && { name: data.name }),
@@ -366,35 +366,35 @@ export async function updateCycle(input: Record<string, unknown>, ctx: ToolConte
     },
     select: CYCLE_SELECT,
   });
-  return { updated: true, id: updated.id, cycle: updated };
+  return { updated: true, id: updated.id, interval: updated };
 }
 
-// ── complete_cycle ────────────────────────────────────────────────────────
-const completeCycleSchema = z.object({
+// ── complete_interval ────────────────────────────────────────────────────────
+const completeIntervalSchema = z.object({
   projectId: z.string().uuid(),
-  cycleId: z.string().uuid(),
-  moveIncompleteToCycleId: z.string().uuid().nullable().optional(),
+  intervalId: z.string().uuid(),
+  moveIncompleteToIntervalId: z.string().uuid().nullable().optional(),
 });
 
-export async function completeCycle(input: Record<string, unknown>, ctx: ToolContext) {
+export async function completeInterval(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_COMPLETE);
   if (denied) return denied;
 
-  const parsed = completeCycleSchema.safeParse(input);
+  const parsed = completeIntervalSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
   const data = parsed.data;
 
-  const cycle = await prisma.cycle.findFirst({
-    where: { id: data.cycleId, orgId: ctx.orgId, projectId: data.projectId },
+  const interval = await prisma.interval.findFirst({
+    where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
     include: { workItems: true },
   });
-  if (!cycle) return { error: "Cycle not found" };
-  if (cycle.status !== "ACTIVE") return { error: "Only active cycles can be completed" };
+  if (!interval) return { error: "Interval not found" };
+  if (interval.status !== "ACTIVE") return { error: "Only active intervals can be completed" };
 
   const completed = await prisma.$transaction(async (tx) => {
-    const items = cycle.workItems;
+    const items = interval.workItems;
     const isDone = (columnKey: string) =>
       ["done", "completed", "closed"].some((k) => columnKey.toLowerCase().includes(k));
     const doneItems = items.filter((i) => isDone(i.columnKey));
@@ -418,31 +418,31 @@ export async function completeCycle(input: Record<string, unknown>, ctx: ToolCon
     };
 
     if (incompleteItems.length > 0) {
-      // Harden beyond the HTTP route (review finding): the destination cycle is
+      // Harden beyond the HTTP route (review finding): the destination interval is
       // untrusted, LLM-reachable input — require it to exist in THIS org+project
-      // before re-pointing items at it; otherwise carry over to no cycle.
+      // before re-pointing items at it; otherwise carry over to no interval.
       let destination: string | null = null;
-      if (data.moveIncompleteToCycleId) {
-        const dest = await tx.cycle.findFirst({
-          where: { id: data.moveIncompleteToCycleId, orgId: ctx.orgId, projectId: cycle.projectId },
+      if (data.moveIncompleteToIntervalId) {
+        const dest = await tx.interval.findFirst({
+          where: { id: data.moveIncompleteToIntervalId, orgId: ctx.orgId, projectId: interval.projectId },
           select: { id: true },
         });
-        if (!dest) throw new Error("moveIncompleteToCycleId is not a cycle in this project");
+        if (!dest) throw new Error("moveIncompleteToIntervalId is not an interval in this project");
         destination = dest.id;
       }
       await tx.workItem.updateMany({
         where: { id: { in: incompleteItems.map((i) => i.id) } },
-        data: { cycleId: destination },
+        data: { intervalId: destination },
       });
     }
 
-    const row = await tx.cycle.update({
-      where: { id: cycle.id },
+    const row = await tx.interval.update({
+      where: { id: interval.id },
       data: { status: "COMPLETED", report },
       select: CYCLE_SELECT,
     });
     return { row, report };
   });
 
-  return { completed: true, id: completed.row.id, cycle: completed.row, report: completed.report };
+  return { completed: true, id: completed.row.id, interval: completed.row, report: completed.report };
 }

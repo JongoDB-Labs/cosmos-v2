@@ -59,7 +59,7 @@ import type {
   BoardColumn,
   WorkItem,
   OrgMember,
-  Cycle,
+  Interval,
 } from "@/types/models";
 
 interface KanbanBoardProps {
@@ -68,12 +68,12 @@ interface KanbanBoardProps {
   projectKey: string;
   boardId: string;
   /**
-   * Default cycle/sprint to scope the board to when the URL carries no explicit
-   * cycle filter. The Sprint board passes the active sprint here so a SCRUM board
+   * Default interval/sprint to scope the board to when the URL carries no explicit
+   * interval filter. The Sprint board passes the active sprint here so a SCRUM board
    * opens already focused on the current sprint (the user can still clear it via
    * the filter bar).
    */
-  initialCycleId?: string;
+  initialIntervalId?: string;
 }
 
 // Separator for composite swimlane droppable ids: `${laneId}::${columnKey}`.
@@ -114,7 +114,7 @@ function KanbanBoardInner({
   projectId,
   projectKey,
   boardId,
-  initialCycleId,
+  initialIntervalId,
 }: KanbanBoardProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -124,7 +124,7 @@ function KanbanBoardInner({
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
   const [members, setMembers] = useState<OrgMember[]>([]);
-  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [intervals, setIntervals] = useState<Interval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Initialize filter state FROM the URL so a shared/reloaded link restores the
@@ -133,9 +133,9 @@ function KanbanBoardInner({
   const [filters, setFilters] = useState<BoardFilters>(() => {
     const parsed = parseFilters(searchParams);
     // Seed the sprint scope from the caller (Sprint board) only when the URL
-    // doesn't already pin a cycle — so a shared/filtered link still wins.
-    if (initialCycleId && !parsed.cycleId) {
-      return { ...parsed, cycleId: initialCycleId };
+    // doesn't already pin an interval — so a shared/filtered link still wins.
+    if (initialIntervalId && !parsed.intervalId) {
+      return { ...parsed, intervalId: initialIntervalId };
     }
     return parsed;
   });
@@ -177,7 +177,7 @@ function KanbanBoardInner({
   const orgSlug = useOrgSlug();
   const itemsKey = useMemo(() => ["org", orgSlug, "work-items", projectId], [orgSlug, projectId]);
   const membersKey = useMemo(() => ["org", orgSlug, "members"], [orgSlug]);
-  const cyclesKey = useMemo(() => ["org", orgSlug, "cycles", projectId], [orgSlug, projectId]);
+  const intervalsKey = useMemo(() => ["org", orgSlug, "intervals", projectId], [orgSlug, projectId]);
   const boardKey = useMemo(() => ["org", orgSlug, "board", boardId], [orgSlug, boardId]);
 
   const applyItems = useCallback(
@@ -250,7 +250,7 @@ function KanbanBoardInner({
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
       try {
-        const [boardData, itemsData, membersData, cyclesData] = await Promise.all([
+        const [boardData, itemsData, membersData, intervalsData] = await Promise.all([
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
@@ -261,7 +261,7 @@ function KanbanBoardInner({
             queryFn: () => jsonFetch<WorkItem[]>(`${basePath}/work-items`),
             staleTime,
           }),
-          // Members/cycles are non-critical — tolerate a failure (keep prior state).
+          // Members/intervals are non-critical — tolerate a failure (keep prior state).
           qc
             .fetchQuery({
               queryKey: membersKey,
@@ -271,8 +271,8 @@ function KanbanBoardInner({
             .catch(() => null),
           qc
             .fetchQuery({
-              queryKey: cyclesKey,
-              queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+              queryKey: intervalsKey,
+              queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
               staleTime,
             })
             .catch(() => null),
@@ -286,7 +286,7 @@ function KanbanBoardInner({
         );
         setItems(itemsData);
         if (membersData) setMembers(membersData);
-        if (cyclesData) setCycles(cyclesData);
+        if (intervalsData) setIntervals(intervalsData);
       } catch (err) {
         if (seq === reqSeq.current) {
           setError(err instanceof Error ? err.message : "Unknown error");
@@ -295,7 +295,7 @@ function KanbanBoardInner({
         if (seq === reqSeq.current && !opts?.silent) setLoading(false);
       }
     },
-    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, cyclesKey],
+    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, intervalsKey],
   );
 
   // Initial load. fetchData sets `loading` up front (the skeleton); that's the
@@ -373,7 +373,7 @@ function KanbanBoardInner({
     ) {
       return false;
     }
-    if (filters.cycleId && item.cycleId !== filters.cycleId) {
+    if (filters.intervalId && item.intervalId !== filters.intervalId) {
       return false;
     }
     if (
@@ -419,7 +419,7 @@ function KanbanBoardInner({
   };
 
   // (laneId, laneLabel) for an item under the active axis. laneId === "" is the
-  // empty / "none" bucket (Unassigned, No cycle, …).
+  // empty / "none" bucket (Unassigned, No interval, …).
   const swimlaneKeyOf = (item: WorkItem): { id: string; label: string } => {
     switch (filters.swimlaneBy) {
       case "assignee":
@@ -433,11 +433,11 @@ function KanbanBoardInner({
         const t = item.workItemType;
         return { id: t?.key ?? "", label: t?.name ?? "No type" };
       }
-      case "cycle": {
-        const c = cycles.find((cy) => cy.id === item.cycleId);
+      case "interval": {
+        const c = intervals.find((cy) => cy.id === item.intervalId);
         return {
-          id: item.cycleId ?? "",
-          label: c?.name ?? (item.cycleId ? item.cycleId : "No cycle"),
+          id: item.intervalId ?? "",
+          label: c?.name ?? (item.intervalId ? item.intervalId : "No interval"),
         };
       }
       case "parent":
@@ -829,7 +829,7 @@ function KanbanBoardInner({
         filters={filters}
         onFilterChange={setFilters}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
@@ -928,26 +928,26 @@ function KanbanBoardInner({
                       </SelectContent>
                     </Select>
                   )}
-                  {canBulkEdit && cycles.length > 0 && (
+                  {canBulkEdit && intervals.length > 0 && (
                     <Select
                       value=""
                       onValueChange={(v) => {
                         if (!v) return;
                         const target = v === "__none__" ? null : v;
-                        const c = cycles.find((cy) => cy.id === v);
+                        const c = intervals.find((cy) => cy.id === v);
                         void bulkUpdate(
                           visibleSelectedIds,
-                          { cycleId: target },
-                          target ? `moved to ${c?.name ?? "cycle"}` : "removed from cycle",
+                          { intervalId: target },
+                          target ? `moved to ${c?.name ?? "interval"}` : "removed from interval",
                         );
                       }}
                     >
                       <SelectTrigger size="sm" className="h-7">
-                        <SelectValue placeholder="Cycle…" />
+                        <SelectValue placeholder="Interval…" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">No cycle</SelectItem>
-                        {cycles.map((c) => (
+                        <SelectItem value="__none__">No interval</SelectItem>
+                        {intervals.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.name}
                           </SelectItem>
@@ -1090,7 +1090,7 @@ function KanbanBoardInner({
         orgId={orgId}
         projectId={projectId}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         columns={columns}
         onUpdate={handleItemUpdate}
         onDelete={handleItemDeleted}

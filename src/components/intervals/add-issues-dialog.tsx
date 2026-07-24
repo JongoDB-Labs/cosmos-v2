@@ -18,42 +18,42 @@ import { notifyError } from "@/lib/errors/notify";
 import { Search } from "lucide-react";
 
 /**
- * "Add issues to a sprint" picker (FR 0e31d1ef). Cycle planning previously
+ * "Add issues to a sprint" picker (FR 0e31d1ef). Interval planning previously
  * meant editing each issue one at a time; this lets a planner multi-select
- * project issues from the Cycles workspace and move them into a cycle in one
+ * project issues from the Intervals workspace and move them into an interval in one
  * action (via the bulk work-items endpoint). Moving an issue only changes its
- * cycle — status/column are untouched.
+ * interval — status/column are untouched.
  */
 
 interface WorkItemLite {
   id: string;
   title: string;
   ticketNumber: number;
-  cycleId: string | null;
+  intervalId: string | null;
 }
 
 interface AddIssuesDialogProps {
   orgId: string;
   projectId: string;
   projectKey: string;
-  cycle: { id: string; name: string } | null;
+  interval: { id: string; name: string } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Called after issues are successfully added (parent refetches cycles). */
+  /** Called after issues are successfully added (parent refetches intervals). */
   onAdded: () => void;
-  /** cycleId → cycle name, for the "currently in X" badge on candidates. */
-  cycleNames: Record<string, string>;
+  /** intervalId → interval name, for the "currently in X" badge on candidates. */
+  intervalNames: Record<string, string>;
 }
 
 export function AddIssuesDialog({
   orgId,
   projectId,
   projectKey,
-  cycle,
+  interval,
   open,
   onOpenChange,
   onAdded,
-  cycleNames,
+  intervalNames,
 }: AddIssuesDialogProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const [items, setItems] = useState<WorkItemLite[]>([]);
@@ -65,7 +65,7 @@ export function AddIssuesDialog({
   // Load candidate issues each time the dialog opens.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!open || !cycle) return;
+    if (!open || !interval) return;
     let cancelled = false;
     setLoading(true);
     setSelected(new Set());
@@ -85,21 +85,21 @@ export function AddIssuesDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, cycle, basePath]);
+  }, [open, interval, basePath]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Candidates = everything not already in THIS cycle, matching the search.
+  // Candidates = everything not already in THIS interval, matching the search.
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items
-      .filter((i) => i.cycleId !== cycle?.id)
+      .filter((i) => i.intervalId !== interval?.id)
       .filter(
         (i) =>
           !q ||
           i.title.toLowerCase().includes(q) ||
           `${projectKey}-${i.ticketNumber}`.toLowerCase().includes(q),
       );
-  }, [items, cycle, query, projectKey]);
+  }, [items, interval, query, projectKey]);
 
   const allVisibleSelected =
     candidates.length > 0 && candidates.every((c) => selected.has(c.id));
@@ -126,31 +126,31 @@ export function AddIssuesDialog({
   }
 
   const addSelected = useCallback(async () => {
-    if (!cycle || selected.size === 0) return;
+    if (!interval || selected.size === 0) return;
     setSaving(true);
     try {
       const res = await fetch(`${basePath}/work-items/bulk`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [...selected], update: { cycleId: cycle.id } }),
+        body: JSON.stringify({ ids: [...selected], update: { intervalId: interval.id } }),
       });
       if (!res.ok) throw new Error("Failed to add issues");
       onAdded();
       onOpenChange(false);
     } catch (err) {
-      notifyError(err, "Couldn't add the selected issues to the cycle.");
+      notifyError(err, "Couldn't add the selected issues to the interval.");
     } finally {
       setSaving(false);
     }
-  }, [cycle, selected, basePath, onAdded, onOpenChange]);
+  }, [interval, selected, basePath, onAdded, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add issues to {cycle?.name}</DialogTitle>
+          <DialogTitle>Add issues to {interval?.name}</DialogTitle>
           <DialogDescription>
-            Pick issues to move into this cycle. Their status doesn&apos;t change — only the cycle.
+            Pick issues to move into this interval. Their status doesn&apos;t change — only the interval.
           </DialogDescription>
         </DialogHeader>
 
@@ -185,7 +185,7 @@ export function AddIssuesDialog({
             </div>
           ) : candidates.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
-              {items.length === 0 ? "No issues in this project yet." : "Every issue is already in this cycle."}
+              {items.length === 0 ? "No issues in this project yet." : "Every issue is already in this interval."}
             </p>
           ) : (
             candidates.map((i) => (
@@ -198,9 +198,9 @@ export function AddIssuesDialog({
                   {projectKey}-{i.ticketNumber}
                 </span>
                 <span className="flex-1 truncate">{i.title}</span>
-                {i.cycleId && cycleNames[i.cycleId] && (
+                {i.intervalId && intervalNames[i.intervalId] && (
                   <Badge variant="neutral" className="shrink-0 text-[10px]">
-                    {cycleNames[i.cycleId]}
+                    {intervalNames[i.intervalId]}
                   </Badge>
                 )}
               </label>

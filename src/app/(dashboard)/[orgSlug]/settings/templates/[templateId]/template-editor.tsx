@@ -75,7 +75,7 @@ const FEATURE_FLAGS = [
   { key: "decision", label: "Decisions" },
   { key: "meeting_note", label: "Meeting Notes" },
   { key: "okr", label: "OKRs" },
-  { key: "cycle", label: "Cycles" },
+  { key: "interval", label: "Intervals" },
 ] as const;
 
 // ---- Board type badge ----

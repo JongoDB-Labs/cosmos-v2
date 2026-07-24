@@ -134,7 +134,7 @@ describe("convertBlockToItem — marginal types (OKR / Goal / Sprint / Roadmap n
     const cases = [
       { itemType: "OBJECTIVE", del: (id: string) => prisma.objective.delete({ where: { id } }) },
       { itemType: "GOAL", del: (id: string) => prisma.goal.delete({ where: { id } }) },
-      { itemType: "CYCLE", del: (id: string) => prisma.cycle.delete({ where: { id } }) },
+      { itemType: "INTERVAL", del: (id: string) => prisma.interval.delete({ where: { id } }) },
       { itemType: "ROADMAP_NODE", del: (id: string) => prisma.roadmapNode.delete({ where: { id } }) },
     ] as const;
 

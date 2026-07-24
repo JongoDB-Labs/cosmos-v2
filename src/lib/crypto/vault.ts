@@ -13,7 +13,7 @@ import crypto from "node:crypto";
  * a short, stable `kid` (key id). New secrets are sealed under the ACTIVE kid;
  * old secrets stay openable under their original kid until a re-wrap migrates
  * them to the active kid (see {@link rewrapSecret} + scripts/dsop/rotate-vault-key.mjs).
- * This gives a zero-downtime rotate-then-retire cycle: add new key → set active →
+ * This gives a zero-downtime rotate-then-retire interval: add new key → set active →
  * re-wrap all → drop old key.
  *
  * Env (read at call time, never at module load — tests + rotation see current env):
