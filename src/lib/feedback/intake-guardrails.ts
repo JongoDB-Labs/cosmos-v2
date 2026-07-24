@@ -35,8 +35,8 @@
 
 import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
 import { getForemanClaudeCreds } from "@/lib/ai/foreman-claude-subscription";
-import { dedupGate, type Judge } from "@/lib/foreman/dedup-gate";
-import type { Candidate } from "@/lib/foreman/dedup";
+import { dedupGate, type Judge } from "@/lib/dedup/dedup-gate";
+import type { Candidate } from "@/lib/dedup/dedup";
 import {
   delimitUntrustedFeedback,
   type GuardrailFinding,

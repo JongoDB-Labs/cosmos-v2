@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Candidate } from "@/lib/foreman/dedup";
+import type { Candidate } from "@/lib/dedup/dedup";
 import type { ModelTurnResult } from "@/lib/ai/egress";
 import {
   detectLowQuality,

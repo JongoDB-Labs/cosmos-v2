@@ -1,5 +1,4 @@
 import { excludeFamily, prefilter, type Candidate } from "./dedup";
-import type { LedgerEntry } from "./ledger";
 
 export interface DedupInput {
   title: string;
@@ -27,11 +26,4 @@ export async function dedupGate(
   const shortlist = prefilter(input.title, eligible, threshold);
   if (shortlist.length === 0) return { dupOf: null, reason: "no similar prior work" };
   return judge(input.title, shortlist);
-}
-
-/** Prior resolved tickets from the ledger become dedup candidates. */
-export function ledgerCandidates(entries: LedgerEntry[]): Candidate[] {
-  return entries
-    .filter((e) => e.resolution === "shipped" || e.resolution === "gated" || e.resolution === "already-done")
-    .map((e) => ({ ref: e.ticket, title: e.title }));
 }
