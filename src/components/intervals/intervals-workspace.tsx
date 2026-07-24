@@ -106,9 +106,12 @@ interface IntervalsWorkspaceProps {
   orgId: string;
   projectId: string;
   projectKey: string;
+  /** Pre-selected kind for the create form — the project sector's default
+   *  (Sprint for software, Phase for AEC, …). Falls back to SPRINT. */
+  defaultKind?: string;
 }
 
-export function IntervalsWorkspace({ orgId, projectId, projectKey }: IntervalsWorkspaceProps) {
+export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind = "SPRINT" }: IntervalsWorkspaceProps) {
   const { can } = usePermissions();
   const canCreate = can(Permission.SPRINT_CREATE);
   const canUpdate = can(Permission.SPRINT_UPDATE);
@@ -126,7 +129,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey }: IntervalsWo
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const [kind, setKind] = useState("SPRINT");
+  const [kind, setKind] = useState(defaultKind);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -247,7 +250,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey }: IntervalsWo
     setEditId(null);
     setName("");
     setGoal("");
-    setKind("SPRINT");
+    setKind(defaultKind);
     setStartDate("");
     setEndDate("");
   }
