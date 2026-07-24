@@ -77,7 +77,7 @@ const MANUFACTURING_PROJECT_TEMPLATE = {
   description: "Work orders, operations, quality control, and inspection tracking.",
   defaultConfig: {
     intervalKinds: ["RUN"],
-    intervalNavLabel: "Runs",
+    cycleNavLabel: "Runs",
     enabledFeatures: ["kpi", "risk", "decision"],
   },
 };
