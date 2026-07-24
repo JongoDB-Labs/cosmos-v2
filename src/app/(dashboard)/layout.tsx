@@ -6,6 +6,7 @@ import { DashboardShell } from "@/components/layouts/dashboard-shell";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { getEnabledModulesByOrg } from "@/lib/entitlements";
 import { getEnabledPluginsByOrg } from "@/lib/plugins/enablement";
+import { PluginEnablementProvider } from "@/components/plugins/plugin-slot";
 import "@/lib/plugins/registry/index";
 import { CommandPalette } from "@/components/search/command-palette";
 import { QueryProvider } from "@/components/providers/query-provider";
@@ -108,7 +109,12 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
           orgs={orgs}
           isSystemAdmin={isInternalAdmin(user.email, process.env.INTERNAL_ADMINS)}
         >
-          <PageTransition>{children}</PageTransition>
+          {/* Seeds the fail-closed enabled-plugins context that <PluginSlot>
+              reads (per-org, from the shell data + URL). Must wrap every page
+              that embeds a plugin slot (overview card, work-item badge, …). */}
+          <PluginEnablementProvider orgs={orgs}>
+            <PageTransition>{children}</PageTransition>
+          </PluginEnablementProvider>
           <CommandPalette orgs={orgs} />
         </DashboardShell>
       </PermissionsProvider>
