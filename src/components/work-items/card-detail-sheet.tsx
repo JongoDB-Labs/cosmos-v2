@@ -8,7 +8,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -35,11 +34,10 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { useOrgMembers } from "@/components/chat/mention-typeahead";
-import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { useRefResolver } from "@/components/mentions/hooks";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { NoteRichTextEditor } from "@/components/notes/editor/rich-text-editor";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
-import { insertMentionToken } from "@/lib/mentions/input";
 import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
@@ -180,11 +178,6 @@ export function CardDetailSheet({
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
   const [dirty, setDirty] = useState(false);
-  const commentRef = useRef<HTMLTextAreaElement>(null);
-  const [mentionState, setMentionState] = useState<{
-    q: string;
-    anchor: { top: number; left: number };
-  } | null>(null);
   const { data: mentionMembers } = useOrgMembers(orgId);
   // Person chips resolve instantly from the member map; other entity chips via
   // the batch resolver. Comments render markdown (was raw text — now chips).
@@ -199,6 +192,12 @@ export function CardDetailSheet({
     comments.map((c) => c.content),
     commentUserSeed,
   );
+  const commentMentionLabels = useMemo(
+    () => new Map([...commentRefMap].map(([k, v]) => [k, v.label])),
+    [commentRefMap],
+  );
+  // Bump to remount (reset) the rich comment editor after a successful post.
+  const [commentEditorKey, setCommentEditorKey] = useState(0);
   // Resolve id-valued activity fields (assignee/interval/status) to names so the
   // Activity tab never shows a raw GUID (FR 545f81b1).
   const activityResolvers = useMemo(
@@ -677,55 +676,6 @@ export function CardDetailSheet({
     });
   }
 
-  function detectMention(text: string, caret: number) {
-    const before = text.slice(0, caret);
-    const m = before.match(/(?:^|\s)@([\w-]*)$/);
-    if (!m) return null;
-    return m[1];
-  }
-
-  function onCommentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setNewComment(e.target.value);
-    const q = detectMention(e.target.value, e.target.selectionStart ?? 0);
-    if (q !== null) {
-      const rect = e.target.getBoundingClientRect();
-      setMentionState({
-        q,
-        anchor: { top: rect.top - 8 - 200, left: rect.left + 32 },
-      });
-    } else {
-      setMentionState(null);
-    }
-  }
-
-  function pickEntity(hit: ResolvedEntity) {
-    const ta = commentRef.current;
-    if (!ta) return;
-    const caret = ta.selectionStart ?? newComment.length;
-    const { value, caret: caretAfter } = insertMentionToken(
-      newComment,
-      caret,
-      hit.type,
-      hit.id,
-    );
-    setNewComment(value);
-    setMentionState(null);
-    // Restore the caret to just after the inserted mention (not the end of the
-    // whole comment) so typing continues in place when mentioning mid-sentence.
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(caretAfter, caretAfter);
-    });
-  }
-
-  function onCommentKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (mentionState) return; // let MentionPicker handle ArrowUp/Down/Enter/Escape
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleAddComment();
-    }
-  }
-
   function handleAddComment() {
     if (!item || !newComment.trim()) return;
     startTransition(async () => {
@@ -739,6 +689,7 @@ export function CardDetailSheet({
         const comment: Comment = await res.json();
         setComments((prev) => [...prev, comment]);
         setNewComment("");
+        setCommentEditorKey((k) => k + 1);
       } catch (err) {
         console.error("Failed to add comment:", err);
         notifyError(err, "Couldn't post your comment.");
@@ -1428,11 +1379,15 @@ export function CardDetailSheet({
                       </div>
                       {isEditing ? (
                         <div className="mt-1 space-y-1.5">
-                          <Textarea
-                            value={editDraft}
-                            onChange={(e) => setEditDraft(e.target.value)}
-                            className="min-h-16 resize-none text-sm"
-                          />
+                          <div className="rounded-lg border border-input px-2.5 py-1.5 text-sm">
+                            <NoteRichTextEditor
+                              key={`edit-${c.id}`}
+                              initialMarkdown={editDraft}
+                              orgId={orgId}
+                              mentionLabels={commentMentionLabels}
+                              onChange={setEditDraft}
+                            />
+                          </div>
                           <div className="flex items-center gap-2">
                             <Button
                               size="xs"
@@ -1473,15 +1428,16 @@ export function CardDetailSheet({
               )}
 
               <div className="relative flex gap-2">
-                <textarea
-                  ref={commentRef}
-                  rows={1}
-                  value={newComment}
-                  onChange={onCommentChange}
-                  onKeyDown={onCommentKey}
-                  placeholder="Write a comment… (@ to mention)"
-                  className="flex-1 resize-none rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                />
+                <div className="flex-1 rounded-lg border border-input px-2.5 py-1.5 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
+                  <NoteRichTextEditor
+                    key={`comment-${commentEditorKey}`}
+                    initialMarkdown={newComment}
+                    orgId={orgId}
+                    mentionLabels={commentMentionLabels}
+                    onChange={setNewComment}
+                    placeholder="Write a comment… (@ to mention)"
+                  />
+                </div>
                 <Button
                   size="icon"
                   variant="ghost"
@@ -1491,15 +1447,6 @@ export function CardDetailSheet({
                 >
                   <Send className="h-4 w-4" />
                 </Button>
-                {mentionState && (
-                  <EntityMentionPicker
-                    orgId={orgId}
-                    query={mentionState.q}
-                    anchor={mentionState.anchor}
-                    onPick={pickEntity}
-                    onCancel={() => setMentionState(null)}
-                  />
-                )}
               </div>
             </div>
           )}

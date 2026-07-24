@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.236.0",
+    date: "2026-07-24",
+    title: "Comments: rich mention input (name chips, not raw tokens)",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The comment box (new and edit) is now a rich editor like Notes — @-mention someone and you see their name as a chip while composing, instead of a raw <@…> token. Posting is unchanged; existing comments still render correctly.",
+      },
+    ],
+  },
+  {
     version: "2.235.2",
     date: "2026-07-24",
     title: "Fix: names (not UUIDs) in Table group headers",
