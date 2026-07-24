@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.233.2",
+    date: "2026-07-24",
+    title: "Filter bar shows only the custom-field filters in use",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Timeline and Kanban filter bar now shows a custom-field filter (e.g. Repro steps, Release version, Environment, Severity) only when items on that board actually use it — so bug-specific fields no longer clutter a board full of stories and tasks. An active filter stays visible so you can always clear it.",
+      },
+    ],
+  },
+  {
     version: "2.233.1",
     date: "2026-07-24",
     title: "Fix: Sprints nav link + wider Manage-sprints drawer",

@@ -29,6 +29,7 @@ import {
   parseFilters,
   serializeFilters,
   bareTypeKey,
+  customFieldHasValue,
   matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
@@ -340,6 +341,21 @@ function KanbanBoardInner({
     const s = new Set<string>();
     for (const it of items) {
       if (it.workItemType?.key) s.add(bareTypeKey(it.workItemType.key));
+    }
+    return [...s];
+  }, [items]);
+
+  // Custom-field keys actually populated on this board — scopes the field
+  // filters (see FilterBar.presentCustomFieldKeys).
+  const presentCustomFieldKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      const cf = it.customFields;
+      if (cf) {
+        for (const [k, v] of Object.entries(cf)) {
+          if (customFieldHasValue(v)) s.add(k);
+        }
+      }
     }
     return [...s];
   }, [items]);
@@ -833,6 +849,7 @@ function KanbanBoardInner({
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
+        presentCustomFieldKeys={presentCustomFieldKeys}
         showSwimlane
       />
 
