@@ -70,14 +70,10 @@ export default async function ProjectLayout({
     select: { tabPrefs: true },
   });
   const projectSettings = (project.settings as Record<string, unknown> | null) ?? {};
-  // Top-level "Sprints" entry (project header, not the board strip). Label is
-  // template-driven; only shown when the project has the interval feature.
-  const intervalCfg = project.projectTemplate?.defaultConfig as
-    | Record<string, unknown>
-    | null;
+  // Top-level "Intervals" entry (project header, not the board strip). The label
+  // is the generic term for every project type; the project's sector drives the
+  // DEFAULT interval kind (Sprint/Phase/…) when managing them, not this label.
   const intervalEnabled = project.enabledFeatures.includes("cycle");
-  const intervalNavLabel =
-    typeof intervalCfg?.cycleNavLabel === "string" ? intervalCfg.cycleNavLabel : "Sprints";
   const allTabPrefs =
     userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
       ? (userPrefs.tabPrefs as Record<string, unknown>)
@@ -135,7 +131,7 @@ export default async function ProjectLayout({
               className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}
             >
               <CalendarClock className="h-4 w-4" />
-              {intervalNavLabel}
+              Intervals
             </Link>
           )}
           <Link

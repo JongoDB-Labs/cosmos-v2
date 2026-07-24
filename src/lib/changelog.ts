@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.234.0",
+    date: "2026-07-24",
+    title: "Intervals: consistent label, project-type default kind",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The project header entry now reads “Intervals” for every project type, instead of a per-type label. The project's sector still drives the DEFAULT kind pre-selected when you create one (Sprint for software, Phase for construction/consulting, Module for education, Run for manufacturing, Release for ops, Event Day for events) — and every kind remains available in the picker.",
+      },
+    ],
+  },
+  {
     version: "2.233.2",
     date: "2026-07-24",
     title: "Filter bar shows only the custom-field filters in use",
