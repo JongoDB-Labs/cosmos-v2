@@ -4,7 +4,7 @@ import {
   ObjectiveStatus,
   GoalStatus,
   GoalProgressMode,
-  CycleKind,
+  IntervalKind,
 } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { storeEmbedding } from "@/lib/rag/embed";
@@ -19,7 +19,7 @@ import { NotFoundError } from "@/lib/rbac/check";
  *
  * An external LLM converts a document into a flat `items[]` array — each item
  * tagged with its `type` — and POSTs it. COSMOS creates the corresponding row
- * for every supported item kind (ISSUE / MILESTONE / OBJECTIVE / GOAL / CYCLE /
+ * for every supported item kind (ISSUE / MILESTONE / OBJECTIVE / GOAL / INTERVAL /
  * ROADMAP_NODE), attributing the creation to the authenticated user. This
  * generalizes the roadmap-only ingest contract to every item type and reuses
  * the exact field/default logic the in-app converters apply.
@@ -67,13 +67,13 @@ const goalItemSchema = z.object({
   progressMode: z.nativeEnum(GoalProgressMode).nullish(),
 });
 
-const cycleItemSchema = z.object({
-  type: z.literal("CYCLE"),
+const intervalItemSchema = z.object({
+  type: z.literal("INTERVAL"),
   name: z.string().min(1).max(100),
   goal: z.string().max(2_000).nullish(),
   startDate: z.string().nullish(),
   endDate: z.string().nullish(),
-  cycleKind: z.nativeEnum(CycleKind).nullish(),
+  intervalKind: z.nativeEnum(IntervalKind).nullish(),
 });
 
 const roadmapNodeItemSchema = roadmapImportNodeSchema.extend({
@@ -85,7 +85,7 @@ export const itemSchema = z.discriminatedUnion("type", [
   milestoneItemSchema,
   objectiveItemSchema,
   goalItemSchema,
-  cycleItemSchema,
+  intervalItemSchema,
   roadmapNodeItemSchema,
 ]);
 
@@ -114,7 +114,7 @@ type IssueItem = z.infer<typeof issueItemSchema>;
 type MilestoneItem = z.infer<typeof milestoneItemSchema>;
 type ObjectiveItem = z.infer<typeof objectiveItemSchema>;
 type GoalItem = z.infer<typeof goalItemSchema>;
-type CycleItem = z.infer<typeof cycleItemSchema>;
+type IntervalItem = z.infer<typeof intervalItemSchema>;
 
 /**
  * Create one Work Item (Issue) + its `created` Activity row in a single tx,
@@ -257,22 +257,22 @@ async function createGoal(
 }
 
 /**
- * Create a Cycle (sprint) — number = max+1 per project, goal default "",
- * dates default to a two-week window from now, cycleKind default SPRINT.
+ * Create an Interval (sprint) — number = max+1 per project, goal default "",
+ * dates default to a two-week window from now, intervalKind default SPRINT.
  */
-async function createCycle(
+async function createInterval(
   orgId: string,
   projectId: string,
-  item: CycleItem,
+  item: IntervalItem,
 ): Promise<{ id: string; name: string }> {
   const startDate = parseDate(item.startDate) ?? new Date();
   const endDate = parseDate(item.endDate) ?? new Date(Date.now() + 14 * 86_400_000);
   return prisma.$transaction(async (tx) => {
-    const maxNum = await tx.cycle.aggregate({
+    const maxNum = await tx.interval.aggregate({
       where: { orgId, projectId },
       _max: { number: true },
     });
-    return tx.cycle.create({
+    return tx.interval.create({
       data: {
         orgId,
         projectId,
@@ -281,7 +281,7 @@ async function createCycle(
         goal: item.goal ?? "",
         startDate,
         endDate,
-        cycleKind: item.cycleKind ?? "SPRINT",
+        intervalKind: item.intervalKind ?? "SPRINT",
       },
       select: { id: true, name: true },
     });
@@ -340,9 +340,9 @@ export async function ingestItems(input: {
         report.created.push({ type: "GOAL", id: g.id, title: g.title });
         break;
       }
-      case "CYCLE": {
-        const c = await createCycle(orgId, projectId, item);
-        report.created.push({ type: "CYCLE", id: c.id, title: c.name });
+      case "INTERVAL": {
+        const c = await createInterval(orgId, projectId, item);
+        report.created.push({ type: "INTERVAL", id: c.id, title: c.name });
         break;
       }
       case "ROADMAP_NODE": {

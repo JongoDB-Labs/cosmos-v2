@@ -9,7 +9,7 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Increment the last run of digits in a cycle name, preserving zero-padding.
+ * Increment the last run of digits in an interval name, preserving zero-padding.
  *   "Sprint 1"              → "Sprint 2"
  *   "Increment 1 · Sprint 3" → "Increment 1 · Sprint 4"
  *   "Sprint 09"             → "Sprint 10"

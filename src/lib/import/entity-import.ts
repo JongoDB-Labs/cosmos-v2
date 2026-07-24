@@ -28,7 +28,7 @@ import type {
   ObjectiveStatus,
   GoalStatus,
   GoalProgressMode,
-  CycleKind,
+  IntervalKind,
   SprintStatus,
   BlockerType,
   BlockerStatus,
@@ -243,8 +243,8 @@ async function loadExistingIds(
       const rows = await prisma.goal.findMany({ where: { orgId, projectId }, select: { id: true, title: true } });
       return toMap(rows, (r) => ({ title: r.title }));
     }
-    case "cycle": {
-      const rows = await prisma.cycle.findMany({ where: { projectId }, select: { id: true, name: true } });
+    case "interval": {
+      const rows = await prisma.interval.findMany({ where: { projectId }, select: { id: true, name: true } });
       return toMap(rows, (r) => ({ name: r.name }));
     }
     case "blocker": {
@@ -283,12 +283,12 @@ function codeKeyError(def: EntityDef, fields: Record<string, unknown>): string |
 }
 
 // ── Per-entity CREATE (commit). Returns nothing; throws on failure (caught per
-//    row by the caller). `cycle` consumes a per-project number counter; `vendor`
+//    row by the caller). `interval` consumes a per-project number counter; `vendor`
 //    find-or-creates the Partner then creates the Contract. ──
 
 interface CommitState {
-  /** Next cycle.number for this project (lazily seeded on first cycle row). */
-  nextCycleNumber: number | null;
+  /** Next interval.number for this project (lazily seeded on first interval row). */
+  nextIntervalNumber: number | null;
   /** Partner name (lowercased) → Partner id cache for vendor imports. */
   partnerCache: Map<string, string>;
 }
@@ -417,20 +417,20 @@ async function createEntityRow(
       });
       return;
     }
-    case "cycle": {
-      if (state.nextCycleNumber === null) {
-        const max = await prisma.cycle.aggregate({ where: { projectId }, _max: { number: true } });
-        state.nextCycleNumber = (max._max.number ?? 0) + 1;
+    case "interval": {
+      if (state.nextIntervalNumber === null) {
+        const max = await prisma.interval.aggregate({ where: { projectId }, _max: { number: true } });
+        state.nextIntervalNumber = (max._max.number ?? 0) + 1;
       }
-      const number = state.nextCycleNumber++;
-      await prisma.cycle.create({
+      const number = state.nextIntervalNumber++;
+      await prisma.interval.create({
         data: {
           orgId, projectId, number,
           name: s(fields, "name")!,
           goal: s(fields, "goal") ?? undefined,
           startDate: dt(fields, "startDate")!,
           endDate: dt(fields, "endDate")!,
-          cycleKind: (s(fields, "cycleKind") as CycleKind | null) ?? undefined,
+          intervalKind: (s(fields, "intervalKind") as IntervalKind | null) ?? undefined,
           status: (s(fields, "status") as SprintStatus | null) ?? undefined,
         },
       });
@@ -607,13 +607,13 @@ async function updateEntityRow(
       if (Object.keys(data).length) await prisma.goal.update({ where: { id }, data });
       return;
     }
-    case "cycle": {
+    case "interval": {
       // number stays fixed (identity); update the rest.
       const data = patch(fields, [
         ["name", "name"], ["goal", "goal"], ["startDate", "startDate"],
-        ["endDate", "endDate"], ["cycleKind", "cycleKind"], ["status", "status"],
+        ["endDate", "endDate"], ["intervalKind", "intervalKind"], ["status", "status"],
       ]);
-      if (Object.keys(data).length) await prisma.cycle.update({ where: { id }, data });
+      if (Object.keys(data).length) await prisma.interval.update({ where: { id }, data });
       return;
     }
     case "blocker": {
@@ -733,7 +733,7 @@ export async function runEntityImport(
   if (req.mode === "validate") return report;
 
   // ── commit ──
-  const state: CommitState = { nextCycleNumber: null, partnerCache: new Map() };
+  const state: CommitState = { nextIntervalNumber: null, partnerCache: new Map() };
   let created = 0;
   let updated = 0;
   const commitErrors: EntityImportRowError[] = [];

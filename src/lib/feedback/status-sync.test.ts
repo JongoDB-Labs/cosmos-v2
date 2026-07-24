@@ -10,7 +10,7 @@ describe("feedbackStatusForColumn", () => {
     expect(feedbackStatusForColumn("done")).toBe("DONE");
   });
 
-  it("handles custom column names via the same heuristics cycle-complete uses", () => {
+  it("handles custom column names via the same heuristics interval-complete uses", () => {
     expect(feedbackStatusForColumn("Completed ✅".toLowerCase())).toBe("DONE");
     expect(feedbackStatusForColumn("closed-wont-fix")).toBe("DONE");
     expect(feedbackStatusForColumn("Doing")).toBe("IN_PROGRESS");

@@ -84,8 +84,8 @@ const OPS_PROJECT_TEMPLATE = {
   name: "Operations Workspace",
   description: "Incident management, change requests, runbooks, and SLA tracking.",
   defaultConfig: {
-    cycleKinds: ["RELEASE"],
-    cycleNavLabel: "Releases",
+    intervalKinds: ["RELEASE"],
+    intervalNavLabel: "Releases",
     enabledFeatures: ["kpi", "risk", "decision", "meeting_note"],
   },
 };

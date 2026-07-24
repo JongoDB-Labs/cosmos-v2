@@ -13,7 +13,7 @@ const base: CreateIssueFields = {
   columnKey: "todo",
   priority: "HIGH",
   assigneeIds: [],
-  cycleId: null,
+  intervalId: null,
   startDate: "",
   dueDate: "",
   tags: [],
@@ -45,21 +45,21 @@ describe("buildCreateBody", () => {
     expect(body.type).toBe("TASK");
   });
 
-  it("includes optional assignees/cycle/dates only when set", () => {
+  it("includes optional assignees/interval/dates only when set", () => {
     const full = buildCreateBody({
       ...base,
       assigneeIds: ["u1", "u2"],
-      cycleId: "c1",
+      intervalId: "c1",
       startDate: "2026-07-01",
       dueDate: "2026-07-10",
     });
     expect(full.assigneeIds).toEqual(["u1", "u2"]);
-    expect(full.cycleId).toBe("c1");
+    expect(full.intervalId).toBe("c1");
     expect(full.startDate).toBe("2026-07-01T00:00:00.000Z");
     expect(full.dueDate).toBe("2026-07-10T00:00:00.000Z");
 
     const bare = buildCreateBody(base);
-    for (const k of ["assigneeIds", "cycleId", "startDate", "dueDate"]) {
+    for (const k of ["assigneeIds", "intervalId", "startDate", "dueDate"]) {
       expect(bare).not.toHaveProperty(k);
     }
   });

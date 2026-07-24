@@ -197,13 +197,13 @@ async function main() {
 
   // ── 4. Active sprint (Increment 2 · Sprint 5) — engineered so the AI brief
   //      reads "57% complete, ~70% time elapsed, 2 overdue → at risk". ────────
-  const cycle = await prisma.cycle.upsert({
+  const interval = await prisma.interval.upsert({
     where: { projectId_number: { projectId, number: 5 } },
     update: { status: "ACTIVE", startDate: d(-10), endDate: d(5) },
     create: {
       orgId: org.id,
       projectId,
-      cycleKind: "SPRINT",
+      intervalKind: "SPRINT",
       number: 5,
       name: "Increment 2 · Sprint 5",
       sectorLabel: "Sprint",
@@ -236,7 +236,7 @@ async function main() {
         orgId: org.id,
         projectId,
         workItemTypeId: taskType.id,
-        cycleId: cycle.id,
+        intervalId: interval.id,
         title: it.t,
         columnKey: it.col,
         ticketNumber: i + 1,
@@ -433,7 +433,7 @@ async function main() {
     ownerUserId: jon.id,
     projectId,
     projectKey: PKEY,
-    activeCycleId: cycle.id,
+    activeCycleId: interval.id,
     counts: { workItems: wi, complianceControls: ctl, expenses: exp, revenues: rev },
     url: `https://defcon.fightingsmartcyber.com/${org.slug}`,
   });

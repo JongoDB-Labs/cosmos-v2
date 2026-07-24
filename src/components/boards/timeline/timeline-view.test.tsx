@@ -92,7 +92,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     if (url.endsWith("/work-items")) return Promise.resolve(activeItems);
     if (url.endsWith("/members")) return Promise.resolve([]);
     if (url.endsWith("/work-item-links")) return Promise.resolve([]);
-    if (url.endsWith("/cycles")) return Promise.resolve([]);
+    if (url.endsWith("/intervals")) return Promise.resolve([]);
     if (url.includes("/boards/"))
       return Promise.resolve({
         id: "b1",
@@ -227,7 +227,7 @@ describe("TimelineView.matchesFilters — custom-field filtering", () => {
       priority: "MEDIUM",
       assigneeId: null,
       assignees: [],
-      cycleId: null,
+      intervalId: null,
       customFields,
     }) as unknown as WorkItem;
 

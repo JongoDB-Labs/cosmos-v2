@@ -75,8 +75,8 @@ const EVENT_PROJECT_TEMPLATE = {
   name: "Event",
   description: "Run-of-show, vendor management, logistics, and risk planning.",
   defaultConfig: {
-    cycleKinds: ["EVENT_DAY"],
-    cycleNavLabel: "Days",
+    intervalKinds: ["EVENT_DAY"],
+    intervalNavLabel: "Days",
     enabledFeatures: ["milestone", "kpi", "risk", "decision", "meeting_note"],
   },
 };

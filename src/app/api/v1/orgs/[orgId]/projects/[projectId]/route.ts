@@ -17,7 +17,7 @@ export const TOGGLEABLE_FEATURES = [
   "goal",
   "kpi",
   "milestone",
-  "cycle",
+  "interval",
   "roadmap",
   "files",
   "pm-dashboard",
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           include: { columns: { orderBy: { sortOrder: "asc" } } },
           orderBy: { sortOrder: "asc" },
         },
-        cycles: { orderBy: { number: "desc" } },
+        intervals: { orderBy: { number: "desc" } },
         members: {
           include: {
             orgMember: {
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             },
           },
         },
-        _count: { select: { boards: true, cycles: true, members: true } },
+        _count: { select: { boards: true, intervals: true, members: true } },
       },
     });
 
@@ -145,7 +145,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.enabledFeatures !== undefined && { enabledFeatures: data.enabledFeatures }),
       },
       include: {
-        _count: { select: { boards: true, cycles: true, members: true } },
+        _count: { select: { boards: true, intervals: true, members: true } },
       },
     });
 

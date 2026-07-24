@@ -27,7 +27,7 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
 import { healthOf, slipDays } from "@/lib/schedule/health";
-import type { WorkItem, OrgMember, Cycle, Board, BoardColumn, CustomField } from "@/types/models";
+import type { WorkItem, OrgMember, Interval, Board, BoardColumn, CustomField } from "@/types/models";
 import {
   bareTypeKey,
   FilterBar,
@@ -145,7 +145,7 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
 
 type DragMode = "move" | "start" | "end";
 
-/** Client-side board-filter match (search/type/priority/assignee/cycle + custom
+/** Client-side board-filter match (search/type/priority/assignee/interval + custom
  *  fields) — mirrors the Kanban/Table logic so the Gantt's FilterBar behaves
  *  identically, including filtering by admin-defined custom fields. `defs` is the
  *  project's custom-field definitions (needed to interpret each active
@@ -171,7 +171,7 @@ export function matchesFilters(
     !item.assignees?.some((a) => a.userId === f.assigneeId)
   )
     return false;
-  if (f.cycleId && item.cycleId !== f.cycleId) return false;
+  if (f.intervalId && item.intervalId !== f.intervalId) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -244,9 +244,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const membersKey = useOrgQueryKey("members");
   const linksKey = useOrgQueryKey("work-item-links", projectId);
   const boardKey = useOrgQueryKey("board", boardId);
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [itemsQ, membersQ, linksQ, boardQ, cyclesQ] = useQueries({
+  const [itemsQ, membersQ, linksQ, boardQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -262,15 +262,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         queryFn: () => jsonFetch<WorkItemLink[]>(`${basePath}/work-item-links`),
       },
       {
-        // Board (for its columns) + cycles — needed so a bar click can open the
+        // Board (for its columns) + intervals — needed so a bar click can open the
         // SAME CardDetailSheet the Kanban/Table views use (FR: card detail
         // reachable + editable from the Timeline too).
         queryKey: boardKey,
         queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
       },
       {
-        queryKey: cyclesKey,
-        queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
     ],
   });
@@ -288,14 +288,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const members = useMemo<OrgMember[]>(() => membersQ.data ?? [], [membersQ.data]);
   const links = useMemo<WorkItemLink[]>(() => linksQ.data ?? [], [linksQ.data]);
   const columns = useMemo<BoardColumn[]>(() => boardQ.data?.columns ?? [], [boardQ.data]);
-  const cycles = useMemo<Cycle[]>(() => cyclesQ.data ?? [], [cyclesQ.data]);
+  const intervals = useMemo<Interval[]>(() => intervalsQ.data ?? [], [intervalsQ.data]);
   // Custom-field defs for this project (org-wide + project-scoped) — drives the
   // FilterBar's per-field controls and the client-side filter match below, so a
   // defined field is filterable on the Gantt exactly as it is on the Kanban board.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
 
   // ── Gantt controls ───────────────────────────────────────────────────────
-  // FilterBar filters (search/type/priority/assignee/cycle), a critical-path
+  // FilterBar filters (search/type/priority/assignee/interval), a critical-path
   // highlight toggle, and a busy flag while a bulk shift/compress is in flight.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
@@ -765,7 +765,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   // ── Critical path ────────────────────────────────────────────────────────
   // The longest dependency chain (by summed bar duration) through the currently
-  // visible items. DP over the dependency DAG (cycle-guarded); highlighted only
+  // visible items. DP over the dependency DAG (interval-guarded); highlighted only
   // when toggled on.
   const criticalSet = useMemo(() => {
     if (!showCritical) return new Set<string>();
@@ -938,7 +938,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         filters={filters}
         onFilterChange={setFilters}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
@@ -1838,7 +1838,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         orgId={orgId}
         projectId={projectId}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         columns={columns}
         projectItems={items}
         onUpdate={(updated) =>

@@ -16,7 +16,7 @@ const schema = z.object({
   title: z.string().max(500).optional(),
   columnKey: z.string().optional(),
   itemType: z
-    .enum(["ISSUE", "MILESTONE", "OBJECTIVE", "GOAL", "CYCLE", "ROADMAP_NODE"])
+    .enum(["ISSUE", "MILESTONE", "OBJECTIVE", "GOAL", "INTERVAL", "ROADMAP_NODE"])
     .default("ISSUE"),
   // When present, map a TABLE block's rows -> one Issue each (CSV-style).
   table: z.object({ titleColumn: z.number().int().min(0), headerRow: z.boolean() }).optional(),

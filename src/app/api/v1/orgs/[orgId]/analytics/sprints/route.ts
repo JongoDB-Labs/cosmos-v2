@@ -8,11 +8,11 @@ import { success, handleApiError } from "@/lib/api-helpers";
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 /**
- * Sprint velocity analytics. "Sprints" are completed Cycles; this returns one
- * record per completed cycle in the shape the Sprint Velocity tab expects.
+ * Sprint velocity analytics. "Sprints" are completed Intervals; this returns one
+ * record per completed interval in the shape the Sprint Velocity tab expects.
  * Previously this route didn't exist, so the client got a 404 (ambiguous
  * between "no data" and "endpoint missing"). It now returns 200 with an empty
- * array when a project has no completed cycles. [BUG-82]
+ * array when a project has no completed intervals. [BUG-82]
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -37,36 +37,36 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       50,
     );
 
-    const cycles = await prisma.cycle.findMany({
+    const intervals = await prisma.interval.findMany({
       where: { orgId, projectId, status: "COMPLETED" },
       orderBy: { number: "desc" },
       take: limit,
     });
 
-    // Single batched query for every cycle's items (grouped in memory),
-    // not one findMany per cycle — at limit=50 the per-cycle version fired 50
+    // Single batched query for every interval's items (grouped in memory),
+    // not one findMany per interval — at limit=50 the per-interval version fired 50
     // concurrent queries and could exhaust the connection pool.
-    const cycleIds = cycles.map((c) => c.id);
+    const intervalIds = intervals.map((c) => c.id);
     const allItems = await prisma.workItem.findMany({
-      where: { orgId, projectId, cycleId: { in: cycleIds } },
+      where: { orgId, projectId, intervalId: { in: intervalIds } },
       select: {
-        cycleId: true,
+        intervalId: true,
         storyPoints: true,
         completedAt: true,
         columnEnteredAt: true,
         createdAt: true,
       },
     });
-    const itemsByCycle = new Map<string, typeof allItems>();
+    const itemsByInterval = new Map<string, typeof allItems>();
     for (const item of allItems) {
-      if (!item.cycleId) continue;
-      const bucket = itemsByCycle.get(item.cycleId);
+      if (!item.intervalId) continue;
+      const bucket = itemsByInterval.get(item.intervalId);
       if (bucket) bucket.push(item);
-      else itemsByCycle.set(item.cycleId, [item]);
+      else itemsByInterval.set(item.intervalId, [item]);
     }
 
-    const sprints = cycles.map((cycle) => {
-        const items = itemsByCycle.get(cycle.id) ?? [];
+    const sprints = intervals.map((interval) => {
+        const items = itemsByInterval.get(interval.id) ?? [];
 
         const completed = items.filter((i) => i.completedAt);
         const totalPoints = items.reduce((s, i) => s + (i.storyPoints ?? 0), 0);
@@ -103,8 +103,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         }
 
         return {
-          sprintId: cycle.id,
-          sprintName: cycle.name,
+          sprintId: interval.id,
+          sprintName: interval.name,
           velocity: completedPoints,
           completedPoints,
           totalPoints,

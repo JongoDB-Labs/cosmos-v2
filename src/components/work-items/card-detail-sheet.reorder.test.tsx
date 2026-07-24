@@ -69,7 +69,7 @@ function parentWithChildren(children: WorkItemRef[]): WorkItem {
     storyPoints: null,
     startDate: null,
     dueDate: null,
-    cycleId: null,
+    intervalId: null,
     assigneeId: null,
     assignees: [],
     workItemTypeId: "wt",
@@ -104,7 +104,7 @@ describe("CardDetailSheet — drag-reorder sub-items (COSMOS-5)", () => {
         orgId="o1"
         projectId="pr1"
         members={[]}
-        cycles={[]}
+        intervals={[]}
         columns={[{ key: "todo", name: "To Do" } as never]}
         onUpdate={() => {}}
         onChildrenReordered={onChildrenReordered}
@@ -146,7 +146,7 @@ describe("CardDetailSheet — drag-reorder sub-items (COSMOS-5)", () => {
         orgId="o1"
         projectId="pr1"
         members={[]}
-        cycles={[]}
+        intervals={[]}
         columns={[{ key: "todo", name: "To Do" } as never]}
         onUpdate={() => {}}
         onChildrenReordered={onChildrenReordered}
