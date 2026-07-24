@@ -93,7 +93,7 @@ const AEC_PROJECT_TEMPLATE = {
   description: "Phase-gated construction with submittals, RFIs, change orders, and daily logs.",
   defaultConfig: {
     intervalKinds: ["PHASE"],
-    intervalNavLabel: "Phases",
+    cycleNavLabel: "Phases",
     enabledFeatures: ["milestone", "kpi", "risk", "decision", "meeting_note"],
   },
 };
