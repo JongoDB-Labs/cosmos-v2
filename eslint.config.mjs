@@ -88,6 +88,12 @@ const eslintConfig = defineConfig([
     // Claude Code session data + transient agent git worktrees. Linting these
     // re-lints stale copies of the whole tree (and isn't real source anyway).
     ".claude/**",
+    // Private plugin checkouts (ADR 0003). scripts/plugins/sync.mjs composes
+    // their overlay/** into src/plugins/<slug>/** at build time — THOSE composed
+    // copies get linted; the raw checkout here is a staging area (and its
+    // @/plugins/* imports only resolve once composed). Mirrors tsconfig exclude
+    // + .gitignore + .dockerignore.
+    "plugins/**",
   ]),
 ]);
 

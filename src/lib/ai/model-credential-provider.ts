@@ -4,14 +4,14 @@
  * Core's feedback-intake judges (duplicate detection + scope classification in
  * intake-guardrails.ts, and the security judge) need a model credential to run an
  * LLM turn. That credential used to come from Foreman's per-org Claude subscription
- * via a direct `@/lib/ai/foreman-claude-subscription` import — a core→Foreman
- * coupling that blocks extracting Foreman to its own repo.
+ * via a direct `@/plugins/foreman/lib/claude-subscription` import — a core→Foreman
+ * coupling that blocked extracting Foreman to its own repo.
  *
  * This registry inverts it: core resolves the credential through
- * `resolveModelCredential`, and whoever OWNS the credential (Foreman today, the
- * Foreman plugin after the split) registers a provider. FAIL-SAFE by construction:
- * when no provider is registered (Foreman absent / not enabled) the resolver returns
- * null and the intake judges degrade gracefully — exactly today's behavior when the
+ * `resolveModelCredential`, and whoever OWNS the credential (the Foreman plugin)
+ * registers a provider from its server hooks. FAIL-SAFE by construction: when no
+ * provider is registered (Foreman not composed / not enabled) the resolver returns
+ * null and the intake judges degrade gracefully — exactly the behavior when the
  * subscription is unavailable. It never throws.
  */
 
@@ -23,8 +23,9 @@ export type ModelCredentialResolver = (
 let resolver: ModelCredentialResolver | null = null;
 
 /** Register the process-wide credential provider (idempotent — last write wins).
- *  Called once at server boot by whoever owns the credential (see
- *  src/lib/foreman/server-boot.ts today; the Foreman plugin's server hooks post-split). */
+ *  Called by whoever owns the credential — the Foreman plugin's server hooks
+ *  (src/plugins/foreman/server.ts), loaded through the neutral plugin
+ *  composition seam (src/lib/plugins/registry/server.ts) at server boot. */
 export function registerModelCredentialProvider(r: ModelCredentialResolver): void {
   resolver = r;
 }

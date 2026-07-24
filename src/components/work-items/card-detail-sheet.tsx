@@ -42,7 +42,7 @@ import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
-import { ForemanGroomingBadge } from "@/components/foreman/foreman-grooming-badge";
+import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
 import {
   CustomFieldInput,
@@ -878,10 +878,11 @@ export function CardDetailSheet({
             placeholder="Title"
           />
 
-          {/* Per-ticket supervisor badge — what Foreman's outcome-grooming
-              supervisor last did (or, in dry mode, proposed) for this ticket.
-              Renders nothing when there's no actionable history. */}
-          <ForemanGroomingBadge orgId={orgId} workItemId={item.id} />
+          {/* Plugin workItem.detailBadge slot — fail-closed: renders nothing
+              unless an ENABLED plugin contributes here (e.g. Foreman's
+              per-ticket outcome-grooming supervisor badge, itself silent when
+              there's no actionable history). */}
+          <PluginSlot name="workItem.detailBadge" orgId={orgId} workItemId={item.id} />
 
           {/* Description — Write/Preview (Markdown) + `#` roadmap-node linking */}
           <RoadmapDescriptionField

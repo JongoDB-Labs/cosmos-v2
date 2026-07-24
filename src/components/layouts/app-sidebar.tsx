@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion as fm, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { ForemanMark } from "@/components/foreman/foreman-mark";
 import {
   PanelLeftClose,
   PanelLeft,
@@ -30,7 +29,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { motion } from "@/lib/motion";
-import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { usePermissions } from "@/components/providers/permissions-provider";
 import {
   visibleNav,
   applyAdminLayout,
@@ -238,34 +237,6 @@ export function AppSidebar({
             </Link>
           );
         })}
-
-        {/* Foreman: the autonomous-delivery console. Unlike the Workspace
-            items below, it has no desktop topbar affordance, so it's kept
-            OUTSIDE the showMovedNav gate — this is its only nav-driven entry
-            point, on both the desktop rail and the mobile drawer. Gated on
-            the same permission the /foreman page itself requires
-            (ORG_UPDATE) — same admin-only bar as the Settings tabs that
-            configure it (Feedback automation, Organization). */}
-        {currentOrg && can(Permission.ORG_UPDATE) && (
-          <Link
-            href={resolveHref(orgSlug, "/foreman")}
-            title={!open ? "Foreman" : undefined}
-            aria-current={
-              isHrefActive(pathname, resolveHref(orgSlug, "/foreman"), false)
-                ? "page"
-                : undefined
-            }
-            className={cn(
-              "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
-              isHrefActive(pathname, resolveHref(orgSlug, "/foreman"), false)
-                ? "border-l-2 border-[var(--primary)] bg-[var(--primary-tint)] pl-2 text-[var(--primary)]"
-                : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
-            )}
-          >
-            <ForemanMark className="h-4 w-4" />
-            {open && <span className="truncate">Foreman</span>}
-          </Link>
-        )}
 
         {/* Workspace section: the topbar-only destinations, surfaced here on
             the mobile drawer so every primary destination stays reachable on a

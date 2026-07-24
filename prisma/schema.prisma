@@ -236,11 +236,6 @@ model Organization {
   deliverableRevisions   DeliverableRevision[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
-  foremanAiSettings      ForemanAiSettings?
-  foremanSupervisorSettings ForemanSupervisorSettings?
-  foremanSkills             ForemanSkill[]
-  foremanMcpServers         ForemanMcpServer[]
-  foremanHarnessSettings    ForemanHarnessSettings?
   emailSettings          OrgEmailSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
@@ -2949,102 +2944,10 @@ model OrgAiSettings {
   @@map("org_ai_settings")
 }
 
-/// Foreman's OWN per-org Claude subscription (distinct from OrgAiSettings, which is
-/// the org's general-purpose AI provider config). Gives the autonomous-delivery
-/// daemon a dedicated OAuth connection so its usage doesn't consume a human seat's
-/// token. Tokens are SEALED via the vault before they touch the DB (Json { sealed }),
-/// mirroring OrgAiSettings/UserAiSettings.
-model ForemanAiSettings {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId             String    @unique @map("org_id") @db.Uuid
-  provider          String    @default("claude-oauth")
-  oauthAccessToken  Json?     @map("oauth_access_token")
-  oauthRefreshToken Json?     @map("oauth_refresh_token")
-  oauthExpiresAt    DateTime? @map("oauth_expires_at")
-  updatedById       String?   @map("updated_by_id") @db.Uuid
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@map("foreman_ai_settings")
-}
-
-/// PER-ORG config for the Foreman SUPERVISOR self-grooming loop, set from the
-/// console (ORG_MANAGE_SETTINGS). `mode` off|dry|live gates the whole loop
-/// (default dry so it ships observable-but-safe); the four booleans toggle each
-/// behavior; threshold/cap are advanced knobs. No secrets — plain config.
-model ForemanSupervisorSettings {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId               String   @unique @map("org_id") @db.Uuid
-  mode                String   @default("dry")
-  deliverClose        Boolean  @default(true)  @map("deliver_close")
-  requeue             Boolean  @default(true)
-  dedup               Boolean  @default(true)
-  escalate            Boolean  @default(true)
-  confidenceThreshold Float    @default(0.8)   @map("confidence_threshold")
-  perPassCap          Int      @default(5)     @map("per_pass_cap")
-  updatedById         String?  @map("updated_by_id") @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  @@map("foreman_supervisor_settings")
-}
-
-/// A build-agent Skill (SKILL.md) managed in the Foreman console. orgId NULL = a
-/// project-wide skill applied to every build; orgId set = an org overlay. `body`
-/// is the full SKILL.md (frontmatter + content), materialized into the ephemeral
-/// build worktree at .claude/skills/<name>/SKILL.md.
-model ForemanSkill {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String?  @map("org_id") @db.Uuid
-  name        String
-  description String
-  body        String
-  enabled     Boolean  @default(true)
-  source      String   @default("authored")
-  createdById String?  @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  org Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  @@unique([orgId, name])
-  @@map("foreman_skills")
-}
-
-/// A remote (http/https ONLY) MCP server the build agents can use, managed in the
-/// console. No local/stdio commands (RCE). `headers` are vault-sealed.
-model ForemanMcpServer {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String?  @map("org_id") @db.Uuid
-  name        String
-  url         String
-  headers     Json?
-  enabled     Boolean  @default(true)
-  createdById String?  @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  org Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  @@unique([orgId, name])
-  @@map("foreman_mcp_servers")
-}
-
-/// Per-org enable + system-prompt append for the build harness.
-model ForemanHarnessSettings {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId              String   @unique @map("org_id") @db.Uuid
-  enabled            Boolean  @default(true)
-  systemPromptAppend String?  @map("system_prompt_append")
-  updatedById        String?  @map("updated_by_id") @db.Uuid
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  @@map("foreman_harness_settings")
-}
-
 /// PER-ORG transactional-email (Resend) delivery config, set by an org OWNER from
 /// the org settings UI instead of a server env var. The provider API key is SEALED
 /// via the vault before it touches the DB (Json { sealed }), mirroring
-/// OrgAiSettings/ForemanAiSettings; it is unsealed only server-side at send time
+/// OrgAiSettings; it is unsealed only server-side at send time
 /// (see src/lib/integrations/org-email-config.ts). When `enabled` with a valid
 /// sealed key + fromAddress, invitation email sends through this config; otherwise
 /// the sender falls back to env RESEND_API_KEY/EMAIL_FROM, then the inviter's Gmail.
@@ -3817,96 +3720,6 @@ model Reference {
   @@index([orgId, targetType, targetId])
   @@index([sourceType, sourceId])
   @@map("entity_references")
-}
-
-/// Foreman daemon self-reported pulse — ONE row, id = "host". Upserted every
-/// coordinator pass (20–60s) so the app can answer "is Foreman alive and what
-/// is it doing right now". See docs spec 2026-07-11-foreman-observability.
-model ForemanState {
-  id            String   @id
-  startedAt     DateTime @map("started_at")
-  lastPassAt    DateTime @map("last_pass_at")
-  daemonVersion String   @map("daemon_version")
-  pid           Int
-  workerTarget  Int      @map("worker_target")
-  slotsBusy     Int      @map("slots_busy")
-  queueDepth    Int      @map("queue_depth")
-  inFlight      Json     @map("in_flight")
-  breaker       Json
-  stopFileSeen  Boolean  @map("stop_file_seen")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@map("foreman_state")
-}
-
-/// Foreman decision feed — append-only; the host ledger jsonl, but queryable
-/// and org-scoped. Terminal kinds mirror ledger Resolution 1:1.
-model ForemanEvent {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ts         DateTime @default(now())
-  orgId      String?  @map("org_id") @db.Uuid
-  workItemId String?  @map("work_item_id") @db.Uuid
-  ticketKey  String?  @map("ticket_key")
-  kind       String
-  severity   String   @default("info")
-  message    String
-  data       Json?
-
-  @@index([orgId, ts(sort: Desc)])
-  @@map("foreman_events")
-}
-
-model ForemanLoopTransition {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  loopId            String   @map("loop_id") @db.Uuid
-  orgId             String   @map("org_id") @db.Uuid
-  iteration         Int
-  fromPhase         String   @map("from_phase")
-  toPhase           String   @map("to_phase")
-  action            String
-  terminationSignal String?  @map("termination_signal")
-  invariantResults  Json     @map("invariant_results")
-  durationMs        Int      @map("duration_ms")
-  tokensIn          Int      @default(0) @map("tokens_in")
-  tokensOut         Int      @default(0) @map("tokens_out")
-  costUsd           Float    @default(0) @map("cost_usd")
-  stateSnapshot     Json     @map("state_snapshot")
-  createdAt         DateTime @default(now()) @map("created_at")
-
-  @@unique([loopId, iteration])
-  @@index([orgId, createdAt])
-  @@index([loopId])
-  @@map("foreman_loop_transition")
-}
-
-model ForemanLoopState {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  loopId        String   @unique @map("loop_id") @db.Uuid
-  orgId         String   @map("org_id") @db.Uuid
-  status        String
-  phase         String
-  iteration     Int
-  schemaVersion Int      @map("schema_version")
-  state         Json
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  @@index([orgId, status])
-  @@map("foreman_loop_state")
-}
-
-model ForemanLoopSettings {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId          String?  @unique @map("org_id") @db.Uuid
-  mode           String   @default("off")
-  wallClockMin   Int      @default(90) @map("wall_clock_min")
-  costUsdCeiling Float?   @map("cost_usd_ceiling")
-  stallRounds    Int      @default(3) @map("stall_rounds")
-  updatedById    String?  @map("updated_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  @@map("foreman_loop_settings")
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
