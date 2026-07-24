@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.235.2",
+    date: "2026-07-24",
+    title: "Fix: names (not UUIDs) in Table group headers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Grouping the Table view by Assignee (or Type, Status, Interval) now shows the person's name, the type/status name, etc. in the group headers — previously the raw UUID/key was shown. Empty groups read “Unassigned”/“No type”.",
+      },
+    ],
+  },
+  {
     version: "2.235.1",
     date: "2026-07-24",
     title: "New Board: discipline tabs for the sector presets",
