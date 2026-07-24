@@ -144,7 +144,7 @@ describe("ForemanPulseCard", () => {
     expect(await screen.findByText(/2 building/)).toBeInTheDocument();
     expect(screen.getByText(/3 awaiting approval/)).toBeInTheDocument();
     // The shipped fragment comes from a second query that only starts once
-    // the first has resolved, so it lands a render cycle later — findByText
+    // the first has resolved, so it lands a render interval later — findByText
     // (which polls) rather than getByText.
     expect(await screen.findByText(/v2\.183\.0/)).toBeInTheDocument();
   });

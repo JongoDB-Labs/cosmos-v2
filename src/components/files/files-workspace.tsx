@@ -59,7 +59,7 @@ interface Proposal {
   sourceAnchor: string | null;
 }
 
-type ConvertItemType = "ISSUE" | "MILESTONE" | "OBJECTIVE" | "GOAL" | "CYCLE" | "ROADMAP_NODE";
+type ConvertItemType = "ISSUE" | "MILESTONE" | "OBJECTIVE" | "GOAL" | "INTERVAL" | "ROADMAP_NODE";
 
 interface ConvertResult {
   itemType: ConvertItemType;
@@ -74,7 +74,7 @@ const CONVERT_TYPES: { value: ConvertItemType; label: string; noun: string; icon
   { value: "MILESTONE", label: "Milestone", noun: "milestone", icon: Flag },
   { value: "OBJECTIVE", label: "Objective (OKR)", noun: "objective", icon: Target },
   { value: "GOAL", label: "Goal", noun: "goal", icon: Goal },
-  { value: "CYCLE", label: "Sprint", noun: "sprint", icon: Repeat },
+  { value: "INTERVAL", label: "Sprint", noun: "sprint", icon: Repeat },
   { value: "ROADMAP_NODE", label: "Roadmap node", noun: "roadmap node", icon: MapIcon },
 ];
 
@@ -143,7 +143,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
       ["milestones", projectId],
       ["objectives", projectId],
       ["goals", projectId],
-      ["cycles", projectId],
+      ["intervals", projectId],
       ["roadmap-nodes", projectId],
     ],
     onSuccess: (res) =>

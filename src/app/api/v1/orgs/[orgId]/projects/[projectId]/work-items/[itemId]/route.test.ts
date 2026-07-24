@@ -110,7 +110,7 @@ beforeEach(() => {
     columnKey: "todo",
     priority: "MEDIUM",
     assigneeId: null,
-    cycleId: null,
+    intervalId: null,
     workItemTypeId: null,
     createdById: "99999999-9999-9999-9999-999999999999",
     completedAt: null,

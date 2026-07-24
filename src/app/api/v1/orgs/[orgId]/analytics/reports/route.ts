@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // Reading saved reports is a read op — gate on ANALYTICS_READ (like the
-    // sprints/portfolio/cycles GETs). REPORT_CREATE stays on save/delete, so a
+    // sprints/portfolio/intervals GETs). REPORT_CREATE stays on save/delete, so a
     // read-only analyst (ANALYTICS_READ without REPORT_CREATE) can view reports.
     requirePermission(ctx, Permission.ANALYTICS_READ);
 

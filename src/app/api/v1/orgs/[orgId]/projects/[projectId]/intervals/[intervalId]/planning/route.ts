@@ -10,15 +10,15 @@ import {
   suggestMemberCapacity,
   DEFAULT_POINTS_CAPACITY,
   DEFAULT_HOURS_CAPACITY,
-} from "@/lib/cycles/sprint-planning";
+} from "@/lib/intervals/sprint-planning";
 
 type RouteParams = {
-  params: Promise<{ orgId: string; projectId: string; cycleId: string }>;
+  params: Promise<{ orgId: string; projectId: string; intervalId: string }>;
 };
 
 /**
  * Planning inputs for the Start Sprint flow: the project's capacity unit, the
- * sprint goal, the committed-scope total (from items already in the cycle), and
+ * sprint goal, the committed-scope total (from items already in the interval), and
  * per-member capacity suggestions (recent velocity for points projects, a
  * standard constant otherwise) alongside any capacity already saved.
  *
@@ -27,7 +27,7 @@ type RouteParams = {
  */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, projectId, cycleId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
@@ -35,11 +35,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SPRINT_READ);
 
-    const cycle = await prisma.cycle.findFirst({
-      where: { id: cycleId, orgId, projectId },
+    const interval = await prisma.interval.findFirst({
+      where: { id: intervalId, orgId, projectId },
       select: { id: true, goal: true },
     });
-    if (!cycle) return new Response("Cycle not found", { status: 404 });
+    if (!interval) return new Response("Interval not found", { status: 404 });
 
     // Resolve the capacity unit from the project's template sector.
     const project = await prisma.project.findFirst({
@@ -50,7 +50,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     // Committed scope: everything currently pulled into the sprint.
     const items = await prisma.workItem.findMany({
-      where: { orgId, projectId, cycleId },
+      where: { orgId, projectId, intervalId },
       select: { storyPoints: true, originalEstimate: true },
     });
     const committed = {
@@ -58,9 +58,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       itemCount: items.length,
     };
 
-    // Capacity already saved for this cycle (userId → capacity).
-    const existing = await prisma.cycleCapacity.findMany({
-      where: { cycleId },
+    // Capacity already saved for this interval (userId → capacity).
+    const existing = await prisma.intervalCapacity.findMany({
+      where: { intervalId },
       select: { userId: true, capacity: true },
     });
     const current: Record<string, number> = {};
@@ -70,7 +70,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // hours projects use a constant, so history isn't needed there).
     const suggestions: Record<string, number> = {};
     if (unit === "points") {
-      const completed = await prisma.cycle.findMany({
+      const completed = await prisma.interval.findMany({
         where: { orgId, projectId, status: "COMPLETED" },
         orderBy: { number: "desc" },
         take: 3,
@@ -82,24 +82,24 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           where: {
             orgId,
             projectId,
-            cycleId: { in: completedIds },
+            intervalId: { in: completedIds },
             completedAt: { not: null },
           },
-          select: { assigneeId: true, storyPoints: true, cycleId: true },
+          select: { assigneeId: true, storyPoints: true, intervalId: true },
         });
-        // userId → (cycleId → completed points in that sprint)
+        // userId → (intervalId → completed points in that sprint)
         const perMember = new Map<string, Map<string, number>>();
         for (const it of histItems) {
           if (!it.assigneeId) continue;
-          const byCycle = perMember.get(it.assigneeId) ?? new Map<string, number>();
-          byCycle.set(
-            it.cycleId!,
-            (byCycle.get(it.cycleId!) ?? 0) + (it.storyPoints ?? 0),
+          const byInterval = perMember.get(it.assigneeId) ?? new Map<string, number>();
+          byInterval.set(
+            it.intervalId!,
+            (byInterval.get(it.intervalId!) ?? 0) + (it.storyPoints ?? 0),
           );
-          perMember.set(it.assigneeId, byCycle);
+          perMember.set(it.assigneeId, byInterval);
         }
-        for (const [userId, byCycle] of perMember) {
-          const recent = completedIds.map((id) => byCycle.get(id) ?? 0);
+        for (const [userId, byInterval] of perMember) {
+          const recent = completedIds.map((id) => byInterval.get(id) ?? 0);
           suggestions[userId] = suggestMemberCapacity(unit, recent);
         }
       }
@@ -107,7 +107,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     return success({
       unit,
-      goal: cycle.goal ?? "",
+      goal: interval.goal ?? "",
       committed,
       current,
       suggestions,

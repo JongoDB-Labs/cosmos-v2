@@ -24,7 +24,7 @@ const updateItemSchema = z.object({
   // primary assigneeId. When present it wins over the legacy single field.
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).optional(),
-  cycleId: z.string().uuid().nullable().optional(),
+  intervalId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   sortOrder: z.number().int().optional(),
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         comments: { orderBy: { createdAt: "asc" }, take: 50 },
         activities: { orderBy: { createdAt: "desc" }, take: 50 },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
-        cycle: { select: { id: true, name: true, number: true, status: true } },
+        interval: { select: { id: true, name: true, number: true, status: true } },
         assignees: {
           orderBy: { sortOrder: "asc" },
           select: {
@@ -122,8 +122,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (primaryFromSet !== undefined && primaryFromSet !== existing.assigneeId) {
         trackFields.push({ field: "assigneeId", oldVal: existing.assigneeId, newVal: primaryFromSet });
       }
-      if (data.cycleId !== undefined && data.cycleId !== existing.cycleId) {
-        trackFields.push({ field: "cycleId", oldVal: existing.cycleId, newVal: data.cycleId });
+      if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
+        trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
       }
       if (data.workItemTypeId !== undefined && data.workItemTypeId !== existing.workItemTypeId) {
         trackFields.push({ field: "workItemTypeId", oldVal: existing.workItemTypeId, newVal: data.workItemTypeId });
@@ -142,7 +142,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.assigneeId !== undefined) updateData.assigneeId = data.assigneeId;
       if (data.assigneeIds !== undefined) updateData.assigneeId = data.assigneeIds[0] ?? null;
       if (data.priority !== undefined) updateData.priority = data.priority;
-      if (data.cycleId !== undefined) updateData.cycleId = data.cycleId;
+      if (data.intervalId !== undefined) updateData.intervalId = data.intervalId;
       if (data.parentId !== undefined) updateData.parentId = data.parentId;
       if (data.storyPoints !== undefined) updateData.storyPoints = data.storyPoints;
       if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;

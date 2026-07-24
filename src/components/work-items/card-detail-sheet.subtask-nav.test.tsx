@@ -73,7 +73,7 @@ function makeItem(
     storyPoints: null,
     startDate: null,
     dueDate: null,
-    cycleId: null,
+    intervalId: null,
     assigneeId: null,
     assignees: [],
     workItemTypeId: "wt",
@@ -159,7 +159,7 @@ describe("CardDetailSheet — sub-item survives navigating child→parent (COSMO
             orgId="o1"
             projectId="pr1"
             members={[]}
-            cycles={[]}
+            intervals={[]}
             columns={[{ key: "todo", name: "To Do" } as never]}
             onUpdate={(updated) =>
               setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)))
@@ -230,7 +230,7 @@ describe("CardDetailSheet — kanban snapshot pattern: sub-item survives child�
             orgId="o1"
             projectId="pr1"
             members={[]}
-            cycles={[]}
+            intervals={[]}
             columns={[{ key: "todo", name: "To Do" } as never]}
             onUpdate={(updated) => {
               setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
@@ -306,7 +306,7 @@ describe("CardDetailSheet — reconciles Sub-items with server truth on open (CO
         orgId="o1"
         projectId="pr1"
         members={[]}
-        cycles={[]}
+        intervals={[]}
         columns={[{ key: "todo", name: "To Do" } as never]}
         onUpdate={() => {}}
         projectItems={[staleParent]}

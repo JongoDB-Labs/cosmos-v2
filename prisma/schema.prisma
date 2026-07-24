@@ -83,7 +83,7 @@ enum SprintStatus {
   COMPLETED
 }
 
-enum CycleKind {
+enum IntervalKind {
   SPRINT
   PHASE
   MODULE
@@ -92,7 +92,7 @@ enum CycleKind {
   RELEASE
   ITERATION
   // A Program Increment (SAFe "Planning Interval") — a larger timebox that
-  // CONTAINS sprints. A PI cycle is the `parent` of its sprint cycles.
+  // CONTAINS sprints. A PI interval is the `parent` of its sprint intervals.
   PROGRAM_INCREMENT
 }
 
@@ -212,7 +212,7 @@ model Organization {
   savedReports           SavedReport[]
   projectTemplates       ProjectTemplate[]
   workItemTypes          WorkItemType[]
-  cycles                 Cycle[]
+  intervals              Interval[]
   mcpServers             McpServer[]
   objectives             Objective[]
   goals                  Goal[]
@@ -304,7 +304,7 @@ model User {
   memberships         OrgMember[]
   preferences         UserPreferences?
   sessions            Session[]
-  cycleCapacities     CycleCapacity[]
+  intervalCapacities  IntervalCapacity[]
   pushSubscriptions   PushSubscription[]
   homeWidgets         HomeWidget[]
   federatedIdentities FederatedIdentity[]
@@ -626,7 +626,7 @@ model Project {
   org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   members             ProjectMember[]
   boards              Board[]
-  cycles              Cycle[]
+  intervals           Interval[]
   objectives          Objective[]
   goals               Goal[]
   milestones          Milestone[]
@@ -735,7 +735,7 @@ model WorkItem {
   createdAt       DateTime                    @default(now()) @map("created_at")
   updatedAt       DateTime                    @updatedAt @map("updated_at")
   workItemTypeId  String                      @map("work_item_type_id") @db.Uuid
-  cycleId         String?                     @map("cycle_id") @db.Uuid
+  intervalId      String?                     @map("interval_id") @db.Uuid
   // RAG: legacy token-bag search vector — no longer written (kept for back-compat
   // until the column is dropped). Real semantic search uses `embedding` below.
   searchVector    Json?                       @map("search_vector")
@@ -766,7 +766,7 @@ model WorkItem {
   parent        WorkItem?            @relation("WorkItemHierarchy", fields: [parentId], references: [id])
   children      WorkItem[]           @relation("WorkItemHierarchy")
   workItemType  WorkItemType         @relation(fields: [workItemTypeId], references: [id])
-  cycle         Cycle?               @relation(fields: [cycleId], references: [id])
+  interval      Interval?            @relation(fields: [intervalId], references: [id])
   activities    Activity[]
   comments      Comment[]
   // Prod-parity back-relations (dependency links + attachments).
@@ -1202,11 +1202,11 @@ model WorkItemTypeField {
   @@map("work_item_type_fields")
 }
 
-model Cycle {
+model Interval {
   id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId       String       @map("org_id") @db.Uuid
   projectId   String       @map("project_id") @db.Uuid
-  cycleKind   CycleKind    @default(SPRINT) @map("cycle_kind")
+  intervalKind IntervalKind @default(SPRINT) @map("interval_kind")
   number      Int
   name        String
   sectorLabel String?      @map("sector_label")
@@ -1217,7 +1217,7 @@ model Cycle {
   report      Json?
   createdAt   DateTime     @default(now()) @map("created_at")
   // Program Increment hierarchy (SAFe): a sprint's `parentId` points at the PI
-  // cycle that contains it. Null for a top-level cycle (a PI itself, or a
+  // interval that contains it. Null for a top-level interval (a PI itself, or a
   // standalone sprint). SetNull on PI delete so removing a PI orphans — never
   // deletes — its sprints.
   parentId    String?      @map("parent_id") @db.Uuid
@@ -1225,29 +1225,29 @@ model Cycle {
   org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workItems  WorkItem[]
-  capacities CycleCapacity[]
-  parent     Cycle?          @relation("CycleProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Cycle[]         @relation("CycleProgramIncrement")
+  capacities IntervalCapacity[]
+  parent     Interval?       @relation("IntervalProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Interval[]      @relation("IntervalProgramIncrement")
 
   @@unique([projectId, number])
   @@index([parentId])
-  @@map("cycles")
+  @@map("intervals")
 }
 
-model CycleCapacity {
+model IntervalCapacity {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cycleId   String   @map("cycle_id") @db.Uuid
+  intervalId String  @map("interval_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   capacity  Float    @default(0)
   notes     String   @default("")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  cycle Cycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  interval Interval @relation(fields: [intervalId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([cycleId, userId])
-  @@map("cycle_capacities")
+  @@unique([intervalId, userId])
+  @@map("interval_capacities")
 }
 
 model CustomField {
@@ -3285,7 +3285,7 @@ enum LinkedItemType {
   MILESTONE
   OBJECTIVE
   GOAL
-  CYCLE
+  INTERVAL
   ROADMAP_NODE
 }
 

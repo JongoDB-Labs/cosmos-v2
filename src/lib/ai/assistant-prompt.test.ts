@@ -82,7 +82,7 @@ describe("BASE_SYSTEM_PROMPT — ask-when-unsure + sprint assignment", () => {
 
   it("tells the model to offer sprint assignment for items inside a sprint window", () => {
     const lower = BASE_SYSTEM_PROMPT.toLowerCase();
-    expect(lower).toContain("list_cycles");
+    expect(lower).toContain("list_intervals");
     expect(lower).toMatch(/sprint/);
   });
 });

@@ -39,7 +39,7 @@ const FEATURE_OPTIONS: { key: string; label: string; description: string }[] = [
   { key: "goal", label: "Goals", description: "Track project goals with rollup progress." },
   { key: "kpi", label: "KPIs", description: "Track metrics with targets and trend charts." },
   { key: "milestone", label: "Milestones", description: "Key dates on a delivery timeline." },
-  { key: "cycle", label: "Cycles / Sprints", description: "Time-boxed iterations of work." },
+  { key: "interval", label: "Intervals / Sprints", description: "Time-boxed iterations of work." },
   { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that issues link to as source-of-truth." },
   { key: "files", label: "Files", description: "Upload & navigate project documents (docx/pdf/pptx/xlsx); convert them to items." },
   { key: "pm-dashboard", label: "PM Dashboard", description: "GovCon program-management suite: risk/change/blocked/schedule/deliverables/vendors/staffing/CLIN registers with drill-down, derived metrics & Excel export." },
@@ -432,7 +432,7 @@ export function ProjectSettingsClient({
             <p className="text-sm text-muted-foreground">
               This will permanently delete{" "}
               <strong>{projectName}</strong> and all of its boards,
-              work items, and cycles. This action cannot be undone.
+              work items, and intervals. This action cannot be undone.
             </p>
             <div className="space-y-1.5">
               <Label htmlFor="delete-confirm">

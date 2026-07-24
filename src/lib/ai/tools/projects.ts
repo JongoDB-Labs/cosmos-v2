@@ -49,8 +49,8 @@ export const projectTools: ToolDefinition[] = [
     },
   },
   {
-    name: "list_cycles",
-    description: "List cycles for a project (optionally filtered by status).",
+    name: "list_intervals",
+    description: "List intervals for a project (optionally filtered by status).",
     input_schema: {
       type: "object",
       properties: {
@@ -62,17 +62,17 @@ export const projectTools: ToolDefinition[] = [
     },
   },
   {
-    name: "create_cycle",
-    description: "Create a new cycle (sprint/phase/etc) for a project.",
+    name: "create_interval",
+    description: "Create a new interval (sprint/phase/etc) for a project.",
     input_schema: {
       type: "object",
       properties: {
         projectId: { type: "string" },
-        name: { type: "string", description: "Cycle name" },
+        name: { type: "string", description: "Interval name" },
         startDate: { type: "string", description: "Start date as a calendar day YYYY-MM-DD" },
         endDate: { type: "string", description: "End date as a calendar day YYYY-MM-DD" },
         goal: { type: "string" },
-        cycleKind: {
+        intervalKind: {
           type: "string",
           enum: ["SPRINT", "PHASE", "MODULE", "RUN", "EVENT_DAY", "RELEASE", "ITERATION"],
           description: "Default SPRINT",
@@ -82,14 +82,14 @@ export const projectTools: ToolDefinition[] = [
     },
   },
   {
-    name: "update_cycle",
+    name: "update_interval",
     description:
-      "Update a cycle's fields. To nest a sprint under a Program Increment, pass `parentId` (must be a PROGRAM_INCREMENT cycle in the same project); pass null to detach. Setting status to ACTIVE fails if another cycle is already active.",
+      "Update an interval's fields. To nest a sprint under a Program Increment, pass `parentId` (must be a PROGRAM_INCREMENT interval in the same project); pass null to detach. Setting status to ACTIVE fails if another interval is already active.",
     input_schema: {
       type: "object",
       properties: {
-        projectId: { type: "string", description: "Project ID the cycle belongs to" },
-        cycleId: { type: "string", description: "Cycle ID to update" },
+        projectId: { type: "string", description: "Project ID the interval belongs to" },
+        intervalId: { type: "string", description: "Interval ID to update" },
         name: { type: "string" },
         goal: { type: "string" },
         startDate: { type: "string", description: "Start date as a calendar day YYYY-MM-DD" },
@@ -97,27 +97,27 @@ export const projectTools: ToolDefinition[] = [
         status: { type: "string", enum: ["PLANNED", "ACTIVE", "COMPLETED"] },
         parentId: {
           type: "string",
-          description: "Program Increment cycle id to nest under, or null to detach",
+          description: "Program Increment interval id to nest under, or null to detach",
         },
       },
-      required: ["projectId", "cycleId"],
+      required: ["projectId", "intervalId"],
     },
   },
   {
-    name: "complete_cycle",
+    name: "complete_interval",
     description:
-      "Complete an ACTIVE cycle. Computes a completion report (velocity, completed vs incomplete items/points). Incomplete items move to `moveIncompleteToCycleId` when supplied, otherwise return to the backlog (cycle cleared).",
+      "Complete an ACTIVE interval. Computes a completion report (velocity, completed vs incomplete items/points). Incomplete items move to `moveIncompleteToIntervalId` when supplied, otherwise return to the backlog (interval cleared).",
     input_schema: {
       type: "object",
       properties: {
-        projectId: { type: "string", description: "Project ID the cycle belongs to" },
-        cycleId: { type: "string", description: "Cycle ID to complete (must be ACTIVE)" },
-        moveIncompleteToCycleId: {
+        projectId: { type: "string", description: "Project ID the interval belongs to" },
+        intervalId: { type: "string", description: "Interval ID to complete (must be ACTIVE)" },
+        moveIncompleteToIntervalId: {
           type: "string",
-          description: "Optional cycle id to move incomplete items into",
+          description: "Optional interval id to move incomplete items into",
         },
       },
-      required: ["projectId", "cycleId"],
+      required: ["projectId", "intervalId"],
     },
   },
 ];

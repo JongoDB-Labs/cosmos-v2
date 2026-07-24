@@ -55,7 +55,7 @@ export interface ProjectCardProject {
   doneItems: number;
   percentComplete: number;
   lead: { displayName: string; avatarUrl: string | null } | null;
-  activeCycleName: string | null;
+  activeIntervalName: string | null;
   nextDueDate: Date | string | null;
 }
 
@@ -222,7 +222,7 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
               />
             </div>
 
-            {/* Status chips: active cycle, next due, completion. */}
+            {/* Status chips: active interval, next due, completion. */}
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <Badge variant={progressVariant(project.percentComplete)}>
                 {project.archived
@@ -233,10 +233,10 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
                       ? "Empty"
                       : "Active"}
               </Badge>
-              {project.activeCycleName && (
+              {project.activeIntervalName && (
                 <Badge variant="strategic" showDot={false}>
                   <Repeat className="h-3 w-3" />
-                  {project.activeCycleName}
+                  {project.activeIntervalName}
                 </Badge>
               )}
               {project.nextDueDate && (
@@ -271,7 +271,7 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
             <DialogDescription>
               This will permanently delete{" "}
               <span className="font-medium">{project.name}</span> and all of its
-              boards, cycles, and work items. This action cannot be undone.
+              boards, intervals, and work items. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -9,7 +9,7 @@ type PageParams = {
 
 /**
  * Project Dependency Map (FR a36d8f16). A layered-DAG view of the project's
- * work-item dependency links (WorkItemLink), with blocked/blocker/cycle
+ * work-item dependency links (WorkItemLink), with blocked/blocker/interval
  * summaries. Same Cache-Components shape as the OKRs page: dynamic reads live in
  * the async child; the client component owns the data load.
  */

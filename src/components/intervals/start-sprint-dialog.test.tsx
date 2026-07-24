@@ -85,7 +85,7 @@ describe("StartSprintDialog", () => {
       <StartSprintDialog
         orgId="o1"
         projectId="p1"
-        cycle={{ id: "c1", name: "Sprint 5", goal: null }}
+        interval={{ id: "c1", name: "Sprint 5", goal: null }}
         onClose={() => {}}
         onStarted={() => {}}
       />,
@@ -113,7 +113,7 @@ describe("StartSprintDialog", () => {
       <StartSprintDialog
         orgId="o1"
         projectId="p1"
-        cycle={{ id: "c1", name: "Sprint 5", goal: null }}
+        interval={{ id: "c1", name: "Sprint 5", goal: null }}
         onClose={() => {}}
         onStarted={onStarted}
       />,
@@ -139,7 +139,7 @@ describe("StartSprintDialog", () => {
     // The activate PUT (basePath, no suffix) flips status to ACTIVE.
     const activateBody = bodyOf(
       fetchMock,
-      (u) => u.endsWith("/cycles/c1") && !u.endsWith("/capacity"),
+      (u) => u.endsWith("/intervals/c1") && !u.endsWith("/capacity"),
     );
     expect(activateBody.status).toBe("ACTIVE");
   });

@@ -31,7 +31,7 @@ import type { ChatBotToolScope } from "@prisma/client";
  */
 const READONLY_EXPLICIT = new Set<string>([
   "semantic_search",
-  "generate_cycle_brief", // composes a status brief from read queries only
+  "generate_interval_brief", // composes a status brief from read queries only
   "fetch_url", // fetches a URL's text; no cosmos mutation
 ]);
 

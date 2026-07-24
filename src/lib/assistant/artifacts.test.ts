@@ -114,10 +114,10 @@ describe("toolCallToArtifact — mutating tool results become linked cards", () 
     ).toBeNull();
   });
 
-  it("returns null for an unmapped mutating tool (create_cycle)", () => {
+  it("returns null for an unmapped mutating tool (create_interval)", () => {
     expect(
       toolCallToArtifact(
-        { id: "tc9", name: "create_cycle", result: { created: true, id: "cy-1" } },
+        { id: "tc9", name: "create_interval", result: { created: true, id: "cy-1" } },
         ORG,
       ),
     ).toBeNull();

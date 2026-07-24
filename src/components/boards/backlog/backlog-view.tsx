@@ -55,7 +55,7 @@ import type {
   BoardColumn,
   WorkItem,
   OrgMember,
-  Cycle,
+  Interval,
 } from "@/types/models";
 
 interface BacklogViewProps {
@@ -89,16 +89,16 @@ function prettifyKey(key: string): string {
     .trim();
 }
 
-/** Short, human date range for a cycle/sprint header. */
-function formatCycleRange(cycle: Cycle): string {
+/** Short, human date range for an interval/sprint header. */
+function formatIntervalRange(interval: Interval): string {
   const fmt = (s: string) => {
     const d = new Date(s);
     return Number.isNaN(d.getTime())
       ? ""
       : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
-  const start = formatStart(cycle.startDate, fmt);
-  const end = formatStart(cycle.endDate, fmt);
+  const start = formatStart(interval.startDate, fmt);
+  const end = formatStart(interval.endDate, fmt);
   if (start && end) return `${start} – ${end}`;
   return start || end || "";
 }
@@ -145,9 +145,9 @@ export function BacklogView({
     void qc.invalidateQueries({ queryKey: itemsKey });
   });
   const membersKey = useOrgQueryKey("members");
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, cyclesQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -162,8 +162,8 @@ export function BacklogView({
         queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
       },
       {
-        queryKey: cyclesKey,
-        queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
     ],
   });
@@ -175,10 +175,10 @@ export function BacklogView({
   );
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
   const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
-  const cycles: Cycle[] = useMemo(() => cyclesQ.data ?? [], [cyclesQ.data]);
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
   const loading =
-    boardQ.isLoading || itemsQ.isLoading || membersQ.isLoading || cyclesQ.isLoading;
+    boardQ.isLoading || itemsQ.isLoading || membersQ.isLoading || intervalsQ.isLoading;
   const fatalError = boardQ.error || itemsQ.error;
   const error = fatalError
     ? fatalError instanceof Error
@@ -206,11 +206,11 @@ export function BacklogView({
     [columnMap],
   );
 
-  const cycleMap = useMemo(() => {
-    const map = new Map<string, Cycle>();
-    for (const c of cycles) map.set(c.id, c);
+  const intervalMap = useMemo(() => {
+    const map = new Map<string, Interval>();
+    for (const c of intervals) map.set(c.id, c);
     return map;
-  }, [cycles]);
+  }, [intervals]);
 
   // Persist a sortOrder change for a single item. The work-item route accepts a
   // partial PUT (every field optional), which is the cosmos convention for
@@ -234,22 +234,22 @@ export function BacklogView({
     onError: (err) => notifyError(err, "Couldn't save the new order."),
   });
 
-  // Reassign an item to a cycle (or back to the backlog when cycleId is null).
+  // Reassign an item to an interval (or back to the backlog when intervalId is null).
   const assignMutation = useOrgMutation<
     unknown,
     Error,
-    { id: string; cycleId: string | null }
+    { id: string; intervalId: string | null }
   >({
-    mutationFn: ({ id, cycleId }) =>
+    mutationFn: ({ id, intervalId }) =>
       jsonFetch(`${basePath}/work-items/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ cycleId }),
+        body: JSON.stringify({ intervalId }),
       }),
     invalidate: [["work-items", projectId]],
-    onMutate: ({ id, cycleId }) => {
+    onMutate: ({ id, intervalId }) => {
       const previous = qc.getQueryData<WorkItem[]>(itemsKey);
       qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-        (prev ?? []).map((i) => (i.id === id ? { ...i, cycleId } : i)),
+        (prev ?? []).map((i) => (i.id === id ? { ...i, intervalId } : i)),
       );
       return { previous };
     },
@@ -281,52 +281,52 @@ export function BacklogView({
     return list;
   }, [items, hideDone, isDone, assignedToMe, currentUserId]);
 
-  // Top "Backlog" section = items with no cycle, ranked.
+  // Top "Backlog" section = items with no interval, ranked.
   const backlogItems = useMemo(
-    () => visibleItems.filter((i) => i.cycleId == null).slice().sort(byRank),
+    () => visibleItems.filter((i) => i.intervalId == null).slice().sort(byRank),
     [visibleItems, byRank],
   );
 
-  // One section per cycle, in (status, startDate) order, with its ranked items.
-  const cycleSections = useMemo(() => {
+  // One section per interval, in (status, startDate) order, with its ranked items.
+  const intervalSections = useMemo(() => {
     const grouped = new Map<string, WorkItem[]>();
     for (const item of visibleItems) {
-      if (item.cycleId == null) continue;
-      const arr = grouped.get(item.cycleId);
+      if (item.intervalId == null) continue;
+      const arr = grouped.get(item.intervalId);
       if (arr) arr.push(item);
-      else grouped.set(item.cycleId, [item]);
+      else grouped.set(item.intervalId, [item]);
     }
-    // Order: known cycles first (by startDate), then any orphan cycleId buckets.
-    const statusRank: Record<Cycle["status"], number> = {
+    // Order: known intervals first (by startDate), then any orphan intervalId buckets.
+    const statusRank: Record<Interval["status"], number> = {
       ACTIVE: 0,
       PLANNED: 1,
       COMPLETED: 2,
     };
     return Array.from(grouped.entries())
-      .map(([cycleId, secItems]) => ({
-        cycle: cycleMap.get(cycleId) ?? null,
-        cycleId,
+      .map(([intervalId, secItems]) => ({
+        interval: intervalMap.get(intervalId) ?? null,
+        intervalId,
         items: secItems.slice().sort(byRank),
       }))
       .sort((a, b) => {
-        if (a.cycle && b.cycle) {
-          const sr = statusRank[a.cycle.status] - statusRank[b.cycle.status];
+        if (a.interval && b.interval) {
+          const sr = statusRank[a.interval.status] - statusRank[b.interval.status];
           if (sr !== 0) return sr;
-          return (a.cycle.startDate ?? "").localeCompare(b.cycle.startDate ?? "");
+          return (a.interval.startDate ?? "").localeCompare(b.interval.startDate ?? "");
         }
-        if (a.cycle) return -1;
-        if (b.cycle) return 1;
-        return a.cycleId.localeCompare(b.cycleId);
+        if (a.interval) return -1;
+        if (b.interval) return 1;
+        return a.intervalId.localeCompare(b.intervalId);
       });
-  }, [visibleItems, cycleMap, byRank]);
+  }, [visibleItems, intervalMap, byRank]);
 
   // Container model for cross-section drag: the backlog plus one bucket per
   // sprint, each an ordered list of item ids.
   const containers: Containers = useMemo(() => {
     const c: Containers = { [BACKLOG_CONTAINER]: backlogItems.map((i) => i.id) };
-    for (const s of cycleSections) c[s.cycleId] = s.items.map((i) => i.id);
+    for (const s of intervalSections) c[s.intervalId] = s.items.map((i) => i.id);
     return c;
-  }, [backlogItems, cycleSections]);
+  }, [backlogItems, intervalSections]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -345,9 +345,9 @@ export function BacklogView({
         );
         reorderMutation.mutate(list.map((id, idx) => ({ id, sortOrder: idx })));
       } else {
-        // Moved to a different section → change its cycle (null = back to
+        // Moved to a different section → change its interval (null = back to
         // backlog). assignMutation applies the optimistic cache update.
-        assignMutation.mutate({ id: move.itemId, cycleId: move.toCycleId });
+        assignMutation.mutate({ id: move.itemId, intervalId: move.toIntervalId });
       }
     },
     [containers, qc, itemsKey, reorderMutation, assignMutation],
@@ -395,24 +395,24 @@ export function BacklogView({
   }, []);
 
   // Build the "Move to sprint" menu for a row. Excludes the item's current
-  // cycle and offers "Backlog" only when the item is in a cycle.
+  // interval and offers "Backlog" only when the item is in an interval.
   const buildMenuGroups = useCallback(
     (item: WorkItem): ActionMenuGroup[] => {
-      const targets = cycles
-        .filter((c) => c.id !== item.cycleId)
+      const targets = intervals
+        .filter((c) => c.id !== item.intervalId)
         .map((c) => ({
           label: c.name,
           icon: MoveRight,
-          onClick: () => assignMutation.mutate({ id: item.id, cycleId: c.id }),
+          onClick: () => assignMutation.mutate({ id: item.id, intervalId: c.id }),
         }));
       const items = [
-        ...(item.cycleId != null
+        ...(item.intervalId != null
           ? [
               {
                 label: "Backlog",
                 icon: Inbox,
                 onClick: () =>
-                  assignMutation.mutate({ id: item.id, cycleId: null }),
+                  assignMutation.mutate({ id: item.id, intervalId: null }),
               },
             ]
           : []),
@@ -420,7 +420,7 @@ export function BacklogView({
       ];
       return [{ label: "Move to sprint", items }];
     },
-    [cycles, assignMutation],
+    [intervals, assignMutation],
   );
 
   if (loading) return <BacklogSkeleton />;
@@ -436,7 +436,7 @@ export function BacklogView({
     );
   }
 
-  const totalVisible = backlogItems.length + cycleSections.reduce((n, s) => n + s.items.length, 0);
+  const totalVisible = backlogItems.length + intervalSections.reduce((n, s) => n + s.items.length, 0);
 
   return (
     <div className="flex h-full flex-col">
@@ -532,7 +532,7 @@ export function BacklogView({
                         columnMap.get(item.columnKey)?.name ??
                         prettifyKey(item.columnKey)
                       }
-                      cycleName={item.cycleId ? cycleMap.get(item.cycleId)?.name ?? null : null}
+                      intervalName={item.intervalId ? intervalMap.get(item.intervalId)?.name ?? null : null}
                       done={isDone(item)}
                       menuGroups={buildMenuGroups(item)}
                       onOpen={() => openDetail(item)}
@@ -542,24 +542,24 @@ export function BacklogView({
               </DroppableList>
             </BacklogSection>
 
-            {/* One section per cycle/sprint */}
-            {cycleSections.map((section) => {
-              const key = `cycle:${section.cycleId}`;
-              const cycle = section.cycle;
-              const subtitle = cycle ? formatCycleRange(cycle) : null;
+            {/* One section per interval/sprint */}
+            {intervalSections.map((section) => {
+              const key = `interval:${section.intervalId}`;
+              const interval = section.interval;
+              const subtitle = interval ? formatIntervalRange(interval) : null;
               return (
                 <BacklogSection
                   key={key}
                   sectionKey={key}
-                  title={cycle?.name ?? "Unknown sprint"}
+                  title={interval?.name ?? "Unknown sprint"}
                   subtitle={subtitle}
-                  statusBadge={cycle?.status}
+                  statusBadge={interval?.status}
                   count={section.items.length}
                   points={sumPoints(section.items)}
                   collapsed={!!collapsed[key]}
                   onToggle={() => toggleCollapsed(key)}
                 >
-                  <DroppableList id={section.cycleId} itemIds={section.items.map((i) => i.id)}>
+                  <DroppableList id={section.intervalId} itemIds={section.items.map((i) => i.id)}>
                     {section.items.length === 0 ? (
                       <p className="px-4 py-3 text-xs text-[var(--text-muted)]">
                         Drag items here to plan this sprint.
@@ -574,7 +574,7 @@ export function BacklogView({
                           statusLabel={
                             columnMap.get(item.columnKey)?.name ?? prettifyKey(item.columnKey)
                           }
-                          cycleName={cycle?.name ?? null}
+                          intervalName={interval?.name ?? null}
                           done={isDone(item)}
                           menuGroups={buildMenuGroups(item)}
                           onOpen={() => openDetail(item)}
@@ -596,7 +596,7 @@ export function BacklogView({
         orgId={orgId}
         projectId={projectId}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         columns={columns}
         onUpdate={handleItemUpdate}
         onDelete={(id) =>
@@ -619,7 +619,7 @@ export function BacklogView({
   );
 }
 
-const CYCLE_STATUS_VARIANT: Record<Cycle["status"], BadgeVariant> = {
+const CYCLE_STATUS_VARIANT: Record<Interval["status"], BadgeVariant> = {
   ACTIVE: "progress",
   PLANNED: "neutral",
   COMPLETED: "done",
@@ -667,7 +667,7 @@ function BacklogSection({
   sectionKey: string;
   title: string;
   subtitle: string | null;
-  statusBadge?: Cycle["status"];
+  statusBadge?: Interval["status"];
   count: number;
   points?: number;
   collapsed: boolean;
@@ -721,7 +721,7 @@ function RowContent({
   projectKey,
   member,
   statusLabel,
-  cycleName,
+  intervalName,
   done,
   menuGroups,
   onOpen,
@@ -731,7 +731,7 @@ function RowContent({
   projectKey: string;
   member: OrgMember | undefined;
   statusLabel: string;
-  cycleName: string | null;
+  intervalName: string | null;
   done: boolean;
   menuGroups: ActionMenuGroup[];
   onOpen: () => void;
@@ -786,7 +786,7 @@ function RowContent({
       </span>
 
       <span className="hidden w-28 shrink-0 truncate text-right text-xs text-[var(--text-muted)] xl:block">
-        {cycleName ?? "Backlog"}
+        {intervalName ?? "Backlog"}
       </span>
 
       <div className="w-6 shrink-0" title={assigneeName ?? "Unassigned"}>
@@ -807,7 +807,7 @@ function RowContent({
   );
 }
 
-/** Cycle-section row — no drag handle (re-rank lives in the Backlog section). */
+/** Interval-section row — no drag handle (re-rank lives in the Backlog section). */
 /** Backlog-section row — draggable via dnd-kit sortable. */
 function SortableRow(props: Omit<Parameters<typeof RowContent>[0], "dragHandle">) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =

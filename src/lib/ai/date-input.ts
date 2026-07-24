@@ -28,7 +28,7 @@ export const calendarDateInput = z
 /**
  * Snap a model-supplied date string to NOON UTC of its (UTC) calendar day.
  * Returns null for null/empty/unparseable input. This is the single place Cosmo's
- * calendar-date fields (work-item due/start, cycle start/end) are turned into a
+ * calendar-date fields (work-item due/start, interval start/end) are turned into a
  * stored instant, so they display on the intended day in every timezone.
  */
 export function toCalendarNoonUTC(input: string | null | undefined): Date | null {

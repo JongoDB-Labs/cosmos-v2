@@ -91,7 +91,7 @@ const FACETS = {
   },
   members: [{ id: "u1", displayName: "Ada Lovelace", avatarUrl: null }],
   labels: [],
-  cycles: [],
+  intervals: [],
   managedProjectIds: [],
 };
 
@@ -107,7 +107,7 @@ const ROW = {
   assignee: null,
   assignees: [],
   parent: null,
-  cycleId: null,
+  intervalId: null,
   storyPoints: null,
   tags: [],
   startDate: null,

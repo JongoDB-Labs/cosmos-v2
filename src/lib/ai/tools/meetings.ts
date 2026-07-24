@@ -12,7 +12,7 @@ export const meetingTools: ToolDefinition[] = [
       type: "object",
       properties: {
         projectId: { type: "string", description: "Optional project ID filter" },
-        sprintId: { type: "string", description: "Optional sprint/cycle ID filter" },
+        sprintId: { type: "string", description: "Optional sprint/interval ID filter" },
         meetingType: {
           type: "string",
           enum: ["STANDUP", "SPRINT_PLANNING", "SPRINT_REVIEW", "RETROSPECTIVE", "OTHER"],
@@ -37,7 +37,7 @@ export const meetingTools: ToolDefinition[] = [
         title: { type: "string", description: "Meeting title" },
         meetingDate: { type: "string", description: "ISO datetime of the meeting (required)" },
         projectId: { type: "string", description: "Optional project ID" },
-        sprintId: { type: "string", description: "Optional sprint/cycle ID" },
+        sprintId: { type: "string", description: "Optional sprint/interval ID" },
         meetingType: {
           type: "string",
           enum: ["STANDUP", "SPRINT_PLANNING", "SPRINT_REVIEW", "RETROSPECTIVE", "OTHER"],

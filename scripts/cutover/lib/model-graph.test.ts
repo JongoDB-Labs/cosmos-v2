@@ -291,8 +291,8 @@ describe("fkEdgesOf — referential-closure edge derivation (C1 + C2)", () => {
     expect(edges.filter((e) => e.fkColumn === "owner_id").length).toBe(1);
   });
 
-  it("CycleCapacity: user_id is a HARD FK to users", () => {
-    const owner = fkEdgesOf("CycleCapacity").find((e) => e.fkColumn === "user_id");
+  it("IntervalCapacity: user_id is a HARD FK to users", () => {
+    const owner = fkEdgesOf("IntervalCapacity").find((e) => e.fkColumn === "user_id");
     expect(owner).toMatchObject({ targetTable: "users", hardFk: true });
   });
 

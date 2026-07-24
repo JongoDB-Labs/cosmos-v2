@@ -72,7 +72,7 @@ interface ProjectBoardTabsProps {
    *  itself is untouched. */
   hiddenBoardIds?: string[];
   /** Feature-tab keys hidden from THIS user's strip (e.g. "pm-dashboard",
-   *  "goal", "cycle") — effective (user ?? project). The feature stays enabled;
+   *  "goal", "interval") — effective (user ?? project). The feature stays enabled;
    *  only the tab is hidden for this user. */
   hiddenFeatureTabs?: string[];
   /** Unified strip order as tokens (`board:<id>` | `feature:<key>`) — EFFECTIVE

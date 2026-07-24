@@ -71,13 +71,13 @@ export default async function ProjectLayout({
   });
   const projectSettings = (project.settings as Record<string, unknown> | null) ?? {};
   // Top-level "Sprints" entry (project header, not the board strip). Label is
-  // template-driven; only shown when the project has the cycle feature.
-  const cycleCfg = project.projectTemplate?.defaultConfig as
+  // template-driven; only shown when the project has the interval feature.
+  const intervalCfg = project.projectTemplate?.defaultConfig as
     | Record<string, unknown>
     | null;
-  const cycleEnabled = project.enabledFeatures.includes("cycle");
-  const cycleNavLabel =
-    typeof cycleCfg?.cycleNavLabel === "string" ? cycleCfg.cycleNavLabel : "Sprints";
+  const intervalEnabled = project.enabledFeatures.includes("interval");
+  const intervalNavLabel =
+    typeof intervalCfg?.intervalNavLabel === "string" ? intervalCfg.intervalNavLabel : "Sprints";
   const allTabPrefs =
     userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
       ? (userPrefs.tabPrefs as Record<string, unknown>)
@@ -129,13 +129,13 @@ export default async function ProjectLayout({
           <h1 className="text-lg font-semibold">{project.name}</h1>
         </div>
         <div className="flex items-center gap-1">
-          {cycleEnabled && (
+          {intervalEnabled && (
             <Link
-              href={`/${orgSlug}/projects/${projectKey}/cycles`}
+              href={`/${orgSlug}/projects/${projectKey}/intervals`}
               className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}
             >
               <CalendarClock className="h-4 w-4" />
-              {cycleNavLabel}
+              {intervalNavLabel}
             </Link>
           )}
           <Link

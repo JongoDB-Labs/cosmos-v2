@@ -2,7 +2,7 @@
 // COSMOS-138 — sprint planning/reviews, Phase 2. Acceptance criterion:
 // "Sprints can be edited or deleted after creation without requiring them to be
 // started first." A brand-new sprint is PLANNED (never activated). This locks
-// that a PLANNED cycle exposes BOTH the edit and delete affordances, and that
+// that a PLANNED interval exposes BOTH the edit and delete affordances, and that
 // exercising them hits PUT / DELETE — so a regression that gated either action
 // behind "must start (ACTIVE) first" would fail here.
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -43,11 +43,11 @@ vi.mock("@/components/providers/permissions-provider", async (orig) => {
 });
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 // The child dialogs pull in their own data fetching; stub them out — this test
-// is only about the PLANNED cycle's edit/delete affordances on the card.
+// is only about the PLANNED interval's edit/delete affordances on the card.
 vi.mock("./capacity-dialog", () => ({ CapacityDialog: () => null }));
 vi.mock("./add-issues-dialog", () => ({ AddIssuesDialog: () => null }));
 
-import { CyclesWorkspace } from "./cycles-workspace";
+import { IntervalsWorkspace } from "./intervals-workspace";
 
 const PLANNED_CYCLE = {
   id: "cyc-1",
@@ -57,13 +57,13 @@ const PLANNED_CYCLE = {
   startDate: "2026-08-01T00:00:00.000Z",
   endDate: "2026-08-14T00:00:00.000Z",
   status: "PLANNED" as const,
-  cycleKind: "SPRINT",
+  intervalKind: "SPRINT",
   parentId: null,
   report: null,
   _count: { workItems: 0 },
 };
 
-/** fetch stub: GET lists the planned cycle; PUT/DELETE echo success. */
+/** fetch stub: GET lists the planned interval; PUT/DELETE echo success. */
 function installFetch() {
   const calls: { url: string; method: string; body: unknown }[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -92,34 +92,34 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("CyclesWorkspace — a not-started sprint can be edited or deleted (COSMOS-138)", () => {
+describe("IntervalsWorkspace — a not-started sprint can be edited or deleted (COSMOS-138)", () => {
   it("renders Edit and Delete affordances on a PLANNED (never-started) sprint", async () => {
     installFetch();
-    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+    render(<IntervalsWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
 
-    // The card renders once the cycles GET resolves.
+    // The card renders once the intervals GET resolves.
     await screen.findByText("Sprint 1");
     // AC: both actions are available WITHOUT starting the sprint first.
-    expect(screen.getByRole("button", { name: "Edit cycle" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete cycle" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit interval" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete interval" })).toBeInTheDocument();
   });
 
   it("deletes a PLANNED sprint via DELETE — no activation required", async () => {
     const calls = installFetch();
     const user = userEvent.setup();
-    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+    render(<IntervalsWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
 
     await screen.findByText("Sprint 1");
-    await user.click(screen.getByRole("button", { name: "Delete cycle" }));
+    await user.click(screen.getByRole("button", { name: "Delete interval" }));
     // Confirm in the dialog.
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     await waitFor(() =>
       expect(
-        calls.some((c) => c.method === "DELETE" && c.url.endsWith("/cycles/cyc-1")),
+        calls.some((c) => c.method === "DELETE" && c.url.endsWith("/intervals/cyc-1")),
       ).toBe(true),
     );
-    // No cycle was ever activated to make the delete possible.
+    // No interval was ever activated to make the delete possible.
     expect(
       calls.some(
         (c) =>
@@ -132,10 +132,10 @@ describe("CyclesWorkspace — a not-started sprint can be edited or deleted (COS
   it("edits a PLANNED sprint via PUT — no activation required", async () => {
     const calls = installFetch();
     const user = userEvent.setup();
-    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+    render(<IntervalsWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
 
     await screen.findByText("Sprint 1");
-    await user.click(screen.getByRole("button", { name: "Edit cycle" }));
+    await user.click(screen.getByRole("button", { name: "Edit interval" }));
 
     // Dialog opens pre-filled for editing.
     const nameInput = await screen.findByLabelText("Name");
@@ -146,7 +146,7 @@ describe("CyclesWorkspace — a not-started sprint can be edited or deleted (COS
 
     await waitFor(() => {
       const put = calls.find(
-        (c) => c.method === "PUT" && c.url.endsWith("/cycles/cyc-1"),
+        (c) => c.method === "PUT" && c.url.endsWith("/intervals/cyc-1"),
       );
       expect(put).toBeTruthy();
       expect((put!.body as { name: string }).name).toBe("Sprint 1 — renamed");
@@ -164,7 +164,7 @@ describe("CyclesWorkspace — a not-started sprint can be edited or deleted (COS
 
 // ── COSMOS-139, Phase 3 — the sprint-review step renders on Complete ──────────
 // An ACTIVE sprint's "Complete" opens a review step FIRST (before finalize),
-// showing retrospective tiles derived from the cycle's items via
+// showing retrospective tiles derived from the interval's items via
 // computeSprintReview. This locks that the step renders with real metrics — a
 // regression that dropped the review step (or its wiring to the compute) fails
 // here. Dates are in the past so elapsed time is fully clamped and the figures
@@ -177,7 +177,7 @@ const ACTIVE_SPRINT = {
   startDate: "2026-07-01T00:00:00.000Z",
   endDate: "2026-07-11T00:00:00.000Z", // plannedDays = 10, fully elapsed
   status: "ACTIVE" as const,
-  cycleKind: "SPRINT",
+  intervalKind: "SPRINT",
   parentId: null,
   report: null,
   _count: { workItems: 3 },
@@ -195,10 +195,10 @@ const REVIEW_ITEMS = [
 function installFetchActive() {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
-    if (method === "GET" && url.endsWith("/cycles/cyc-1")) {
+    if (method === "GET" && url.endsWith("/intervals/cyc-1")) {
       return { ok: true, json: async () => ({ workItems: REVIEW_ITEMS }) } as Response;
     }
-    if (method === "GET" && url.endsWith("/cycles")) {
+    if (method === "GET" && url.endsWith("/intervals")) {
       return { ok: true, json: async () => [ACTIVE_SPRINT] } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
@@ -206,11 +206,11 @@ function installFetchActive() {
   vi.stubGlobal("fetch", fetchMock);
 }
 
-describe("CyclesWorkspace — sprint review step on completion (COSMOS-139)", () => {
+describe("IntervalsWorkspace — sprint review step on completion (COSMOS-139)", () => {
   it("shows retrospective tiles (efficiency, burn rate, pacing) when completing an ACTIVE sprint", async () => {
     installFetchActive();
     const user = userEvent.setup();
-    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+    render(<IntervalsWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
 
     await screen.findByText("Sprint 2");
     // Complete opens the review step FIRST (not straight to finalize).
@@ -240,10 +240,10 @@ const ACTIVE_EMPTY = {
 function installFetchEmptyActive() {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
-    if (method === "GET" && url.endsWith("/cycles/cyc-1")) {
+    if (method === "GET" && url.endsWith("/intervals/cyc-1")) {
       return { ok: true, json: async () => ({ workItems: [] }) } as Response;
     }
-    if (method === "GET" && url.endsWith("/cycles")) {
+    if (method === "GET" && url.endsWith("/intervals")) {
       return { ok: true, json: async () => [ACTIVE_EMPTY] } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
@@ -251,11 +251,11 @@ function installFetchEmptyActive() {
   vi.stubGlobal("fetch", fetchMock);
 }
 
-describe("CyclesWorkspace — sprint review pacing on an empty sprint (v2.230.1)", () => {
+describe("IntervalsWorkspace — sprint review pacing on an empty sprint (v2.230.1)", () => {
   it("reads pacing as — (not On track) when the sprint has no items", async () => {
     installFetchEmptyActive();
     const user = userEvent.setup();
-    render(<CyclesWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
+    render(<IntervalsWorkspace orgId="o1" projectId="p1" projectKey="ENG" />);
 
     await screen.findByText("Sprint 3 (empty)");
     await user.click(screen.getByRole("button", { name: "Complete" }));

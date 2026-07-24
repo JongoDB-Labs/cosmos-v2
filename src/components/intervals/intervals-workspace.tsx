@@ -41,10 +41,10 @@ import {
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
-import { computeSprintReview, type SprintReview } from "@/lib/cycles/sprint-review";
-import { computeNextSprintDefaults } from "@/lib/cycles/next-sprint";
+import { computeSprintReview, type SprintReview } from "@/lib/intervals/sprint-review";
+import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
 
-interface CycleReport {
+interface IntervalReport {
   velocity?: number;
   completedItems?: number;
   incompleteItems?: number;
@@ -53,7 +53,7 @@ interface CycleReport {
   completedAt?: string;
 }
 
-interface Cycle {
+interface Interval {
   id: string;
   number: number;
   name: string;
@@ -61,10 +61,10 @@ interface Cycle {
   startDate: string;
   endDate: string;
   status: "PLANNED" | "ACTIVE" | "COMPLETED";
-  cycleKind: string;
-  /** Program Increment this cycle is nested under (a PI cycle id), or null. */
+  intervalKind: string;
+  /** Program Increment this interval is nested under (a PI interval id), or null. */
   parentId: string | null;
-  report: CycleReport | null;
+  report: IntervalReport | null;
   _count?: { workItems: number };
 }
 
@@ -81,18 +81,18 @@ const KIND_LABELS: Record<string, string> = {
   PROGRAM_INCREMENT: "Program Increment",
 };
 
-// Sentinel for the "Backlog (no cycle)" option — base-ui Select treats an empty
+// Sentinel for the "Backlog (no interval)" option — base-ui Select treats an empty
 // string as "unset" and would show the placeholder instead of the label.
 const BACKLOG_OPTION = "__backlog__";
 
-const STATUS_GROUPS: { status: Cycle["status"]; label: string }[] = [
+const STATUS_GROUPS: { status: Interval["status"]; label: string }[] = [
   { status: "ACTIVE", label: "Active" },
   { status: "PLANNED", label: "Planned" },
   { status: "COMPLETED", label: "Completed" },
 ];
 
 function fmtDate(iso: string) {
-  // Cycle start/end are calendar days stored at UTC midnight; format in UTC so a
+  // Interval start/end are calendar days stored at UTC midnight; format in UTC so a
   // viewer west of UTC doesn't see the previous day (the off-by-one on cards).
   return new Date(iso).toLocaleDateString(undefined, {
     timeZone: "UTC",
@@ -102,13 +102,13 @@ function fmtDate(iso: string) {
   });
 }
 
-interface CyclesWorkspaceProps {
+interface IntervalsWorkspaceProps {
   orgId: string;
   projectId: string;
   projectKey: string;
 }
 
-export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspaceProps) {
+export function IntervalsWorkspace({ orgId, projectId, projectKey }: IntervalsWorkspaceProps) {
   const { can } = usePermissions();
   const canCreate = can(Permission.SPRINT_CREATE);
   const canUpdate = can(Permission.SPRINT_UPDATE);
@@ -116,12 +116,12 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
-  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [intervals, setIntervals] = useState<Interval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Create/edit dialog state. editId != null → the dialog edits that cycle.
+  // Create/edit dialog state. editId != null → the dialog edits that interval.
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -132,53 +132,53 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   const [submitting, setSubmitting] = useState(false);
 
   // Delete confirmation.
-  const [deleteTarget, setDeleteTarget] = useState<Cycle | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Interval | null>(null);
 
   // Capacity planning dialog.
-  const [capacityTarget, setCapacityTarget] = useState<Cycle | null>(null);
+  const [capacityTarget, setCapacityTarget] = useState<Interval | null>(null);
 
-  // Start Sprint planning flow (sprint-kind cycles only).
-  const [startTarget, setStartTarget] = useState<Cycle | null>(null);
+  // Start Sprint planning flow (sprint-kind intervals only).
+  const [startTarget, setStartTarget] = useState<Interval | null>(null);
 
-  // "Add issues to this cycle" picker (FR 0e31d1ef).
-  const [addIssuesTarget, setAddIssuesTarget] = useState<Cycle | null>(null);
-  // cycleId → name, for the "currently in X" badge in the picker.
-  const cycleNames = Object.fromEntries(cycles.map((c) => [c.id, c.name]));
+  // "Add issues to this interval" picker (FR 0e31d1ef).
+  const [addIssuesTarget, setAddIssuesTarget] = useState<Interval | null>(null);
+  // intervalId → name, for the "currently in X" badge in the picker.
+  const intervalNames = Object.fromEntries(intervals.map((c) => [c.id, c.name]));
 
-  // Program Increments (top-level PI cycles) — used both to render the PI
+  // Program Increments (top-level PI intervals) — used both to render the PI
   // grouping and to populate each sprint's "Move to PI" selector.
-  const pis = cycles.filter((c) => c.cycleKind === PI_KIND);
-  // Shared CycleCard wiring so the PI section and the status groups render
+  const pis = intervals.filter((c) => c.intervalKind === PI_KIND);
+  // Shared IntervalCard wiring so the PI section and the status groups render
   // identical cards (a sprint may appear in either place).
-  const cardProps = (cycle: Cycle): CycleCardProps => ({
-    cycle,
-    busy: busyId === cycle.id,
+  const cardProps = (interval: Interval): IntervalCardProps => ({
+    interval,
+    busy: busyId === interval.id,
     canUpdate,
     canComplete,
     pis,
-    // Sprints launch the planning flow; other cycle kinds activate directly.
+    // Sprints launch the planning flow; other interval kinds activate directly.
     onStart: () =>
-      cycle.cycleKind === "SPRINT" ? setStartTarget(cycle) : activateCycle(cycle.id),
+      interval.intervalKind === "SPRINT" ? setStartTarget(interval) : activateInterval(interval.id),
     onComplete: () => {
-      setMoveToCycleId(BACKLOG_OPTION);
+      setMoveToIntervalId(BACKLOG_OPTION);
       setCompleteStep("review");
-      setCompleteTarget(cycle);
-      loadReview(cycle);
+      setCompleteTarget(interval);
+      loadReview(interval);
     },
-    onEdit: () => openEdit(cycle),
-    onDelete: () => setDeleteTarget(cycle),
-    onCapacity: () => setCapacityTarget(cycle),
-    onAddIssues: () => setAddIssuesTarget(cycle),
-    onAssignPI: (parentId: string | null) => assignToPI(cycle.id, parentId),
+    onEdit: () => openEdit(interval),
+    onDelete: () => setDeleteTarget(interval),
+    onCapacity: () => setCapacityTarget(interval),
+    onAddIssues: () => setAddIssuesTarget(interval),
+    onAssignPI: (parentId: string | null) => assignToPI(interval.id, parentId),
   });
 
-  // Sprint-review / completion dialog: which cycle is being completed, and where
-  // its incomplete items should go (BACKLOG sentinel, else a planned cycle id).
+  // Sprint-review / completion dialog: which interval is being completed, and where
+  // its incomplete items should go (BACKLOG sentinel, else a planned interval id).
   // Completing runs in two steps: a "review" step surfaces retrospective metrics
   // (efficiency, burn rate, pacing), then a "finalize" step locks it and rehomes
   // any unfinished work (COSMOS-139).
-  const [completeTarget, setCompleteTarget] = useState<Cycle | null>(null);
-  const [moveToCycleId, setMoveToCycleId] = useState<string>(BACKLOG_OPTION);
+  const [completeTarget, setCompleteTarget] = useState<Interval | null>(null);
+  const [moveToIntervalId, setMoveToIntervalId] = useState<string>(BACKLOG_OPTION);
   const [completeStep, setCompleteStep] = useState<"review" | "finalize">("review");
   const [review, setReview] = useState<SprintReview | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -192,19 +192,19 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   const [nextEnd, setNextEnd] = useState("");
   const [startingNext, setStartingNext] = useState(false);
 
-  // Load the cycle's items and derive its retrospective metrics for the review
+  // Load the interval's items and derive its retrospective metrics for the review
   // step. Metrics are computed on read (never persisted before finalization).
-  async function loadReview(cycle: Cycle) {
+  async function loadReview(interval: Interval) {
     setReviewLoading(true);
     setReview(null);
     try {
-      const res = await fetch(`${basePath}/cycles/${cycle.id}`);
+      const res = await fetch(`${basePath}/intervals/${interval.id}`);
       if (!res.ok) throw new Error("Failed to load sprint review");
       const detail = await res.json();
       setReview(
         computeSprintReview({
-          startDate: cycle.startDate,
-          endDate: cycle.endDate,
+          startDate: interval.startDate,
+          endDate: interval.endDate,
           items: (detail.workItems ?? []).map(
             (i: { storyPoints: number | null; columnKey: string }) => ({
               storyPoints: i.storyPoints,
@@ -220,15 +220,15 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     }
   }
 
-  const fetchCycles = useCallback(async () => {
+  const fetchIntervals = useCallback(async () => {
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`${basePath}/cycles`);
-      if (!res.ok) throw new Error("Failed to load cycles");
-      setCycles(await res.json());
+      const res = await fetch(`${basePath}/intervals`);
+      if (!res.ok) throw new Error("Failed to load intervals");
+      setIntervals(await res.json());
     } catch (err) {
-      notifyError(err, "Couldn't load cycles.");
+      notifyError(err, "Couldn't load intervals.");
       setError(true);
     } finally {
       setLoading(false);
@@ -239,8 +239,8 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   // intended pattern here (same as command-palette / okr-board).
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    fetchCycles();
-  }, [fetchCycles]);
+    fetchIntervals();
+  }, [fetchIntervals]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function resetForm() {
@@ -252,19 +252,19 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     setEndDate("");
   }
 
-  // Open the dialog pre-filled to EDIT an existing cycle (FR: "edit/delete a
+  // Open the dialog pre-filled to EDIT an existing interval (FR: "edit/delete a
   // sprint after the fact"). Dates come back as ISO; the date input wants
   // YYYY-MM-DD.
-  function openEdit(cycle: Cycle) {
-    setEditId(cycle.id);
-    setName(cycle.name);
-    setGoal(cycle.goal ?? "");
-    setStartDate(cycle.startDate ? cycle.startDate.slice(0, 10) : "");
-    setEndDate(cycle.endDate ? cycle.endDate.slice(0, 10) : "");
+  function openEdit(interval: Interval) {
+    setEditId(interval.id);
+    setName(interval.name);
+    setGoal(interval.goal ?? "");
+    setStartDate(interval.startDate ? interval.startDate.slice(0, 10) : "");
+    setEndDate(interval.endDate ? interval.endDate.slice(0, 10) : "");
     setOpen(true);
   }
 
-  async function submitCycle() {
+  async function submitInterval() {
     if (!name.trim() || !startDate || !endDate) return;
     if (new Date(endDate) < new Date(startDate)) {
       notifyError(
@@ -276,9 +276,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     setSubmitting(true);
     try {
       // Editing PUTs name/goal/dates (kind is fixed after creation); creating
-      // POSTs the full new cycle.
+      // POSTs the full new interval.
       const res = editId
-        ? await fetch(`${basePath}/cycles/${editId}`, {
+        ? await fetch(`${basePath}/intervals/${editId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -288,7 +288,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               endDate: new Date(endDate).toISOString(),
             }),
           })
-        : await fetch(`${basePath}/cycles`, {
+        : await fetch(`${basePath}/intervals`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -296,36 +296,36 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               goal: goal.trim() || null,
               startDate: new Date(startDate).toISOString(),
               endDate: new Date(endDate).toISOString(),
-              cycleKind: kind,
+              intervalKind: kind,
             }),
           });
-      if (!res.ok) throw new Error("Failed to save cycle");
+      if (!res.ok) throw new Error("Failed to save interval");
       setOpen(false);
       resetForm();
-      await fetchCycles();
+      await fetchIntervals();
     } catch (err) {
-      notifyError(err, editId ? "Couldn't update the cycle." : "Couldn't create the cycle.");
+      notifyError(err, editId ? "Couldn't update the interval." : "Couldn't create the interval.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function activateCycle(id: string) {
+  async function activateInterval(id: string) {
     setBusyId(id);
     try {
-      const res = await fetch(`${basePath}/cycles/${id}`, {
+      const res = await fetch(`${basePath}/intervals/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ACTIVE" }),
       });
       if (res.status === 409)
-        throw new Error("Another cycle is already active — complete it first.");
-      if (!res.ok) throw new Error("Failed to start cycle");
-      await fetchCycles();
+        throw new Error("Another interval is already active — complete it first.");
+      if (!res.ok) throw new Error("Failed to start interval");
+      await fetchIntervals();
     } catch (err) {
       notifyError(
         err,
-        err instanceof Error ? err.message : "Couldn't start the cycle.",
+        err instanceof Error ? err.message : "Couldn't start the interval.",
       );
     } finally {
       setBusyId(null);
@@ -337,13 +337,13 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
   async function assignToPI(id: string, parentId: string | null) {
     setBusyId(id);
     try {
-      const res = await fetch(`${basePath}/cycles/${id}`, {
+      const res = await fetch(`${basePath}/intervals/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parentId }),
       });
       if (!res.ok) throw new Error("Failed to update the Program Increment");
-      await fetchCycles();
+      await fetchIntervals();
     } catch (err) {
       notifyError(err, "Couldn't move the sprint to that Program Increment.");
     } finally {
@@ -357,20 +357,20 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     if (!nextName.trim() || !nextStart || !nextEnd) return;
     setStartingNext(true);
     try {
-      const createRes = await fetch(`${basePath}/cycles`, {
+      const createRes = await fetch(`${basePath}/intervals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: nextName.trim(),
           startDate: new Date(nextStart).toISOString(),
           endDate: new Date(nextEnd).toISOString(),
-          cycleKind: "SPRINT",
+          intervalKind: "SPRINT",
           parentId: nextSprintParentId,
         }),
       });
       if (!createRes.ok) throw new Error("Failed to create the next sprint");
-      const createdCycle = await createRes.json();
-      const actRes = await fetch(`${basePath}/cycles/${createdCycle.id}`, {
+      const createdInterval = await createRes.json();
+      const actRes = await fetch(`${basePath}/intervals/${createdInterval.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ACTIVE" }),
@@ -380,7 +380,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
           "Created the sprint, but couldn't start it — activate it manually.",
         );
       setNextSprintOpen(false);
-      await fetchCycles();
+      await fetchIntervals();
     } catch (err) {
       notifyError(err, "Couldn't start the next sprint.");
     } finally {
@@ -388,23 +388,23 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     }
   }
 
-  // moveIncompleteToCycleId: null → incomplete items return to the backlog;
-  // a cycle id → they roll over into that (planned) cycle.
-  async function completeCycle(id: string, moveIncompleteToCycleId: string | null) {
+  // moveIncompleteToIntervalId: null → incomplete items return to the backlog;
+  // an interval id → they roll over into that (planned) interval.
+  async function completeInterval(id: string, moveIncompleteToIntervalId: string | null) {
     setBusyId(id);
     const finished = completeTarget; // capture before we clear it below
     try {
-      const res = await fetch(`${basePath}/cycles/${id}/complete`, {
+      const res = await fetch(`${basePath}/intervals/${id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ moveIncompleteToCycleId }),
+        body: JSON.stringify({ moveIncompleteToIntervalId }),
       });
-      if (!res.ok) throw new Error("Failed to complete cycle");
+      if (!res.ok) throw new Error("Failed to complete interval");
       setCompleteTarget(null);
       setReview(null);
-      await fetchCycles();
+      await fetchIntervals();
       // Only SPRINTs roll over — phases / PIs / releases don't prompt a "next".
-      if (finished && finished.cycleKind === "SPRINT") {
+      if (finished && finished.intervalKind === "SPRINT") {
         const d = computeNextSprintDefaults(finished);
         setNextName(d.name);
         setNextStart(d.startDate);
@@ -413,7 +413,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         setNextSprintOpen(true);
       }
     } catch (err) {
-      notifyError(err, "Couldn't complete the cycle.");
+      notifyError(err, "Couldn't complete the interval.");
     } finally {
       setBusyId(null);
     }
@@ -424,16 +424,16 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     const id = deleteTarget.id;
     setBusyId(id);
     try {
-      const res = await fetch(`${basePath}/cycles/${id}`, { method: "DELETE" });
+      const res = await fetch(`${basePath}/intervals/${id}`, { method: "DELETE" });
       if (res.status === 409)
-        throw new Error("Active cycles can't be deleted — complete it first.");
-      if (!res.ok) throw new Error("Failed to delete cycle");
+        throw new Error("Active intervals can't be deleted — complete it first.");
+      if (!res.ok) throw new Error("Failed to delete interval");
       setDeleteTarget(null);
-      await fetchCycles();
+      await fetchIntervals();
     } catch (err) {
       notifyError(
         err,
-        err instanceof Error ? err.message : "Couldn't delete the cycle.",
+        err instanceof Error ? err.message : "Couldn't delete the interval.",
       );
     } finally {
       setBusyId(null);
@@ -454,8 +454,8 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     return (
       <div className="mx-auto max-w-5xl p-8">
         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-          <p className="text-sm text-muted-foreground">Couldn&apos;t load cycles.</p>
-          <Button variant="outline" size="sm" onClick={fetchCycles}>
+          <p className="text-sm text-muted-foreground">Couldn&apos;t load intervals.</p>
+          <Button variant="outline" size="sm" onClick={fetchIntervals}>
             Try again
           </Button>
         </div>
@@ -467,7 +467,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
     <div className="mx-auto max-w-5xl p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Cycles</h2>
+          <h2 className="text-lg font-semibold">Intervals</h2>
           <p className="text-sm text-muted-foreground">
             Plan and track sprints, phases, and iterations.
           </p>
@@ -475,19 +475,19 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         {canCreate && (
           <Button size="sm" onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
-            New cycle
+            New interval
           </Button>
         )}
       </div>
 
-      {cycles.length === 0 ? (
+      {intervals.length === 0 ? (
         <EmptyState
           illustration={<IterationCcw className="size-10" />}
-          title="No cycles yet"
+          title="No intervals yet"
           description={
             canCreate
-              ? "Create your first cycle to start planning work into time-boxed iterations."
-              : "No cycles have been created for this project yet."
+              ? "Create your first interval to start planning work into time-boxed iterations."
+              : "No intervals have been created for this project yet."
           }
         />
       ) : (
@@ -500,20 +500,20 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               </h3>
               <div className="space-y-4">
                 {pis.map((pi) => {
-                  const children = cycles.filter((c) => c.parentId === pi.id);
+                  const children = intervals.filter((c) => c.parentId === pi.id);
                   return (
                     <div
                       key={pi.id}
                       className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
                     >
-                      <CycleCard {...cardProps(pi)} />
+                      <IntervalCard {...cardProps(pi)} />
                       <div className="ml-3 space-y-2 border-l-2 border-primary/20 pl-3">
                         {children.length === 0 ? (
                           <p className="py-1 text-xs text-muted-foreground">
                             No sprints in this PI yet — use “Move to PI” on a sprint below.
                           </p>
                         ) : (
-                          children.map((child) => <CycleCard key={child.id} {...cardProps(child)} />)
+                          children.map((child) => <IntervalCard key={child.id} {...cardProps(child)} />)
                         )}
                       </div>
                     </div>
@@ -525,9 +525,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
 
           {STATUS_GROUPS.map(({ status, label }) => {
             // Sprints nested in a PI show under that PI above; here we list the
-            // top-level cycles (not PIs, not already grouped under a PI).
-            const group = cycles.filter(
-              (c) => c.status === status && c.cycleKind !== PI_KIND && c.parentId == null,
+            // top-level intervals (not PIs, not already grouped under a PI).
+            const group = intervals.filter(
+              (c) => c.status === status && c.intervalKind !== PI_KIND && c.parentId == null,
             );
             if (group.length === 0) return null;
             return (
@@ -536,8 +536,8 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
                   {label} ({group.length})
                 </h3>
                 <div className="space-y-3">
-                  {group.map((cycle) => (
-                    <CycleCard key={cycle.id} {...cardProps(cycle)} />
+                  {group.map((interval) => (
+                    <IntervalCard key={interval.id} {...cardProps(interval)} />
                   ))}
                 </div>
               </section>
@@ -556,7 +556,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editId ? "Edit cycle" : "Plan a cycle"}</DialogTitle>
+            <DialogTitle>{editId ? "Edit interval" : "Plan an interval"}</DialogTitle>
             <DialogDescription>
               A time-boxed iteration (sprint, phase, release…) to group and track
               work.
@@ -564,9 +564,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="cycle-name">Name</Label>
+              <Label htmlFor="interval-name">Name</Label>
               <Input
-                id="cycle-name"
+                id="interval-name"
                 placeholder="e.g. Sprint 12"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -574,9 +574,9 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
             </div>
             {!editId && (
               <div className="space-y-1.5">
-                <Label htmlFor="cycle-kind">Kind</Label>
+                <Label htmlFor="interval-kind">Kind</Label>
                 <Select value={kind} onValueChange={(v) => setKind(v ?? "SPRINT")}>
-                  <SelectTrigger id="cycle-kind">
+                  <SelectTrigger id="interval-kind">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -591,18 +591,18 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
             )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="cycle-start">Start date</Label>
+                <Label htmlFor="interval-start">Start date</Label>
                 <Input
-                  id="cycle-start"
+                  id="interval-start"
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="cycle-end">End date</Label>
+                <Label htmlFor="interval-end">End date</Label>
                 <Input
-                  id="cycle-end"
+                  id="interval-end"
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
@@ -610,10 +610,10 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="cycle-goal">Goal (optional)</Label>
+              <Label htmlFor="interval-goal">Goal (optional)</Label>
               <Input
-                id="cycle-goal"
-                placeholder="What should this cycle achieve?"
+                id="interval-goal"
+                placeholder="What should this interval achieve?"
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
               />
@@ -630,7 +630,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               Cancel
             </Button>
             <Button
-              onClick={submitCycle}
+              onClick={submitInterval}
               disabled={submitting || !name.trim() || !startDate || !endDate}
             >
               {submitting
@@ -639,7 +639,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
                   : "Creating…"
                 : editId
                   ? "Save changes"
-                  : "Create cycle"}
+                  : "Create interval"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -654,7 +654,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete this cycle?</DialogTitle>
+            <DialogTitle>Delete this interval?</DialogTitle>
             <DialogDescription>
               This permanently deletes{" "}
               <span className="font-medium">{deleteTarget?.name}</span>. Work
@@ -677,8 +677,8 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         <CapacityDialog
           orgId={orgId}
           projectId={projectId}
-          cycleId={capacityTarget.id}
-          cycleName={capacityTarget.name}
+          intervalId={capacityTarget.id}
+          intervalName={capacityTarget.name}
           canEdit={canUpdate}
           onClose={() => setCapacityTarget(null)}
         />
@@ -689,7 +689,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
         <StartSprintDialog
           orgId={orgId}
           projectId={projectId}
-          cycle={{
+          interval={{
             id: startTarget.id,
             name: startTarget.name,
             goal: startTarget.goal,
@@ -697,21 +697,21 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
           onClose={() => setStartTarget(null)}
           onStarted={() => {
             setStartTarget(null);
-            fetchCycles();
+            fetchIntervals();
           }}
         />
       )}
 
-      {/* Add issues to a cycle (FR 0e31d1ef) — bulk-move project issues in. */}
+      {/* Add issues to an interval (FR 0e31d1ef) — bulk-move project issues in. */}
       <AddIssuesDialog
         orgId={orgId}
         projectId={projectId}
         projectKey={projectKey}
-        cycle={addIssuesTarget}
+        interval={addIssuesTarget}
         open={addIssuesTarget !== null}
         onOpenChange={(o) => !o && setAddIssuesTarget(null)}
-        onAdded={fetchCycles}
-        cycleNames={cycleNames}
+        onAdded={fetchIntervals}
+        intervalNames={intervalNames}
       />
 
       {/* Sprint review / completion — step 1 shows retrospective metrics, step 2
@@ -729,12 +729,12 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
           <DialogHeader>
             <DialogTitle>
               {completeStep === "review" ? "Sprint review" : "Complete"}{" "}
-              {completeTarget ? completeTarget.name : "cycle"}
+              {completeTarget ? completeTarget.name : "interval"}
             </DialogTitle>
             <DialogDescription>
               {completeStep === "review"
                 ? "How this sprint went. Review the retrospective metrics, then finalize."
-                : "Completing locks the cycle and records its velocity. Any unfinished work items need a new home — choose where they go."}
+                : "Completing locks the interval and records its velocity. Any unfinished work items need a new home — choose where they go."}
             </DialogDescription>
           </DialogHeader>
           {completeStep === "review" ? (
@@ -796,7 +796,7 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
             <div className="space-y-4">
               {completeTarget?._count?.workItems != null && (
                 <p className="text-sm text-muted-foreground">
-                  This cycle has{" "}
+                  This interval has{" "}
                   <span className="font-medium text-foreground">
                     {completeTarget._count.workItems}
                   </span>{" "}
@@ -807,15 +807,15 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
               <div className="space-y-1.5">
                 <Label>Move unfinished items to</Label>
                 <Select
-                  value={moveToCycleId}
-                  onValueChange={(v) => setMoveToCycleId(v ?? BACKLOG_OPTION)}
+                  value={moveToIntervalId}
+                  onValueChange={(v) => setMoveToIntervalId(v ?? BACKLOG_OPTION)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Backlog" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={BACKLOG_OPTION}>Backlog (no cycle)</SelectItem>
-                    {cycles
+                    <SelectItem value={BACKLOG_OPTION}>Backlog (no interval)</SelectItem>
+                    {intervals
                       .filter(
                         (c) =>
                           c.status === "PLANNED" && c.id !== completeTarget?.id,
@@ -855,14 +855,14 @@ export function CyclesWorkspace({ orgId, projectId, projectKey }: CyclesWorkspac
                 <Button
                   onClick={() =>
                     completeTarget &&
-                    completeCycle(
+                    completeInterval(
                       completeTarget.id,
-                      moveToCycleId === BACKLOG_OPTION ? null : moveToCycleId,
+                      moveToIntervalId === BACKLOG_OPTION ? null : moveToIntervalId,
                     )
                   }
                   disabled={busyId === completeTarget?.id}
                 >
-                  {busyId === completeTarget?.id ? "Completing…" : "Complete cycle"}
+                  {busyId === completeTarget?.id ? "Completing…" : "Complete interval"}
                 </Button>
               </>
             )}
@@ -954,13 +954,13 @@ function ReviewStat({
   );
 }
 
-interface CycleCardProps {
-  cycle: Cycle;
+interface IntervalCardProps {
+  interval: Interval;
   busy: boolean;
   canUpdate: boolean;
   canComplete: boolean;
   /** Available Program Increments, for the "Move to PI" selector. */
-  pis: Cycle[];
+  pis: Interval[];
   onStart: () => void;
   onComplete: () => void;
   onEdit: () => void;
@@ -973,8 +973,8 @@ interface CycleCardProps {
 // Select sentinel for "not in any PI" (base-ui Select can't use "").
 const NO_PI = "__no_pi__";
 
-function CycleCard({
-  cycle,
+function IntervalCard({
+  interval,
   busy,
   canUpdate,
   canComplete,
@@ -986,13 +986,13 @@ function CycleCard({
   onCapacity,
   onAddIssues,
   onAssignPI,
-}: CycleCardProps) {
-  const itemCount = cycle._count?.workItems ?? 0;
-  const report = cycle.report;
-  const isPI = cycle.cycleKind === PI_KIND;
+}: IntervalCardProps) {
+  const itemCount = interval._count?.workItems ?? 0;
+  const report = interval.report;
+  const isPI = interval.intervalKind === PI_KIND;
   // A sprint (non-PI, non-completed) can be nested under a PI, if any exist.
   const showPISelect =
-    !isPI && canUpdate && cycle.status !== "COMPLETED" && pis.length > 0;
+    !isPI && canUpdate && interval.status !== "COMPLETED" && pis.length > 0;
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -1000,26 +1000,26 @@ function CycleCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h4 className="font-medium text-sm truncate">
-              {cycle.name}
+              {interval.name}
             </h4>
             <Badge variant="neutral" className="shrink-0 text-[10px]">
-              {KIND_LABELS[cycle.cycleKind] ?? cycle.cycleKind} #{cycle.number}
+              {KIND_LABELS[interval.intervalKind] ?? interval.intervalKind} #{interval.number}
             </Badge>
-            {cycle.status === "ACTIVE" && (
+            {interval.status === "ACTIVE" && (
               <Badge variant="progress" className="shrink-0 text-[10px]">
                 Active
               </Badge>
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {fmtDate(cycle.startDate)} – {fmtDate(cycle.endDate)} · {itemCount}{" "}
+            {fmtDate(interval.startDate)} – {fmtDate(interval.endDate)} · {itemCount}{" "}
             {itemCount === 1 ? "item" : "items"}
           </p>
           {showPISelect && (
             <div className="mt-2 flex items-center gap-1.5">
               <span className="text-[11px] text-muted-foreground">PI:</span>
               <Select
-                value={cycle.parentId ?? NO_PI}
+                value={interval.parentId ?? NO_PI}
                 onValueChange={(v) => onAssignPI(v === NO_PI ? null : (v as string))}
               >
                 <SelectTrigger size="sm" className="h-6 w-auto min-w-[8rem] text-xs" disabled={busy}>
@@ -1036,13 +1036,13 @@ function CycleCard({
               </Select>
             </div>
           )}
-          {cycle.goal && (
+          {interval.goal && (
             <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1">
               <Target className="h-3.5 w-3.5 shrink-0 mt-px" />
-              <span>{cycle.goal}</span>
+              <span>{interval.goal}</span>
             </p>
           )}
-          {cycle.status === "COMPLETED" && report && (
+          {interval.status === "COMPLETED" && report && (
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>
                 Velocity:{" "}
@@ -1066,7 +1066,7 @@ function CycleCard({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {cycle.status === "PLANNED" && canUpdate && (
+          {interval.status === "PLANNED" && canUpdate && (
             <Button
               size="sm"
               variant="outline"
@@ -1077,13 +1077,13 @@ function CycleCard({
               Start
             </Button>
           )}
-          {cycle.status === "ACTIVE" && canComplete && (
+          {interval.status === "ACTIVE" && canComplete && (
             <Button size="sm" disabled={busy} onClick={onComplete}>
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Complete
             </Button>
           )}
-          {cycle.status !== "COMPLETED" && canUpdate && (
+          {interval.status !== "COMPLETED" && canUpdate && (
             <Button
               size="sm"
               variant="outline"
@@ -1094,7 +1094,7 @@ function CycleCard({
               Add issues
             </Button>
           )}
-          {cycle.status !== "COMPLETED" && (
+          {interval.status !== "COMPLETED" && (
             <Button
               size="icon-sm"
               variant="ghost"
@@ -1105,24 +1105,24 @@ function CycleCard({
               <Users className="h-3.5 w-3.5" />
             </Button>
           )}
-          {cycle.status !== "COMPLETED" && canUpdate && (
+          {interval.status !== "COMPLETED" && canUpdate && (
             <Button
               size="icon-sm"
               variant="ghost"
               disabled={busy}
-              aria-label="Edit cycle"
+              aria-label="Edit interval"
               title="Edit"
               onClick={onEdit}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
           )}
-          {cycle.status !== "ACTIVE" && canUpdate && (
+          {interval.status !== "ACTIVE" && canUpdate && (
             <Button
               size="icon-sm"
               variant="ghost"
               disabled={busy}
-              aria-label="Delete cycle"
+              aria-label="Delete interval"
               onClick={onDelete}
             >
               <Trash2 className="h-3.5 w-3.5" />

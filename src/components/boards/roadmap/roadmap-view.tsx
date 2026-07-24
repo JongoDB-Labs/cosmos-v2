@@ -5,8 +5,8 @@
  * high-altitude, Jira-Plans-style grid of **Epics (swimlane rows) × Increments
  * (columns)**, with each epic's Features shown as cards in the cell for the PI
  * they're scheduled into, plus a per-epic progress roll-up. Because govcon/SAFe
- * epics+features are placed by *cycle/PI assignment* (they rarely carry start/due
- * dates), the time axis is the project's cycles — which is exactly what sets this
+ * epics+features are placed by *interval/PI assignment* (they rarely carry start/due
+ * dates), the time axis is the project's intervals — which is exactly what sets this
  * apart from the date-driven Timeline/Gantt.
  */
 import { useMemo, useState } from "react";
@@ -17,7 +17,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
-import type { WorkItem, OrgMember, Cycle, Board, BoardColumn } from "@/types/models";
+import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 
@@ -56,40 +56,40 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
   const boardKey = useOrgQueryKey("board", boardId);
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [itemsQ, membersQ, boardQ, cyclesQ] = useQueries({
+  const [itemsQ, membersQ, boardQ, intervalsQ] = useQueries({
     queries: [
       { queryKey: itemsKey, queryFn: () => jsonFetch<WorkItem[]>(`${basePath}/work-items`) },
       { queryKey: membersKey, queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`) },
       { queryKey: boardKey, queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`) },
-      { queryKey: cyclesKey, queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`) },
+      { queryKey: intervalsKey, queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`) },
     ],
   });
 
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
   const members: OrgMember[] = membersQ.data ?? [];
   const columns: BoardColumn[] = boardQ.data?.columns ?? [];
-  const cycles: Cycle[] = useMemo(() => cyclesQ.data ?? [], [cyclesQ.data]);
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const detailItem = detailId ? items.find((i) => i.id === detailId) ?? null : null;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [hideDone, setHideDone] = useState(false);
 
-  const loading = itemsQ.isLoading || cyclesQ.isLoading || boardQ.isLoading;
+  const loading = itemsQ.isLoading || intervalsQ.isLoading || boardQ.isLoading;
 
   // Column axis: the project's increments (PIs), oldest→newest, then a trailing
   // "Unscheduled" bucket for features with no PI.
   const laneCols = useMemo(() => {
-    const sorted = [...cycles].sort(
+    const sorted = [...intervals].sort(
       (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
     );
     return [
       ...sorted.map((c) => ({ id: c.id, name: c.name, sub: fmtRange(c.startDate, c.endDate) })),
       { id: UNSCHEDULED, name: "Unscheduled", sub: "no increment" },
     ];
-  }, [cycles]);
+  }, [intervals]);
 
   // Rows: epics (fallback: any parent-of-children if the project has no Epic
   // type). Each row buckets its features by the PI they're scheduled into.
@@ -114,7 +114,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       const done = feats.filter((f) => f.completedAt).length;
       const byCol = new Map<string, WorkItem[]>();
       for (const f of feats) {
-        const col = f.cycleId ?? epic.cycleId ?? UNSCHEDULED;
+        const col = f.intervalId ?? epic.intervalId ?? UNSCHEDULED;
         const arr = byCol.get(col) ?? [];
         arr.push(f);
         byCol.set(col, arr);
@@ -129,7 +129,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
   const usedCols = new Set<string>();
   for (const r of rows) for (const k of r.byCol.keys()) usedCols.add(k);
   const activeCols = laneCols.filter(
-    (c) => usedCols.has(c.id) || (c.id !== UNSCHEDULED && cycles.length > 0),
+    (c) => usedCols.has(c.id) || (c.id !== UNSCHEDULED && intervals.length > 0),
   );
 
   if (loading) return <RoadmapSkeleton />;
@@ -164,7 +164,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
           <MapIcon className="size-4 text-[var(--primary)]" /> Roadmap
         </div>
         <span className="text-[var(--text-muted)]">
-          {rows.length} epics · {cycles.length} increments
+          {rows.length} epics · {intervals.length} increments
         </span>
         <div className="ml-auto flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-[var(--text-muted)]">
@@ -298,7 +298,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
         orgId={orgId}
         projectId={projectId}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         columns={columns}
         projectItems={items}
         onUpdate={(updated) =>

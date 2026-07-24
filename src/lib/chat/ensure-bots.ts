@@ -61,8 +61,8 @@ const BUILTINS: BuiltInBotSpec[] = [
     key: "standup",
     displayName: "Standup",
     persona:
-      "Posts a daily standup for the channel's linked project: Yesterday / Today / Blockers plus a one-line burndown, built from the last 24h of activity and the active cycle's work items.",
-    // READONLY ceiling: it reads project/cycle/work data to compose the standup.
+      "Posts a daily standup for the channel's linked project: Yesterday / Today / Blockers plus a one-line burndown, built from the last 24h of activity and the active interval's work items.",
+    // READONLY ceiling: it reads project/interval/work data to compose the standup.
     toolScope: "READONLY",
   },
 ];

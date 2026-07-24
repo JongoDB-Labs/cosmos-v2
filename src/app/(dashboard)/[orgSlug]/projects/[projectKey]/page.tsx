@@ -62,7 +62,7 @@ export default async function ProjectPage({ params }: PageParams) {
     milestone: "milestones",
     roadmap: "roadmap",
     files: "files",
-    cycle: "cycles",
+    interval: "intervals",
   };
 
   // Effective hidden-feature set for the redirect check: the user's own list

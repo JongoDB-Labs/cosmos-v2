@@ -28,7 +28,7 @@ export interface IssueRow {
   /** Full assignee set (multi-assign), primary first. */
   assignees: { id: string; displayName: string; avatarUrl: string | null }[];
   parent: { id: string; ticketKey: string; title: string } | null;
-  cycleId: string | null;
+  intervalId: string | null;
   storyPoints: number | null;
   tags: string[];
   startDate: string | null;
@@ -80,7 +80,7 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
         priority: true,
         assigneeId: true,
         parentId: true,
-        cycleId: true,
+        intervalId: true,
         storyPoints: true,
         tags: true,
         startDate: true,
@@ -189,7 +189,7 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
             title: parentRow.title,
           }
         : null,
-      cycleId: item.cycleId,
+      intervalId: item.intervalId,
       storyPoints: item.storyPoints,
       tags: item.tags,
       startDate: item.startDate ? item.startDate.toISOString() : null,

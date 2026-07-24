@@ -102,18 +102,18 @@ async function main() {
       ["Implement audit-log tamper protection", 5] ] },
   ];
   await section("past sprints + done items", async () => {
-    if ((await prisma.cycle.count({ where: { orgId, projectId, status: "COMPLETED" } })) > 0) return "already present (skipped)";
+    if ((await prisma.interval.count({ where: { orgId, projectId, status: "COMPLETED" } })) > 0) return "already present (skipped)";
     let made = 0, ci = 0;
     for (const sp of sprints) {
-      const cyc = await prisma.cycle.upsert({
+      const cyc = await prisma.interval.upsert({
         where: { projectId_number: { projectId, number: sp.n } },
         update: { status: "COMPLETED", startDate: d(sp.s), endDate: d(sp.e) },
-        create: { orgId, projectId, cycleKind: "SPRINT", number: sp.n, name: sp.name, sectorLabel: "Sprint",
+        create: { orgId, projectId, intervalKind: "SPRINT", number: sp.n, name: sp.name, sectorLabel: "Sprint",
           goal: "Increment delivery + control implementation.", startDate: d(sp.s), endDate: d(sp.e), status: "COMPLETED" },
         select: { id: true },
       });
       const rows = sp.items.map(([title, pts], i) => ({
-        orgId, projectId, workItemTypeId: typeId(i === 0 ? "story" : "task"), cycleId: cyc.id,
+        orgId, projectId, workItemTypeId: typeId(i === 0 ? "story" : "task"), intervalId: cyc.id,
         title: title as string, columnKey: "done", ticketNumber: ++ticket, sortOrder: ++ci,
         priority: "MEDIUM" as const, assigneeId: eng[(ci + i) % eng.length], storyPoints: pts as number,
         completedAt: d(sp.e - 1), createdById: jon.id, tags: [] as string[],

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.233.0",
+    date: "2026-07-24",
+    title: "“Cycles” are now “Intervals”",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Renamed the generic time-boxed container from “cycle” to “interval” across the whole app. An interval is the umbrella term for a Sprint, Phase, Program Increment, Release, and the other kinds — the old “cycle” wording implied it was one specific kind. Your data and sprints are unchanged; it's the same feature with clearer, kind-neutral naming (per-sector labels like “Sprints” still apply where a project uses them).",
+      },
+    ],
+  },
+  {
     version: "2.232.0",
     date: "2026-07-23",
     title: "Roll straight into the next sprint on completion",

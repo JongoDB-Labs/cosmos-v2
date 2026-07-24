@@ -129,7 +129,7 @@ export function batchMergeOrder(siblings: readonly Sibling[]): string[] {
   const order: string[] = [];
   const visit = (key: string): void => {
     if (visited.has(key)) return;
-    if (inStack.has(key)) return; // back-edge (cycle) — break it; stable order still lists the node
+    if (inStack.has(key)) return; // back-edge (interval) — break it; stable order still lists the node
     inStack.add(key);
     const node = byKey.get(key);
     if (node) {

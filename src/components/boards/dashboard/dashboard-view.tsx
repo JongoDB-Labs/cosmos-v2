@@ -21,7 +21,7 @@ import { BurndownChart } from "./widgets/burndown-chart";
 import { WorkloadChart } from "./widgets/workload-chart";
 import { ActivityFeed } from "./widgets/activity-feed";
 import { assigneeLabel, workloadBuckets } from "./workload";
-import type { WorkItem, Board, BoardColumn, OrgMember, Cycle } from "@/types/models";
+import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 import "react-grid-layout/css/styles.css";
 
@@ -79,9 +79,9 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, cyclesQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -96,8 +96,8 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
       },
       {
-        queryKey: cyclesKey,
-        queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
     ],
   });
@@ -109,13 +109,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   );
   const items: WorkItem[] = itemsQ.data ?? [];
   const members: OrgMember[] = membersQ.data ?? [];
-  const cycles: Cycle[] = cyclesQ.data ?? [];
+  const intervals: Interval[] = intervalsQ.data ?? [];
 
   const loading =
     boardQ.isLoading ||
     itemsQ.isLoading ||
     membersQ.isLoading ||
-    cyclesQ.isLoading;
+    intervalsQ.isLoading;
 
   const fatalError = boardQ.error || itemsQ.error;
   const error = fatalError
@@ -202,19 +202,19 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     [items, memberMap],
   );
 
-  // Burndown data for active cycle
+  // Burndown data for active interval
   const burndownData = useMemo(() => {
-    const activeCycle = cycles.find((s) => s.status === "ACTIVE");
-    if (!activeCycle) return [];
+    const activeInterval = intervals.find((s) => s.status === "ACTIVE");
+    if (!activeInterval) return [];
 
-    const cycleItems = items.filter((i) => i.cycleId === activeCycle.id);
-    const totalPoints = cycleItems.reduce((sum, i) => sum + (i.storyPoints ?? 1), 0);
-    // An active cycle with no items has no burndown to draw — return empty so the
+    const intervalItems = items.filter((i) => i.intervalId === activeInterval.id);
+    const totalPoints = intervalItems.reduce((sum, i) => sum + (i.storyPoints ?? 1), 0);
+    // An active interval with no items has no burndown to draw — return empty so the
     // chart shows its "no data" state instead of a misleading flat zero line.
     if (totalPoints === 0) return [];
 
-    const start = new Date(activeCycle.startDate);
-    const end = new Date(activeCycle.endDate);
+    const start = new Date(activeInterval.startDate);
+    const end = new Date(activeInterval.endDate);
     const totalDays = Math.max(
       Math.ceil((end.getTime() - start.getTime()) / 86400000),
       1
@@ -230,7 +230,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       if (currentDate > today) break;
 
       const ideal = Math.round(totalPoints * (1 - d / totalDays));
-      const completedByDate = cycleItems.filter(
+      const completedByDate = intervalItems.filter(
         (i) => i.completedAt && new Date(i.completedAt) <= currentDate
       );
       const completedPoints = completedByDate.reduce(
@@ -250,7 +250,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     }
 
     return data;
-  }, [items, cycles]);
+  }, [items, intervals]);
 
   if (loading) return <DashboardSkeleton />;
 
@@ -348,7 +348,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     },
     {
       key: "burndown",
-      title: "Cycle Burndown",
+      title: "Interval Burndown",
       body: <BurndownChart data={burndownData} />,
     },
     {

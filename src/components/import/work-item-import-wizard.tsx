@@ -177,8 +177,8 @@ export function WorkItemImportWizard(props: WizardProps) {
         <p className="mt-1 text-sm text-[var(--text-muted)]">
           Created {committed.created ?? 0}, updated {committed.updated ?? 0}
           {committed.skipped ? `, skipped ${committed.skipped}` : ""}.
-          {committed.createdCycles
-            ? ` Created ${committed.createdCycles} new sprint${committed.createdCycles === 1 ? "" : "s"}.`
+          {committed.createdIntervals
+            ? ` Created ${committed.createdIntervals} new sprint${committed.createdIntervals === 1 ? "" : "s"}.`
             : ""}
         </p>
         <div className="mt-5 flex justify-center gap-2">

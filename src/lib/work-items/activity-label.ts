@@ -2,12 +2,12 @@
  * Human labels for work-item activity/history rows.
  *
  * Activities record field changes with the RAW stored value, and several fields
- * hold ids — `assigneeId` (a user id), `cycleId`, `workItemTypeId`, `parentId`.
+ * hold ids — `assigneeId` (a user id), `intervalId`, `workItemTypeId`, `parentId`.
  * Rendering `oldValue`/`newValue` verbatim therefore showed a bare GUID in the
  * item's Activity tab and the org Updates feed (e.g. "changed assigneeId from
  * <uuid> to <uuid>"). These helpers turn the raw field + value into readable
  * text: a friendly field name, and — for id-valued fields — the resolved
- * person / cycle / type / status name. A raw id is never surfaced: an
+ * person / interval / type / status name. A raw id is never surfaced: an
  * unresolved id-shaped value falls back to "Unknown".
  */
 
@@ -16,7 +16,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const FIELD_LABELS: Record<string, string> = {
   assigneeId: "assignee",
   columnKey: "status",
-  cycleId: "cycle",
+  intervalId: "interval",
   workItemTypeId: "type",
   parentId: "parent",
   storyPoints: "story points",
@@ -33,7 +33,7 @@ export function activityFieldLabel(field: string): string {
 /** Lookups from an id/key to a display name, wired from whatever the caller has. */
 export interface ActivityValueResolvers {
   user?: (id: string) => string | undefined;
-  cycle?: (id: string) => string | undefined;
+  interval?: (id: string) => string | undefined;
   type?: (id: string) => string | undefined;
   column?: (key: string) => string | undefined;
 }
@@ -55,8 +55,8 @@ export function activityValueLabel(
     case "assigneeId":
       resolved = resolvers.user?.(value);
       break;
-    case "cycleId":
-      resolved = resolvers.cycle?.(value);
+    case "intervalId":
+      resolved = resolvers.interval?.(value);
       break;
     case "workItemTypeId":
       resolved = resolvers.type?.(value);

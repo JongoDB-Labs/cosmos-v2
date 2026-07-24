@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 
 /**
  * KPI derivation — a KPI's currentValue can "trickle up" from execution (work
- * items + cycles) instead of being typed in. Opt-in per KPI via `autoSource`
+ * items + intervals) instead of being typed in. Opt-in per KPI via `autoSource`
  * (default MANUAL). Computed on read; never persisted. Shared by the KPIs API
  * and the PM Dashboard so they agree.
  */
@@ -12,7 +12,7 @@ const DEFAULT_WINDOW_DAYS = 30;
 
 export interface ExecutionMetrics {
   completionPct: number; // % of work items done
-  velocity: number; // avg story points delivered per completed cycle
+  velocity: number; // avg story points delivered per completed interval
   openItems: number; // count of not-done work items
   avgCycleTime: number; // avg days from start to done (done items)
   throughput: (windowDays: number) => number; // items completed within the window
@@ -25,18 +25,18 @@ export async function computeExecutionMetrics(
   now: Date,
 ): Promise<ExecutionMetrics> {
   const where = projectId ? { orgId, projectId } : { orgId };
-  const [items, completedCycles] = await Promise.all([
+  const [items, completedIntervals] = await Promise.all([
     prisma.workItem.findMany({
       where,
       select: {
         columnKey: true,
         storyPoints: true,
-        cycleId: true,
+        intervalId: true,
         startDate: true,
         completedAt: true,
       },
     }),
-    prisma.cycle.count({ where: { ...where, status: "COMPLETED" } }),
+    prisma.interval.count({ where: { ...where, status: "COMPLETED" } }),
   ]);
 
   const total = items.length;
@@ -44,13 +44,13 @@ export async function computeExecutionMetrics(
   const completionPct = total > 0 ? Math.round((done.length / total) * 100) : 0;
   const openItems = total - done.length;
 
-  // Velocity: story points of done items that belong to a cycle, averaged over
-  // the completed cycles (avg delivered per sprint).
-  const cyclePoints = done
-    .filter((i) => i.cycleId)
+  // Velocity: story points of done items that belong to an interval, averaged over
+  // the completed intervals (avg delivered per sprint).
+  const intervalPoints = done
+    .filter((i) => i.intervalId)
     .reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
   const velocity =
-    completedCycles > 0 ? Math.round(cyclePoints / completedCycles) : cyclePoints;
+    completedIntervals > 0 ? Math.round(intervalPoints / completedIntervals) : intervalPoints;
 
   // Avg cycle time (days) for done items that carry both a start and a finish.
   const timed = done.filter((i) => i.startDate && i.completedAt);

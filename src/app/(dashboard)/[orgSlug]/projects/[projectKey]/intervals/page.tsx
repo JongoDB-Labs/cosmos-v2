@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
-import { CyclesWorkspace } from "@/components/cycles/cycles-workspace";
+import { IntervalsWorkspace } from "@/components/intervals/intervals-workspace";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
-export default async function CyclesPage({ params }: PageParams) {
+export default async function IntervalsPage({ params }: PageParams) {
   const { orgSlug, projectKey } = await params;
 
   const ctx = await getAuthContext(orgSlug);
@@ -23,8 +23,8 @@ export default async function CyclesPage({ params }: PageParams) {
   if (!project) notFound();
 
   // The project layout already owns the page's single <h1> (the project name);
-  // CyclesWorkspace renders its own section heading + client-side data.
+  // IntervalsWorkspace renders its own section heading + client-side data.
   return (
-    <CyclesWorkspace orgId={ctx.orgId} projectId={project.id} projectKey={project.key} />
+    <IntervalsWorkspace orgId={ctx.orgId} projectId={project.id} projectKey={project.key} />
   );
 }

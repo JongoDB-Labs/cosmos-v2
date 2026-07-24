@@ -573,7 +573,7 @@ export function quoteIdent(ident: string): string {
 //        because the import runs under session_replication_role = replica).
 //   C2 — non-member USERS still referenced by a migrated row (a removed member whose
 //        user_id/assignee_id/author_id/… still appears). Some of these are REAL DB FKs
-//        (home_widgets.owner_id, cycle_capacities.user_id); most are BARE logical refs
+//        (home_widgets.owner_id, interval_capacities.user_id); most are BARE logical refs
 //        (no DB FK, but the app reads them and they'd break in v2).
 //
 // THE FIX: after the org-scoped rows are collected, compute the TRANSITIVE CLOSURE of the
@@ -611,7 +611,7 @@ export interface FkEdge {
  * parent table. Derived once from the schema (grep of *_id @db.Uuid scalars with no
  * relation whose name denotes a user/actor/owner/author) — see the build prompt's C2 list.
  *
- * NOTE: columns that DO have a relation (home_widgets.owner_id, cycle_capacities.user_id,
+ * NOTE: columns that DO have a relation (home_widgets.owner_id, interval_capacities.user_id,
  * federated_identities.user_id, …) are intentionally ABSENT here — they're picked up as
  * HARD FKs by fkEdgesOf() from the DMMF, so listing them again would be redundant.
  */
@@ -659,10 +659,10 @@ function tableAndPkOf(modelName: string, byName: Map<string, DMMFModel>): { tabl
  * The FK edges from one migrated model to parent rows that may fall OUTSIDE the strict
  * org-scope and therefore must be pulled into the referential closure:
  *   - HARD FKs: every to-one DMMF relation (covers work_item_type_id, project_template_id,
- *     home_widgets.owner_id, cycle_capacities.user_id, the self-FK parent_id, cycle_id, …).
+ *     home_widgets.owner_id, interval_capacities.user_id, the self-FK parent_id, cycle_id, …).
  *   - BARE user refs: the enumerated @db.Uuid → users.id columns with no DMMF relation.
  *
- * Self-references and refs to already-org-scoped parents (Cycle, the parent WorkItem) are
+ * Self-references and refs to already-org-scoped parents (Interval, the parent WorkItem) are
  * KEPT — they're harmless (the parent is already in the export, so the closure finds nothing
  * new to add) and dropping them would require knowing the org-scope set here. The closure
  * loop dedupes by id, so following an already-exported parent is a cheap no-op.

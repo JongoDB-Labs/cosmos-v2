@@ -24,27 +24,27 @@ interface CapacityEntry {
 interface CapacityDialogProps {
   orgId: string;
   projectId: string;
-  cycleId: string;
-  cycleName: string;
+  intervalId: string;
+  intervalName: string;
   canEdit: boolean;
   onClose: () => void;
 }
 
 /**
- * Per-member capacity planning for a cycle. Reads/writes the existing
- * /cycles/[id]/capacity route (GET returns CycleCapacity rows; PUT upserts an
+ * Per-member capacity planning for an interval. Reads/writes the existing
+ * /intervals/[id]/capacity route (GET returns IntervalCapacity rows; PUT upserts an
  * `entries` array and removes anyone omitted). Candidate members come from the
  * org member list — their User ids are the uuids the route expects.
  */
 export function CapacityDialog({
   orgId,
   projectId,
-  cycleId,
-  cycleName,
+  intervalId,
+  intervalName,
   canEdit,
   onClose,
 }: CapacityDialogProps) {
-  const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/cycles/${cycleId}`;
+  const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}`;
   const { data: members } = useOrgMembers(orgId);
 
   // userId -> hours, as a string for the controlled input.
@@ -103,9 +103,9 @@ export function CapacityDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Capacity — {cycleName}</DialogTitle>
+          <DialogTitle>Capacity — {intervalName}</DialogTitle>
           <DialogDescription>
-            Planned hours per member for this cycle. Used alongside velocity to
+            Planned hours per member for this interval. Used alongside velocity to
             flag over-commitment.
           </DialogDescription>
         </DialogHeader>

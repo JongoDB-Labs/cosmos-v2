@@ -78,13 +78,13 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
     if (!project) return { error: "Project not found" };
   }
   // SyncMeeting.sprintId has no FK relation (bare id) — require it to be one of
-  // this org's cycles so an untrusted id can't plant a cross-org pointer.
+  // this org's intervals so an untrusted id can't plant a cross-org pointer.
   if (data.sprintId) {
-    const sprint = await prisma.cycle.findFirst({
+    const sprint = await prisma.interval.findFirst({
       where: { id: data.sprintId, orgId: ctx.orgId },
       select: { id: true },
     });
-    if (!sprint) return { error: "sprintId is not a cycle in this organization" };
+    if (!sprint) return { error: "sprintId is not an interval in this organization" };
   }
 
   const created = await prisma.syncMeeting.create({

@@ -9,7 +9,7 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   boards?: Board[];
-  cycles?: Cycle[];
+  intervals?: Interval[];
 }
 
 export interface Board {
@@ -67,7 +67,7 @@ export interface WorkItem {
   columnKey: string;
   assigneeId: string | null;
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
-  cycleId: string | null;
+  intervalId: string | null;
   parentId: string | null;
   ticketNumber: number;
   storyPoints: number | null;
@@ -108,11 +108,11 @@ export interface WorkItemRef {
   columnKey?: string;
 }
 
-export interface Cycle {
+export interface Interval {
   id: string;
   orgId: string;
   projectId: string;
-  cycleKind: string;
+  intervalKind: string;
   number: number;
   name: string;
   goal: string;
@@ -678,9 +678,9 @@ export interface SavedReport {
   updatedAt: string;
 }
 
-export interface CycleAnalytics {
-  cycleId: string;
-  cycleName: string;
+export interface IntervalAnalytics {
+  intervalId: string;
+  intervalName: string;
   velocity: number;
   completedPoints: number;
   totalPoints: number;

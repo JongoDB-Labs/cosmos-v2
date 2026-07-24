@@ -49,7 +49,7 @@ export function formatToolsForSystemPrompt(tools: ToolDefinition[]): string {
 export const cosmosTools: ToolDefinition[] = [
   {
     name: "query_work_items",
-    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, and cycle.",
+    description: "Search and filter work items in the project. Returns matching items with their status, assignee, priority, and interval.",
     input_schema: {
       type: "object",
       properties: {
@@ -58,7 +58,7 @@ export const cosmosTools: ToolDefinition[] = [
         status: { type: "string", description: "Column category filter: TODO, IN_PROGRESS, DONE, CANCELLED" },
         assigneeId: { type: "string", description: "Filter by assignee user ID" },
         priority: { type: "string", description: "Filter by priority: CRITICAL, HIGH, MEDIUM, LOW" },
-        cycleId: { type: "string", description: "Filter by cycle ID" },
+        intervalId: { type: "string", description: "Filter by interval ID" },
         workItemTypeId: { type: "string", description: "Filter by work item type ID" },
         limit: { type: "number", description: "Max results (default 20)" },
       },
@@ -84,7 +84,7 @@ export const cosmosTools: ToolDefinition[] = [
         description: { type: "string" },
         priority: { type: "string", enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
         assigneeId: { type: "string", description: "Assignee user ID" },
-        cycleId: { type: "string", description: "Cycle ID to assign to" },
+        intervalId: { type: "string", description: "Interval ID to assign to" },
         parentId: { type: "string", description: "Parent work item ID for subtasks" },
         storyPoints: { type: "number", description: "Story points estimate" },
         dueDate: { type: "string", description: "Due date as a calendar day YYYY-MM-DD (no time, no timezone)" },
@@ -104,7 +104,7 @@ export const cosmosTools: ToolDefinition[] = [
         description: { type: "string" },
         priority: { type: "string", enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
         assigneeId: { type: "string" },
-        cycleId: { type: "string" },
+        intervalId: { type: "string" },
         columnKey: { type: "string", description: "Move to a different column" },
         storyPoints: { type: "number" },
         parentId: { type: "string" },
@@ -116,13 +116,13 @@ export const cosmosTools: ToolDefinition[] = [
     },
   },
   {
-    name: "query_cycles",
-    description: "Get cycle/sprint information including velocity, item counts, and burndown data.",
+    name: "query_intervals",
+    description: "Get interval/sprint information including velocity, item counts, and burndown data.",
     input_schema: {
       type: "object",
       properties: {
         projectId: { type: "string", description: "Project ID" },
-        status: { type: "string", enum: ["PLANNED", "ACTIVE", "COMPLETED"], description: "Cycle status filter" },
+        status: { type: "string", enum: ["PLANNED", "ACTIVE", "COMPLETED"], description: "Interval status filter" },
         limit: { type: "number", description: "Max results (default 10)" },
       },
       required: ["projectId"],
@@ -154,13 +154,13 @@ export const cosmosTools: ToolDefinition[] = [
     },
   },
   {
-    name: "generate_cycle_brief",
-    description: "Generate a comprehensive cycle/sprint status brief with velocity, burndown, blockers, and team workload.",
+    name: "generate_interval_brief",
+    description: "Generate a comprehensive interval/sprint status brief with velocity, burndown, blockers, and team workload.",
     input_schema: {
       type: "object",
       properties: {
         projectId: { type: "string", description: "Project ID" },
-        cycleId: { type: "string", description: "Cycle ID (defaults to active cycle)" },
+        intervalId: { type: "string", description: "Interval ID (defaults to active interval)" },
       },
       required: ["projectId"],
     },
