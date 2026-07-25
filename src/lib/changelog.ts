@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.224.0",
+    date: "2026-07-25",
+    title: "Edit a work item in the Table view's side panel",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Open any row in the Table board view in the full detail side panel — the same rich editor the Kanban board uses — to edit its description, status, assignee, priority, dates, tags, comments and sub-items. Your changes save automatically and appear in the table row right away.",
+      },
+    ],
+  },
+  {
     version: "2.223.1",
     date: "2026-07-22",
     title: "Coordinated multi-phase releases that touch the same files now ship",
