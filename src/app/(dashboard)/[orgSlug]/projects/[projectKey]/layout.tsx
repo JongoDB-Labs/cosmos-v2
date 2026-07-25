@@ -6,7 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
-import { Settings, Upload } from "lucide-react";
+import { Settings, Upload, CalendarClock } from "lucide-react";
 import { ProjectBoardTabs } from "./board-tabs";
 import { ClassificationBanner } from "@/components/security/classification-banner";
 
@@ -70,6 +70,10 @@ export default async function ProjectLayout({
     select: { tabPrefs: true },
   });
   const projectSettings = (project.settings as Record<string, unknown> | null) ?? {};
+  // Top-level "Intervals" entry (project header, not the board strip). The label
+  // is the generic term for every project type; the project's sector drives the
+  // DEFAULT interval kind (Sprint/Phase/…) when managing them, not this label.
+  const intervalEnabled = project.enabledFeatures.includes("cycle");
   const allTabPrefs =
     userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
       ? (userPrefs.tabPrefs as Record<string, unknown>)
@@ -121,6 +125,15 @@ export default async function ProjectLayout({
           <h1 className="text-lg font-semibold">{project.name}</h1>
         </div>
         <div className="flex items-center gap-1">
+          {intervalEnabled && (
+            <Link
+              href={`/${orgSlug}/projects/${projectKey}/intervals`}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}
+            >
+              <CalendarClock className="h-4 w-4" />
+              Intervals
+            </Link>
+          )}
           <Link
             href={`/${orgSlug}/projects/${projectKey}/import`}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}

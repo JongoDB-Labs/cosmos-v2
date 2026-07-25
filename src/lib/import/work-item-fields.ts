@@ -17,7 +17,7 @@ export type TargetFieldId =
   | "priority" // → Priority enum (value-mapped)
   | "assignee" // → org member (value-mapped, by email/name)
   | "assignees" // → full assignee set — emails/names split on , or ; (server-resolved)
-  | "cycle" // → project cycle/sprint, matched by name or number (server-resolved)
+  | "interval" // → project interval/sprint, matched by name or number (server-resolved)
   | "tags" // split on , or ;
   | "storyPoints"
   | "dueDate"
@@ -54,7 +54,7 @@ export const TARGET_FIELDS: TargetField[] = [
   { id: "priority", label: "Priority", hint: "Maps to Critical/High/Medium/Low.", valueMapped: "priority", unique: true },
   { id: "assignee", label: "Assignee", hint: "Matched to a member by email or name.", valueMapped: "assignee", unique: true },
   { id: "assignees", label: "Assignees (multiple)", hint: "Emails or names split on comma/semicolon; the first becomes the primary.", unique: true },
-  { id: "cycle", label: "Sprint / Cycle", hint: "Matched to a project cycle by name or number.", unique: true },
+  { id: "interval", label: "Sprint / Interval", hint: "Matched to a project interval by name or number.", unique: true },
   { id: "tags", label: "Labels / Tags", hint: "Split on comma or semicolon.", unique: true },
   { id: "storyPoints", label: "Story Points", hint: "Whole number.", unique: true },
   { id: "dueDate", label: "Due Date", hint: "Any parseable date.", unique: true },
@@ -89,12 +89,12 @@ const HEADER_SYNONYMS: Record<string, TargetFieldId> = {
   "assigned to": "assignee",
   owner: "assignee",
   assignees: "assignees",
-  sprint: "cycle",
-  "sprint name": "cycle",
-  cycle: "cycle",
-  "cycle name": "cycle",
-  iteration: "cycle",
-  "iteration path": "cycle",
+  sprint: "interval",
+  "sprint name": "interval",
+  interval: "interval",
+  "interval name": "interval",
+  iteration: "interval",
+  "iteration path": "interval",
   resolved: "completedAt",
   "resolved date": "completedAt",
   "done date": "completedAt",
@@ -220,12 +220,12 @@ export interface ImportReport {
   skipped: number; // rows with blocking errors
   errors: ImportRowError[];
   /** Non-blocking issues the row imports DESPITE — e.g. an assignee token that
-   *  matched no org member (dropped), or a Sprint that matched no cycle.
+   *  matched no org member (dropped), or a Sprint that matched no interval.
    *  Surfaced at validate time so nothing disappears silently. */
   warnings?: ImportRowError[];
   /** committed only */
   created?: number;
   updated?: number;
-  /** Sprints/cycles auto-created from unmatched Sprint columns (FR 1fe31122). */
-  createdCycles?: number;
+  /** Sprints/intervals auto-created from unmatched Sprint columns (FR 1fe31122). */
+  createdIntervals?: number;
 }

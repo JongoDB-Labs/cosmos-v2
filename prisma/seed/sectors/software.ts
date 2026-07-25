@@ -70,7 +70,7 @@ const SOFTWARE_BOARD_TEMPLATES = [
   },
   {
     slug: "software.dashboard",
-    name: "Sprint Dashboard",
+    name: "Sprint Health",
     category: "analytics",
     boardType: "DASHBOARD",
     sortOrder: 6,
@@ -84,7 +84,7 @@ const SOFTWARE_PROJECT_TEMPLATE = {
   name: "Software Project",
   description: "Agile development with sprints, boards, and releases",
   defaultConfig: {
-    cycleKinds: ["SPRINT", "RELEASE"],
+    intervalKinds: ["SPRINT", "RELEASE"],
     cycleNavLabel: "Sprints",
     enabledFeatures: ["goal", "milestone", "risk"],
   },

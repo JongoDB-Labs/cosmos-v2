@@ -34,7 +34,7 @@ const bulkUpdateSchema = z.object({
     columnKey: z.string().nullish(),
     assigneeId: z.string().uuid().nullable().optional(),
     priority: z.nativeEnum(Priority).optional(),
-    cycleId: z.string().uuid().nullable().optional(),
+    intervalId: z.string().uuid().nullable().optional(),
     tags: z.array(z.string()).optional(),
   }),
 });
@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
     if (update.assigneeId !== undefined) updateData.assigneeId = update.assigneeId;
     if (update.priority !== undefined) updateData.priority = update.priority;
-    if (update.cycleId !== undefined) updateData.cycleId = update.cycleId;
+    if (update.intervalId !== undefined) updateData.intervalId = update.intervalId;
     if (update.tags !== undefined) updateData.tags = update.tags;
 
     // Snapshot previous state so we can fan out per-item assignee-change

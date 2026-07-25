@@ -35,7 +35,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const allowedProjectIds = await getReadableProjectIds(ctx);
 
     if (allowedProjectIds.length === 0) {
-      return success({ projects: [], types: [], statuses: [], statusesByProject: {}, members: [], labels: [], cycles: [], managedProjectIds: [] });
+      return success({ projects: [], types: [], statuses: [], statusesByProject: {}, members: [], labels: [], intervals: [], managedProjectIds: [] });
     }
 
     // Projects the actor can administer (org PROJECT_MANAGE, or project MANAGER
@@ -44,7 +44,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // the project-manager path, the affordance just wasn't gated to match.
     const managedProjectIds = await getManagedProjectIds(ctx, allowedProjectIds);
 
-    const [projects, types, columns, members, cycles, tagRows] = await Promise.all([
+    const [projects, types, columns, members, intervals, tagRows] = await Promise.all([
       prisma.project.findMany({
         where: { id: { in: allowedProjectIds } },
         select: { id: true, key: true, name: true, archived: true },
@@ -71,7 +71,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         },
         orderBy: { joinedAt: "asc" },
       }),
-      prisma.cycle.findMany({
+      prisma.interval.findMany({
         where: { projectId: { in: allowedProjectIds } },
         select: { id: true, name: true, number: true, projectId: true, status: true },
         orderBy: [{ startDate: "desc" }],
@@ -112,7 +112,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           avatarUrl: m.user!.avatarUrl,
         })),
       labels: [...labelSet].sort((a, b) => a.localeCompare(b)),
-      cycles,
+      intervals,
       managedProjectIds: [...managedProjectIds],
     });
   } catch (error) {

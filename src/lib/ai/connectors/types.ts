@@ -20,7 +20,7 @@
 import type { ToolDefinition } from "../tools";
 // Type-only import straight from the egress TYPES module (not its index) to avoid
 // dragging the egress runtime graph into the connector type layer — and `import type`
-// is erased at compile time, so there is no runtime cycle either way.
+// is erased at compile time, so there is no runtime interval either way.
 import type { TenantClass } from "../egress/types";
 
 /**

@@ -34,6 +34,10 @@ export type ProductProfile = {
   defaultEnabledSectors: SectorKey[] | null;
   /** Registry ID of the skin applied by default for this product. */
   defaultSkinId: string;
+  /** Plugins auto-enabled for a new org on this product (fail-closed axis: absent =
+   *  none). Slugs must exist in the plugin registry (src/lib/plugins/registry.ts);
+   *  slugs whose plugin isn't composed into this build are ignored at provision time. */
+  defaultEnabledPlugins: string[];
 };
 
 export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
@@ -57,6 +61,7 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     defaultEnabledModules: null,
     defaultEnabledSectors: null,
     defaultSkinId: "universe",
+    defaultEnabledPlugins: [],
   },
   pontis: {
     key: "pontis",
@@ -76,5 +81,6 @@ export const PRODUCT_PROFILES: Record<ProductKey, ProductProfile> = {
     defaultEnabledModules: null,
     defaultEnabledSectors: ["aec"],
     defaultSkinId: "atelier",
+    defaultEnabledPlugins: ["pontis"],
   },
 };

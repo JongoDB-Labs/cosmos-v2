@@ -65,7 +65,7 @@ import {
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
-import type { WorkItem, Board, BoardColumn, OrgMember, Cycle } from "@/types/models";
+import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 interface TableViewProps {
   orgId: string;
@@ -132,9 +132,9 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, cyclesQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -149,8 +149,8 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
       },
       {
-        queryKey: cyclesKey,
-        queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
     ],
   });
@@ -162,7 +162,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   );
   const allItems: WorkItem[] = itemsQ.data ?? [];
   const members: OrgMember[] = membersQ.data ?? [];
-  const cycles: Cycle[] = cyclesQ.data ?? [];
+  const intervals: Interval[] = intervalsQ.data ?? [];
 
   // Type filter (FR debd4e39): a TABLE board can be scoped to specific work-item
   // types — e.g. a "Bug Tracker" that shows only bugs instead of every ticket.
@@ -213,7 +213,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     boardQ.isLoading ||
     itemsQ.isLoading ||
     membersQ.isLoading ||
-    cyclesQ.isLoading;
+    intervalsQ.isLoading;
   const fatalError = boardQ.error || itemsQ.error;
   const error = fatalError
     ? fatalError instanceof Error
@@ -243,13 +243,43 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     return map;
   }, [columns]);
 
-  const cycleMap = useMemo(() => {
+  const intervalMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const s of cycles) {
+    for (const s of intervals) {
       map.set(s.id, s.name);
     }
     return map;
-  }, [cycles]);
+  }, [intervals]);
+
+  const typeNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const it of items) {
+      if (it.workItemType?.id) map.set(it.workItemType.id, it.workItemType.name);
+    }
+    return map;
+  }, [items]);
+
+  // Group-header labels: resolve the raw grouping value (a UUID for assignee /
+  // type / interval, a key for status) to a human name. Without this the header
+  // shows the raw id — the reported "UUID instead of username" bug.
+  const getGroupLabel = useCallback(
+    (columnId: string, value: unknown): ReactNode => {
+      const v = value == null || value === "" ? null : String(value);
+      switch (columnId) {
+        case "assigneeId":
+          return v ? (memberMap.get(v) ?? "Unknown") : "Unassigned";
+        case "workItemTypeId":
+          return v ? (typeNameMap.get(v) ?? v) : "No type";
+        case "columnKey":
+          return v ? (columnMap.get(v) ?? v) : "No status";
+        case "intervalId":
+          return v ? (intervalMap.get(v) ?? v) : "No interval";
+        default:
+          return v ?? "None";
+      }
+    },
+    [memberMap, typeNameMap, columnMap, intervalMap],
+  );
 
   const saveEdit = useCallback(
     async (rowId: string, field: string, value: string) => {
@@ -334,7 +364,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // single-row optimistic pattern in saveEdit: patch the work-items cache,
   // clear the selection, and on failure surface a toast + refetch to rollback.
   // The server contract wraps the changed fields in an `update` object
-  // ({ ids, update: { columnKey | assigneeId | priority | cycleId | tags } }).
+  // ({ ids, update: { columnKey | assigneeId | priority | intervalId | tags } }).
   const bulkUpdate = useCallback(
     async (update: Partial<WorkItem>) => {
       if (selectedIds.length === 0) return;
@@ -781,13 +811,13 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         },
         size: 160,
       }),
-      columnHelper.accessor("cycleId", {
-        header: "Cycle",
+      columnHelper.accessor("intervalId", {
+        header: "Interval",
         cell: (info) => {
           const val = info.getValue();
           return (
             <span className="text-sm">
-              {val ? cycleMap.get(val) ?? "—" : "—"}
+              {val ? intervalMap.get(val) ?? "—" : "—"}
             </span>
           );
         },
@@ -906,7 +936,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         enableSorting: false,
       }),
     ] as ColumnDef<WorkItem>[],
-    [columnHelper, editingCell, memberMap, memberById, columnMap, cycleMap, columns, members, projectKey, saveEdit, openDetail]
+    [columnHelper, editingCell, memberMap, memberById, columnMap, intervalMap, columns, members, projectKey, saveEdit, openDetail]
   );
 
   const selectedCount = selectedIds.length;
@@ -1034,6 +1064,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           onRowSelectionChange={setRowSelection}
           grouping={grouping}
           onGroupingChange={setGrouping}
+          getGroupLabel={getGroupLabel}
           rowActions={rowActions}
           pagination={{ pageSize: 50 }}
           stickyHeader
@@ -1093,16 +1124,16 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                   options={PRIORITIES.map((p) => ({ value: p, label: p }))}
                 />
 
-                {/* Add to cycle */}
+                {/* Add to interval */}
                 <BulkSelect
-                  placeholder="Cycle"
-                  ariaLabel="Add selected items to a cycle"
+                  placeholder="Interval"
+                  ariaLabel="Add selected items to an interval"
                   onValueChange={(v) =>
-                    bulkUpdate({ cycleId: v === "__none" ? null : v })
+                    bulkUpdate({ intervalId: v === "__none" ? null : v })
                   }
                   options={[
-                    { value: "__none", label: "No cycle" },
-                    ...cycles.map((c) => ({ value: c.id, label: c.name })),
+                    { value: "__none", label: "No interval" },
+                    ...intervals.map((c) => ({ value: c.id, label: c.name })),
                   ]}
                 />
 
@@ -1190,7 +1221,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         orgId={orgId}
         projectId={projectId}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         columns={columns}
         onUpdate={handleItemUpdate}
         onDelete={(id) => {

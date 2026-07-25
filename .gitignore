@@ -89,3 +89,6 @@ prisma/seed/real/
 .deploy/deploy-apponly.sh
 .deploy/deploy-migrate.sh
 .deploy/backups/
+
+# private plugin repos, composed at build time by scripts/plugins/sync.mjs
+/plugins/

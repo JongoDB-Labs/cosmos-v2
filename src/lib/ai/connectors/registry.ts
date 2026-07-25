@@ -27,7 +27,7 @@ import type {
 } from "./types";
 // Import the audit + hash helpers DIRECTLY from their leaf modules (NOT the egress
 // index) so registry.ts doesn't pull egress/projection.ts → connectors/index.ts back
-// into itself (a runtime import cycle). audit.ts / gate.ts have no ../connectors edge.
+// into itself (a runtime import interval). audit.ts / gate.ts have no ../connectors edge.
 import { logEgressDecision } from "../egress/audit";
 import { sha256Hex } from "../egress/gate";
 

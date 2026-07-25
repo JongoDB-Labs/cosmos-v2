@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { Search, X, UserCheck, ChevronDown } from "lucide-react";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
-import type { OrgMember, Cycle, CustomField } from "@/types/models";
+import type { OrgMember, Interval, CustomField } from "@/types/models";
 
 /**
  * Axis a Kanban board can be grouped into horizontal swimlanes by. `"none"`
@@ -34,7 +34,7 @@ export type SwimlaneKey =
   | "assignee"
   | "priority"
   | "type"
-  | "cycle"
+  | "interval"
   | "parent";
 
 export const SWIMLANE_OPTIONS: { value: SwimlaneKey; label: string }[] = [
@@ -42,7 +42,7 @@ export const SWIMLANE_OPTIONS: { value: SwimlaneKey; label: string }[] = [
   { value: "assignee", label: "Assignee" },
   { value: "priority", label: "Priority" },
   { value: "type", label: "Type" },
-  { value: "cycle", label: "Cycle" },
+  { value: "interval", label: "Interval" },
   { value: "parent", label: "Parent" },
 ];
 
@@ -51,7 +51,7 @@ export interface BoardFilters {
   types: string[];
   priorities: string[];
   assigneeId: string | null;
-  cycleId: string | null;
+  intervalId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
    * Active custom-field constraints, keyed by CustomField.key. The value is the
@@ -67,7 +67,7 @@ export const emptyFilters: BoardFilters = {
   types: [],
   priorities: [],
   assigneeId: null,
-  cycleId: null,
+  intervalId: null,
   swimlaneBy: "none",
   customFields: {},
 };
@@ -79,7 +79,7 @@ interface FilterBarProps {
   filters: BoardFilters;
   onFilterChange: (filters: BoardFilters) => void;
   members: OrgMember[];
-  cycles: Cycle[];
+  intervals: Interval[];
   /**
    * Org id, used to load the org's ACTUAL work-item types so the Type filter
    * lists custom types (e.g. "Feature") alongside the built-ins instead of a
@@ -98,6 +98,20 @@ interface FilterBarProps {
    * CHECKBOX / TEXT). Omitted ⇒ no custom-field controls (backward compatible).
    */
   customFields?: CustomField[];
+  /**
+   * The bare type keys actually present in THIS board's items (e.g.
+   * ["STORY","TASK","BUG"]). When provided, the Type filter lists only these —
+   * what the board can actually display — instead of the org's whole catalog. An
+   * active selection is always kept visible so it stays removable. Omitted ⇒ full
+   * catalog (backward compatible). Mirrors table-view's existing behavior.
+   */
+  presentTypeKeys?: string[];
+  /**
+   * Custom-field keys actually POPULATED on this board's items. When provided,
+   * only custom-field filters whose field is used on the board are shown (plus
+   * any with an active filter). Omitted ⇒ show all filterable fields.
+   */
+  presentCustomFieldKeys?: string[];
 }
 
 /**
@@ -133,7 +147,7 @@ export function serializeFilters(filters: BoardFilters): string {
   if (filters.priorities.length > 0)
     params.set("priority", filters.priorities.join(","));
   if (filters.assigneeId) params.set("assignee", filters.assigneeId);
-  if (filters.cycleId) params.set("cycle", filters.cycleId);
+  if (filters.intervalId) params.set("interval", filters.intervalId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
     params.set("lane", filters.swimlaneBy);
   // Custom-field constraints round-trip as repeated `cf=key~value` params (the
@@ -171,7 +185,7 @@ export function parseFilters(
     types: types ? types.split(",").filter(Boolean) : [],
     priorities: priorities ? priorities.split(",").filter(Boolean) : [],
     assigneeId: params.get("assignee") || null,
-    cycleId: params.get("cycle") || null,
+    intervalId: params.get("interval") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
     customFields,
   };
@@ -272,10 +286,12 @@ export function FilterBar({
   filters,
   onFilterChange,
   members,
-  cycles,
+  intervals,
   orgId,
   showSwimlane = false,
   customFields = [],
+  presentTypeKeys,
+  presentCustomFieldKeys,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const currentUserId = useCurrentUserId();
@@ -289,13 +305,30 @@ export function FilterBar({
     for (const t of typeOptions) map[t] = colorFor(t);
     return map;
   }, [typeOptions]);
+  // Scope the Type filter to the types actually on this board (what it can
+  // display), not the org's whole catalog — but always keep an active selection
+  // visible so it stays removable. No prop ⇒ full catalog (backward compatible).
+  const shownTypeOptions = useMemo(() => {
+    const base = typeOptions.length > 0 ? typeOptions : WORK_ITEM_TYPES;
+    if (!presentTypeKeys || presentTypeKeys.length === 0) return base;
+    const present = new Set(presentTypeKeys);
+    for (const t of filters.types) present.add(t);
+    return base.filter((t) => present.has(t));
+  }, [typeOptions, presentTypeKeys, filters.types]);
   // FR "Assigned to me": one-click filter to the current user on any board view.
   const assignedToMe =
     currentUserId !== null && filters.assigneeId === currentUserId;
 
-  const filterableCustomFields = customFields.filter((f) =>
-    FILTERABLE_CUSTOM_KINDS.has(f.fieldType),
-  );
+  const filterableCustomFields = customFields.filter((f) => {
+    if (!FILTERABLE_CUSTOM_KINDS.has(f.fieldType)) return false;
+    // Scope to fields the board's items actually use (plus any active filter so
+    // it stays clearable). No scoping info ⇒ show all (backward compatible).
+    if (!presentCustomFieldKeys) return true;
+    return (
+      presentCustomFieldKeys.includes(f.key) ||
+      Boolean(filters.customFields?.[f.key])
+    );
+  });
 
   const hasActiveCustom = Object.values(filters.customFields ?? {}).some(Boolean);
 
@@ -311,7 +344,7 @@ export function FilterBar({
     filters.types.length > 0 ||
     filters.priorities.length > 0 ||
     filters.assigneeId !== null ||
-    filters.cycleId !== null ||
+    filters.intervalId !== null ||
     filters.swimlaneBy !== "none" ||
     hasActiveCustom;
 
@@ -357,7 +390,7 @@ export function FilterBar({
 
       <MultiSelectMenu
         label="Type"
-        options={typeOptions.length > 0 ? typeOptions : WORK_ITEM_TYPES}
+        options={shownTypeOptions}
         selected={filters.types}
         onChange={(types) => onFilterChange({ ...filters, types })}
         colorMap={typeColorMap}
@@ -396,28 +429,28 @@ export function FilterBar({
         />
       </div>
 
-      {cycles.length > 0 && (
+      {intervals.length > 0 && (
         <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground mr-1">Cycle:</span>
+          <span className="text-xs text-muted-foreground mr-1">Interval:</span>
           <Select
             items={{
               __all__: "All",
-              ...Object.fromEntries(cycles.map((s) => [s.id, s.name])),
+              ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
             }}
-            value={filters.cycleId ?? "__all__"}
+            value={filters.intervalId ?? "__all__"}
             onValueChange={(v) =>
               onFilterChange({
                 ...filters,
-                cycleId: v && v !== "__all__" ? v : null,
+                intervalId: v && v !== "__all__" ? v : null,
               })
             }
           >
-            <SelectTrigger size="sm" aria-label="Filter by cycle" className="h-7 text-xs">
+            <SelectTrigger size="sm" aria-label="Filter by interval" className="h-7 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All</SelectItem>
-              {cycles.map((s) => (
+              {intervals.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
                   {s.name}
                 </SelectItem>
@@ -551,6 +584,13 @@ export function FilterBar({
  *   - CHECKBOX → the stored value is exactly `true` (filter value "true").
  * An unknown key or a field kind we don't filter on is treated as a pass-through.
  */
+/** True when a custom-field value counts as "set"/used on an item. */
+export function customFieldHasValue(v: unknown): boolean {
+  if (v === null || v === undefined || v === "" || v === false) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+}
+
 export function matchesCustomFieldFilters(
   itemCustomFields: Record<string, unknown> | null | undefined,
   active: Record<string, string>,

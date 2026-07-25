@@ -24,7 +24,7 @@ import {
   isCustomFieldEmpty,
   isRenderableCustomField,
 } from "@/components/work-items/custom-field-input";
-import type { Board, OrgMember, Cycle } from "@/types/models";
+import type { Board, OrgMember, Interval } from "@/types/models";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
@@ -67,7 +67,7 @@ interface DuplicateSourceItem {
   workItemTypeId: string | null;
   assigneeId: string | null;
   assignees?: { userId: string }[];
-  cycleId: string | null;
+  intervalId: string | null;
   storyPoints: number | null;
   dueDate: string | null;
   tags?: string[];
@@ -76,7 +76,7 @@ interface DuplicateSourceItem {
 
 /**
  * Full-field "New issue" dialog (Jira-style): every common field is available
- * at creation — title, project, type, priority, assignee, cycle, story points,
+ * at creation — title, project, type, priority, assignee, interval, story points,
  * due date, description, labels — not just a title. Resolves the project's first
  * board + column for the required columnKey; the work-items POST already
  * accepts all of these fields. onCreated lets the caller refetch its list.
@@ -110,10 +110,10 @@ export function CreateWorkItemDialog({
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [storyPoints, setStoryPoints] = useState("");
   const [dueDate, setDueDate] = useState("");
-  // Cycle (sprint / PI) the new item joins — optional, project-scoped. Matches
+  // Interval (sprint / PI) the new item joins — optional, project-scoped. Matches
   // the field editable on the detail sheet after creation (COSMOS-64).
-  const [cycleId, setCycleId] = useState<string | null>(null);
-  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [intervalId, setIntervalId] = useState<string | null>(null);
+  const [intervals, setIntervals] = useState<Interval[]>([]);
   const [description, setDescription] = useState("");
   const [labels, setLabels] = useState("");
   const [members, setMembers] = useState<OrgMember[]>([]);
@@ -142,7 +142,7 @@ export function CreateWorkItemDialog({
       setAssigneeIds([]);
       setStoryPoints("");
       setDueDate("");
-      setCycleId(null);
+      setIntervalId(null);
       setDescription("");
       setLabels("");
       setCustomValues({});
@@ -179,20 +179,20 @@ export function CreateWorkItemDialog({
     };
   }, [open, orgId]);
 
-  // Load the selected project's cycles so a new item can join one at creation
-  // (COSMOS-64). Re-runs when the project changes; cycle is optional and
+  // Load the selected project's intervals so a new item can join one at creation
+  // (COSMOS-64). Re-runs when the project changes; interval is optional and
   // SPRINT_READ may be denied, so a failure just leaves the picker hidden.
   useEffect(() => {
     if (!open || !projectId) return;
     let cancelled = false;
     (async () => {
       try {
-        const data = await jsonFetch<Cycle[]>(
-          `/api/v1/orgs/${orgId}/projects/${projectId}/cycles`,
+        const data = await jsonFetch<Interval[]>(
+          `/api/v1/orgs/${orgId}/projects/${projectId}/intervals`,
         );
-        if (!cancelled) setCycles(data);
+        if (!cancelled) setIntervals(data);
       } catch {
-        if (!cancelled) setCycles([]);
+        if (!cancelled) setIntervals([]);
       }
     })();
     return () => {
@@ -231,7 +231,7 @@ export function CreateWorkItemDialog({
         // The date <input> wants YYYY-MM-DD; the source's dueDate is an ISO
         // string, so take its date portion (UTC, matching how it's displayed).
         setDueDate(src.dueDate ? src.dueDate.slice(0, 10) : "");
-        setCycleId(src.cycleId ?? null);
+        setIntervalId(src.intervalId ?? null);
         setDescription(src.description ?? "");
         setLabels((src.tags ?? []).join(", "));
         setCustomValues(
@@ -315,7 +315,7 @@ export function CreateWorkItemDialog({
           columnKey,
           priority,
           ...(assigneeIds.length ? { assigneeIds } : {}),
-          ...(cycleId ? { cycleId } : {}),
+          ...(intervalId ? { intervalId } : {}),
           description: description.trim() || null,
           dueDate: dueDate ? new Date(dueDate).toISOString() : null,
           tags: tags.length ? tags : undefined,
@@ -373,10 +373,10 @@ export function CreateWorkItemDialog({
               <select
                 value={projectId}
                 onChange={(e) => {
-                  // Cycles are project-scoped — drop any prior selection so we
-                  // never submit a cycle from a different project (COSMOS-64).
+                  // Intervals are project-scoped — drop any prior selection so we
+                  // never submit an interval from a different project (COSMOS-64).
                   setProjectId(e.target.value);
-                  setCycleId(null);
+                  setIntervalId(null);
                 }}
                 className={fieldClass}
                 disabled={submitting || !!prefilledProjectId}
@@ -474,20 +474,20 @@ export function CreateWorkItemDialog({
                 disabled={submitting}
               />
             </div>
-            {/* Cycle (sprint / PI) — only when the project has cycles, matching
+            {/* Interval (sprint / PI) — only when the project has intervals, matching
                 the picker on the detail sheet post-creation (COSMOS-64). */}
-            {cycles.length > 0 && (
+            {intervals.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-xs">Cycle</Label>
+                <Label className="text-xs">Interval</Label>
                 <select
-                  aria-label="Cycle"
-                  value={cycleId ?? ""}
-                  onChange={(e) => setCycleId(e.target.value || null)}
+                  aria-label="Interval"
+                  value={intervalId ?? ""}
+                  onChange={(e) => setIntervalId(e.target.value || null)}
                   className={fieldClass}
                   disabled={submitting}
                 >
-                  <option value="">No cycle</option>
-                  {cycles.map((c) => (
+                  <option value="">No interval</option>
+                  {intervals.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>

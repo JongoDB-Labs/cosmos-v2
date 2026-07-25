@@ -82,7 +82,7 @@ const EDUCATION_PROJECT_TEMPLATE = {
   name: "Course",
   description: "Course design with modules, lessons, assignments, and grading.",
   defaultConfig: {
-    cycleKinds: ["MODULE"],
+    intervalKinds: ["MODULE"],
     cycleNavLabel: "Modules",
     enabledFeatures: ["goal", "milestone", "risk"],
   },

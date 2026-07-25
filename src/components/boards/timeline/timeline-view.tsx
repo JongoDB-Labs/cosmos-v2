@@ -14,6 +14,9 @@ import {
   Loader2,
   GitCompareArrows,
   Wrench,
+  Waypoints,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -24,9 +27,10 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
 import { healthOf, slipDays } from "@/lib/schedule/health";
-import type { WorkItem, OrgMember, Cycle, Board, BoardColumn, CustomField } from "@/types/models";
+import type { WorkItem, OrgMember, Interval, Board, BoardColumn, CustomField } from "@/types/models";
 import {
   bareTypeKey,
+  customFieldHasValue,
   FilterBar,
   emptyFilters,
   matchesCustomFieldFilters,
@@ -142,7 +146,7 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
 
 type DragMode = "move" | "start" | "end";
 
-/** Client-side board-filter match (search/type/priority/assignee/cycle + custom
+/** Client-side board-filter match (search/type/priority/assignee/interval + custom
  *  fields) — mirrors the Kanban/Table logic so the Gantt's FilterBar behaves
  *  identically, including filtering by admin-defined custom fields. `defs` is the
  *  project's custom-field definitions (needed to interpret each active
@@ -168,7 +172,7 @@ export function matchesFilters(
     !item.assignees?.some((a) => a.userId === f.assigneeId)
   )
     return false;
-  if (f.cycleId && item.cycleId !== f.cycleId) return false;
+  if (f.intervalId && item.intervalId !== f.intervalId) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -241,9 +245,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const membersKey = useOrgQueryKey("members");
   const linksKey = useOrgQueryKey("work-item-links", projectId);
   const boardKey = useOrgQueryKey("board", boardId);
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [itemsQ, membersQ, linksQ, boardQ, cyclesQ] = useQueries({
+  const [itemsQ, membersQ, linksQ, boardQ, intervalsQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -259,39 +263,63 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         queryFn: () => jsonFetch<WorkItemLink[]>(`${basePath}/work-item-links`),
       },
       {
-        // Board (for its columns) + cycles — needed so a bar click can open the
+        // Board (for its columns) + intervals — needed so a bar click can open the
         // SAME CardDetailSheet the Kanban/Table views use (FR: card detail
         // reachable + editable from the Timeline too).
         queryKey: boardKey,
         queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
       },
       {
-        queryKey: cyclesKey,
-        queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`),
+        queryKey: intervalsKey,
+        queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
     ],
   });
 
   const items = useMemo<WorkItem[]>(() => itemsQ.data ?? [], [itemsQ.data]);
+  // Distinct bare type keys present on this board — scopes the Type filter to
+  // what's actually here (see FilterBar.presentTypeKeys).
+  const presentTypeKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      if (it.workItemType?.key) s.add(bareTypeKey(it.workItemType.key));
+    }
+    return [...s];
+  }, [items]);
+  // Custom-field keys actually populated on this board — scopes the field
+  // filters (see FilterBar.presentCustomFieldKeys).
+  const presentCustomFieldKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      const cf = it.customFields;
+      if (cf) {
+        for (const [k, v] of Object.entries(cf)) {
+          if (customFieldHasValue(v)) s.add(k);
+        }
+      }
+    }
+    return [...s];
+  }, [items]);
   const members = useMemo<OrgMember[]>(() => membersQ.data ?? [], [membersQ.data]);
   const links = useMemo<WorkItemLink[]>(() => linksQ.data ?? [], [linksQ.data]);
   const columns = useMemo<BoardColumn[]>(() => boardQ.data?.columns ?? [], [boardQ.data]);
-  const cycles = useMemo<Cycle[]>(() => cyclesQ.data ?? [], [cyclesQ.data]);
+  const intervals = useMemo<Interval[]>(() => intervalsQ.data ?? [], [intervalsQ.data]);
   // Custom-field defs for this project (org-wide + project-scoped) — drives the
   // FilterBar's per-field controls and the client-side filter match below, so a
   // defined field is filterable on the Gantt exactly as it is on the Kanban board.
   const { fields: projectCustomFields } = useCustomFields(orgId, projectId);
 
   // ── Gantt controls ───────────────────────────────────────────────────────
-  // FilterBar filters (search/type/priority/assignee/cycle), a critical-path
+  // FilterBar filters (search/type/priority/assignee/interval), a critical-path
   // highlight toggle, and a busy flag while a bulk shift/compress is in flight.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
   const [showCritical, setShowCritical] = useState(false);
-  const [showActuals, setShowActuals] = useState(true);
+  const [showPlanDrift, setShowPlanDrift] = useState(false);
   const [showEnablers, setShowEnablers] = useState(false);
+  const [showDeps, setShowDeps] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
@@ -326,10 +354,47 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setCollapsedIds(readCollapsedIds(boardId));
   }, [boardId]);
 
-  const { treeRows, parentIds } = useMemo(
+  const fullTree = useMemo(
     () => buildTimelineTree(filteredItems, collapsedIds),
     [filteredItems, collapsedIds],
   );
+
+  // When the Dependencies lens is on, focus on the interdependent set.
+  const linkedIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of links) {
+      set.add(l.sourceItemId);
+      set.add(l.targetItemId);
+    }
+    return set;
+  }, [links]);
+
+  // Dependencies view: keep the SAME epic/feature/story nesting as the normal
+  // view, just restricted to the linked set. Include every linked item AND its
+  // ancestor chain (ancestors are shown for structure even when not themselves
+  // linked), then build the identical depth-first tree so nesting and collapse
+  // behave exactly as when the lens is off — no more flat, depth-0 list.
+  const depsTree = useMemo(() => {
+    if (!showDeps) return { treeRows: [], parentIds: new Set<string>() };
+    const byId = new Map(filteredItems.map((i) => [i.id, i]));
+    const keep = new Set<string>();
+    for (const it of filteredItems) {
+      if (!linkedIds.has(it.id)) continue;
+      keep.add(it.id);
+      let pid = it.parentId;
+      while (pid && byId.has(pid) && !keep.has(pid)) {
+        keep.add(pid);
+        pid = byId.get(pid)!.parentId;
+      }
+    }
+    return buildTimelineTree(
+      filteredItems.filter((it) => keep.has(it.id)),
+      collapsedIds,
+    );
+  }, [showDeps, filteredItems, linkedIds, collapsedIds]);
+
+  const { treeRows, parentIds } = showDeps ? depsTree : fullTree;
+  const visibleRows = treeRows;
 
   // Apply a change to the collapse set and persist it in one step, so the
   // session-restored state always matches what's on screen.
@@ -358,12 +423,53 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // Click a bar → open the shared work-item detail (same as other board views).
   // Tracked by id + derived from the live items so edits/deletes stay in sync.
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // Resizable Work Items column (persisted) — drag the handle on its right edge.
+  const [nameColW, setNameColW] = useState<number>(() => {
+    if (typeof window === "undefined") return 260;
+    const n = Number(window.localStorage.getItem("gantt-name-col-w"));
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.max(n, 160), 640) : 260;
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("gantt-name-col-w", String(nameColW));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [nameColW]);
+  const nameResizeRef = useRef<{ startX: number; startW: number } | null>(null);
+  const onNameResizeDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      nameResizeRef.current = { startX: e.clientX, startW: nameColW };
+    },
+    [nameColW],
+  );
+  const onNameResizeMove = useCallback((e: React.PointerEvent) => {
+    const d = nameResizeRef.current;
+    if (!d) return;
+    setNameColW(Math.min(Math.max(d.startW + (e.clientX - d.startX), 160), 640));
+  }, []);
+  const onNameResizeUp = useCallback(() => {
+    nameResizeRef.current = null;
+  }, []);
   const detailItem = detailId
     ? items.find((i) => i.id === detailId) ?? null
     : null;
   // A real drag (movement) also fires a trailing click — suppress it so a
   // reschedule/resize doesn't pop the detail sheet.
   const justDraggedRef = useRef(false);
+
+  // Undo/redo for drag reschedules (the Gantt's mutating action). Each edit stores
+  // the item's full before/after date range so undo/redo just re-commits a snapshot.
+  type ScheduleEdit = {
+    id: string;
+    before: { startDate: string; dueDate: string };
+    after: { startDate: string; dueDate: string };
+  };
+  const [undoStack, setUndoStack] = useState<ScheduleEdit[]>([]);
+  const [redoStack, setRedoStack] = useState<ScheduleEdit[]>([]);
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
     ? itemsQ.error instanceof Error
@@ -407,7 +513,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return { timelineStart: padStart, totalDays: days };
   }, [filteredItems]);
 
-  const sortedItems = useMemo(() => treeRows.map((r) => r.item), [treeRows]);
+  const sortedItems = useMemo(() => visibleRows.map((r) => r.item), [visibleRows]);
 
   // Generate date headers
   const dateHeaders = useMemo(() => {
@@ -466,11 +572,24 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // item id; only items with a visible row appear.
   const barPositions = useMemo(() => {
     const map = new Map<string, { x: number; y: number; w: number; h: number }>();
+    const nowDay = startOfDay(new Date());
     sortedItems.forEach((item, i) => {
-      const start = item.startDate
-        ? startOfDay(new Date(item.startDate))
-        : startOfDay(new Date(item.createdAt));
-      const end = item.dueDate ? startOfDay(new Date(item.dueDate)) : addDays(start, 7);
+      // Anchor arrows to the SOLID (primary) bar: the ACTUAL span when it exists
+      // (what's drawn solid), else the planned span — never the faded planned trail
+      // ("phantom"). Hover/detail are unaffected.
+      const aStart = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
+      const start = aStart
+        ? aStart
+        : item.startDate
+          ? startOfDay(new Date(item.startDate))
+          : startOfDay(new Date(item.createdAt));
+      const end = aStart
+        ? item.completedAt
+          ? startOfDay(new Date(item.completedAt))
+          : nowDay
+        : item.dueDate
+          ? startOfDay(new Date(item.dueDate))
+          : addDays(start, 7);
       const startOffset = diffDays(timelineStart, start);
       const duration = Math.max(diffDays(start, end), 1);
       map.set(item.id, {
@@ -497,6 +616,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     startClientX: number;
     origStart: Date;
     origEnd: Date;
+    captured: boolean;
   } | null>(null);
   const [dragPreview, setDragPreview] = useState<{
     id: string;
@@ -516,10 +636,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         startClientX: e.clientX,
         origStart: start,
         origEnd: end,
+        captured: false,
       };
       setDragPreview({ id: item.id, mode, deltaDays: 0 });
       setHoveredItem(null);
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     },
     [canEdit],
   );
@@ -527,6 +647,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const onDragMove = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
+    // Capture the pointer only once a real drag starts (>3px) — NEVER on a tap.
+    // A tap that opens the detail sheet must not hold pointer capture, or the
+    // sheet's controls (e.g. the status Select) won't get their clicks — the
+    // Gantt-only "status dropdown won't open" bug.
+    if (!d.captured && Math.abs(e.clientX - d.startClientX) > 3) {
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      d.captured = true;
+    }
     const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
     setDragPreview((p) =>
       p && p.deltaDays === deltaDays ? p : { id: d.id, mode: d.mode, deltaDays },
@@ -553,6 +681,30 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setDetailId(item.id);
   }, []);
 
+  // Persist a date snapshot (optimistic cache write + PUT). Shared by drag commit
+  // and undo/redo so they behave identically.
+  const commitDates = useCallback(
+    (id: string, body: { startDate: string; dueDate: string }) => {
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        prev?.map((it) => (it.id === id ? { ...it, ...body } : it)),
+      );
+      void (async () => {
+        try {
+          await jsonFetch(`${basePath}/work-items/${id}`, {
+            method: "PUT",
+            body: JSON.stringify(body),
+          });
+          toast.success("Schedule updated");
+          qc.invalidateQueries({ queryKey: itemsKey });
+        } catch (err) {
+          notifyError(err, "Couldn't reschedule the item.");
+          qc.invalidateQueries({ queryKey: itemsKey });
+        }
+      })();
+    },
+    [qc, itemsKey, basePath],
+  );
+
   const onDragEnd = useCallback(
     (e: React.PointerEvent) => {
       const d = dragRef.current;
@@ -578,39 +730,57 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         if (newEnd < newStart) newEnd = newStart; // can't precede the start
       }
 
-      const body: { startDate?: string; dueDate?: string } =
-        d.mode === "start"
-          ? { startDate: newStart.toISOString() }
-          : d.mode === "end"
-            ? { dueDate: newEnd.toISOString() }
-            : { startDate: newStart.toISOString(), dueDate: newEnd.toISOString() };
-
-      // Optimistic: patch the cached item so the bar settles at its new spot
-      // immediately, then persist.
-      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
-        prev?.map((it) => (it.id === d.id ? { ...it, ...body } : it)),
-      );
-
-      void (async () => {
-        try {
-          await jsonFetch(`${basePath}/work-items/${d.id}`, {
-            method: "PUT",
-            body: JSON.stringify(body),
-          });
-          toast.success("Schedule updated");
-          qc.invalidateQueries({ queryKey: itemsKey });
-        } catch (err) {
-          notifyError(err, "Couldn't reschedule the item.");
-          qc.invalidateQueries({ queryKey: itemsKey }); // revert to server truth
-        }
-      })();
+      const before = {
+        startDate: d.origStart.toISOString(),
+        dueDate: d.origEnd.toISOString(),
+      };
+      const after = {
+        startDate: newStart.toISOString(),
+        dueDate: newEnd.toISOString(),
+      };
+      setUndoStack((prev) => [...prev, { id: d.id, before, after }]);
+      setRedoStack([]);
+      commitDates(d.id, after);
     },
-    [qc, itemsKey, basePath],
+    [commitDates],
   );
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const op = undoStack[undoStack.length - 1];
+    commitDates(op.id, op.before);
+    setUndoStack((s) => s.slice(0, -1));
+    setRedoStack((r) => [...r, op]);
+  }, [undoStack, commitDates]);
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const op = redoStack[redoStack.length - 1];
+    commitDates(op.id, op.after);
+    setRedoStack((s) => s.slice(0, -1));
+    setUndoStack((u) => [...u, op]);
+  }, [redoStack, commitDates]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+        return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   // ── Critical path ────────────────────────────────────────────────────────
   // The longest dependency chain (by summed bar duration) through the currently
-  // visible items. DP over the dependency DAG (cycle-guarded); highlighted only
+  // visible items. DP over the dependency DAG (interval-guarded); highlighted only
   // when toggled on.
   const criticalSet = useMemo(() => {
     if (!showCritical) return new Set<string>();
@@ -668,6 +838,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     }
     return set;
   }, [showCritical, filteredItems, links]);
+
+  // Dependency focus: when the Dependencies lens is on and a bar is hovered,
+  // resolve its DIRECT upstream (blockers) + downstream (dependents) so the
+  // render can light that neighborhood and fade everything else (anti-spaghetti).
+  const depFocus = useMemo(() => {
+    if (!showDeps || !hoveredItem) return null;
+    const up = new Set<string>();
+    const down = new Set<string>();
+    for (const l of links) {
+      if (l.targetItemId === hoveredItem.id) up.add(l.sourceItemId);
+      if (l.sourceItemId === hoveredItem.id) down.add(l.targetItemId);
+    }
+    return { id: hoveredItem.id, up, down, all: new Set<string>([hoveredItem.id, ...up, ...down]) };
+  }, [showDeps, hoveredItem, links]);
 
   // ── Bulk schedule ops ────────────────────────────────────────────────────
   // The "adjust schedules / time compression in real-time" workspace: shift
@@ -769,9 +953,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         filters={filters}
         onFilterChange={setFilters}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         orgId={orgId}
         customFields={projectCustomFields}
+        presentTypeKeys={presentTypeKeys}
+        presentCustomFieldKeys={presentCustomFieldKeys}
       />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -788,11 +974,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             accent="var(--status-critical)"
           />
           <LensToggle
-            active={showActuals}
-            onClick={() => setShowActuals((v) => !v)}
+            active={showPlanDrift}
+            onClick={() => setShowPlanDrift((v) => !v)}
             icon={<GitCompareArrows className="size-3.5" />}
-            label="Actuals"
-            title="Overlay the actual start→finish and color bars by schedule health"
+            label="Plan drift"
+            title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
             accent="var(--status-blocked)"
           />
           <LensToggle
@@ -802,6 +988,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             label="Enablers"
             title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
             accent="var(--type-enabler, #0891b2)"
+          />
+          <LensToggle
+            active={showDeps}
+            onClick={() => {
+              setShowDeps((v) => !v);
+              void qc.invalidateQueries({ queryKey: linksKey });
+            }}
+            icon={<Waypoints className="size-3.5" />}
+            label="Dependencies"
+            title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
+            accent="#0ea5e9"
           />
           <div className="mx-1 h-5 w-px bg-border" />
           {parentIds.size > 0 && (
@@ -866,6 +1063,25 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               >
                 <Maximize2 className="size-3" /> Expand
               </Button>
+              <div className="mx-1 h-5 w-px bg-border" />
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={undoStack.length === 0}
+                onClick={undo}
+                title="Undo reschedule (⌘/Ctrl-Z)"
+              >
+                <Undo2 className="size-3" /> Undo
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={redoStack.length === 0}
+                onClick={redo}
+                title="Redo reschedule (⌘/Ctrl-Y)"
+              >
+                <Redo2 className="size-3" /> Redo
+              </Button>
               {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
             </>
           )}
@@ -885,30 +1101,31 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         </div>
       </div>
       {/* Contextual legend — only the keys for what's actually on screen. */}
-      {(showActuals || hasEnablers) && (
+      {(showPlanDrift || hasEnablers) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
-          {showActuals && (
+          {showPlanDrift && (
             <>
+              <span className="text-[var(--text-muted)]">Plan ghost:</span>
               <span className="inline-flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1 w-5 rounded-sm"
-                  style={{ backgroundColor: "var(--status-done)", opacity: 0.8 }}
+                  className="inline-block h-2.5 w-2 rounded-sm"
+                  style={{ backgroundColor: "var(--status-done)", opacity: 0.5 }}
                 />
-                Actual — on/ahead
+                On/ahead
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1 w-5 rounded-sm"
-                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
+                  className="inline-block h-2.5 w-2 rounded-sm"
+                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.5 }}
                 />
-                Actual — slipped
+                Slipped
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1 w-5 rounded-sm"
-                  style={{ backgroundColor: "var(--status-critical)", opacity: 0.8 }}
+                  className="inline-block h-2.5 w-2 rounded-sm"
+                  style={{ backgroundColor: "#f59e0b", opacity: 0.5 }}
                 />
-                Slipped past projected end
+                Started late
               </span>
             </>
           )}
@@ -950,7 +1167,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             crowded off-screen; the SVG rows align by height, not this width. */}
         <div
           data-testid="gantt-left"
-          className="sticky left-0 z-20 shrink-0 border-r bg-background w-[140px] sm:w-[260px]"
+          className="sticky left-0 z-20 shrink-0 border-r bg-background"
+          style={{ width: nameColW }}
         >
           <div
             className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
@@ -958,7 +1176,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           >
             Work Items
           </div>
-          {treeRows.map(({ item, depth }) => {
+          {visibleRows.map(({ item, depth }) => {
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             const isParent = parentIds.has(item.id);
             const isCollapsed = collapsedIds.has(item.id);
@@ -1005,6 +1223,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </div>
             );
           })}
+          {/* Drag handle — resize the Work Items column (persisted). */}
+          <div
+            onPointerDown={onNameResizeDown}
+            onPointerMove={onNameResizeMove}
+            onPointerUp={onNameResizeUp}
+            onPointerCancel={onNameResizeUp}
+            className="absolute right-0 top-0 bottom-0 z-30 w-1.5 translate-x-1/2 cursor-col-resize hover:bg-[var(--primary)]/40"
+            style={{ touchAction: "none" }}
+            title="Drag to resize the Work Items column"
+          />
         </div>
 
         {/* Right column - the chart. Sized to its full content; the shared outer
@@ -1104,6 +1332,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--status-critical)" />
               </marker>
+              {/* Directional dependency arrows for the hover-focus view. */}
+              <marker id="timeline-dep-arrow-up" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b" />
+              </marker>
+              <marker id="timeline-dep-arrow-down" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#0ea5e9" />
+              </marker>
               {/* Diagonal hatch overlay marking ENABLER work (architecture,
                   infra, compliance) — a texture that reads regardless of the
                   bar's type color. */}
@@ -1166,36 +1401,61 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 source bar's right edge to the target bar's left edge, with an
                 arrowhead at the target. Rendered UNDER the bars. Endpoints whose
                 bar isn't currently on a visible row are skipped. */}
-            {links.map((link) => {
-              const from = barPositions.get(link.sourceItemId);
-              const to = barPositions.get(link.targetItemId);
-              if (!from || !to) return null;
-              const x1 = from.x + from.w;
-              const y1 = from.y + from.h / 2;
-              const x2 = to.x;
-              const y2 = to.y + to.h / 2;
-              const midX = (x1 + x2) / 2;
-              const crit =
-                showCritical &&
-                criticalSet.has(link.sourceItemId) &&
-                criticalSet.has(link.targetItemId);
-              return (
-                <path
-                  key={link.id}
-                  d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
-                  className={crit ? undefined : "stroke-muted-foreground/60"}
-                  stroke={crit ? "var(--status-critical)" : undefined}
-                  strokeWidth={crit ? 2.5 : 1.5}
-                  fill="none"
-                  markerEnd={crit ? "url(#timeline-dep-arrow-crit)" : "url(#timeline-dep-arrow)"}
-                >
-                  <title>
-                    {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
-                    {projectKey}-{link.targetTicketNumber}
-                  </title>
-                </path>
-              );
-            })}
+            {(showDeps || showCritical) &&
+              links.map((link) => {
+                const from = barPositions.get(link.sourceItemId);
+                const to = barPositions.get(link.targetItemId);
+                if (!from || !to) return null;
+                const x1 = from.x + from.w;
+                const y1 = from.y + from.h / 2;
+                const x2 = to.x;
+                const y2 = to.y + to.h / 2;
+                const midX = (x1 + x2) / 2;
+                const crit =
+                  showCritical &&
+                  criticalSet.has(link.sourceItemId) &&
+                  criticalSet.has(link.targetItemId);
+                const downstream = !!depFocus && link.sourceItemId === depFocus.id;
+                const upstream = !!depFocus && link.targetItemId === depFocus.id;
+                // deps off: only the critical chain shows (when that lens is on).
+                if (!crit && !showDeps) return null;
+                let stroke = "#94a3b8";
+                let sw = 1.25;
+                let opacity = 0.34;
+                let marker = "url(#timeline-dep-arrow)";
+                if (crit) {
+                  stroke = "var(--status-critical)";
+                  sw = 2.5;
+                  opacity = 1;
+                  marker = "url(#timeline-dep-arrow-crit)";
+                } else if (depFocus) {
+                  if (downstream || upstream) {
+                    stroke = downstream ? "#0ea5e9" : "#f59e0b";
+                    sw = 2.5;
+                    opacity = 1;
+                    marker = downstream ? "url(#timeline-dep-arrow-down)" : "url(#timeline-dep-arrow-up)";
+                  } else {
+                    opacity = 0.06;
+                    sw = 1;
+                  }
+                }
+                return (
+                  <path
+                    key={link.id}
+                    d={`M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`}
+                    stroke={stroke}
+                    strokeWidth={sw}
+                    opacity={opacity}
+                    fill="none"
+                    markerEnd={marker}
+                  >
+                    <title>
+                      {projectKey}-{link.sourceTicketNumber} {link.type}{" "}
+                      {projectKey}-{link.targetTicketNumber}
+                    </title>
+                  </path>
+                );
+              })}
 
             {/* Work item bars */}
             {sortedItems.map((item, i) => {
@@ -1238,22 +1498,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // Business items dim slightly while the Enabler lens is on so the
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
+              // Dependency hover-focus: fade bars outside the hovered item neighborhood.
+              const depDim = depFocus && !depFocus.all.has(item.id) ? 0.22 : 1;
 
-              // Actual overlay: from actualStart to (completedAt or today). Drawn as a
-              // thin track beneath the planned bar so slippage past the planned end reads
-              // at a glance. Positioned from un-dragged dates so it stays put while the
-              // live bar is dragged, widening the visible gap.
-              const aStart = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
-              const aEndRaw = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
-              let actual: { x: number; w: number } | null = null;
-              if (showActuals && aStart) {
-                const ax = diffDays(timelineStart, aStart) * DAY_WIDTH;
-                const aw = Math.max(diffDays(aStart, aEndRaw) * DAY_WIDTH, 2);
-                actual = { x: ax, w: aw };
-              }
-              const overlayY = y + h + 2;
-              const overlayH = 4;
+              // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
+              // (startDate -> dueDate) renders behind it as a faded, health-colored
+              // TRAIL — red when slipped, amber when it started late, green when
+              // on/ahead. No red outline; the trail carries the signal. With no actuals
+              // yet, the planned span IS the solid bar (future/planning items).
               const health = barHealth(item, today);
+              const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
+              const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
+              const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
+              let actualBar: { x: number; w: number } | null = null;
+              if (actualStartD) {
+                const ax = diffDays(timelineStart, actualStartD) * DAY_WIDTH;
+                const aw = Math.max(diffDays(actualStartD, actualEndD) * DAY_WIDTH, 3);
+                actualBar = { x: ax, w: aw };
+              }
+              const primaryX = actualBar ? actualBar.x : x;
+              const primaryW = actualBar ? actualBar.w : w;
+              const lateStart = !!(plannedStartD && actualStartD && diffDays(plannedStartD, actualStartD) > 0);
+              const trailColor =
+                health === "red"
+                  ? "var(--status-critical)"
+                  : lateStart
+                    ? "#f59e0b"
+                    : "var(--status-done)";
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -1316,66 +1587,91 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Actual overlay — planned bar sits above it. Non-interactive. */}
-                  {actual && (
-                    <g style={{ pointerEvents: "none" }}>
-                      <rect
-                        x={actual.x}
-                        y={overlayY}
-                        width={actual.w}
-                        height={overlayH}
-                        rx={2}
-                        fill={
-                          health === "red"
-                            ? "var(--status-critical)"
-                            : health === "green"
-                              ? "var(--status-done)"
-                              : "var(--text-muted)"
-                        }
-                        opacity={0.8}
-                      />
-                    </g>
-                  )}
-                  <rect
-                    x={x}
-                    y={y}
-                    width={w}
-                    height={h}
-                    rx={4}
-                    fill={colors.fill}
-                    stroke={
-                      isCrit
-                        ? "var(--status-critical)"
-                        : health === "red"
+                  {/* Planned bar. No actuals → it IS the item: solid + draggable.
+                      Actuals exist → it becomes a faded, NON-interactive "Plan drift"
+                      ghost, shown only when that lens is on (so you see how the plan
+                      shifted). */}
+                  {!actualBar ? (
+                    <rect
+                      x={x}
+                      y={y}
+                      width={w}
+                      height={h}
+                      rx={4}
+                      fill={colors.fill}
+                      stroke={
+                        isCrit
                           ? "var(--status-critical)"
                           : isEnabler && showEnablers
                             ? "var(--type-enabler, #0891b2)"
                             : colors.stroke
-                    }
-                    strokeWidth={isCrit || health === "red" ? 2.5 : isEnabler ? 1.5 : 1}
-                    strokeDasharray={isEnabler ? "5 3" : undefined}
-                    opacity={(preview ? 1 : 0.85) * dimForEnablerLens}
-                    onPointerDown={(e) => beginDrag(item, "move", e)}
-                    onPointerMove={onDragMove}
-                    onPointerUp={onDragEnd}
-                    onPointerCancel={onDragCancel}
-                    onClick={() => openDetail(item)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setHoveredItem(null);
-                      setDetailId(item.id);
-                    }}
-                    style={{ touchAction: canEdit ? "none" : undefined }}
-                    className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
-                  />
-                  {/* Progress fill — a darker inset showing % complete (child
-                      roll-up, or done/not-done for a leaf). Non-interactive so it
-                      never intercepts a drag on the bar. */}
-                  {prog > 0 && (
+                      }
+                      strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim}
+                      onPointerDown={(e) => beginDrag(item, "move", e)}
+                      onPointerMove={onDragMove}
+                      onPointerUp={onDragEnd}
+                      onPointerCancel={onDragCancel}
+                      onClick={() => openDetail(item)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setHoveredItem(null);
+                        setDetailId(item.id);
+                      }}
+                      style={{ touchAction: canEdit ? "none" : undefined }}
+                      className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
+                    />
+                  ) : showPlanDrift ? (
                     <rect
                       x={x}
                       y={y}
-                      width={Math.max(w * prog, 2)}
+                      width={w}
+                      height={h}
+                      rx={4}
+                      fill={trailColor}
+                      stroke={isCrit ? "var(--status-critical)" : "transparent"}
+                      strokeWidth={isCrit ? 2.5 : 1}
+                      strokeDasharray="3 3"
+                      opacity={0.3 * dimForEnablerLens * depDim}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  ) : null}
+                  {/* Actual bar — the SOLID primary (real dates). Click opens the
+                      detail panel; started/done items reschedule there, not by drag. */}
+                  {actualBar && (
+                    <rect
+                      x={primaryX}
+                      y={y}
+                      width={primaryW}
+                      height={h}
+                      rx={4}
+                      fill={colors.fill}
+                      stroke={
+                        isCrit
+                          ? "var(--status-critical)"
+                          : isEnabler && showEnablers
+                            ? "var(--type-enabler, #0891b2)"
+                            : colors.stroke
+                      }
+                      strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim}
+                      onClick={() => openDetail(item)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setHoveredItem(null);
+                        setDetailId(item.id);
+                      }}
+                      className="cursor-pointer"
+                    />
+                  )}
+                  {/* Progress fill on the primary — % complete. Non-interactive. */}
+                  {prog > 0 && (
+                    <rect
+                      x={primaryX}
+                      y={y}
+                      width={Math.max(primaryW * prog, 2)}
                       height={h}
                       rx={4}
                       fill={colors.stroke}
@@ -1383,14 +1679,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {/* Enabler texture — diagonal hatch marking this as enabler
-                      work regardless of type color. Always on so classification
-                      is legible; the Enabler lens dims business bars around it. */}
+                  {/* Enabler texture on the primary. */}
                   {isEnabler && (
                     <rect
-                      x={x}
+                      x={primaryX}
                       y={y}
-                      width={w}
+                      width={primaryW}
                       height={h}
                       rx={4}
                       fill="url(#timeline-enabler-hatch)"
@@ -1398,7 +1692,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {canEdit && (
+                  {canEdit && !actualBar && (
                     <>
                       {/* Left edge → move start date */}
                       <rect
@@ -1430,15 +1724,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       />
                     </>
                   )}
-                  {w > 60 && (
+                  {primaryW > 60 && (
                     <text
-                      x={x + 6}
+                      x={primaryX + 6}
                       y={y + h / 2 + 3.5}
                       className={cn("text-[10px]", colors.text)}
                       style={{ fontSize: 10, fill: "white", pointerEvents: "none" }}
                     >
-                      {item.title.length > Math.floor(w / 6)
-                        ? item.title.slice(0, Math.floor(w / 6)) + "..."
+                      {item.title.length > Math.floor(primaryW / 6)
+                        ? item.title.slice(0, Math.floor(primaryW / 6)) + "..."
                         : item.title}
                     </text>
                   )}
@@ -1510,6 +1804,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       </p>
                     );
                   })()}
+                {/* Start delta — Actual Start later than Planned Start (slow start). */}
+                {hoveredItem.startDate &&
+                  hoveredItem.actualStart &&
+                  (() => {
+                    const sd = Math.round(
+                      (startOfDay(new Date(hoveredItem.actualStart)).getTime() -
+                        startOfDay(new Date(hoveredItem.startDate)).getTime()) /
+                        86_400_000,
+                    );
+                    if (sd <= 0) return null;
+                    const fSlip = hoveredItem.dueDate
+                      ? slipDays({
+                          projectedEnd: startOfDay(new Date(hoveredItem.dueDate)),
+                          actualEnd: hoveredItem.completedAt
+                            ? startOfDay(new Date(hoveredItem.completedAt))
+                            : null,
+                          now: today,
+                        })
+                      : null;
+                    const recovered =
+                      hoveredItem.completedAt != null && fSlip != null && fSlip <= 0;
+                    return (
+                      <p className="text-[#f59e0b]">
+                        Started {sd}d late{recovered ? " — recovered ✓" : ""}
+                      </p>
+                    );
+                  })()}
                 {hoveredItem.actualStart && (
                   <p>Actual start: {new Date(hoveredItem.actualStart).toLocaleDateString()}</p>
                 )}
@@ -1533,7 +1854,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         orgId={orgId}
         projectId={projectId}
         members={members}
-        cycles={cycles}
+        intervals={intervals}
         columns={columns}
         projectItems={items}
         onUpdate={(updated) =>

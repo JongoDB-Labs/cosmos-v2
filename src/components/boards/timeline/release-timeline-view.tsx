@@ -4,7 +4,7 @@
  * Static Release Timeline (TIMELINE board type, config.mode === "release-timeline").
  * Deliberately NOT the Gantt: a read-only, presentation-oriented "big picture"
  * snapshot on a month axis, where the user chooses which LEVELS to overlay —
- * Increments (PIs/cycles) as bands, plus Deliverables and Milestones as dated
+ * Increments (PIs/intervals) as bands, plus Deliverables and Milestones as dated
  * chips. No drag, no per-item editing: it's the screenshot-for-a-stakeholder view.
  * The interactive, day-level, editable scheduler is the Gantt (TimelineView).
  */
@@ -19,7 +19,7 @@ import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
-import type { Cycle } from "@/types/models";
+import type { Interval } from "@/types/models";
 
 interface ReleaseTimelineViewProps {
   orgId: string;
@@ -74,20 +74,20 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
   // Open) a deliverable/milestone/increment and you land on the SAME detail/edit
   // surface you'd reach from any other view (COSMOS-45). Deliverables & milestones
   // deep-link straight to their detail drawer via `?open=<id>`; an increment opens
-  // the cycles workspace where it's managed.
+  // the intervals workspace where it's managed.
   const orgSlug = useOrgSlug();
   const projectBase = `/${orgSlug}/projects/${projectKey}`;
   const deliverableHref = (id: string) =>
     `${projectBase}/pm-dashboard/deliverables?open=${id}`;
   const milestoneHref = (id: string) => `${projectBase}/milestones?open=${id}`;
-  const cyclesHref = `${projectBase}/cycles`;
-  const cyclesKey = useOrgQueryKey("cycles", projectId);
+  const intervalsHref = `${projectBase}/intervals`;
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
   const deliverablesKey = useOrgQueryKey("deliverables", projectId);
   const milestonesKey = useOrgQueryKey("milestones", projectId);
 
-  const [cyclesQ, deliverablesQ, milestonesQ] = useQueries({
+  const [intervalsQ, deliverablesQ, milestonesQ] = useQueries({
     queries: [
-      { queryKey: cyclesKey, queryFn: () => jsonFetch<Cycle[]>(`${basePath}/cycles`) },
+      { queryKey: intervalsKey, queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`) },
       {
         queryKey: deliverablesKey,
         queryFn: () => jsonFetch<Deliverable[]>(`${basePath}/deliverables`),
@@ -99,7 +99,7 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
     ],
   });
 
-  const cycles: Cycle[] = useMemo(() => cyclesQ.data ?? [], [cyclesQ.data]);
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
   const deliverables: Deliverable[] = useMemo(() => deliverablesQ.data ?? [], [deliverablesQ.data]);
   const milestones: Milestone[] = useMemo(() => milestonesQ.data ?? [], [milestonesQ.data]);
 
@@ -107,14 +107,14 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
     () => new Set<LevelKey>(["increments", "deliverables"]),
   );
 
-  const loading = cyclesQ.isLoading || deliverablesQ.isLoading || milestonesQ.isLoading;
+  const loading = intervalsQ.isLoading || deliverablesQ.isLoading || milestonesQ.isLoading;
 
   const milestoneDate = (m: Milestone) => m.dueDate ?? null;
 
   // Build the month axis from every dated thing we might show.
   const axis = useMemo(() => {
     const dates: Date[] = [];
-    for (const c of cycles) {
+    for (const c of intervals) {
       if (c.startDate) dates.push(new Date(c.startDate));
       if (c.endDate) dates.push(new Date(c.endDate));
     }
@@ -130,7 +130,7 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
     const months = Array.from({ length: count }, (_, i) => new Date(min.getFullYear(), min.getMonth() + i, 1));
     const indexOf = (dt: Date) => monthsBetween(min, firstOfMonth(dt));
     return { min, months, indexOf, width: count * MONTH_W };
-  }, [cycles, deliverables, milestones]);
+  }, [intervals, deliverables, milestones]);
 
   // Group deliverables / milestones by month index.
   const deliverablesByMonth = useMemo(() => {
@@ -182,7 +182,7 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
       return next;
     });
 
-  const sortedCycles = [...cycles].sort(
+  const sortedIntervals = [...intervals].sort(
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
   );
 
@@ -238,8 +238,8 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
           {/* Increments band */}
           {active.has("increments") && (
             <LevelRow label="Increments">
-              <div className="relative" style={{ width: axis.width, height: sortedCycles.length * 30 + 8 }}>
-                {sortedCycles.map((c, i) => {
+              <div className="relative" style={{ width: axis.width, height: sortedIntervals.length * 30 + 8 }}>
+                {sortedIntervals.map((c, i) => {
                   const start = axis.indexOf(new Date(c.startDate));
                   const end = axis.indexOf(new Date(c.endDate));
                   const left = start * MONTH_W + 2;
@@ -251,12 +251,12 @@ export function ReleaseTimelineView({ orgId, projectId, projectKey }: ReleaseTim
                       style={{ left, width, top: i * 30 + 4, height: 24 }}
                     >
                       <ActionMenu
-                        groups={openGroups(router, cyclesHref)}
+                        groups={openGroups(router, intervalsHref)}
                         triggerLabel={`Actions for ${c.name}`}
                         triggerClassName="absolute right-0.5 top-1/2 -translate-y-1/2"
                       >
                         <Link
-                          href={cyclesHref}
+                          href={intervalsHref}
                           title={c.name}
                           className="flex h-6 w-full items-center rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/15 px-2 pr-5 text-xs font-medium text-[var(--text)] transition-colors hover:border-[var(--primary)] hover:bg-[var(--primary)]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
                         >

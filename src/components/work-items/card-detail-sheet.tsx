@@ -8,7 +8,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -35,16 +34,15 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { useOrgMembers } from "@/components/chat/mention-typeahead";
-import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { useRefResolver } from "@/components/mentions/hooks";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { NoteRichTextEditor } from "@/components/notes/editor/rich-text-editor";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
-import { insertMentionToken } from "@/lib/mentions/input";
 import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
 import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-description-field";
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
-import { ForemanGroomingBadge } from "@/components/foreman/foreman-grooming-badge";
+import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
 import {
   CustomFieldInput,
@@ -77,7 +75,7 @@ import type {
   WorkItem,
   WorkItemRef,
   OrgMember,
-  Cycle,
+  Interval,
   Comment,
   Activity,
   BoardColumn,
@@ -94,7 +92,7 @@ interface CardDetailSheetProps {
   orgId: string;
   projectId: string;
   members: OrgMember[];
-  cycles: Cycle[];
+  intervals: Interval[];
   columns: BoardColumn[];
   onUpdate: (updated: WorkItem) => void;
   /** Remove the item from the parent's local state after a successful delete. */
@@ -122,7 +120,7 @@ export function CardDetailSheet({
   orgId,
   projectId,
   members,
-  cycles,
+  intervals,
   columns,
   onUpdate,
   onDelete,
@@ -164,7 +162,7 @@ export function CardDetailSheet({
   // Multi-assign (FR 1d38496a): the full set, primary first. assigneeId above
   // mirrors the set's head so single-assignee displays stay consistent.
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
-  const [cycleId, setCycleId] = useState<string | null>(null);
+  const [intervalId, setIntervalId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
@@ -180,11 +178,6 @@ export function CardDetailSheet({
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
   const [dirty, setDirty] = useState(false);
-  const commentRef = useRef<HTMLTextAreaElement>(null);
-  const [mentionState, setMentionState] = useState<{
-    q: string;
-    anchor: { top: number; left: number };
-  } | null>(null);
   const { data: mentionMembers } = useOrgMembers(orgId);
   // Person chips resolve instantly from the member map; other entity chips via
   // the batch resolver. Comments render markdown (was raw text — now chips).
@@ -199,15 +192,21 @@ export function CardDetailSheet({
     comments.map((c) => c.content),
     commentUserSeed,
   );
-  // Resolve id-valued activity fields (assignee/cycle/status) to names so the
+  const commentMentionLabels = useMemo(
+    () => new Map([...commentRefMap].map(([k, v]) => [k, v.label])),
+    [commentRefMap],
+  );
+  // Bump to remount (reset) the rich comment editor after a successful post.
+  const [commentEditorKey, setCommentEditorKey] = useState(0);
+  // Resolve id-valued activity fields (assignee/interval/status) to names so the
   // Activity tab never shows a raw GUID (FR 545f81b1).
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
-      cycle: (id: string) => cycles.find((c) => c.id === id)?.name,
+      interval: (id: string) => intervals.find((c) => c.id === id)?.name,
       column: (key: string) => columns.find((c) => c.key === key)?.name,
     }),
-    [members, cycles, columns],
+    [members, intervals, columns],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -234,7 +233,7 @@ export function CardDetailSheet({
         item.assignees?.map((a) => a.userId) ??
           (item.assigneeId ? [item.assigneeId] : []),
       );
-      setCycleId(item.cycleId);
+      setIntervalId(item.intervalId);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
       setStartDate(item.startDate ? item.startDate.split("T")[0] : "");
@@ -440,8 +439,8 @@ export function CardDetailSheet({
           case "assigneeId":
             setAssigneeId(item.assigneeId);
             break;
-          case "cycleId":
-            setCycleId(item.cycleId);
+          case "intervalId":
+            setIntervalId(item.intervalId);
             break;
           case "columnKey":
             setColumnKey(item.columnKey);
@@ -536,8 +535,8 @@ export function CardDetailSheet({
       case "assigneeId":
         setAssigneeId(value as string | null);
         break;
-      case "cycleId":
-        setCycleId(value as string | null);
+      case "intervalId":
+        setIntervalId(value as string | null);
         break;
       case "columnKey":
         setColumnKey(value as string);
@@ -677,55 +676,6 @@ export function CardDetailSheet({
     });
   }
 
-  function detectMention(text: string, caret: number) {
-    const before = text.slice(0, caret);
-    const m = before.match(/(?:^|\s)@([\w-]*)$/);
-    if (!m) return null;
-    return m[1];
-  }
-
-  function onCommentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setNewComment(e.target.value);
-    const q = detectMention(e.target.value, e.target.selectionStart ?? 0);
-    if (q !== null) {
-      const rect = e.target.getBoundingClientRect();
-      setMentionState({
-        q,
-        anchor: { top: rect.top - 8 - 200, left: rect.left + 32 },
-      });
-    } else {
-      setMentionState(null);
-    }
-  }
-
-  function pickEntity(hit: ResolvedEntity) {
-    const ta = commentRef.current;
-    if (!ta) return;
-    const caret = ta.selectionStart ?? newComment.length;
-    const { value, caret: caretAfter } = insertMentionToken(
-      newComment,
-      caret,
-      hit.type,
-      hit.id,
-    );
-    setNewComment(value);
-    setMentionState(null);
-    // Restore the caret to just after the inserted mention (not the end of the
-    // whole comment) so typing continues in place when mentioning mid-sentence.
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(caretAfter, caretAfter);
-    });
-  }
-
-  function onCommentKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (mentionState) return; // let MentionPicker handle ArrowUp/Down/Enter/Escape
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleAddComment();
-    }
-  }
-
   function handleAddComment() {
     if (!item || !newComment.trim()) return;
     startTransition(async () => {
@@ -739,6 +689,7 @@ export function CardDetailSheet({
         const comment: Comment = await res.json();
         setComments((prev) => [...prev, comment]);
         setNewComment("");
+        setCommentEditorKey((k) => k + 1);
       } catch (err) {
         console.error("Failed to add comment:", err);
         notifyError(err, "Couldn't post your comment.");
@@ -831,7 +782,7 @@ export function CardDetailSheet({
 
   // Candidate parents: every other item in the project, minus this item's own
   // direct children (a shallow guard against the most obvious parent/child
-  // cycle; the server still owns deeper integrity).
+  // interval; the server still owns deeper integrity).
   const childIds = new Set(children.map((c) => c.id));
   const parentCandidates = (projectItems ?? []).filter(
     (p) => p.id !== item.id && !childIds.has(p.id),
@@ -927,10 +878,11 @@ export function CardDetailSheet({
             placeholder="Title"
           />
 
-          {/* Per-ticket supervisor badge — what Foreman's outcome-grooming
-              supervisor last did (or, in dry mode, proposed) for this ticket.
-              Renders nothing when there's no actionable history. */}
-          <ForemanGroomingBadge orgId={orgId} workItemId={item.id} />
+          {/* Plugin workItem.detailBadge slot — fail-closed: renders nothing
+              unless an ENABLED plugin contributes here (e.g. Foreman's
+              per-ticket outcome-grooming supervisor badge, itself silent when
+              there's no actionable history). */}
+          <PluginSlot name="workItem.detailBadge" orgId={orgId} workItemId={item.id} />
 
           {/* Description — Write/Preview (Markdown) + `#` roadmap-node linking */}
           <RoadmapDescriptionField
@@ -1134,27 +1086,27 @@ export function CardDetailSheet({
               />
             </MetadataField>
 
-            {cycles.length > 0 && (
-              <MetadataField icon={Target} label="Cycle">
+            {intervals.length > 0 && (
+              <MetadataField icon={Target} label="Interval">
                 <Select
                   items={{
                     __none__: "None",
-                    ...Object.fromEntries(cycles.map((s) => [s.id, s.name])),
+                    ...Object.fromEntries(intervals.map((s) => [s.id, s.name])),
                   }}
-                  value={cycleId ?? "__none__"}
+                  value={intervalId ?? "__none__"}
                   onValueChange={(v) =>
                     handleFieldChange(
-                      "cycleId",
+                      "intervalId",
                       (v === "__none__" ? null : v) as string | null
                     )
                   }
                 >
-                  <SelectTrigger size="sm" aria-label="Cycle" className="w-full text-xs">
+                  <SelectTrigger size="sm" aria-label="Interval" className="w-full text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
-                    {cycles.map((s) => (
+                    {intervals.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
                       </SelectItem>
@@ -1428,11 +1380,15 @@ export function CardDetailSheet({
                       </div>
                       {isEditing ? (
                         <div className="mt-1 space-y-1.5">
-                          <Textarea
-                            value={editDraft}
-                            onChange={(e) => setEditDraft(e.target.value)}
-                            className="min-h-16 resize-none text-sm"
-                          />
+                          <div className="rounded-lg border border-input px-2.5 py-1.5 text-sm">
+                            <NoteRichTextEditor
+                              key={`edit-${c.id}`}
+                              initialMarkdown={editDraft}
+                              orgId={orgId}
+                              mentionLabels={commentMentionLabels}
+                              onChange={setEditDraft}
+                            />
+                          </div>
                           <div className="flex items-center gap-2">
                             <Button
                               size="xs"
@@ -1473,15 +1429,16 @@ export function CardDetailSheet({
               )}
 
               <div className="relative flex gap-2">
-                <textarea
-                  ref={commentRef}
-                  rows={1}
-                  value={newComment}
-                  onChange={onCommentChange}
-                  onKeyDown={onCommentKey}
-                  placeholder="Write a comment… (@ to mention)"
-                  className="flex-1 resize-none rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                />
+                <div className="flex-1 rounded-lg border border-input px-2.5 py-1.5 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
+                  <NoteRichTextEditor
+                    key={`comment-${commentEditorKey}`}
+                    initialMarkdown={newComment}
+                    orgId={orgId}
+                    mentionLabels={commentMentionLabels}
+                    onChange={setNewComment}
+                    placeholder="Write a comment… (@ to mention)"
+                  />
+                </div>
                 <Button
                   size="icon"
                   variant="ghost"
@@ -1491,15 +1448,6 @@ export function CardDetailSheet({
                 >
                   <Send className="h-4 w-4" />
                 </Button>
-                {mentionState && (
-                  <EntityMentionPicker
-                    orgId={orgId}
-                    query={mentionState.q}
-                    anchor={mentionState.anchor}
-                    onPick={pickEntity}
-                    onCancel={() => setMentionState(null)}
-                  />
-                )}
               </div>
             </div>
           )}

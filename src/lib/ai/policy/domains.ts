@@ -24,7 +24,7 @@ export const KNOWN_DOMAINS = [
   "crm",
   "compliance",
   "projects",
-  "cycles",
+  "intervals",
   "search",
   "google",
   "github",
@@ -149,13 +149,13 @@ export const TOOL_DOMAIN: Record<string, AgentDomain> = {
   create_feedback: "projects",
   set_feedback_status: "projects",
 
-  // ── cycles ──────────────────────────────────────────────────────────────────
-  query_cycles: "cycles",
-  list_cycles: "cycles",
-  create_cycle: "cycles",
-  update_cycle: "cycles",
-  complete_cycle: "cycles",
-  generate_cycle_brief: "cycles",
+  // ── intervals ──────────────────────────────────────────────────────────────────
+  query_intervals: "intervals",
+  list_intervals: "intervals",
+  create_interval: "intervals",
+  update_interval: "intervals",
+  complete_interval: "intervals",
+  generate_interval_brief: "intervals",
 
   // ── search / RAG ─────────────────────────────────────────────────────────────
   semantic_search: "search",

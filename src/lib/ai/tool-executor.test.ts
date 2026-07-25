@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // Security regression lock: the legacy inline AI tools (query_work_items,
-// query_cycles, query_crm, query_finance, generate_cycle_brief) must enforce
+// query_intervals, query_crm, query_finance, generate_interval_brief) must enforce
 // the SAME per-tool read permission as the Phase-3b executors. Before the fix
 // they queried Prisma scoped only by orgId, so a CHAT_USE user lacking
 // FINANCE_READ / CRM_READ could exfiltrate that data via `/ai` or an @ai
@@ -17,7 +17,7 @@ const { loadEffectivePermissions, prisma } = vi.hoisted(() => ({
     revenue: { findMany: vi.fn() },
     expense: { findMany: vi.fn() },
     workItem: { findMany: vi.fn() },
-    cycle: { findMany: vi.fn(), findFirst: vi.fn() },
+    interval: { findMany: vi.fn(), findFirst: vi.fn() },
   },
 }));
 
@@ -40,8 +40,8 @@ describe("executeTool — legacy read tools enforce per-tool permissions", () =>
     { tool: "query_crm", need: "CRM_READ", spy: () => prisma.crmContact.findMany },
     { tool: "query_finance", need: "FINANCE_READ", spy: () => prisma.revenue.findMany },
     { tool: "query_work_items", need: "ITEM_READ", spy: () => prisma.workItem.findMany },
-    { tool: "query_cycles", need: "SPRINT_READ", spy: () => prisma.cycle.findMany },
-    { tool: "generate_cycle_brief", need: "SPRINT_READ", spy: () => prisma.cycle.findFirst },
+    { tool: "query_intervals", need: "SPRINT_READ", spy: () => prisma.interval.findMany },
+    { tool: "generate_interval_brief", need: "SPRINT_READ", spy: () => prisma.interval.findFirst },
   ];
 
   for (const { tool, need, spy } of denyCases) {

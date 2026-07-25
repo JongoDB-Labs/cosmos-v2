@@ -158,7 +158,7 @@ describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)
   });
 });
 
-describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", () => {
+describe("CreateWorkItemDialog — interval is settable at creation (COSMOS-64)", () => {
   beforeEach(() => {
     vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
     vi.mocked(useWorkItemTypes).mockReturnValue({
@@ -166,11 +166,11 @@ describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", (
     } as never);
   });
 
-  /** Mock every fetch the dialog makes, serving the project's cycles. */
-  function mockWithCycles() {
+  /** Mock every fetch the dialog makes, serving the project's intervals. */
+  function mockWithIntervals() {
     vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
       if (url.endsWith("/members")) return Promise.resolve([]);
-      if (url.endsWith("/cycles")) {
+      if (url.endsWith("/intervals")) {
         return Promise.resolve([
           { id: "c1", name: "Sprint 1" },
           { id: "c2", name: "Sprint 2" },
@@ -186,8 +186,8 @@ describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", (
     }) as never);
   }
 
-  it("exposes a Cycle picker and submits the chosen cycleId", async () => {
-    mockWithCycles();
+  it("exposes an Interval picker and submits the chosen intervalId", async () => {
+    mockWithIntervals();
     const user = userEvent.setup();
     render(
       <CreateWorkItemDialog
@@ -200,18 +200,18 @@ describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", (
     );
 
     await screen.findByRole("dialog");
-    // The picker only appears once the project's cycles have loaded.
-    const cycleSelect = await screen.findByLabelText("Cycle");
+    // The picker only appears once the project's intervals have loaded.
+    const intervalSelect = await screen.findByLabelText("Interval");
     await user.type(screen.getByLabelText("Title"), "Scoped to a sprint");
-    await user.selectOptions(cycleSelect, "c2");
+    await user.selectOptions(intervalSelect, "c2");
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
-    expect(postBody().cycleId).toBe("c2");
+    expect(postBody().intervalId).toBe("c2");
   });
 
-  it("omits cycleId when no cycle is chosen (extra fields stay optional)", async () => {
-    mockWithCycles();
+  it("omits intervalId when no interval is chosen (extra fields stay optional)", async () => {
+    mockWithIntervals();
     const user = userEvent.setup();
     render(
       <CreateWorkItemDialog
@@ -224,12 +224,12 @@ describe("CreateWorkItemDialog — cycle is settable at creation (COSMOS-64)", (
     );
 
     await screen.findByRole("dialog");
-    await screen.findByLabelText("Cycle"); // picker present but left untouched
+    await screen.findByLabelText("Interval"); // picker present but left untouched
     await user.type(screen.getByLabelText("Title"), "No sprint yet");
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
-    expect(postBody()).not.toHaveProperty("cycleId");
+    expect(postBody()).not.toHaveProperty("intervalId");
   });
 });
 
@@ -244,7 +244,7 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     workItemTypeId: "t2",
     assigneeId: "u1",
     assignees: [{ userId: "u1" }],
-    cycleId: null,
+    intervalId: null,
     storyPoints: 5,
     dueDate: "2026-08-01T00:00:00.000Z",
     tags: ["security", "review"],
@@ -265,7 +265,7 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
           { userId: "u1", user: { id: "u1", displayName: "Ana", email: "ana@x.co" } },
         ]);
       }
-      if (url.endsWith("/cycles")) return Promise.resolve([]);
+      if (url.endsWith("/intervals")) return Promise.resolve([]);
       if (url.endsWith("/boards")) {
         return Promise.resolve([{ id: "b1", columns: [{ key: "todo", name: "To Do" }] }]);
       }

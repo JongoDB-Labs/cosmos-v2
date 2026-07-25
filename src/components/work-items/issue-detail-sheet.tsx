@@ -63,7 +63,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /**
  * Read-focused detail for a work item, opened from the cross-project Issues
- * list (so it deliberately does NOT need the board's per-project columns/cycles
+ * list (so it deliberately does NOT need the board's per-project columns/intervals
  * context). Shows everything in the search row plus the full description
  * (fetched on open), with "Open in board" for full editing.
  */

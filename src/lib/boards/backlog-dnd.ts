@@ -2,9 +2,9 @@
  * Drag resolution for the Backlog & Sprints planner (FR debd4e39 / task 2).
  *
  * The planner is a multi-container dnd-kit board: one "Backlog" container plus a
- * container per sprint/cycle. Dragging a row can either REORDER it within its
+ * container per sprint/interval. Dragging a row can either REORDER it within its
  * container or REASSIGN it to another container (which changes the work item's
- * cycle — dropping onto the backlog clears it). This pure helper turns a
+ * interval — dropping onto the backlog clears it). This pure helper turns a
  * (draggedId, overId, containers) triple into the intended move so the logic is
  * unit-testable without a live DnD surface.
  */
@@ -23,8 +23,8 @@ export interface DragReorder {
 export interface DragReassign {
   kind: "reassign";
   itemId: string;
-  /** Target cycle id, or null when moving to the backlog. */
-  toCycleId: string | null;
+  /** Target interval id, or null when moving to the backlog. */
+  toIntervalId: string | null;
   toIndex: number;
 }
 export type DragMove = DragReorder | DragReassign | null;
@@ -69,7 +69,7 @@ export function resolveDrag(
   return {
     kind: "reassign",
     itemId: activeId,
-    toCycleId: to === BACKLOG_CONTAINER ? null : to,
+    toIntervalId: to === BACKLOG_CONTAINER ? null : to,
     toIndex,
   };
 }

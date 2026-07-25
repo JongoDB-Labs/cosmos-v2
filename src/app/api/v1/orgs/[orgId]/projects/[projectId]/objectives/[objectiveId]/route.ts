@@ -45,7 +45,7 @@ const updateSchema = z.object({
   description: z.string().nullish(),
   period: z.string().nullish(),
   status: z.nativeEnum(ObjectiveStatus).optional(),
-  // Alignment parent; null unsets it. Guarded against self/cycles below.
+  // Alignment parent; null unsets it. Guarded against self/intervals below.
   parentId: z.string().uuid().nullable().optional(),
   // Target/end date for health (FR a94ff583); null clears it.
   targetDate: z.string().datetime().nullable().optional(),
@@ -87,7 +87,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       let cur = parent.parentId;
       for (let guard = 0; cur && guard < 100; guard++) {
         if (cur === objectiveId) {
-          return new Response("That alignment would create a cycle", { status: 400 });
+          return new Response("That alignment would create an interval", { status: 400 });
         }
         const next = await prisma.objective.findUnique({
           where: { id: cur },

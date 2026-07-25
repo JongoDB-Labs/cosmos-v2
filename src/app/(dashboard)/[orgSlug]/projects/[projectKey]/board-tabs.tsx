@@ -72,7 +72,7 @@ interface ProjectBoardTabsProps {
    *  itself is untouched. */
   hiddenBoardIds?: string[];
   /** Feature-tab keys hidden from THIS user's strip (e.g. "pm-dashboard",
-   *  "goal", "cycle") — effective (user ?? project). The feature stays enabled;
+   *  "goal", "interval") — effective (user ?? project). The feature stays enabled;
    *  only the tab is hidden for this user. */
   hiddenFeatureTabs?: string[];
   /** Unified strip order as tokens (`board:<id>` | `feature:<key>`) — EFFECTIVE
@@ -124,7 +124,6 @@ export function ProjectBoardTabs({
   hiddenFeatureTabs = [],
   tabOrder = [],
   featureTabLabels = {},
-  templateDefaultConfig,
 }: ProjectBoardTabsProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -174,12 +173,6 @@ export function ProjectBoardTabs({
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [moving, setMoving] = useState(false);
-
-  // Derive cycle nav label from template config, fallback to "Sprints"
-  const cycleNavLabel =
-    typeof templateDefaultConfig?.cycleNavLabel === "string"
-      ? templateDefaultConfig.cycleNavLabel
-      : "Sprints";
 
   const newBoardHref = `/${orgSlug}/projects/${projectKey}/boards/new`;
   const membersHref = `/${orgSlug}/projects/${projectKey}/members`;
@@ -258,16 +251,6 @@ export function ProjectBoardTabs({
       label: "Files",
       href: `/${orgSlug}/projects/${projectKey}/files`,
       prefix: true, // stay active on /files/<doc> deep-links
-    });
-  }
-
-  // Cycles/Sprints — label is template-driven (e.g. "Sprints"). Folded into the
-  // feature-tab list so it gets the same hide/show ⋯ menu as the others.
-  if (enabledFeatures.includes("cycle")) {
-    featureTabs.push({
-      feature: "cycle",
-      label: cycleNavLabel,
-      href: `/${orgSlug}/projects/${projectKey}/cycles`,
     });
   }
 

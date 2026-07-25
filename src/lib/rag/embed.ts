@@ -56,7 +56,7 @@ export async function storeEmbedding(
   id: string,
   text: string,
 ): Promise<void> {
-  // Imported lazily to avoid a static import cycle (db/client → … → rag) and to
+  // Imported lazily to avoid a static import interval (db/client → … → rag) and to
   // keep this module importable in contexts without the Prisma client.
   const { prisma } = await import("@/lib/db/client");
   const vec = toVectorLiteral(await embedText(text));

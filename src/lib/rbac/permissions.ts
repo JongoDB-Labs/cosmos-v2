@@ -128,6 +128,12 @@ export const Permission = {
   // AI Agent Policy (design D9/§8) — manage the per-org AgentPolicy (the middle gate of
   // RBAC ∩ AgentPolicy ∩ Classification: which tools/domains the agent may call + arg bounds).
   AGENT_POLICY_MANAGE: 1n << 116n,
+
+  // Plugins (ADR 0003) — enable/disable/configure org plugins (Settings → Plugins).
+  // Dedicated bit (not ORG_MANAGE_SETTINGS): enabling a plugin flips whole feature
+  // surfaces and runs provisioning hooks — scope-able to a WorkRole without handing
+  // over all org settings.
+  PLUGIN_MANAGE: 1n << 117n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -241,6 +247,7 @@ export const RolePermissions = {
     Permission.ORG_IMPORT,
     Permission.MCP_MANAGE,
     Permission.AGENT_POLICY_MANAGE,
+    Permission.PLUGIN_MANAGE,
   ),
 
   BILLING_ADMIN: combine(

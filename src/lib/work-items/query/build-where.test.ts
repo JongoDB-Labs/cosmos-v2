@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Priority } from "@prisma/client";
 import { buildWorkItemWhere, buildOrderBy } from "./build-where";
-import { NO_CYCLE, UNASSIGNED, type WorkItemFilter } from "./filter";
+import { NO_INTERVAL, UNASSIGNED, type WorkItemFilter } from "./filter";
 
 const ORG = "org-1";
 const P1 = "11111111-1111-1111-1111-111111111111";
@@ -118,21 +118,21 @@ describe("buildWorkItemWhere — assignee (incl. unassigned sentinel)", () => {
   });
 });
 
-describe("buildWorkItemWhere — cycle (incl. none sentinel)", () => {
-  it("real cycles → IN", () => {
-    const w = build({ cycleIds: ["c1"] });
-    expect(w.cycleId).toEqual({ in: ["c1"] });
+describe("buildWorkItemWhere — interval (incl. none sentinel)", () => {
+  it("real intervals → IN", () => {
+    const w = build({ intervalIds: ["c1"] });
+    expect(w.intervalId).toEqual({ in: ["c1"] });
   });
 
-  it("only none → cycleId null", () => {
-    const w = build({ cycleIds: [NO_CYCLE] });
-    expect(w.cycleId).toBeNull();
+  it("only none → intervalId null", () => {
+    const w = build({ intervalIds: [NO_INTERVAL] });
+    expect(w.intervalId).toBeNull();
   });
 
   it("real + none → OR", () => {
-    const w = build({ cycleIds: ["c1", NO_CYCLE] });
+    const w = build({ intervalIds: ["c1", NO_INTERVAL] });
     expect(w.AND).toEqual([
-      { OR: [{ cycleId: { in: ["c1"] } }, { cycleId: null }] },
+      { OR: [{ intervalId: { in: ["c1"] } }, { intervalId: null }] },
     ]);
   });
 });

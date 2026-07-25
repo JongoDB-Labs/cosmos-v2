@@ -22,6 +22,7 @@ vi.mock("@/components/mentions/entity-mention-picker", () => ({
   EntityMentionPicker: () => null,
 }));
 vi.mock("@/components/mentions/hooks", () => ({ useRefResolver: () => new Map() }));
+vi.mock("@/components/notes/editor/rich-text-editor", () => ({ NoteRichTextEditor: () => null }));
 vi.mock("@/components/chat/markdown-content", () => ({
   MarkdownContent: ({ content }: { content: string }) => <div>{content}</div>,
 }));
@@ -77,7 +78,7 @@ function makeItem(over: Partial<WorkItem> & { id: string; ticketNumber: number; 
     storyPoints: null,
     startDate: null,
     dueDate: null,
-    cycleId: null,
+    intervalId: null,
     assigneeId: null,
     assignees: [],
     workItemTypeId: "wt",
@@ -113,7 +114,7 @@ function BoardHarness({ initial, openId }: { initial: WorkItem[]; openId: string
         orgId="o1"
         projectId="pr1"
         members={[]}
-        cycles={[]}
+        intervals={[]}
         columns={[{ key: "todo", name: "To Do" } as never]}
         onUpdate={handleItemUpdate}
         projectItems={items}

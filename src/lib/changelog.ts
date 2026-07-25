@@ -21,13 +21,397 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
-    version: "2.224.0",
+    version: "2.238.0",
     date: "2026-07-25",
     title: "Edit a work item in the Table view's side panel",
     highlights: [
       {
         kind: "feature",
         text: "Open any row in the Table board view in the full detail side panel — the same rich editor the Kanban board uses — to edit its description, status, assignee, priority, dates, tags, comments and sub-items. Your changes save automatically and appear in the table row right away.",
+      },
+    ],
+  },
+  {
+    version: "2.237.0",
+    date: "2026-07-24",
+    title: "Plugins: opt-in capability bundles per organization",
+    highlights: [
+      {
+        kind: "feature",
+        text: "New Settings → Plugins tab: organization admins can enable, disable, and configure optional capability bundles for their org. Plugins are off until you turn them on, and disabling one hides its surfaces while keeping its data so re-enabling restores everything.",
+      },
+    ],
+  },
+  {
+    version: "2.236.0",
+    date: "2026-07-24",
+    title: "Comments: rich mention input (name chips, not raw tokens)",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The comment box (new and edit) is now a rich editor like Notes — @-mention someone and you see their name as a chip while composing, instead of a raw <@…> token. Posting is unchanged; existing comments still render correctly.",
+      },
+    ],
+  },
+  {
+    version: "2.235.2",
+    date: "2026-07-24",
+    title: "Fix: names (not UUIDs) in Table group headers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Grouping the Table view by Assignee (or Type, Status, Interval) now shows the person's name, the type/status name, etc. in the group headers — previously the raw UUID/key was shown. Empty groups read “Unassigned”/“No type”.",
+      },
+    ],
+  },
+  {
+    version: "2.235.1",
+    date: "2026-07-24",
+    title: "New Board: discipline tabs for the sector presets",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The New Board gallery now has category tabs for each discipline — Construction, Consulting, Education, Events, Manufacturing, Operations — so the sector presets are browsable by field instead of crowding the Tracking tab. The functional tabs (Agile, Planning, Analytics, …) keep the generic board types.",
+      },
+    ],
+  },
+  {
+    version: "2.235.0",
+    date: "2026-07-24",
+    title: "Every board preset available in New Board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The New Board gallery now offers all the preset boards from every project type — RFI Tracker, Submittal Log, Deliverable Tracker, Vendor Tracker, Work-Order Kanban, Incident Board, Grading Board, and more (32 in all) — not just your project type's. They slot into the existing category tabs, so any team can adopt another discipline's board when it's useful. Kanban presets bring their column setup.",
+      },
+    ],
+  },
+  {
+    version: "2.234.0",
+    date: "2026-07-24",
+    title: "Intervals: consistent label, project-type default kind",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The project header entry now reads “Intervals” for every project type, instead of a per-type label. The project's sector still drives the DEFAULT kind pre-selected when you create one (Sprint for software, Phase for construction/consulting, Module for education, Run for manufacturing, Release for ops, Event Day for events) — and every kind remains available in the picker.",
+      },
+    ],
+  },
+  {
+    version: "2.233.2",
+    date: "2026-07-24",
+    title: "Filter bar shows only the custom-field filters in use",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Timeline and Kanban filter bar now shows a custom-field filter (e.g. Repro steps, Release version, Environment, Severity) only when items on that board actually use it — so bug-specific fields no longer clutter a board full of stories and tasks. An active filter stays visible so you can always clear it.",
+      },
+    ],
+  },
+  {
+    version: "2.233.1",
+    date: "2026-07-24",
+    title: "Fix: Sprints nav link + wider Manage-sprints drawer",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Restored the top-level Sprints link in the project header — the cycle→interval rename accidentally changed an internal feature-flag key, hiding it. The internal key is a stored identifier and stays as-is; only the user-facing wording changed.",
+      },
+      {
+        kind: "fix",
+        text: "The Manage-sprints drawer on the Sprint Board now opens to a comfortable width instead of a narrow strip.",
+      },
+    ],
+  },
+  {
+    version: "2.233.0",
+    date: "2026-07-24",
+    title: "“Cycles” are now “Intervals”",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Renamed the generic time-boxed container from “cycle” to “interval” across the whole app. An interval is the umbrella term for a Sprint, Phase, Program Increment, Release, and the other kinds — the old “cycle” wording implied it was one specific kind. Your data and sprints are unchanged; it's the same feature with clearer, kind-neutral naming (per-sector labels like “Sprints” still apply where a project uses them).",
+      },
+    ],
+  },
+  {
+    version: "2.232.0",
+    date: "2026-07-23",
+    title: "Roll straight into the next sprint on completion",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When you complete a sprint, you're now offered a pre-filled next sprint — same duration, incremented name, inheriting the same Program Increment — so you can start the following sprint in one click. Edit the details or skip it entirely.",
+      },
+    ],
+  },
+  {
+    version: "2.231.0",
+    date: "2026-07-23",
+    title: "Sprints: cleaner navigation + manage-in-context",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Sprints moved off the crowded board tab strip. There's now a top-level Sprints link in the project header, and a Manage button on the Sprint Board opens a drawer with the full sprint lifecycle (create/start/complete) so you can run sprints without leaving the board.",
+      },
+      {
+        kind: "improvement",
+        text: "Renamed the “Sprint Dashboard” board to “Sprint Health” — it's a health/metrics view (workload, burn rate, status), not a management surface.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint date ranges in the Sprint Board detail popup now show the exact calendar days entered (previously a day early in western timezones).",
+      },
+    ],
+  },
+  {
+    version: "2.230.2",
+    date: "2026-07-23",
+    title: "Type filter now lists only the types on the board",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Type filter on the Timeline and Kanban boards now shows only the work-item types actually present on that board, instead of the org's entire type catalog — so a software project no longer sees construction/manufacturing/event types it never uses. (The Table view already worked this way.) An active type selection stays visible so you can always clear it.",
+      },
+    ],
+  },
+  {
+    version: "2.230.1",
+    date: "2026-07-23",
+    title: "Sprint planning polish: correct card dates, member emails, empty-sprint pacing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Sprint/cycle cards showed dates one day early in western timezones — the start/end dates now render as the exact calendar days you entered.",
+      },
+      {
+        kind: "improvement",
+        text: "The start-sprint capacity list now shows each member's email under their name, so two people with the same display name are no longer indistinguishable.",
+      },
+      {
+        kind: "fix",
+        text: "The sprint-review Pacing tile now reads “—” for a sprint with no items, instead of a misleading “On track / 1× ideal.”",
+      },
+    ],
+  },
+  {
+    version: "2.230.0",
+    date: "2026-07-23",
+    title: "Sprint planning: capacity-aware start + sprint review",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Starting a sprint now opens a planning dialog first: set each member's capacity and availability, a sprint goal, and see committed scope vs. team capacity live with an over-commitment warning — instead of the sprint jumping straight to active.",
+      },
+      {
+        kind: "feature",
+        text: "Completing a sprint now runs a review step — efficiency, burn rate, pacing against the ideal burndown, and items/points completed — before the finalize/rehome step.",
+      },
+      {
+        kind: "improvement",
+        text: "A planned sprint can be edited or deleted freely before it starts, with regression tests locking the behavior in.",
+      },
+    ],
+  },
+  {
+    version: "2.229.0",
+    date: "2026-07-23",
+    title: "Gantt: Dependencies view keeps epic/feature/story nesting",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Turning on the Dependencies lens on the timeline now keeps the same epic → feature → story nesting as the normal view, instead of flattening every linked item into a single list. Parents in the chain are shown for structure, and collapse works the same as when the lens is off.",
+      },
+    ],
+  },
+  {
+    version: "2.228.0",
+    date: "2026-07-23",
+    title: "Cosmo: date awareness, day-safe dates, larger action budget",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo now knows the current date and time (US Eastern), so 'due tomorrow', 'by Friday', and 'end of the sprint' resolve to the right calendar date instead of a guessed one.",
+      },
+      {
+        kind: "fix",
+        text: "Fixed the off-by-one where a date you asked for (e.g. July 24) was saved as the day before — due dates, start dates, and sprint windows are now stored as whole calendar days and show the same day in every timezone.",
+      },
+      {
+        kind: "feature",
+        text: "Cosmo can set a due date and start date at creation time (not just afterward), so 'create these stories due tomorrow' lands the dates in one step.",
+      },
+      {
+        kind: "feature",
+        text: "Raised Cosmo's per-message action budget so it can carry out org- and project-wide bulk actions without stopping early; if it does hit the limit it now tells you exactly how many actions it applied and offers to continue.",
+      },
+      {
+        kind: "improvement",
+        text: "Cosmo asks before proceeding when a request is ambiguous rather than guessing or half-finishing — and when new items fall inside a sprint's dates it offers to add them to that sprint.",
+      },
+    ],
+  },
+  {
+    version: "2.227.0",
+    date: "2026-07-23",
+    title: "Gantt: actuals shown by default, new Plan drift lens",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The timeline now shows each item at its actual dates by default — solid bars colored by schedule health (green on/ahead, red slipped, amber started-late). No toggle needed to see reality.",
+      },
+      {
+        kind: "feature",
+        text: "The old Actuals toggle is now Plan drift: turn it on to overlay the original planned dates as a faded ghost behind each actual bar, so you can see exactly how the schedule moved.",
+      },
+      {
+        kind: "improvement",
+        text: "Items that have already started or finished reschedule from their detail panel rather than by dragging the bar, keeping recorded actuals stable; not-yet-started items still drag on the Gantt as before.",
+      },
+    ],
+  },
+  {
+    version: "2.226.0",
+    date: "2026-07-23",
+    title: "Gantt: resizable Work Items column + status-dropdown fix",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Work Items column on the timeline is now resizable — drag the handle on its right edge to show more or less of the name column; the width is remembered.",
+      },
+      {
+        kind: "fix",
+        text: "Fixed the status dropdown not opening when you open an item’s detail from a Gantt bar — a tap on a bar no longer holds the pointer, so the detail panel’s controls receive their clicks.",
+      },
+    ],
+  },
+  {
+    version: "2.225.1",
+    date: "2026-07-23",
+    title: "Dependencies view: show every linked item; arrows on the actual bars",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Dependencies lens now shows EVERY linked item (built off the full item list, so a linked collapsed child no longer disappears) and refetches links when toggled so items you just linked appear without a hard refresh. Dependency arrows now connect the SOLID actual bars, not the faded planned “phantom” trails; hover/detail unchanged.",
+      },
+    ],
+  },
+  {
+    version: "2.225.0",
+    date: "2026-07-23",
+    title: "Foreman console: split the Activity tab into Pipeline + Activity",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The long Foreman console Activity tab is split in two: a new default “Pipeline” tab for the live ticket flow (intake, up-next queue, in-flight builds, coordinated releases, awaiting-approval), and “Activity” for the browseable feeds (loop metrics, grooming suggestions, event log). Much less scrolling.",
+      },
+    ],
+  },
+  {
+    version: "2.224.8",
+    date: "2026-07-23",
+    title: "Foreman reuses an open PR instead of failing to ship",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Fixed Foreman getting stuck re-parking a ticket that had a leftover open PR from an earlier review: the deliver/merge step now REUSES (and readies) the existing PR instead of trying to create a duplicate and erroring “a pull request already exists” (e.g. COSMOS-90). Same fix applied to the coordinated-release path.",
+      },
+    ],
+  },
+  {
+    version: "2.224.7",
+    date: "2026-07-23",
+    title: "Undo/redo for Gantt reschedules",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Rescheduling items on the timeline (dragging bars or resizing edges) can now be undone and redone — Undo/Redo buttons in the toolbar plus the usual ⌘/Ctrl-Z and ⌘/Ctrl-Y (or ⌘/Ctrl-Shift-Z) shortcuts.",
+      },
+    ],
+  },
+  {
+    version: "2.224.6",
+    date: "2026-07-23",
+    title: "Dependencies lens: focus to just the linked items, cleaner arrows",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Turning on the Dependencies lens now filters the timeline down to ONLY the items that participate in a dependency, so you focus on the interdependent set. Connectors are drawn as clean right-angle (orthogonal) elbows instead of free-form curves.",
+      },
+    ],
+  },
+  {
+    version: "2.224.5",
+    date: "2026-07-23",
+    title: "Trace dependencies on the Gantt — without the spaghetti",
+    highlights: [
+      {
+        kind: "feature",
+        text: "New Dependencies lens on the timeline. Off by default; turn it on and hover any bar to light up just that item’s links — upstream/blockers in amber, downstream/dependents in blue — while everything unrelated fades, so you trace one chain at a time instead of a web of lines.",
+      },
+      {
+        kind: "improvement",
+        text: "The solid actual bar is now clickable to open an item’s detail (previously only the faded planned trail was).",
+      },
+    ],
+  },
+  {
+    version: "2.224.4",
+    date: "2026-07-23",
+    title: "Gantt: actual work is the solid bar, the plan is the trail",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the timeline the SOLID bar is now an item’s actual work at its real dates; its plan renders behind as a faded trail — red if it slipped, amber if it started late, green if on/ahead. A slip reads as the solid actual bar sitting past a faded planned trail, instead of the whole bar being outlined red.",
+      },
+    ],
+  },
+  {
+    version: "2.224.3",
+    date: "2026-07-23",
+    title: "Gantt shows planned vs actual at real dates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The timeline now draws each item’s actual work as a slim track at its true calendar dates beneath the planned bar — green if it finished on/ahead, red if it slipped, with an amber lead-in for the delay before a late start. A month-late item reads as its actual bar sitting a month to the right, instead of a red smear clipped at the chart’s left edge.",
+      },
+      {
+        kind: "fix",
+        text: "New items created directly in an in-progress or done column no longer auto-stamp an actual start/finish of “now” — that was backfilling misleading completion dates during board setup and import. A genuine drag-to-done move still captures the date.",
+      },
+    ],
+  },
+  {
+    version: "2.224.2",
+    date: "2026-07-23",
+    title: "Gantt shows a late start — and when you recovered from it",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the timeline, an item that started later than its planned start now shows an amber lead-in at the front of its bar. Paired with the finish color, a bar that starts amber but stays green reads at a glance as “started late, recovered, delivered on time.” The tooltip spells it out (e.g. “Started 7d late — recovered ✓”).",
+      },
+    ],
+  },
+  {
+    version: "2.224.1",
+    date: "2026-07-23",
+    title: "Clearer schedule slippage on the Gantt",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "On the timeline, an item that finished late (or is still open past its projected end) now shows a full-height red bar trailing to the LEFT, and one that finished early shows a green bar extending to the RIGHT — the length is how many days late or early. Replaces the thin, hard-to-read line under the bar.",
+      },
+    ],
+  },
+  { version: "2.224.0", date: "2026-07-23", title: "Coordinated release COSMOS-141", highlights: [{ kind: "feature", text: "COSMOS-141 shipped as one coordinated release spanning 2 phases (COSMOS-142, COSMOS-143), delivered together under a single version rather than a string of separate updates." }] },
+  {
+    version: "2.223.2",
+    date: "2026-07-22",
+    title: "Coordinated same-file releases now actually ship",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Fixed a git plumbing bug that stopped a coordinated multi-phase release from finishing its final merge — the merge ran in a temporary worktree but referenced a fetch marker that only exists in the main checkout, so it aborted every time (safely, never a half-release). Coordinated releases whose phases touch the same file now merge and ship as one version.",
       },
     ],
   },

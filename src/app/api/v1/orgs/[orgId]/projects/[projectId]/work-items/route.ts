@@ -23,7 +23,7 @@ const createItemSchema = z.object({
   // primary `assigneeId`. When present it wins over the legacy single field.
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
-  cycleId: z.string().uuid().nullable().optional(),
+  intervalId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
   storyPoints: z.number().int().min(0).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (sp.get("priority")) where.priority = sp.get("priority");
     if (sp.get("columnKey")) where.columnKey = sp.get("columnKey");
     if (sp.get("assigneeId")) where.assigneeId = sp.get("assigneeId");
-    if (sp.get("cycleId")) where.cycleId = sp.get("cycleId");
+    if (sp.get("intervalId")) where.intervalId = sp.get("intervalId");
     if (sp.get("parentId")) where.parentId = sp.get("parentId");
 
     if (sp.get("search")) {
@@ -192,23 +192,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             create: assigneeIds.map((userId, i) => ({ userId, sortOrder: i })),
           },
           priority: data.priority,
-          cycleId: data.cycleId ?? null,
+          intervalId: data.intervalId ?? null,
           parentId: data.parentId ?? null,
           ticketNumber,
           storyPoints: data.storyPoints ?? null,
           sortOrder,
           dueDate: data.dueDate ? new Date(data.dueDate) : null,
           startDate: data.startDate ? new Date(data.startDate) : null,
-          actualStart: data.actualStart
-            ? new Date(data.actualStart)
-            : ["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase())
-              ? null
-              : new Date(),
-          completedAt: data.completedAt
-            ? new Date(data.completedAt)
-            : ["done", "completed", "closed"].some((k) => data.columnKey.toLowerCase().includes(k))
-              ? new Date()
-              : null,
+          // No auto-capture on CREATE: placing an item directly in an in-progress/
+          // done column is usually backfilling existing state (import, board setup),
+          // NOT a real transition — stamping actualStart/completedAt = now there
+          // produced misleading "everything finished today" clusters. Only an explicit
+          // value is honored here; a genuine drag-to-done later auto-captures in PUT.
+          actualStart: data.actualStart ? new Date(data.actualStart) : null,
+          completedAt: data.completedAt ? new Date(data.completedAt) : null,
           columnEnteredAt: new Date(),
           tags: data.tags ?? [],
           customFields: (data.customFields ?? {}) as Prisma.InputJsonValue,

@@ -1,11 +1,11 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { createProject, updateProject, updateCycle, completeCycle, listProjects } from "./projects";
+import { createProject, updateProject, updateInterval, completeInterval, listProjects } from "./projects";
 import type { ToolContext } from "./_ctx";
 
 const NON_MEMBER = "00000000-0000-0000-0000-000000000000";
 
-describe("projects + cycles executors (e2e DB)", () => {
+describe("projects + intervals executors (e2e DB)", () => {
   const cleanup: { orgIds: string[] } = { orgIds: [] };
   afterAll(async () => {
     await prisma.organization.deleteMany({ where: { id: { in: cleanup.orgIds } } }).catch(() => undefined);
@@ -52,39 +52,39 @@ describe("projects + cycles executors (e2e DB)", () => {
     expect(row?.archived).toBe(true);
   });
 
-  it("update_cycle nests a sprint under a Program Increment", async () => {
+  it("update_interval nests a sprint under a Program Increment", async () => {
     const { ctx, org } = await makeOrg();
     const project = await prisma.project.create({ data: { orgId: org.id, name: "P", key: "CYCKEY" } });
-    const pi = await prisma.cycle.create({
+    const pi = await prisma.interval.create({
       data: {
-        orgId: org.id, projectId: project.id, number: 1, name: "PI-1", cycleKind: "PROGRAM_INCREMENT",
+        orgId: org.id, projectId: project.id, number: 1, name: "PI-1", intervalKind: "PROGRAM_INCREMENT",
         startDate: new Date("2026-07-01"), endDate: new Date("2026-09-30"),
       },
     });
-    const sprint = await prisma.cycle.create({
+    const sprint = await prisma.interval.create({
       data: {
-        orgId: org.id, projectId: project.id, number: 2, name: "S-1", cycleKind: "SPRINT",
+        orgId: org.id, projectId: project.id, number: 2, name: "S-1", intervalKind: "SPRINT",
         startDate: new Date("2026-07-01"), endDate: new Date("2026-07-14"),
       },
     });
-    const res = (await updateCycle({ projectId: project.id, cycleId: sprint.id, parentId: pi.id }, ctx)) as {
+    const res = (await updateInterval({ projectId: project.id, intervalId: sprint.id, parentId: pi.id }, ctx)) as {
       updated: boolean;
     };
     expect(res.updated).toBe(true);
-    expect((await prisma.cycle.findUnique({ where: { id: sprint.id } }))?.parentId).toBe(pi.id);
+    expect((await prisma.interval.findUnique({ where: { id: sprint.id } }))?.parentId).toBe(pi.id);
 
     // A non-PI parent is rejected.
-    expect(await updateCycle({ projectId: project.id, cycleId: pi.id, parentId: sprint.id }, ctx)).toEqual({
+    expect(await updateInterval({ projectId: project.id, intervalId: pi.id, parentId: sprint.id }, ctx)).toEqual({
       error: "A sprint can only be nested under a Program Increment",
     });
   });
 
-  it("complete_cycle reports velocity and clears incomplete items", async () => {
+  it("complete_interval reports velocity and clears incomplete items", async () => {
     const { ctx, org, ownerId } = await makeOrg();
     const project = await prisma.project.create({ data: { orgId: org.id, name: "P", key: "DONEKEY" } });
-    const cycle = await prisma.cycle.create({
+    const interval = await prisma.interval.create({
       data: {
-        orgId: org.id, projectId: project.id, number: 1, name: "S", cycleKind: "SPRINT", status: "ACTIVE",
+        orgId: org.id, projectId: project.id, number: 1, name: "S", intervalKind: "SPRINT", status: "ACTIVE",
         startDate: new Date("2026-07-01"), endDate: new Date("2026-07-14"),
       },
     });
@@ -92,14 +92,14 @@ describe("projects + cycles executors (e2e DB)", () => {
     const mk = (columnKey: string, storyPoints: number, n: number) =>
       prisma.workItem.create({
         data: {
-          orgId: org.id, projectId: project.id, cycleId: cycle.id, ticketNumber: n, title: "t",
+          orgId: org.id, projectId: project.id, intervalId: interval.id, ticketNumber: n, title: "t",
           description: "", columnKey, storyPoints, workItemTypeId: type.id, createdById: ownerId,
         },
       });
     await mk("done", 5, 1);
     const open = await mk("todo", 3, 2);
 
-    const res = (await completeCycle({ projectId: project.id, cycleId: cycle.id }, ctx)) as {
+    const res = (await completeInterval({ projectId: project.id, intervalId: interval.id }, ctx)) as {
       completed: boolean;
       report: { velocity: number; completedItems: number; incompleteItems: number };
     };
@@ -107,9 +107,9 @@ describe("projects + cycles executors (e2e DB)", () => {
     expect(res.report.velocity).toBe(5);
     expect(res.report.completedItems).toBe(1);
     expect(res.report.incompleteItems).toBe(1);
-    expect((await prisma.cycle.findUnique({ where: { id: cycle.id } }))?.status).toBe("COMPLETED");
-    // Incomplete item was returned to the backlog (cycle cleared).
-    expect((await prisma.workItem.findUnique({ where: { id: open.id } }))?.cycleId).toBeNull();
+    expect((await prisma.interval.findUnique({ where: { id: interval.id } }))?.status).toBe("COMPLETED");
+    // Incomplete item was returned to the backlog (interval cleared).
+    expect((await prisma.workItem.findUnique({ where: { id: open.id } }))?.intervalId).toBeNull();
   });
 
   it("list_projects fuzzy-resolves a project the user names in words (bug #2)", async () => {
@@ -143,14 +143,14 @@ describe("projects + cycles executors (e2e DB)", () => {
     expect(all.count).toBe(3);
   });
 
-  it("denies a non-member across the projects/cycles surface", async () => {
+  it("denies a non-member across the projects/intervals surface", async () => {
     const { denyCtx } = await makeOrg();
     expect(await createProject({ name: "x", key: "DENYKEY" }, denyCtx)).toEqual({ error: "Insufficient permissions" });
     expect(await updateProject({ projectId: NON_MEMBER }, denyCtx)).toEqual({ error: "Insufficient permissions" });
-    expect(await updateCycle({ projectId: NON_MEMBER, cycleId: NON_MEMBER }, denyCtx)).toEqual({
+    expect(await updateInterval({ projectId: NON_MEMBER, intervalId: NON_MEMBER }, denyCtx)).toEqual({
       error: "Insufficient permissions",
     });
-    expect(await completeCycle({ projectId: NON_MEMBER, cycleId: NON_MEMBER }, denyCtx)).toEqual({
+    expect(await completeInterval({ projectId: NON_MEMBER, intervalId: NON_MEMBER }, denyCtx)).toEqual({
       error: "Insufficient permissions",
     });
   });

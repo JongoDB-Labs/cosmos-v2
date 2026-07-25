@@ -98,7 +98,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 
 import { TableView } from "./table-view";
 import { jsonFetch } from "@/lib/query/json-fetcher";
-import type { WorkItem, Board, OrgMember, Cycle } from "@/types/models";
+import type { WorkItem, Board, OrgMember, Interval } from "@/types/models";
 
 const mockedFetch = vi.mocked(jsonFetch);
 
@@ -113,7 +113,7 @@ function makeItem(over: Partial<WorkItem> = {}): WorkItem {
     columnKey: "todo",
     assigneeId: null,
     priority: "MEDIUM",
-    cycleId: null,
+    intervalId: null,
     parentId: null,
     ticketNumber: 1,
     storyPoints: null,
@@ -176,7 +176,7 @@ const members: OrgMember[] = [
   },
 ];
 
-const cycles: Cycle[] = [];
+const intervals: Interval[] = [];
 
 function wireFetch(items: WorkItem[]) {
   mockedFetch.mockImplementation((input: RequestInfo | URL) => {
@@ -184,7 +184,7 @@ function wireFetch(items: WorkItem[]) {
     if (url.endsWith("/boards/b1")) return Promise.resolve(board);
     if (url.endsWith("/work-items")) return Promise.resolve(items);
     if (url.endsWith("/members")) return Promise.resolve(members);
-    if (url.endsWith("/cycles")) return Promise.resolve(cycles);
+    if (url.endsWith("/intervals")) return Promise.resolve(intervals);
     return Promise.resolve([]);
   });
 }

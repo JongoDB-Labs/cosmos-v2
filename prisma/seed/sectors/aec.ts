@@ -92,7 +92,7 @@ const AEC_PROJECT_TEMPLATE = {
   name: "Construction Project",
   description: "Phase-gated construction with submittals, RFIs, change orders, and daily logs.",
   defaultConfig: {
-    cycleKinds: ["PHASE"],
+    intervalKinds: ["PHASE"],
     cycleNavLabel: "Phases",
     enabledFeatures: ["milestone", "kpi", "risk", "decision", "meeting_note"],
   },

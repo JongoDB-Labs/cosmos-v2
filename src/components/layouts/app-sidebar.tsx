@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion as fm, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { ForemanMark } from "@/components/foreman/foreman-mark";
 import {
   PanelLeftClose,
   PanelLeft,
@@ -30,14 +29,15 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { motion } from "@/lib/motion";
-import { usePermissions, Permission } from "@/components/providers/permissions-provider";
+import { usePermissions } from "@/components/providers/permissions-provider";
 import {
-  SIDEBAR_NAV,
   visibleNav,
   applyAdminLayout,
   applyEntitlements,
+  applyPluginEnablement,
   type NavEntry,
 } from "./nav-config";
+import { composeSidebarNav } from "./nav-plugins";
 import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 import { NavGroup } from "./nav-group";
 import { visibleTopbarNav } from "./topbar-nav";
@@ -65,6 +65,8 @@ interface AppSidebarProps {
     logoUrl: string | null;
     role: string;
     enabledModules?: string[] | null;
+    /** Fail-closed plugin axis: absent/empty = no plugin surfaces. */
+    enabledPlugins?: string[];
   }[];
   user: {
     id: string;
@@ -107,10 +109,17 @@ export function AppSidebar({
   const { can } = usePermissions();
   const { openDrawer } = useDrawers();
 
-  // RBAC/ABAC-gated: drop items + groups the user can't access (item 4),
+  // RBAC/ABAC-gated: drop items + groups the user can't access (item 4), gate
+  // by module entitlements (fail-open) and plugin enablement (fail-closed),
   // then apply any admin-defined order/visibility (item 12).
   const entries = applyAdminLayout(
-    applyEntitlements(visibleNav(SIDEBAR_NAV, can), currentOrg?.enabledModules ?? null),
+    applyPluginEnablement(
+      applyEntitlements(
+        visibleNav(composeSidebarNav(), can),
+        currentOrg?.enabledModules ?? null,
+      ),
+      new Set(currentOrg?.enabledPlugins ?? []),
+    ),
     navLayout,
   );
 
@@ -228,34 +237,6 @@ export function AppSidebar({
             </Link>
           );
         })}
-
-        {/* Foreman: the autonomous-delivery console. Unlike the Workspace
-            items below, it has no desktop topbar affordance, so it's kept
-            OUTSIDE the showMovedNav gate — this is its only nav-driven entry
-            point, on both the desktop rail and the mobile drawer. Gated on
-            the same permission the /foreman page itself requires
-            (ORG_UPDATE) — same admin-only bar as the Settings tabs that
-            configure it (Feedback automation, Organization). */}
-        {currentOrg && can(Permission.ORG_UPDATE) && (
-          <Link
-            href={resolveHref(orgSlug, "/foreman")}
-            title={!open ? "Foreman" : undefined}
-            aria-current={
-              isHrefActive(pathname, resolveHref(orgSlug, "/foreman"), false)
-                ? "page"
-                : undefined
-            }
-            className={cn(
-              "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
-              isHrefActive(pathname, resolveHref(orgSlug, "/foreman"), false)
-                ? "border-l-2 border-[var(--primary)] bg-[var(--primary-tint)] pl-2 text-[var(--primary)]"
-                : "text-[var(--text-muted)] hover:bg-[var(--primary-tint)] hover:text-[var(--text)]",
-            )}
-          >
-            <ForemanMark className="h-4 w-4" />
-            {open && <span className="truncate">Foreman</span>}
-          </Link>
-        )}
 
         {/* Workspace section: the topbar-only destinations, surfaced here on
             the mobile drawer so every primary destination stays reachable on a

@@ -73,7 +73,7 @@ beforeEach(() => {
   });
   prisma.project.update.mockResolvedValue({
     id: PROJECT_ID,
-    _count: { boards: 1, cycles: 0, members: 1 },
+    _count: { boards: 1, intervals: 0, members: 1 },
   });
   // canManageProject resolves the actor's OrgMember, then looks for a MANAGER
   // ProjectMember row. Default: they are NOT a project manager.

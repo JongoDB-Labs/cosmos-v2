@@ -19,5 +19,19 @@ export async function register(): Promise<void> {
   // trace wiring (no-op when no endpoint is configured).
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./instrumentation.node");
+    // Load server-side plugin contributions once at boot, through the neutral
+    // composition seam (registry/server.ts). This registers every COMPOSED
+    // plugin's PluginServerHooks + integration providers + any process-global
+    // side-effects they declare — e.g. a plugin's feedback-intake
+    // model-credential provider (Foreman). The PUBLIC core composes ZERO
+    // plugins, so this is an empty no-op there (fail-closed). Isolated in
+    // try/catch: a plugin registration failure must NEVER break server boot —
+    // worst case the provider stays unregistered and the intake judges degrade
+    // gracefully (fail-safe), exactly as when no plugin is composed.
+    try {
+      await import("./src/lib/plugins/registry/server");
+    } catch (err) {
+      console.error("[boot] plugin server-hooks registration failed (intake AI degrades):", err);
+    }
   }
 }

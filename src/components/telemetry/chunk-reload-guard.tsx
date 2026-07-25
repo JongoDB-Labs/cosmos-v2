@@ -36,7 +36,7 @@ export function ChunkReloadGuard() {
     function recover(message: string | undefined) {
       if (!message || !CHUNK_ERROR.test(message)) return;
       try {
-        if (sessionStorage.getItem(RELOAD_FLAG)) return; // already tried this cycle
+        if (sessionStorage.getItem(RELOAD_FLAG)) return; // already tried this interval
         sessionStorage.setItem(RELOAD_FLAG, "1");
       } catch {
         // If storage is unavailable we can't loop-guard; bail rather than risk

@@ -56,8 +56,8 @@ export interface WorkItemFilter {
   assigneeIds?: string[];
   /** Tag/label values — HAS-ANY semantics (item.tags overlaps the set). */
   labels?: string[];
-  /** Cycle/sprint Cycle.id values. The sentinel "none" matches NULL cycleId. */
-  cycleIds?: string[];
+  /** Interval/sprint Interval.id values. The sentinel "none" matches NULL intervalId. */
+  intervalIds?: string[];
   /** Parent (hierarchy) constraint. */
   parent?: ParentFilter;
   /** Inclusive range over WorkItem.startDate. */
@@ -99,8 +99,8 @@ export interface CustomFieldFilter {
 
 /** Matches a NULL assignee when present in `assigneeIds`. */
 export const UNASSIGNED = "unassigned" as const;
-/** Matches a NULL cycle when present in `cycleIds`. */
-export const NO_CYCLE = "none" as const;
+/** Matches a NULL interval when present in `intervalIds`. */
+export const NO_INTERVAL = "none" as const;
 
 /** Sort fields the list view + API expose (whitelist — anything else falls
  *  back to a stable default in the builder). */

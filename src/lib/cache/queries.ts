@@ -65,7 +65,7 @@ export async function getOrgById(id: string) {
 /**
  * Per-project portfolio rollup. Returned alongside the base project fields by
  * `getActiveProjectsForOrg` so the Projects list can render a real status
- * (progress bar, item counts, lead, active cycle, next due) instead of a
+ * (progress bar, item counts, lead, active interval, next due) instead of a
  * hard-coded "Active" badge. Extends the previous shape additively — existing
  * callers (e.g. the Org Overview teaser) only read id/key/name/updatedAt.
  */
@@ -85,8 +85,8 @@ export interface ProjectRollup {
   percentComplete: number;
   /** Project lead/owner (LEAD, else MANAGER) if one is assigned. */
   lead: { displayName: string; avatarUrl: string | null } | null;
-  /** Name of the single ACTIVE cycle, if any. */
-  activeCycleName: string | null;
+  /** Name of the single ACTIVE interval, if any. */
+  activeIntervalName: string | null;
   /** Earliest upcoming (>= now) due date among incomplete work items. */
   nextDueDate: Date | null;
 }
@@ -98,7 +98,7 @@ export interface ProjectRollup {
  * Efficiency: a fixed set of batched queries (no N+1). Rather than one query
  * per project, we run the base `findMany` then three `groupBy` aggregates over
  * WorkItem (total count, done count, min upcoming due date) plus two scoped
- * `findMany`s (active cycles, project leads) — all keyed by `projectId IN (…)`
+ * `findMany`s (active intervals, project leads) — all keyed by `projectId IN (…)`
  * — and stitch them together in memory. Query count is constant regardless of
  * how many projects/work items exist.
  *
@@ -133,7 +133,7 @@ export async function getActiveProjectsForOrg(
   const projectIds = projects.map((p) => p.id);
   const now = new Date();
 
-  const [totals, dones, nextDues, activeCycles, leadMembers] =
+  const [totals, dones, nextDues, activeIntervals, leadMembers] =
     await Promise.all([
       // Total work items per project.
       prisma.workItem.groupBy({
@@ -157,8 +157,8 @@ export async function getActiveProjectsForOrg(
         },
         _min: { dueDate: true },
       }),
-      // Active cycle name per project (at most one ACTIVE cycle is expected).
-      prisma.cycle.findMany({
+      // Active interval name per project (at most one ACTIVE interval is expected).
+      prisma.interval.findMany({
         where: { projectId: { in: projectIds }, status: "ACTIVE" },
         select: { projectId: true, name: true },
         orderBy: { startDate: "desc" },
@@ -190,9 +190,9 @@ export async function getActiveProjectsForOrg(
   const nextDueByProject = new Map(
     nextDues.map((n) => [n.projectId, n._min.dueDate]),
   );
-  const cycleByProject = new Map<string, string>();
-  for (const c of activeCycles) {
-    if (!cycleByProject.has(c.projectId)) cycleByProject.set(c.projectId, c.name);
+  const intervalByProject = new Map<string, string>();
+  for (const c of activeIntervals) {
+    if (!intervalByProject.has(c.projectId)) intervalByProject.set(c.projectId, c.name);
   }
   // Resolve one lead per project. A LEAD always beats a MANAGER; among equals
   // the first row wins. We track the chosen role so a later LEAD can upgrade an
@@ -230,7 +230,7 @@ export async function getActiveProjectsForOrg(
       lead: leadEntry
         ? { displayName: leadEntry.displayName, avatarUrl: leadEntry.avatarUrl }
         : null,
-      activeCycleName: cycleByProject.get(p.id) ?? null,
+      activeIntervalName: intervalByProject.get(p.id) ?? null,
       nextDueDate: nextDueByProject.get(p.id) ?? null,
     };
   });

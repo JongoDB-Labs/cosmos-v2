@@ -74,7 +74,7 @@ describe("buildTimelineTree — sub-item ordering (COSMOS-5)", () => {
     expect(tree.treeRows[0].depth).toBe(0);
   });
 
-  it("does not hang on a parentId cycle", () => {
+  it("does not hang on a parentId interval", () => {
     // Bad data: x↔y point at each other. Neither is a root (both have an in-view
     // parent), so the walk never starts — it terminates with no rows rather than
     // looping forever. The point of the assertion is that it returns at all.

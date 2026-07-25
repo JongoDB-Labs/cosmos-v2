@@ -13,7 +13,7 @@ const ITEM_TYPES = [
   "MILESTONE",
   "OBJECTIVE",
   "GOAL",
-  "CYCLE",
+  "INTERVAL",
   "ROADMAP_NODE",
 ] as const;
 
@@ -81,12 +81,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             progressMode: "MANUAL | AUTO (optional; default MANUAL)",
           },
           {
-            type: "CYCLE",
+            type: "INTERVAL",
             name: "string (required)",
             goal: "string (optional)",
             startDate: "ISO date (optional; default now)",
             endDate: "ISO date (optional; default +14 days)",
-            cycleKind: "SPRINT | PHASE | MODULE | RUN | EVENT_DAY | RELEASE | ITERATION (optional; default SPRINT)",
+            intervalKind: "SPRINT | PHASE | MODULE | RUN | EVENT_DAY | RELEASE | ITERATION (optional; default SPRINT)",
           },
           {
             type: "ROADMAP_NODE",
@@ -115,10 +115,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         '{"mode":"create","items":[...]} where each item has a `type` (one of ' +
         ITEM_TYPES.join(", ") +
         ") plus that type's fields. Use ISSUE for tasks/tickets, MILESTONE for " +
-        "dated checkpoints, OBJECTIVE for OKRs, GOAL for delivery goals, CYCLE for " +
+        "dated checkpoints, OBJECTIVE for OKRs, GOAL for delivery goals, INTERVAL for " +
         "sprints/phases, and ROADMAP_NODE for program-roadmap structure (give each " +
         "a `kind` and put the ACTUAL content in `body` as Markdown; use `parentRef` " +
-        "to nest). Required fields: every item needs a `title` (CYCLE uses `name`). " +
+        "to nest). Required fields: every item needs a `title` (INTERVAL uses `name`). " +
         "Do not invent facts; only structure what the document says, and omit " +
         "optional fields you can't fill. Output the JSON object and nothing else.",
     });

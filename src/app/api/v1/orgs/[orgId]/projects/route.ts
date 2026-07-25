@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const projects = await prisma.project.findMany({
       where: { orgId, archived },
       include: {
-        _count: { select: { boards: true, cycles: true, members: true } },
+        _count: { select: { boards: true, intervals: true, members: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         where: { id: proj.id },
         include: {
           boards: { include: { columns: { orderBy: { sortOrder: "asc" } } } },
-          _count: { select: { boards: true, cycles: true, members: true } },
+          _count: { select: { boards: true, intervals: true, members: true } },
         },
       });
     });
