@@ -883,7 +883,6 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
   let userId: string;
   let secondUserId: string;
   let mainProjectId: string;
-  let originalSettings: Prisma.JsonValue;
 
   async function setLimits(intakeLimits: Record<string, number>) {
     const org = await prisma.organization.findUniqueOrThrow({
@@ -912,32 +911,67 @@ describe("runFeedbackRemediation — intake rate-limits (e2e)", () => {
     });
     runModelTurn.mockRejectedValue(new Error("AI egress disabled in tests"));
 
-    const org = await prisma.organization.findFirstOrThrow({
-      where: { slug: "test-org" },
-      select: { id: true, settings: true },
-    });
-    orgId = org.id;
-    originalSettings = org.settings;
-
-    const mainProject = await prisma.project.findFirstOrThrow({
-      where: { orgId, key: "TEST" },
-      select: { id: true },
-    });
-    mainProjectId = mainProject.id;
-
+    // Isolation (COSMOS-141 fix): these tests exercise the ORG-WIDE intake scan
+    // (per-user / per-org caps, queue depth, near-duplicate flood) via the full
+    // `runFeedbackRemediation` loop. On the shared seed `test-org` that scan sees
+    // OPEN feedback + recently-updated work items created by ANY other e2e file
+    // running in parallel, which non-deterministically steals slots or trips the
+    // flood detector. Give the block its OWN throwaway org so the scan only ever
+    // sees the items each test creates — mirrors the per-test org isolation the
+    // AI-executor e2e suites already use.
     const users = await prisma.user.findMany({ select: { id: true }, take: 2 });
     userId = users[0].id;
     // Fall back to the same user if the seed only has one — the per-user vs
     // per-org distinction is still exercised by the pure planner tests.
     secondUserId = users[1]?.id ?? users[0].id;
+
+    const org = await prisma.organization.create({
+      data: {
+        name: "ratelimit-e2e",
+        slug: `ratelimit-e2e-${Date.now().toString(36)}`,
+        // Members must clear the auto-trigger role gate, else their feedback is
+        // parked for human triage instead of delivered.
+        members: {
+          create: [
+            { userId, role: "OWNER" },
+            ...(secondUserId !== userId
+              ? [{ userId: secondUserId, role: "MEMBER" as const }]
+              : []),
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    orgId = org.id;
+
+    // A delivery target: a project whose first board has a TODO column (mirrors
+    // `createProjectWithBoard` in the routing block above).
+    const project = await prisma.project.create({
+      data: {
+        orgId,
+        key: "RL",
+        name: "Rate-limit e2e",
+        boards: {
+          create: {
+            orgId,
+            name: "Board",
+            type: "KANBAN",
+            sortOrder: 0,
+            columns: { create: [{ name: "To Do", key: "todo", category: "TODO", sortOrder: 0 }] },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    mainProjectId = project.id;
   });
 
   afterAll(async () => {
-    await prisma.organization.update({
-      where: { id: orgId },
-      data: { settings: originalSettings as unknown as Prisma.InputJsonValue },
-    });
-    await prisma.feedbackItem.deleteMany({ where: { orgId, title: { startsWith: TITLE_PREFIX } } });
+    // Notifications have no org FK (won't cascade on org delete) — clear them
+    // explicitly; deleting the org cascades feedback, projects, work items,
+    // members, and audit logs.
+    await prisma.notification.deleteMany({ where: { orgId } });
+    await prisma.organization.delete({ where: { id: orgId } });
   });
 
   it("throttles a single user past the per-user cap; excess stays OPEN and is queued", async () => {
