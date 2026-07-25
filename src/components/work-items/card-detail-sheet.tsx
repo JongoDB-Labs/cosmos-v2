@@ -109,6 +109,11 @@ interface CardDetailSheetProps {
   onChildrenReordered?: () => void;
   /** Open another work item (sub-item or linked item) in this same sheet. */
   onOpenItem?: (id: string) => void;
+  /** What to focus when the sheet closes, so focus returns to whatever launched
+   *  it (e.g. the table row's Open-details affordance — COSMOS-144). A ref or a
+   *  resolver called at close time; returning/holding null falls back to
+   *  base-ui's default (previously-focused element). */
+  finalFocus?: React.RefObject<HTMLElement | null> | (() => HTMLElement | null);
 }
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -129,6 +134,7 @@ export function CardDetailSheet({
   onItemCreated,
   onChildrenReordered,
   onOpenItem,
+  finalFocus,
 }: CardDetailSheetProps) {
   const { can } = usePermissions();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -792,6 +798,8 @@ export function CardDetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        // Return focus to the launcher (e.g. the table row) on close (COSMOS-144).
+        finalFocus={finalFocus}
         // Match the base Sheet's data-[side=right] width variants so twMerge
         // actually overrides them — a plain `w-full` loses to the base
         // `data-[side=right]:w-3/4`, leaving the sheet at 75% on mobile.

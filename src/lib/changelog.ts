@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.239.0",
+    date: "2026-07-25",
+    title: "Close the Table side panel without losing your place",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Closing the Table view's detail side panel now returns keyboard focus to the row you opened it from, so you can keep moving through the table without reaching for the mouse. Your saved changes stay put, as before.",
+      },
+    ],
+  },
+  {
     version: "2.238.0",
     date: "2026-07-25",
     title: "Edit a work item in the Table view's side panel",

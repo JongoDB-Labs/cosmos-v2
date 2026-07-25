@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -122,6 +122,13 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   // — not just its name inline — and every edit flows straight back into the row.
   const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  // The id of the row whose Open-details affordance launched the panel. On close
+  // the sheet restores focus to that row's live affordance so keyboard focus
+  // returns to the table view (COSMOS-144, Phase 4). We resolve it lazily from
+  // the DOM at close time — not by holding the element — because opening the
+  // panel re-renders the table and can remount the row node, staling any
+  // captured reference.
+  const detailTriggerIdRef = useRef<string | null>(null);
 
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
@@ -313,10 +320,27 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     [qc, itemsKey, basePath],
   );
 
-  // Open a row in the detail side panel.
+  // Open a row in the detail side panel. Remember which row launched it so
+  // closing the panel returns focus to that row — back into the table view
+  // (COSMOS-144). Navigating to a sub-item (openItemById) deliberately leaves
+  // this untouched, so closing still returns to the originating row.
   const openDetail = useCallback((item: WorkItem) => {
+    detailTriggerIdRef.current = item.id;
     setDetailItem(item);
     setDetailOpen(true);
+  }, []);
+
+  // Resolve the launching row's Open-details affordance from the live DOM (see
+  // detailTriggerIdRef). Passed to the sheet as `finalFocus`: base-ui focuses
+  // the returned element when the sheet closes, or falls back to its default
+  // when it's gone (e.g. the row was filtered/paged away).
+  const resolveDetailFocus = useCallback((): HTMLElement | null => {
+    const id = detailTriggerIdRef.current;
+    if (!id) return null;
+    for (const el of document.querySelectorAll<HTMLElement>("[data-detail-opener]")) {
+      if (el.dataset.detailOpener === id) return el;
+    }
+    return null;
   }, []);
 
   // Open a sub-item / linked item in the same sheet. Same-project rows are
@@ -634,6 +658,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
                 type="button"
                 aria-label="Open details"
                 title="Open details"
+                data-detail-opener={info.row.original.id}
                 onClick={() => openDetail(info.row.original)}
                 className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
               >
@@ -1240,6 +1265,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           qc.setQueryData<WorkItem[]>(itemsKey, (prev) => [...(prev ?? []), child])
         }
         onOpenItem={openItemById}
+        finalFocus={resolveDetailFocus}
       />
     </div>
   );

@@ -49,18 +49,22 @@ vi.mock("@/components/boards/shared/create-issue-button", () => ({
 
 // Stub the heavy detail sheet: assert the wiring (open state + item) and let the
 // test drive its onUpdate/onOpenChange callbacks without pulling in the real
-// sheet's data-loading providers.
+// sheet's data-loading providers. The close button emulates base-ui's documented
+// `finalFocus` (returnFocus) contract — focus the provided ref on close — so the
+// COSMOS-144 focus-restoration wiring can be asserted without the real Sheet.
 vi.mock("@/components/work-items/card-detail-sheet", () => ({
   CardDetailSheet: ({
     item,
     open,
     onUpdate,
     onOpenChange,
+    finalFocus,
   }: {
     item: { id: string; title: string } | null;
     open: boolean;
     onUpdate: (updated: unknown) => void;
     onOpenChange: (open: boolean) => void;
+    finalFocus?: { current: HTMLElement | null } | (() => HTMLElement | null);
   }) =>
     open && item ? (
       <div role="dialog" aria-label="Item details">
@@ -71,7 +75,22 @@ vi.mock("@/components/work-items/card-detail-sheet", () => ({
         >
           panel-rename
         </button>
-        <button type="button" onClick={() => onOpenChange(false)}>
+        <button
+          type="button"
+          onClick={() => {
+            onOpenChange(false);
+            // Emulate base-ui's returnFocus: resolve `finalFocus` and focus it
+            // AFTER the close re-render settles (base-ui uses a microtask), so
+            // the resolver reads the live, re-rendered DOM.
+            queueMicrotask(() => {
+              const el =
+                typeof finalFocus === "function"
+                  ? finalFocus()
+                  : (finalFocus?.current ?? null);
+              el?.focus();
+            });
+          }}
+        >
           panel-close
         </button>
       </div>
@@ -244,5 +263,31 @@ describe("TableView — open item in a detail side panel (COSMOS-143)", () => {
       expect(screen.queryByRole("dialog", { name: "Item details" })).toBeNull(),
     );
     expect(screen.getByText("Renamed via panel")).toBeInTheDocument();
+  });
+
+  // Phase 4 (COSMOS-144): closing the panel returns keyboard focus to the table
+  // view — specifically the row's own Open-details affordance that launched it —
+  // rather than dropping focus to <body>. TableView captures the opening element
+  // and hands it to the sheet as `finalFocus`.
+  it("returns focus to the row's opener when the panel closes", async () => {
+    wireFetch([makeItem()]);
+    renderTable();
+
+    await screen.findByText("Design the dashboard");
+    fireEvent.click(screen.getAllByRole("button", { name: "Open details" })[0]);
+    await screen.findByRole("dialog", { name: "Item details" });
+
+    fireEvent.click(screen.getByRole("button", { name: "panel-close" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Item details" })).toBeNull(),
+    );
+
+    // Focus is back on the table view's row affordance (not lost to <body>).
+    // Re-query: opening the panel remounts the row, so the opener is a fresh node.
+    await waitFor(() => {
+      const liveOpener = screen.getAllByRole("button", { name: "Open details" })[0];
+      expect(liveOpener).toHaveFocus();
+      expect(liveOpener).toHaveAttribute("data-detail-opener", "wi1");
+    });
   });
 });
