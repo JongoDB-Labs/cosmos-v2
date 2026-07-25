@@ -395,7 +395,12 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
             <code className="flex-1 break-all rounded-md border border-[var(--border)] bg-[var(--bg-muted,var(--surface))] px-3 py-2 font-mono text-xs">
               {mintedToken}
             </code>
-            <Button variant="outline" size="icon" onClick={copyToken}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={copyToken}
+              aria-label={copied ? "Copied" : "Copy API token"}
+            >
               {copied ? (
                 <Check className="h-4 w-4 text-emerald-500" />
               ) : (
