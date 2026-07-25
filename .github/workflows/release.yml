@@ -48,6 +48,36 @@ env:
   # `JongoDB-Labs` is mixed-case, which buildx rejects as an invalid tag.
 
 jobs:
+  # ── Rebuild the COMPOSED private per-instance images at this release ──────────
+  # The daemon delivers the NEUTRAL public core; the instances (Acme, Acme) run
+  # COMPOSED images (core + their plugins) built by private-assembly. On every version
+  # tag, ask the assembly to rebuild them pinned to THIS core ref, so the composed
+  # images track releases and autonomous delivery can reach the instances. Runs in
+  # parallel with build/merge — the assembly builds from source at the tag, so it needs
+  # nothing from them. No-op on workflow_dispatch (fires only on a v* tag), and a clean
+  # skip until ASSEMBLY_DISPATCH_TOKEN is set.
+  dispatch-assembly:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch private-assembly to rebuild composed images
+        env:
+          GH_TOKEN: ${{ secrets.ASSEMBLY_DISPATCH_TOKEN }}
+          CORE_REF: ${{ github.ref_name }}   # the v* tag; set via env (not inlined in run) — injection-safe
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::ASSEMBLY_DISPATCH_TOKEN not set — skipping composed-image rebuild dispatch"
+            exit 0
+          fi
+          for inst in acme acme; do
+            echo "dispatch: private-assembly core-released $inst @ ${CORE_REF}"
+            gh api repos/jongodb-labs/private-assembly/dispatches \
+              -f event_type=core-released \
+              -F "client_payload[instance]=${inst}" \
+              -F "client_payload[core_ref]=${CORE_REF}"
+          done
+
   # ── Build one (product × arch) on its native runner, push BY DIGEST ──────────
   build:
     strategy:
