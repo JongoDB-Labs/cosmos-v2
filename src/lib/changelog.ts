@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.239.0",
+    date: "2026-07-25",
+    title: "Table view: edit an item from its side panel",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The table board's item side panel is now the same fully-editable panel as the Kanban board — change the description, status, assignee, priority, dates, labels, and more right from the table, no need to switch views.",
+      },
+    ],
+  },
+  {
     version: "2.238.0",
     date: "2026-07-25",
     title: "Table view: open an item in a side panel",

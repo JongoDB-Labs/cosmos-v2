@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useCallback, type ReactNode } from "react";
-import { useParams } from "next/navigation";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -16,8 +15,7 @@ import {
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
-import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
-import { workItemToDetailRow } from "@/lib/work-items/detail-row";
+import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -111,11 +109,11 @@ type EditingCell = {
 export function TableView({ orgId, projectId, projectKey, boardId }: TableViewProps) {
   const qc = useQueryClient();
   const { can } = usePermissions();
-  const params = useParams();
-  const orgSlug = typeof params.orgSlug === "string" ? params.orgSlug : "";
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  // The work item whose detail drawer is open (COSMOS-141), or null when closed.
-  const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
+  // The id of the work item whose detail sheet is open (COSMOS-141/142), or null
+  // when closed. Kept as an id (not the row) so the open sheet reads the live
+  // item from the cache and reflects edits made inside it immediately.
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [grouping, setGrouping] = useState<GroupingState>([]);
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
   const [density, setDensity] = useState<Density>("comfortable");
@@ -258,24 +256,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     return map;
   }, [items]);
 
-  // Board statuses in the shape the shared IssueDetailSheet expects (key/name/
-  // category), so the drawer can render the item's status badge.
-  const statuses = useMemo(
-    () => columns.map((c) => ({ key: c.key, name: c.name, category: c.category })),
-    [columns],
-  );
-
-  // The open item mapped to the sheet's read-focused row shape (COSMOS-141).
-  const detailRow = useMemo(
-    () =>
-      detailItem
-        ? workItemToDetailRow(detailItem, {
-            projectId,
-            projectKey,
-            membersById: memberById,
-          })
-        : null,
-    [detailItem, projectId, projectKey, memberById],
+  // The open item, resolved from the live items cache so edits made inside the
+  // detail sheet stay reflected here without a separate copy (COSMOS-142).
+  const detailItem = useMemo(
+    () => (detailId ? items.find((i) => i.id === detailId) ?? null : null),
+    [detailId, items],
   );
 
   // Group-header labels: resolve the raw grouping value (a UUID for assignee /
@@ -456,7 +441,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
             {
               label: "View details",
               icon: Eye,
-              onClick: () => setDetailItem(item),
+              onClick: () => setDetailId(item.id),
             },
             {
               label: "Edit title",
@@ -600,14 +585,14 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           }
           return (
             <div className="flex w-full items-center gap-1.5">
-              {/* Clicking the issue key opens the detail drawer (COSMOS-141);
+              {/* Clicking the issue key opens the detail sheet (COSMOS-141/142);
                   clicking the title still inline-edits it. */}
               <button
                 type="button"
                 aria-label={`Open ${projectKey}-${info.row.original.ticketNumber}`}
                 title="Open details"
                 className="shrink-0 font-mono text-xs text-muted-foreground hover:text-primary transition-colors"
-                onClick={() => setDetailItem(info.row.original)}
+                onClick={() => setDetailId(info.row.original.id)}
               >
                 {projectKey}-{info.row.original.ticketNumber}
               </button>
@@ -1180,15 +1165,41 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         </DialogContent>
       </Dialog>
 
-      {/* Detail drawer (COSMOS-141) — opened by clicking an item's key or the
-          "View details" row action. */}
-      <IssueDetailSheet
-        row={detailRow}
+      {/* Detail sheet (COSMOS-141/142) — opened by clicking an item's key or the
+          "View details" row action. Phase 2 uses the shared, fully-editable
+          CardDetailSheet (same panel the Kanban board uses) so description,
+          status, assignee, and the other item properties are editable here too.
+          Because `detailItem` is derived from the items cache, mirroring an
+          update back into that cache keeps the open sheet current. */}
+      <CardDetailSheet
+        item={detailItem}
         open={detailItem !== null}
-        onOpenChange={(o) => !o && setDetailItem(null)}
+        onOpenChange={(o) => !o && setDetailId(null)}
         orgId={orgId}
-        orgSlug={orgSlug}
-        statuses={statuses}
+        projectId={projectId}
+        members={members}
+        intervals={intervals}
+        columns={columns}
+        projectItems={items}
+        onUpdate={(updated) =>
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            prev?.map((it) => (it.id === updated.id ? updated : it)),
+          )
+        }
+        onDelete={(id) => {
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            prev?.filter((it) => it.id !== id),
+          );
+          setDetailId(null);
+        }}
+        onDuplicate={(created) => {
+          qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+            prev ? [...prev, created] : [created],
+          );
+          setDetailId(created.id);
+        }}
+        onItemCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+        onOpenItem={(id) => setDetailId(id)}
       />
     </div>
   );

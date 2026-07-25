@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
-// COSMOS-141 — clicking an item (its key affordance) in the TABLE view opens a
-// read-focused detail drawer for that item, reusing the shared IssueDetailSheet.
+// COSMOS-141/142 — clicking an item (its key affordance) in the TABLE view opens
+// a detail sheet for that item. Phase 2 upgrades that sheet from the read-only
+// IssueDetailSheet to the shared, fully-editable CardDetailSheet (the same panel
+// the Kanban board uses), so description, status, assignee, priority and the
+// other item properties are editable from the table too.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // --- base-ui needs these in jsdom ---
@@ -23,15 +26,40 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
   }
 }
 
+// useOrgQueryKey derives the org namespace from the pathname.
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ orgSlug: "acme" }),
   usePathname: () => "/acme/projects/COS/boards/b1",
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
-// The toolbar's create button loads its own data — irrelevant to the drawer.
+// The toolbar's create button loads its own data — irrelevant to the sheet.
 vi.mock("@/components/boards/shared/create-issue-button", () => ({
   CreateIssueButton: () => null,
+}));
+
+// CardDetailSheet pulls in a stack of heavy editor/mention/plugin children that
+// need providers we don't render here — stub them to null (they're not what this
+// test asserts). Mirrors the mocking the other CardDetailSheet tests use.
+vi.mock("@/components/chat/mention-typeahead", () => ({
+  useOrgMembers: () => ({ data: [] }),
+}));
+vi.mock("@/components/mentions/hooks", () => ({ useRefResolver: () => new Map() }));
+vi.mock("@/components/notes/editor/rich-text-editor", () => ({ NoteRichTextEditor: () => null }));
+vi.mock("@/components/chat/markdown-content", () => ({
+  MarkdownContent: ({ content }: { content: string }) => <div>{content}</div>,
+}));
+vi.mock("@/components/mentions/mentioned-in", () => ({ MentionedIn: () => null }));
+vi.mock("@/components/work-items/links-section", () => ({ WorkItemLinksSection: () => null }));
+vi.mock("@/components/roadmap/roadmap-description-field", () => ({
+  RoadmapDescriptionField: () => null,
+}));
+vi.mock("@/components/files/work-item-document-source", () => ({
+  WorkItemDocumentSource: () => null,
+}));
+vi.mock("@/components/plugins/plugin-slot", () => ({ PluginSlot: () => null }));
+vi.mock("@/hooks/use-custom-fields", () => ({
+  useCustomFields: () => ({ fields: [] }),
+  fieldAppliesToType: () => false,
 }));
 
 vi.mock("@/components/providers/permissions-provider", async (importActual) => {
@@ -116,12 +144,19 @@ function wire() {
     if (url.includes("/intervals")) return Promise.resolve([]);
     return Promise.resolve({});
   });
-  // IssueDetailSheet fetches description/watch via global fetch on open.
+  // CardDetailSheet fetches comments/activity/watch/full-item via global fetch
+  // on open. Return shape-appropriate empties so it renders without erroring.
   vi.stubGlobal(
     "fetch",
-    vi.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ watching: false, description: "" }) }),
-    ),
+    vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/comments") || url.endsWith("/activity")
+        ? []
+        : url.endsWith("/watch")
+          ? { watching: false }
+          : ITEM;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+    }),
   );
 }
 
@@ -145,22 +180,27 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("TableView — item detail drawer (COSMOS-141)", () => {
-  it("opens the detail drawer when the item's key affordance is clicked", async () => {
+describe("TableView — editable item detail sheet (COSMOS-141/142)", () => {
+  it("opens the editable detail sheet when the item's key affordance is clicked", async () => {
     renderView();
 
     // Row loaded — the key affordance carries an explicit open label.
     const opener = await screen.findByRole("button", { name: "Open COS-7" });
 
-    // Drawer is closed until the affordance is clicked.
-    expect(screen.queryByTestId("issue-detail-body")).not.toBeInTheDocument();
+    // Sheet is closed until the affordance is clicked: no editable Status yet.
+    expect(screen.queryByLabelText("Status")).not.toBeInTheDocument();
 
     fireEvent.click(opener);
 
-    // The drawer renders the item's detail, scoped to this row.
-    const body = await screen.findByTestId("issue-detail-body");
-    expect(body).toBeInTheDocument();
-    // Sheet header shows the composed ticket key and resolved assignee.
-    expect(within(body).getByText("Ada Lovelace")).toBeInTheDocument();
+    // Phase 2: the sheet exposes editable fields beyond the name — the title is
+    // an editable input pre-filled with the item's title...
+    const titleField = await screen.findByPlaceholderText("Title");
+    expect((titleField as HTMLTextAreaElement).value).toBe("Wire up the widget");
+
+    // ...and status / assignee / priority are all editable controls, consistent
+    // with the Kanban view's detail panel.
+    expect(screen.getByLabelText("Status")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assignees")).toBeInTheDocument();
+    expect(screen.getByLabelText("Priority")).toBeInTheDocument();
   });
 });
