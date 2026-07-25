@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.237.1",
+    date: "2026-07-25",
+    title: "Accessibility: copy-token button now announced to screen readers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The copy button next to a newly created API key now has an accessible name, so screen readers announce it as “Copy API token” (and “Copied” after you copy) instead of just “button”.",
+      },
+    ],
+  },
+  {
     version: "2.237.0",
     date: "2026-07-24",
     title: "Plugins: opt-in capability bundles per organization",
