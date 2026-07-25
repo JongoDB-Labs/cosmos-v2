@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.238.0",
+    date: "2026-07-25",
+    title: "Table view: open an item in a side panel",
+    highlights: [
+      {
+        kind: "feature",
+        text: "In a table board, click an item's key (or use its “View details” action) to open a side panel with the item's full details — status, priority, assignee, dates, labels, and description — without leaving the table.",
+      },
+    ],
+  },
+  {
     version: "2.237.0",
     date: "2026-07-24",
     title: "Plugins: opt-in capability bundles per organization",

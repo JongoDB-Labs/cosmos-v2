@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useParams } from "next/navigation";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -15,6 +16,8 @@ import {
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
+import { workItemToDetailRow } from "@/lib/work-items/detail-row";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,6 +63,7 @@ import {
   Copy,
   ListFilter,
   ChevronDown,
+  Eye,
 } from "lucide-react";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
@@ -107,7 +111,11 @@ type EditingCell = {
 export function TableView({ orgId, projectId, projectKey, boardId }: TableViewProps) {
   const qc = useQueryClient();
   const { can } = usePermissions();
+  const params = useParams();
+  const orgSlug = typeof params.orgSlug === "string" ? params.orgSlug : "";
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  // The work item whose detail drawer is open (COSMOS-141), or null when closed.
+  const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const [grouping, setGrouping] = useState<GroupingState>([]);
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
   const [density, setDensity] = useState<Density>("comfortable");
@@ -249,6 +257,26 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     }
     return map;
   }, [items]);
+
+  // Board statuses in the shape the shared IssueDetailSheet expects (key/name/
+  // category), so the drawer can render the item's status badge.
+  const statuses = useMemo(
+    () => columns.map((c) => ({ key: c.key, name: c.name, category: c.category })),
+    [columns],
+  );
+
+  // The open item mapped to the sheet's read-focused row shape (COSMOS-141).
+  const detailRow = useMemo(
+    () =>
+      detailItem
+        ? workItemToDetailRow(detailItem, {
+            projectId,
+            projectKey,
+            membersById: memberById,
+          })
+        : null,
+    [detailItem, projectId, projectKey, memberById],
+  );
 
   // Group-header labels: resolve the raw grouping value (a UUID for assignee /
   // type / interval, a key for status) to a human name. Without this the header
@@ -426,6 +454,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         {
           items: [
             {
+              label: "View details",
+              icon: Eye,
+              onClick: () => setDetailItem(item),
+            },
+            {
               label: "Edit title",
               icon: Pencil,
               onClick: () =>
@@ -566,22 +599,32 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
             );
           }
           return (
-            <button
-              type="button"
-              className="text-left w-full truncate hover:text-primary transition-colors"
-              onClick={() =>
-                setEditingCell({
-                  rowId: info.row.original.id,
-                  columnId: "title",
-                  value: info.getValue(),
-                })
-              }
-            >
-              <span className="text-muted-foreground mr-1.5 text-xs">
+            <div className="flex w-full items-center gap-1.5">
+              {/* Clicking the issue key opens the detail drawer (COSMOS-141);
+                  clicking the title still inline-edits it. */}
+              <button
+                type="button"
+                aria-label={`Open ${projectKey}-${info.row.original.ticketNumber}`}
+                title="Open details"
+                className="shrink-0 font-mono text-xs text-muted-foreground hover:text-primary transition-colors"
+                onClick={() => setDetailItem(info.row.original)}
+              >
                 {projectKey}-{info.row.original.ticketNumber}
-              </span>
-              {info.getValue()}
-            </button>
+              </button>
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left hover:text-primary transition-colors"
+                onClick={() =>
+                  setEditingCell({
+                    rowId: info.row.original.id,
+                    columnId: "title",
+                    value: info.getValue(),
+                  })
+                }
+              >
+                {info.getValue()}
+              </button>
+            </div>
           );
         },
         size: 350,
@@ -1136,6 +1179,17 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Detail drawer (COSMOS-141) — opened by clicking an item's key or the
+          "View details" row action. */}
+      <IssueDetailSheet
+        row={detailRow}
+        open={detailItem !== null}
+        onOpenChange={(o) => !o && setDetailItem(null)}
+        orgId={orgId}
+        orgSlug={orgSlug}
+        statuses={statuses}
+      />
     </div>
   );
 }
