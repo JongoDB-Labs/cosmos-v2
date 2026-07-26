@@ -133,6 +133,12 @@ RUN rm -f node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime_pro
           node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime_providers_tensorrt.so \
  && rm -rf node_modules/onnxruntime-node/bin/napi-v6/darwin \
            node_modules/onnxruntime-node/bin/napi-v6/win32
+# Security: the runtime never invokes npm (CMD is `node server.js`, the healthcheck
+# runs `node -e`, and the migrate job calls node_modules/.bin/prisma directly), so
+# drop the global npm CLI that the slim base ships. It vendors node-tar
+# (CVE-2026-59873, CRITICAL, fixed in 7.5.19) — removing npm deletes that copy at
+# its source and clears the only FIXABLE image CRITICAL, keeping the scan gate green.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 USER cosmos
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
