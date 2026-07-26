@@ -15,6 +15,7 @@ export default defineConfig({
       "src/**/*.test.{ts,tsx,mts}",
       "scripts/cutover/**/*.test.{ts,mts}",
       "scripts/dsop/**/*.test.{ts,mts,mjs}",
+      "scripts/plugins/**/*.test.{ts,mts,mjs}",
     ],
   },
   resolve: {
