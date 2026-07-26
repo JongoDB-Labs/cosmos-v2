@@ -62,7 +62,7 @@ export const TARGET_FIELDS: TargetField[] = [
   { id: "completedAt", label: "Completed / Resolved Date", hint: "Any parseable date.", unique: true },
   { id: "externalKey", label: "Issue Key", hint: "e.g. PROJ-123. Used to link sub-tasks.", unique: true },
   { id: "externalId", label: "Issue ID", hint: "Stable source id — enables idempotent re-import.", unique: true },
-  { id: "parentKey", label: "Parent Link", hint: "Any parent (epic/feature/story/task): its source Issue Key, a Cosmos key like VITL-123, or an exact title.", unique: true },
+  { id: "parentKey", label: "Parent Link", hint: "Any parent (epic/feature/story/task): its source Issue Key, a Cosmos key like ACME-123, or an exact title.", unique: true },
   { id: "originalEstimate", label: "Original Estimate", hint: 'Seconds or "2h 30m".', unique: true },
   { id: "remainingEstimate", label: "Remaining Estimate", hint: 'Seconds or "2h 30m".', unique: true },
   { id: "timeSpent", label: "Time Spent", hint: 'Seconds or "2h 30m".', unique: true },

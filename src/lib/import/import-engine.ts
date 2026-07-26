@@ -524,7 +524,7 @@ export async function runImport(
     }
 
     // Generalized parent resolution (user report): a parent link can also be a
-    // COSMOS ticket key ("VITL-123" → ticketNumber 123) or an exact title —
+    // COSMOS ticket key ("ACME-123" → ticketNumber 123) or an exact title —
     // reaching NATIVE items, not just previously-imported ones (the lookups
     // above are scoped to this importer's provenance). Any item type can be a
     // parent (epic/feature/story/task). Ticket keys resolve in one batch;

@@ -436,7 +436,7 @@ export function SecuritySettingsPanel({ orgId }: { orgId: string }) {
             <Label>Allowed Email Domains</Label>
             <p className="text-xs text-muted-foreground">
               When set, only people with these email domains can be invited to
-              this organization (e.g. <span className="font-mono">defconai.com</span>).
+              this organization (e.g. <span className="font-mono">example.com</span>).
               Existing members are never affected. Leave empty to allow any domain.
             </p>
             {form.allowedDomains.length > 0 && (

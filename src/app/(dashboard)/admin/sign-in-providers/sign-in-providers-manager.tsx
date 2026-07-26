@@ -189,7 +189,7 @@ export function SignInProvidersManager() {
               id="ms-tenant"
               value={tenant}
               onChange={(e) => setTenant(e.target.value)}
-              placeholder="common · a domain (defconai.com) · or a directory id"
+              placeholder="common · a domain (example.com) · or a directory id"
             />
             <p className="text-[11px] text-[var(--text-muted)]">
               Leave blank for <span className="font-mono">common</span> (any Microsoft

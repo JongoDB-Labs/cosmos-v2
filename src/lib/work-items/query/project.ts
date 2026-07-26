@@ -16,7 +16,7 @@ import type { WorkItemFilter, WorkItemSort } from "./filter";
 export interface IssueRow {
   id: string;
   ticketNumber: number;
-  /** Human ticket key, e.g. "VITL-128" (projectKey-ticketNumber). */
+  /** Human ticket key, e.g. "ACME-128" (projectKey-ticketNumber). */
   ticketKey: string;
   title: string;
   /** Status lane (board column key). */
