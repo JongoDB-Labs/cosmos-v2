@@ -17,8 +17,21 @@ import { join } from "node:path";
  * allowlist. (This file itself is excluded: it necessarily spells the tokens out
  * in order to search for them.)
  */
-const FORBIDDEN =
-  /acme|acme|acme|\bAcme\b|acme|\bACME\b|private-assembly|example|example/i;
+// Forbidden identity tokens, stored base64-encoded so THIS gate file never
+// contains the literal identifiers. Otherwise a client-identity scrub or a
+// git-history rewrite of those very tokens would corrupt the gate's own
+// pattern. Decode the arrays below to audit the list; `word` entries are matched
+// whole-word (\b…\b), the rest as substrings. Case-insensitive.
+const B64_SUBSTR = [
+  "ZGVmY29u", "cG9udGlz", "xJJTTw==", "xJNzbw==",
+  "aW52aWN0dXM=", "Y29zbW9zLWFzc2VtYmx5", "ZmlnaHRpbmdzbWFydA==", "ZGVmY29uYWk=",
+];
+const B64_WORD = ["RVNP", "VklUTA=="];
+const dec = (s: string): string => Buffer.from(s, "base64").toString("utf8");
+const FORBIDDEN = new RegExp(
+  [...B64_SUBSTR.map(dec), ...B64_WORD.map((w) => `\\b${dec(w)}\\b`)].join("|"),
+  "i",
+);
 
 const SELF = "src/lib/product/__tests__/no-client-identity.arch.test.ts";
 
