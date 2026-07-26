@@ -912,7 +912,7 @@ export const CHANGELOG: Release[] = [
       },
       {
         kind: "improvement",
-        text: "The Cosmo assistant now knows who it's talking to, so \"assign this to me\" just works, and it resolves projects by loose name — say \"ACME BMA\" and it maps to your ACME project.",
+        text: "The Cosmo assistant now knows who it's talking to, so \"assign this to me\" just works, and it resolves projects by loose name — say \"Acme Corp\" and it maps to your ACME project.",
       },
       {
         kind: "feature",

@@ -11,7 +11,7 @@
  *   and surfaced the same way (we never expose the raw refresh token).
  *
  * Port of the Gmail/Calendar/Drive/Contacts implementations from
- * /home/deploy/okr-dashboard/server/index.js (~lines 5290–5860), adapted to
+ * the legacy okr-dashboard/server/index.js (~lines 5290–5860), adapted to
  * cosmos's per-user OAuth helpers.
  */
 
