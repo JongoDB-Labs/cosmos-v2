@@ -7,7 +7,7 @@ describe("pluginModelPrefix", () => {
   });
 
   it("camelCases a hyphenated slug to match the Prisma client accessor", () => {
-    // Prisma exposes `model PiPlanningCard` as `prisma.piPlanningCard`.
+    // Prisma exposes `model PiPlanningCard` via the accessor `piPlanningCard`.
     expect(pluginModelPrefix("pi-planning")).toBe("piPlanning");
   });
 

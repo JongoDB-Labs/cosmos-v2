@@ -114,8 +114,8 @@ describe("plugin isolation (ADR 0003)", () => {
     // Neutral core: no composed plugins, so there are no plugin-owned models to
     // guard and the invariant holds vacuously. When a plugin composes in, its
     // <slug>-prefixed models must be queried only inside src/plugins/**.
-    // camelCase the slug: Prisma exposes `model PiPlanningCard` as
-    // `prisma.piPlanningCard`, so a raw hyphenated slug would never match.
+    // camelCase the slug: Prisma exposes `model PiPlanningCard` via the accessor
+    // `piPlanningCard`, so a raw hyphenated slug would never match.
     const patterns = slugs.map((s) => new RegExp(`\\bprisma\\.${pluginModelPrefix(s)}[A-Z]`));
     const offenders = sharedFiles.filter((rel) => {
       if (patterns.length === 0) return false;

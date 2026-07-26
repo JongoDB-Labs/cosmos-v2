@@ -1,8 +1,8 @@
 /**
  * A plugin slug is kebab-case (`registry-invariants.test.ts` enforces
  * /^[a-z0-9][a-z0-9-]*$/), but its Prisma models are PascalCase-prefixed and the
- * generated client exposes them camelCased — `model PiPlanningCard` becomes
- * `prisma.piPlanningCard`.
+ * generated client exposes them camelCased — `model PiPlanningCard` is reached
+ * through the client accessor `piPlanningCard`.
  *
  * Anything that matches plugin-owned model accessors BY SLUG must go through
  * this. Building `prisma.${slug}` directly yields `prisma.pi-planning`, which can
