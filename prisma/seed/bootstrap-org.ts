@@ -1,11 +1,11 @@
 /**
  * Generic first-org bootstrap seed.
  *
- * Provisions a single organization on a fresh cosmos / Acme instance built from
+ * Provisions a single organization on a fresh cosmos / example-vertical instance built from
  * this image, plus an OWNER admin who can sign in immediately with email + password
  * (no OAuth required). Fully parameterized via environment variables — no product,
  * sector, or tenant specifics are baked in. Use this to stand up the first tenant
- * on a new deployment; per-vertical seeds (e.g. prisma/seed/acme.ts) layer on top.
+ * on a new deployment; per-vertical seeds layer on top.
  *
  * Every write is an upsert / find-or-create, so the script is idempotent and safe
  * to re-run (e.g. to rotate the admin password or add system-admin emails).
@@ -54,8 +54,8 @@ const SEED_MOCK = process.env.SEED_MOCK === "true";
 
 // ── DB connection ──────────────────────────────────────────────────────────
 // Prefer an explicit DATABASE_URL from the environment; otherwise fall back to a
-// local .env.local (mirrors prisma/seed/acme.ts) so a host run doesn't grab .env's
-// in-container `acme-postgres` hostname.
+// local .env.local (mirrors the demo-defense seeds) so a host run doesn't grab .env's
+// in-container `cosmos-postgres` hostname.
 function resolveDbUrl(): string | undefined {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   try {
@@ -147,7 +147,7 @@ async function main() {
   console.log(`  ✓ member      ${ADMIN_NAME}=OWNER`);
 
   // 4) Optional generic mock CRM data — two clearly-labeled sample contacts.
-  //    orgId + ownerId are injected by upsertContact (mirrors acme.ts), so the
+  //    orgId + ownerId are injected by upsertContact, so the
   //    literals omit them and are cast to the create-many input shape.
   if (SEED_MOCK) {
     const SAMPLES = [

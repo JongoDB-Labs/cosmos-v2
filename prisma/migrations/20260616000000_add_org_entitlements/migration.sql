@@ -1,4 +1,4 @@
--- Per-tenant feature entitlements (Acme foundation §3.2): the per-org OrgEntitlements store.
+-- Per-tenant feature entitlements: the per-org OrgEntitlements store.
 --
 -- A per-org (1:1) row gating which product MODULES and industry SECTORS a tenant sees.
 -- The ABSENCE of a row is the load-bearing default — it means "ALL modules + ALL sectors

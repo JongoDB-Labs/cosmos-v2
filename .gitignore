@@ -79,8 +79,8 @@ compose/minio/certs/
 ui-sweep.mjs
 
 # CUI-adjacent real program content — never commit. Real roadmap data lives in
-# ~/vitl-roadmap-data (outside the repo). Only MOCK demo data is committed (as .ts).
-*.vitl.json
+# ~/roadmap-data (outside the repo). Only MOCK demo data is committed (as .ts).
+*.roadmap.json
 roadmap_nodes.json
 poam_tasks.json
 prisma/seed/real/

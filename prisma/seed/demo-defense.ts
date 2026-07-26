@@ -134,7 +134,7 @@ async function main() {
   });
 
   // ── 2. People ─────────────────────────────────────────────────────────────
-  const jon = await findOrCreateUser(JON_EMAIL, "Jon Rannabargar", { requireExisting: true }); // real user (Google connected) → OWNER
+  const jon = await findOrCreateUser(JON_EMAIL, "Admin", { requireExisting: true }); // real user (Google connected) → OWNER
   const dana = await findOrCreateUser("dana.reyes@apex-defense.local", "Dana Reyes"); // ISSO / Security Lead
   const marcus = await findOrCreateUser("marcus.hale@apex-defense.local", "Marcus Hale"); // Program Manager
   const priya = await findOrCreateUser("priya.nair@apex-defense.local", "Priya Nair"); // Lead Engineer

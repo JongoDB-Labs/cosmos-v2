@@ -5,7 +5,7 @@
  *   • demo (committed mock):  tsx prisma/seed/roadmap-import.ts --demo
  *   • real program (gitignored data, prod only):
  *       DATABASE_URL=... tsx prisma/seed/roadmap-import.ts \
- *         --org acme-ai --project ACMEBMA --file ~/vitl-roadmap-data/roadmap_nodes.json
+ *         --org acme --project ACME --file ~/acme-roadmap-data/roadmap_nodes.json
  *   • verification (e2e):
  *       DATABASE_URL=postgres://cosmos:e2epw@localhost:55440/cosmos \
  *         tsx prisma/seed/roadmap-import.ts --org test-org --project TEST --file <json>

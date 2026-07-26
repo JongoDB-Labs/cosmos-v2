@@ -116,12 +116,14 @@ jobs:
           ALLOWED_EMAILS: ci@example.com
         run: npm run build
 
-  # Dual-product build gate (Phase 3 one-image): release.yml builds ONE image,
-  # so CI must still prove the app compiles under the acme product. The unit
-  # tests already exercise both products via per-case env overrides; this leg
-  # compiles the acme client bundle (NEXT_PUBLIC_PRODUCT is read by next.config.ts
-  # at build). Reuses `check`'s install/generate; only the build env differs.
-  build-acme:
+  # Alternate-product build gate (Phase 3 one-image): release.yml builds ONE
+  # image, so CI must still prove the app compiles when a non-default product
+  # brand is selected. The unit tests exercise brand resolution via per-case env
+  # overrides; this leg compiles the client bundle with a non-default
+  # NEXT_PUBLIC_PRODUCT (read by next.config.ts at build). A private brand plugin
+  # registers its own profile; here the value is unregistered, so this also
+  # exercises the safe fallback to the neutral default. Reuses `check`'s setup.
+  build-alt-product:
     runs-on: ubuntu-latest
     needs: check
     timeout-minutes: 15
@@ -137,9 +139,9 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Prisma generate
         run: npx prisma generate
-      - name: Build (PRODUCT=acme)
+      - name: Build (non-default NEXT_PUBLIC_PRODUCT)
         env:
-          NEXT_PUBLIC_PRODUCT: acme
+          NEXT_PUBLIC_PRODUCT: alt
           DATABASE_URL: postgres://ci:ci@localhost:5432/ci
           DIRECT_URL: postgres://ci:ci@localhost:5432/ci
           GOOGLE_CLIENT_ID: ci

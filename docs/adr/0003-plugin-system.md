@@ -7,10 +7,10 @@
 
 ADR 0001 gives every customer/sector difference a home on one trunk: data/templates,
 sector-scoped behavior, gated modules, adapters. What it lacks is a **packaging unit**
-for a coherent bundle of customer-shaped surfaces — the Acme (Acme product) build
-needs a way to ship an A&E practice bundle (pace tracking, EOW→principal reporting,
-fee-phase burn) that (a) stays out of every other customer's way, (b) keeps client IP
-isolated from shared code, and (c) can be turned on per organization from Settings.
+for a coherent bundle of customer-shaped surfaces — the example A&E vertical (the `acme`
+product) build needs a way to ship an A&E practice bundle (pace tracking, EOW→principal
+reporting, fee-phase burn) that (a) stays out of every other customer's way, (b) keeps
+client IP isolated from shared code, and (c) can be turned on per organization from Settings.
 
 ## Decision
 
@@ -78,8 +78,8 @@ test turns into red CI before anything ships.
 
 ## Consequences
 
-- The first plugin, **acme** (`src/plugins/acme/**`), carries the Acme A&E
-  bundle; its Acme-specific vocabulary and brand assets are invisible to every
+- The first plugin, **acme** (`src/plugins/acme/**`), carries the example A&E
+  client's bundle; its client-specific vocabulary and brand assets are invisible to every
   other org and product face.
 - CI must stay green for both products with the plugin disabled (default
   everywhere except acme-profile org creation) — guaranteed by fail-closed

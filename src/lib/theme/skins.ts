@@ -70,8 +70,8 @@ const GRID =
   "linear-gradient(to right, var(--atelier-grid) 1px, transparent 1px), " +
   "linear-gradient(to bottom, var(--atelier-grid) 1px, transparent 1px)";
 const ATELIER: SkinPreset = {
-  id: "atelier", // internal id kept stable (cookies/classes/persisted skinId); display label is "Acme"
-  label: "Acme",
+  id: "atelier", // internal id kept stable (cookies/classes/persisted skinId)
+  label: "Atelier",
   description: "Pearl canvas, midnight ink, drafting grid — the architecture studio look.",
   sectors: ["aec"],
   light: ATELIER_LIGHT,

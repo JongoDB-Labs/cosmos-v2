@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseEnabledCsv, resolveDefaultEntitlements } from "./default-env";
-import { ALL_MODULE_KEYS, SECTORS } from "./modules";
+import { ALL_MODULE_KEYS, SECTORS, type SectorKey } from "./modules";
 import { PRODUCT_PROFILES } from "@/lib/product/profiles";
 
 describe("parseEnabledCsv", () => {
@@ -26,8 +26,10 @@ describe("parseEnabledCsv", () => {
 });
 
 describe("resolveDefaultEntitlements", () => {
-  const cosmos = PRODUCT_PROFILES.cosmos; // defaults: null / null
-  const acme = PRODUCT_PROFILES.acme; // defaults: null modules / ["aec"] sectors
+  const cosmos = PRODUCT_PROFILES.cosmos; // defaults: null modules / null sectors
+  // A synthetic vertical profile (aec-scoped sectors) standing in for a brand a
+  // private plugin registers — the public core ships only "cosmos".
+  const vertical = { ...cosmos, defaultEnabledSectors: ["aec"] as SectorKey[] };
 
   it("falls back to the profile when both envs are unset (cosmos → null = all)", () => {
     expect(
@@ -35,10 +37,10 @@ describe("resolveDefaultEntitlements", () => {
     ).toBeNull();
   });
 
-  it("falls back to the profile when both envs are unset (acme → aec sectors)", () => {
+  it("falls back to the profile when both envs are unset (vertical → aec sectors)", () => {
     const row = resolveDefaultEntitlements(
       { modulesEnv: undefined, sectorsEnv: undefined },
-      acme,
+      vertical,
     );
     expect(row).toEqual({
       moduleAllowlistEnabled: false,
@@ -51,7 +53,7 @@ describe("resolveDefaultEntitlements", () => {
   it("the sectors env overrides the profile sector default", () => {
     const row = resolveDefaultEntitlements(
       { modulesEnv: undefined, sectorsEnv: "software,ops" },
-      acme,
+      vertical,
     );
     expect(row).toEqual({
       moduleAllowlistEnabled: false,
@@ -98,12 +100,12 @@ describe("resolveDefaultEntitlements", () => {
     warn.mockRestore();
   });
 
-  it("explicit DEFAULT_ENABLED_SECTORS=aec on acme matches the profile default (idempotent)", () => {
-    // The Acme deploy sets DEFAULT_ENABLED_SECTORS=aec explicitly even though the
-    // acme profile already defaults to ["aec"] — the result must be identical.
+  it("explicit DEFAULT_ENABLED_SECTORS=aec on a vertical matches its profile default (idempotent)", () => {
+    // A vertical deploy may set DEFAULT_ENABLED_SECTORS=aec explicitly even though
+    // the profile already defaults to ["aec"] — the result must be identical.
     const row = resolveDefaultEntitlements(
       { modulesEnv: undefined, sectorsEnv: "aec" },
-      acme,
+      vertical,
     );
     expect(row).toEqual({
       moduleAllowlistEnabled: false,

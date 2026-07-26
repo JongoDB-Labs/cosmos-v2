@@ -25,7 +25,7 @@ vi.mock("@/lib/theme/skins", () => ({
     },
     {
       id: "atelier",
-      label: "Acme",
+      label: "Atelier",
       description: "Blueprint",
       sectors: ["aec"],
       light: { "--bg": "#f0f4f8", "--surface": "#e2e8f0", "--primary": "#0070f3" },
@@ -106,7 +106,7 @@ describe("OrgBrandingSection — org-branding fields", () => {
     ).toBeInTheDocument();
     // AppearanceSkinPicker renders a button per skin by label
     expect(screen.getByText("Universe")).toBeInTheDocument();
-    expect(screen.getByText("Acme")).toBeInTheDocument();
+    expect(screen.getByText("Atelier")).toBeInTheDocument();
   });
 
   it("does not render the removed Base preset buttons (redundant with Accent + mode)", () => {
@@ -149,8 +149,8 @@ describe("OrgBrandingSection — org-branding fields", () => {
       target: { value: "Hey Acme" },
     });
 
-    // Select the "Acme" skin (atelier)
-    fireEvent.click(screen.getByRole("button", { name: /Acme/i }));
+    // Select the "Atelier" skin (atelier)
+    fireEvent.click(screen.getByRole("button", { name: /Atelier/i }));
 
     // Save
     await act(async () => {

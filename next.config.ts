@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.npm_package_version ?? "0.0.0",
-    // Selects the product brand at build time (cosmos | acme). Mirrors the
+    // Selects the product brand at build time (cosmos, or a brand a plugin registers). Mirrors the
     // APP_VERSION pattern: the Dockerfile passes a PRODUCT build-arg → ENV PRODUCT,
     // and this inlines it as NEXT_PUBLIC_PRODUCT for getBrand() (client + server).
     NEXT_PUBLIC_PRODUCT: process.env.PRODUCT ?? "cosmos",

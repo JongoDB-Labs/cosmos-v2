@@ -7,7 +7,7 @@
 
 cosmos-v2 serves multiple customers through different **faces** (products) built from
 the same code. Today a DoD / software-development community runs the original
-`cosmos` product; an architecture & engineering firm (Acme) will run the `acme`
+`cosmos` product; an example architecture & engineering (A&E) firm will run the `acme`
 product. More customers and job sectors are expected.
 
 The requirement: **continually develop and refine the shared platform from multiple
@@ -18,7 +18,7 @@ possibly different modules/configs per customer based on job sector.
 ## Decision
 
 cosmos-v2 is a **single source of truth** built into multiple products from **one
-commit**. **Acme is an A&E flavor of cosmos-v2, not a fork.** Every
+commit**. **The `acme` product is an A&E flavor of cosmos-v2, not a fork.** Every
 customer/sector difference is expressed as **configuration, data, and gated modules
 on one trunk** — never as forked or long-lived divergent code.
 
@@ -57,8 +57,9 @@ another's deployment:
 - **Runtime.** Deployments are separate (data isolation). Entitlements **fail open**:
   a newly added module or sector is **OFF for existing orgs until explicitly
   enabled**, so *adding* capability never changes a running deployment's behavior.
-- **Change-time (the decisive layer).** Every PR/release builds **both** products in
-  CI (`check` + `build-acme` legs, `fail-fast: false`). **Product-neutrality arch
+- **Change-time (the decisive layer).** Every PR/release builds the app under the
+  default brand and under a non-default one in CI (`check` + `build-alt-product`
+  legs, `fail-fast: false`). **Product-neutrality arch
   tests** (e.g. the brand-literal guard,
   `src/lib/product/__tests__/brand-literals.arch.test.ts`) assert the default
   (`cosmos`) face is preserved. Shared-schema changes are **additive and

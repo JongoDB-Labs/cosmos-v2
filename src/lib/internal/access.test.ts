@@ -3,11 +3,11 @@ import { isInternalAdmin } from "./access";
 
 describe("isInternalAdmin", () => {
   it("returns false when env unset", () => {
-    expect(isInternalAdmin("jon@example.com", undefined)).toBe(false);
+    expect(isInternalAdmin("admin@example.com", undefined)).toBe(false);
   });
 
   it("matches case-insensitively", () => {
-    expect(isInternalAdmin("Jon@Example.com", "jon@example.com")).toBe(true);
+    expect(isInternalAdmin("Admin@Example.com", "admin@example.com")).toBe(true);
   });
 
   it("accepts comma-separated list", () => {

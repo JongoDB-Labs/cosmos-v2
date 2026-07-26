@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Apply the active product's default entitlements. A row is written only when
-    // the product restricts something (e.g. Acme → AEC sector only); COSMOS orgs
+    // the product restricts something (e.g. an example vertical → AEC sector only); COSMOS orgs
     // stay row-free, which the loader reads as "all enabled" — no behavior change.
     try {
       await provisionEntitlements(org.id);
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Apply the active product's default plugins (fail-closed axis: cosmos → none,
-    // acme → the Acme bundle when composed in). Same outcome as an admin
+    // an example vertical → its plugin bundle when composed in). Same outcome as an admin
     // enabling them in Settings → Plugins, including first-enable provisioning hooks.
     try {
       await provisionPlugins(org.id, user.id);

@@ -35,9 +35,9 @@ RUN --mount=type=secret,id=hf_token,required=false set -e; \
 # `next build`; pass it explicitly so the sidebar version isn't "0.0.0".
 ARG APP_VERSION=0.1.0
 ENV npm_package_version=$APP_VERSION
-# Brand the image at build time (cosmos | acme). next.config.ts reads this and
+# Brand the image at build time (cosmos, or a brand a plugin registers). next.config.ts reads this and
 # inlines it as NEXT_PUBLIC_PRODUCT. Defaults to cosmos so an un-parameterized
-# build is unchanged; the Acme image is built with --build-arg PRODUCT=acme.
+# build is unchanged; an alternate-brand image is built with --build-arg PRODUCT=<brand>.
 ARG PRODUCT=cosmos
 ENV PRODUCT=$PRODUCT
 COPY . .

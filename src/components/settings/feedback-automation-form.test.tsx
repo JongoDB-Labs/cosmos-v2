@@ -14,7 +14,7 @@ vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 const COSMOS = "c-id";
 const PI = "pi-id";
-const ACME = "vitl-id";
+const ACME = "acme-id";
 const initial = {
   autoRemediation: { enabled: true, projectIds: [COSMOS], defaultProjectId: COSMOS },
   autonomousDelivery: { enabled: true, projectIds: [PI, ACME, COSMOS], notify: { parked: true, shipped: true } },

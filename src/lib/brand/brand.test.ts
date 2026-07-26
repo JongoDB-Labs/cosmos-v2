@@ -1,8 +1,37 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { getBrand } from "@/lib/brand";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { getBrand, registerProductProfile } from "@/lib/brand";
+import type { ProductProfile } from "@/lib/product/profiles";
 
 const originalPublic = process.env.NEXT_PUBLIC_PRODUCT;
 const originalServer = process.env.PRODUCT;
+
+// A synthetic non-cosmos brand, registered the way a composed brand plugin
+// registers its own profile — lets us exercise product selection and the
+// registry fallback without referencing any real client/vertical name.
+const ACME_PROFILE: ProductProfile = {
+  key: "acme",
+  name: "Acme",
+  title: "Acme — one interface for your practice",
+  description: "An example vertical brand, used only in tests.",
+  tagline: "Example Vertical",
+  markSrc: "/acme-mark.png",
+  themeColor: "#f9f7f4",
+  backgroundColor: "#f9f7f4",
+  agentName: "Acme Agent",
+  wakePhrase: "hey acme",
+  wakeWord: "Hey Acme",
+  defaultTenantClass: "COMMERCIAL",
+  signingMode: "keyless",
+  defaultEnabledModules: null,
+  defaultEnabledSectors: ["aec"],
+  defaultSkinId: "atelier",
+  defaultEnabledPlugins: ["acme"],
+};
+
+beforeAll(() => {
+  registerProductProfile(ACME_PROFILE);
+});
+
 afterEach(() => {
   if (originalPublic === undefined) delete process.env.NEXT_PUBLIC_PRODUCT;
   else process.env.NEXT_PUBLIC_PRODUCT = originalPublic;
@@ -13,6 +42,7 @@ afterEach(() => {
 describe("getBrand", () => {
   it("defaults to the COSMOS profile", () => {
     delete process.env.NEXT_PUBLIC_PRODUCT;
+    delete process.env.PRODUCT;
     const b = getBrand();
     expect(b.key).toBe("cosmos");
     expect(b.name).toBe("COSMOS");
@@ -20,7 +50,7 @@ describe("getBrand", () => {
     expect(b.defaultTenantClass).toBe("GOV");
   });
 
-  it("selects the Acme profile when PRODUCT=acme", () => {
+  it("selects a registered non-cosmos profile when PRODUCT matches it", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "acme";
     const b = getBrand();
     expect(b.key).toBe("acme");
@@ -41,7 +71,7 @@ describe("getBrand", () => {
     expect(b.defaultEnabledSectors).toBeNull();
   });
 
-  it("Acme defaults to the AEC sector only, all modules on", () => {
+  it("a registered vertical can scope its default sectors, all modules on", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "acme";
     const b = getBrand();
     expect(b.defaultEnabledModules).toBeNull();
@@ -54,7 +84,7 @@ describe("getBrand", () => {
     expect(b.defaultSkinId).toBe("universe");
   });
 
-  it("Acme uses the atelier skin by default", () => {
+  it("a registered vertical can set its own default skin", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "acme";
     const b = getBrand();
     expect(b.defaultSkinId).toBe("atelier");

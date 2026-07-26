@@ -1,8 +1,35 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resolveBrand, pickOrgBrand, type OrgBrandOverrides } from "./resolve";
+import { registerProductProfile, type ProductProfile } from "@/lib/product/profiles";
+
+// A synthetic non-cosmos brand registered the way a composed brand plugin would,
+// so we can assert resolveBrand overlays onto a NON-cosmos active product base
+// without naming any real client/vertical.
+const ACME_PROFILE: ProductProfile = {
+  key: "acme",
+  name: "Acme",
+  title: "Acme",
+  description: "An example vertical brand, used only in tests.",
+  tagline: "Example Vertical",
+  markSrc: "/acme-mark.png",
+  themeColor: "#f9f7f4",
+  backgroundColor: "#f9f7f4",
+  agentName: "Acme Agent",
+  wakePhrase: "hey acme",
+  wakeWord: "Hey Acme",
+  defaultTenantClass: "COMMERCIAL",
+  signingMode: "keyless",
+  defaultEnabledModules: null,
+  defaultEnabledSectors: ["aec"],
+  defaultSkinId: "atelier",
+  defaultEnabledPlugins: ["acme"],
+};
 
 const originalPublic = process.env.NEXT_PUBLIC_PRODUCT;
 const originalServer = process.env.PRODUCT;
+beforeAll(() => {
+  registerProductProfile(ACME_PROFILE);
+});
 beforeEach(() => {
   // The runtime PRODUCT env takes precedence in getBrand(); clear it so each
   // case controls the product purely via NEXT_PUBLIC_PRODUCT as it intends.
@@ -75,11 +102,11 @@ describe("resolveBrand", () => {
     expect(b.signingMode).toBe("kms");
   });
 
-  it("resolves against the active product (Acme) base", () => {
+  it("resolves against the active (registered non-cosmos) product base", () => {
     process.env.NEXT_PUBLIC_PRODUCT = "acme";
     expect(resolveBrand(null).name).toBe("Acme");
-    expect(resolveBrand({ brandName: "Acme" }).name).toBe("Acme");
-    expect(resolveBrand({}).defaultSkinId).toBe("atelier"); // Acme base
+    expect(resolveBrand({ brandName: "Custom Co" }).name).toBe("Custom Co");
+    expect(resolveBrand({}).defaultSkinId).toBe("atelier"); // acme base
   });
 });
 

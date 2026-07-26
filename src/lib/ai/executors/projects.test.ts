@@ -114,7 +114,7 @@ describe("projects + intervals executors (e2e DB)", () => {
 
   it("list_projects fuzzy-resolves a project the user names in words (bug #2)", async () => {
     const { ctx, org } = await makeOrg();
-    await prisma.project.create({ data: { orgId: org.id, name: "Vital Signs Platform", key: "ACME" } });
+    await prisma.project.create({ data: { orgId: org.id, name: "Acme Platform", key: "ACME" } });
     await prisma.project.create({ data: { orgId: org.id, name: "Marketing Site", key: "MKTG" } });
     await prisma.project.create({ data: { orgId: org.id, name: "Payroll", key: "PAY" } });
 
@@ -127,7 +127,7 @@ describe("projects + intervals executors (e2e DB)", () => {
     expect(byKeyPhrase.projects[0].key).toBe("ACME");
 
     // Match on NAME tokens too.
-    const byName = (await listProjects({ query: "vital" }, ctx)) as { projects: { key: string }[] };
+    const byName = (await listProjects({ query: "acme" }, ctx)) as { projects: { key: string }[] };
     expect(byName.projects[0]?.key).toBe("ACME");
 
     // Match on KEY alone.

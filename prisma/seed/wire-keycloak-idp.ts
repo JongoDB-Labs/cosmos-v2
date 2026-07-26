@@ -11,7 +11,7 @@
  * Idempotent: the IdpConnection is upserted on `orgId` (the @@unique([orgId])
  * one-IdP-per-org constraint), so re-running rotates the client secret / refreshes
  * the issuer + scopes in place. The org itself is only looked up — never created
- * (run bootstrap-org.ts / acme.ts first).
+ * (run bootstrap-org.ts first).
  *
  * Run from the cosmos-v2 checkout against a deployed DB. The vault key the secret
  * is sealed under comes from SSO_VAULT_KEYS + SSO_VAULT_ACTIVE_KID (keyring) or the
@@ -55,7 +55,7 @@ const DEFAULT_ROLE = (process.env.DEFAULT_ROLE ?? "MEMBER").trim();
 // ── DB connection ──────────────────────────────────────────────────────────
 // Prefer an explicit DATABASE_URL from the environment; otherwise fall back to a
 // local .env.local (mirrors prisma/seed/bootstrap-org.ts) so a host run doesn't
-// grab .env's in-container `acme-postgres` hostname.
+// grab .env's in-container `cosmos-postgres` hostname.
 function resolveDbUrl(): string | undefined {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   try {

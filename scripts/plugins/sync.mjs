@@ -117,7 +117,7 @@ for (const slug of slugs) {
   // 1) overlay
   const overlayRoot = join(dir, cfg.overlay ?? "overlay");
   for (const abs of walk(overlayRoot)) {
-    const rel = relative(overlayRoot, abs);            // e.g. src/plugins/acme/x.ts
+    const rel = relative(overlayRoot, abs);            // e.g. src/plugins/<slug>/x.ts
     if (trackedSet.has(rel)) throw new Error(`[plugin-sync] ${slug}: overlay path collides with a tracked core file: ${rel}`);
     const dest = join(ROOT, rel);
     mkdirSync(dirname(dest), { recursive: true });
