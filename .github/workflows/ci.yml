@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     timeout-minutes: 15
     services:
       # The `Test (DB integration)` step runs a handful of Prisma specs against a
@@ -124,7 +124,7 @@ jobs:
   # registers its own profile; here the value is unregistered, so this also
   # exercises the safe fallback to the neutral default. Reuses `check`'s setup.
   build-alt-product:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     needs: check
     timeout-minutes: 15
     env:
@@ -151,7 +151,7 @@ jobs:
         run: npm run build
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     needs: check
     # The full Playwright suite (~97 tests: a11y+smoke+chat) runs against
     # `next dev`, which cold-compiles each route on first hit — too slow to
@@ -248,7 +248,7 @@ jobs:
   # testIgnore in playwright.config.ts; this job opts back in with
   # E2E_INCLUDE_INTERACTION=1 and runs ONLY the drag spec.
   e2e-interaction:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     needs: check
     continue-on-error: true
     timeout-minutes: 20

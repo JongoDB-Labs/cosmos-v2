@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   digest:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     steps:
       - name: Post the digest
         env:
