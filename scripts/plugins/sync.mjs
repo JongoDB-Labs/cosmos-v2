@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, rmSync, rmdirSync, appendFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { execFileSync } from "node:child_process";
+import { mergeDependencies } from "./merge-deps.mjs";
 
 /** Run git with an argument array (no shell — safe for paths with (), [], spaces). */
 const git = (args, opts = {}) => execFileSync("git", args, { cwd: ROOT, ...opts });
@@ -110,6 +111,7 @@ const written = new Set();       // repo-relative paths we wrote (to exclude)
 const manifests = [];            // { slug, importPath }
 let schemaFragments = "";
 const backrel = {};              // Model -> [lines]
+const pluginDeps = [];           // { slug, dependencies } — npm deps to merge
 
 // Which repo paths are TRACKED in core (collision guard: an overlay must never
 // silently clobber a real core file).
@@ -137,7 +139,9 @@ for (const slug of slugs) {
   for (const [model, lines] of Object.entries(cfg.schemaBackRelations ?? {})) {
     (backrel[model] ??= []).push(...lines.map((l) => `  ${l}`));
   }
-  // 4) registration
+  // 4) npm dependencies (a plugin can't ship a package.json — see merge-deps.mjs)
+  if (cfg.dependencies) pluginDeps.push({ slug, dependencies: cfg.dependencies });
+  // 5) registration
   const importPath = "@/" + (cfg.manifest ?? `src/plugins/${slug}/manifest.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   const serverPath = "@/" + (cfg.serverHooks ?? `src/plugins/${slug}/server.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   manifests.push({ slug, importPath, serverPath });
@@ -156,6 +160,28 @@ schema = schema.replace(
 );
 writeFileSync(SCHEMA, schema);
 written.add("prisma/schema.prisma");
+
+// --- merge plugin npm dependencies, then refresh the lock ---
+// The Dockerfile runs `npm ci`, which fails hard when package.json and
+// package-lock.json disagree — so writing deps without refreshing the lock would
+// produce a composed image that cannot build. Both files are tracked, so the
+// skip-worktree + `git checkout` machinery below hides and reverses them already.
+if (pluginDeps.length > 0) {
+  const PKG = join(ROOT, "package.json");
+  const pkg = JSON.parse(readFileSync(PKG, "utf8"));
+  const merged = mergeDependencies(pkg.dependencies ?? {}, pluginDeps);
+  if (JSON.stringify(merged) !== JSON.stringify(pkg.dependencies)) {
+    pkg.dependencies = merged;
+    writeFileSync(PKG, JSON.stringify(pkg, null, 2) + "\n");
+    written.add("package.json");
+    console.log("[plugin-sync] merged plugin dependencies — refreshing package-lock.json");
+    execFileSync("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"], {
+      cwd: ROOT,
+      stdio: "inherit",
+    });
+    written.add("package-lock.json");
+  }
+}
 
 // --- generate the registration composition files ---
 const idx =
