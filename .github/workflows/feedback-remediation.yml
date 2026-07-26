@@ -5,7 +5,7 @@ name: feedback-remediation
 # into the work backlog (AI-triaged). Idempotent: each item is delivered once.
 #
 # Activation (maintainer): set repo/environment
-#   - Variable  COSMOS_BASE_URL   e.g. https://defcon.fightingsmartcyber.com
+#   - Variable  COSMOS_BASE_URL   e.g. https://example.com
 #   - Variable  COSMOS_ORG_ID     the target org's UUID
 #   - Secret    COSMOS_API_KEY    an org API key (cosmos_… , scope items:write)
 # Until these exist the job no-ops (guards below), so the workflow is inert by

@@ -50,7 +50,7 @@ until configured**. Set, on the repo (or an environment):
 
 | kind      | name              | value                                            |
 | --------- | ----------------- | ------------------------------------------------ |
-| variable  | `COSMOS_BASE_URL` | e.g. `https://defcon.fightingsmartcyber.com`     |
+| variable  | `COSMOS_BASE_URL` | e.g. `https://example.com`                       |
 | variable  | `COSMOS_ORG_ID`   | the target org's UUID                            |
 | secret    | `COSMOS_API_KEY`  | an org API key (`cosmos_…`, scope `items:write`) |
 

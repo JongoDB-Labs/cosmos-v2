@@ -7,10 +7,10 @@
 
 ADR 0001 gives every customer/sector difference a home on one trunk: data/templates,
 sector-scoped behavior, gated modules, adapters. What it lacks is a **packaging unit**
-for a coherent bundle of customer-shaped surfaces — the ĒSO (Pontis product) build
-needs a way to ship an A&E practice bundle (pace tracking, EOW→principal reporting,
-fee-phase burn) that (a) stays out of every other customer's way, (b) keeps client IP
-isolated from shared code, and (c) can be turned on per organization from Settings.
+for a coherent bundle of customer-shaped surfaces — the example A&E vertical (the `acme`
+product) build needs a way to ship an A&E practice bundle (pace tracking, EOW→principal
+reporting, fee-phase burn) that (a) stays out of every other customer's way, (b) keeps
+client IP isolated from shared code, and (c) can be turned on per organization from Settings.
 
 ## Decision
 
@@ -59,8 +59,8 @@ visible surfaces(org, user) = RBAC(user) ∩ coreEntitlements(org) ∩ pluginEna
 - **Storage**: `OrgPluginState` — row per (org, plugin): `enabled`, `config`
   (validated by the plugin's zod schema), `enabledVersion/By/At`.
 - **Provisioning**: `ProductProfile.defaultEnabledPlugins` (+ `DEFAULT_ENABLED_PLUGINS`
-  env CSV override) auto-enables plugins for NEW orgs on that product — pontis →
-  `["pontis"]`, cosmos → `[]`. `onFirstEnable` runs once per org (recorded via
+  env CSV override) auto-enables plugins for NEW orgs on that product — acme →
+  `["acme"]`, cosmos → `[]`. `onFirstEnable` runs once per org (recorded via
   `enabledVersion`); a manifest version bump triggers `onUpgrade` on next enable.
 - **Settings surface**: `/settings/plugins` gated by the dedicated
   `PLUGIN_MANAGE` permission bit; GET/PATCH under `/api/v1/orgs/[orgId]/plugins`;
@@ -78,11 +78,11 @@ test turns into red CI before anything ships.
 
 ## Consequences
 
-- The first plugin, **pontis** (`src/plugins/pontis/**`), carries the ĒSO A&E
-  bundle; its ESO-specific vocabulary and brand assets are invisible to every
+- The first plugin, **acme** (`src/plugins/acme/**`), carries the example A&E
+  client's bundle; its client-specific vocabulary and brand assets are invisible to every
   other org and product face.
 - CI must stay green for both products with the plugin disabled (default
-  everywhere except pontis-profile org creation) — guaranteed by fail-closed
+  everywhere except acme-profile org creation) — guaranteed by fail-closed
   defaults plus the existing two-product build matrix.
 - Registry-invariant tests keep plugin nav ids/hrefs disjoint from the core IA,
   so a plugin can never shadow a core surface.

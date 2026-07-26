@@ -54,7 +54,7 @@ const eslintConfig = defineConfig([
   // the two composition files (src/lib/plugins/registry/{index,server}.ts) and
   // the thin (plugin-*) route shims under src/app. This is the editor-time half;
   // plugin-isolation.arch.test.ts is the test half (which also enforces shim
-  // thinness and bans prisma.pontis* outside the plugin).
+  // thinness and bans a plugin's prisma.<slug>* models outside that plugin).
   //
   // Flat-config note: same-rule options REPLACE (never merge) across matching
   // config objects, so this block re-states the egress-provider pattern above —

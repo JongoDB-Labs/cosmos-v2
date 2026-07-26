@@ -114,21 +114,21 @@ describe("projects + intervals executors (e2e DB)", () => {
 
   it("list_projects fuzzy-resolves a project the user names in words (bug #2)", async () => {
     const { ctx, org } = await makeOrg();
-    await prisma.project.create({ data: { orgId: org.id, name: "Vital Signs Platform", key: "VITL" } });
+    await prisma.project.create({ data: { orgId: org.id, name: "Acme Platform", key: "ACME" } });
     await prisma.project.create({ data: { orgId: org.id, name: "Marketing Site", key: "MKTG" } });
     await prisma.project.create({ data: { orgId: org.id, name: "Payroll", key: "PAY" } });
 
-    // "VITL BMA" (extra word, wrong casing) must resolve to the VITL project.
-    const byKeyPhrase = (await listProjects({ query: "VITL BMA" }, ctx)) as {
+    // "ACME BMA" (extra word, wrong casing) must resolve to the ACME project.
+    const byKeyPhrase = (await listProjects({ query: "ACME BMA" }, ctx)) as {
       count: number;
       projects: { key: string }[];
     };
     expect(byKeyPhrase.count).toBeGreaterThanOrEqual(1);
-    expect(byKeyPhrase.projects[0].key).toBe("VITL");
+    expect(byKeyPhrase.projects[0].key).toBe("ACME");
 
     // Match on NAME tokens too.
-    const byName = (await listProjects({ query: "vital" }, ctx)) as { projects: { key: string }[] };
-    expect(byName.projects[0]?.key).toBe("VITL");
+    const byName = (await listProjects({ query: "acme" }, ctx)) as { projects: { key: string }[] };
+    expect(byName.projects[0]?.key).toBe("ACME");
 
     // Match on KEY alone.
     const byKey = (await listProjects({ query: "mktg" }, ctx)) as { projects: { key: string }[] };

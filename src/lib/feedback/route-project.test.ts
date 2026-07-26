@@ -3,7 +3,7 @@ import { projectKeyFromRoute } from "./route-project";
 
 describe("projectKeyFromRoute", () => {
   it("extracts the key after /projects/", () => {
-    expect(projectKeyFromRoute("/defcon-new/projects/VITL/pm-dashboard")).toBe("VITL");
+    expect(projectKeyFromRoute("/acme-new/projects/ACME/pm-dashboard")).toBe("ACME");
     expect(projectKeyFromRoute("/fsc/projects/COSMOS")).toBe("COSMOS");
   });
   it("returns null when there is no project segment", () => {

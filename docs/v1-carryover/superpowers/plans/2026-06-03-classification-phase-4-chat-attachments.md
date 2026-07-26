@@ -16,7 +16,7 @@ Spec §6 Phase 4 says "On upload … resolve the channel's project ceiling … r
 
 ## Conventions for the executor (read first)
 
-- Working dir is the worktree `/home/defcon/cosmos-saas/.claude/worktrees/classification-propagation` (branch `worktree-classification-propagation`, on `origin/main` @ v3.40.0). `.env.local` is symlinked here.
+- Working dir is the worktree `/home/deploy/cosmos-saas/.claude/worktrees/classification-propagation` (branch `worktree-classification-propagation`, on `origin/main` @ v3.40.0). `.env.local` is symlinked here.
 - Prisma CLI needs env: prefix DB commands with `set -a && . ./.env.local && set +a`.
 - Vitest: `npm test` = `vitest run`; single file `npx vitest run <path>`. Client component tests use `@testing-library/react` (jsdom default).
 - **Client-bundle rule:** client files (`attachment-tile.tsx`, `use-chat-messages.ts`) import only `@/lib/classification/rank` (+ `ClassificationChip`) and `ClassificationLevel` as `import type`. Never the barrel or `effective.ts`.

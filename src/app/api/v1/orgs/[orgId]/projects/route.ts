@@ -107,7 +107,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
       // Sector entitlement boundary: a tenant restricted to certain sectors
-      // (e.g. Pontis → AEC only) cannot instantiate a template from a disabled
+      // (e.g. an example vertical → AEC only) cannot instantiate a template from a disabled
       // sector even by POSTing its id directly — the listing filter is cosmetic
       // without this. 404 (not 403) to avoid revealing the template exists.
       const ent = await getEntitlements(orgId);

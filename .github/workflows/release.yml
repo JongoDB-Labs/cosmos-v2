@@ -49,30 +49,33 @@ env:
 
 jobs:
   # ── Rebuild the COMPOSED private per-instance images at this release ──────────
-  # The daemon delivers the NEUTRAL public core; the instances (DEFCON, Pontis) run
-  # COMPOSED images (core + their plugins) built by cosmos-assembly. On every version
-  # tag, ask the assembly to rebuild them pinned to THIS core ref, so the composed
-  # images track releases and autonomous delivery can reach the instances. Runs in
-  # parallel with build/merge — the assembly builds from source at the tag, so it needs
-  # nothing from them. No-op on workflow_dispatch (fires only on a v* tag), and a clean
-  # skip until ASSEMBLY_DISPATCH_TOKEN is set.
+  # The daemon delivers the NEUTRAL public core; each configured instance runs a
+  # COMPOSED image (core + its private plugins) built by a private assembly
+  # pipeline. On every version tag, ask that assembly to rebuild the configured
+  # instances pinned to THIS core ref, so the composed images track releases and
+  # autonomous delivery can reach the instances. Runs in parallel with build/merge.
+  # No-op on workflow_dispatch (fires only on a v* tag). The private repo name and
+  # instance list are supplied via repo VARIABLES (never committed to this public
+  # workflow); the step cleanly skips until the token + both vars are configured.
   dispatch-assembly:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Dispatch cosmos-assembly to rebuild composed images
+      - name: Dispatch the private assembly to rebuild composed images
         env:
           GH_TOKEN: ${{ secrets.ASSEMBLY_DISPATCH_TOKEN }}
+          ASSEMBLY_REPO: ${{ vars.ASSEMBLY_REPO }}            # owner/repo of the private assembly
+          COMPOSED_INSTANCES: ${{ vars.COMPOSED_INSTANCES }}  # space-separated instance ids
           CORE_REF: ${{ github.ref_name }}   # the v* tag; set via env (not inlined in run) — injection-safe
         run: |
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::ASSEMBLY_DISPATCH_TOKEN not set — skipping composed-image rebuild dispatch"
+          if [ -z "${GH_TOKEN:-}" ] || [ -z "${ASSEMBLY_REPO:-}" ] || [ -z "${COMPOSED_INSTANCES:-}" ]; then
+            echo "::notice::assembly dispatch not configured (needs ASSEMBLY_DISPATCH_TOKEN + vars.ASSEMBLY_REPO + vars.COMPOSED_INSTANCES) — skipping composed-image rebuild"
             exit 0
           fi
-          for inst in defcon pontis; do
-            echo "dispatch: cosmos-assembly core-released $inst @ ${CORE_REF}"
-            gh api repos/jongodb-labs/cosmos-assembly/dispatches \
+          for inst in ${COMPOSED_INSTANCES}; do
+            echo "dispatch: ${ASSEMBLY_REPO} core-released ${inst} @ ${CORE_REF}"
+            gh api "repos/${ASSEMBLY_REPO}/dispatches" \
               -f event_type=core-released \
               -F "client_payload[instance]=${inst}" \
               -F "client_payload[core_ref]=${CORE_REF}"

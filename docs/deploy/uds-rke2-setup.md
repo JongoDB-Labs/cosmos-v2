@@ -2,7 +2,7 @@
 
 > **Living runbook** — how the COSMOS UDS-native Kubernetes platform is brought up, end to end, and how the `cosmos` Helm chart is deployed onto it. Written against a single-node lab (`cosmos-x86`, Ubuntu 24.04 VM), but the steps are the same shape for multi-node RKE2.
 >
-> Sections track the SP1 migration tasks: **T0** stands up the platform, **T1+** build and deploy the `cosmos` chart. The design rationale lives in `/pontis/docs/specs/2026-06-24-k8s-migration-north-star-design.md`.
+> Sections track the SP1 migration tasks: **T0** stands up the platform, **T1+** build and deploy the `cosmos` chart. The design rationale lives in `/acme/docs/specs/2026-06-24-k8s-migration-north-star-design.md`.
 >
 > **One target of many:** this runbook is RKE2 on a single VM — the *most* hands-on target by design, which is why it surfaces every platform gotcha. The [**Deployment targets**](#deployment-targets) section near the end generalizes it to cloud VMs and managed Kubernetes (EKS/AKS/GKE), grounded in the [UDS prerequisites](https://uds.defenseunicorns.com/reference/uds-core/prerequisites/).
 >
@@ -191,7 +191,7 @@ kubectl create ns postgres-operator && kubectl label ns postgres-operator zarf.d
 helm install pgo oci://registry.developers.crunchydata.com/crunchydata/pgo -n postgres-operator
 helm upgrade --install cosmos charts/cosmos -n cosmos      # adds the PostgresCluster
 ```
-Result: `cosmos-pg-instance1-*` (4/4), `cosmos-pg-repo-host-*` (pgBackRest) + an initial backup. **pgvector is bundled** in `crunchy-postgres:ubi9-16.14` (matches compose/defcon 16.14); the `cosmos` superuser/owner role is created by PGO.
+Result: `cosmos-pg-instance1-*` (4/4), `cosmos-pg-repo-host-*` (pgBackRest) + an initial backup. **pgvector is bundled** in `crunchy-postgres:ubi9-16.14` (matches compose/acme 16.14); the `cosmos` superuser/owner role is created by PGO.
 
 Notes / gotchas:
 - **PGO operator + all Postgres pods pass the UDS Pepr baseline with NO exemption** — Crunchy images are non-root/least-priv by design (contrast with MetalLB/local-path).

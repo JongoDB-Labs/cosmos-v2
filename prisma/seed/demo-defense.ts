@@ -9,7 +9,7 @@
  *
  * Loads DATABASE_URL from .env.local itself (nothing secret printed).
  *
- * Run:  cd /home/defcon/cosmos-saas && npx tsx prisma/seed/demo-defense.ts
+ * Run:  cd /home/deploy/cosmos-saas && npx tsx prisma/seed/demo-defense.ts
  */
 import { Prisma } from "@prisma/client";
 import { makePrismaClient } from "./shared/prisma-client";
@@ -41,7 +41,7 @@ const prisma = makePrismaClient(DB_URL);
 
 const SLUG = "apex-defense";
 const PKEY = "SENTINEL";
-const JON_EMAIL = "jon@fightingsmartcyber.com";
+const JON_EMAIL = "admin@example.com";
 
 const NOW = Date.now();
 const day = 86400000;
@@ -134,7 +134,7 @@ async function main() {
   });
 
   // ── 2. People ─────────────────────────────────────────────────────────────
-  const jon = await findOrCreateUser(JON_EMAIL, "Jon Rannabargar", { requireExisting: true }); // real user (Google connected) → OWNER
+  const jon = await findOrCreateUser(JON_EMAIL, "Admin", { requireExisting: true }); // real user (Google connected) → OWNER
   const dana = await findOrCreateUser("dana.reyes@apex-defense.local", "Dana Reyes"); // ISSO / Security Lead
   const marcus = await findOrCreateUser("marcus.hale@apex-defense.local", "Marcus Hale"); // Program Manager
   const priya = await findOrCreateUser("priya.nair@apex-defense.local", "Priya Nair"); // Lead Engineer
@@ -435,7 +435,7 @@ async function main() {
     projectKey: PKEY,
     activeCycleId: interval.id,
     counts: { workItems: wi, complianceControls: ctl, expenses: exp, revenues: rev },
-    url: `https://defcon.fightingsmartcyber.com/${org.slug}`,
+    url: `https://example.com/${org.slug}`,
   });
 }
 

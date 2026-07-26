@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       ticket:
-        description: "Work-item ticket key to draft a fix for (e.g. VITL-123)"
+        description: "Work-item ticket key to draft a fix for (e.g. ACME-123)"
         required: true
       brief:
         description: "Optional extra context / acceptance criteria"

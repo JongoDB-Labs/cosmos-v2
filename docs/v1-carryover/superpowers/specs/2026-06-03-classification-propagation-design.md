@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-03
 **Status:** Approved (design); ready for implementation planning
-**Author:** COSMOS Agent (with fightingsmartcyber@gmail.com)
+**Author:** COSMOS Agent (with admin@example.com)
 **Approach:** A — *marking/labeling layer* (not access-enforcement). See "Approach decision" below.
 
 ---

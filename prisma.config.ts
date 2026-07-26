@@ -31,7 +31,7 @@ export default defineConfig({
   },
   // Only wire the Migrate datasource when DATABASE_URL is present. `env()` resolves
   // EAGERLY at config load and throws if the var is unset, which would break
-  // `npx prisma generate` anywhere DATABASE_URL isn't set (e.g. the build-pontis CI
+  // `npx prisma generate` anywhere DATABASE_URL isn't set (e.g. the alternate-product build CI
   // job, local generate). `generate` needs no datasource URL, so omitting it there is
   // safe; every command that actually connects (migrate deploy/diff, db execute) runs
   // with DATABASE_URL set.

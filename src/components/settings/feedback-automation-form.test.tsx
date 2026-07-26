@@ -8,20 +8,20 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/defcon-new/settings/feedback-automation" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/acme-new/settings/feedback-automation" }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 const COSMOS = "c-id";
 const PI = "pi-id";
-const VITL = "vitl-id";
+const ACME = "acme-id";
 const initial = {
   autoRemediation: { enabled: true, projectIds: [COSMOS], defaultProjectId: COSMOS },
-  autonomousDelivery: { enabled: true, projectIds: [PI, VITL, COSMOS], notify: { parked: true, shipped: true } },
+  autonomousDelivery: { enabled: true, projectIds: [PI, ACME, COSMOS], notify: { parked: true, shipped: true } },
   projects: [
     { id: COSMOS, key: "COSMOS", name: "Cosmos" },
     { id: PI, key: "PI000", name: "PI" },
-    { id: VITL, key: "VITL", name: "BMA" },
+    { id: ACME, key: "ACME", name: "BMA" },
   ],
   aiConnected: true,
   aiProvider: "claude-oauth",

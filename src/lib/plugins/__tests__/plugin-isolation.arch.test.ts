@@ -43,6 +43,23 @@ function walk(dir: string, out: string[] = []): string[] {
 const allFiles = walk(SRC).map((p) => relative(ROOT, p));
 const sharedFiles = allFiles.filter((p) => !p.startsWith("src/plugins/"));
 
+// The composed plugin slugs (src/plugins/<slug>/). Empty in the neutral public
+// core (src/plugins does not exist), so the plugin-specific guards below scope
+// themselves to whatever is actually composed — without ever naming a client.
+function pluginSlugs(): string[] {
+  try {
+    return readdirSync(join(SRC, "plugins")).filter((n) => {
+      try {
+        return statSync(join(SRC, "plugins", n)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return [];
+  }
+}
+
 const PLUGIN_IMPORT = /from\s+["'](@\/plugins\/|(?:\.\.?\/)+plugins\/)/;
 const PLUGIN_IMPORT_BARE = /import\s+["'](@\/plugins\/|(?:\.\.?\/)+plugins\/)/;
 
@@ -91,10 +108,16 @@ describe("plugin isolation (ADR 0003)", () => {
     ).toEqual([]);
   });
 
-  it("shared code never queries plugin-owned Prisma models (prisma.pontis*)", () => {
+  it("shared code never queries plugin-owned Prisma models (prisma.<slug>*)", () => {
+    const slugs = pluginSlugs();
+    // Neutral core: no composed plugins, so there are no plugin-owned models to
+    // guard and the invariant holds vacuously. When a plugin composes in, its
+    // <slug>-prefixed models must be queried only inside src/plugins/**.
+    const patterns = slugs.map((s) => new RegExp(`\\bprisma\\.${s}[A-Z]`));
     const offenders = sharedFiles.filter((rel) => {
+      if (patterns.length === 0) return false;
       const text = readFileSync(join(ROOT, rel), "utf8");
-      return /\bprisma\.pontis[A-Z]/.test(text);
+      return patterns.some((re) => re.test(text));
     });
     expect(
       offenders,
@@ -102,23 +125,30 @@ describe("plugin isolation (ADR 0003)", () => {
     ).toEqual([]);
   });
 
-  it("the plugin framework itself stays brand/client-neutral", () => {
+  it("the plugin framework itself stays plugin/client-neutral", () => {
     const FRAMEWORK = [
       "src/lib/plugins/registry.ts",
       "src/lib/plugins/enablement.ts",
       "src/lib/plugins/default-env.ts",
       "src/components/layouts/nav-plugins.ts",
     ];
+    const slugs = pluginSlugs();
     const offenders: string[] = [];
     for (const rel of FRAMEWORK) {
       const text = readFileSync(join(ROOT, rel), "utf8");
-      // "Pontis"/ESO may appear in the two composition files' import lines only —
-      // the framework proper must not know any client's name.
-      if (/ĒSO|ESO\b|Pontis/i.test(text)) offenders.push(rel);
+      // The framework proper must neither import a plugin nor hardcode a specific
+      // plugin's slug — client/vertical specifics live in src/plugins/** or the
+      // composition files (registry/{index,server}.ts).
+      if (/["'](@\/plugins\/|(?:\.\.?\/)+plugins\/)/.test(text)) {
+        offenders.push(`${rel} (imports a plugin)`);
+        continue;
+      }
+      const slugHit = slugs.find((s) => new RegExp(`["']${s}["']`).test(text));
+      if (slugHit) offenders.push(`${rel} (hardcodes plugin slug "${slugHit}")`);
     }
     expect(
       offenders,
-      `Client names belong in src/plugins/** or the composition files, not the framework:\n${offenders.join("\n")}`,
+      `Plugin/client specifics belong in src/plugins/** or the composition files, not the framework:\n${offenders.join("\n")}`,
     ).toEqual([]);
   });
 });
