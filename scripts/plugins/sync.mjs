@@ -26,8 +26,14 @@ const git = (args, opts = {}) => execFileSync("git", args, { cwd: ROOT, ...opts 
 
 const ROOT = process.cwd();
 const PLUGINS_DIR = join(ROOT, "plugins");
-const EXCLUDE = join(ROOT, ".git", "info", "exclude");
-const STATE = join(ROOT, ".git", "plugin-sync.state");   // real composed paths (for --clean)
+/** Resolve a git path properly: `.git` is a FILE in a worktree (it holds
+ *  `gitdir: …`), so joining onto <root>/.git raises ENOTDIR there. */
+const gitPath = (flag) => git(["rev-parse", "--path-format=absolute", flag]).toString().trim();
+// `exclude` lives in the COMMON dir — git only ever reads that one, shared across
+// worktrees. The state file is per-worktree, so two worktrees composing different
+// plugin sets don't clobber each other's --clean manifest.
+const EXCLUDE = join(gitPath("--git-common-dir"), "info", "exclude");
+const STATE = join(gitPath("--git-dir"), "plugin-sync.state");   // real composed paths (for --clean)
 const SCHEMA = join(ROOT, "prisma", "schema.prisma");
 const REG_INDEX = "src/lib/plugins/registry/index.ts";
 const REG_SERVER = "src/lib/plugins/registry/server.ts";
