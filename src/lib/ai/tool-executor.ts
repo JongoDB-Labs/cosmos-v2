@@ -128,7 +128,7 @@ export interface ParsedToolCall {
  * the offset of the first marker so callers can split prose from tool
  * directives without re-scanning.
  *
- * Mirrors the algorithm at /home/defcon/okr-dashboard/server/index.js:6001
+ * Mirrors the algorithm at the legacy okr-dashboard/server/index.js:6001
  * (manual brace-depth walker, string-aware so `{` and `}` inside strings
  * don't desync the parser).
  */

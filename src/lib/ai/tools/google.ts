@@ -7,7 +7,7 @@ import type { ToolDefinition } from "../tools";
  * `src/lib/ai/executors/google.ts` — dispatched from
  * `src/lib/ai/tool-executor.ts`.
  *
- * Shape & arg names ported from /home/defcon/okr-dashboard/server/index.js
+ * Shape & arg names ported from the legacy okr-dashboard/server/index.js
  * (the Gmail/Calendar/Drive/Contacts tools block around line 4520+) to keep
  * cross-product behaviour familiar, adapted to cosmos's JSON-schema
  * `input_schema` convention used by `cosmosTools`.
