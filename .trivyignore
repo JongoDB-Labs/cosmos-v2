@@ -12,6 +12,13 @@
 #                 perl is not invoked at runtime by the application.
 # CVE-2023-45853  zlib1g — MiniZip integer overflow. Debian status: will_not_fix
 #                 (the flaw is in bundled MiniZip, not linked by the runtime).
+# CVE-2026-13221  perl-base — silently-incorrect regex compilation (Perl <= 5.43.9).
+#                 Debian status: affected (no fixed version). perl is not invoked
+#                 at runtime by the application; base-image package only.
+# CVE-2026-57433  perl-base / Storable (< 3.41) — signed integer overflow. No fix.
+#                 perl/Storable is not invoked at runtime by the application.
 CVE-2026-42496
 CVE-2026-8376
 CVE-2023-45853
+CVE-2026-13221
+CVE-2026-57433
