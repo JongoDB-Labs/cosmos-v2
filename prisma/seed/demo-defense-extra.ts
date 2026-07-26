@@ -10,7 +10,7 @@
  * re-run never duplicates and one bad section can't abort the rest.
  *
  * Run AFTER demo-defense.ts:
- *   cd /home/defcon/cosmos-saas && npx tsx prisma/seed/demo-defense-extra.ts
+ *   cd /home/deploy/cosmos-saas && npx tsx prisma/seed/demo-defense-extra.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
@@ -57,7 +57,7 @@ async function main() {
   const projectId = project.id;
 
   // people (seed1 + a few more engineers so the team & assignees look staffed)
-  const jon = await findUser("jon@fightingsmartcyber.com", "Jon Rannabargar");
+  const jon = await findUser("admin@example.com", "Admin");
   const dana = await findUser("dana.reyes@apex-defense.local", "Dana Reyes");
   const marcus = await findUser("marcus.hale@apex-defense.local", "Marcus Hale");
   const priya = await findUser("priya.nair@apex-defense.local", "Priya Nair");

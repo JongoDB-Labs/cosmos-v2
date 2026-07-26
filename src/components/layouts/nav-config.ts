@@ -288,7 +288,7 @@ export function applyAdminLayout(
 }
 
 /**
- * Entitlement filter (Pontis foundation §3.2 enforcement): drop top-level entries
+ * Entitlement filter (module/sector entitlement enforcement): drop top-level entries
  * whose module is not enabled for the tenant. Module keys === top-level nav ids;
  * the FIXED anchors (overview, settings) are always kept. `enabledModules === null`
  * means "all modules enabled" (the default), so this is a no-op for existing tenants.

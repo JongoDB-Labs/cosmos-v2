@@ -32,7 +32,10 @@ function resolveProductKey(): ProductKey {
  * Phase 3: `process.env.PRODUCT` (server runtime) takes precedence.
  */
 export function getBrand(): ProductProfile {
-  return PRODUCT_PROFILES[resolveProductKey()];
+  // resolveProductKey() only returns a key present in PRODUCT_PROFILES (or
+  // "cosmos"), but the `?? cosmos` keeps this total under noUncheckedIndexedAccess.
+  return PRODUCT_PROFILES[resolveProductKey()] ?? PRODUCT_PROFILES.cosmos;
 }
 
+export { registerProductProfile } from "@/lib/product/profiles";
 export { resolveBrand, pickOrgBrand, type OrgBrandOverrides } from "./resolve";

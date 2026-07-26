@@ -44,7 +44,7 @@ Each pass:
 | Live logs | `sudo journalctl -u foreman -f` (also `/var/log/cosmos-foreman.log`) |
 | Start | `sudo systemctl start foreman` |
 | Stop (graceful) | `sudo systemctl stop foreman` — finishes the current checkpoint, then SIGTERM after 120 s |
-| **Emergency stop** | `touch /home/defcon/cosmos-v2/.deploy/FOREMAN_STOP` — the loop exits at its next checkpoint (~1 s) without merging/deploying anything in flight |
+| **Emergency stop** | `touch /home/deploy/cosmos-v2/.deploy/FOREMAN_STOP` — the loop exits at its next checkpoint (~1 s) without merging/deploying anything in flight |
 | Enable at boot | `sudo systemctl enable foreman` |
 | Per-org opt-in | **Settings → Feedback automation → Autonomous delivery** (choose the projects); the daemon idles when no org has it on |
 

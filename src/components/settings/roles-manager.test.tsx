@@ -26,7 +26,7 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
   }
 }
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/defcon-new/settings/roles" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/acme-new/settings/roles" }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 // Keep the real FetchError (RoleEditor checks `err instanceof FetchError` to

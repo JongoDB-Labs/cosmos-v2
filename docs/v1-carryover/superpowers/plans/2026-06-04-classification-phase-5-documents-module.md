@@ -20,7 +20,7 @@
 
 ## Conventions for the executor (read first)
 
-- Working dir: the worktree `/home/defcon/cosmos-saas/.claude/worktrees/classification-propagation` (branch `worktree-classification-propagation`, v3.41.0). `.env.local` is symlinked. Prefix DB/Prisma commands with `set -a && . ./.env.local && set +a`.
+- Working dir: the worktree `/home/deploy/cosmos-saas/.claude/worktrees/classification-propagation` (branch `worktree-classification-propagation`, v3.41.0). `.env.local` is symlinked. Prefix DB/Prisma commands with `set -a && . ./.env.local && set +a`.
 - Vitest: `npm test` = `vitest run`; single file `npx vitest run <path>`. `npx tsc --noEmit` is the type gate (use `NODE_OPTIONS=--max_old_space_size=8192` if it OOMs).
 - **Migrations:** `prisma migrate dev` WILL demand a reset on this DB (pre-existing `content_tsv` drift) — do NOT reset. Use the surgical path in Task 1.
 - **Client-bundle rule:** client files import only `@/lib/classification/rank`/`format` (+ `ClassificationChip`) and `ClassificationLevel` as `import type`. Never the `@/lib/classification` barrel or `effective.ts`.

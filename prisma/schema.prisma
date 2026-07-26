@@ -108,7 +108,7 @@ enum Visibility {
 // the cutover does a structural copy and the enum label SET must match prod.
 // ─────────────────────────────────────────────
 
-// Directed work-item dependency vocabularies (Jira deps, VITL/POA&M chains).
+// Directed work-item dependency vocabularies (Jira deps, POA&M chains).
 enum LinkType {
   BLOCKS
   BLOCKED_BY
@@ -1871,7 +1871,7 @@ model OrgEntitlements {
   enabledModules         String[] @default([]) @map("enabled_modules")
 
   /// Same tri-state for industry SECTORS (e.g. "aec"). false ⇒ all sectors; true ⇒ the
-  /// subset in enabledSectors. Pontis tenants default to the AEC sector only.
+  /// subset in enabledSectors. A vertical product may default its tenants to a single sector (e.g. AEC).
   sectorAllowlistEnabled Boolean  @default(false) @map("sector_allowlist_enabled")
   enabledSectors         String[] @default([]) @map("enabled_sectors")
 
@@ -2907,7 +2907,7 @@ model AccountingPeriod {
 // ═════════════════════════════════════════════════════════════════════════════
 // PROD-PARITY MODELS (migration 20260607030000_prod_parity_reconciliation)
 //
-// 18 tables ported VERBATIM from prod (/home/defcon/cosmos-prod) so the
+// 18 tables ported VERBATIM from a prod database (/home/deploy/cosmos-prod) so the
 // per-tenant cutover does a lossless structural copy of prod rows into v2.
 // SHAPE matches prod EXACTLY (column types/nullability/defaults/@map/indexes/
 // FKs) — do NOT "improve" these; a divergence breaks the cutover parity gate.

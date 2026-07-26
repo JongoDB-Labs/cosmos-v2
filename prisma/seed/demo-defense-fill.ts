@@ -13,7 +13,7 @@
  *
  * Loads DATABASE_URL from .env.local itself (nothing secret printed).
  *
- * Run:  cd /home/defcon/cosmos-v2 && npx tsx prisma/seed/demo-defense-fill.ts
+ * Run:  cd /home/deploy/cosmos-v2 && npx tsx prisma/seed/demo-defense-fill.ts
  */
 import { makePrismaClient } from "./shared/prisma-client";
 import { readFileSync } from "node:fs";
@@ -43,7 +43,7 @@ const prisma = makePrismaClient(DB_URL);
 
 const SLUG = "apex-defense";
 const PKEY = "SENTINEL";
-const JON_EMAIL = "jon@fightingsmartcyber.com";
+const JON_EMAIL = "admin@example.com";
 
 const NOW = Date.now();
 const day = 86400000;
@@ -612,7 +612,7 @@ async function main() {
     employees: counts[0], payRuns: counts[1], taxRates: counts[2], invoices: counts[3], journalEntries: counts[4], bankAccounts: counts[5],
     goals: counts[6], milestones: counts[7], kpis: counts[8], savedReports: counts[9], customFields: counts[10], workRoles: counts[11],
     ipAllowlists: counts[12], integrations: counts[13], webhooks: counts[14], mcpServers: counts[15], egressDecisions: counts[16], documents: counts[17], feedback: counts[18], workItemLinks: counts[19],
-    url: `https://defcon.fightingsmartcyber.com/${SLUG}`,
+    url: `https://example.com/${SLUG}`,
   });
 }
 

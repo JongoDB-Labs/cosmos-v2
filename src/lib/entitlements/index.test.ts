@@ -8,6 +8,7 @@ import {
   normalizeEntitlements,
 } from "./index";
 import { PRODUCT_PROFILES } from "@/lib/product/profiles";
+import type { SectorKey } from "./modules";
 
 describe("entitlements helpers", () => {
   it("DEFAULT_ENTITLEMENTS enables everything (null allowlists)", () => {
@@ -81,8 +82,12 @@ describe("defaultEntitlementsInput", () => {
     expect(defaultEntitlementsInput(PRODUCT_PROFILES.cosmos)).toBeNull();
   });
 
-  it("returns an AEC-sector allowlist for Pontis", () => {
-    expect(defaultEntitlementsInput(PRODUCT_PROFILES.pontis)).toEqual({
+  it("returns an AEC-sector allowlist for a vertical profile", () => {
+    const vertical = {
+      ...PRODUCT_PROFILES.cosmos,
+      defaultEnabledSectors: ["aec"] as SectorKey[],
+    };
+    expect(defaultEntitlementsInput(vertical)).toEqual({
       moduleAllowlistEnabled: false,
       enabledModules: [],
       sectorAllowlistEnabled: true,

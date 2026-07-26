@@ -32,7 +32,7 @@ const defaultSkin = getSkinPreset(brand.defaultSkinId).id;
 const skinCss = allSkinsCss();
 
 // Metadata + viewport read getBrand() at REQUEST time so a one-image deployment
-// gets the runtime product's <title>/theme-color (e.g. PRODUCT=pontis → "Pontis",
+// gets the runtime product's <title>/theme-color (e.g. PRODUCT=<brand> → that brand's name,
 // not the build-baked cosmos default). Under Cache Components, generateMetadata
 // reading runtime data needs a dynamic marker in the tree — the RootBrandProvider
 // (`await connection()` inside <Suspense>, in the body below) is that marker, so
@@ -58,7 +58,7 @@ export async function generateMetadata(): Promise<Metadata> {
 // respect them. `app/manifest.ts` supplies the manifest link automatically.
 // Viewport stays STATIC (build-baked themeColor): `connection()` here forces a
 // fully-dynamic viewport, which Next disallows for prerendered routes (build
-// error). themeColor is a deferred one-image minor (cosmos accent on a pontis
+// error). themeColor is a deferred one-image minor (cosmos accent on an alternate-brand
 // deploy); the title — the visible white-label surface — is fixed via the
 // runtime generateMetadata above.
 export const viewport: Viewport = {
@@ -73,7 +73,7 @@ export const viewport: Viewport = {
  * It reads the `theme` and `skin` cookies and applies `light`/`dark` and
  * `skin-<id>` classes to <html>. The SSR-rendered class on <html> uses the
  * active product's `defaultSkinId` (e.g. `skin-universe` for cosmos,
- * `skin-atelier` for Pontis); the script corrects it at runtime if the
+ * `skin-atelier` for the atelier brand); the script corrects it at runtime if the
  * user's cookie differs. RootLayout stays a pure synchronous server component
  * (no `cookies()` call) — required by Next.js 16 Cache Components.
  */

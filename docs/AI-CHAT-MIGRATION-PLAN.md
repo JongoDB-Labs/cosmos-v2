@@ -1,6 +1,6 @@
 # AI Chat — okr-dashboard parity migration
 
-Driven by the survey of `/home/defcon/okr-dashboard` in 2026-05-28. Cosmos already has the core foundation (Claude CLI integration, tool-call iteration loop, audit logging, rate limiting, RBAC). This plan lists what's left to reach feature parity, plus what we intentionally diverge on.
+Driven by the survey of `/home/deploy/okr-dashboard` in 2026-05-28. Cosmos already has the core foundation (Claude CLI integration, tool-call iteration loop, audit logging, rate limiting, RBAC). This plan lists what's left to reach feature parity, plus what we intentionally diverge on.
 
 ---
 
