@@ -540,6 +540,22 @@ nav entry appears; disable it, confirm the nav entry disappears and `/pi-plannin
 
 ---
 
+## Verification gotchas (found the hard way)
+
+1. **Run the client-identity gate AFTER `git add`.** It scans `git ls-files`, so an
+   untracked new file is invisible to it. Running it on an unstaged doc gives a
+   false green.
+2. **`rm -rf .next` when switching between composed and neutral.** Next generates
+   `.next/types/validator.ts` entries for every route; after `--clean` the composed
+   route sources are gone and those validators dangle, so `tsc` reports a wall of
+   `TS2307 Cannot find module …(plugin-*)…` that is pure staleness, not a
+   regression.
+3. **A hyphenated slug was never actually supported.** Two independent sites
+   interpolated the raw slug where a JS identifier / camelCase accessor was
+   required: the isolation guard (silently matched nothing) and the generated
+   registry files (hard syntax error). Both fixed; `camelSlug` / `pluginModelPrefix`
+   are cross-checked against each other by a parity test.
+
 ## Definition of done for Slice 0
 
 - [ ] `pluginModelPrefix` extracted, tested, and used by the isolation guard
