@@ -9,7 +9,11 @@
  *      + the (plugin-<slug>) route shims),
  *   2. appends `prisma/<slug>.prisma` after the `// @plugin-schema-fragments` marker,
  *   3. injects each declared back-relation after the `// @plugin-backrel:<Model>` marker,
- *   4. (re)generates src/lib/plugins/registry/{index,server}.ts to register the manifests
+ *   4. merges `plugin.json.dependencies` into package.json and refreshes
+ *      package-lock.json (the Dockerfile runs `npm ci`, which fails hard when the two
+ *      disagree — a plugin cannot ship its own package.json, so this is the only way
+ *      for it to declare a runtime dependency),
+ *   5. (re)generates src/lib/plugins/registry/{index,server}.ts to register the manifests
  *      + server hooks + integration providers.
  * Every path it writes is added to `.git/info/exclude` so a plugin's client code can
  * never be accidentally committed to the public core. `--clean` reverses it all.

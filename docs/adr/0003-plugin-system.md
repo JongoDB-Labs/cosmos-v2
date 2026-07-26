@@ -56,6 +56,13 @@ visible surfaces(org, user) = RBAC(user) ∩ coreEntitlements(org) ∩ pluginEna
   Enforced by `plugin-isolation.arch.test.ts` + an ESLint `no-restricted-imports`
   mirror. Plugin-owned Prisma models are `<Slug>*`-prefixed, additive-only, and
   queried only inside the plugin (arch-tested).
+- **Dependencies**: a plugin declares npm dependencies in `plugin.json.dependencies`;
+  compose merges them into `package.json` and regenerates `package-lock.json`
+  (the image builds with `npm ci`, which refuses a package.json/lock mismatch).
+  A plugin cannot ship its own `package.json` — the overlay collision guard
+  rejects tracked core paths — so this is the only sanctioned route. Version
+  conflicts between plugins, or against core, are fatal at compose time rather
+  than silently resolved.
 - **Storage**: `OrgPluginState` — row per (org, plugin): `enabled`, `config`
   (validated by the plugin's zod schema), `enabledVersion/By/At`.
 - **Provisioning**: `ProductProfile.defaultEnabledPlugins` (+ `DEFAULT_ENABLED_PLUGINS`
