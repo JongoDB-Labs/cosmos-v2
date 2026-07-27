@@ -21,12 +21,44 @@
  *   node scripts/plugins/gen-migration.mjs [out.sql]
  */
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const ROOT = process.cwd();
 const out = process.argv[2] ?? "plugin-migration.sql";
+
+/**
+ * This diffs NEUTRAL (git HEAD) → composed, so the output is always a plugin's
+ * ENTIRE schema, not the delta since its last migration. That is right the first
+ * time and a trap every time after: the whole-schema output looks like a newer,
+ * better version of the existing init migration, so the tempting move is to
+ * overwrite it — which is exactly how the DEFCON instance ended up with 11 of 13
+ * pi_planning tables. `prisma migrate deploy` skips a migration already recorded
+ * in _prisma_migrations WITHOUT re-reading the file, and exits 0, so an edited
+ * migration never reaches an instance that already ran it and nothing reports a
+ * problem. A migration that has shipped is immutable; changes get a NEW file.
+ */
+const shipped = [];
+const pluginsDir = join(ROOT, "plugins");
+if (existsSync(pluginsDir)) {
+  for (const slug of readdirSync(pluginsDir)) {
+    const migDir = join(pluginsDir, slug, "migrations");
+    if (!existsSync(migDir)) continue;
+    for (const name of readdirSync(migDir)) shipped.push(`${slug}/${name}`);
+  }
+}
+if (shipped.length > 0) {
+  console.warn(
+    `[gen-migration] ⚠️  ${shipped.length} plugin migration(s) already exist:\n` +
+      shipped.map((s) => `      ${s}`).join("\n") +
+      `\n    This output is the FULL composed schema, not the delta since those.\n` +
+      `    Do NOT overwrite an existing migration — instances that already ran it\n` +
+      `    will silently never receive your change. Write the delta to a NEW\n` +
+      `    timestamped directory instead, guarded with IF NOT EXISTS so it is a\n` +
+      `    no-op where the objects are already present.`,
+  );
+}
 
 // The schema-engine binary refuses to start without `--datasource <JSON>`, which
 // prisma.config.ts derives from DATABASE_URL. A schema→schema diff never
