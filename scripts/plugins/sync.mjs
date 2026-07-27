@@ -175,8 +175,17 @@ for (const [model, lines] of Object.entries(backrel)) {
   if (!schema.includes(marker)) throw new Error(`[plugin-sync] missing schema marker: ${marker}`);
   schema = schema.replace(marker, marker + "\n" + lines.join("\n"));
 }
+// Matched on the marker PREFIX, and it throws when absent — the back-relation
+// markers above already do. A plain String.replace on the full sentence fails
+// SILENTLY if anyone rewords or trims that comment: every plugin's models
+// quietly stop being composed, the schema still parses, and the first sign is
+// Prisma reporting unknown models at runtime.
+const FRAGMENT_MARKER = "// @plugin-schema-fragments";
+if (!schema.includes(FRAGMENT_MARKER)) {
+  throw new Error(`[plugin-sync] missing schema marker: ${FRAGMENT_MARKER}`);
+}
 schema = schema.replace(
-  "// @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs",
+  new RegExp(`^${FRAGMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*$`, "m"),
   (m) => m + "\n" + schemaFragments,
 );
 writeFileSync(SCHEMA, schema);
@@ -196,14 +205,18 @@ if (pluginDeps.length > 0) {
     writeFileSync(PKG, JSON.stringify(pkg, null, 2) + "\n");
     written.add("package.json");
     console.log("[plugin-sync] merged plugin dependencies — refreshing package-lock.json");
-    // `shell: true` so `npm` resolves exactly the way a workflow `run:` step
-    // resolves it. Without it this exits 127 on a GitHub runner — execFileSync
-    // spawns the binary directly, which does not go through the shell PATH
-    // handling that setup-node relies on. It works locally either way, so the
-    // failure only ever appears in CI, and only once a plugin actually declares
-    // npm dependencies — which nothing did until pi-planning needed a realtime
-    // client, so this path shipped unexercised.
-    execFileSync("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"], {
+    // --ignore-scripts is REQUIRED, not tidiness. `--package-lock-only` still
+    // runs the `prepare` lifecycle script, and this repo's prepare runs husky —
+    // which is a devDependency that is not installed at compose time on a clean
+    // runner. npm then exits 127 ("sh -c husky": command not found) and takes
+    // the whole release build with it. It works on a developer machine purely
+    // because husky is already in node_modules there.
+    //
+    // Skipping scripts is also correct on the merits: this resolves a dependency
+    // graph to refresh the lockfile, it does not build or install anything.
+    //
+    // `shell: true` matches how a workflow `run:` step resolves `npm`.
+    execFileSync("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"], {
       cwd: ROOT,
       stdio: "inherit",
       shell: true,
