@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.237.3",
+    date: "2026-07-27",
+    title: "Releases now reach your instance automatically",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Updates published to Cosmos now roll out to your instance on their own. Previously a release could be built and then quietly never installed, leaving you on an older version with nothing to indicate anything had gone wrong.",
+      },
+    ],
+  },
+  {
     version: "2.237.2",
     date: "2026-07-26",
     title: "Plugins: add-ons can now ship their own libraries",

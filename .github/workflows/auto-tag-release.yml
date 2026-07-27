@@ -19,6 +19,7 @@ concurrency: { group: auto-tag-release, cancel-in-progress: false }
 
 permissions:
   contents: read
+  actions: read   # the confirm step lists release.yml runs
 
 jobs:
   tag:
@@ -36,6 +37,7 @@ jobs:
           persist-credentials: true
 
       - name: Tag the version if it is untagged
+        id: tag
         env:
           RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
         run: |
@@ -68,5 +70,35 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "${TAG}"
           git push origin "${TAG}"
-          echo "::notice::pushed ${TAG} — release.yml will build, sign, and dispatch the composed images."
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::pushed ${TAG} — release.yml should now build, sign, and dispatch the composed images."
           echo "### Released \`${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # Close the loop. Pushing the tag is only half the job: if the token is ever
+      # swapped for GITHUB_TOKEN, the push still SUCCEEDS but GitHub's recursion
+      # guard suppresses the `on: push: tags` trigger, so release.yml never runs
+      # and nothing anywhere reports it. That is the exact silent gap this whole
+      # workflow exists to close, so it must not be able to reopen unnoticed.
+      - name: Confirm release.yml actually fired
+        if: steps.tag.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+
+          for _ in $(seq 1 10); do
+            if [ "$(gh run list --workflow release.yml --branch "${TAG}" --limit 1 --json databaseId --jq 'length')" = "1" ]; then
+              echo "::notice::release.yml is running for ${TAG}."
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "::warning::${TAG} exists but no release.yml run appeared for it after ~2.5 minutes. If the tag was pushed with GITHUB_TOKEN rather than RELEASE_TAG_TOKEN, GitHub's recursion guard suppresses the trigger and no release will ever run for this version."
+          {
+            echo "### Tag pushed but no release run"
+            echo ""
+            echo "\`${TAG}\` exists with no \`release.yml\` run. The composed images will not be rebuilt."
+          } >> "$GITHUB_STEP_SUMMARY"
