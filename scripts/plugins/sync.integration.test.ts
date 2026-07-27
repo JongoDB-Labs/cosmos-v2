@@ -58,7 +58,22 @@ function buildSandbox(): string {
   mkdirSync(join(root, "src", "lib", "plugins", "registry"), { recursive: true });
   writeFileSync(
     join(root, "package.json"),
-    JSON.stringify({ name: "sandbox", version: "0.0.0", dependencies: { zod: "^3.0.0" } }, null, 2) + "\n",
+    JSON.stringify(
+      {
+        name: "sandbox",
+        version: "0.0.0",
+        // Reproduces the real repo's `prepare: husky`. npm runs `prepare` even
+        // for --package-lock-only, and on a clean runner that devDependency is
+        // not installed — which is exactly how the v2.240.1 release build died
+        // with "sh -c husky: command not found" (exit 127). Pointing it at a
+        // command that cannot exist makes this sandbox fail the same way unless
+        // sync.mjs passes --ignore-scripts.
+        scripts: { prepare: "this-command-does-not-exist" },
+        dependencies: { zod: "^3.0.0" },
+      },
+      null,
+      2,
+    ) + "\n",
   );
   // A lockfile npm can refresh. Minimal but valid.
   writeFileSync(
