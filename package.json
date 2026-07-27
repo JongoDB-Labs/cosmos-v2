@@ -25,7 +25,8 @@
     "cutover:soak-acceptance": "bash scripts/cutover/acceptance/run-soak-reconcile-acceptance.sh",
     "cutover:acceptance-orchestrate": "bash scripts/cutover/acceptance/run-cutover-acceptance.sh",
     "cutover:gov-gate-acceptance": "bash scripts/cutover/acceptance/run-gov-gate-revoke-acceptance.sh",
-    "cutover:snapshot-acceptance": "bash scripts/cutover/acceptance/run-snapshot-restore-acceptance.sh"
+    "cutover:snapshot-acceptance": "bash scripts/cutover/acceptance/run-snapshot-restore-acceptance.sh",
+    "release:bump": "node scripts/plugins/bump-version.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
