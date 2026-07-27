@@ -20,8 +20,8 @@
  *   node scripts/plugins/lock.mjs --write   # record current plugin HEADs
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const LOCK = join(ROOT, "plugins.lock.json");
@@ -32,27 +32,61 @@ const write = process.argv.includes("--write");
  *  deliberately tracked at head. Anything else is a ref-injection risk. */
 const REF_RE = /^(main|[0-9a-f]{40})$/;
 
+/** Read and parse a JSON file, or null if it is absent or unreadable. Reading
+ *  and handling failure avoids the check-then-use race that an existsSync guard
+ *  introduces (CodeQL js/file-system-race). */
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Directory entries, or [] if the directory is absent. Same reasoning. */
+function listDir(path) {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The HEAD of the repo rooted AT `dir`, or null if `dir` is not itself a
+ * checkout.
+ *
+ * The toplevel comparison is load-bearing: `git -C <dir>` walks UP to the
+ * nearest enclosing repository, so a plugin directory that is merely a folder
+ * inside the core tree would happily report the CORE's HEAD and silently pin
+ * every plugin to the wrong commit. Checking the resolved root instead of
+ * stat-ing `.git` gets the same guarantee without a check-then-use race.
+ */
 function headOf(dir) {
   try {
-    return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const top = execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (resolve(top) !== resolve(dir)) return null;
+    return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     return null;
   }
 }
 
 const current = {};
-if (existsSync(PLUGINS_DIR)) {
-  for (const slug of readdirSync(PLUGINS_DIR).sort()) {
-    // A plugin is only lockable if it is its own checkout — the composed tree
-    // has no separate history to pin.
-    if (!existsSync(join(PLUGINS_DIR, slug, ".git"))) continue;
-    const sha = headOf(join(PLUGINS_DIR, slug));
-    if (sha) current[slug] = sha;
-  }
+for (const slug of listDir(PLUGINS_DIR).sort()) {
+  // A plugin is only lockable if it is its own checkout — the composed tree has
+  // no separate history to pin. headOf() enforces that.
+  const sha = headOf(join(PLUGINS_DIR, slug));
+  if (sha) current[slug] = sha;
 }
 
-const existing = existsSync(LOCK) ? JSON.parse(readFileSync(LOCK, "utf8")) : { plugins: {} };
-const locked = existing.plugins ?? {};
+const locked = readJson(LOCK)?.plugins ?? {};
 
 if (write) {
   const next = {
