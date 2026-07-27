@@ -23,11 +23,15 @@ export const CHANGELOG: Release[] = [
   {
     version: "2.239.0",
     date: "2026-07-27",
-    title: "PI Planning: run the event to a clock",
+    title: "PI Planning: run the event to a clock, and break out by team",
     highlights: [
       {
         kind: "feature",
         text: "Planning events now have an agenda and a timer. Load the standard SAFe two-day running order in one click or build your own, then start, pause and complete each segment — everyone in the event sees the same countdown, and overrunning is shown rather than enforced.",
+      },
+      {
+        kind: "feature",
+        text: "A team breakout view shows one team's plan on its own: their features by iteration, their objectives and predictability, their risks, and what still stands in the way of committing — without the rest of the train competing for the screen.",
       },
     ],
   },
