@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.237.4",
+    date: "2026-07-27",
+    title: "Turning on an add-on now takes you straight to it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Enabling an add-on under Settings → Plugins now adds it to your sidebar immediately. Previously the switch flipped but the link only appeared after a full page reload, which made it look as though the add-on had failed to install.",
+      },
+    ],
+  },
+  {
     version: "2.237.3",
     date: "2026-07-27",
     title: "Releases now reach your instance automatically",
