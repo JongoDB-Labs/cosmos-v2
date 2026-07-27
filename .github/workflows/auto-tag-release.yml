@@ -1,0 +1,72 @@
+# Tag main at its package.json version whenever that version has no tag yet.
+#
+# WHY THIS EXISTS: release.yml fires on `push: tags: ["v*"]`, and nothing in CI
+# ever created that tag — historically only the delivery daemon did, from the
+# host, as the last step of shipping a ticket. So work that reached main by ANY
+# other route (a human merge, an agent-authored PR) bumped the version, built
+# green, and then silently never released. The instances stayed on the previous
+# version with no failure anywhere to notice.
+#
+# Idempotent: it tags only when the version has no tag, so re-runs, force-pushes
+# and daemon-shipped releases (already tagged by the time this runs) are no-ops.
+name: auto-tag-release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: { group: auto-tag-release, cancel-in-progress: false }
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          # The default GITHUB_TOKEN cannot be used to push the tag: GitHub's
+          # recursion guard means a ref pushed with it does NOT trigger
+          # `on: push: tags`, so release.yml would never fire and this workflow
+          # would be an elaborate no-op. A PAT with contents:write is required.
+          token: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+          persist-credentials: true
+
+      - name: Tag the version if it is untagged
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1 \
+             || git ls-remote --exit-code --tags origin "${TAG}" >/dev/null 2>&1; then
+            echo "::notice::${TAG} already exists — nothing to do."
+            exit 0
+          fi
+
+          if [ -z "${RELEASE_TAG_TOKEN:-}" ]; then
+            # Deliberately a warning, not a hard failure: a red main on every
+            # merge would be worse than a visible annotation. But it must NOT be
+            # silent — a quiet skip here is exactly how the release gap went
+            # unnoticed in the first place.
+            echo "::warning::${TAG} is untagged and RELEASE_TAG_TOKEN is not set, so no release will run and the deployed instances will stay on the previous version. Add a PAT with contents:write on this repo as RELEASE_TAG_TOKEN."
+            {
+              echo "### Release not triggered"
+              echo ""
+              echo "\`${TAG}\` has no tag and \`RELEASE_TAG_TOKEN\` is unset."
+              echo "Instances remain on the previously released version."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${TAG}"
+          git push origin "${TAG}"
+          echo "::notice::pushed ${TAG} — release.yml will build, sign, and dispatch the composed images."
+          echo "### Released \`${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
