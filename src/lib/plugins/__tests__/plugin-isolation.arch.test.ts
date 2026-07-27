@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, basename } from "node:path";
+import { pluginModelPrefix } from "../slug";
 
 /**
  * Plugin isolation guarantees (ADR 0003). Plugin code (src/plugins/**) may import
@@ -113,7 +114,9 @@ describe("plugin isolation (ADR 0003)", () => {
     // Neutral core: no composed plugins, so there are no plugin-owned models to
     // guard and the invariant holds vacuously. When a plugin composes in, its
     // <slug>-prefixed models must be queried only inside src/plugins/**.
-    const patterns = slugs.map((s) => new RegExp(`\\bprisma\\.${s}[A-Z]`));
+    // camelCase the slug: Prisma exposes `model PiPlanningCard` via the accessor
+    // `piPlanningCard`, so a raw hyphenated slug would never match.
+    const patterns = slugs.map((s) => new RegExp(`\\bprisma\\.${pluginModelPrefix(s)}[A-Z]`));
     const offenders = sharedFiles.filter((rel) => {
       if (patterns.length === 0) return false;
       const text = readFileSync(join(ROOT, rel), "utf8");

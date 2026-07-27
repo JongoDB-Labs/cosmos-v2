@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.237.2",
+    date: "2026-07-26",
+    title: "Plugins: add-ons can now ship their own libraries",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Optional capability bundles under Settings → Plugins can now bring the software libraries they need with them, so richer add-ons — collaborative, realtime surfaces among them — can be offered to your organization. Nothing changes for plugins you have already enabled.",
+      },
+    ],
+  },
+  {
     version: "2.237.1",
     date: "2026-07-25",
     title: "Accessibility: copy-token button now announced to screen readers",
