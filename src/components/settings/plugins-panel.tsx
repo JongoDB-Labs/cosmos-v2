@@ -1,6 +1,7 @@
 "use client";
 
 import { createElement, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Blocks, ChevronDown, ChevronRight, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,7 @@ function pluginIcon(slug: string): LucideIcon {
 }
 
 export function PluginsPanel({ orgId }: { orgId: string }) {
+  const router = useRouter();
   const queryKey = useOrgQueryKey("plugins");
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey,
@@ -68,6 +70,11 @@ export function PluginsPanel({ orgId }: { orgId: string }) {
         body: JSON.stringify(body),
       }),
     invalidate: [["plugins"]],
+    // The sidebar's plugin nav is derived SERVER-SIDE in the dashboard layout
+    // (enabledPlugins), so invalidating the client cache alone leaves a freshly
+    // enabled plugin with no way to reach it until a hard refresh. Re-run the
+    // layout so the nav entry appears at the moment the toggle flips.
+    onSuccess: () => router.refresh(),
   });
 
   if (isLoading) {
