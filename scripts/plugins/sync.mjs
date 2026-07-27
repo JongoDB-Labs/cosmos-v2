@@ -196,9 +196,17 @@ if (pluginDeps.length > 0) {
     writeFileSync(PKG, JSON.stringify(pkg, null, 2) + "\n");
     written.add("package.json");
     console.log("[plugin-sync] merged plugin dependencies — refreshing package-lock.json");
+    // `shell: true` so `npm` resolves exactly the way a workflow `run:` step
+    // resolves it. Without it this exits 127 on a GitHub runner — execFileSync
+    // spawns the binary directly, which does not go through the shell PATH
+    // handling that setup-node relies on. It works locally either way, so the
+    // failure only ever appears in CI, and only once a plugin actually declares
+    // npm dependencies — which nothing did until pi-planning needed a realtime
+    // client, so this path shipped unexercised.
     execFileSync("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"], {
       cwd: ROOT,
       stdio: "inherit",
+      shell: true,
     });
     written.add("package-lock.json");
   }

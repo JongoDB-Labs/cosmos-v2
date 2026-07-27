@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.240.1",
+    date: "2026-07-27",
+    title: "Fixes a build failure that blocked the previous release",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The 2.240.0 image failed to build, so the PI Planning role and editing improvements never reached instances. Nothing was lost — the release simply stopped before deploying. This restores the build.",
+      },
+    ],
+  },
+  {
     version: "2.240.0",
     date: "2026-07-27",
     title: "PI Planning: roles for the whole team, and nothing you can't edit",
