@@ -33,8 +33,8 @@ const out = process.argv[2] ?? "plugin-migration.sql";
  * ENTIRE schema, not the delta since its last migration. That is right the first
  * time and a trap every time after: the whole-schema output looks like a newer,
  * better version of the existing init migration, so the tempting move is to
- * overwrite it — which is exactly how the DEFCON instance ended up with 11 of 13
- * pi_planning tables. `prisma migrate deploy` skips a migration already recorded
+ * overwrite it — which is exactly how a live instance ended up with 11 of its 13
+ * plugin tables. `prisma migrate deploy` skips a migration already recorded
  * in _prisma_migrations WITHOUT re-reading the file, and exits 0, so an edited
  * migration never reaches an instance that already ran it and nothing reports a
  * problem. A migration that has shipped is immutable; changes get a NEW file.
