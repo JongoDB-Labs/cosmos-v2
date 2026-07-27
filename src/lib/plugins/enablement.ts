@@ -2,6 +2,11 @@ import { prisma } from "@/lib/db/client";
 import { getBrand } from "@/lib/brand";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { PluginRegistry, PluginServerRegistry } from "./registry";
+// Side-effect import: the generated registry is what POPULATES those singletons.
+// Without it PluginRegistry.get() is empty here, reconcilePluginVersion silently
+// returns, and a deployed plugin upgrade reaches nobody — which is exactly how
+// eight new SAFe roles shipped to prod and never appeared.
+import "./registry/server";
 import { resolveDefaultPlugins } from "./default-env";
 
 /**
@@ -31,6 +36,57 @@ export async function isPluginEnabled(orgId: string, slug: string): Promise<bool
 export async function requirePluginEnabled(orgId: string, slug: string): Promise<void> {
   if (!(await isPluginEnabled(orgId, slug))) {
     throw new ForbiddenError(`Plugin "${slug}" is not enabled for this organization`);
+  }
+  await reconcilePluginVersion(orgId, slug);
+}
+
+/**
+ * Run a plugin's onUpgrade when the deployed manifest has moved past what this
+ * org was last provisioned at.
+ *
+ * Without this, onUpgrade only ever fires from the Settings → Plugins PATCH —
+ * i.e. when an admin happens to toggle something. Shipping a new plugin version
+ * would therefore deliver its migrations-of-data (new roles, new seed rows) to
+ * NOBODY until a human clicked, and the orgs already using the plugin are
+ * exactly the ones that need them. Observed live: a release added eight SAFe
+ * roles and the running instance still showed six.
+ *
+ * Idempotent and self-limiting: it stamps enabledVersion, so this runs at most
+ * once per org per version and every subsequent request short-circuits on the
+ * cheap equality check.
+ */
+export async function reconcilePluginVersion(orgId: string, slug: string): Promise<void> {
+  const manifest = PluginRegistry.get(slug);
+  if (!manifest?.version) return;
+
+  const row = await prisma.orgPluginState.findUnique({
+    where: { orgId_pluginSlug: { orgId, pluginSlug: slug } },
+    select: { enabledVersion: true },
+  });
+  if (!row || row.enabledVersion === manifest.version) return;
+
+  // Best-effort. A plugin whose upgrade hook throws must not take down every
+  // request to that plugin — the version stays unstamped, so the next request
+  // retries, and the failure is visible in logs rather than as a 500 storm.
+  try {
+    await PluginServerRegistry.get(slug)?.onUpgrade?.(prisma, orgId, row.enabledVersion);
+    await prisma.orgPluginState.update({
+      where: { orgId_pluginSlug: { orgId, pluginSlug: slug } },
+      data: { enabledVersion: manifest.version },
+    });
+  } catch (e) {
+    // Deliberately silent to the USER. This runs inside an unrelated request —
+    // any plugin API call — so the person who triggered it did not ask for an
+    // upgrade and can do nothing about a failure; surfacing it would turn a
+    // background reconcile into an error on a page that otherwise worked. The
+    // version stays unstamped so the next request retries, and operators see it
+    // in the server log.
+    // eslint-disable-next-line no-restricted-syntax -- background reconcile, see above
+    console.error(
+      `[plugins] onUpgrade failed for ${slug} in org ${orgId} ` +
+        `(${row.enabledVersion} → ${manifest.version}):`,
+      e,
+    );
   }
 }
 

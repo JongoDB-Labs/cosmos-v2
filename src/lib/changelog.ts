@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.240.3",
+    date: "2026-07-27",
+    title: "Add-on updates now reach organizations already using them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When an add-on shipped new setup — the eight new PI Planning roles, for instance — organizations that already had it enabled kept the old set until an admin happened to toggle it in Settings. Those updates now apply on their own, so the new roles appear where they were expected.",
+      },
+    ],
+  },
+  {
     version: "2.240.2",
     date: "2026-07-27",
     title: "Restores the build, delivering the PI Planning improvements",
