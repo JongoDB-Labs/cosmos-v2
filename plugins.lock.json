@@ -2,10 +2,10 @@
   "$comment": "Plugin commits this core release composes with. The assembly build reads this so an image is reproducible and a release describes what actually ships. Regenerate with: node scripts/plugins/lock.mjs --write",
   "plugins": {
     "foreman": {
-      "ref": "40ccab7007b8579a58f6e2b916a7551f5a2162c9"
+      "ref": "70413da12c6b82889eb174b285d502d4a8523fb9"
     },
     "pi-planning": {
-      "ref": "aef0904e7bed6fe5634eb880501d74ded352cba8"
+      "ref": "dddd2cec06dda483119e208688a4bf20f5c2a5ea"
     }
   }
 }
