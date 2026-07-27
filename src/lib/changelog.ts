@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.237.5",
+    date: "2026-07-27",
+    title: "PI Planning: the confidence vote now works on existing instances",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Running a confidence vote in PI Planning failed on organizations that enabled the add-on before the feature shipped, because part of its storage was never created for them. Existing events, objectives and risks are unaffected — nothing was lost, and the vote now opens, collects and closes normally.",
+      },
+    ],
+  },
+  {
     version: "2.237.4",
     date: "2026-07-27",
     title: "Turning on an add-on now takes you straight to it",
