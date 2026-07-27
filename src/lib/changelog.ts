@@ -37,6 +37,10 @@ export const CHANGELOG: Release[] = [
         kind: "feature",
         text: "Export an event for people who don't use Cosmos: a Markdown summary of the whole plan, or the objectives, risks and board as spreadsheets.",
       },
+      {
+        kind: "feature",
+        text: "Start a new PI from the last one. It carries over the setup you'd otherwise retype — the same teams, projects, iteration columns and agenda — and none of the previous PI's features, objectives or risks, which belong to that PI's record.",
+      },
     ],
   },
   {
