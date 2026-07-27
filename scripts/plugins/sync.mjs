@@ -175,8 +175,17 @@ for (const [model, lines] of Object.entries(backrel)) {
   if (!schema.includes(marker)) throw new Error(`[plugin-sync] missing schema marker: ${marker}`);
   schema = schema.replace(marker, marker + "\n" + lines.join("\n"));
 }
+// Matched on the marker PREFIX, and it throws when absent — the back-relation
+// markers above already do. A plain String.replace on the full sentence fails
+// SILENTLY if anyone rewords or trims that comment: every plugin's models
+// quietly stop being composed, the schema still parses, and the first sign is
+// Prisma reporting unknown models at runtime.
+const FRAGMENT_MARKER = "// @plugin-schema-fragments";
+if (!schema.includes(FRAGMENT_MARKER)) {
+  throw new Error(`[plugin-sync] missing schema marker: ${FRAGMENT_MARKER}`);
+}
 schema = schema.replace(
-  "// @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs",
+  new RegExp(`^${FRAGMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*$`, "m"),
   (m) => m + "\n" + schemaFragments,
 );
 writeFileSync(SCHEMA, schema);
