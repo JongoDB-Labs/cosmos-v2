@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.239.0",
+    date: "2026-07-27",
+    title: "PI Planning: run the event to a clock, and break out by team",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Planning events now have an agenda and a timer. Load the standard SAFe two-day running order in one click or build your own, then start, pause and complete each segment — everyone in the event sees the same countdown, and overrunning is shown rather than enforced.",
+      },
+      {
+        kind: "feature",
+        text: "A team breakout view shows one team's plan on its own: their features by iteration, their objectives and predictability, their risks, and what still stands in the way of committing — without the rest of the train competing for the screen.",
+      },
+      {
+        kind: "feature",
+        text: "Export an event for people who don't use Cosmos: a Markdown summary of the whole plan, or the objectives, risks and board as spreadsheets.",
+      },
+      {
+        kind: "feature",
+        text: "Start a new PI from the last one. It carries over the setup you'd otherwise retype — the same teams, projects, iteration columns and agenda — and none of the previous PI's features, objectives or risks, which belong to that PI's record.",
+      },
+    ],
+  },
+  {
     version: "2.238.0",
     date: "2026-07-27",
     title: "PI Planning: see who's in the room, and right-click anything",
