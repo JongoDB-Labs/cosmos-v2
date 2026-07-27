@@ -33,6 +33,10 @@ export const CHANGELOG: Release[] = [
         kind: "feature",
         text: "A team breakout view shows one team's plan on its own: their features by iteration, their objectives and predictability, their risks, and what still stands in the way of committing — without the rest of the train competing for the screen.",
       },
+      {
+        kind: "feature",
+        text: "Export an event for people who don't use Cosmos: a Markdown summary of the whole plan, or the objectives, risks and board as spreadsheets.",
+      },
     ],
   },
   {
