@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.240.0",
+    date: "2026-07-27",
+    title: "PI Planning: roles for the whole team, and nothing you can't edit",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Eight more SAFe roles — Developer, Tester/QA, Business Analyst, UX Designer, DevOps/System Team, Agile Coach, Epic Owner and Solution Train Engineer. The previous six covered leadership only, which left most of the people actually in the room with no role to hold. Organizations already using PI Planning get the new roles automatically.",
+      },
+      {
+        kind: "improvement",
+        text: "Anything you create during an event can now be corrected. Cards can be renamed and annotated, risks can be re-titled and re-scored after they're raised, and a confidence vote opened by mistake can be relabelled or discarded. Re-scoring a risk recalculates its level, and leaves your Resolved/Owned/Accepted/Mitigated decision alone.",
+      },
+    ],
+  },
+  {
     version: "2.239.0",
     date: "2026-07-27",
     title: "PI Planning: run the event to a clock, and break out by team",
