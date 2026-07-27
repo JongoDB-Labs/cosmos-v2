@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.238.0",
+    date: "2026-07-27",
+    title: "PI Planning: see who's in the room, and right-click anything",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A planning event now shows everyone currently in it, which section they're on, and what they have open — so you can tell at a glance whether the teams have arrived, and whether someone else is already editing the objective you were about to change.",
+      },
+      {
+        kind: "feature",
+        text: "Right-click any card, objective, risk, team or event for the actions it supports. On the program board this includes moving a feature to another iteration or team by name, which drag-and-drop can't do once the board is wide enough to scroll — and can't do at all from a keyboard.",
+      },
+      {
+        kind: "feature",
+        text: "New to PI Planning? \"Load reference event\" builds a complete worked example — a filled program board, objectives with business value, ROAM'd risks and a closed confidence vote — clearly badged as sample data and removable in one click.",
+      },
+    ],
+  },
+  {
     version: "2.237.5",
     date: "2026-07-27",
     title: "PI Planning: the confidence vote now works on existing instances",
