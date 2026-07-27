@@ -550,7 +550,15 @@ nav entry appears; disable it, confirm the nav entry disappears and `/pi-plannin
    route sources are gone and those validators dangle, so `tsc` reports a wall of
    `TS2307 Cannot find module …(plugin-*)…` that is pure staleness, not a
    regression.
-3. **A hyphenated slug was never actually supported.** Two independent sites
+3. **`prisma migrate diff` failed with an EMPTY error and no output.** The
+   schema-engine binary refuses to start without `--datasource <JSON>`, and
+   `prisma.config.ts` used to omit the datasource key entirely whenever
+   `DATABASE_URL` was unset — so every schema-engine command died with a blank
+   `Error in Schema engine:`. That silently blocked generating plugin migrations.
+   Fixed by always supplying a datasource (literal placeholder when the env var is
+   absent). A schema→schema diff never connects, verified by pointing the URL at
+   an unroutable host and still getting correct SQL.
+4. **A hyphenated slug was never actually supported.** Two independent sites
    interpolated the raw slug where a JS identifier / camelCase accessor was
    required: the isolation guard (silently matched nothing) and the generated
    registry files (hard syntax error). Both fixed; `camelSlug` / `pluginModelPrefix`

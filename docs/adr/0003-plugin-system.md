@@ -63,6 +63,11 @@ visible surfaces(org, user) = RBAC(user) ∩ coreEntitlements(org) ∩ pluginEna
   rejects tracked core paths — so this is the only sanctioned route. Version
   conflicts between plugins, or against core, are fatal at compose time rather
   than silently resolved.
+- **Migrations**: plugins ship none. Their tables are created by an additive
+  migration generated OFFLINE at compose time —
+  `node scripts/plugins/gen-migration.mjs` diffs the neutral schema (git HEAD)
+  against the composed one and refuses to emit anything non-additive. The diff is
+  purely textual and never opens a database connection.
 - **Storage**: `OrgPluginState` — row per (org, plugin): `enabled`, `config`
   (validated by the plugin's zod schema), `enabledVersion/By/At`.
 - **Provisioning**: `ProductProfile.defaultEnabledPlugins` (+ `DEFAULT_ENABLED_PLUGINS`

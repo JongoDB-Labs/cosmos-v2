@@ -19,7 +19,7 @@
 // @prisma/adapter-pg driver adapter in src/lib/db/client.ts. This datasource is only
 // for the migrate/CLI tooling.
 import "dotenv/config";
-import { defineConfig, env } from "prisma/config";
+import { defineConfig } from "prisma/config";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -29,13 +29,25 @@ export default defineConfig({
     // and the auto-seed step of `prisma migrate reset` / `migrate dev`.
     seed: "tsx prisma/seed/index.ts",
   },
-  // Only wire the Migrate datasource when DATABASE_URL is present. `env()` resolves
-  // EAGERLY at config load and throws if the var is unset, which would break
-  // `npx prisma generate` anywhere DATABASE_URL isn't set (e.g. the alternate-product build CI
-  // job, local generate). `generate` needs no datasource URL, so omitting it there is
-  // safe; every command that actually connects (migrate deploy/diff, db execute) runs
-  // with DATABASE_URL set.
-  ...(process.env.DATABASE_URL
-    ? { datasource: { url: env("DATABASE_URL") } }
-    : {}),
+  // ALWAYS wire a Migrate datasource. Two constraints meet here:
+  //
+  //  - `env("DATABASE_URL")` resolves EAGERLY at config load and throws when the
+  //    var is unset, which would break `npx prisma generate` anywhere it isn't
+  //    set (the alternate-product build CI job, a local generate).
+  //  - The schema-engine BINARY refuses to start without `--datasource <JSON>`.
+  //    Omitting the key entirely therefore broke every schema-engine command —
+  //    including `migrate diff`, which needs no database at all — with an
+  //    inscrutable, EMPTY "Error in Schema engine:" and no output. That silently
+  //    blocked generating additive plugin migrations.
+  //
+  // A literal placeholder satisfies both: no eager env() throw, and the engine
+  // always gets its argument. Commands that genuinely connect still use the real
+  // DATABASE_URL whenever it is set, and when it is NOT set they now fail with a
+  // plain connection error to an unroutable host instead of an empty engine
+  // error — louder, not quieter. This file is read ONLY by the Prisma CLI /
+  // Migrate; the application runtime connects through the driver adapter in
+  // src/lib/db/client.ts and never loads it.
+  datasource: {
+    url: process.env.DATABASE_URL ?? "postgresql://unset:unset@127.0.0.1:1/unset",
+  },
 });
