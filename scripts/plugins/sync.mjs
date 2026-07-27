@@ -146,7 +146,23 @@ for (const slug of slugs) {
   }
   // 4) npm dependencies (a plugin can't ship a package.json — see merge-deps.mjs)
   if (cfg.dependencies) pluginDeps.push({ slug, dependencies: cfg.dependencies });
-  // 5) registration
+  // 5) migrations — the plugin OWNS its schema, so it owns the DDL that creates it.
+  // Composing the models without their tables would leave an image whose schema
+  // references relations the database has never heard of. Directory names are the
+  // plugin author's (generated once via gen-migration.mjs), so they are stable:
+  // `migrate deploy` applies each exactly once and re-composing is a no-op.
+  const migRoot = join(dir, cfg.migrations ?? "migrations");
+  if (existsSync(migRoot)) {
+    for (const abs of walk(migRoot)) {
+      const rel = join("prisma", "migrations", relative(migRoot, abs));
+      if (trackedSet.has(rel)) throw new Error(`[plugin-sync] ${slug}: migration collides with a tracked core migration: ${rel}`);
+      const dest = join(ROOT, rel);
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(abs, dest);
+      written.add(rel);
+    }
+  }
+  // 6) registration
   const importPath = "@/" + (cfg.manifest ?? `src/plugins/${slug}/manifest.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   const serverPath = "@/" + (cfg.serverHooks ?? `src/plugins/${slug}/server.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   manifests.push({ slug, importPath, serverPath });

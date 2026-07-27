@@ -63,11 +63,16 @@ visible surfaces(org, user) = RBAC(user) ∩ coreEntitlements(org) ∩ pluginEna
   rejects tracked core paths — so this is the only sanctioned route. Version
   conflicts between plugins, or against core, are fatal at compose time rather
   than silently resolved.
-- **Migrations**: plugins ship none. Their tables are created by an additive
-  migration generated OFFLINE at compose time —
-  `node scripts/plugins/gen-migration.mjs` diffs the neutral schema (git HEAD)
-  against the composed one and refuses to emit anything non-additive. The diff is
-  purely textual and never opens a database connection.
+- **Migrations**: a plugin owns its schema, so it owns the DDL that creates it.
+  It ships a `migrations/<timestamp>_<name>/migration.sql` directory, generated
+  once with `node scripts/plugins/gen-migration.mjs` (which diffs the neutral
+  schema at git HEAD against the composed one, never opens a connection, and
+  refuses to emit anything non-additive). Compose copies it into
+  `prisma/migrations/`, so the composed image's `migrate deploy` creates the
+  plugin's tables like any other migration. Directory names are authored, not
+  generated per build, so each applies exactly once and re-composing is a no-op.
+  Composing models WITHOUT their tables would otherwise ship an image whose
+  schema references relations the database has never heard of.
 - **Storage**: `OrgPluginState` — row per (org, plugin): `enabled`, `config`
   (validated by the plugin's zod schema), `enabledVersion/By/At`.
 - **Provisioning**: `ProductProfile.defaultEnabledPlugins` (+ `DEFAULT_ENABLED_PLUGINS`
