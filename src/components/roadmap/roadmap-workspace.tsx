@@ -23,8 +23,7 @@ type RoadmapKind =
   | "LOE"
   | "RISK"
   | "DECISION"
-  | "STAKEHOLDER"
-  | "MILESTONE";
+  | "STAKEHOLDER";
 
 interface RoadmapNode {
   id: string;
@@ -46,7 +45,6 @@ const KIND_BADGE: Record<RoadmapKind, { variant: BadgeVariant; label: string }> 
   RISK: { variant: "critical", label: "Risk" },
   DECISION: { variant: "review", label: "Decision" },
   STAKEHOLDER: { variant: "neutral", label: "Stakeholder" },
-  MILESTONE: { variant: "done", label: "Milestone" },
 };
 
 interface Props {
@@ -242,8 +240,21 @@ export function RoadmapWorkspace({ orgId, projectId, orgSlug, projectKey }: Prop
 }
 
 function KindBadge({ kind }: { kind: RoadmapKind }) {
-  const meta = KIND_BADGE[kind];
+  // Falls back rather than indexing blind. MILESTONE was retired as a roadmap
+  // kind — a project has one kind of milestone, the Milestone table — but a
+  // document imported before that still returns nodes carrying it, and
+  // `KIND_BADGE[kind].variant` on a missing entry would throw and take the
+  // whole roadmap down.
+  const meta = KIND_BADGE[kind] ?? {
+    variant: "neutral" as BadgeVariant,
+    label: humanizeKind(kind),
+  };
   return <Badge variant={meta.variant}>{meta.label}</Badge>;
+}
+
+/** "MILESTONE" → "Milestone". Only reached for retired/unknown kinds. */
+function humanizeKind(kind: string): string {
+  return kind.charAt(0) + kind.slice(1).toLowerCase();
 }
 
 function SectionView({

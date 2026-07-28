@@ -31,7 +31,7 @@ export const DEMO_APEX_ROADMAP: RoadmapImportNode[] = [
   { kind: "SECTION", externalRef: "S-3", section: "3", title: "§3. Lines of Effort", body: "Parallel workstreams that carry the program to ATO." },
   { kind: "SECTION", externalRef: "S-4", section: "4", title: "§4. Risk Register", body: "Tracked risks with likelihood, impact and mitigation." },
   { kind: "SECTION", externalRef: "S-5", section: "5", title: "§5. Decisions", body: "Open decisions with a default and a needed-by date." },
-  { kind: "SECTION", externalRef: "S-6", section: "6", title: "§6. Milestones", body: "Key dates and hand-offs." },
+  { kind: "SECTION", externalRef: "S-6", section: "6", title: "§6. Milestones", body: "Key dates and hand-offs are tracked as real milestones — see the Milestones board, the Timeline / Gantt, or the Release Timeline. This section is kept so the document numbering still matches the source." },
   { kind: "SECTION", externalRef: "S-7", section: "7", title: "§7. Key Stakeholders", body: "Who owns what on the path to authorization." },
 
   // ── Phases ──
@@ -55,11 +55,6 @@ export const DEMO_APEX_ROADMAP: RoadmapImportNode[] = [
   { kind: "DECISION", externalRef: "DP-1", parentRef: "S-5", category: "Infrastructure", title: "DP-1 — Cloud baseline (GovCloud vs on-prem)", body: "Choose the hosting baseline.\n\n**Default if not decided:** AWS GovCloud (FedRAMP-High inheritance).\n\n**Needed by:** End of P-0." },
   { kind: "DECISION", externalRef: "DP-2", parentRef: "S-5", category: "Security", title: "DP-2 — SIEM / centralized logging selection", body: "Select the SIEM for audit + ConMon.\n\n**Default if not decided:** Reuse the enterprise SIEM.\n\n**Needed by:** Mid P-1." },
   { kind: "DECISION", externalRef: "DP-3", parentRef: "S-5", category: "Authorization", title: "DP-3 — Authorizing Official of record", body: "Confirm the cognizant AO who signs the ATO.\n\n**Default if not decided:** Existing component AO.\n\n**Needed by:** Start of P-2." },
-
-  // ── Milestones ──
-  { kind: "MILESTONE", externalRef: "M-1", parentRef: "S-6", title: "SSP baseline frozen", body: "**When:** End of P-1\n\n**Lead:** ISSM\n\n**Where:** Compliance" },
-  { kind: "MILESTONE", externalRef: "M-2", parentRef: "S-6", title: "C3PAO assessment", body: "**When:** P-2\n\n**Lead:** C3PAO\n\n**Where:** Independent assessor" },
-  { kind: "MILESTONE", externalRef: "M-3", parentRef: "S-6", title: "ATO granted", body: "**When:** End of P-3\n\n**Lead:** Authorizing Official\n\n**Where:** AO" },
 
   // ── Stakeholders ──
   { kind: "STAKEHOLDER", externalRef: "STK-AO", parentRef: "S-7", title: "Authorizing Official (AO)", body: "Owns the ATO decision and accepts residual risk." },

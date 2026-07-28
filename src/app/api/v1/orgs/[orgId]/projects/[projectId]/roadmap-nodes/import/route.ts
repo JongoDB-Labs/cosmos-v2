@@ -32,7 +32,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         mode: "replace | merge (default replace)",
         nodes: [
           {
-            kind: "SECTION | SUBPHASE | LOE | RISK | DECISION | STAKEHOLDER | MILESTONE",
+            kind: "SECTION | SUBPHASE | LOE | RISK | DECISION | STAKEHOLDER",
             title: "string (required)",
             externalRef: "stable id e.g. R-19 / DP-04 / SP-3 (optional, unique per project)",
             section: "section number/label (optional)",
