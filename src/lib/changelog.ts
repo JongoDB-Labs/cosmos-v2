@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.243.0",
+    date: "2026-07-28",
+    title: "Labels you can actually manage",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Labels are now managed in one place. “Manage labels” on the Issues page lists every label in your organization with how many work items use it, and lets you rename, merge or delete one across every project at once — none of which was possible when a label was just text typed onto a ticket.",
+      },
+      {
+        kind: "improvement",
+        text: "“Security”, “security” and “SECURITY” were three separate entries in every label filter. They are now one label, and existing tickets were converted automatically — the spelling your organization used most is the one kept.",
+      },
+      {
+        kind: "improvement",
+        text: "Renaming a label onto one that already exists merges them, and tells you how many items moved.",
+      },
+    ],
+  },
+  {
     version: "2.242.0",
     date: "2026-07-28",
     title: "Edit a ticket from wherever you found it",
