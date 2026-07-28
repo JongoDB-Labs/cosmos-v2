@@ -1,0 +1,172 @@
+/**
+ * The ONLY writer of a work item's labels.
+ *
+ * Labels live in two places: `work_item_labels` (the source of truth) and
+ * `work_items.tags` (a denormalised mirror the RAID board, the AI tools, ingest
+ * and feedback all still read). Any code path that writes one without the other
+ * puts them out of step, and the symptom — a label that filters correctly but
+ * vanishes from the RAID board, or vice versa — is miserable to trace back. So
+ * routes call this and never touch either directly.
+ */
+import { Prisma } from "@prisma/client";
+
+/** Prisma client or an interactive-transaction client. */
+type Db = Prisma.TransactionClient;
+
+/**
+ * Trim, drop blanks, and collapse case-variants to one entry each, keeping the
+ * first spelling seen. Mirrors the migration's folding rule so a name typed
+ * here resolves to the same row the backfill created.
+ */
+export function normalizeLabelNames(names: readonly string[]): string[] {
+  const byFold = new Map<string, string>();
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name) continue;
+    const fold = name.toLowerCase();
+    if (!byFold.has(fold)) byFold.set(fold, name);
+  }
+  return [...byFold.values()];
+}
+
+/**
+ * Find-or-create the org's label rows for `names`, returning them in the
+ * catalogue's own spelling.
+ *
+ * Raw SQL because uniqueness is a FUNCTIONAL index on `(org_id, lower(name))` —
+ * Prisma has no way to express that, so `upsert` cannot target it and a
+ * find-then-create would race two concurrent requests into a duplicate-key
+ * error. `ON CONFLICT` makes the insert idempotent instead.
+ */
+export async function resolveLabels(
+  db: Db,
+  orgId: string,
+  names: readonly string[],
+): Promise<{ id: string; name: string }[]> {
+  const clean = normalizeLabelNames(names);
+  if (clean.length === 0) return [];
+
+  await db.$executeRaw`
+    INSERT INTO labels (org_id, name)
+    SELECT ${orgId}::uuid, n
+    FROM unnest(${clean}::text[]) AS n
+    ON CONFLICT (org_id, lower(name)) DO NOTHING
+  `;
+
+  const folds = clean.map((n) => n.toLowerCase());
+  return db.$queryRaw<{ id: string; name: string }[]>`
+    SELECT id, name FROM labels
+    WHERE org_id = ${orgId}::uuid AND lower(name) = ANY(${folds}::text[])
+  `;
+}
+
+/**
+ * Set the SAME label set on many items at once.
+ *
+ * The per-item helper would be N round-trips inside a bulk edit that can span
+ * 500 items a batch; this is three statements regardless of count. Semantics
+ * match setWorkItemLabels — the set is replaced, not merged.
+ */
+export async function setLabelsForMany(
+  db: Db,
+  orgId: string,
+  workItemIds: readonly string[],
+  names: readonly string[],
+): Promise<void> {
+  if (workItemIds.length === 0) return;
+  const ids = [...workItemIds];
+  const labels = await resolveLabels(db, orgId, names);
+  const labelIds = labels.map((l) => l.id);
+
+  if (labelIds.length === 0) {
+    await db.workItemLabel.deleteMany({ where: { workItemId: { in: ids } } });
+  } else {
+    await db.workItemLabel.deleteMany({
+      where: { workItemId: { in: ids }, labelId: { notIn: labelIds } },
+    });
+    // Cross-join the two id lists in the database rather than materialising
+    // items × labels rows in JS.
+    await db.$executeRaw`
+      INSERT INTO work_item_labels (org_id, work_item_id, label_id)
+      SELECT ${orgId}::uuid, i, l
+      FROM unnest(${ids}::uuid[]) AS i
+      CROSS JOIN unnest(${labelIds}::uuid[]) AS l
+      ON CONFLICT (work_item_id, label_id) DO NOTHING
+    `;
+  }
+
+  await recomputeTagMirror(db, ids);
+}
+
+/**
+ * Rebuild the `tags` mirror for the given items from their join rows.
+ *
+ * Needed by the org-wide operations, where the label changes but the
+ * assignments don't: renaming a label has to rewrite the array on every item
+ * carrying it, and deleting one has to drop it from all of them. Cascade
+ * removes the join rows but knows nothing about the mirror — so without this a
+ * deleted label lingers forever on the RAID board.
+ */
+export async function recomputeTagMirror(
+  db: Db,
+  workItemIds: readonly string[],
+): Promise<void> {
+  if (workItemIds.length === 0) return;
+  // The COALESCE is for the column's sake, not the caller's: array_agg over
+  // zero rows yields NULL, and `tags` is nullable, so an item losing its last
+  // label would be stored as NULL among rows that all hold '{}'. Prisma reads
+  // either back as [], so this is invisible from the app — it matters to the
+  // raw-SQL readers, where `= ANY(NULL)` is NULL rather than false.
+  await db.$executeRaw`
+    UPDATE work_items w
+    SET tags = COALESCE((
+      SELECT array_agg(l.name ORDER BY l.name)
+      FROM work_item_labels wl
+      JOIN labels l ON l.id = wl.label_id
+      WHERE wl.work_item_id = w.id
+    ), ARRAY[]::text[])
+    WHERE w.id = ANY(${[...workItemIds]}::uuid[])
+  `;
+}
+
+/**
+ * Replace a work item's labels with exactly `names`.
+ *
+ * The mirror is written from the resolved CATALOGUE spellings, not the caller's
+ * input — so tagging an item "security" when the org's label is "Security"
+ * stores "Security", and the tag array cannot drift into case-variants that the
+ * migration just spent effort collapsing.
+ */
+export async function setWorkItemLabels(
+  db: Db,
+  orgId: string,
+  workItemId: string,
+  names: readonly string[],
+): Promise<{ id: string; name: string }[]> {
+  const labels = await resolveLabels(db, orgId, names);
+  const keep = labels.map((l) => l.id);
+
+  // `notIn: []` is not a reliable "match everything" in SQL, so the clear-all
+  // case is spelled out rather than left to an empty IN-list.
+  if (keep.length === 0) {
+    await db.workItemLabel.deleteMany({ where: { workItemId } });
+  } else {
+    await db.workItemLabel.deleteMany({
+      where: { workItemId, labelId: { notIn: keep } },
+    });
+  }
+
+  if (keep.length > 0) {
+    await db.workItemLabel.createMany({
+      data: keep.map((labelId) => ({ orgId, workItemId, labelId })),
+      skipDuplicates: true,
+    });
+  }
+
+  await db.workItem.update({
+    where: { id: workItemId },
+    data: { tags: labels.map((l) => l.name) },
+  });
+
+  return labels;
+}

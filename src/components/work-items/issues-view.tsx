@@ -543,7 +543,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
       setTagDraft("");
       await refetch();
     } catch (err) {
-      notifyError(err, "Couldn't add the tag.");
+      notifyError(err, "Couldn't add the label.");
     } finally {
       setBulkPending(false);
     }
@@ -1150,8 +1150,8 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                   <input
                     value={tagDraft}
                     onChange={(e) => setTagDraft(e.target.value)}
-                    placeholder="Add tag"
-                    aria-label="Add tag to selected items"
+                    placeholder="Add label"
+                    aria-label="Add label to selected items"
                     disabled={bulkPending}
                     className="h-7 w-24 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                   />

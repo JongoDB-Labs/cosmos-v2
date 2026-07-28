@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -95,6 +96,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
       });
 
+      // The copied tags name real labels, but a copy needs its OWN join rows —
+      // otherwise the duplicate shows the label on its card while the catalogue
+      // has no record of it carrying one, and renaming that label later would
+      // skip the copy.
+      if (source.tags.length > 0) {
+        await setWorkItemLabels(tx, orgId, dupe.id, source.tags);
+      }
+
       await tx.activity.create({
         data: {
           orgId,
@@ -136,6 +145,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               createdById: ctx.userId,
             },
           });
+          if (kid.tags.length > 0) {
+            await setWorkItemLabels(tx, orgId, child.id, kid.tags);
+          }
           await tx.activity.create({
             data: {
               orgId,

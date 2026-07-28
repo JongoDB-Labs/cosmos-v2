@@ -7,7 +7,9 @@ import { PageShell } from "@/components/ui/page-shell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IssuesView } from "@/components/work-items/issues-view";
-import { Lock } from "lucide-react";
+import { Lock, Tag } from "lucide-react";
+import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
 
 type PageParams = { params: Promise<{ orgSlug: string }> };
 
@@ -39,6 +41,20 @@ async function IssuesPageContent({ params }: PageParams) {
     <PageShell
       title="Issues"
       description={`Search work items across every project in ${org.name}`}
+      // Labels are managed from here because this is where they are used and
+      // filtered — a top-level nav entry for them would be a lot of chrome for
+      // something you reach for while looking at issues.
+      actions={
+        canRead ? (
+          <Link
+            href={`/${orgSlug}/issues/labels`}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <Tag className="h-4 w-4" aria-hidden />
+            Manage labels
+          </Link>
+        ) : undefined
+      }
     >
       {canRead ? (
         <IssuesView orgId={ctx.orgId} orgSlug={orgSlug} />
