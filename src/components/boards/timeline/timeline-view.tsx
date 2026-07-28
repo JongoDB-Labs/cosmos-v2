@@ -21,7 +21,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
-import { useOrgQueryKey } from "@/lib/query/keys";
+import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
@@ -101,6 +101,14 @@ function writeCollapsedIds(boardId: string, ids: Set<string>): void {
   } catch {
     /* private mode / disabled storage — collapse state stays ephemeral */
   }
+}
+
+/** A real milestone row (prisma Milestone), as the milestones API returns it. */
+interface ProjectMilestone {
+  id: string;
+  title: string;
+  dueDate?: string | null;
+  status?: string;
 }
 
 function addDays(date: Date, days: number): Date {
@@ -239,6 +247,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+  // Same deep-link the Release Timeline uses (COSMOS-45): opening a milestone
+  // lands on the one milestones surface, not a view-local editor.
+  const orgSlug = useOrgSlug();
+  const projectBase = `/${orgSlug}/projects/${projectKey}`;
 
   const qc = useQueryClient();
   const itemsKey = useOrgQueryKey("work-items", projectId);
@@ -246,8 +258,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const linksKey = useOrgQueryKey("work-item-links", projectId);
   const boardKey = useOrgQueryKey("board", boardId);
   const intervalsKey = useOrgQueryKey("intervals", projectId);
+  // The SAME key the Milestones board reads. A milestone is one row in one
+  // table; this board renders it, it does not own a private notion of one.
+  const milestonesKey = useOrgQueryKey("milestones", projectId);
 
-  const [itemsQ, membersQ, linksQ, boardQ, intervalsQ] = useQueries({
+  const [itemsQ, membersQ, linksQ, boardQ, intervalsQ, milestonesQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -272,6 +287,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       {
         queryKey: intervalsKey,
         queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
+      },
+      {
+        // Real milestones. Before this the Gantt inferred one from a work item
+        // whose start and due dates matched, which meant a milestone created
+        // anywhere else was invisible here and the diamonds it DID draw were
+        // not milestones at all — two datasets for one idea.
+        queryKey: milestonesKey,
+        queryFn: () => jsonFetch<ProjectMilestone[]>(`${basePath}/milestones`),
       },
     ],
   });
@@ -916,6 +939,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
+
+  // Milestones that fall inside the visible window, placed on the same day grid
+  // the bars use. Undated ones are skipped — there is nowhere honest to put them.
+  const milestoneMarkers = useMemo(() => {
+    const rows = (milestonesQ.data as ProjectMilestone[] | undefined) ?? [];
+    return rows.flatMap((m) => {
+      if (!m.dueDate) return [];
+      const offset = diffDays(timelineStart, startOfDay(new Date(m.dueDate)));
+      if (offset < 0 || offset >= totalDays) return [];
+      return [{ ...m, x: offset * DAY_WIDTH + DAY_WIDTH / 2 }];
+    });
+  }, [milestonesQ.data, timelineStart, totalDays]);
 
   const svgWidth = totalDays * DAY_WIDTH;
   // The date header renders in its own sticky SVG; the body SVG holds only rows.
@@ -1739,6 +1774,37 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 </g>
               );
             })}
+
+            {/* Milestone markers — the SAME rows the Milestones board shows.
+                Drawn under the today marker so "now" stays the most prominent
+                line. Clicking one opens it on the milestones surface rather
+                than in a Gantt-only popup, so there is one place to edit it. */}
+            {milestoneMarkers.map((m) => (
+              <g key={m.id} data-testid="gantt-milestone">
+                <line
+                  x1={m.x}
+                  y1={0}
+                  x2={m.x}
+                  y2={bodyHeight}
+                  stroke="var(--primary)"
+                  strokeWidth={1}
+                  strokeDasharray="2 3"
+                  opacity={0.5}
+                />
+                <a href={`${projectBase}/milestones?open=${m.id}`}>
+                  <title>{`${m.title}${m.status ? ` · ${m.status}` : ""}`}</title>
+                  <rect
+                    x={m.x - 5}
+                    y={bodyHeight - 12}
+                    width={10}
+                    height={10}
+                    transform={`rotate(45 ${m.x} ${bodyHeight - 7})`}
+                    fill="var(--primary)"
+                    className="cursor-pointer"
+                  />
+                </a>
+              </g>
+            ))}
 
             {/* Today marker — the dot sits in the sticky header SVG above. */}
             {todayOffset >= 0 && todayOffset < totalDays && (
