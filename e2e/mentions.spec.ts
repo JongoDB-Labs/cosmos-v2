@@ -55,11 +55,17 @@ test.describe("@-tag any entity — chat", () => {
 
     // Deep-link: clicking the chip lands on /issues and auto-opens the item's
     // detail sheet (fetched by id even though it's not on the current page).
+    //
+    // The title is asserted on the editable Title field rather than a heading:
+    // the Issues page now opens the same EDITOR the boards use, where the title
+    // is a text field and the dialog heading is the "#12 · Story" identity line.
+    // Reading the field's value is also the stronger check — it proves the right
+    // item was fetched AND that it landed in the editor ready to change.
     await chip.click();
     await expect(page).toHaveURL(/\/issues/);
     await expect(
-      page.getByRole("heading", { name: /Falcon telemetry pipeline/ }),
-    ).toBeVisible({ timeout: 15_000 });
+      page.getByRole("dialog").getByRole("textbox", { name: "Title" }),
+    ).toHaveValue(/Falcon telemetry pipeline/, { timeout: 15_000 });
   });
 
   test("legacy person mention still renders", async ({ page, signInAs }) => {
