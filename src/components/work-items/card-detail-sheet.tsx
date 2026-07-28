@@ -907,6 +907,10 @@ export function CardDetailSheet({
             rows={1}
             className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold leading-snug outline-none field-sizing-content placeholder:text-muted-foreground"
             placeholder="Title"
+            // Named explicitly rather than leaning on the placeholder: a
+            // placeholder stops being the accessible name the moment the field
+            // has a value, which is almost always here.
+            aria-label="Title"
           />
 
           {/* Plugin workItem.detailBadge slot — fail-closed: renders nothing
