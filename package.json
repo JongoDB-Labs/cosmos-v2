@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.240.3",
+  "version": "2.241.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

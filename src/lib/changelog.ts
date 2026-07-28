@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.241.0",
+    date: "2026-07-28",
+    title: "New software projects get the current template",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A new Software Project was still being created from an older template — a board called “Sprint Dashboard” instead of “Sprint Health”, and no Intervals button in the project header. New projects now get the current set of boards and features.",
+      },
+      {
+        kind: "fix",
+        text: "Fixed a case where changing any project feature could permanently remove the Intervals button from projects created before that feature was renamed.",
+      },
+    ],
+  },
+  {
     version: "2.240.3",
     date: "2026-07-27",
     title: "Add-on updates now reach organizations already using them",

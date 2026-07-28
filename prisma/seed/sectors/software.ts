@@ -53,8 +53,11 @@ const SOFTWARE_BOARD_TEMPLATES = [
     columns: [],
   },
   {
+    // Named for what it IS rather than one use of it. A software project plans
+    // more than releases on a Gantt, and the reference project this template is
+    // meant to match calls it this.
     slug: "software.release-timeline",
-    name: "Release Timeline",
+    name: "Timeline / Gantt",
     category: "planning",
     boardType: "TIMELINE",
     sortOrder: 4,
@@ -76,6 +79,17 @@ const SOFTWARE_BOARD_TEMPLATES = [
     sortOrder: 6,
     columns: [],
   },
+  {
+    // A ROADMAP board was missing entirely. Its filters are keyed to roadmap
+    // nodes rather than work items, which is the whole point of the board type —
+    // a template without it leaves new projects unable to plan above the sprint.
+    slug: "software.roadmap",
+    name: "Roadmap",
+    category: "planning",
+    boardType: "ROADMAP",
+    sortOrder: 7,
+    columns: [],
+  },
 ];
 
 const SOFTWARE_PROJECT_TEMPLATE = {
@@ -85,8 +99,22 @@ const SOFTWARE_PROJECT_TEMPLATE = {
   description: "Agile development with sprints, boards, and releases",
   defaultConfig: {
     intervalKinds: ["SPRINT", "RELEASE"],
-    cycleNavLabel: "Sprints",
-    enabledFeatures: ["goal", "milestone", "risk"],
+    // "risk" was never a real key — TOGGLEABLE_FEATURES has "risk-register" — so
+    // it did nothing, and "interval" was missing entirely, which is why a new
+    // software project had no Intervals button in its header. The PM-dashboard
+    // registers match what a real software delivery project turns on.
+    enabledFeatures: [
+      "goal",
+      "milestone",
+      "interval",
+      "roadmap",
+      "pm-dashboard",
+      "risk-register",
+      "change-log",
+      "blocked-items",
+      "schedule-variance",
+      "deliverables-tracker",
+    ],
   },
 };
 
