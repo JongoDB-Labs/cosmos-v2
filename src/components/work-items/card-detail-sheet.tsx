@@ -219,8 +219,21 @@ export function CardDetailSheet({
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/work-items`;
 
-  // Sync form with item — this is an intentional "derive state from prop"
-  // pattern; the effect fires only when `item` reference changes.
+  // Seed the form when a DIFFERENT work item is opened.
+  //
+  // Keyed on item.id, NOT the `item` object. Every inline control sets its own
+  // local state and then calls patchField(), which PUTs one field and feeds the
+  // server's FULL row back through onUpdate → the board's setDetailItem → a new
+  // `item` reference. Depending on the object therefore re-ran this reset on
+  // every inline edit and overwrote `description` with the last SAVED value —
+  // so typing a description and then touching status, assignee, priority or
+  // sprint silently threw the typing away. That is the "it blanks out and I
+  // lose my progress" report.
+  //
+  // Nothing is lost by not re-syncing here: each control already applies its own
+  // value locally before patching, so the PUT response never carries anything
+  // the form doesn't have. RoadmapDescriptionField is keyed on item.id for the
+  // same reason.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (item) {
@@ -255,7 +268,9 @@ export function CardDetailSheet({
       setEditingCommentId(null);
       setEditDraft("");
     }
-  }, [item]);
+     
+    // re-running on the `item` object is exactly the data-loss bug above.
+  }, [item?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Fetch comments/activity when item changes

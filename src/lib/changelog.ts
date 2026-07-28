@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.241.1",
+    date: "2026-07-28",
+    title: "Fixes losing your work when editing a ticket",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Typing a ticket description and then changing any other field on it — status, assignee, priority, sprint — discarded what you had typed and put the previously saved text back. Your in-progress edits are now kept.",
+      },
+      {
+        kind: "fix",
+        text: "Projects created before the last release still showed a board named “Sprint Dashboard”. Those are renamed to “Sprint Health”; a board you renamed yourself is left alone.",
+      },
+    ],
+  },
+  {
     version: "2.241.0",
     date: "2026-07-28",
     title: "New software projects get the current template",
