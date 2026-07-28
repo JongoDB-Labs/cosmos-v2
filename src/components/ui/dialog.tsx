@@ -58,11 +58,19 @@ function DialogContent({
           // The height cap is load-bearing, not cosmetic. The popup is centered
           // with -translate-y-1/2, so a dialog taller than the viewport hangs
           // off BOTH edges — header and submit button equally unreachable, with
-          // no scroll to get to them. Windows commonly runs 125–150% display
-          // scaling, which leaves a 1080p screen reporting ~864 or ~720 CSS
-          // pixels of height, so a form that fits a Mac can overflow there and
-          // the only way out is browser zoom. Capping to the viewport and
-          // scrolling inside is what makes it independent of screen size.
+          // no scroll to get to them, and browser zoom the only way out.
+          //
+          // It is purely a question of available CSS height, not of platform.
+          // It was first reported on Windows and then on a smaller macOS
+          // screen; Windows just meets the condition more often, since 125–150%
+          // display scaling leaves a 1080p panel reporting ~864 or ~720 CSS
+          // pixels. A short laptop, a zoomed-in page and a browser window that
+          // is not full height all get there too. Anything that reasons about
+          // this per-OS will mis-scope it — cap against the viewport and let the
+          // content scroll, and every one of those cases is covered.
+          //
+          // Only applies at md+: below that the bottom-sheet branch takes over
+          // and has always capped its own height.
           //
           // Safe against clipping: Select and DatePicker both render through a
           // Portal, so their popups escape this scroll container.
