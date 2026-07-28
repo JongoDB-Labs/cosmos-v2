@@ -132,3 +132,33 @@ describe("CardDetailSheet — wide content stays reachable (COSMOS-21)", () => {
     expect(preview.className).toContain("break-words");
   });
 });
+
+// Reported: "there's no drop down when updating a ticket, it's just a word on
+// the issue details." The editable Type control WAS shipped — but as a SECOND
+// "Type" field lower down the metadata grid, while the original read-only word
+// stayed in its usual first slot. People read the word, concluded the type was
+// fixed, and never scrolled to the control.
+describe("CardDetailSheet — work-item type is editable in place", () => {
+  it("shows exactly ONE Type field, and it is the editable control", () => {
+    render(
+      withClient(
+        <CardDetailSheet
+          item={ITEM}
+          open
+          onOpenChange={() => {}}
+          orgId="o1"
+          projectId="p1"
+          members={[]}
+          intervals={[]}
+          columns={[{ key: "todo", name: "To Do" } as never]}
+          onUpdate={() => {}}
+        />,
+      ),
+    );
+
+    // Two fields both labelled "Type" is the bug: the read-only one wins the
+    // reader's attention because it sits first.
+    expect(screen.getAllByText("Type")).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "Type" })).toBeTruthy();
+  });
+});

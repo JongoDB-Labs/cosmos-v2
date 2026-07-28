@@ -53,8 +53,20 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          // Desktop (md+): centered modal — unchanged
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Desktop (md+): centered modal.
+          //
+          // The height cap is load-bearing, not cosmetic. The popup is centered
+          // with -translate-y-1/2, so a dialog taller than the viewport hangs
+          // off BOTH edges — header and submit button equally unreachable, with
+          // no scroll to get to them. Windows commonly runs 125–150% display
+          // scaling, which leaves a 1080p screen reporting ~864 or ~720 CSS
+          // pixels of height, so a form that fits a Mac can overflow there and
+          // the only way out is browser zoom. Capping to the viewport and
+          // scrolling inside is what makes it independent of screen size.
+          //
+          // Safe against clipping: Select and DatePicker both render through a
+          // Portal, so their popups escape this scroll container.
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // Mobile (<md): bottom-sheet — slide up from edge, full-width,
           // rounded top corners only, allow tall content. Override the
           // centered transforms above with no translate at this breakpoint.
