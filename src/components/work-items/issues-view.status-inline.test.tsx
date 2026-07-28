@@ -44,7 +44,9 @@ vi.mock("@/hooks/use-work-item-realtime", () => ({ useWorkItemRealtime: () => {}
 vi.mock("@/components/work-items/saved-views-picker", () => ({ SavedViewsPicker: () => null }));
 vi.mock("@/components/work-items/save-as-board-dialog", () => ({ SaveAsBoardDialog: () => null }));
 vi.mock("@/components/work-items/create-work-item-dialog", () => ({ CreateWorkItemDialog: () => null }));
-vi.mock("@/components/work-items/issue-detail-sheet", () => ({ IssueDetailSheet: () => null }));
+// The Issues page now opens the SAME full editing sheet the boards use, so
+// these inline-edit tests stub that instead of the retired read-only sheet.
+vi.mock("@/components/work-items/card-detail-sheet", () => ({ CardDetailSheet: () => null }));
 
 // Grant ITEM_UPDATE (and everything else) so the inline editors render; keep the
 // real `Permission` bitfield the component imports.

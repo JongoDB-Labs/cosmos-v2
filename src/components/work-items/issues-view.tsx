@@ -34,7 +34,8 @@ import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog"
 import { SavedViewsPicker } from "@/components/work-items/saved-views-picker";
 import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
-import { IssueDetailSheet } from "@/components/work-items/issue-detail-sheet";
+import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
@@ -367,6 +368,63 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   );
 
   const facets = facetsQuery.data;
+
+  // The rows in this table are SUMMARIES; the editing sheet needs the whole work
+  // item (children, custom fields, assignees…). Fetch it when a row is opened.
+  const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
+  useEffect(() => {
+    if (!detailRow) return;
+    let cancelled = false;
+    jsonFetch<WorkItem>(
+      `/api/v1/orgs/${orgId}/projects/${detailRow.project.id}/work-items/${detailRow.id}`,
+    )
+      .then((full) => {
+        if (!cancelled) setDetailItem(full);
+      })
+      .catch(() => {
+        /* not readable / gone — the sheet stays empty rather than half-filled */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detailRow, orgId]);
+
+  // Per-project context for the sheet, derived from facets already loaded for
+  // the filter bar — no extra round-trip just to open a ticket.
+  const detailColumns: BoardColumn[] = useMemo(
+    () =>
+      (detailRow ? (facets?.statusesByProject?.[detailRow.project.id] ?? []) : []).map(
+        (c, i) =>
+          ({
+            id: c.key,
+            key: c.key,
+            name: c.name,
+            category: c.category,
+            sortOrder: i,
+          }) as unknown as BoardColumn,
+      ),
+    [detailRow, facets],
+  );
+  const detailIntervals: Interval[] = useMemo(
+    () =>
+      (facets?.intervals ?? [])
+        .filter((iv) => detailRow && iv.projectId === detailRow.project.id)
+        .map((iv) => iv as unknown as Interval),
+    [detailRow, facets],
+  );
+  const detailMembers: OrgMember[] = useMemo(
+    () =>
+      (facets?.members ?? []).map(
+        (m) =>
+          ({
+            id: m.id,
+            userId: m.id,
+            user: { id: m.id, displayName: m.displayName, avatarUrl: m.avatarUrl },
+          }) as unknown as OrgMember,
+      ),
+    [facets],
+  );
+
   // Show "Save as board" to org board-creators AND to project managers (who can
   // create boards for the projects they manage, per the board POST's inheritance).
   const managedProjectIds = facets?.managedProjectIds ?? [];
@@ -999,13 +1057,33 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         </>
       )}
 
-      <IssueDetailSheet
-        row={detailRow}
+      {/* The SAME editing sheet the boards use. The Issues page previously had
+          its own read-only sheet, so anyone who created an issue here had to go
+          find it on a board to change anything. Two sheets also meant every new
+          field had to be built twice, and the read-only one always lagged. */}
+      <CardDetailSheet
+        item={detailItem}
         open={detailRow !== null}
-        onOpenChange={(o) => !o && setDetailRow(null)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDetailRow(null);
+            setDetailItem(null);
+          }
+        }}
         orgId={orgId}
-        orgSlug={orgSlug}
-        statuses={facets?.statuses ?? []}
+        projectId={detailRow?.project.id ?? ""}
+        members={detailMembers}
+        intervals={detailIntervals}
+        columns={detailColumns}
+        onUpdate={(updated) => {
+          setDetailItem(updated);
+          void refetch();
+        }}
+        onDelete={() => {
+          setDetailRow(null);
+          setDetailItem(null);
+          void refetch();
+        }}
       />
 
       {selectedCount > 0 && (canBulkEdit || canBulkDelete) && (

@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,9 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
   const qc = useQueryClient();
+  // A scheduled item is a work item; clicking it opens the full editable sheet
+  // rather than being a read-only date marker.
+  const [detailId, setDetailId] = useState<string | null>(null);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
 
@@ -249,16 +253,18 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
                 {/* Show up to 3 items */}
                 <div className="space-y-0.5">
                   {dayItems.slice(0, 3).map((item) => (
-                    <div
+                    <button
                       key={item.id}
+                      type="button"
+                      onClick={() => setDetailId(item.id)}
                       className={cn(
-                        "text-[10px] leading-tight px-1.5 py-0.5 rounded border-l-2 truncate bg-muted/40",
+                        "w-full text-left text-[10px] leading-tight px-1.5 py-0.5 rounded border-l-2 truncate bg-muted/40 hover:bg-muted",
                         priorityBorderMap[item.priority]
                       )}
                       title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
                     >
                       {item.title}
-                    </div>
+                    </button>
                   ))}
                   {dayItems.length > 3 && (
                     <button
@@ -305,10 +311,12 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
             </div>
             <div className="space-y-2">
               {expandedDayItems.map((item) => (
-                <div
+                <button
                   key={item.id}
+                  type="button"
+                  onClick={() => setDetailId(item.id)}
                   className={cn(
-                    "flex items-center gap-3 rounded-md border p-2 border-l-4",
+                    "flex w-full items-center gap-3 rounded-md border p-2 border-l-4 text-left hover:bg-muted/50",
                     priorityBorderMap[item.priority]
                   )}
                 >
@@ -330,12 +338,20 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
                   <Badge className={cn("text-[10px] shrink-0", priorityColorMap[item.priority] === "bg-red-500" ? "bg-red-500/20 text-red-400" : priorityColorMap[item.priority] === "bg-orange-500" ? "bg-orange-500/20 text-orange-400" : priorityColorMap[item.priority] === "bg-blue-500" ? "bg-blue-500/20 text-blue-400" : "bg-muted text-muted-foreground")}>
                     {item.priority}
                   </Badge>
-                </div>
+                </button>
               ))}
             </div>
           </div>
         )}
       </div>
+
+      <BoardItemDetailSheet
+        itemId={detailId}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        boardId={boardId}
+      />
     </div>
   );
 }

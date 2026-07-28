@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -158,6 +159,9 @@ export function RaidView({
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
   const qc = useQueryClient();
+  // A RAID entry IS a work item — clicking its title opens the full editable
+  // sheet, so a risk can be worked without hunting it down on another board.
+  const [detailId, setDetailId] = useState<string | null>(null);
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
 
@@ -338,6 +342,7 @@ export function RaidView({
                 tags: retag(item.tags, next),
               })
             }
+            onOpen={setDetailId}
             isPending={retagMutation.isPending}
           />
         ))}
@@ -354,10 +359,19 @@ export function RaidView({
               tags: retag(item.tags, next),
             })
           }
+          onOpen={setDetailId}
           isPending={retagMutation.isPending}
         />
       </div>
       </DndContext>
+
+      <BoardItemDetailSheet
+        itemId={detailId}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        boardId={boardId}
+      />
     </div>
   );
 }
@@ -371,6 +385,7 @@ interface RaidColumnProps {
   projectKey: string;
   memberById: Map<string, OrgMember>;
   onRecategorize: (item: WorkItem, next: RaidKey | null) => void;
+  onOpen: (id: string) => void;
   isPending: boolean;
 }
 
@@ -382,6 +397,7 @@ function RaidColumn({
   projectKey,
   memberById,
   onRecategorize,
+  onOpen,
   isPending,
 }: RaidColumnProps) {
   // Each column is a drop target keyed by its RAID category ("__none__" for
@@ -434,6 +450,7 @@ function RaidColumn({
               item.assigneeId ? memberById.get(item.assigneeId) ?? null : null
             }
             onRecategorize={onRecategorize}
+            onOpen={onOpen}
             isPending={isPending}
           />
         ))}
@@ -454,6 +471,7 @@ interface RaidCardProps {
   projectKey: string;
   assignee: OrgMember | null;
   onRecategorize: (item: WorkItem, next: RaidKey | null) => void;
+  onOpen: (id: string) => void;
   isPending: boolean;
 }
 
@@ -463,6 +481,7 @@ function RaidCard({
   projectKey,
   assignee,
   onRecategorize,
+  onOpen,
   isPending,
 }: RaidCardProps) {
   const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
@@ -525,9 +544,13 @@ function RaidCard({
           <span className="text-[11px] font-mono text-[var(--text-muted)] shrink-0">
             {ticketLabel}
           </span>
-          <h4 className="text-sm font-medium leading-snug line-clamp-2 flex-1 text-[var(--text)]">
+          <button
+            type="button"
+            onClick={() => onOpen(item.id)}
+            className="flex-1 text-left text-sm font-medium leading-snug line-clamp-2 text-[var(--text)] hover:underline"
+          >
             {item.title}
-          </h4>
+          </button>
         </div>
 
         <div className="flex items-center justify-between gap-2">

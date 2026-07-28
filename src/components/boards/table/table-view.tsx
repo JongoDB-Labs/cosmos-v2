@@ -14,6 +14,7 @@ import {
   type GroupingState,
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
+import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -119,6 +120,11 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const canCreate = can(Permission.ITEM_CREATE);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
+
+  // Clicking a row opens the same editable sheet the Kanban uses. Control cells
+  // (checkbox, row menu) stop propagation, so selecting for a bulk edit does
+  // not also open a ticket.
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const boardKey = useOrgQueryKey("board", boardId);
   const itemsKey = useOrgQueryKey("work-items", projectId);
@@ -992,10 +998,19 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           onGroupingChange={setGrouping}
           getGroupLabel={getGroupLabel}
           rowActions={rowActions}
+          onRowClick={(row) => setDetailId(row.id)}
           pagination={{ pageSize: 50 }}
           stickyHeader
         />
       </div>
+
+      <BoardItemDetailSheet
+        itemId={detailId}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        boardId={boardId}
+      />
 
       {/* Bulk-action toolbar — floats over the table while rows are selected */}
       {selectedCount > 0 && (canBulkEdit || canBulkDelete) && (

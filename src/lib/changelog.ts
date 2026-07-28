@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.242.0",
+    date: "2026-07-28",
+    title: "Edit a ticket from wherever you found it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Issues page now opens the same full editor the boards use. Previously a ticket opened there was read-only, so making any change meant finding it again on a board — you can now edit it where you found it.",
+      },
+      {
+        kind: "feature",
+        text: "Tickets on the Table, Calendar and RAID boards are now clickable and open that same editor. On the Calendar and RAID boards they had been display-only.",
+      },
+      {
+        kind: "feature",
+        text: "A ticket's type can be changed after it is created — a Story that turns out to be a Bug, or a Task that grows into a Feature, no longer has to be recreated.",
+      },
+      {
+        kind: "fix",
+        text: "A wide table or code block in a description used to drag the whole ticket panel sideways, pushing the fields out of view. Wide content now scrolls on its own.",
+      },
+    ],
+  },
+  {
     version: "2.241.1",
     date: "2026-07-28",
     title: "Fixes losing your work when editing a ticket",
