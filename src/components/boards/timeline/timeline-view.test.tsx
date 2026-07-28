@@ -86,6 +86,9 @@ const HIER_ITEMS = [
 // The work-items the fetcher mock serves; swapped per describe block so a test
 // can opt into the hierarchy without changing the default flat dataset.
 let activeItems: unknown[] = ITEMS;
+// Real Milestone rows, as the milestones API returns them. Dated inside the
+// window the ITEMS fixture spans so a marker has somewhere to land.
+let activeMilestones: unknown[] = [];
 
 vi.mock("@/lib/query/json-fetcher", () => ({
   jsonFetch: vi.fn((url: string) => {
@@ -93,6 +96,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
     if (url.endsWith("/members")) return Promise.resolve([]);
     if (url.endsWith("/work-item-links")) return Promise.resolve([]);
     if (url.endsWith("/intervals")) return Promise.resolve([]);
+    if (url.endsWith("/milestones")) return Promise.resolve(activeMilestones);
     if (url.includes("/boards/"))
       return Promise.resolve({
         id: "b1",
@@ -315,5 +319,52 @@ describe("TimelineView — collapse state persists across navigation (COSMOS-69)
     // now offers to expand (proof the restored state, not a fresh default).
     expect(screen.queryByText(/FSC-2/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Expand children")).toBeInTheDocument();
+  });
+});
+
+// Reported: "the milestones in the gantt aren't populating in the milestones
+// board." The two surfaces were reading different things — the Milestones board
+// reads the Milestone table, while this Gantt inferred a "milestone" from any
+// work item whose start and due dates matched and never read that table at all.
+// So a real milestone was invisible here, and the diamonds it drew were work
+// items. These lock the Gantt onto the same rows the Milestones board shows.
+describe("TimelineView — milestones come from the milestone table", () => {
+  afterEach(() => {
+    activeMilestones = [];
+  });
+
+  it("renders a marker for a milestone it did not create", async () => {
+    activeMilestones = [
+      { id: "m1", title: "Beta cutover", dueDate: "2026-01-15T00:00:00.000Z", status: "UPCOMING" },
+    ];
+    renderTimeline();
+
+    const markers = await screen.findAllByTestId("gantt-milestone");
+    expect(markers).toHaveLength(1);
+    // Deep-links to the one milestones surface rather than a Gantt-local editor,
+    // so there is a single place a milestone is edited.
+    expect(markers[0].querySelector("a")?.getAttribute("href")).toBe(
+      "/acme/projects/FSC/milestones?open=m1",
+    );
+  });
+
+  it("shows every dated milestone, not just ones matching a work item", async () => {
+    activeMilestones = [
+      { id: "m1", title: "Beta cutover", dueDate: "2026-01-15T00:00:00.000Z" },
+      { id: "m2", title: "GA", dueDate: "2026-01-22T00:00:00.000Z" },
+    ];
+    renderTimeline();
+    expect(await screen.findAllByTestId("gantt-milestone")).toHaveLength(2);
+  });
+
+  it("skips undated milestones rather than stacking them at the origin", async () => {
+    activeMilestones = [
+      { id: "m1", title: "Someday", dueDate: null },
+      { id: "m2", title: "GA", dueDate: "2026-01-22T00:00:00.000Z" },
+    ];
+    renderTimeline();
+    // A null date has nowhere honest to sit; placing it at day 0 would claim a
+    // deadline the milestone does not have.
+    expect(await screen.findAllByTestId("gantt-milestone")).toHaveLength(1);
   });
 });

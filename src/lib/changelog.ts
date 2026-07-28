@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.243.2",
+    date: "2026-07-28",
+    title: "Milestones show up on the Timeline / Gantt",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Milestones did not appear on the Timeline / Gantt, and the diamonds it did show were ordinary work items that happened to start and finish on the same day. The Gantt now shows your real milestones — the same ones on the Milestones board — and clicking one opens it there, so it is edited in a single place.",
+      },
+      {
+        kind: "improvement",
+        text: "A project now has one kind of milestone. The Roadmap could previously hold its own separate “milestone” entries, which never had a date and never appeared on any schedule; those have been retired so a milestone means the same thing on every board.",
+      },
+    ],
+  },
+  {
     version: "2.243.1",
     date: "2026-07-28",
     title: "Restores the Intervals button on affected software projects",

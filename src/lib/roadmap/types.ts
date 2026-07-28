@@ -14,6 +14,16 @@ import { z } from "zod";
  * sortOrder and ids are derived server-side so a model never has to invent them.
  */
 
+// NOTE: no MILESTONE. A project has ONE kind of milestone — the Milestone
+// table, shown on the Milestones board, the Release Timeline and the Gantt. A
+// roadmap node could never have been one of those anyway: it carries no date,
+// and Milestone.dueDate is required. So a MILESTONE node was a document heading
+// wearing the word, and having it meant "milestone" meant two different things
+// depending on which board you were looking at.
+//
+// The Prisma enum still carries the value: dropping it needs a destructive
+// migration, and any node imported before this keeps rendering (see the
+// unknown-kind fallback in roadmap-workspace). Nothing can create a new one.
 export const ROADMAP_NODE_KINDS = [
   "SECTION",
   "SUBPHASE",
@@ -21,7 +31,6 @@ export const ROADMAP_NODE_KINDS = [
   "RISK",
   "DECISION",
   "STAKEHOLDER",
-  "MILESTONE",
 ] as const;
 
 export type RoadmapNodeKind = (typeof ROADMAP_NODE_KINDS)[number];
