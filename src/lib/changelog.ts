@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.243.1",
+    date: "2026-07-28",
+    title: "Restores the Intervals button on affected software projects",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Software projects created before the template was corrected had no Intervals button in the project header, and the last fix only reached projects using an older internal setting — so some were left without it. Those projects now get the full set of features the template was meant to give them, including Intervals. A project whose features were changed by hand is left exactly as configured.",
+      },
+    ],
+  },
+  {
     version: "2.243.0",
     date: "2026-07-28",
     title: "Labels you can actually manage",
