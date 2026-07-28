@@ -11,6 +11,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
+import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
@@ -151,7 +152,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
       if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
       if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
-      if (data.tags !== undefined) updateData.tags = data.tags;
+      // Labels are NOT written here. `tags` is a mirror of the work_item_labels
+      // rows now, so writing the array directly would leave the catalogue out of
+      // step — the label would filter but not exist to rename or delete.
+      // setWorkItemLabels owns both sides; it runs before the update below so
+      // the row this PUT echoes back already carries the new values.
+      if (data.tags !== undefined) {
+        await setWorkItemLabels(tx, orgId, itemId, data.tags);
+      }
       if (data.customFields !== undefined) {
         // MERGE partial custom-field updates into the existing JSON so a PUT
         // that touches one field (the detail sheet's per-field save) never
