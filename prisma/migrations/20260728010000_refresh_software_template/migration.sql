@@ -49,3 +49,24 @@ UPDATE projects
 SET enabled_features = array_append(enabled_features, 'interval')
 WHERE 'cycle' = ANY(enabled_features)
   AND NOT ('interval' = ANY(enabled_features));
+
+-- 4) Board-set changes the seed makes, applied to instances that already ran it.
+--    Same built-in scoping: an org that renamed its own copy keeps its name.
+UPDATE board_templates
+SET name = 'Timeline / Gantt'
+WHERE org_id IS NULL
+  AND is_built_in = true
+  AND slug = 'software.release-timeline'
+  AND name = 'Release Timeline';
+
+-- 5) The Roadmap board the template never had.
+--    Its filters key off roadmap NODES rather than work items — which is the
+--    substance of "filters specific to the board's data type" — so a template
+--    without it leaves new projects unable to plan above the sprint at all.
+INSERT INTO board_templates (id, slug, name, category, board_type, sort_order, sector, project_template_id, is_built_in, is_published, created_at)
+SELECT gen_random_uuid(), 'software.roadmap', 'Roadmap', 'planning', 'ROADMAP', 7, 'software', pt.id, true, true, now()
+FROM project_templates pt
+WHERE pt.org_id IS NULL AND pt.is_built_in = true AND pt.slug = 'software'
+  AND NOT EXISTS (
+    SELECT 1 FROM board_templates b WHERE b.org_id IS NULL AND b.slug = 'software.roadmap'
+  );

@@ -53,8 +53,11 @@ const SOFTWARE_BOARD_TEMPLATES = [
     columns: [],
   },
   {
+    // Named for what it IS rather than one use of it. A software project plans
+    // more than releases on a Gantt, and the reference project this template is
+    // meant to match calls it this.
     slug: "software.release-timeline",
-    name: "Release Timeline",
+    name: "Timeline / Gantt",
     category: "planning",
     boardType: "TIMELINE",
     sortOrder: 4,
@@ -74,6 +77,17 @@ const SOFTWARE_BOARD_TEMPLATES = [
     category: "analytics",
     boardType: "DASHBOARD",
     sortOrder: 6,
+    columns: [],
+  },
+  {
+    // A ROADMAP board was missing entirely. Its filters are keyed to roadmap
+    // nodes rather than work items, which is the whole point of the board type —
+    // a template without it leaves new projects unable to plan above the sprint.
+    slug: "software.roadmap",
+    name: "Roadmap",
+    category: "planning",
+    boardType: "ROADMAP",
+    sortOrder: 7,
     columns: [],
   },
 ];
