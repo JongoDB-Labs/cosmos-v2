@@ -1,6 +1,11 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { normalizeLabelNames, resolveLabels, setWorkItemLabels } from "./labels";
+import {
+  normalizeLabelNames,
+  recomputeTagMirror,
+  resolveLabels,
+  setWorkItemLabels,
+} from "./labels";
 
 describe("normalizeLabelNames", () => {
   it("trims, drops blanks, and folds case-variants to the first spelling seen", () => {
@@ -119,6 +124,60 @@ describe("work-item labels (e2e DB)", () => {
     });
     after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(joins).toHaveLength(0);
+    expect(after.tags).toEqual([]);
+  });
+
+  // The org-wide operations change the LABEL while the assignments stay put, so
+  // the mirror has to be rebuilt separately. These cover what the rename and
+  // delete routes depend on.
+  it("rebuilds the mirror after a label is renamed", async () => {
+    const { org, item } = await makeItem();
+    const suffix = Math.random().toString(36).slice(2, 8);
+
+    const labels = await setWorkItemLabels(prisma, org.id, item.id, [`Sec-${suffix}`]);
+    track(labels);
+
+    await prisma.label.update({
+      where: { id: labels[0].id },
+      data: { name: `Security-${suffix}` },
+    });
+    // Renaming alone leaves the mirror stale — this is the step the route owes.
+    await recomputeTagMirror(prisma, [item.id]);
+
+    const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(after.tags).toEqual([`Security-${suffix}`]);
+  });
+
+  it("drops a deleted label from the mirror, keeping the others", async () => {
+    const { org, item } = await makeItem();
+    const suffix = Math.random().toString(36).slice(2, 8);
+
+    const labels = await setWorkItemLabels(prisma, org.id, item.id, [
+      `Gone-${suffix}`,
+      `Stays-${suffix}`,
+    ]);
+    track(labels);
+    const doomed = labels.find((l) => l.name === `Gone-${suffix}`)!;
+
+    // Cascade removes the join row but knows nothing about the mirror, so
+    // without the recompute the label lingers on the RAID board forever.
+    await prisma.label.delete({ where: { id: doomed.id } });
+    await recomputeTagMirror(prisma, [item.id]);
+
+    const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(after.tags).toEqual([`Stays-${suffix}`]);
+  });
+
+  it("empties the mirror when the last label goes", async () => {
+    const { org, item } = await makeItem();
+    const suffix = Math.random().toString(36).slice(2, 8);
+
+    const labels = await setWorkItemLabels(prisma, org.id, item.id, [`Only-${suffix}`]);
+    track(labels);
+    await prisma.label.delete({ where: { id: labels[0].id } });
+    await recomputeTagMirror(prisma, [item.id]);
+
+    const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(after.tags).toEqual([]);
   });
 
