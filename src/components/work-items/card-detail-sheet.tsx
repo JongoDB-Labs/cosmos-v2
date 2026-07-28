@@ -56,7 +56,6 @@ import {
   Loader2,
   Calendar,
   User,
-  Tag,
   Layers,
   Shapes,
   Target,
@@ -938,10 +937,31 @@ export function CardDetailSheet({
 
           {/* Metadata grid */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <MetadataField icon={Tag} label="Type">
-              <span className="text-xs px-2 py-1">
-                {item.workItemType?.name ?? "Unknown"}
-              </span>
+            {/* Work-item type. The API has always accepted workItemTypeId on
+                update — and records the change in activity — but nothing in the
+                UI ever offered it, so a ticket filed as the wrong type could
+                only be deleted and recreated, losing its number, comments and
+                history. Editable IN PLACE: this slot used to render the type as
+                a bare word, and adding a second, editable "Type" further down
+                the grid just left two of them, so people read the word, decided
+                the type was fixed, and never scrolled to the control. */}
+            <MetadataField icon={Shapes} label="Type">
+              <Select
+                items={Object.fromEntries(workItemTypes.map((t) => [t.id, t.name]))}
+                value={workItemTypeId ?? ""}
+                onValueChange={(v) => v && handleFieldChange("workItemTypeId", v)}
+              >
+                <SelectTrigger size="sm" aria-label="Type" className="w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {workItemTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </MetadataField>
 
             <MetadataField icon={Layers} label="Status">
@@ -983,30 +1003,6 @@ export function CardDetailSheet({
                   {priorityOptions.map((p) => (
                     <SelectItem key={p} value={p}>
                       {p.charAt(0) + p.slice(1).toLowerCase()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </MetadataField>
-
-            {/* Work-item type. The API has always accepted workItemTypeId on
-                update — and records the change in activity — but nothing in the
-                UI ever offered it, so a ticket filed as the wrong type could
-                only be deleted and recreated, losing its number, comments and
-                history. */}
-            <MetadataField icon={Shapes} label="Type">
-              <Select
-                items={Object.fromEntries(workItemTypes.map((t) => [t.id, t.name]))}
-                value={workItemTypeId ?? ""}
-                onValueChange={(v) => v && handleFieldChange("workItemTypeId", v)}
-              >
-                <SelectTrigger size="sm" aria-label="Type" className="w-full text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {workItemTypes.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
