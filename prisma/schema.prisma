@@ -239,6 +239,7 @@ model Organization {
   emailSettings          OrgEmailSettings?
   meetingTypeOptions     MeetingTypeOption[]
   savedViews             SavedView[]
+  labels                 Label[]
 
   @@map("organizations")
 }
@@ -773,6 +774,7 @@ model WorkItem {
   attachments    WorkItemAttachment[]
   assignees      WorkItemAssignee[]
   watchers       WorkItemWatcher[]
+  labels         WorkItemLabel[]
   keyResultLinks KeyResultLink[]
 
   @@unique([orgId, projectId, ticketNumber])
@@ -821,6 +823,51 @@ model WorkItemWatcher {
   @@unique([workItemId, userId])
   @@index([orgId, userId])
   @@map("work_item_watchers")
+}
+
+// Labels: an org's shared vocabulary for classifying work.
+//
+// These used to be bare strings in `WorkItem.tags`, which meant "Security" and
+// "security" were two different filter entries, nothing could be renamed or
+// recoloured across projects, and there was no list of what an org actually
+// uses. A label is now a row, so it can be managed in one place and every item
+// carrying it follows.
+//
+// `WorkItem.tags` is DELIBERATELY still written, as a denormalised mirror of
+// these rows. The RAID board categorises entirely by tag, and the AI tools,
+// ingest and feedback paths all read the array; keeping it in step means none
+// of them had to change to land this. `setWorkItemLabels()` is the only writer
+// of both sides — nothing else may touch `tags`, or the two drift apart.
+model Label {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  // Stored as typed; uniqueness is enforced case-insensitively by a functional
+  // index in the migration, so an org gets one "Security", not three.
+  name      String
+  // Tailwind-ish token resolved by the UI, e.g. "blue". Null = default chip.
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org       Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workItems WorkItemLabel[]
+
+  @@index([orgId])
+  @@map("labels")
+}
+
+model WorkItemLabel {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  workItemId String   @map("work_item_id") @db.Uuid
+  labelId    String   @map("label_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workItem WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  label    Label    @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([workItemId, labelId])
+  @@index([orgId, labelId])
+  @@map("work_item_labels")
 }
 
 // Saved views (FR 2b36c2b8): a named, reusable work-item filter for the org-wide
