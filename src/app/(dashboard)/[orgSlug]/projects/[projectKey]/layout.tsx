@@ -73,7 +73,16 @@ export default async function ProjectLayout({
   // Top-level "Intervals" entry (project header, not the board strip). The label
   // is the generic term for every project type; the project's sector drives the
   // DEFAULT interval kind (Sprint/Phase/…) when managing them, not this label.
-  const intervalEnabled = project.enabledFeatures.includes("cycle");
+  // Accepts BOTH keys. "interval" is canonical — it is what TOGGLEABLE_FEATURES
+  // permits and therefore the only one the settings UI can ever set. "cycle" is
+  // the pre-rename key that existing projects still carry; gating on it alone
+  // meant a project could never switch the button on from the UI, and gating on
+  // "interval" alone would have hidden it on every project seeded before the
+  // rename. The PUT filters unknown keys out, so a project holding only "cycle"
+  // loses it on the next feature toggle — the migration alongside this backfills
+  // "interval" so that cannot silently remove the button.
+  const intervalEnabled =
+    project.enabledFeatures.includes("interval") || project.enabledFeatures.includes("cycle");
   const allTabPrefs =
     userPrefs?.tabPrefs && typeof userPrefs.tabPrefs === "object" && !Array.isArray(userPrefs.tabPrefs)
       ? (userPrefs.tabPrefs as Record<string, unknown>)

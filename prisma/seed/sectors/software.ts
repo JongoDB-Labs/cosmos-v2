@@ -85,8 +85,22 @@ const SOFTWARE_PROJECT_TEMPLATE = {
   description: "Agile development with sprints, boards, and releases",
   defaultConfig: {
     intervalKinds: ["SPRINT", "RELEASE"],
-    cycleNavLabel: "Sprints",
-    enabledFeatures: ["goal", "milestone", "risk"],
+    // "risk" was never a real key — TOGGLEABLE_FEATURES has "risk-register" — so
+    // it did nothing, and "interval" was missing entirely, which is why a new
+    // software project had no Intervals button in its header. The PM-dashboard
+    // registers match what a real software delivery project turns on.
+    enabledFeatures: [
+      "goal",
+      "milestone",
+      "interval",
+      "roadmap",
+      "pm-dashboard",
+      "risk-register",
+      "change-log",
+      "blocked-items",
+      "schedule-variance",
+      "deliverables-tracker",
+    ],
   },
 };
 
