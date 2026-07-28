@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { setWorkItemLabels } from "@/lib/work-items/labels";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
 
@@ -207,7 +208,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           actualStart: data.actualStart ? new Date(data.actualStart) : null,
           completedAt: data.completedAt ? new Date(data.completedAt) : null,
           columnEnteredAt: new Date(),
-          tags: data.tags ?? [],
+          // Left empty here on purpose: setWorkItemLabels below is the only
+          // writer of this array, and it needs the item's id to exist first.
+          tags: [],
           customFields: (data.customFields ?? {}) as Prisma.InputJsonValue,
           createdById: ctx.userId,
         },
@@ -224,6 +227,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           _count: { select: { comments: true, activities: true } },
         },
       });
+
+      // Labels go through the catalogue, so a ticket created with one produces a
+      // real Label row rather than a string only this item knows about. The
+      // resolved names are copied back onto the echoed object because they may
+      // differ from what the caller sent — asking for "security" when the org's
+      // label is "Security" stores, and should return, "Security".
+      if (data.tags !== undefined && data.tags.length > 0) {
+        const labels = await setWorkItemLabels(tx, orgId, created.id, data.tags);
+        created.tags = labels.map((l) => l.name);
+      }
 
       await tx.activity.create({
         data: {
