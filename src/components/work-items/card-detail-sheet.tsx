@@ -44,6 +44,7 @@ import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-descriptio
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
   isRenderableCustomField,
@@ -57,6 +58,7 @@ import {
   User,
   Tag,
   Layers,
+  Shapes,
   Target,
   Hash,
   Wrench,
@@ -155,6 +157,8 @@ export function CardDetailSheet({
   const childrenTouched = useRef(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [workItemTypeId, setWorkItemTypeId] = useState<string | null>(null);
+  const { types: workItemTypes } = useWorkItemTypes(orgId);
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
   // SAFe classification (FR gantt-enh): business value vs. enabler work.
   const [workCategory, setWorkCategory] = useState<WorkItem["workCategory"]>("BUSINESS");
@@ -239,6 +243,7 @@ export function CardDetailSheet({
     if (item) {
       setTitle(item.title);
       setDescription(item.description);
+      setWorkItemTypeId(item.workItemTypeId);
       setPriority(item.priority);
       setWorkCategory(item.workCategory ?? "BUSINESS");
       setAssigneeId(item.assigneeId);
@@ -268,8 +273,11 @@ export function CardDetailSheet({
       setEditingCommentId(null);
       setEditDraft("");
     }
-     
-    // re-running on the `item` object is exactly the data-loss bug above.
+    // Keyed on the ID, not the object. Every inline save PUTs one field and
+    // feeds the server's full row back down as a NEW `item` reference — so a
+    // dependency on `item` re-seeds the form mid-typing and discards the draft,
+    // which is exactly the data-loss bug this effect caused.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -448,7 +456,10 @@ export function CardDetailSheet({
           case "priority":
             setPriority(item.priority);
             break;
-          case "workCategory":
+          case "workItemTypeId":
+        setWorkItemTypeId(value as string);
+        break;
+      case "workCategory":
             setWorkCategory(item.workCategory ?? "BUSINESS");
             break;
           case "assigneeId":
@@ -810,7 +821,12 @@ export function CardDetailSheet({
         // Match the base Sheet's data-[side=right] width variants so twMerge
         // actually overrides them — a plain `w-full` loses to the base
         // `data-[side=right]:w-3/4`, leaving the sheet at 75% on mobile.
-        className="data-[side=right]:w-full data-[side=right]:sm:max-w-2xl overflow-y-auto"
+        // overflow-x-hidden is load-bearing (COSMOS-21): `overflow-y-auto`
+        // alone promotes overflow-x to auto, so one wide markdown table or code
+        // block in the description scrolls the ENTIRE pane sideways, dragging
+        // every field out of view. Wide content gets its own scroller instead.
+        className="data-[side=right]:w-full data-[side=right]:sm:max-w-2xl overflow-y-auto overflow-x-hidden"
+        data-testid="card-detail-body"
       >
         <SheetHeader>
           {/* Single identity line: "#1 · Task". The title is shown once, in the
@@ -963,6 +979,30 @@ export function CardDetailSheet({
                   {priorityOptions.map((p) => (
                     <SelectItem key={p} value={p}>
                       {p.charAt(0) + p.slice(1).toLowerCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </MetadataField>
+
+            {/* Work-item type. The API has always accepted workItemTypeId on
+                update — and records the change in activity — but nothing in the
+                UI ever offered it, so a ticket filed as the wrong type could
+                only be deleted and recreated, losing its number, comments and
+                history. */}
+            <MetadataField icon={Shapes} label="Type">
+              <Select
+                items={Object.fromEntries(workItemTypes.map((t) => [t.id, t.name]))}
+                value={workItemTypeId ?? ""}
+                onValueChange={(v) => v && handleFieldChange("workItemTypeId", v)}
+              >
+                <SelectTrigger size="sm" aria-label="Type" className="w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {workItemTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -30,6 +30,14 @@ vi.mock("@/components/roadmap/roadmap-description-field", () => ({
 vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
+vi.mock("@/hooks/use-work-item-types", () => ({
+  useWorkItemTypes: () => ({
+    types: [
+      { id: "wt", key: "software.story", name: "Story" },
+      { id: "wt2", key: "software.bug", name: "Bug" },
+    ],
+  }),
+}));
 vi.mock("@/hooks/use-custom-fields", () => ({
   useCustomFields: () => ({ fields: [] }),
   fieldAppliesToType: () => false,

@@ -194,8 +194,13 @@ export function RoadmapDescriptionField({
         <button
           type="button"
           onClick={() => setMode("write")}
-          className="block w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40"
+          // Its own horizontal scroller (COSMOS-21): the containing pane hides
+          // overflow-x so wide content can't drag the whole pane sideways, which
+          // would otherwise CLIP tables and code blocks instead. break-words
+          // keeps ordinary prose wrapping rather than forcing a scrollbar.
+          className="block w-full overflow-x-auto rounded-md border bg-background p-3 text-left break-words transition-colors hover:border-primary/40"
           title="Click to edit"
+          data-testid="markdown-preview"
         >
           <RoadmapMarkdown>{value}</RoadmapMarkdown>
         </button>
