@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications/create";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
+import { setLabelsForMany } from "@/lib/work-items/labels";
 import { z } from "zod";
 import { Priority } from "@prisma/client";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -66,7 +67,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (update.assigneeId !== undefined) updateData.assigneeId = update.assigneeId;
     if (update.priority !== undefined) updateData.priority = update.priority;
     if (update.intervalId !== undefined) updateData.intervalId = update.intervalId;
-    if (update.tags !== undefined) updateData.tags = update.tags;
+    // Labels are NOT put in updateData: the array is a mirror of
+    // work_item_labels now, so an updateMany would set the text without
+    // creating the rows — the label would show on every card and filter, yet be
+    // absent from the management screen and skipped by any later rename.
+    // Applied below instead, set-based so a 500-item batch stays 3 statements.
 
     // Snapshot previous state so we can fan out per-item assignee-change
     // notifications after the bulk update succeeds.
@@ -91,6 +96,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         data: updateData,
       });
       updatedCount += r.count;
+    }
+    if (update.tags !== undefined) {
+      for (const batch of chunk(ids, BULK_CHUNK)) {
+        await setLabelsForMany(prisma, orgId, batch, update.tags);
+      }
     }
     const result = { count: updatedCount };
 

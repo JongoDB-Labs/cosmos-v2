@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import {
   normalizeLabelNames,
   recomputeTagMirror,
+  setLabelsForMany,
   resolveLabels,
   setWorkItemLabels,
 } from "./labels";
@@ -179,6 +180,43 @@ describe("work-item labels (e2e DB)", () => {
 
     const after = await prisma.workItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(after.tags).toEqual([]);
+  });
+
+  // Bulk edit can span 500 items a batch, so it uses a set-based path rather
+  // than the per-item helper. Same semantics — replace, not merge.
+  it("applies one label set across many items, and replaces what was there", async () => {
+    const a = await makeItem();
+    const b = await makeItem();
+    const suffix = Math.random().toString(36).slice(2, 8);
+
+    track(await setWorkItemLabels(prisma, a.org.id, a.item.id, [`Old-${suffix}`]));
+    track(await setLabelsForMany(prisma, a.org.id, [a.item.id, b.item.id], [
+      `Bulk-${suffix}`,
+    ]).then(() => resolveLabels(prisma, a.org.id, [`Bulk-${suffix}`, `Old-${suffix}`])));
+
+    for (const id of [a.item.id, b.item.id]) {
+      const joins = await prisma.workItemLabel.findMany({
+        where: { workItemId: id },
+        include: { label: true },
+      });
+      const row = await prisma.workItem.findUniqueOrThrow({ where: { id } });
+      expect(joins.map((j) => j.label.name)).toEqual([`Bulk-${suffix}`]);
+      // The first item's prior label must be GONE, not kept alongside.
+      expect(row.tags).toEqual([`Bulk-${suffix}`]);
+    }
+  });
+
+  it("clears every item's labels when the bulk set is empty", async () => {
+    const a = await makeItem();
+    const suffix = Math.random().toString(36).slice(2, 8);
+    track(await setWorkItemLabels(prisma, a.org.id, a.item.id, [`Doomed-${suffix}`]));
+
+    await setLabelsForMany(prisma, a.org.id, [a.item.id], []);
+
+    const joins = await prisma.workItemLabel.findMany({ where: { workItemId: a.item.id } });
+    const row = await prisma.workItem.findUniqueOrThrow({ where: { id: a.item.id } });
+    expect(joins).toHaveLength(0);
+    expect(row.tags).toEqual([]);
   });
 
   it("stores the catalogue's spelling in the mirror, not the caller's", async () => {

@@ -61,6 +61,44 @@ export async function resolveLabels(
 }
 
 /**
+ * Set the SAME label set on many items at once.
+ *
+ * The per-item helper would be N round-trips inside a bulk edit that can span
+ * 500 items a batch; this is three statements regardless of count. Semantics
+ * match setWorkItemLabels — the set is replaced, not merged.
+ */
+export async function setLabelsForMany(
+  db: Db,
+  orgId: string,
+  workItemIds: readonly string[],
+  names: readonly string[],
+): Promise<void> {
+  if (workItemIds.length === 0) return;
+  const ids = [...workItemIds];
+  const labels = await resolveLabels(db, orgId, names);
+  const labelIds = labels.map((l) => l.id);
+
+  if (labelIds.length === 0) {
+    await db.workItemLabel.deleteMany({ where: { workItemId: { in: ids } } });
+  } else {
+    await db.workItemLabel.deleteMany({
+      where: { workItemId: { in: ids }, labelId: { notIn: labelIds } },
+    });
+    // Cross-join the two id lists in the database rather than materialising
+    // items × labels rows in JS.
+    await db.$executeRaw`
+      INSERT INTO work_item_labels (org_id, work_item_id, label_id)
+      SELECT ${orgId}::uuid, i, l
+      FROM unnest(${ids}::uuid[]) AS i
+      CROSS JOIN unnest(${labelIds}::uuid[]) AS l
+      ON CONFLICT (work_item_id, label_id) DO NOTHING
+    `;
+  }
+
+  await recomputeTagMirror(db, ids);
+}
+
+/**
  * Rebuild the `tags` mirror for the given items from their join rows.
  *
  * Needed by the org-wide operations, where the label changes but the
