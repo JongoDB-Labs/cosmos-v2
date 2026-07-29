@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -68,12 +68,15 @@ interface Risk {
 interface RiskTrackerProps {
   orgId: string;
   projectId: string;
-  branches: BranchLite[];
 }
 
 const STATUS_OPTIONS: RiskStatus[] = ["OPEN", "MONITORING", "MITIGATED", "CLOSED", "ESCALATED"];
 const CATEGORY_OPTIONS = ["Schedule", "Cost", "Technical", "Security", "Resource", "Compliance", "External"];
 const TREND_OPTIONS = ["↑ Increasing", "→ Stable", "↓ Decreasing"];
+
+// base-ui Select treats "" as "no value", so an explicit sentinel is needed for
+// the "Unassigned" choice.
+const NO_OWNER = "__unassigned__";
 
 const STATUS_LABEL: Record<RiskStatus, string> = {
   OPEN: "Open",
@@ -103,12 +106,6 @@ const RISK_COLUMNS: ColumnDef<Risk>[] = [
     accessorKey: "title",
     header: "Risk",
     cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
-  },
-  {
-    id: "branch",
-    header: "Branch",
-    accessorFn: (r) => r.programBranch?.code ?? "",
-    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
   },
   {
     accessorKey: "level",
@@ -152,7 +149,6 @@ interface RiskForm {
   title: string;
   description: string;
   category: string;
-  branchId: string;
   likelihood: number;
   impact: number;
   owner: string;
@@ -169,7 +165,6 @@ const emptyForm: RiskForm = {
   title: "",
   description: "",
   category: "Technical",
-  branchId: "",
   likelihood: 3,
   impact: 3,
   owner: "",
@@ -187,7 +182,6 @@ function formToBody(f: RiskForm) {
     title: f.title.trim(),
     description: f.description.trim() || null,
     category: f.category || null,
-    branchId: f.branchId || null,
     likelihood: f.likelihood,
     impact: f.impact,
     owner: f.owner.trim() || null,
@@ -201,9 +195,31 @@ function formToBody(f: RiskForm) {
   };
 }
 
-export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
+export function RiskTracker({ orgId, projectId }: RiskTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/risks`;
   const queryKey = useOrgQueryKey("risks", projectId);
+  // Owner options. Org-wide members: the risk registers are project surfaces but
+  // membership is held at the org, and `owner` is a free string so this only
+  // needs names.
+  const { data: orgMembers = [] } = useQuery({
+    queryKey: ["org", orgId, "members"],
+    queryFn: () => jsonFetch<{ userId: string; user?: { displayName?: string | null; email?: string | null } }[]>(
+      `/api/v1/orgs/${orgId}/members`,
+    ),
+    staleTime: 60_000,
+  });
+  const memberNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          orgMembers
+            .map((m) => m.user?.displayName?.trim() || m.user?.email?.trim() || "")
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [orgMembers],
+  );
+
   const { data: risks = [], isLoading, isError, refetch } = useQuery({
     queryKey,
     queryFn: () => jsonFetch<Risk[]>(apiBase),
@@ -284,7 +300,7 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
   );
 
   function openCreate() {
-    setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setForm({ ...emptyForm });
     setCreateOpen(true);
   }
   // Row click → open the detail drawer (the primary row-detail view).
@@ -305,15 +321,6 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
         value: r.description,
         editable: canEdit,
         placeholder: "Condition and potential consequence",
-      },
-      {
-        key: "branchId",
-        label: "Branch",
-        type: "select",
-        value: r.branchId,
-        editable: canEdit && branches.length > 0,
-        options: branches.map((b) => ({ value: b.id, label: `${b.code} ${b.name}` })),
-        placeholder: "Select branch",
       },
       {
         key: "category",
@@ -349,7 +356,15 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
         value: LEVEL_META[r.level].label,
         editable: false,
       },
-      { key: "owner", label: "Owner", type: "text", value: r.owner, editable: canEdit },
+      {
+        key: "owner",
+        label: "Owner",
+        type: "select" as const,
+        value: r.owner,
+        editable: canEdit,
+        options: memberNames.map((n) => ({ value: n, label: n })),
+        placeholder: "Accountable person",
+      },
       {
         key: "status",
         label: "Status",
@@ -398,8 +413,8 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
         columns={RISK_COLUMNS}
         search={filter}
         onSearchChange={setFilter}
-        searchText={(r) => [r.code, r.title, r.owner ?? "", r.programBranch?.name ?? ""].join(" ")}
-        searchPlaceholder="Filter by title, ID, owner, branch…"
+        searchText={(r) => [r.code, r.title, r.owner ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, owner…"
         onRowClick={openDetail}
         rowActions={rowActions}
         onNew={canEdit ? openCreate : undefined}
@@ -454,7 +469,7 @@ export function RiskTracker({ orgId, projectId, branches }: RiskTrackerProps) {
         title="New Risk"
         form={form}
         setForm={setForm}
-        branches={branches}
+        memberNames={memberNames}
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
@@ -514,7 +529,7 @@ function RiskDialog({
   title,
   form,
   setForm,
-  branches,
+  memberNames,
   pending,
   onSubmit,
   submitLabel,
@@ -524,7 +539,7 @@ function RiskDialog({
   title: string;
   form: RiskForm;
   setForm: React.Dispatch<React.SetStateAction<RiskForm>>;
-  branches: BranchLite[];
+  memberNames: string[];
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
@@ -565,22 +580,28 @@ function RiskDialog({
             )}
           </FormField>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <PickField label="Category" value={form.category} onChange={(v) => setForm((f) => ({ ...f, category: v }))} options={CATEGORY_OPTIONS} />
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Branch</label>
-              <Select value={form.branchId} onValueChange={(v) => setForm((f) => ({ ...f, branchId: v ?? "" }))}>
-                <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-                <SelectContent>
-                  {branches.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.code} {b.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Owner is picked from the org's members rather than typed free-hand,
+                so a risk can't be assigned to a misspelling of someone's name.
+                Stored as the display name (the column is a string), so existing
+                rows keep working and nothing needed migrating. */}
             <FormField label="Owner">
               {(p) => (
-                <Input {...p} value={form.owner} onChange={(e) => setForm((f) => ({ ...f, owner: e.target.value }))} placeholder="Accountable person" />
+                <Select
+                  value={form.owner || NO_OWNER}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, owner: v === NO_OWNER ? "" : ((v as string) ?? "") }))
+                  }
+                >
+                  <SelectTrigger {...p}><SelectValue placeholder="Accountable person" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_OWNER}>Unassigned</SelectItem>
+                    {memberNames.map((n) => (
+                      <SelectItem key={n} value={n}>{n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </FormField>
           </div>

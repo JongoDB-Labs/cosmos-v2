@@ -16,11 +16,5 @@ export default async function RisksPage({ params }: PageParams) {
   });
   if (!project) notFound();
 
-  const branches = await prisma.programBranch.findMany({
-    where: { orgId: ctx.orgId },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, code: true, name: true },
-  });
-
-  return <RiskTracker orgId={ctx.orgId} projectId={project.id} branches={branches} />;
+  return <RiskTracker orgId={ctx.orgId} projectId={project.id} />;
 }

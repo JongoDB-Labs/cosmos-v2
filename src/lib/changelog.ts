@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.247.1",
+    date: "2026-07-29",
+    title: "Ticket links open again, and a tidier risk register",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a link to a ticket — from the Activity feed, a mention, or a shared URL — dropped you on the Issues list instead of opening the ticket. It now opens. If the ticket has since been deleted, or isn't one you have access to, you get told so rather than being left wondering.",
+      },
+      {
+        kind: "improvement",
+        text: "The risk register no longer asks for a Branch. It wasn't doing anything useful on a risk, and the picker was showing each LOE's number twice — \"LOE1 LOE 1 — …\". The other PM registers that still use Branch now show it once.",
+      },
+      {
+        kind: "improvement",
+        text: "A risk's Owner is now picked from your members instead of typed in by hand, so risks can't end up assigned to a misspelling.",
+      },
+    ],
+  },
+  {
     version: "2.247.0",
     date: "2026-07-29",
     title: "PI Objectives and sprint goals, next to your project goals",
