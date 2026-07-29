@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/auth";
+import { createIssueFromBoard } from "./fixtures/create-issue";
 
 /**
  * E2E journey — open a work item's detail. Creates a card on the seeded board's
@@ -36,15 +37,7 @@ test.describe("journey — work item detail", () => {
     ).toBeVisible({ timeout: 20_000 });
 
     // Create a card to have something to open.
-    await page.getByRole("button", { name: "Add card" }).first().click();
-    const titleInput = page.getByPlaceholder("Card title...");
-    await expect(titleInput).toBeVisible({ timeout: 10_000 });
-    await titleInput.fill(title);
-    await titleInput.press("Enter");
-
-    // The card renders; its accessible name is "Open {KEY}-{n}: {title}".
-    const card = page.getByRole("button", { name: title }).first();
-    await expect(card).toBeVisible({ timeout: 15_000 });
+    const card = await createIssueFromBoard(page, title, "Backlog");
 
     // Click it → the detail Sheet (a portal'd base-ui dialog) opens.
     await card.click();
