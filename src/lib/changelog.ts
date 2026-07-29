@@ -37,6 +37,10 @@ export const CHANGELOG: Release[] = [
         kind: "improvement",
         text: "The per-column “Add card” buttons are gone from the Kanban and Scrum boards; “New issue” in the toolbar above replaces them. New RAID entries still arrive pre-categorised, now as an editable label.",
       },
+      {
+        kind: "feature",
+        text: "Right-clicking an issue on the Issues page now offers the changes you actually make most often — assign it to someone, set its status, move it into a sprint or PI, or change its priority — each as a submenu with a tick against its current value. Statuses and sprints are the ones belonging to that issue's own project.",
+      },
     ],
   },
   {

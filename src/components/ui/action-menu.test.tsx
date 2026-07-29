@@ -5,7 +5,7 @@
 // `DropdownMenuLabel` for a group's title, which throws #31 the instant the
 // menu opens (see 2.57.5 and dropdown-menu.test.tsx). If the group wrapping
 // ever regresses, opening a labeled ActionMenu here throws again and this fails.
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { ActionMenu } from "./action-menu";
 
@@ -61,5 +61,85 @@ describe("ActionMenu (Base UI #31 regression)", () => {
 
     expect(() => openMenu()).not.toThrow();
     expect(screen.getByText("Delete")).toBeInTheDocument();
+  });
+});
+
+// Quick field changes (assignee, status, interval, priority) each have as many
+// options as the org/project has members, columns or sprints. Flattening those
+// into the root menu would make it unusable, so they nest — these lock the
+// nesting, and the two behaviours that make it usable: the root menu closing
+// after a nested action, and a dead-end submenu being disabled rather than
+// opening onto nothing.
+describe("ActionMenu submenus", () => {
+  it("opens a submenu and fires the nested action", () => {
+    const assign = vi.fn();
+    render(
+      <ActionMenu
+        groups={[
+          {
+            items: [
+              {
+                label: "Assign to",
+                submenu: [
+                  { label: "Ada", onClick: assign },
+                  { label: "Grace", onClick: () => {} },
+                ],
+              },
+            ],
+          },
+        ]}
+      >
+        <span>row</span>
+      </ActionMenu>,
+    );
+
+    openMenu();
+    fireEvent.click(screen.getByText("Assign to"));
+    fireEvent.click(screen.getByText("Ada"));
+
+    expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables a submenu with no options", () => {
+    // A project with no sprints yet: the row must not invite a click that opens
+    // onto an empty popup.
+    render(
+      <ActionMenu
+        groups={[{ items: [{ label: "Move to interval", submenu: [] }] }]}
+      >
+        <span>row</span>
+      </ActionMenu>,
+    );
+
+    openMenu();
+    expect(screen.getByText("Move to interval").closest("[data-disabled]")).not.toBeNull();
+  });
+
+  it("does not treat a submenu row as an action", () => {
+    // The parent row opens the submenu; it must not also fire an onClick that
+    // would apply some arbitrary value.
+    const parent = vi.fn();
+    render(
+      <ActionMenu
+        groups={[
+          {
+            items: [
+              {
+                label: "Set priority",
+                onClick: parent,
+                submenu: [{ label: "High", onClick: () => {} }],
+              },
+            ],
+          },
+        ]}
+      >
+        <span>row</span>
+      </ActionMenu>,
+    );
+
+    openMenu();
+    fireEvent.click(screen.getByText("Set priority"));
+
+    expect(parent).not.toHaveBeenCalled();
   });
 });
