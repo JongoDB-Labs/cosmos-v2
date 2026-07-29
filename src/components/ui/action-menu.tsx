@@ -7,7 +7,7 @@ import {
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { MoreHorizontal, type LucideIcon } from "lucide-react";
+import { Check, MoreHorizontal, type LucideIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -16,15 +16,29 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export interface ActionMenuItem {
   label: string;
   icon?: LucideIcon;
-  onClick: () => void;
+  /** Ignored when `submenu` is set — that row opens the submenu instead. */
+  onClick?: () => void;
   variant?: "default" | "destructive";
   disabled?: boolean;
+  /**
+   * Nested items. Quick field changes (assignee, status, interval, priority)
+   * each have as many options as the org/project has members, columns or
+   * sprints, so flattening them into the root menu would make it unusable.
+   * They nest instead.
+   */
+  submenu?: ActionMenuItem[];
+  /** Marks this row as the field's CURRENT value, so a submenu shows what the
+   *  item is already set to rather than an undifferentiated list. */
+  checked?: boolean;
 }
 
 export interface ActionMenuGroup {
@@ -121,6 +135,52 @@ export function guardScroll(from: Element | null, frames = 20): () => void {
   };
   requestAnimationFrame(tick);
   return cancel;
+}
+
+/**
+ * One row of the menu — a plain item, or a submenu when it carries children.
+ *
+ * `onDone` runs after an action fires, and carries the menu's own close. It
+ * preserves what this renderer always did (`setOpen(false)` on click) rather
+ * than relying on base-ui to dismiss the popup for us.
+ */
+export function ActionRow({ item, onDone }: { item: ActionMenuItem; onDone: () => void }) {
+  const Icon = item.icon;
+
+  if (item.submenu) {
+    // An empty submenu would render a trigger that opens onto nothing — better
+    // to show the row disabled than to let the user chase a dead end.
+    const empty = item.submenu.length === 0;
+    return (
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger disabled={item.disabled || empty}>
+          {Icon && <Icon className="h-4 w-4" />}
+          {item.label}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+          {item.submenu.map((sub) => (
+            <ActionRow key={sub.label} item={sub} onDone={onDone} />
+          ))}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    );
+  }
+
+  return (
+    <DropdownMenuItem
+      variant={item.variant}
+      disabled={item.disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        item.onClick?.();
+        onDone();
+      }}
+    >
+      {Icon && <Icon className="h-4 w-4" />}
+      <span className="truncate">{item.label}</span>
+      {item.checked && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
+    </DropdownMenuItem>
+  );
 }
 
 export function ActionMenu({ groups, children, triggerClassName, triggerLabel }: ActionMenuProps) {
@@ -225,24 +285,9 @@ export function ActionMenu({ groups, children, triggerClassName, triggerLabel }:
               {group.label && (
                 <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
               )}
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <DropdownMenuItem
-                    key={item.label}
-                    variant={item.variant}
-                    disabled={item.disabled}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      item.onClick();
-                      setOpen(false);
-                    }}
-                  >
-                    {Icon && <Icon className="h-4 w-4" />}
-                    {item.label}
-                  </DropdownMenuItem>
-                );
-              })}
+              {group.items.map((item) => (
+                <ActionRow key={item.label} item={item} onDone={() => setOpen(false)} />
+              ))}
             </DropdownMenuGroup>
           ))}
       </DropdownMenuContent>

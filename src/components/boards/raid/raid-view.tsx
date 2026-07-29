@@ -25,7 +25,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
-import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -297,19 +297,16 @@ export function RaidView({
         </span>
 
         <div className="ml-auto flex items-center gap-3">
-          <CreateIssueButton
+          <NewIssueButton
             orgId={orgId}
             projectId={projectId}
+            projectKey={projectKey}
             boardId={boardId}
-            // Seed a RAID category so a new entry defaults to a real column
-            // instead of "Unclassified" (COSMOS-80); the user can change it.
-            categoryPreset={{
-              options: RAID_CATEGORIES.map((c) => ({
-                value: c.tag,
-                label: c.label,
-              })),
-              defaultValue: RAID_CATEGORIES[0].tag,
-            }}
+            // Seed a RAID category so a new entry defaults to a real category
+            // instead of "Unclassified" (COSMOS-80). It arrives in the dialog's
+            // Labels field, editable like any other label — a RAID category IS a
+            // tag, so it needs no control of its own.
+            initialLabels={[RAID_CATEGORIES[0].tag]}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-muted)]">

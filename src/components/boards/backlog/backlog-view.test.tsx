@@ -28,8 +28,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Keep the render light — these pull in heavy trees we don't exercise here.
-vi.mock("@/components/boards/shared/create-issue-button", () => ({
-  CreateIssueButton: () => <button type="button">New issue</button>,
+vi.mock("@/components/boards/shared/new-issue-button", () => ({
+  NewIssueButton: () => <button type="button">New issue</button>,
 }));
 vi.mock("@/components/work-items/card-detail-sheet", () => ({
   CardDetailSheet: () => null,

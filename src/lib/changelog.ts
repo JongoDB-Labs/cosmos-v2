@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.246.0",
+    date: "2026-07-29",
+    title: "One “New issue” form, on every board",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Which details you could fill in when creating an issue depended on where you happened to be standing: the Table, Backlog, Timeline, Calendar and RAID boards offered a cut-down form with no description, story points, labels or custom fields, and the Kanban's per-column “Add card” could only set a title. Every board now opens the same full New issue form the Issues page uses.",
+      },
+      {
+        kind: "feature",
+        text: "That form now has a Status picker, so you choose where a new issue lands instead of it silently going to the first column of the project's first board. On a board it offers that board's own statuses; on Timeline, Calendar and RAID — which have no workflow of their own — it offers the project's.",
+      },
+      {
+        kind: "improvement",
+        text: "The per-column “Add card” buttons are gone from the Kanban and Scrum boards; “New issue” in the toolbar above replaces them. New RAID entries still arrive pre-categorised, now as an editable label.",
+      },
+      {
+        kind: "feature",
+        text: "Right-clicking an issue on the Issues page now offers the changes you actually make most often — assign it to someone, set its status, move it into a sprint or PI, or change its priority — each as a submenu with a tick against its current value. Statuses and sprints are the ones belonging to that issue's own project.",
+      },
+    ],
+  },
+  {
     version: "2.245.0",
     date: "2026-07-29",
     title: "Plan into any sprint, and move between them from the board",

@@ -30,11 +30,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "./dropdown-menu";
-import { guardScroll, type ActionMenuGroup } from "./action-menu";
+import { ActionRow, guardScroll, type ActionMenuGroup } from "./action-menu";
 
 export interface DataTableProps<T> {
   columns: ColumnDef<T>[];
@@ -370,24 +369,13 @@ export function DataTable<T>({
               <DropdownMenuGroup key={group.label ?? gi}>
                 {gi > 0 && <DropdownMenuSeparator />}
                 {group.label && <DropdownMenuLabel>{group.label}</DropdownMenuLabel>}
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <DropdownMenuItem
-                      key={item.label}
-                      variant={item.variant}
-                      disabled={item.disabled}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        item.onClick();
-                        setMenuOpen(false);
-                      }}
-                    >
-                      {Icon && <Icon className="h-4 w-4" />}
-                      {item.label}
-                    </DropdownMenuItem>
-                  );
-                })}
+                {/* Shares ActionMenu's row renderer rather than duplicating it,
+                    so submenus (quick assignee/status/interval changes) work on
+                    the table's right-click menu too — this copy had drifted into
+                    a flat-items-only fork. */}
+                {group.items.map((item) => (
+                  <ActionRow key={item.label} item={item} onDone={() => setMenuOpen(false)} />
+                ))}
               </DropdownMenuGroup>
             ))}
         </DropdownMenuContent>

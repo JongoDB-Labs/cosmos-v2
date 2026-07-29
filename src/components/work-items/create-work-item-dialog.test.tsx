@@ -336,3 +336,207 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
   });
 });
+
+// The board-local create dialogs this one replaces all let you choose where the
+// new issue lands. This dialog didn't — it silently took the project's first
+// board's first column. Making every board share this dialog would have been a
+// downgrade without a real Status picker, so these lock it.
+describe("CreateWorkItemDialog — Status picker", () => {
+  const BOARDS = [
+    {
+      id: "kanban",
+      columns: [
+        { key: "todo", name: "To Do", sortOrder: 0 },
+        { key: "doing", name: "In Progress", sortOrder: 1 },
+      ],
+    },
+    // A board with no workflow of its own — Timeline/Calendar/RAID/Roadmap all
+    // ship this way.
+    { id: "timeline", columns: [] },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(useWorkItemTypes).mockReturnValue({
+      types: [{ id: "t1", key: "software.task", name: "Task" }],
+    } as never);
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/members")) return Promise.resolve([]);
+      if (url.endsWith("/intervals")) return Promise.resolve([]);
+      if (url.endsWith("/boards")) return Promise.resolve(BOARDS);
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 9 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+  });
+
+  function renderDialog(extra: Record<string, unknown> = {}) {
+    return render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={PROJECTS}
+        prefilledProjectId="p1"
+        {...extra}
+      />,
+    );
+  }
+
+  it("offers the board's own statuses and submits the chosen one", async () => {
+    const user = userEvent.setup();
+    renderDialog({ boardId: "kanban" });
+
+    const status = await screen.findByLabelText("Status");
+    await waitFor(() =>
+      expect(
+        Array.from((status as HTMLSelectElement).options).map((o) => o.value),
+      ).toEqual(["todo", "doing"]),
+    );
+
+    await user.type(screen.getByLabelText("Title"), "Wire the importer");
+    await user.selectOptions(status, "doing");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().columnKey).toBe("doing");
+  });
+
+  it("borrows the project's statuses on a board that defines none", async () => {
+    // Otherwise the picker is empty on Timeline/Calendar/RAID and the issue
+    // lands wherever the first board happened to put it.
+    renderDialog({ boardId: "timeline" });
+
+    const status = await screen.findByLabelText("Status");
+    await waitFor(() =>
+      expect(
+        Array.from((status as HTMLSelectElement).options).map((o) => o.value),
+      ).toEqual(["todo", "doing"]),
+    );
+  });
+
+  it("still creates when the boards GET fails, falling back to backlog", async () => {
+    // BOARD_READ may be denied while ITEM_CREATE is granted (COSMOS-86) — the
+    // Status picker is a convenience and must never block creation.
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/boards")) return Promise.reject(new Error("403"));
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 9 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+
+    const user = userEvent.setup();
+    renderDialog({ boardId: "kanban" });
+
+    await screen.findByRole("dialog");
+    await user.type(screen.getByLabelText("Title"), "Created anyway");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().columnKey).toBe("backlog");
+  });
+
+  it("seeds the Labels field from initialLabels (RAID category, COSMOS-80)", async () => {
+    const user = userEvent.setup();
+    renderDialog({ boardId: "kanban", initialLabels: ["risk"] });
+
+    const labels = await screen.findByLabelText("Labels");
+    await waitFor(() => expect((labels as HTMLInputElement).value).toBe("risk"));
+
+    await user.type(screen.getByLabelText("Title"), "A new risk");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().tags).toEqual(["risk"]);
+  });
+});
+
+// Found by e2e-interaction, not by unit tests: "Create issue" sat permanently
+// disabled because the title had been silently emptied.
+//
+// The reset effect blanks the form, and it depended on the IDENTITY of the
+// `projects` array. `NewIssueButton` loads that list lazily (`enabled: open`),
+// so it arrives moments AFTER the dialog opens — long enough for someone to
+// have started typing — and the new identity re-ran the reset, wiping the
+// title. The Issues view has the same hazard: it rebuilds `facets.projects` on
+// every refetch.
+describe("CreateWorkItemDialog — a late-arriving project list must not wipe the form", () => {
+  beforeEach(() => {
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(useWorkItemTypes).mockReturnValue({
+      types: [{ id: "t1", key: "software.task", name: "Task" }],
+    } as never);
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/boards")) {
+        return Promise.resolve([{ id: "b1", columns: [{ key: "todo", name: "To Do" }] }]);
+      }
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 3 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+  });
+
+  it("keeps a typed title when the projects array is replaced mid-edit", async () => {
+    const user = userEvent.setup();
+    // Same VALUE, fresh identity — exactly what a resolving query produces.
+    const first = [{ id: "p1", key: "ENG", name: "Engineering" }];
+    const { rerender } = render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={first}
+        prefilledProjectId="p1"
+      />,
+    );
+
+    await screen.findByRole("dialog");
+    await user.type(screen.getByLabelText("Title"), "Half-typed title");
+
+    rerender(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={[{ id: "p1", key: "ENG", name: "Engineering" }]}
+        prefilledProjectId="p1"
+      />,
+    );
+
+    // The reported symptom: the title emptied and the button went back to
+    // disabled, so the issue could never be created.
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
+      "Half-typed title",
+    );
+    expect(screen.getByRole("button", { name: "Create issue" })).not.toBeDisabled();
+  });
+
+  it("still resets the form on a genuine reopen", async () => {
+    // The reset itself is load-bearing — a stale draft must not survive close
+    // and reopen.
+    const user = userEvent.setup();
+    const projects = [{ id: "p1", key: "ENG", name: "Engineering" }];
+    const { rerender } = render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={projects}
+        prefilledProjectId="p1"
+      />,
+    );
+    await screen.findByRole("dialog");
+    await user.type(screen.getByLabelText("Title"), "Abandoned draft");
+
+    const props = { orgId: "o1", onOpenChange: vi.fn(), projects, prefilledProjectId: "p1" };
+    rerender(<CreateWorkItemDialog {...props} open={false} />);
+    rerender(<CreateWorkItemDialog {...props} open />);
+
+    await waitFor(() =>
+      expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(""),
+    );
+  });
+});

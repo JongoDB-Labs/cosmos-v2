@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgQueryKey } from "@/lib/query/keys";
-import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -169,9 +169,10 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <CreateIssueButton
+          <NewIssueButton
             orgId={orgId}
             projectId={projectId}
+            projectKey={projectKey}
             boardId={boardId}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />

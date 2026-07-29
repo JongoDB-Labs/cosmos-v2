@@ -33,14 +33,14 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { SaveAsBoardDialog } from "@/components/work-items/save-as-board-dialog";
 import { SavedViewsPicker } from "@/components/work-items/saved-views-picker";
 import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
-import type { ActionMenuGroup } from "@/components/ui/action-menu";
+import type { ActionMenuGroup, ActionMenuItem } from "@/components/ui/action-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { WorkItemTypeIcon } from "@/components/work-items/work-item-type-icon";
 import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -831,28 +831,103 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             ]
           : []),
       ];
-      // Quick "set priority" without opening the drawer (FR: more right-click /
-      // 3-dot options + quick field changes). Universal across projects.
-      const priorityGroup =
-        canUpdateItem
-          ? (["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((p) => ({
-              label: p.charAt(0) + p.slice(1).toLowerCase(),
+      // Quick field changes without opening the drawer (FR: more right-click /
+      // 3-dot options). Each PUTs one field and refetches.
+      //
+      // Every option list below comes from `facets`, which the view has already
+      // loaded — so the menu adds no fetch of its own and opens instantly.
+      // Status and interval are read PER PROJECT: an Issues row can belong to
+      // any project, and offering another project's sprints or columns would
+      // produce a change the server rejects (or worse, silently accepts).
+      const patch = async (body: Record<string, unknown>, done: string, fail: string) => {
+        try {
+          await jsonFetch(itemBase, { method: "PUT", body: JSON.stringify(body) });
+          toast.success(done);
+          await refetch();
+        } catch (err) {
+          notifyError(err, fail);
+        }
+      };
+
+      const quick: ActionMenuItem[] = canUpdateItem
+        ? [
+            {
+              label: "Assign to",
+              icon: UserPlus,
+              submenu: [
+                {
+                  label: "Unassigned",
+                  checked: !r.assignee,
+                  onClick: () =>
+                    patch({ assigneeId: null }, "Unassigned", "Couldn't change the assignee."),
+                },
+                ...(facets?.members ?? []).map((m) => ({
+                  label: m.displayName,
+                  checked: r.assignee?.id === m.id,
+                  onClick: () =>
+                    patch(
+                      { assigneeId: m.id },
+                      `Assigned to ${m.displayName}`,
+                      "Couldn't change the assignee.",
+                    ),
+                })),
+              ],
+            },
+            {
+              label: "Set status",
+              icon: CheckCircle2,
+              submenu: (facets?.statusesByProject?.[r.project.id] ?? []).map((s) => ({
+                label: s.name,
+                checked: r.columnKey === s.key,
+                onClick: () =>
+                  patch({ columnKey: s.key }, `Moved to ${s.name}`, "Couldn't change the status."),
+              })),
+            },
+            {
+              label: "Move to interval",
+              icon: CalendarRange,
+              submenu: [
+                {
+                  label: "No interval",
+                  checked: !r.intervalId,
+                  onClick: () =>
+                    patch(
+                      { intervalId: null },
+                      "Removed from interval",
+                      "Couldn't change the interval.",
+                    ),
+                },
+                ...(facets?.intervals ?? [])
+                  .filter((c) => c.projectId === r.project.id)
+                  .map((c) => ({
+                    label: c.name,
+                    checked: r.intervalId === c.id,
+                    onClick: () =>
+                      patch(
+                        { intervalId: c.id },
+                        `Moved to ${c.name}`,
+                        "Couldn't change the interval.",
+                      ),
+                  })),
+              ],
+            },
+            {
+              label: "Set priority",
               icon: Flag,
-              onClick: async () => {
-                if (r.priority === p) return;
-                try {
-                  await jsonFetch(itemBase, {
-                    method: "PUT",
-                    body: JSON.stringify({ priority: p }),
-                  });
-                  toast.success(`Priority set to ${p.toLowerCase()}`);
-                  await refetch();
-                } catch (err) {
-                  notifyError(err, "Couldn't change the priority.");
-                }
-              },
-            }))
-          : [];
+              submenu: (["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((p) => ({
+                label: p.charAt(0) + p.slice(1).toLowerCase(),
+                checked: r.priority === p,
+                onClick: () =>
+                  patch(
+                    { priority: p },
+                    `Priority set to ${p.toLowerCase()}`,
+                    "Couldn't change the priority.",
+                  ),
+              })),
+            },
+          ]
+        : [];
+
       return [
         {
           items: [
@@ -872,11 +947,11 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             },
           ],
         },
-        ...(priorityGroup.length > 0 ? [{ label: "Set priority", items: priorityGroup }] : []),
+        ...(quick.length > 0 ? [{ items: quick }] : []),
         ...(crud.length > 0 ? [{ items: crud }] : []),
       ];
     },
-    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch],
+    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch, facets],
   );
 
   return (

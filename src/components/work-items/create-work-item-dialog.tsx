@@ -24,7 +24,8 @@ import {
   isCustomFieldEmpty,
   isRenderableCustomField,
 } from "@/components/work-items/custom-field-input";
-import type { Board, OrgMember, Interval } from "@/types/models";
+import { createStatusOptions } from "@/lib/boards/status-columns";
+import type { Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
@@ -87,6 +88,8 @@ export function CreateWorkItemDialog({
   onOpenChange,
   projects,
   prefilledProjectId,
+  boardId,
+  initialLabels,
   duplicateSource,
   onCreated,
 }: {
@@ -95,6 +98,16 @@ export function CreateWorkItemDialog({
   onOpenChange: (open: boolean) => void;
   projects: CreateProject[];
   prefilledProjectId?: string;
+  /**
+   * The board this dialog was opened from, when there is one. Its own columns
+   * seed the Status picker; a board with no workflow of its own (Timeline,
+   * Calendar, RAID and Roadmap all ship with `columns: []`) falls back to the
+   * project's statuses so the picker is never empty.
+   */
+  boardId?: string;
+  /** Labels applied by default. The RAID log seeds its category here so a new
+   *  entry never lands in "Unclassified" (COSMOS-80); the user can edit them. */
+  initialLabels?: string[];
   /** When set, the dialog opens as a "Duplicate issue" draft pre-filled from
    *  this source item (COSMOS-13). The user edits before creating; comments,
    *  activity, and status are never carried over (they aren't part of create). */
@@ -102,6 +115,11 @@ export function CreateWorkItemDialog({
   onCreated?: () => void;
 }) {
   const isDuplicate = Boolean(duplicateSource);
+  // Primitive forms of the two array props, so effects can depend on their
+  // VALUES rather than identities that change whenever a parent re-renders or a
+  // lazy fetch resolves. See the reset effect below for why that matters.
+  const initialLabelsText = (initialLabels ?? []).join(", ");
+  const firstProjectId = projects[0]?.id ?? "";
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState(prefilledProjectId ?? "");
   const [workItemTypeId, setWorkItemTypeId] = useState("");
@@ -118,6 +136,11 @@ export function CreateWorkItemDialog({
   const [labels, setLabels] = useState("");
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  // Status. The dialog used to resolve this silently — first board, first column
+  // — with no way to say where the issue should land, which is the one thing the
+  // board-local create dialogs it now replaces all offered.
+  const [statusColumns, setStatusColumns] = useState<BoardColumn[]>([]);
+  const [columnKey, setColumnKey] = useState("");
   // Per-item custom-field values, keyed by CustomField.key. Defs are loaded for
   // the currently-selected project (org-wide defs always included).
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
@@ -148,12 +171,52 @@ export function CreateWorkItemDialog({
       setDueDate("");
       setIntervalId(null);
       setDescription("");
-      setLabels("");
+      setLabels(initialLabelsText);
       setCustomValues({});
       setShowCustomErrors(false);
-      setProjectId(prefilledProjectId ?? projects[0]?.id ?? "");
+      setProjectId(prefilledProjectId ?? firstProjectId);
     }
-  }, [open, prefilledProjectId, projects, duplicateSource]);
+    // Depend on VALUES, never on the identity of `projects` or `initialLabels`.
+    // This effect wipes the form, so anything in its dependency list that gets
+    // a fresh identity mid-edit blanks whatever the user has typed. Both are
+    // live hazards, not hypotheticals: `NewIssueButton` loads its project list
+    // lazily (`enabled: open`), so the array's identity changes moments AFTER
+    // the dialog opens — long enough for someone to have started typing — and
+    // the Issues view rebuilds `facets.projects` on every refetch. Depending on
+    // the array meant the title silently emptied and "Create issue" went back
+    // to disabled.
+  }, [open, prefilledProjectId, firstProjectId, duplicateSource, initialLabelsText]);
+
+  // The statuses this dialog can file into: the board's own workflow when it was
+  // opened from a board, else the project's, pooled across its boards.
+  useEffect(() => {
+    if (!open || !projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const boards = await jsonFetch<Board[]>(
+          `/api/v1/orgs/${orgId}/projects/${projectId}/boards`,
+        );
+        if (cancelled) return;
+        const own = boardId ? boards.find((b) => b.id === boardId)?.columns : undefined;
+        const cols = createStatusOptions(own, boards);
+        setStatusColumns(cols);
+        setColumnKey((prev) =>
+          prev && cols.some((c) => c.key === prev) ? prev : (cols[0]?.key ?? ""),
+        );
+      } catch {
+        // Status stays on the "backlog" fallback below — the boards GET is
+        // BOARD_READ-gated, and creation must never hinge on it (COSMOS-86).
+        if (!cancelled) {
+          setStatusColumns([]);
+          setColumnKey("");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orgId, projectId, boardId]);
 
   // Default / repair the Type selection once the types load (and re-default
   // when the dialog reopens). Keep a valid selection if one is already chosen.
@@ -272,25 +335,14 @@ export function CreateWorkItemDialog({
 
     setSubmitting(true);
     try {
-      // The create API requires a columnKey — resolve the project's first board
-      // + first column (falls back to "backlog"). This lookup must NEVER abort
-      // the create: the board quick-create paths never make it and still create
-      // fine, so a failure here — the boards GET is BOARD_READ-gated, so a user
-      // with ITEM_CREATE but not BOARD_READ gets a non-2xx that `jsonFetch`
-      // throws, and any transient error does the same — must fall back to
-      // "backlog" instead of throwing, or the POST below is never sent and the
-      // issue silently fails to create while the Kanban board still works
-      // (COSMOS-86). The server stores columnKey verbatim, so the fallback is
-      // safe and the item appears in the Issues list.
-      let columnKey = "backlog";
-      try {
-        const boards = await jsonFetch<Board[]>(
-          `/api/v1/orgs/${orgId}/projects/${projectId}/boards`,
-        );
-        columnKey = boards[0]?.columns?.[0]?.key ?? "backlog";
-      } catch {
-        /* keep the "backlog" fallback — creation must not hinge on this GET */
-      }
+      // The create API requires a columnKey. It's the user's pick from the Status
+      // select, which the effect above populated. Falling back to "backlog" when
+      // that list never loaded is load-bearing: the boards GET is BOARD_READ-gated,
+      // so a user with ITEM_CREATE but not BOARD_READ can't read it — and creation
+      // must not hinge on a request that isn't required to create (COSMOS-86).
+      // The server stores columnKey verbatim, so the fallback is safe and the item
+      // still appears in the Issues list.
+      const submitColumnKey = columnKey || "backlog";
       const tags = labels
         .split(",")
         .map((t) => t.trim())
@@ -316,7 +368,7 @@ export function CreateWorkItemDialog({
         body: JSON.stringify({
           title: trimmed,
           ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
-          columnKey,
+          columnKey: submitColumnKey,
           priority,
           ...(assigneeIds.length ? { assigneeIds } : {}),
           ...(intervalId ? { intervalId } : {}),
@@ -406,6 +458,23 @@ export function CreateWorkItemDialog({
                 {workItemTypes.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Status</Label>
+              <select
+                aria-label="Status"
+                value={columnKey}
+                onChange={(e) => setColumnKey(e.target.value)}
+                className={fieldClass}
+                disabled={submitting || statusColumns.length === 0}
+              >
+                {statusColumns.length === 0 && <option value="">Loading…</option>}
+                {statusColumns.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.name}
                   </option>
                 ))}
               </select>

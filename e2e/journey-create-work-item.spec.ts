@@ -1,8 +1,9 @@
 import { test, expect } from "./fixtures/auth";
+import { createIssueFromBoard } from "./fixtures/create-issue";
 
 /**
  * E2E journey — create a work item (kanban card). On the seeded project's
- * default board, use the first column's inline "Add card" quick-create, type a
+ * default board, open the shared "New issue" dialog, fill in a title, and
  * title, submit with Enter, and verify the card appears. Exercises auth + the
  * kanban board + the work-item create mutation + the optimistic board update.
  *
@@ -40,17 +41,11 @@ test.describe("journey — create work item", () => {
       page.getByRole("heading", { name: "Backlog" }).first(),
     ).toBeVisible({ timeout: 20_000 });
 
-    // The first column's quick-create. Reveal the inline form, type, submit.
-    await page
-      .getByRole("button", { name: "Add card" })
-      .first()
-      .click();
-    const titleInput = page.getByPlaceholder("Card title...");
-    await expect(titleInput).toBeVisible({ timeout: 10_000 });
-    await titleInput.fill(title);
-    await titleInput.press("Enter");
+    // The board's "New issue" dialog — the same one the Issues page uses. It
+    // replaced the per-column "Add card" quick-create when every board was
+    // unified onto one create form.
+    await createIssueFromBoard(page, title, "Backlog");
 
-    // The created card is appended client-side and renders its title.
     await expect(page.getByText(title).first()).toBeVisible({ timeout: 15_000 });
   });
 });

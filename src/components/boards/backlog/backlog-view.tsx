@@ -48,7 +48,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import type {
@@ -435,9 +435,10 @@ export function BacklogView({
           </Button>
         )}
         <div className="ml-auto flex items-center gap-3">
-          <CreateIssueButton
+          <NewIssueButton
             orgId={orgId}
             projectId={projectId}
+            projectKey={projectKey}
             boardId={boardId}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />

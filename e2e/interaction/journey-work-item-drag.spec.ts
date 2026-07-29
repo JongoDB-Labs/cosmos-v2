@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../fixtures/auth";
+import { createIssueFromBoard } from "../fixtures/create-issue";
 
 /**
  * E2E interaction journey — drag a kanban card from one column to another.
@@ -39,24 +40,16 @@ const EMAIL = process.env.E2E_EMAIL ?? "alice@test.local";
 const PROJECT_KEY = process.env.E2E_PROJECT_KEY ?? "test";
 
 // Seeded board column display names (prisma/seed/test-fixtures.ts).
-const SOURCE_COLUMN_INDEX = 0; // "Backlog"
-const TARGET_COLUMN_INDEX = 1; // "To Do"
+const SOURCE_COLUMN = "Backlog";
+const TARGET_COLUMN = "To Do";
 
-/** Reveal the nth column's inline quick-create, type a title, submit, and
- *  return once the card's accessible button ("Open …: {title}") is visible. */
-async function createCard(page: Page, columnIndex: number, title: string) {
-  await page
-    .getByRole("button", { name: "Add card" })
-    .nth(columnIndex)
-    .click();
-  // The quick-create input is column-scoped, but only one is open at a time.
-  const titleInput = page.getByPlaceholder("Card title...");
-  await expect(titleInput).toBeVisible({ timeout: 10_000 });
-  await titleInput.fill(title);
-  await titleInput.press("Enter");
-  const card = page.getByRole("button", { name: title }).first();
-  await expect(card).toBeVisible({ timeout: 15_000 });
-  return card;
+/** Create a card in a named column via the board's shared "New issue" dialog,
+ *  and return once its accessible button ("Open …: {title}") is visible.
+ *
+ *  The per-column quick-create is gone — the column is now chosen through the
+ *  dialog's Status picker, so this takes a column NAME rather than an index. */
+async function createCard(page: Page, columnName: string, title: string) {
+  return createIssueFromBoard(page, title, columnName);
 }
 
 test.describe("interaction — work item drag (non-gating, flaky)", () => {
@@ -86,8 +79,8 @@ test.describe("interaction — work item drag (non-gating, flaky)", () => {
     // Seed a card in the TARGET column first (so it's an existing droppable),
     // then the SOURCE card we'll drag. Create target first to keep the source
     // card the most-recently-created (avoids accidental quick-create overlap).
-    const targetCard = await createCard(page, TARGET_COLUMN_INDEX, targetTitle);
-    const sourceCard = await createCard(page, SOURCE_COLUMN_INDEX, sourceTitle);
+    const targetCard = await createCard(page, TARGET_COLUMN, targetTitle);
+    const sourceCard = await createCard(page, SOURCE_COLUMN, sourceTitle);
 
     // Resolve geometry for the dnd-kit-correct pointer sequence.
     const src = await sourceCard.boundingBox();
