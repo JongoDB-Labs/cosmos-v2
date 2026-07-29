@@ -41,13 +41,19 @@ jobs:
         language: [javascript-typescript]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # init and analyze MUST stay on the same version. CodeQL's analyze step
+      # reads the config init wrote and refuses a mismatch ("Loaded a
+      # configuration file for version X, but running version Y"), so bumping
+      # one without the other fails the job. Dependabot raises them as two
+      # separate PRs (#476 init, #475 analyze), each of which is red on its own
+      # for exactly that reason — they have to land together.
       - name: Init CodeQL
-        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
       - name: Analyze
-        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           category: "/language:${{ matrix.language }}"
           output: evidence/${{ github.sha }}
