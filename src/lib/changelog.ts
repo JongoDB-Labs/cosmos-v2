@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.243.3",
+    date: "2026-07-29",
+    title: "Fixes for creating and classifying work",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Timeline / Gantt, Calendar, RAID Log and Roadmap boards, the “New issue” dialog opened with Status empty and “Create issue” greyed out, so nothing could be created from them. Those boards define no statuses of their own; the dialog now offers the project's statuses.",
+      },
+      {
+        kind: "improvement",
+        text: "“Milestone”, “Goal”, “KPI”, “Objective”, “Key Result” and “Risk” are no longer offered as issue types when creating work. Each of those is a real thing in its own right with its own board, and an issue filed as one never appeared there — a “milestone” created this way never reached the Milestones board. Existing items are untouched and still editable.",
+      },
+      {
+        kind: "fix",
+        text: "The Type column on the Issues page showed an icon's internal name next to the type — “CheckSquare Task”, “Layers Feature”. It now shows the icon.",
+      },
+    ],
+  },
+  {
     version: "2.243.2",
     date: "2026-07-28",
     title: "Milestones show up on the Timeline / Gantt",
