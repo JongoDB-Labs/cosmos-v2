@@ -5,8 +5,10 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Route,
-  Minimize2,
-  Maximize2,
+  Check,
+  Settings2,
+  ZoomIn,
+  ZoomOut,
   ChevronLeft,
   ChevronRight,
   ChevronsDownUp,
@@ -17,9 +19,22 @@ import {
   Waypoints,
   Undo2,
   Redo2,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
@@ -68,7 +83,24 @@ const typeColorMap: Record<string, { fill: string; stroke: string; text: string 
 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 50;
-const DAY_WIDTH = 28;
+// Day column width at 100% zoom. The rendered width is BASE_DAY_WIDTH * zoom —
+// see `dayWidth` in the component, which every x/width computation reads.
+type CriticalMode = "dependencies" | "duration" | "latest-finish" | "at-risk";
+const CRITICAL_MODES: { key: CriticalMode; label: string; hint: string }[] = [
+  { key: "dependencies", label: "Most dependencies", hint: "The chain with the most linked items" },
+  { key: "duration", label: "Longest duration", hint: "The chain with the most days of work" },
+  { key: "latest-finish", label: "Latest finish", hint: "The chain that sets the plan's end date" },
+  { key: "at-risk", label: "Most at risk", hint: "The chain carrying the most overdue or blocked work" },
+];
+
+const BASE_DAY_WIDTH = 28;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 1.25;
+/** Work-items column font scales with zoom so the two panes stay legible together. */
+function labelScale(zoom: number): number {
+  return Math.min(Math.max(zoom, 0.75), 1.4);
+}
 
 // ── Collapse-state persistence (FR COSMOS-69) ───────────────────────────────
 // The per-parent expand/collapse state is kept in sessionStorage, keyed by
@@ -340,8 +372,30 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
   const [showCritical, setShowCritical] = useState(false);
+  const [criticalMode, setCriticalMode] = useState<CriticalMode>("dependencies");
+  // Dim everything off the path rather than hiding it: the surrounding bars are
+  // what make a path read as critical. Hiding them leaves a chain floating with
+  // nothing to be critical RELATIVE to.
+  const [criticalIsolate, setCriticalIsolate] = useState(true);
   const [showPlanDrift, setShowPlanDrift] = useState(false);
   const [showEnablers, setShowEnablers] = useState(false);
+  // Zoom replaces the old Compress/Expand controls. Those MUTATED the schedule —
+  // they rewrote every item's dates by a factor, which is a destructive way to
+  // get a wider or narrower picture. Zoom changes only how the same dates are
+  // DRAWN, so looking closer can no longer move anyone's plan.
+  const [zoom, setZoom] = useState(1);
+  const dayWidth = Math.round(BASE_DAY_WIDTH * zoom);
+  const zoomBy = useCallback(
+    (factor: number) =>
+      setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z * factor))),
+    [],
+  );
+  // Fullscreen. The board tabs, the project header and the app sidebar are all
+  // drawn by ANCESTORS of this view, so there is no prop it can set to get them
+  // out of the way — claiming the viewport with a fixed overlay is the only way
+  // a plan gets the whole screen. Zoom (and every other control's state) lives
+  // in this component, so entering and leaving changes nothing but the layout.
+  const [fullscreen, setFullscreen] = useState(false);
   const [showDeps, setShowDeps] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -568,8 +622,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             month: new Date(
               dateHeaders[startIdx].date
             ).toLocaleString("default", { month: "short", year: "numeric" }),
-            startX: startIdx * DAY_WIDTH,
-            width: (i - startIdx) * DAY_WIDTH,
+            startX: startIdx * dayWidth,
+            width: (i - startIdx) * dayWidth,
           });
         }
         currentMonth = monthKey;
@@ -582,13 +636,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         month: new Date(
           dateHeaders[startIdx].date
         ).toLocaleString("default", { month: "short", year: "numeric" }),
-        startX: startIdx * DAY_WIDTH,
-        width: (dateHeaders.length - startIdx) * DAY_WIDTH,
+        startX: startIdx * dayWidth,
+        width: (dateHeaders.length - startIdx) * dayWidth,
       });
     }
 
     return labels;
-  }, [dateHeaders]);
+  }, [dayWidth, dateHeaders]);
 
   // Bar geometry per item id — the SAME formulas the bar renderer below uses,
   // so the dependency-arrow layer can resolve each end's bar position. Keyed by
@@ -616,16 +670,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       const startOffset = diffDays(timelineStart, start);
       const duration = Math.max(diffDays(start, end), 1);
       map.set(item.id, {
-        x: startOffset * DAY_WIDTH,
+        x: startOffset * dayWidth,
         // Body-SVG coordinates: the date header lives in its own sticky SVG, so
         // rows start at y=0 here.
         y: i * ROW_HEIGHT + 8,
-        w: Math.max(duration * DAY_WIDTH, DAY_WIDTH),
+        w: Math.max(duration * dayWidth, dayWidth),
         h: ROW_HEIGHT - 16,
       });
     });
     return map;
-  }, [sortedItems, timelineStart]);
+  }, [dayWidth, sortedItems, timelineStart]);
 
   // ── Drag-to-reschedule ───────────────────────────────────────────────────
   // Drag a bar's body to shift both dates; drag its left/right edge to move just
@@ -678,11 +732,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
       d.captured = true;
     }
-    const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
+    const deltaDays = Math.round((e.clientX - d.startClientX) / dayWidth);
     setDragPreview((p) =>
       p && p.deltaDays === deltaDays ? p : { id: d.id, mode: d.mode, deltaDays },
     );
-  }, []);
+  }, [dayWidth, ]);
 
   // The browser/OS can fire pointercancel mid-drag (touch scroll-takeover,
   // incoming call, palm rejection) — and then NO pointerup follows. Without
@@ -733,7 +787,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       const d = dragRef.current;
       dragRef.current = null;
       if (!d) return;
-      const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
+      const deltaDays = Math.round((e.clientX - d.startClientX) / dayWidth);
       setDragPreview(null);
       if (deltaDays === 0) return; // a tap, not a drag — let onClick open detail
       justDraggedRef.current = true; // suppress the trailing click after a drag
@@ -765,7 +819,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       setRedoStack([]);
       commitDates(d.id, after);
     },
-    [commitDates],
+    [dayWidth, commitDates],
   );
 
   const undo = useCallback(() => {
@@ -801,17 +855,57 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
+  // Escape leaves fullscreen: the way out of a takeover layer has to work
+  // without finding a button, because the layer is what hid the rest of the UI.
+  // It stands down while the detail sheet is open so Escape closes the sheet
+  // first — otherwise one keypress would dismiss both, and you'd land back on
+  // the board wondering what happened to the ticket you were reading.
+  useEffect(() => {
+    if (!fullscreen || detailId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, detailId]);
+
   // ── Critical path ────────────────────────────────────────────────────────
-  // The longest dependency chain (by summed bar duration) through the currently
-  // visible items. DP over the dependency DAG (interval-guarded); highlighted only
-  // when toggled on.
+  // "Critical" is not one thing, so the user picks what it means. Every mode is
+  // the same longest-path DP over the dependency DAG (cycle-guarded); they
+  // differ only in what a node is WORTH and which chain end is chosen.
+  //
+  //  dependencies  — the most-linked chain. Weight 1 per node, so the winner is
+  //                  the chain with the most items in it. This is the one people
+  //                  usually mean by "the critical path".
+  //  duration      — the longest chain by summed bar length (the prior behaviour).
+  //  latest-finish — the chain ending at the item that finishes last, i.e. the
+  //                  one actually setting the plan's end date.
+  //  at-risk       — the chain carrying the most trouble: overdue or blocked
+  //                  items are weighted heavily, so it surfaces where a slip is
+  //                  already happening rather than where one merely could.
   const criticalSet = useMemo(() => {
     if (!showCritical) return new Set<string>();
+    // Local, not the `today` below: this memo is declared above it.
+    const now = startOfDay(new Date());
     const ids = new Set(filteredItems.map((i) => i.id));
     const dur = new Map<string, number>();
+    const endAt = new Map<string, number>();
+    const weight = new Map<string, number>();
     for (const it of filteredItems) {
       const { start, end } = itemSpan(it);
-      dur.set(it.id, Math.max(diffDays(start, end), 1));
+      const d = Math.max(diffDays(start, end), 1);
+      dur.set(it.id, d);
+      endAt.set(it.id, end.getTime());
+      const overdue = end < now && !it.completedAt;
+      const blocked = (it.tags ?? []).some((t) => t.toLowerCase() === "blocked");
+      weight.set(
+        it.id,
+        criticalMode === "dependencies"
+          ? 1
+          : criticalMode === "at-risk"
+            ? (overdue ? 8 : 0) + (blocked ? 8 : 0) + 1
+            : d,
+      );
     }
     const preds = new Map<string, string[]>();
     for (const l of links) {
@@ -827,7 +921,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     const dp = (id: string): number => {
       const cached = memo.get(id);
       if (cached !== undefined) return cached;
-      if (visiting.has(id)) return dur.get(id) ?? 1; // cycle guard
+      if (visiting.has(id)) return weight.get(id) ?? 1; // cycle guard
       visiting.add(id);
       let bestVal = 0;
       let bestPred: string | null = null;
@@ -839,7 +933,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         }
       }
       visiting.delete(id);
-      const total = (dur.get(id) ?? 1) + bestVal;
+      const total = (weight.get(id) ?? 1) + bestVal;
       memo.set(id, total);
       best.set(id, bestPred);
       return total;
@@ -847,9 +941,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     let endId: string | null = null;
     let max = -1;
     for (const it of filteredItems) {
-      const v = dp(it.id);
-      if (v > max) {
-        max = v;
+      const score = dp(it.id);
+      // latest-finish ranks by when the chain ENDS, not by how heavy it is.
+      const rank = criticalMode === "latest-finish" ? (endAt.get(it.id) ?? 0) : score;
+      if (rank > max) {
+        max = rank;
         endId = it.id;
       }
     }
@@ -860,7 +956,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       cur = best.get(cur) ?? null;
     }
     return set;
-  }, [showCritical, filteredItems, links]);
+  }, [showCritical, criticalMode, filteredItems, links]);
 
   // Dependency focus: when the Dependencies lens is on and a bar is hovered,
   // resolve its DIRECT upstream (blockers) + downstream (dependents) so the
@@ -876,16 +972,45 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return { id: hoveredItem.id, up, down, all: new Set<string>([hoveredItem.id, ...up, ...down]) };
   }, [showDeps, hoveredItem, links]);
 
+  // ── Row selection ────────────────────────────────────────────────────────
+  // What Shift acts on. It used to act on every visible item, so nudging two
+  // tasks by a day silently re-dated the entire board — an edit nobody asked
+  // for, hidden inside a button that looked like a small adjustment. The user
+  // now names the items first, and Shift can only reach those.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+  // The stored ids are intersected with the rows actually on screen rather than
+  // trusted verbatim: filtering, collapsing a parent or switching to the
+  // Dependencies lens can take a row away long after it was ticked, and moving
+  // an item the user can no longer see is the same invisible bulk edit this
+  // selection exists to prevent.
+  const selectedItems = useMemo(
+    () => sortedItems.filter((it) => selectedIds.has(it.id)),
+    [sortedItems, selectedIds],
+  );
+  const allVisibleSelected =
+    sortedItems.length > 0 && selectedItems.length === sortedItems.length;
+
   // ── Bulk schedule ops ────────────────────────────────────────────────────
-  // The "adjust schedules / time compression in real-time" workspace: shift
-  // moves every VISIBLE item by N days; compress/expand scales each item's
-  // offset-from-start AND its duration by a factor, pivoting on the timeline
-  // start. Optimistic cache write, then PUT each; refetch on any failure.
+  // Shift moves the SELECTED items by N days. The target list is a parameter
+  // rather than something this reads off the visible rows, so "which items get
+  // rewritten" is decided by the caller and visible at the call site — that
+  // ambiguity is what let the old version move everything.
+  // Optimistic cache write, then PUT each; refetch on any failure.
   const bulkReschedule = useCallback(
-    async (compute: (span: { start: Date; end: Date }) => { start: Date; end: Date }) => {
-      if (!canEdit || busy || filteredItems.length === 0) return;
+    async (
+      targets: WorkItem[],
+      compute: (span: { start: Date; end: Date }) => { start: Date; end: Date },
+    ) => {
+      if (!canEdit || busy || targets.length === 0) return;
       setBusy(true);
-      const updates = filteredItems.map((it) => {
+      const updates = targets.map((it) => {
         const next = compute(itemSpan(it));
         return {
           id: it.id,
@@ -919,23 +1044,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       qc.invalidateQueries({ queryKey: itemsKey });
       setBusy(false);
     },
-    [canEdit, busy, filteredItems, qc, itemsKey, basePath],
+    [canEdit, busy, qc, itemsKey, basePath],
   );
 
   const shiftDays = (days: number) =>
-    void bulkReschedule(({ start, end }) => ({
+    void bulkReschedule(selectedItems, ({ start, end }) => ({
       start: addDays(start, days),
       end: addDays(end, days),
     }));
-
-  const scaleBy = (factor: number) =>
-    void bulkReschedule(({ start, end }) => {
-      const offset = diffDays(timelineStart, start);
-      const dur = Math.max(diffDays(start, end), 1);
-      const newStart = addDays(timelineStart, Math.round(offset * factor));
-      const newEnd = addDays(newStart, Math.max(Math.round(dur * factor), 1));
-      return { start: newStart, end: newEnd };
-    });
 
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
@@ -948,11 +1064,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       if (!m.dueDate) return [];
       const offset = diffDays(timelineStart, startOfDay(new Date(m.dueDate)));
       if (offset < 0 || offset >= totalDays) return [];
-      return [{ ...m, x: offset * DAY_WIDTH + DAY_WIDTH / 2 }];
+      return [{ ...m, x: offset * dayWidth + dayWidth / 2 }];
     });
-  }, [milestonesQ.data, timelineStart, totalDays]);
+  }, [dayWidth, milestonesQ.data, timelineStart, totalDays]);
 
-  const svgWidth = totalDays * DAY_WIDTH;
+  const svgWidth = totalDays * dayWidth;
   // The date header renders in its own sticky SVG; the body SVG holds only rows.
   const bodyHeight = sortedItems.length * ROW_HEIGHT + 20;
 
@@ -983,160 +1099,282 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <FilterBar
-        filters={filters}
-        onFilterChange={setFilters}
-        members={members}
-        intervals={intervals}
-        orgId={orgId}
-        customFields={projectCustomFields}
-        presentTypeKeys={presentTypeKeys}
-        presentCustomFieldKeys={presentCustomFieldKeys}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Analysis lenses — overlay toggles that recolor/annotate the chart
-              rather than change data. Grouped under one label so the toolbar
-              reads as "ways to look at the schedule," not scattered buttons. */}
-          <span className="text-xs font-medium text-muted-foreground">Lenses</span>
-          <LensToggle
-            active={showCritical}
-            onClick={() => setShowCritical((v) => !v)}
-            icon={<Route className="size-3.5" />}
-            label="Critical path"
-            title="Highlight the longest chain of dependencies driving the end date"
-            accent="var(--status-critical)"
-          />
-          <LensToggle
-            active={showPlanDrift}
-            onClick={() => setShowPlanDrift((v) => !v)}
-            icon={<GitCompareArrows className="size-3.5" />}
-            label="Plan drift"
-            title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
-            accent="var(--status-blocked)"
-          />
-          <LensToggle
-            active={showEnablers}
-            onClick={() => setShowEnablers((v) => !v)}
-            icon={<Wrench className="size-3.5" />}
-            label="Enablers"
-            title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
-            accent="var(--type-enabler, #0891b2)"
-          />
-          <LensToggle
-            active={showDeps}
-            onClick={() => {
-              setShowDeps((v) => !v);
-              void qc.invalidateQueries({ queryKey: linksKey });
-            }}
-            icon={<Waypoints className="size-3.5" />}
-            label="Dependencies"
-            title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
-            accent="#0ea5e9"
-          />
-          <div className="mx-1 h-5 w-px bg-border" />
-          {parentIds.size > 0 && (
-            <button
-              onClick={() =>
-                commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
-              }
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+    // Fullscreen is a pure layout swap on this one container: the panes below
+    // keep their slot in the tree, so entering and leaving neither remounts the
+    // chart nor disturbs zoom, scroll position or the selection.
+    <div
+      data-testid="gantt-root"
+      className={cn(
+        "flex flex-col h-full",
+        fullscreen && "fixed inset-0 z-50 bg-background",
+      )}
+    >
+      {fullscreen && (
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => setFullscreen(false)}
+          aria-label="Exit fullscreen"
+          title="Exit fullscreen (Esc)"
+          // Floated over the chart's top-right rather than given a toolbar row:
+          // a strip of chrome to hold one button is the chrome this view just
+          // removed. Above the sticky headers (z-20) so it can't be scrolled under.
+          className="absolute right-3 top-2 z-30 shadow-sm"
+        >
+          <Minimize2 className="size-3" /> Exit
+        </Button>
+      )}
+      {!fullscreen && (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          orgId={orgId}
+          customFields={projectCustomFields}
+          presentTypeKeys={presentTypeKeys}
+          presentCustomFieldKeys={presentCustomFieldKeys}
+        />
+      )}
+      {!fullscreen && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Analysis lenses — overlay toggles that recolor/annotate the chart
+                rather than change data. Grouped under one label so the toolbar
+                reads as "ways to look at the schedule," not scattered buttons. */}
+            <span className="text-xs font-medium text-muted-foreground">Lenses</span>
+            <LensToggle
+              active={showCritical}
+              onClick={() => setShowCritical((v) => !v)}
+              icon={<Route className="size-3.5" />}
+              label="Critical path"
               title={
-                collapsedIds.size > 0
-                  ? "Expand every parent item"
-                  : "Collapse every parent item to a single row"
+                CRITICAL_MODES.find((m) => m.key === criticalMode)?.hint ??
+                "Highlight the driving chain of dependencies"
               }
+              accent="var(--status-critical)"
+            />
+            {/* What "critical" MEANS is a judgement about the plan, not something
+                this board can decide — so the definition is the user's, and the
+                gear sits on the button it governs. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+                aria-label="Critical path settings"
+                title="Choose what counts as the critical path"
+              >
+                <Settings2 className="size-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-72">
+                <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={criticalMode}
+                  onValueChange={(v) => {
+                    setCriticalMode(v as CriticalMode);
+                    // Choosing a definition implies wanting to see it.
+                    setShowCritical(true);
+                  }}
+                >
+                  {CRITICAL_MODES.map((m) => (
+                    <DropdownMenuRadioItem key={m.key} value={m.key}>
+                      <span className="flex flex-col">
+                        <span>{m.label}</span>
+                        <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={criticalIsolate}
+                  onCheckedChange={setCriticalIsolate}
+                >
+                  Dim everything off the path
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <LensToggle
+              active={showPlanDrift}
+              onClick={() => setShowPlanDrift((v) => !v)}
+              icon={<GitCompareArrows className="size-3.5" />}
+              label="Plan drift"
+              title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
+              accent="var(--status-blocked)"
+            />
+            <LensToggle
+              active={showEnablers}
+              onClick={() => setShowEnablers((v) => !v)}
+              icon={<Wrench className="size-3.5" />}
+              label="Enablers"
+              title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
+              accent="var(--type-enabler, #0891b2)"
+            />
+            <LensToggle
+              active={showDeps}
+              onClick={() => {
+                setShowDeps((v) => !v);
+                void qc.invalidateQueries({ queryKey: linksKey });
+              }}
+              icon={<Waypoints className="size-3.5" />}
+              label="Dependencies"
+              title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
+              accent="#0ea5e9"
+            />
+            <div className="mx-1 h-5 w-px bg-border" />
+            {parentIds.size > 0 && (
+              <button
+                onClick={() =>
+                  commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
+                }
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                title={
+                  collapsedIds.size > 0
+                    ? "Expand every parent item"
+                    : "Collapse every parent item to a single row"
+                }
+              >
+                {collapsedIds.size > 0 ? (
+                  <>
+                    <ChevronsUpDown className="size-3.5" /> Expand all
+                  </>
+                ) : (
+                  <>
+                    <ChevronsDownUp className="size-3.5" /> Collapse all
+                  </>
+                )}
+              </button>
+            )}
+            {/* Zoom is a VIEW control, so it sits outside the canEdit guard — a
+                read-only viewer needs to see the far end of a plan just as much. */}
+            <div className="mx-1 h-5 w-px bg-border" />
+            <span className="text-xs text-muted-foreground">Zoom</span>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+              disabled={zoom <= ZOOM_MIN + 0.001}
+              title="Zoom out (⌘/Ctrl + scroll over the chart)"
+              aria-label="Zoom out"
             >
-              {collapsedIds.size > 0 ? (
-                <>
-                  <ChevronsUpDown className="size-3.5" /> Expand all
-                </>
-              ) : (
-                <>
-                  <ChevronsDownUp className="size-3.5" /> Collapse all
-                </>
-              )}
+              <ZoomOut className="size-3" />
+            </Button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="min-w-11 rounded-md px-1 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+              title="Reset zoom to 100%"
+            >
+              {Math.round(zoom * 100)}%
             </button>
-          )}
-          {canEdit && (
-            <>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <span className="text-xs text-muted-foreground">Shift</span>
-              {[-7, -1, 1, 7].map((d) => (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => zoomBy(ZOOM_STEP)}
+              disabled={zoom >= ZOOM_MAX - 0.001}
+              title="Zoom in (⌘/Ctrl + scroll over the chart)"
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="size-3" />
+            </Button>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => setFullscreen(true)}
+              title="Fullscreen — just the work items and the calendar (Esc to exit)"
+              aria-label="Enter fullscreen"
+            >
+              <Maximize2 className="size-3" />
+            </Button>
+
+            {canEdit && (
+              <>
+                <div className="mx-1 h-5 w-px bg-border" />
+                <span className="text-xs text-muted-foreground">Shift</span>
+                {[-7, -1, 1, 7].map((d) => (
+                  <Button
+                    key={d}
+                    variant="outline"
+                    size="xs"
+                    // No selection → no shift. Falling back to "then move
+                    // everything" is exactly the behaviour being fixed: it turns
+                    // a mis-click into a board-wide re-plan.
+                    disabled={busy || selectedItems.length === 0}
+                    onClick={() => shiftDays(d)}
+                    title={
+                      selectedItems.length === 0
+                        ? "Select the work items to shift first"
+                        : `Shift ${selectedItems.length} selected item${selectedItems.length === 1 ? "" : "s"} ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`
+                    }
+                  >
+                    {d < 0 ? <ChevronLeft className="size-3" /> : null}
+                    {d > 0 ? "+" : ""}
+                    {d}d
+                    {d > 0 ? <ChevronRight className="size-3" /> : null}
+                  </Button>
+                ))}
+                {/* The count carries the disabled buttons' reason. A `title` on a
+                    disabled button never surfaces (pointer-events are off), so
+                    without this the controls would just look broken. */}
+                <span
+                  data-testid="gantt-selection-count"
+                  className="text-xs text-muted-foreground"
+                >
+                  {selectedItems.length === 0
+                    ? "Select items to shift"
+                    : `${selectedItems.length} selected`}
+                </span>
+                {selectedItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="rounded-md px-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                    title="Clear the selection"
+                  >
+                    Clear
+                  </button>
+                )}
+                <div className="mx-1 h-5 w-px bg-border" />
                 <Button
-                  key={d}
                   variant="outline"
                   size="xs"
-                  disabled={busy}
-                  onClick={() => shiftDays(d)}
-                  title={`Shift all visible items ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`}
+                  disabled={undoStack.length === 0}
+                  onClick={undo}
+                  title="Undo reschedule (⌘/Ctrl-Z)"
                 >
-                  {d < 0 ? <ChevronLeft className="size-3" /> : null}
-                  {d > 0 ? "+" : ""}
-                  {d}d
-                  {d > 0 ? <ChevronRight className="size-3" /> : null}
+                  <Undo2 className="size-3" /> Undo
                 </Button>
-              ))}
-              <div className="mx-1 h-5 w-px bg-border" />
-              <span className="text-xs text-muted-foreground">Scale</span>
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={busy}
-                onClick={() => scaleBy(0.9)}
-                title="Compress the schedule 10% (pull dates toward the start)"
-              >
-                <Minimize2 className="size-3" /> Compress
-              </Button>
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={busy}
-                onClick={() => scaleBy(1.1)}
-                title="Expand the schedule 10% (push dates out from the start)"
-              >
-                <Maximize2 className="size-3" /> Expand
-              </Button>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={undoStack.length === 0}
-                onClick={undo}
-                title="Undo reschedule (⌘/Ctrl-Z)"
-              >
-                <Undo2 className="size-3" /> Undo
-              </Button>
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={redoStack.length === 0}
-                onClick={redo}
-                title="Redo reschedule (⌘/Ctrl-Y)"
-              >
-                <Redo2 className="size-3" /> Redo
-              </Button>
-              {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-            </>
-          )}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={redoStack.length === 0}
+                  onClick={redo}
+                  title="Redo reschedule (⌘/Ctrl-Y)"
+                >
+                  <Redo2 className="size-3" /> Redo
+                </Button>
+                {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <p className="hidden text-xs text-muted-foreground lg:block">
+                Drag a bar to reschedule · drag edges to resize
+              </p>
+            )}
+            <CreateIssueButton
+              orgId={orgId}
+              projectId={projectId}
+              boardId={boardId}
+              onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {canEdit && (
-            <p className="hidden text-xs text-muted-foreground lg:block">
-              Drag a bar to reschedule · drag edges to resize
-            </p>
-          )}
-          <CreateIssueButton
-            orgId={orgId}
-            projectId={projectId}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
-        </div>
-      </div>
-      {/* Contextual legend — only the keys for what's actually on screen. */}
-      {(showPlanDrift || hasEnablers) && (
+      )}
+      {/* Contextual legend — only the keys for what's actually on screen, and
+          only outside fullscreen: there the ask is the work items and the
+          calendar, so every strip that isn't one of those two gets out of the way. */}
+      {!fullscreen && (showPlanDrift || hasEnablers) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
           {showPlanDrift && (
             <>
@@ -1203,24 +1441,65 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         <div
           data-testid="gantt-left"
           className="sticky left-0 z-20 shrink-0 border-r bg-background"
-          style={{ width: nameColW }}
+          // Row TEXT scales with zoom (clamped) so the two panes stay legible
+          // together — zooming the bars right out used to leave full-size labels
+          // beside hairline bars. Row HEIGHT is deliberately untouched: it is
+          // what keeps these rows aligned with their bars in the SVG.
+          style={{ width: nameColW, fontSize: `${labelScale(zoom)}rem` }}
         >
           <div
-            className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
+            className={cn(
+              "sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center gap-1.5 text-xs font-medium text-muted-foreground",
+              // Line the header checkbox up with the rows' (6px), but leave the
+              // viewer's heading exactly where it was when there is none.
+              canEdit ? "pl-1.5 pr-3" : "px-3",
+            )}
             style={{ height: HEADER_HEIGHT }}
           >
+            {canEdit && (
+              <Checkbox
+                checked={allVisibleSelected}
+                indeterminate={selectedItems.length > 0 && !allVisibleSelected}
+                onChange={() =>
+                  setSelectedIds(
+                    allVisibleSelected ? new Set() : new Set(sortedItems.map((it) => it.id)),
+                  )
+                }
+                aria-label="Select all work items"
+                title="Select every row on screen"
+              />
+            )}
             Work Items
           </div>
           {visibleRows.map(({ item, depth }) => {
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             const isParent = parentIds.has(item.id);
             const isCollapsed = collapsedIds.has(item.id);
+            const isSelected = selectedIds.has(item.id);
             return (
               <div
                 key={item.id}
-                className="flex w-full items-center border-b border-border/30 hover:bg-muted/30 transition-colors"
-                style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 14 }}
+                className={cn(
+                  "flex w-full items-center border-b border-border/30 transition-colors",
+                  isSelected ? "bg-[var(--primary)]/10" : "hover:bg-muted/30",
+                )}
+                style={{ height: ROW_HEIGHT, paddingLeft: 6 }}
               >
+                {/* Ticking a row is what aims the Shift buttons at it. Only for
+                    editors: with nothing to shift, a selection is just noise. */}
+                {canEdit && (
+                  <Checkbox
+                    checked={isSelected}
+                    onChange={() => toggleSelected(item.id)}
+                    aria-label={`Select ${projectKey}-${item.ticketNumber}`}
+                    title={`Select ${projectKey}-${item.ticketNumber} to shift it`}
+                    className="mr-1.5 shrink-0"
+                  />
+                )}
+                {/* The hierarchy indent sits AFTER the checkbox rather than in
+                    the row's padding, so the checkboxes hold one column instead
+                    of stair-stepping away with depth. */}
+                {depth > 0 && <span className="shrink-0" style={{ width: depth * 14 }} />}
                 {isParent ? (
                   <button
                     type="button"
@@ -1247,7 +1526,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     style={{ backgroundColor: colors.fill }}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs truncate">
+                    {/* em, not text-xs: a rem-based Tailwind size would OVERRIDE
+                        the zoom-scaled fontSize on the column and the label
+                        would never move. 0.75em reproduces text-xs at 100%. */}
+                    <p className="truncate" style={{ fontSize: "0.75em" }}>
                       <span className="text-muted-foreground mr-1">
                         {projectKey}-{item.ticketNumber}
                       </span>
@@ -1272,7 +1554,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
         {/* Right column - the chart. Sized to its full content; the shared outer
             container does the scrolling for both panes. */}
-        <div data-testid="gantt-chart" className="shrink-0" style={{ width: svgWidth }}>
+        <div
+          data-testid="gantt-chart"
+          className="shrink-0"
+          style={{ width: svgWidth }}
+          // Ctrl/Cmd + wheel zooms, matching how maps and design tools behave.
+          // A BARE wheel is deliberately left alone: the rows scroll vertically
+          // and the chart scrolls horizontally, and stealing that would make a
+          // long plan unnavigable. preventDefault stops the browser's own
+          // page-zoom from firing on the same gesture.
+          onWheel={(e) => {
+            if (!e.ctrlKey && !e.metaKey) return;
+            e.preventDefault();
+            zoomBy(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+          }}
+        >
             {/* Sticky date header (FR e4d1732e / COSMOS-68): pinned to the outer
                 scroller while scrolling down (needs `items-start` on the scroller
                 — see the scroll container above), but scrolls horizontally with
@@ -1305,7 +1601,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   </g>
                 ))}
                 {dateHeaders.map((h, i) => {
-                  const x = i * DAY_WIDTH;
+                  const x = i * dayWidth;
                   const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
                   return (
                     <g key={i}>
@@ -1313,13 +1609,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         <rect
                           x={x}
                           y={24}
-                          width={DAY_WIDTH}
+                          width={dayWidth}
                           height={HEADER_HEIGHT - 24}
                           className="fill-muted/20"
                         />
                       )}
                       <text
-                        x={x + DAY_WIDTH / 2}
+                        x={x + dayWidth / 2}
                         y={40}
                         textAnchor="middle"
                         className="fill-muted-foreground text-[9px]"
@@ -1333,7 +1629,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {/* Today dot — the dashed line itself lives in the body SVG. */}
                 {todayOffset >= 0 && todayOffset < totalDays && (
                   <circle
-                    cx={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                    cx={todayOffset * dayWidth + dayWidth / 2}
                     cy={HEADER_HEIGHT - 5}
                     r={4}
                     fill="var(--status-critical)"
@@ -1391,7 +1687,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
             {/* Weekend shading + week gridlines */}
             {dateHeaders.map((h, i) => {
-              const x = i * DAY_WIDTH;
+              const x = i * dayWidth;
               const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
               if (!isWeekend && !h.isWeekStart) return null;
               return (
@@ -1400,7 +1696,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <rect
                       x={x}
                       y={0}
-                      width={DAY_WIDTH}
+                      width={dayWidth}
                       height={bodyHeight}
                       className="fill-muted/20"
                     />
@@ -1504,9 +1800,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const startOffset = diffDays(timelineStart, start);
               const duration = Math.max(diffDays(start, end), 1);
 
-              const baseX = startOffset * DAY_WIDTH;
+              const baseX = startOffset * dayWidth;
               const y = i * ROW_HEIGHT + 8;
-              const baseW = Math.max(duration * DAY_WIDTH, DAY_WIDTH);
+              const baseW = Math.max(duration * dayWidth, dayWidth);
               const h = ROW_HEIGHT - 16;
 
               // Apply the live drag preview to this bar's geometry (day-snapped),
@@ -1515,14 +1811,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               let w = baseW;
               const preview = dragPreview?.id === item.id ? dragPreview : null;
               if (preview) {
-                const px = preview.deltaDays * DAY_WIDTH;
+                const px = preview.deltaDays * dayWidth;
                 if (preview.mode === "move") {
                   x = baseX + px;
                 } else if (preview.mode === "start") {
-                  x = Math.min(baseX + px, baseX + baseW - DAY_WIDTH);
+                  x = Math.min(baseX + px, baseX + baseW - dayWidth);
                   w = baseX + baseW - x;
                 } else {
-                  w = Math.max(baseW + px, DAY_WIDTH);
+                  w = Math.max(baseW + px, dayWidth);
                 }
               }
 
@@ -1535,6 +1831,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
               // Dependency hover-focus: fade bars outside the hovered item neighborhood.
               const depDim = depFocus && !depFocus.all.has(item.id) ? 0.22 : 1;
+              // Isolate the chosen path: everything off it recedes so the path
+              // reads at a glance. Dimmed, not hidden — a path needs the rest of
+              // the plan visible to be critical relative to anything.
+              const critDim = showCritical && criticalIsolate && !isCrit ? 0.15 : 1;
 
               // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
               // (startDate -> dueDate) renders behind it as a faded, health-colored
@@ -1547,8 +1847,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
               let actualBar: { x: number; w: number } | null = null;
               if (actualStartD) {
-                const ax = diffDays(timelineStart, actualStartD) * DAY_WIDTH;
-                const aw = Math.max(diffDays(actualStartD, actualEndD) * DAY_WIDTH, 3);
+                const ax = diffDays(timelineStart, actualStartD) * dayWidth;
+                const aw = Math.max(diffDays(actualStartD, actualEndD) * dayWidth, 3);
                 actualBar = { x: ax, w: aw };
               }
               const primaryX = actualBar ? actualBar.x : x;
@@ -1574,7 +1874,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               };
 
               if (isMilestone) {
-                const cx = x + DAY_WIDTH / 2;
+                const cx = x + dayWidth / 2;
                 const cy = y + h / 2;
                 const size = 8;
                 return (
@@ -1643,7 +1943,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim}
+                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim * critDim}
                       onPointerDown={(e) => beginDrag(item, "move", e)}
                       onPointerMove={onDragMove}
                       onPointerUp={onDragEnd}
@@ -1668,7 +1968,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       stroke={isCrit ? "var(--status-critical)" : "transparent"}
                       strokeWidth={isCrit ? 2.5 : 1}
                       strokeDasharray="3 3"
-                      opacity={0.3 * dimForEnablerLens * depDim}
+                      opacity={0.3 * dimForEnablerLens * depDim * critDim}
                       style={{ pointerEvents: "none" }}
                     />
                   ) : null}
@@ -1691,7 +1991,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim}
+                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim * critDim}
                       onClick={() => openDetail(item)}
                       onContextMenu={(e) => {
                         e.preventDefault();
@@ -1809,9 +2109,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             {/* Today marker — the dot sits in the sticky header SVG above. */}
             {todayOffset >= 0 && todayOffset < totalDays && (
               <line
-                x1={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                x1={todayOffset * dayWidth + dayWidth / 2}
                 y1={0}
-                x2={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                x2={todayOffset * dayWidth + dayWidth / 2}
                 y2={bodyHeight}
                 stroke="var(--status-critical)"
                 strokeWidth={2}
