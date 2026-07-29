@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, useTransition } from "react";
+import { useState, useRef, useEffect, useTransition, useMemo} from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
-import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { WorkItem } from "@/types/models";
 
 interface CardQuickCreateProps {
@@ -43,7 +43,11 @@ export function CardQuickCreate({
   const { can } = usePermissions();
   // The org's ACTUAL types (built-ins + custom). We submit the selected type's
   // id so a custom type (bare key like "feature") resolves on create.
-  const { types: workItemTypes } = useWorkItemTypes(orgId);
+  const { types: allTypes } = useWorkItemTypes(orgId);
+  // Creating only. The shadow types (Milestone, Goal, KPI, Objective, Key
+  // Result, Risk) each duplicate a real table, so an item filed as one never
+  // reaches the board that owns that concept.
+  const workItemTypes = useMemo(() => selectableTypes(allTypes), [allTypes]);
 
   useEffect(() => {
     if (open && inputRef.current) {

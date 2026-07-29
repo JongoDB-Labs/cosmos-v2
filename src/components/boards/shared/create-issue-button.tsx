@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo} from "react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -27,7 +27,7 @@ import { Plus, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
-import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -193,7 +193,11 @@ export function CreateIssueButton({
   // The org's ACTUAL types (built-ins + custom). We submit the selected type's
   // id so a custom type (bare key like "feature") resolves — sending the bare
   // `type` string would make the server build a sector-prefixed key that misses.
-  const { types: workItemTypes } = useWorkItemTypes(orgId);
+  const { types: allTypes } = useWorkItemTypes(orgId);
+  // Creating only. The shadow types (Milestone, Goal, KPI, Objective, Key
+  // Result, Risk) each duplicate a real table, so an item filed as one never
+  // reaches the board that owns that concept.
+  const workItemTypes = useMemo(() => selectableTypes(allTypes), [allTypes]);
 
   // Default / repair the Type selection once the types load while the dialog is
   // open (openDialog seeds it eagerly, but the list may still be in flight).

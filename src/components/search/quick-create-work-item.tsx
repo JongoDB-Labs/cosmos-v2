@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo} from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
-import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { Board, OrgMember, WorkItem } from "@/types/models";
 
 export interface PaletteProject {
@@ -69,7 +69,11 @@ export function QuickCreateWorkItem({
   const [submitting, setSubmitting] = useState(false);
   // The org's ACTUAL types (built-ins + custom). We submit the selected type's
   // id so a custom type (bare key like "feature") resolves on create.
-  const { types: workItemTypes } = useWorkItemTypes(orgId);
+  const { types: allTypes } = useWorkItemTypes(orgId);
+  // Creating only. The shadow types (Milestone, Goal, KPI, Objective, Key
+  // Result, Risk) each duplicate a real table, so an item filed as one never
+  // reaches the board that owns that concept.
+  const workItemTypes = useMemo(() => selectableTypes(allTypes), [allTypes]);
 
   // Default the project selection once the project list arrives (when not on a
   // project route there's nothing prefilled).
