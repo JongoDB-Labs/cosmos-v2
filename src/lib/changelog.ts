@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.244.2",
+    date: "2026-07-29",
+    title: "Milestones filed as work items now reach the Milestones board",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Anything created as a “Milestone” from a board's New issue dialog became a work item, so it never showed on the Milestones board, the Release Timeline or the PM dashboard. Those now have real milestones, dated and ordered as you filed them, and the original ticket stays put — with its comments and history — linked to the milestone it created.",
+      },
+      {
+        kind: "improvement",
+        text: "Because the ticket stays linked, the milestone tracks it: move the ticket to Done and the milestone reads as complete. A “Milestone” item with no due date is left alone rather than given an invented date — add a due date and it can be converted.",
+      },
+    ],
+  },
+  {
     version: "2.244.1",
     date: "2026-07-29",
     title: "Timeline: pick your work items straight off the chart",
