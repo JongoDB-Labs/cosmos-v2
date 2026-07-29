@@ -93,6 +93,15 @@ const CRITICAL_MODES: { key: CriticalMode; label: string; hint: string }[] = [
   { key: "at-risk", label: "Most at risk", hint: "The chain carrying the most overdue or blocked work" },
 ];
 
+/** The selection gutter shared by the column header and every row, so the
+ *  checkboxes read as one column of the work-items list rather than a control
+ *  stuck on the front of each row. Sized in rem ON PURPOSE: the column's font
+ *  scales with zoom, but a hit target that shrinks with it stops being clickable
+ *  at 30% — and ROW_HEIGHT is already fixed for the same reason (the rows have
+ *  to stay lined up with their bars). Matches the 36px control column
+ *  `data-table.tsx` uses for its own selection cells. */
+const SELECT_GUTTER = "flex w-7 shrink-0 items-center";
+
 const BASE_DAY_WIDTH = 28;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 3;
@@ -748,16 +757,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     setDragPreview(null);
   }, []);
 
-  // Open the shared detail sheet on a click/right-click — unless the gesture was
-  // a drag (which fires a trailing click we must ignore).
-  const openDetail = useCallback((item: WorkItem) => {
-    if (justDraggedRef.current) {
-      justDraggedRef.current = false;
-      return;
-    }
-    setDetailId(item.id);
-  }, []);
-
   // Persist a date snapshot (optimistic cache write + PUT). Shared by drag commit
   // and undo/redo so they behave identically.
   const commitDates = useCallback(
@@ -977,14 +976,100 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // tasks by a day silently re-dated the entire board — an edit nobody asked
   // for, hidden inside a button that looked like a small adjustment. The user
   // now names the items first, and Shift can only reach those.
+  //
+  // ONE model, two surfaces: the checkboxes in the work-items column and the
+  // bars in the chart read and write this same Set. Two parallel states would
+  // let a row look ticked while its bar looked idle, and the Shift buttons
+  // could then act on a set the user was no longer looking at.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  }, []);
+  // The range anchor, file-explorer style: the last row clicked WITHOUT Shift.
+  // A Shift-click measures from it and deliberately does not move it, which is
+  // the rule every file list follows. Worth being honest about the blast radius
+  // of that choice here: because the ranges below are additive, moving the
+  // anchor on a Shift-click would produce the identical selection every time,
+  // so this is the rule holding rather than a behaviour you can observe. It
+  // stays explicit so the rule still reads correctly if ranges ever stop being
+  // additive — which is exactly when it would start to matter.
+  const anchorIdRef = useRef<string | null>(null);
+  /** What a click means for the selection. `replace` = only this row (and
+   *  re-anchor), `toggle` = flip this row alone, `range` = anchor→row. */
+  type SelectIntent = "replace" | "toggle" | "range";
+  const selectRow = useCallback(
+    (id: string, intent: SelectIntent) => {
+      // Resolve the range against the rows ACTUALLY ON SCREEN, in the order
+      // they are drawn — a range the user traced down the column has to mean
+      // the rows they traced, not whatever lies between them in the unfiltered
+      // data. An anchor that has since been filtered or collapsed away simply
+      // doesn't resolve, and the click degrades to a plain one.
+      const anchor = anchorIdRef.current;
+      const from =
+        intent === "range" && anchor !== null
+          ? sortedItems.findIndex((it) => it.id === anchor)
+          : -1;
+      const to = from === -1 ? -1 : sortedItems.findIndex((it) => it.id === id);
+      const ranged = from !== -1 && to !== -1;
+
+      setSelectedIds((prev) => {
+        if (ranged) {
+          // Union rather than replace. This selection arms the bulk Shift
+          // buttons, so the dangerous direction is silently DROPPING rows that
+          // were already ticked — a re-plan of items the user thought they had
+          // set aside. Extending can only ever over-select, which is visible in
+          // the count and undone by Clear.
+          const next = new Set(prev);
+          const [a, b] = from < to ? [from, to] : [to, from];
+          for (let i = a; i <= b; i++) next.add(sortedItems[i].id);
+          return next;
+        }
+        if (intent === "replace") return new Set([id]);
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      });
+
+      // Only a resolved range keeps the old anchor; everything else (including
+      // a Shift-click whose anchor has gone) re-anchors here, so the next
+      // Shift-click always has a live row to measure from.
+      if (!ranged) anchorIdRef.current = id;
+    },
+    [sortedItems],
+  );
+
+  // ── Bar clicks ───────────────────────────────────────────────────────────
+  // A bar is the same work item as its row, so clicking one selects it with the
+  // same modifiers the checkboxes answer to.
+  //
+  // That takes plain-click away from "open the detail sheet", which was its old
+  // job, so the sheet moves to DOUBLE-click (right-click still opens it too, and
+  // the ticket label in the work-items column is untouched). Two reasons for
+  // that direction rather than putting selection behind a modifier: selecting is
+  // the gesture you repeat — building a set to Shift means clicking bar after
+  // bar, and a modifier on the common action is friction on every single one —
+  // and a sheet that slides over the chart on every click is actively hostile
+  // when what you are doing is comparing bars. Opening a ticket stays one
+  // gesture away, and it kept all three of its other routes.
+  const onBarClick = useCallback(
+    (item: WorkItem, e: React.MouseEvent) => {
+      // A real drag ends with a trailing click. Swallowing it here — the one
+      // place every bar click funnels through — is what stops a reschedule from
+      // also silently rewriting the selection. (Cleared on the next pointerdown
+      // rather than here, so a drag that ends on a bar edge can't leave the flag
+      // raised and eat the NEXT genuine click.)
+      if (justDraggedRef.current) return;
+      // Read-only viewers have no selection UI at all: no checkbox column, no
+      // Shift buttons, no count. Selecting for them would trade the one thing a
+      // bar click does — open the ticket — for a state they cannot see or use.
+      if (!canEdit) {
+        setDetailId(item.id);
+        return;
+      }
+      selectRow(
+        item.id,
+        e.shiftKey ? "range" : e.metaKey || e.ctrlKey ? "toggle" : "replace",
+      );
+    },
+    [canEdit, selectRow],
+  );
   // The stored ids are intersected with the rows actually on screen rather than
   // trusted verbatim: filtering, collapsing a parent or switching to the
   // Dependencies lens can take a row away long after it was ticked, and moving
@@ -1166,7 +1251,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 <Settings2 className="size-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-72">
-                <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
                 <DropdownMenuRadioGroup
                   value={criticalMode}
                   onValueChange={(v) => {
@@ -1175,6 +1259,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     setShowCritical(true);
                   }}
                 >
+                  {/* The label lives INSIDE the radio group, not beside it.
+                      base-ui's Menu.GroupLabel reads MenuGroupContext during
+                      render and THROWS when there is no Menu.Group /
+                      Menu.RadioGroup above it — and because the popup only
+                      mounts on open, that throw landed in the app's error
+                      boundary the moment the gear was clicked (in production,
+                      as the minified Base UI error #31). Same trap already
+                      documented in data-table.tsx and action-menu.tsx.
+                      Nesting it here is also the more correct of the two
+                      fixes: Menu.RadioGroup supplies that context AND adopts
+                      the label's id as its aria-labelledby, so the choices
+                      get an accessible name instead of a floating heading. */}
+                  <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
                   {CRITICAL_MODES.map((m) => (
                     <DropdownMenuRadioItem key={m.key} value={m.key}>
                       <span className="flex flex-col">
@@ -1449,7 +1546,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         >
           <div
             className={cn(
-              "sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center gap-1.5 text-xs font-medium text-muted-foreground",
+              "sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center text-xs font-medium text-muted-foreground",
               // Line the header checkbox up with the rows' (6px), but leave the
               // viewer's heading exactly where it was when there is none.
               canEdit ? "pl-1.5 pr-3" : "px-3",
@@ -1457,17 +1554,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             style={{ height: HEADER_HEIGHT }}
           >
             {canEdit && (
-              <Checkbox
-                checked={allVisibleSelected}
-                indeterminate={selectedItems.length > 0 && !allVisibleSelected}
-                onChange={() =>
-                  setSelectedIds(
-                    allVisibleSelected ? new Set() : new Set(sortedItems.map((it) => it.id)),
-                  )
-                }
-                aria-label="Select all work items"
-                title="Select every row on screen"
-              />
+              // The same fixed gutter the rows use, so the select-all sits dead
+              // on the column its rows' boxes form rather than near it.
+              <span className={cn(SELECT_GUTTER, "justify-center")}>
+                <Checkbox
+                  checked={allVisibleSelected}
+                  indeterminate={selectedItems.length > 0 && !allVisibleSelected}
+                  onChange={() =>
+                    setSelectedIds(
+                      allVisibleSelected ? new Set() : new Set(sortedItems.map((it) => it.id)),
+                    )
+                  }
+                  aria-label="Select all work items"
+                  title="Select every row on screen"
+                />
+              </span>
             )}
             Work Items
           </div>
@@ -1480,7 +1581,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               <div
                 key={item.id}
                 className={cn(
-                  "flex w-full items-center border-b border-border/30 transition-colors",
+                  "group/gantt-row flex w-full items-center border-b border-border/30 transition-colors",
                   isSelected ? "bg-[var(--primary)]/10" : "hover:bg-muted/30",
                 )}
                 style={{ height: ROW_HEIGHT, paddingLeft: 6 }}
@@ -1488,13 +1589,45 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {/* Ticking a row is what aims the Shift buttons at it. Only for
                     editors: with nothing to shift, a selection is just noise. */}
                 {canEdit && (
-                  <Checkbox
-                    checked={isSelected}
-                    onChange={() => toggleSelected(item.id)}
-                    aria-label={`Select ${projectKey}-${item.ticketNumber}`}
-                    title={`Select ${projectKey}-${item.ticketNumber} to shift it`}
-                    className="mr-1.5 shrink-0"
-                  />
+                  <span className={cn(SELECT_GUTTER, "justify-center")}>
+                    <Checkbox
+                      checked={isSelected}
+                      // All of the selection logic lives on the CLICK, not on
+                      // change: `change` carries no modifier keys, so shift-range
+                      // is unreachable from there. onChange is still required —
+                      // React warns on a controlled checkbox without one — but it
+                      // has deliberately nothing to do.
+                      onChange={() => {}}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectRow(
+                          item.id,
+                          // A checkbox is a toggle affordance, so a plain click
+                          // keeps toggling (and re-anchors) rather than replacing
+                          // the selection the way a bar click does — same split a
+                          // file explorer makes between a file's tick box and the
+                          // file itself.
+                          e.shiftKey ? "range" : "toggle",
+                        );
+                      }}
+                      aria-label={`Select ${projectKey}-${item.ticketNumber}`}
+                      title={`Select ${projectKey}-${item.ticketNumber} to shift it — Shift-click to select a range`}
+                      className={cn(
+                        // Unobtrusive until it's relevant: the column is a list
+                        // of tickets first. The boxes fade up on row hover or
+                        // keyboard focus, and once ANY row is selected they all
+                        // stay up — mid-selection you need to see the whole
+                        // pattern of what's on and off, not just the row your
+                        // cursor happens to be over.
+                        "transition-opacity",
+                        selectedItems.length === 0 &&
+                          "opacity-0 group-hover/gantt-row:opacity-100 focus-visible:opacity-100",
+                        // Coarse pointers have no hover, so a hover-only reveal
+                        // makes the boxes unreachable on a tablet.
+                        "[@media(pointer:coarse)]:opacity-100",
+                      )}
+                    />
+                  </span>
                 )}
                 {/* The hierarchy indent sits AFTER the checkbox rather than in
                     the row's padding, so the checkboxes hold one column instead
@@ -1638,7 +1771,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </svg>
             </div>
 
-            <svg width={svgWidth} height={bodyHeight} className="block">
+            <svg
+              width={svgWidth}
+              height={bodyHeight}
+              className="block"
+              // Every new gesture in the chart starts from a clean slate. The
+              // "that click was really the tail of a drag" flag used to be
+              // cleared by whoever consumed it, which meant a drag finishing on
+              // a bar's resize edge (those have no click handler) left it raised
+              // and ate the next genuine click on some other bar. Capture phase
+              // so it lands before any bar's own pointerdown.
+              onPointerDownCapture={() => {
+                justDraggedRef.current = false;
+              }}
+            >
             <defs>
               {/* Arrowhead for dependency links. */}
               <marker
@@ -1824,6 +1970,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
               const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
               const prog = progressOf(item, doneKeys);
+              const isSelected = selectedIds.has(item.id);
               const isCrit = showCritical && criticalSet.has(item.id);
               const isEnabler = item.workCategory === "ENABLER";
               // Business items dim slightly while the Enabler lens is on so the
@@ -1886,12 +2033,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     onPointerMove={onDragMove}
                     onPointerUp={onDragEnd}
                     onPointerCancel={onDragCancel}
-                    onClick={() => openDetail(item)}
+                    onClick={(e) => onBarClick(item, e)}
+                    onDoubleClick={() => setDetailId(item.id)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setHoveredItem(null);
                       setDetailId(item.id);
                     }}
+                    data-testid={`gantt-bar-${item.id}`}
+                    data-selected={isSelected || undefined}
                     style={{ touchAction: canEdit ? "none" : undefined }}
                     className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                   >
@@ -1907,6 +2057,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit || health === "red" ? 2.5 : 1.5}
                     />
+                    {/* Selection is drawn as a ring OUTSIDE the shape rather
+                        than by restyling it. The fill and stroke already carry
+                        data — type, health, critical chain — and overloading
+                        them would make "I clicked this" and "this is late" fight
+                        over the same pixels. */}
+                    {isSelected && (
+                      <polygon
+                        points={`${cx},${cy - size - 3.5} ${cx + size + 3.5},${cy} ${cx},${cy + size + 3.5} ${cx - size - 3.5},${cy}`}
+                        fill="none"
+                        stroke="var(--primary)"
+                        strokeWidth={2}
+                        style={{ pointerEvents: "none" }}
+                      />
+                    )}
                   </g>
                 );
               }
@@ -1948,12 +2112,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       onPointerMove={onDragMove}
                       onPointerUp={onDragEnd}
                       onPointerCancel={onDragCancel}
-                      onClick={() => openDetail(item)}
+                      onClick={(e) => onBarClick(item, e)}
+                      onDoubleClick={() => setDetailId(item.id)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         setHoveredItem(null);
                         setDetailId(item.id);
                       }}
+                      data-testid={`gantt-bar-${item.id}`}
+                      data-selected={isSelected || undefined}
                       style={{ touchAction: canEdit ? "none" : undefined }}
                       className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                     />
@@ -1992,12 +2159,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
                       opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim * critDim}
-                      onClick={() => openDetail(item)}
+                      onClick={(e) => onBarClick(item, e)}
+                      onDoubleClick={() => setDetailId(item.id)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         setHoveredItem(null);
                         setDetailId(item.id);
                       }}
+                      data-testid={`gantt-bar-${item.id}`}
+                      data-selected={isSelected || undefined}
                       className="cursor-pointer"
                     />
                   )}
@@ -2058,6 +2228,26 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         style={{ cursor: "ew-resize", touchAction: "none" }}
                       />
                     </>
+                  )}
+                  {/* Selection ring — drawn OUTSIDE the bar rather than by
+                      restyling it. Fill and stroke already carry data (type,
+                      health, critical chain, enabler hatch); reusing them for
+                      selection would make "I clicked this" and "this is late"
+                      compete for the same pixels. Kept at full opacity through
+                      every lens dim, because what you have selected is the one
+                      thing that must not fade while you aim the Shift buttons. */}
+                  {isSelected && (
+                    <rect
+                      x={primaryX - 2}
+                      y={y - 2}
+                      width={primaryW + 4}
+                      height={h + 4}
+                      rx={6}
+                      fill="none"
+                      stroke="var(--primary)"
+                      strokeWidth={2}
+                      style={{ pointerEvents: "none" }}
+                    />
                   )}
                   {primaryW > 60 && (
                     <text
