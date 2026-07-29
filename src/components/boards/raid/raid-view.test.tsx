@@ -29,10 +29,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Capture the props the RAID log hands the shared create button — that's the
-// COSMOS-80 wiring (a category preset so new entries aren't Unclassified).
+// COSMOS-80 wiring (a seeded category so new entries aren't Unclassified).
 const createIssueProps = vi.fn();
-vi.mock("@/components/boards/shared/create-issue-button", () => ({
-  CreateIssueButton: (props: Record<string, unknown>) => {
+vi.mock("@/components/boards/shared/new-issue-button", () => ({
+  NewIssueButton: (props: Record<string, unknown>) => {
     createIssueProps(props);
     return <button type="button">New issue</button>;
   },
@@ -119,15 +119,16 @@ describe("RaidView", () => {
     expect(within(unclassified).queryByText("A real risk")).toBeNull();
   });
 
-  it("seeds a RAID category preset on the create dialog (COSMOS-80)", async () => {
+  it("seeds a RAID category on the create dialog (COSMOS-80)", async () => {
+    // The category rides on the item's tags, so it now arrives as a seeded
+    // label in the shared full dialog rather than a bespoke Category select.
+    // What must not regress is that a new RAID entry lands in a real category
+    // instead of Unclassified.
     renderRaid();
     await screen.findByText("A real risk");
 
     expect(createIssueProps).toHaveBeenCalled();
     const props = createIssueProps.mock.calls.at(-1)![0];
-    expect(props.categoryPreset.defaultValue).toBe("risk");
-    expect(props.categoryPreset.options.map((o: { value: string }) => o.value)).toEqual(
-      ["risk", "assumption", "issue", "dependency"],
-    );
+    expect(props.initialLabels).toEqual(["risk"]);
   });
 });

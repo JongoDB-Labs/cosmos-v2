@@ -7,18 +7,13 @@ import {
 } from "@dnd-kit/sortable";
 import { cn } from "@/lib/utils";
 import { KanbanCard } from "./kanban-card";
-import { CardQuickCreate } from "@/components/boards/shared/card-quick-create";
 import type { BoardColumn, WorkItem, OrgMember } from "@/types/models";
 
 interface KanbanColumnProps {
   column: BoardColumn;
   items: WorkItem[];
-  orgId: string;
-  projectId: string;
-  projectKey: string;
   members: OrgMember[];
   onCardClick: (item: WorkItem) => void;
-  onCardCreated: (item: WorkItem) => void;
   /**
    * Droppable id for this column. Defaults to `column.key` (legacy / flat
    * board). In swimlane mode the board passes a composite `${laneId}::${key}`
@@ -27,11 +22,6 @@ interface KanbanColumnProps {
    * the column key, so a drop still only changes the card's columnKey/status.
    */
   droppableId?: string;
-  /**
-   * Hide the per-column quick-create when columns are repeated across lanes
-   * (a single create row per status would be ambiguous). Defaults to false.
-   */
-  hideQuickCreate?: boolean;
   /** Bulk-select mode (threaded to each card). */
   selectMode?: boolean;
   selectedIds?: Set<string>;
@@ -43,14 +33,9 @@ interface KanbanColumnProps {
 export function KanbanColumn({
   column,
   items,
-  orgId,
-  projectId,
-  projectKey,
   members,
   onCardClick,
-  onCardCreated,
   droppableId,
-  hideQuickCreate = false,
   selectMode = false,
   selectedIds,
   onToggleSelect,
@@ -138,18 +123,6 @@ export function KanbanColumn({
         )}
       </div>
 
-      {/* Add card */}
-      {!hideQuickCreate && (
-        <div className="px-2 pb-2">
-          <CardQuickCreate
-            columnKey={column.key}
-            projectId={projectId}
-            orgId={orgId}
-            projectKey={projectKey}
-            onCreated={onCardCreated}
-          />
-        </div>
-      )}
     </div>
   );
 }

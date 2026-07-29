@@ -15,7 +15,7 @@ import {
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
-import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -959,9 +959,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
         {/* New issue + density toggle — pushed to the right edge of the toolbar */}
         <div className="ml-auto flex items-center gap-2">
-          <CreateIssueButton
+          <NewIssueButton
             orgId={orgId}
             projectId={projectId}
+            projectKey={projectKey}
             boardId={boardId}
             onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
           />

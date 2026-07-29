@@ -52,7 +52,7 @@ import {
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
-import { CreateIssueButton } from "@/components/boards/shared/create-issue-button";
+import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 
 interface TimelineViewProps {
@@ -1459,9 +1459,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 Drag a bar to reschedule · drag edges to resize
               </p>
             )}
-            <CreateIssueButton
+            <NewIssueButton
               orgId={orgId}
               projectId={projectId}
+              projectKey={projectKey}
               boardId={boardId}
               onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
             />

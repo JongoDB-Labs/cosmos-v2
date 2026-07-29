@@ -336,3 +336,119 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
   });
 });
+
+// The board-local create dialogs this one replaces all let you choose where the
+// new issue lands. This dialog didn't — it silently took the project's first
+// board's first column. Making every board share this dialog would have been a
+// downgrade without a real Status picker, so these lock it.
+describe("CreateWorkItemDialog — Status picker", () => {
+  const BOARDS = [
+    {
+      id: "kanban",
+      columns: [
+        { key: "todo", name: "To Do", sortOrder: 0 },
+        { key: "doing", name: "In Progress", sortOrder: 1 },
+      ],
+    },
+    // A board with no workflow of its own — Timeline/Calendar/RAID/Roadmap all
+    // ship this way.
+    { id: "timeline", columns: [] },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(useWorkItemTypes).mockReturnValue({
+      types: [{ id: "t1", key: "software.task", name: "Task" }],
+    } as never);
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/members")) return Promise.resolve([]);
+      if (url.endsWith("/intervals")) return Promise.resolve([]);
+      if (url.endsWith("/boards")) return Promise.resolve(BOARDS);
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 9 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+  });
+
+  function renderDialog(extra: Record<string, unknown> = {}) {
+    return render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={PROJECTS}
+        prefilledProjectId="p1"
+        {...extra}
+      />,
+    );
+  }
+
+  it("offers the board's own statuses and submits the chosen one", async () => {
+    const user = userEvent.setup();
+    renderDialog({ boardId: "kanban" });
+
+    const status = await screen.findByLabelText("Status");
+    await waitFor(() =>
+      expect(
+        Array.from((status as HTMLSelectElement).options).map((o) => o.value),
+      ).toEqual(["todo", "doing"]),
+    );
+
+    await user.type(screen.getByLabelText("Title"), "Wire the importer");
+    await user.selectOptions(status, "doing");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().columnKey).toBe("doing");
+  });
+
+  it("borrows the project's statuses on a board that defines none", async () => {
+    // Otherwise the picker is empty on Timeline/Calendar/RAID and the issue
+    // lands wherever the first board happened to put it.
+    renderDialog({ boardId: "timeline" });
+
+    const status = await screen.findByLabelText("Status");
+    await waitFor(() =>
+      expect(
+        Array.from((status as HTMLSelectElement).options).map((o) => o.value),
+      ).toEqual(["todo", "doing"]),
+    );
+  });
+
+  it("still creates when the boards GET fails, falling back to backlog", async () => {
+    // BOARD_READ may be denied while ITEM_CREATE is granted (COSMOS-86) — the
+    // Status picker is a convenience and must never block creation.
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/boards")) return Promise.reject(new Error("403"));
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 9 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+
+    const user = userEvent.setup();
+    renderDialog({ boardId: "kanban" });
+
+    await screen.findByRole("dialog");
+    await user.type(screen.getByLabelText("Title"), "Created anyway");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().columnKey).toBe("backlog");
+  });
+
+  it("seeds the Labels field from initialLabels (RAID category, COSMOS-80)", async () => {
+    const user = userEvent.setup();
+    renderDialog({ boardId: "kanban", initialLabels: ["risk"] });
+
+    const labels = await screen.findByLabelText("Labels");
+    await waitFor(() => expect((labels as HTMLInputElement).value).toBe("risk"));
+
+    await user.type(screen.getByLabelText("Title"), "A new risk");
+    await user.click(screen.getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().tags).toEqual(["risk"]);
+  });
+});

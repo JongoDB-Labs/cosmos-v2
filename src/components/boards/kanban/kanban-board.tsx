@@ -23,6 +23,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { KanbanColumn } from "./kanban-column";
+import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { KanbanCard } from "./kanban-card";
 import {
   FilterBar,
@@ -879,10 +880,23 @@ function KanbanBoardInner({
         showSwimlane
       />
 
-      {/* Bulk-select toolbar. "Select" enters a mode where drag is OFF and cards
-          toggle; the action bar appears once something's selected. */}
-      {(canBulkEdit || canBulkDelete) && (
-        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
+      {/* Board toolbar: create, then bulk-select. "Select" enters a mode where
+          drag is OFF and cards toggle; the action bar appears once something's
+          selected. The row renders even without bulk permissions, because
+          "New issue" lives here — it replaces the per-column "Add card", which
+          could only ever set a title. */}
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-1.5">
+        {!selectMode && (
+          <NewIssueButton
+            orgId={orgId}
+            projectId={projectId}
+            projectKey={projectKey}
+            boardId={boardId}
+            onCreated={() => void fetchData()}
+          />
+        )}
+        {(canBulkEdit || canBulkDelete) && (
+          <>
           {!selectMode ? (
             <Button
               variant="ghost"
@@ -1021,8 +1035,9 @@ function KanbanBoardInner({
               </Button>
             </>
           )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       <DndContext
         // No sensors while selecting → drag is fully disabled, so toggling a
@@ -1064,13 +1079,8 @@ function KanbanBoardInner({
                       column={col}
                       droppableId={`${lane.id}${LANE_SEP}${col.key}`}
                       items={itemsForColumnInLane(col.key, lane.items)}
-                      orgId={orgId}
-                      projectId={projectId}
-                      projectKey={projectKey}
                       members={members}
                       onCardClick={handleCardClick}
-                      onCardCreated={handleCardCreated}
-                      hideQuickCreate
                       selectMode={selectMode}
                       selectedIds={selectedIds}
                       onToggleSelect={toggleSelect}
@@ -1097,12 +1107,8 @@ function KanbanBoardInner({
                 key={col.id}
                 column={col}
                 items={itemsForColumn(col.key)}
-                orgId={orgId}
-                projectId={projectId}
-                projectKey={projectKey}
                 members={members}
                 onCardClick={handleCardClick}
-                onCardCreated={handleCardCreated}
                 selectMode={selectMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}

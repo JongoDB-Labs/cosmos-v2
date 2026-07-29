@@ -44,8 +44,8 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: v
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 // Portal/observer-heavy children aren't relevant to the scroll structure.
-vi.mock("@/components/boards/shared/create-issue-button", () => ({
-  CreateIssueButton: () => null,
+vi.mock("@/components/boards/shared/new-issue-button", () => ({
+  NewIssueButton: () => null,
 }));
 // Stubbed down to the one fact the tests care about — WHICH item the view asked
 // to open — so "a bar click opens the ticket" is observable without dragging the

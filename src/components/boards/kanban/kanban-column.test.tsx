@@ -76,15 +76,8 @@ function renderColumn(items: WorkItem[]) {
       <KanbanColumn
         column={makeColumn()}
         items={items}
-        orgId="o1"
-        projectId="p1"
-        projectKey="FSC"
         members={[]}
         onCardClick={vi.fn()}
-        onCardCreated={vi.fn()}
-        // Skip the per-column quick-create so the test needs no
-        // permissions/query providers — we only assert the empty state.
-        hideQuickCreate
       />
     </DndContext>,
   );
