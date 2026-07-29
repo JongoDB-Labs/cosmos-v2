@@ -33,8 +33,13 @@ describe("selectableTypes", () => {
     expect(opts.map((t) => t.key)).not.toContain("cross.goal");
   });
 
-  it("covers all six shadowed entities", () => {
+  // Six shadowed ENTITIES, seven keys: Milestone is seeded twice, once
+  // cross-cutting and once by the consulting sector. Both create a WorkItem
+  // that never reaches the Milestones board, so both have to be hidden.
+  // shadowed-types.test.ts derives this from the seeds rather than listing it.
+  it("covers every key that shadows a real table", () => {
     expect([...SHADOW_TYPE_KEYS].sort()).toEqual([
+      "consulting.milestone_item",
       "cross.goal",
       "cross.key_result",
       "cross.kpi",

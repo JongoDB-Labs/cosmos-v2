@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.246.3",
+    date: "2026-07-29",
+    title: "One Milestone, not two, in Client Engagement projects",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Client Engagement projects offered two different “Milestone” types in the New issue dialog. Only one of them was ever a real milestone — the other created an ordinary work item that never reached the Milestones board, the Release Timeline or the Gantt. The duplicate is no longer offered. Anything already filed as one keeps its type and stays exactly where it is, and can now be retyped.",
+      },
+    ],
+  },
+  {
     version: "2.246.2",
     date: "2026-07-29",
     title: "Every project template now switches on the features it promises",
