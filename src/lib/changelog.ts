@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.245.0",
+    date: "2026-07-29",
+    title: "Plan into any sprint, and move between them from the board",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Backlog, a sprint only appeared once something was already in it — so a sprint you had just created had nowhere to drop onto, and there was no way to drag work into it. Every sprint you can still plan into now has its own section, empty or not. Finished sprints stay listed only while they still hold work, so the list keeps to what you're actually planning.",
+      },
+      {
+        kind: "improvement",
+        text: "The sprint buttons along the top of a Scrum board now switch the board to that sprint, instead of opening a panel that just described it. There's an “All items” button to come back out to everything, and the sprint summary above — dates, goal, progress, and the velocity and carry-over of a finished sprint — follows whichever one you're looking at.",
+      },
+    ],
+  },
+  {
     version: "2.244.2",
     date: "2026-07-29",
     title: "Milestones filed as work items now reach the Milestones board",

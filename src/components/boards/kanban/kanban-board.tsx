@@ -75,6 +75,13 @@ interface KanbanBoardProps {
    * the filter bar).
    */
   initialIntervalId?: string;
+  /**
+   * Notifies the host whenever the board's sprint scope changes — including when
+   * the change came from the board's own filter bar rather than the host. The
+   * Sprint board's pill row uses this to stay in step with what the board is
+   * actually showing, instead of highlighting a sprint the board has moved off.
+   */
+  onIntervalChange?: (intervalId: string | null) => void;
 }
 
 // Separator for composite swimlane droppable ids: `${laneId}::${columnKey}`.
@@ -116,6 +123,7 @@ function KanbanBoardInner({
   projectKey,
   boardId,
   initialIntervalId,
+  onIntervalChange,
 }: KanbanBoardProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -140,6 +148,24 @@ function KanbanBoardInner({
     }
     return parsed;
   });
+  // Re-scope when the host picks a DIFFERENT sprint (the Sprint board's pill
+  // row). The initializer above runs only on mount, so without this a pill
+  // click would move the highlight and leave the board on the old sprint.
+  // Tracking the last value we honoured — rather than comparing against
+  // `filters.intervalId` — keeps a filter-bar change from being stomped back:
+  // the prop hasn't changed, so there is nothing to re-apply.
+  const seededIntervalRef = useRef(initialIntervalId);
+  useEffect(() => {
+    if (initialIntervalId === seededIntervalRef.current) return;
+    seededIntervalRef.current = initialIntervalId;
+    setFilters((prev) => ({ ...prev, intervalId: initialIntervalId ?? null }));
+  }, [initialIntervalId]);
+
+  // Report the board's real scope back up, so the host's own sprint affordance
+  // follows a filter-bar change too and the two can't disagree.
+  useEffect(() => {
+    onIntervalChange?.(filters.intervalId ?? null);
+  }, [filters.intervalId, onIntervalChange]);
   // Snapshot of items at drag START (before handleDragOver mutates them for the
   // live preview), so a rejected move can be truly reverted.
   const beforeDragItemsRef = useRef<WorkItem[]>([]);
