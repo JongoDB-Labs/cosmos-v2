@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.244.1",
+    date: "2026-07-29",
+    title: "Timeline: pick your work items straight off the chart",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The gear beside the Critical path button opens its settings again. Clicking it used to drop the whole board into an error screen, which made choosing what counts as critical impossible to reach.",
+      },
+      {
+        kind: "feature",
+        text: "Click a bar in the chart to select that work item, so you can aim the Shift buttons without hunting for its row. Ctrl/Cmd-click adds or removes one, and Shift-click takes everything in between. Double-click or right-click a bar to open the ticket, and dragging still reschedules exactly as before.",
+      },
+      {
+        kind: "improvement",
+        text: "Shift-click the work-item checkboxes to select a whole range at once, instead of ticking every row one at a time. It picks up from the last row you clicked and only ever covers rows you can actually see.",
+      },
+      {
+        kind: "improvement",
+        text: "The work-items checkboxes now sit in their own column and stay out of the way until you hover a row or start selecting, so the list reads as tickets first.",
+      },
+    ],
+  },
+  {
     version: "2.244.0",
     date: "2026-07-29",
     title: "A Timeline / Gantt you can actually drive",

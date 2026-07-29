@@ -47,8 +47,12 @@ vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/components/boards/shared/create-issue-button", () => ({
   CreateIssueButton: () => null,
 }));
+// Stubbed down to the one fact the tests care about — WHICH item the view asked
+// to open — so "a bar click opens the ticket" is observable without dragging the
+// real sheet's portals and observers into every render.
 vi.mock("@/components/work-items/card-detail-sheet", () => ({
-  CardDetailSheet: () => null,
+  CardDetailSheet: ({ item, open }: { item: { id: string } | null; open: boolean }) =>
+    open && item ? <div data-testid="detail-sheet">{item.id}</div> : null,
 }));
 // Use the REAL filter-bar module (so `matchesCustomFieldFilters`, `bareTypeKey`,
 // and `emptyFilters` are the genuine implementations the component ships with),
@@ -103,6 +107,23 @@ const HIER_ITEMS = [
     title: "Story One",
     parentId: "epic1",
   },
+];
+
+// A fixture whose API order is deliberately NOT its drawn order: roots are
+// ordered by start date and a child is drawn under its parent, so the raw list
+// (r3, r2, epic, child) renders as 301, 304, 302, 303. Ranging over the raw list
+// instead of the drawn one would select rows the user never dragged across —
+// this is what makes "the currently VISIBLE, ordered row list" testable.
+const ORDER_ITEMS = [
+  { ...item(3, "2026-01-15", "2026-01-25"), id: "r3", ticketNumber: 303 },
+  { ...item(2, "2026-01-10", "2026-02-01"), id: "r2", ticketNumber: 302 },
+  {
+    ...item(1, "2026-01-05", "2026-01-20"),
+    id: "epic1",
+    ticketNumber: 301,
+    workItemType: { key: "EPIC", name: "Epic" },
+  },
+  { ...item(4, "2026-01-06", "2026-01-18"), id: "kid1", ticketNumber: 304, parentId: "epic1" },
 ];
 
 // The work-items the fetcher mock serves; swapped per describe block so a test
@@ -617,5 +638,375 @@ describe("TimelineView — Shift moves only the selected work items", () => {
     fireEvent.click(screen.getByLabelText("Collapse children"));
     expect(count()).toMatch(/select items/i);
     expect(screen.getByRole("button", { name: "+1d" })).toBeDisabled();
+  });
+});
+
+// Reported from prod: "critical path settings threw a workspace error" — the
+// gear beside the Critical path lens dropped the whole board into the app error
+// boundary. The menu's heading was a bare <DropdownMenuLabel>, i.e. base-ui's
+// Menu.GroupLabel, which reads MenuGroupContext DURING RENDER and throws when no
+// Menu.Group / Menu.RadioGroup sits above it. The popup only mounts when it
+// opens, which is why a board that rendered fine died the instant the gear was
+// clicked (in production as the minified Base UI error #31 — the same trap
+// already commented in data-table.tsx and action-menu.tsx).
+describe("TimelineView — the critical-path settings menu opens", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("shows the menu instead of throwing when the gear is clicked", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Before the fix this call itself threw, taking the view down with it.
+    fireEvent.click(screen.getByLabelText("Critical path settings"));
+
+    // The heading is the exact node that threw, so its presence is the fix.
+    expect(await screen.findByText("Highlight the chain with…")).toBeInTheDocument();
+    // ...and the choices it heads actually rendered.
+    for (const label of [
+      "Most dependencies",
+      "Longest duration",
+      "Latest finish",
+      "Most at risk",
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText("Dim everything off the path")).toBeInTheDocument();
+  });
+
+  it("names the radio group with that heading rather than leaving it floating", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    fireEvent.click(screen.getByLabelText("Critical path settings"));
+
+    const heading = await screen.findByText("Highlight the chain with…");
+    const group = document.querySelector('[role="group"][aria-labelledby]');
+    // Nesting the label inside Menu.RadioGroup (rather than wrapping it in a
+    // redundant Menu.Group) is what lets base-ui adopt it as the group's
+    // accessible name — the reason to prefer that shape of the fix.
+    expect(group).not.toBeNull();
+    expect(group?.getAttribute("aria-labelledby")).toBe(heading.id);
+  });
+
+  it("switches what counts as critical, and turns the lens on with it", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    // The lens starts off.
+    expect(
+      screen.getByRole("button", { name: "Critical path" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByLabelText("Critical path settings"));
+    fireEvent.click(await screen.findByText("Latest finish"));
+
+    // Picking a definition implies wanting to see it, and the button's tooltip
+    // now describes the definition that was picked.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Critical path" }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(screen.getByRole("button", { name: "Critical path" }).title).toBe(
+      "The chain that sets the plan's end date",
+    );
+  });
+});
+
+// Issues 2 and 3: the work-items checkboxes and the chart bars are two views of
+// ONE selection. Shift-click ranges over the visible row order on both, and a
+// range started on a checkbox can be finished on a bar.
+describe("TimelineView — one selection model, shared by the checkboxes and the bars", () => {
+  const count = () => screen.getByTestId("gantt-selection-count").textContent;
+  const bar = (id: string) => screen.getByTestId(`gantt-bar-${id}`);
+  const box = (ticket: number) => screen.getByLabelText(`Select FSC-${ticket}`);
+
+  beforeEach(() => {
+    perms.canEdit = true;
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    perms.canEdit = false;
+    activeItems = ITEMS;
+    window.sessionStorage.clear();
+  });
+
+  // ── Issue 2: checkbox range ────────────────────────────────────────────
+  it("selects the whole visible range between a click and a shift-click", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Rows are drawn 101, 102, 103 (roots ordered by start date).
+    fireEvent.click(box(101));
+    expect(count()).toBe("1 selected");
+
+    // Shift-click the far end: everything between comes with it.
+    fireEvent.click(box(103), { shiftKey: true });
+    expect(count()).toBe("3 selected");
+    // Specifically the row in the MIDDLE, which was never clicked.
+    expect(box(102)).toBeChecked();
+  });
+
+  it("ranges upward too — the anchor is the last plain click, not the top row", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(box(103));
+    fireEvent.click(box(101), { shiftKey: true });
+    expect(count()).toBe("3 selected");
+  });
+
+  it("re-anchors when the previous anchor is gone, so the next range still works", async () => {
+    activeItems = ORDER_ITEMS;
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Anchor on the child, then collapse its epic so that row leaves the view.
+    fireEvent.click(box(304));
+    fireEvent.click(screen.getByLabelText("Collapse children"));
+
+    // The anchor no longer resolves to a visible row, so this degrades to a
+    // plain toggle — and must re-anchor here, or every later Shift-click would
+    // keep measuring from a row that isn't on screen.
+    fireEvent.click(box(303), { shiftKey: true });
+    fireEvent.click(box(301), { shiftKey: true });
+    // Visible rows are now 301, 302, 303 — the range 303→301 covers all three.
+    expect(box(302)).toBeChecked();
+  });
+
+  it("extends the selection rather than replacing it, so ticked rows can't vanish", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // 103 is ticked and deliberately left out of the range that follows.
+    fireEvent.click(box(103));
+    fireEvent.click(box(101));
+    fireEvent.click(box(102), { shiftKey: true });
+
+    // A destructive range would have silently dropped 103 — and 103 is armed
+    // under the bulk Shift buttons, so dropping it re-plans work the user
+    // thought they had set aside.
+    expect(count()).toBe("3 selected");
+    expect(box(103)).toBeChecked();
+  });
+
+  it("ranges over the DRAWN row order, not the order the API returned them in", async () => {
+    activeItems = ORDER_ITEMS;
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Drawn order is 301, 304, 302, 303. Ranging 301 → 302 must therefore take
+    // the child 304 with it; in the raw API order those two are adjacent and
+    // 304 would be left behind.
+    fireEvent.click(box(301));
+    fireEvent.click(box(302), { shiftKey: true });
+    expect(count()).toBe("3 selected");
+    expect(box(304)).toBeChecked();
+  });
+
+  it("skips rows that are collapsed out of view, and leaves them unselected", async () => {
+    activeItems = ORDER_ITEMS;
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Collapse the epic: its child 304 is no longer a row on screen, leaving
+    // 301, 302, 303.
+    fireEvent.click(screen.getByLabelText("Collapse children"));
+    fireEvent.click(box(301));
+    fireEvent.click(box(303), { shiftKey: true });
+    expect(count()).toBe("3 selected");
+
+    // Expanding again proves the hidden child was never swept in — a range is
+    // what the user dragged across, and they could not drag across this.
+    fireEvent.click(screen.getByLabelText("Expand children"));
+    expect(box(304)).not.toBeChecked();
+    expect(count()).toBe("3 selected");
+  });
+
+  it("shift-clicking with no anchor yet just toggles that row", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(box(102), { shiftKey: true });
+    expect(count()).toBe("1 selected");
+    expect(box(102)).toBeChecked();
+  });
+
+  // ── Issue 2: the checkboxes belong to the column ───────────────────────
+  it("keeps the boxes in one gutter, and out of the way until they matter", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Every box sits in the same fixed-width gutter as the select-all in the
+    // header, so they form a column instead of stacking against each row's text.
+    const gutter = box(101).parentElement;
+    expect(gutter?.className).toMatch(/\bw-7\b/);
+    expect(screen.getByLabelText("Select all work items").parentElement?.className).toMatch(
+      /\bw-7\b/,
+    );
+
+    // At rest they're invisible until the row is hovered — the column reads as a
+    // list of tickets first.
+    expect(box(101).className).toMatch(/\bopacity-0\b/);
+    expect(box(101).className).toMatch(/group-hover\/gantt-row:opacity-100/);
+
+    // Once anything is selected they all stay up: mid-selection you need to see
+    // the whole pattern of what's on and off, not just the row under the cursor.
+    fireEvent.click(box(101));
+    expect(box(101).className).not.toMatch(/\bopacity-0\b/);
+    expect(box(103).className).not.toMatch(/\bopacity-0\b/);
+  });
+
+  // ── Issue 3: bars ──────────────────────────────────────────────────────
+  it("selects just the clicked item when a bar is clicked", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(bar("i2"));
+    expect(count()).toBe("1 selected");
+    // The SAME model the checkboxes drive — the row's box ticked itself.
+    expect(box(102)).toBeChecked();
+    expect(bar("i2").getAttribute("data-selected")).toBe("true");
+  });
+
+  it("replaces the selection on a plain bar click, and toggles on Ctrl/Cmd", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(bar("i1"));
+    fireEvent.click(bar("i2"));
+    // Plain click means "just this one" — i1 is out.
+    expect(count()).toBe("1 selected");
+    expect(box(101)).not.toBeChecked();
+
+    // Cmd/Ctrl adds without dropping what's there...
+    fireEvent.click(bar("i1"), { metaKey: true });
+    expect(count()).toBe("2 selected");
+    // ...and takes it back out again.
+    fireEvent.click(bar("i1"), { ctrlKey: true });
+    expect(count()).toBe("1 selected");
+  });
+
+  it("ranges from the anchor when a bar is shift-clicked", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(bar("i1"));
+    fireEvent.click(bar("i3"), { shiftKey: true });
+    expect(count()).toBe("3 selected");
+  });
+
+  it("shares one anchor across both surfaces — start on a box, finish on a bar", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Two parallel selection states would break exactly here: the bar would have
+    // no idea where the checkbox left the anchor.
+    fireEvent.click(box(101));
+    fireEvent.click(bar("i3"), { shiftKey: true });
+    expect(count()).toBe("3 selected");
+    expect(box(102)).toBeChecked();
+  });
+
+  // ── Issue 3: selection must coexist with drag and the detail sheet ─────
+  it("opens the detail sheet on double-click, not on a plain click", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Plain click selects and leaves the chart visible — a sheet sliding over
+    // the bars on every click is hostile when you're comparing bars.
+    fireEvent.click(bar("i2"));
+    expect(screen.queryByTestId("detail-sheet")).toBeNull();
+
+    fireEvent.doubleClick(bar("i2"));
+    expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i2");
+  });
+
+  it("still opens the detail sheet on right-click, and from the ticket label", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Taking plain-click away from the sheet is only acceptable because none of
+    // its other routes moved.
+    fireEvent.contextMenu(bar("i3"));
+    expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i3");
+
+    fireEvent.click(screen.getByTitle(/^FSC-101:/));
+    expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i1");
+  });
+
+  it("does not select on the trailing click that follows a drag", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // A real drag: past the 3px threshold, committed on pointerup, and then the
+    // browser's trailing click. That click must not also change the selection.
+    fireEvent.pointerDown(bar("i2"), { clientX: 0 });
+    fireEvent.pointerMove(bar("i2"), { clientX: 60 });
+    fireEvent.pointerUp(bar("i2"), { clientX: 60 });
+    fireEvent.click(bar("i2"));
+
+    expect(count()).toMatch(/select items/i);
+    // ...and the drag itself still rescheduled the item.
+    await waitFor(() =>
+      expect(
+        vi.mocked(jsonFetch).mock.calls.filter(
+          (c) => (c[1] as RequestInit | undefined)?.method === "PUT",
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("selects on a tap that moved nothing, so a mis-read drag can't swallow it", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Same gesture shape, zero movement — a click, not a drag.
+    fireEvent.pointerDown(bar("i2"), { clientX: 20 });
+    fireEvent.pointerUp(bar("i2"), { clientX: 20 });
+    fireEvent.click(bar("i2"));
+    expect(count()).toBe("1 selected");
+  });
+
+  it("clears the stale drag flag on the next gesture, so a later click still lands", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Drag i1 and let the trailing click fall on its resize edge, which has no
+    // click handler — nothing consumes the flag. It must not survive to eat the
+    // next real click on a different bar.
+    fireEvent.pointerDown(bar("i1"), { clientX: 0 });
+    fireEvent.pointerMove(bar("i1"), { clientX: 60 });
+    fireEvent.pointerUp(bar("i1"), { clientX: 60 });
+
+    fireEvent.pointerDown(bar("i3"), { clientX: 10 });
+    fireEvent.pointerUp(bar("i3"), { clientX: 10 });
+    fireEvent.click(bar("i3"));
+    expect(count()).toBe("1 selected");
+    expect(box(103)).toBeChecked();
+  });
+});
+
+// A read-only viewer has no selection UI at all — no checkbox column, no Shift
+// buttons, no count — so making their bar clicks select would trade the one
+// thing a bar does for them (open the ticket) for a state they cannot see.
+describe("TimelineView — bars still open the ticket for a read-only viewer", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("opens the detail sheet on a plain bar click when editing is not allowed", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // No checkboxes to select with in the first place.
+    expect(screen.queryByLabelText("Select FSC-101")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("gantt-bar-i1"));
+    expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i1");
   });
 });
