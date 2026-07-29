@@ -35,6 +35,7 @@ import { SavedViewsPicker } from "@/components/work-items/saved-views-picker";
 import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { WorkItemTypeIcon } from "@/components/work-items/work-item-type-icon";
 import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
@@ -640,7 +641,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         header: "Type",
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5 text-sm">
-            {row.original.type.icon && <span aria-hidden>{row.original.type.icon}</span>}
+            <WorkItemTypeIcon
+              icon={row.original.type.icon}
+              color={row.original.type.color}
+            />
             {row.original.type.name}
           </span>
         ),
