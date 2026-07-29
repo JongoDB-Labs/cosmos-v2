@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
-import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -53,7 +51,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ITEM_READ);
+    // Resource-aware, matching the POST below. This used to be a bare
+    // requirePermission(ITEM_READ) — a pure bitmask test that never consults
+    // ctx.abacRules — so an `in_project` ITEM_READ deny was honoured by the
+    // org-wide Issues surfaces (which narrow via getReadableProjectIds) and
+    // silently ignored here, leaving the board readable by URL. Identical to
+    // requirePermission until an org authors a policy referencing ITEM_READ.
+    await requireAccess(ctx, "ITEM_READ", { orgId, projectId });
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
