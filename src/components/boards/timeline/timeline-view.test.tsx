@@ -12,12 +12,34 @@
 // impossible: a single scroll container, both panes as its direct children, and
 // no independently-scrollable label column.
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/acme/projects/FSC/boards/b1",
 }));
+
+// The editing controls (Shift, undo/redo, the row checkboxes) are gated on
+// ITEM_UPDATE, and `usePermissions` falls back to VIEWER outside a provider — so
+// the default render has none of them. This flag is flipped per describe block,
+// leaving every other test on the viewer default it was written against. It
+// lives in `vi.hoisted` because the mock factory runs during the import phase,
+// before a plain top-level `let` has been initialised.
+const perms = vi.hoisted(() => ({ canEdit: false }));
+vi.mock("@/components/providers/permissions-provider", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/components/providers/permissions-provider")>();
+  return {
+    ...actual,
+    usePermissions: () => ({
+      orgId: "o1",
+      orgSlug: "acme",
+      role: "ADMIN",
+      permissions: 0n,
+      can: () => perms.canEdit,
+    }),
+  };
+});
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
@@ -110,6 +132,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
 }));
 
 import { TimelineView, matchesFilters } from "./timeline-view";
+import { jsonFetch } from "@/lib/query/json-fetcher";
 import { emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import type { CustomField, WorkItem } from "@/types/models";
 
@@ -413,5 +436,186 @@ describe("TimelineView — zoom replaces the destructive scale controls", () => 
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(screen.getByTestId("gantt-left").style.fontSize).not.toBe(before);
+  });
+});
+
+// Fullscreen: "shows only work items column and calendar portion of gantt". The
+// board tabs, project header and app sidebar belong to ancestors of this view,
+// so a fixed overlay is the only way it can hand the plan the whole viewport.
+describe("TimelineView — fullscreen shows only the work items and the calendar", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("takes over the viewport with both panes, and drops the chrome around them", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    // The toolbar is on screen to begin with — otherwise its absence below
+    // would prove nothing.
+    expect(screen.getByRole("button", { name: "Critical path" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
+
+    // A fixed layer over everything the surrounding app drew.
+    const root = screen.getByTestId("gantt-root");
+    expect(root.className).toMatch(/\bfixed\b/);
+    expect(root.className).toMatch(/\binset-0\b/);
+
+    // The two panes the user asked for are still there, inside that layer...
+    expect(root.contains(screen.getByTestId("gantt-left"))).toBe(true);
+    expect(root.contains(screen.getByTestId("gantt-chart"))).toBe(true);
+    // ...and nothing else is: no lens toolbar, no zoom controls.
+    expect(screen.queryByRole("button", { name: "Critical path" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+  });
+
+  it("leaves on Escape and on the overlay's own exit control", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
+    expect(screen.getByTestId("gantt-root").className).toMatch(/\bfixed\b/);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("gantt-root").className).not.toMatch(/\bfixed\b/);
+    // The toolbar comes back with it.
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
+
+    // The overlay also carries a visible way out — Escape can't be the only one.
+    fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
+    expect(screen.getByTestId("gantt-root").className).toMatch(/\bfixed\b/);
+    fireEvent.click(screen.getByRole("button", { name: "Exit fullscreen" }));
+    expect(screen.getByTestId("gantt-root").className).not.toMatch(/\bfixed\b/);
+  });
+
+  it("lets Escape close an open work item without tearing down the view", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
+
+    // Open a ticket from the work-items column, then hit Escape: that keypress
+    // belongs to the detail sheet. Dismissing both would drop the user back on
+    // the board wondering where the ticket went.
+    fireEvent.click(screen.getByTitle(/^FSC-101:/));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("gantt-root").className).toMatch(/\bfixed\b/);
+  });
+
+  it("keeps the zoom the user chose across entering and leaving", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    const zoomed = screen.getByTestId("gantt-chart").style.width;
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
+    // Fullscreen is a layout change, not a reset: the chart is still drawn at
+    // the scale the user picked before entering.
+    expect(screen.getByTestId("gantt-chart").style.width).toBe(zoomed);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("gantt-chart").style.width).toBe(zoomed);
+    expect(screen.getByText("125%")).toBeTruthy();
+  });
+});
+
+// Shift used to move EVERY visible item, so nudging two tasks by a day silently
+// re-dated the whole board. It now moves the rows the user ticked, and nothing
+// else — and with nothing ticked it refuses to run rather than falling back to
+// "then move everything", which is the behaviour being fixed.
+describe("TimelineView — Shift moves only the selected work items", () => {
+  // Local midnight of an ISO date, matching the component's day snapping, so the
+  // day-delta assertions don't depend on the machine's timezone.
+  const localMidnight = (iso: string) => {
+    const d = new Date(iso);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const puts = () =>
+    vi.mocked(jsonFetch).mock.calls.filter(
+      (c) => (c[1] as RequestInit | undefined)?.method === "PUT",
+    );
+  const count = () => screen.getByTestId("gantt-selection-count").textContent;
+
+  beforeEach(() => {
+    perms.canEdit = true;
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    perms.canEdit = false;
+    activeItems = ITEMS;
+    window.sessionStorage.clear();
+  });
+
+  it("refuses to shift while nothing is selected, and says what to do", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    expect(screen.getByRole("button", { name: "+1d" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "-7d" })).toBeDisabled();
+    // A disabled button's `title` never surfaces (pointer-events are off), so
+    // the reason has to be on screen.
+    expect(count()).toMatch(/select items/i);
+  });
+
+  it("moves the ticked row and leaves the rest of the board where it was", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(screen.getByLabelText("Select FSC-102"));
+    expect(count()).toBe("1 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "+1d" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+
+    // Exactly one item was rewritten: the one that was ticked.
+    expect(puts()[0][0]).toBe("/api/v1/orgs/o1/projects/p1/work-items/i2");
+    const body = JSON.parse(String((puts()[0][1] as RequestInit).body));
+    // ...and it moved by the day the button promised, not by 0 or by 7.
+    expect(new Date(body.startDate).getTime() - localMidnight("2026-01-10")).toBe(86_400_000);
+    expect(new Date(body.dueDate).getTime() - localMidnight("2026-02-01")).toBe(86_400_000);
+  });
+
+  it("shifts several selected rows together", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(screen.getByLabelText("Select FSC-101"));
+    fireEvent.click(screen.getByLabelText("Select FSC-103"));
+    expect(count()).toBe("2 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "-7d" }));
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(puts().map((c) => c[0]).sort()).toEqual([
+      "/api/v1/orgs/o1/projects/p1/work-items/i1",
+      "/api/v1/orgs/o1/projects/p1/work-items/i3",
+    ]);
+  });
+
+  it("clears the selection on demand, disarming Shift again", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(screen.getByLabelText("Select all work items"));
+    expect(count()).toBe("3 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(count()).toMatch(/select items/i);
+    expect(screen.getByRole("button", { name: "+1d" })).toBeDisabled();
+  });
+
+  it("drops a row from the selection once it leaves the view", async () => {
+    activeItems = HIER_ITEMS;
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    fireEvent.click(screen.getByLabelText("Select FSC-2"));
+    expect(count()).toBe("1 selected");
+
+    // Collapsing the epic takes the story off screen. Shifting an item the user
+    // can no longer see is the same invisible bulk edit the selection prevents.
+    fireEvent.click(screen.getByLabelText("Collapse children"));
+    expect(count()).toMatch(/select items/i);
+    expect(screen.getByRole("button", { name: "+1d" })).toBeDisabled();
   });
 });

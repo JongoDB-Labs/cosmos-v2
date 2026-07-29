@@ -19,9 +19,12 @@ import {
   Waypoints,
   Undo2,
   Redo2,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -387,6 +390,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z * factor))),
     [],
   );
+  // Fullscreen. The board tabs, the project header and the app sidebar are all
+  // drawn by ANCESTORS of this view, so there is no prop it can set to get them
+  // out of the way — claiming the viewport with a fixed overlay is the only way
+  // a plan gets the whole screen. Zoom (and every other control's state) lives
+  // in this component, so entering and leaving changes nothing but the layout.
+  const [fullscreen, setFullscreen] = useState(false);
   const [showDeps, setShowDeps] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -846,6 +855,20 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
+  // Escape leaves fullscreen: the way out of a takeover layer has to work
+  // without finding a button, because the layer is what hid the rest of the UI.
+  // It stands down while the detail sheet is open so Escape closes the sheet
+  // first — otherwise one keypress would dismiss both, and you'd land back on
+  // the board wondering what happened to the ticket you were reading.
+  useEffect(() => {
+    if (!fullscreen || detailId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, detailId]);
+
   // ── Critical path ────────────────────────────────────────────────────────
   // "Critical" is not one thing, so the user picks what it means. Every mode is
   // the same longest-path DP over the dependency DAG (cycle-guarded); they
@@ -949,16 +972,45 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return { id: hoveredItem.id, up, down, all: new Set<string>([hoveredItem.id, ...up, ...down]) };
   }, [showDeps, hoveredItem, links]);
 
+  // ── Row selection ────────────────────────────────────────────────────────
+  // What Shift acts on. It used to act on every visible item, so nudging two
+  // tasks by a day silently re-dated the entire board — an edit nobody asked
+  // for, hidden inside a button that looked like a small adjustment. The user
+  // now names the items first, and Shift can only reach those.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+  // The stored ids are intersected with the rows actually on screen rather than
+  // trusted verbatim: filtering, collapsing a parent or switching to the
+  // Dependencies lens can take a row away long after it was ticked, and moving
+  // an item the user can no longer see is the same invisible bulk edit this
+  // selection exists to prevent.
+  const selectedItems = useMemo(
+    () => sortedItems.filter((it) => selectedIds.has(it.id)),
+    [sortedItems, selectedIds],
+  );
+  const allVisibleSelected =
+    sortedItems.length > 0 && selectedItems.length === sortedItems.length;
+
   // ── Bulk schedule ops ────────────────────────────────────────────────────
-  // The "adjust schedules / time compression in real-time" workspace: shift
-  // moves every VISIBLE item by N days; compress/expand scales each item's
-  // offset-from-start AND its duration by a factor, pivoting on the timeline
-  // start. Optimistic cache write, then PUT each; refetch on any failure.
+  // Shift moves the SELECTED items by N days. The target list is a parameter
+  // rather than something this reads off the visible rows, so "which items get
+  // rewritten" is decided by the caller and visible at the call site — that
+  // ambiguity is what let the old version move everything.
+  // Optimistic cache write, then PUT each; refetch on any failure.
   const bulkReschedule = useCallback(
-    async (compute: (span: { start: Date; end: Date }) => { start: Date; end: Date }) => {
-      if (!canEdit || busy || filteredItems.length === 0) return;
+    async (
+      targets: WorkItem[],
+      compute: (span: { start: Date; end: Date }) => { start: Date; end: Date },
+    ) => {
+      if (!canEdit || busy || targets.length === 0) return;
       setBusy(true);
-      const updates = filteredItems.map((it) => {
+      const updates = targets.map((it) => {
         const next = compute(itemSpan(it));
         return {
           id: it.id,
@@ -992,11 +1044,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       qc.invalidateQueries({ queryKey: itemsKey });
       setBusy(false);
     },
-    [canEdit, busy, filteredItems, qc, itemsKey, basePath],
+    [canEdit, busy, qc, itemsKey, basePath],
   );
 
   const shiftDays = (days: number) =>
-    void bulkReschedule(({ start, end }) => ({
+    void bulkReschedule(selectedItems, ({ start, end }) => ({
       start: addDays(start, days),
       end: addDays(end, days),
     }));
@@ -1047,215 +1099,282 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <FilterBar
-        filters={filters}
-        onFilterChange={setFilters}
-        members={members}
-        intervals={intervals}
-        orgId={orgId}
-        customFields={projectCustomFields}
-        presentTypeKeys={presentTypeKeys}
-        presentCustomFieldKeys={presentCustomFieldKeys}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Analysis lenses — overlay toggles that recolor/annotate the chart
-              rather than change data. Grouped under one label so the toolbar
-              reads as "ways to look at the schedule," not scattered buttons. */}
-          <span className="text-xs font-medium text-muted-foreground">Lenses</span>
-          <LensToggle
-            active={showCritical}
-            onClick={() => setShowCritical((v) => !v)}
-            icon={<Route className="size-3.5" />}
-            label="Critical path"
-            title={
-              CRITICAL_MODES.find((m) => m.key === criticalMode)?.hint ??
-              "Highlight the driving chain of dependencies"
-            }
-            accent="var(--status-critical)"
-          />
-          {/* What "critical" MEANS is a judgement about the plan, not something
-              this board can decide — so the definition is the user's, and the
-              gear sits on the button it governs. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="Critical path settings"
-              title="Choose what counts as the critical path"
-            >
-              <Settings2 className="size-3.5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72">
-              <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={criticalMode}
-                onValueChange={(v) => {
-                  setCriticalMode(v as CriticalMode);
-                  // Choosing a definition implies wanting to see it.
-                  setShowCritical(true);
-                }}
-              >
-                {CRITICAL_MODES.map((m) => (
-                  <DropdownMenuRadioItem key={m.key} value={m.key}>
-                    <span className="flex flex-col">
-                      <span>{m.label}</span>
-                      <span className="text-[11px] text-muted-foreground">{m.hint}</span>
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={criticalIsolate}
-                onCheckedChange={setCriticalIsolate}
-              >
-                Dim everything off the path
-              </DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <LensToggle
-            active={showPlanDrift}
-            onClick={() => setShowPlanDrift((v) => !v)}
-            icon={<GitCompareArrows className="size-3.5" />}
-            label="Plan drift"
-            title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
-            accent="var(--status-blocked)"
-          />
-          <LensToggle
-            active={showEnablers}
-            onClick={() => setShowEnablers((v) => !v)}
-            icon={<Wrench className="size-3.5" />}
-            label="Enablers"
-            title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
-            accent="var(--type-enabler, #0891b2)"
-          />
-          <LensToggle
-            active={showDeps}
-            onClick={() => {
-              setShowDeps((v) => !v);
-              void qc.invalidateQueries({ queryKey: linksKey });
-            }}
-            icon={<Waypoints className="size-3.5" />}
-            label="Dependencies"
-            title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
-            accent="#0ea5e9"
-          />
-          <div className="mx-1 h-5 w-px bg-border" />
-          {parentIds.size > 0 && (
-            <button
-              onClick={() =>
-                commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
-              }
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+    // Fullscreen is a pure layout swap on this one container: the panes below
+    // keep their slot in the tree, so entering and leaving neither remounts the
+    // chart nor disturbs zoom, scroll position or the selection.
+    <div
+      data-testid="gantt-root"
+      className={cn(
+        "flex flex-col h-full",
+        fullscreen && "fixed inset-0 z-50 bg-background",
+      )}
+    >
+      {fullscreen && (
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => setFullscreen(false)}
+          aria-label="Exit fullscreen"
+          title="Exit fullscreen (Esc)"
+          // Floated over the chart's top-right rather than given a toolbar row:
+          // a strip of chrome to hold one button is the chrome this view just
+          // removed. Above the sticky headers (z-20) so it can't be scrolled under.
+          className="absolute right-3 top-2 z-30 shadow-sm"
+        >
+          <Minimize2 className="size-3" /> Exit
+        </Button>
+      )}
+      {!fullscreen && (
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          orgId={orgId}
+          customFields={projectCustomFields}
+          presentTypeKeys={presentTypeKeys}
+          presentCustomFieldKeys={presentCustomFieldKeys}
+        />
+      )}
+      {!fullscreen && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Analysis lenses — overlay toggles that recolor/annotate the chart
+                rather than change data. Grouped under one label so the toolbar
+                reads as "ways to look at the schedule," not scattered buttons. */}
+            <span className="text-xs font-medium text-muted-foreground">Lenses</span>
+            <LensToggle
+              active={showCritical}
+              onClick={() => setShowCritical((v) => !v)}
+              icon={<Route className="size-3.5" />}
+              label="Critical path"
               title={
-                collapsedIds.size > 0
-                  ? "Expand every parent item"
-                  : "Collapse every parent item to a single row"
+                CRITICAL_MODES.find((m) => m.key === criticalMode)?.hint ??
+                "Highlight the driving chain of dependencies"
               }
+              accent="var(--status-critical)"
+            />
+            {/* What "critical" MEANS is a judgement about the plan, not something
+                this board can decide — so the definition is the user's, and the
+                gear sits on the button it governs. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+                aria-label="Critical path settings"
+                title="Choose what counts as the critical path"
+              >
+                <Settings2 className="size-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-72">
+                <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={criticalMode}
+                  onValueChange={(v) => {
+                    setCriticalMode(v as CriticalMode);
+                    // Choosing a definition implies wanting to see it.
+                    setShowCritical(true);
+                  }}
+                >
+                  {CRITICAL_MODES.map((m) => (
+                    <DropdownMenuRadioItem key={m.key} value={m.key}>
+                      <span className="flex flex-col">
+                        <span>{m.label}</span>
+                        <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={criticalIsolate}
+                  onCheckedChange={setCriticalIsolate}
+                >
+                  Dim everything off the path
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <LensToggle
+              active={showPlanDrift}
+              onClick={() => setShowPlanDrift((v) => !v)}
+              icon={<GitCompareArrows className="size-3.5" />}
+              label="Plan drift"
+              title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
+              accent="var(--status-blocked)"
+            />
+            <LensToggle
+              active={showEnablers}
+              onClick={() => setShowEnablers((v) => !v)}
+              icon={<Wrench className="size-3.5" />}
+              label="Enablers"
+              title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
+              accent="var(--type-enabler, #0891b2)"
+            />
+            <LensToggle
+              active={showDeps}
+              onClick={() => {
+                setShowDeps((v) => !v);
+                void qc.invalidateQueries({ queryKey: linksKey });
+              }}
+              icon={<Waypoints className="size-3.5" />}
+              label="Dependencies"
+              title="Show links between items; hover a bar to trace its upstream (amber) and downstream (blue) dependencies — everything else fades"
+              accent="#0ea5e9"
+            />
+            <div className="mx-1 h-5 w-px bg-border" />
+            {parentIds.size > 0 && (
+              <button
+                onClick={() =>
+                  commitCollapsed(collapsedIds.size > 0 ? new Set() : new Set(parentIds))
+                }
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                title={
+                  collapsedIds.size > 0
+                    ? "Expand every parent item"
+                    : "Collapse every parent item to a single row"
+                }
+              >
+                {collapsedIds.size > 0 ? (
+                  <>
+                    <ChevronsUpDown className="size-3.5" /> Expand all
+                  </>
+                ) : (
+                  <>
+                    <ChevronsDownUp className="size-3.5" /> Collapse all
+                  </>
+                )}
+              </button>
+            )}
+            {/* Zoom is a VIEW control, so it sits outside the canEdit guard — a
+                read-only viewer needs to see the far end of a plan just as much. */}
+            <div className="mx-1 h-5 w-px bg-border" />
+            <span className="text-xs text-muted-foreground">Zoom</span>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+              disabled={zoom <= ZOOM_MIN + 0.001}
+              title="Zoom out (⌘/Ctrl + scroll over the chart)"
+              aria-label="Zoom out"
             >
-              {collapsedIds.size > 0 ? (
-                <>
-                  <ChevronsUpDown className="size-3.5" /> Expand all
-                </>
-              ) : (
-                <>
-                  <ChevronsDownUp className="size-3.5" /> Collapse all
-                </>
-              )}
+              <ZoomOut className="size-3" />
+            </Button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="min-w-11 rounded-md px-1 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+              title="Reset zoom to 100%"
+            >
+              {Math.round(zoom * 100)}%
             </button>
-          )}
-          {/* Zoom is a VIEW control, so it sits outside the canEdit guard — a
-              read-only viewer needs to see the far end of a plan just as much. */}
-          <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-xs text-muted-foreground">Zoom</span>
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={() => zoomBy(1 / ZOOM_STEP)}
-            disabled={zoom <= ZOOM_MIN + 0.001}
-            title="Zoom out (⌘/Ctrl + scroll over the chart)"
-            aria-label="Zoom out"
-          >
-            <ZoomOut className="size-3" />
-          </Button>
-          <button
-            type="button"
-            onClick={() => setZoom(1)}
-            className="min-w-11 rounded-md px-1 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
-            title="Reset zoom to 100%"
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={() => zoomBy(ZOOM_STEP)}
-            disabled={zoom >= ZOOM_MAX - 0.001}
-            title="Zoom in (⌘/Ctrl + scroll over the chart)"
-            aria-label="Zoom in"
-          >
-            <ZoomIn className="size-3" />
-          </Button>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => zoomBy(ZOOM_STEP)}
+              disabled={zoom >= ZOOM_MAX - 0.001}
+              title="Zoom in (⌘/Ctrl + scroll over the chart)"
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="size-3" />
+            </Button>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => setFullscreen(true)}
+              title="Fullscreen — just the work items and the calendar (Esc to exit)"
+              aria-label="Enter fullscreen"
+            >
+              <Maximize2 className="size-3" />
+            </Button>
 
-          {canEdit && (
-            <>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <span className="text-xs text-muted-foreground">Shift</span>
-              {[-7, -1, 1, 7].map((d) => (
+            {canEdit && (
+              <>
+                <div className="mx-1 h-5 w-px bg-border" />
+                <span className="text-xs text-muted-foreground">Shift</span>
+                {[-7, -1, 1, 7].map((d) => (
+                  <Button
+                    key={d}
+                    variant="outline"
+                    size="xs"
+                    // No selection → no shift. Falling back to "then move
+                    // everything" is exactly the behaviour being fixed: it turns
+                    // a mis-click into a board-wide re-plan.
+                    disabled={busy || selectedItems.length === 0}
+                    onClick={() => shiftDays(d)}
+                    title={
+                      selectedItems.length === 0
+                        ? "Select the work items to shift first"
+                        : `Shift ${selectedItems.length} selected item${selectedItems.length === 1 ? "" : "s"} ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`
+                    }
+                  >
+                    {d < 0 ? <ChevronLeft className="size-3" /> : null}
+                    {d > 0 ? "+" : ""}
+                    {d}d
+                    {d > 0 ? <ChevronRight className="size-3" /> : null}
+                  </Button>
+                ))}
+                {/* The count carries the disabled buttons' reason. A `title` on a
+                    disabled button never surfaces (pointer-events are off), so
+                    without this the controls would just look broken. */}
+                <span
+                  data-testid="gantt-selection-count"
+                  className="text-xs text-muted-foreground"
+                >
+                  {selectedItems.length === 0
+                    ? "Select items to shift"
+                    : `${selectedItems.length} selected`}
+                </span>
+                {selectedItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="rounded-md px-1 text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                    title="Clear the selection"
+                  >
+                    Clear
+                  </button>
+                )}
+                <div className="mx-1 h-5 w-px bg-border" />
                 <Button
-                  key={d}
                   variant="outline"
                   size="xs"
-                  disabled={busy}
-                  onClick={() => shiftDays(d)}
-                  title={`Shift all visible items ${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`}
+                  disabled={undoStack.length === 0}
+                  onClick={undo}
+                  title="Undo reschedule (⌘/Ctrl-Z)"
                 >
-                  {d < 0 ? <ChevronLeft className="size-3" /> : null}
-                  {d > 0 ? "+" : ""}
-                  {d}d
-                  {d > 0 ? <ChevronRight className="size-3" /> : null}
+                  <Undo2 className="size-3" /> Undo
                 </Button>
-              ))}
-              <div className="mx-1 h-5 w-px bg-border" />
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={undoStack.length === 0}
-                onClick={undo}
-                title="Undo reschedule (⌘/Ctrl-Z)"
-              >
-                <Undo2 className="size-3" /> Undo
-              </Button>
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={redoStack.length === 0}
-                onClick={redo}
-                title="Redo reschedule (⌘/Ctrl-Y)"
-              >
-                <Redo2 className="size-3" /> Redo
-              </Button>
-              {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-            </>
-          )}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={redoStack.length === 0}
+                  onClick={redo}
+                  title="Redo reschedule (⌘/Ctrl-Y)"
+                >
+                  <Redo2 className="size-3" /> Redo
+                </Button>
+                {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <p className="hidden text-xs text-muted-foreground lg:block">
+                Drag a bar to reschedule · drag edges to resize
+              </p>
+            )}
+            <CreateIssueButton
+              orgId={orgId}
+              projectId={projectId}
+              boardId={boardId}
+              onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {canEdit && (
-            <p className="hidden text-xs text-muted-foreground lg:block">
-              Drag a bar to reschedule · drag edges to resize
-            </p>
-          )}
-          <CreateIssueButton
-            orgId={orgId}
-            projectId={projectId}
-            boardId={boardId}
-            onCreated={() => qc.invalidateQueries({ queryKey: itemsKey })}
-          />
-        </div>
-      </div>
-      {/* Contextual legend — only the keys for what's actually on screen. */}
-      {(showPlanDrift || hasEnablers) && (
+      )}
+      {/* Contextual legend — only the keys for what's actually on screen, and
+          only outside fullscreen: there the ask is the work items and the
+          calendar, so every strip that isn't one of those two gets out of the way. */}
+      {!fullscreen && (showPlanDrift || hasEnablers) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
           {showPlanDrift && (
             <>
@@ -1329,21 +1448,58 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           style={{ width: nameColW, fontSize: `${labelScale(zoom)}rem` }}
         >
           <div
-            className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
+            className={cn(
+              "sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center gap-1.5 text-xs font-medium text-muted-foreground",
+              // Line the header checkbox up with the rows' (6px), but leave the
+              // viewer's heading exactly where it was when there is none.
+              canEdit ? "pl-1.5 pr-3" : "px-3",
+            )}
             style={{ height: HEADER_HEIGHT }}
           >
+            {canEdit && (
+              <Checkbox
+                checked={allVisibleSelected}
+                indeterminate={selectedItems.length > 0 && !allVisibleSelected}
+                onChange={() =>
+                  setSelectedIds(
+                    allVisibleSelected ? new Set() : new Set(sortedItems.map((it) => it.id)),
+                  )
+                }
+                aria-label="Select all work items"
+                title="Select every row on screen"
+              />
+            )}
             Work Items
           </div>
           {visibleRows.map(({ item, depth }) => {
             const colors = typeColorMap[bareTypeKey(item.workItemType?.key)] ?? typeColorMap.TASK;
             const isParent = parentIds.has(item.id);
             const isCollapsed = collapsedIds.has(item.id);
+            const isSelected = selectedIds.has(item.id);
             return (
               <div
                 key={item.id}
-                className="flex w-full items-center border-b border-border/30 hover:bg-muted/30 transition-colors"
-                style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 14 }}
+                className={cn(
+                  "flex w-full items-center border-b border-border/30 transition-colors",
+                  isSelected ? "bg-[var(--primary)]/10" : "hover:bg-muted/30",
+                )}
+                style={{ height: ROW_HEIGHT, paddingLeft: 6 }}
               >
+                {/* Ticking a row is what aims the Shift buttons at it. Only for
+                    editors: with nothing to shift, a selection is just noise. */}
+                {canEdit && (
+                  <Checkbox
+                    checked={isSelected}
+                    onChange={() => toggleSelected(item.id)}
+                    aria-label={`Select ${projectKey}-${item.ticketNumber}`}
+                    title={`Select ${projectKey}-${item.ticketNumber} to shift it`}
+                    className="mr-1.5 shrink-0"
+                  />
+                )}
+                {/* The hierarchy indent sits AFTER the checkbox rather than in
+                    the row's padding, so the checkboxes hold one column instead
+                    of stair-stepping away with depth. */}
+                {depth > 0 && <span className="shrink-0" style={{ width: depth * 14 }} />}
                 {isParent ? (
                   <button
                     type="button"
