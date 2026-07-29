@@ -37,6 +37,7 @@ import { useOrgMembers } from "@/components/chat/mention-typeahead";
 import { useRefResolver } from "@/components/mentions/hooks";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { NoteRichTextEditor } from "@/components/notes/editor/rich-text-editor";
+import { COMMENT_EDITOR_SIZING } from "@/components/notes/editor/sizing";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
 import { refKey, type ResolvedEntity } from "@/lib/mentions/refs";
 import { WorkItemLinksSection } from "@/components/work-items/links-section";
@@ -208,15 +209,18 @@ export function CardDetailSheet({
   );
   // Bump to remount (reset) the rich comment editor after a successful post.
   const [commentEditorKey, setCommentEditorKey] = useState(0);
-  // Resolve id-valued activity fields (assignee/interval/status) to names so the
-  // Activity tab never shows a raw GUID (FR 545f81b1).
+  // Resolve id-valued activity fields (assignee/interval/type/status) to names so
+  // the Activity tab never shows a raw GUID (FR 545f81b1). `allTypes`, not the
+  // `workItemTypes` picker list — that one hides shadow types, so a retype to or
+  // from one would otherwise have no name to show.
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
       interval: (id: string) => intervals.find((c) => c.id === id)?.name,
+      type: (id: string) => allTypes.find((t) => t.id === id)?.name,
       column: (key: string) => columns.find((c) => c.key === key)?.name,
     }),
-    [members, intervals, columns],
+    [members, intervals, allTypes, columns],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -1449,6 +1453,8 @@ export function CardDetailSheet({
                               orgId={orgId}
                               mentionLabels={commentMentionLabels}
                               onChange={setEditDraft}
+                              ariaLabel="Edit comment"
+                              sizing={COMMENT_EDITOR_SIZING}
                             />
                           </div>
                           <div className="flex items-center gap-2">
@@ -1491,7 +1497,7 @@ export function CardDetailSheet({
               )}
 
               <div className="relative flex gap-2">
-                <div className="flex-1 rounded-lg border border-input px-2.5 py-1.5 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
+                <div className="min-w-0 flex-1 rounded-lg border border-input px-2.5 py-1.5 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
                   <NoteRichTextEditor
                     key={`comment-${commentEditorKey}`}
                     initialMarkdown={newComment}
@@ -1499,6 +1505,8 @@ export function CardDetailSheet({
                     mentionLabels={commentMentionLabels}
                     onChange={setNewComment}
                     placeholder="Write a comment… (@ to mention)"
+                    ariaLabel="Comment"
+                    sizing={COMMENT_EDITOR_SIZING}
                   />
                 </div>
                 <Button

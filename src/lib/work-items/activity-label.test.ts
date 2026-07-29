@@ -31,8 +31,7 @@ describe("activityValueLabel", () => {
     // Unresolved user id (e.g. a member since removed from the org).
     const other = "99999999-9999-4999-8999-999999999999";
     const out = activityValueLabel("assigneeId", other, resolvers);
-    expect(out).toBe("Unknown");
-    expect(out).not.toContain("-"); // not a GUID
+    expect(out).toBeNull();
   });
 
   it("resolves interval and type ids", () => {
@@ -55,8 +54,22 @@ describe("activityValueLabel", () => {
     expect(activityValueLabel("assigneeId", "", resolvers)).toBeNull();
   });
 
-  it("falls back to Unknown for an unresolved GUID on any id field", () => {
-    expect(activityValueLabel("intervalId", UUID, {})).toBe("Unknown");
-    expect(activityValueLabel("workItemTypeId", UUID, {})).toBe("Unknown");
+  // BR: "Steve changed interval to Unknown" — the value clause claimed a value
+  // we did not have. An id we cannot name is EITHER a since-deleted row OR a
+  // lookup table that hasn't loaded; "Unknown" is false in the second case and
+  // useless in the first, so the clause is dropped instead.
+  it("says nothing — never 'Unknown' — for an id it cannot resolve", () => {
+    expect(activityValueLabel("intervalId", UUID, {})).toBeNull();
+    expect(activityValueLabel("workItemTypeId", UUID, {})).toBeNull();
+    expect(activityValueLabel("assigneeId", UUID, {})).toBeNull();
+  });
+
+  it("fails closed on an id-shaped value for a field the switch doesn't know", () => {
+    // `parentId` is labelled but not yet recorded as an activity; if it (or any
+    // new id-valued field) starts flowing through, it must not leak a GUID.
+    expect(activityValueLabel("parentId", UUID, resolvers)).toBeNull();
+    expect(activityValueLabel("someFutureId", UUID, resolvers)).toBeNull();
+    // A scalar that merely looks unfamiliar is still shown.
+    expect(activityValueLabel("someFutureField", "13", resolvers)).toBe("13");
   });
 });

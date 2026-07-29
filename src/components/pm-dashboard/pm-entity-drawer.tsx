@@ -663,7 +663,12 @@ export function PmEntityDrawer({
                   onChange={onComposerChange}
                   onKeyDown={onComposerKey}
                   placeholder="Write a comment… (@ to mention)"
-                  className="flex-1 resize-none rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                  // `field-sizing-content` is the same CSS-native growth the
+                  // shared Textarea primitive uses (and what makes the New risk
+                  // dialog's fields size sensibly): one line at rest, taller as
+                  // you type, scrolling once it hits the cap. Without it this
+                  // was a permanent one-liner you had to scroll to re-read.
+                  className="field-sizing-content max-h-60 flex-1 resize-none rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                 />
                 <Button
                   size="icon"

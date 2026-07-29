@@ -27,6 +27,11 @@ import { notesTransformers } from "./markdown";
 import { noteEditorTheme } from "./theme";
 import { ToolbarPlugin } from "./toolbar";
 import { MentionPlugin } from "./mention-plugin";
+import {
+  editorSizingStyles,
+  NOTE_EDITOR_SIZING,
+  type EditorSizing,
+} from "./sizing";
 
 const EDITOR_NODES: ReadonlyArray<Klass<LexicalNode>> = [
   HeadingNode,
@@ -50,6 +55,9 @@ const EDITOR_NODES: ReadonlyArray<Klass<LexicalNode>> = [
  *
  * Mount only AFTER mention labels have resolved so the initial import shows the
  * right chip labels (see NoteEditor).
+ *
+ * Height is a caller's decision, not a constant: see ./sizing. A note fills its
+ * pane; an inline comment composer starts small and grows with what's typed.
  */
 export function NoteRichTextEditor({
   initialMarkdown,
@@ -57,16 +65,24 @@ export function NoteRichTextEditor({
   mentionLabels,
   onChange,
   placeholder = "Start writing… (Markdown supported · @ to mention)",
+  ariaLabel = "Note content",
+  sizing = NOTE_EDITOR_SIZING,
 }: {
   initialMarkdown: string;
   orgId: string;
   mentionLabels: Map<string, string>;
   onChange: (markdown: string) => void;
   placeholder?: string;
+  /** Accessible name for the editable region — say what is being written. */
+  ariaLabel?: string;
+  /** Resting height and growth cap. Defaults to the full-pane note sizing. */
+  sizing?: EditorSizing;
 }) {
   // Computed once: this component is keyed per note, and only mounts after the
   // label map is complete, so the initial import resolves chip labels.
   const [transformers] = useState(() => notesTransformers(mentionLabels));
+
+  const sizingStyles = editorSizingStyles(sizing);
 
   const [initialConfig] = useState<InitialConfigType>(() => ({
     namespace: "note-editor",
@@ -85,12 +101,17 @@ export function NoteRichTextEditor({
         <div className="border-b pb-2">
           <ToolbarPlugin />
         </div>
-        <div className="relative flex-1 min-h-0 overflow-y-auto">
+        <div
+          data-slot="editor-scroller"
+          className="relative flex-1 min-h-0 overflow-y-auto"
+          style={sizingStyles.container}
+        >
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                aria-label="Note content"
-                className="min-h-[300px] text-sm leading-relaxed outline-none [&_*]:outline-none"
+                aria-label={ariaLabel}
+                className="text-sm leading-relaxed outline-none [&_*]:outline-none"
+                style={sizingStyles.editable}
               />
             }
             placeholder={

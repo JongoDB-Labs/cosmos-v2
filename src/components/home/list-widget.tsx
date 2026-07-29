@@ -6,6 +6,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Activity as ActivityIcon, Star } from "lucide-react";
+import { activityFieldLabel } from "@/lib/work-items/activity-label";
 
 /**
  * Home-dashboard list widgets (FR 8702c9b8) — "Recent activity" and "My watched
@@ -57,7 +58,11 @@ function RecentActivity({ orgId, orgSlug }: { orgId: string; orgSlug: string }) 
             <li key={a.id} className="text-xs leading-snug">
               <span className="font-medium text-[var(--text)]">{a.actor.displayName}</span>{" "}
               <span className="text-[var(--text-muted)]">
-                {a.action === "created" ? "created" : a.field ? `changed ${a.field}` : a.action}
+                {a.action === "created"
+                  ? "created"
+                  : a.field
+                    ? `changed ${activityFieldLabel(a.field)}`
+                    : a.action}
               </span>
               {a.item && (
                 <>
