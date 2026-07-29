@@ -5,7 +5,11 @@
 // `tags`. `buildCreateBody` is the pure seam that decides what gets submitted —
 // tested here without driving the base-ui dialog.
 import { describe, it, expect } from "vitest";
-import { buildCreateBody, type CreateIssueFields } from "./create-issue-button";
+import {
+  buildCreateBody,
+  projectStatusColumns,
+  type CreateIssueFields,
+} from "./create-issue-button";
 
 const base: CreateIssueFields = {
   title: "  Investigate outage  ",
@@ -62,5 +66,42 @@ describe("buildCreateBody", () => {
     for (const k of ["assigneeIds", "intervalId", "startDate", "dueDate"]) {
       expect(bare).not.toHaveProperty(k);
     }
+  });
+});
+
+// Reported from the Timeline / Gantt: the "New issue" dialog opened with Status
+// empty and disabled, and "Create issue" permanently greyed out — the button was
+// there but could never be pressed. Submitting requires a columnKey, and the
+// dialog only ever offered THIS board's columns. Timeline, Calendar, RAID and
+// Roadmap boards are all seeded with `columns: []`, so on any of them the dialog
+// was a dead end.
+describe("projectStatusColumns", () => {
+  const kanban = {
+    columns: [
+      { key: "todo", name: "To Do", sortOrder: 0 },
+      { key: "done", name: "Done", sortOrder: 2 },
+    ],
+  };
+  const backlog = {
+    columns: [
+      { key: "backlog", name: "Backlog", sortOrder: 1 },
+      { key: "todo", name: "To Do", sortOrder: 0 },
+    ],
+  };
+
+  it("gathers the project's statuses from whichever boards define them", () => {
+    const cols = projectStatusColumns([{ columns: [] }, kanban, backlog] as never);
+    expect(cols.map((c) => c.key)).toEqual(["todo", "backlog", "done"]);
+  });
+
+  it("dedupes a status shared by several boards", () => {
+    const cols = projectStatusColumns([kanban, backlog] as never);
+    expect(cols.filter((c) => c.key === "todo")).toHaveLength(1);
+  });
+
+  it("returns nothing when no board in the project defines a workflow", () => {
+    // Honest empty rather than a fabricated status — the dialog stays disabled,
+    // which is correct when the project genuinely has nowhere to put an item.
+    expect(projectStatusColumns([{ columns: [] }, {}] as never)).toEqual([]);
   });
 });
