@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.246.2",
+    date: "2026-07-29",
+    title: "Every project template now switches on the features it promises",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Projects started from the Construction, Client Engagement, Course, Event, Production Run and Operations templates had no Intervals button, even though each of those templates defines its own kind of interval — Phases, Modules, Days, Runs and Releases. Intervals are now switched on for all of them, on existing projects as well as new ones.",
+      },
+      {
+        kind: "fix",
+        text: "Those same templates listed Risks, Decisions and Meeting Notes as enabled features, none of which were real settings — so they quietly did nothing. Construction, Client Engagement, Production Run and Operations projects now get a working Risk Register on the PM Dashboard instead. If you had already changed a project's features yourself, your choices are left exactly as you set them.",
+      },
+      {
+        kind: "improvement",
+        text: "The template editor under Settings offered the same three features that did nothing, and hid the ones that work. It now lists every feature a project can actually turn on, including the Roadmap, Files and the full PM Dashboard suite.",
+      },
+    ],
+  },
+  {
     version: "2.246.1",
     date: "2026-07-29",
     title: "Project boards now honour access policies",

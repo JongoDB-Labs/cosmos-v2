@@ -83,8 +83,14 @@ const EDUCATION_PROJECT_TEMPLATE = {
   description: "Course design with modules, lessons, assignments, and grading.",
   defaultConfig: {
     intervalKinds: ["MODULE"],
+    // No consumer today; retained as the intended per-sector term. See aec.ts.
     cycleNavLabel: "Modules",
-    enabledFeatures: ["goal", "milestone", "risk"],
+    // "risk" was never a real key (TOGGLEABLE_FEATURES has "risk-register") and
+    // is dropped rather than mapped: the register is only reachable via the PM
+    // Dashboard, and a GovCon program-management suite is the wrong surface to
+    // put on a course. "interval" is added so the MODULE intervals declared
+    // above actually get their header button.
+    enabledFeatures: ["goal", "milestone", "interval"],
   },
 };
 

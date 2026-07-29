@@ -20,6 +20,10 @@ import {
   usePermissions,
   Permission,
 } from "@/components/providers/permissions-provider";
+// The optional project features that surface as board tabs (board-tabs.tsx).
+// Defined once alongside the TOGGLEABLE_FEATURES the project PUT validates
+// against, so this picker cannot offer a key the API silently drops.
+import { FEATURE_OPTIONS } from "@/lib/project-features";
 
 interface ProjectSettingsClientProps {
   orgId: string;
@@ -31,28 +35,6 @@ interface ProjectSettingsClientProps {
   enabledFeatures: string[];
   disabledBoardTypes: string[];
 }
-
-// The optional project features that surface as board tabs (board-tabs.tsx).
-// Keep keys in sync with TOGGLEABLE_FEATURES in the project PUT route.
-const FEATURE_OPTIONS: { key: string; label: string; description: string }[] = [
-  { key: "okr", label: "OKRs", description: "Objectives & key results board." },
-  { key: "goal", label: "Goals", description: "Track project goals with rollup progress." },
-  { key: "kpi", label: "KPIs", description: "Track metrics with targets and trend charts." },
-  { key: "milestone", label: "Milestones", description: "Key dates on a delivery timeline." },
-  { key: "interval", label: "Intervals / Sprints", description: "Time-boxed iterations of work." },
-  { key: "roadmap", label: "Roadmap", description: "Navigable program roadmap (phases, LOEs, risks, decisions) that issues link to as source-of-truth." },
-  { key: "files", label: "Files", description: "Upload & navigate project documents (docx/pdf/pptx/xlsx); convert them to items." },
-  { key: "pm-dashboard", label: "PM Dashboard", description: "GovCon program-management suite: risk/change/blocked/schedule/deliverables/vendors/staffing/CLIN registers with drill-down, derived metrics & Excel export." },
-  // PM Dashboard register sub-tabs (require PM Dashboard; each adds a sub-tab).
-  { key: "risk-register", label: "PM · Risk Register", description: "Risk register sub-tab (likelihood × impact, mitigation, owner)." },
-  { key: "change-log", label: "PM · Change Log", description: "Change-request register sub-tab (cost/schedule impact, approvals)." },
-  { key: "blocked-items", label: "PM · Blocked Items", description: "Blocker register sub-tab (what unblocks, owner, escalation)." },
-  { key: "schedule-variance", label: "PM · Schedule", description: "Schedule/milestone variance sub-tab (baseline vs projected vs actual)." },
-  { key: "deliverables-tracker", label: "PM · Deliverables", description: "CDRL/deliverable tracker sub-tab (due dates, gov review, revisions)." },
-  { key: "vendors", label: "PM · Vendors", description: "Vendor/subcontract register sub-tab (agreements, value, performance)." },
-  { key: "staffing", label: "PM · Staffing", description: "Staffing & compliance sub-tab (allocation, CAC/NDA/training status)." },
-  { key: "clin-burn", label: "PM · CLIN Burn", description: "CLIN funding/burn sub-tab (ceiling, funded, period of performance)." },
-];
 
 // The 13 board VIEW types. A project starts with all enabled; toggling one OFF
 // records it in settings.disabledBoardTypes, which hides it from "New board".

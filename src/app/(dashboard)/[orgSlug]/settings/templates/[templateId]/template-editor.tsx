@@ -14,6 +14,7 @@ import {
   Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FEATURE_OPTIONS } from "@/lib/project-features";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -66,17 +67,14 @@ interface TemplateEditorProps {
 }
 
 // ---- Feature flags ----
-
-const FEATURE_FLAGS = [
-  { key: "goal", label: "Goals" },
-  { key: "milestone", label: "Milestones" },
-  { key: "kpi", label: "KPIs" },
-  { key: "risk", label: "Risks" },
-  { key: "decision", label: "Decisions" },
-  { key: "meeting_note", label: "Meeting Notes" },
-  { key: "okr", label: "OKRs" },
-  { key: "interval", label: "Intervals" },
-] as const;
+//
+// Sourced from the shared list rather than hand-maintained here. This editor
+// previously offered "Risks", "Decisions" and "Meeting Notes" — none of which
+// are real feature keys, so the project PUT filtered them out and every project
+// created from such a template got flags that did nothing. It also omitted
+// roadmap, files and the whole PM Dashboard suite, which a template had no way
+// to express. FEATURE_OPTIONS is the same list the project Settings picker uses.
+const FEATURE_FLAGS = FEATURE_OPTIONS;
 
 // ---- Board type badge ----
 

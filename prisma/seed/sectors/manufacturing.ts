@@ -77,8 +77,12 @@ const MANUFACTURING_PROJECT_TEMPLATE = {
   description: "Work orders, operations, quality control, and inspection tracking.",
   defaultConfig: {
     intervalKinds: ["RUN"],
+    // No consumer today; retained as the intended per-sector term. See aec.ts.
     cycleNavLabel: "Runs",
-    enabledFeatures: ["kpi", "risk", "decision"],
+    // Dead keys removed ("risk"/"decision" are not in TOGGLEABLE_FEATURES).
+    // "risk" becomes pm-dashboard + risk-register — quality/production risk is
+    // core here — and "interval" surfaces the RUN intervals declared above.
+    enabledFeatures: ["kpi", "interval", "pm-dashboard", "risk-register"],
   },
 };
 

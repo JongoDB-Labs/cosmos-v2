@@ -76,8 +76,16 @@ const EVENT_PROJECT_TEMPLATE = {
   description: "Run-of-show, vendor management, logistics, and risk planning.",
   defaultConfig: {
     intervalKinds: ["EVENT_DAY"],
+    // No consumer today; retained as the intended per-sector term. See aec.ts.
     cycleNavLabel: "Days",
-    enabledFeatures: ["milestone", "kpi", "risk", "decision", "meeting_note"],
+    // Dead keys removed ("risk"/"decision"/"meeting_note" are not in
+    // TOGGLEABLE_FEATURES). "risk" is dropped rather than mapped: the register
+    // only opens from the PM Dashboard, and that GovCon suite is heavier than an
+    // event needs. NOTE: this template's own description still advertises "risk
+    // planning" — if that is meant literally, switch this to the aec/ops shape
+    // (+ "pm-dashboard", "risk-register"). "interval" surfaces the EVENT_DAY
+    // intervals declared above.
+    enabledFeatures: ["kpi", "milestone", "interval"],
   },
 };
 
