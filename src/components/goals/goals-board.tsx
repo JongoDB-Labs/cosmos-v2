@@ -13,6 +13,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ObjectivesPanel } from "@/components/goals/objectives-panel";
 import { FormField } from "@/components/ui/form-field";
 import {
   Select,
@@ -321,6 +322,12 @@ export function GoalsBoard({ orgId, projectId }: GoalsBoardProps) {
           ))}
         </div>
       )}
+
+      {/* PI Objectives / sprint goals, grouped by the interval they belong to.
+          Read-only here — objectives are authored on the OKR board and a
+          sprint goal belongs to its interval; this surfaces them beside the
+          project's goals rather than making a fourth place to write them. */}
+      <ObjectivesPanel orgId={orgId} projectId={projectId} />
 
       {/* Create dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

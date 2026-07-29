@@ -207,7 +207,10 @@ export function ProjectBoardTabs({
   if (enabledFeatures.includes("goal")) {
     featureTabs.push({
       feature: "goal",
-      label: "Goals",
+      // The board now carries PI Objectives and sprint goals alongside the
+      // project's goals, so the tab says so — otherwise the objectives are
+      // there but nobody has a reason to look for them here.
+      label: "Goals / Objectives",
       href: `/${orgSlug}/projects/${projectKey}/goals`,
     });
   }
