@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
@@ -8,13 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Target, CalendarDays, Plus, ListChecks } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -49,8 +42,13 @@ export function SprintBoard({
   boardId,
 }: SprintBoardProps) {
   const [intervals, setIntervals] = useState<IntervalWithCount[] | null>(null);
-  const [detailSprint, setDetailSprint] = useState<IntervalWithCount | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  // The sprint the board is scoped to. Three distinct states, and they must stay
+  // distinct: `undefined` = nothing picked yet, so fall back to the auto-picked
+  // active sprint; `null` = the user explicitly chose "All items"; a string = that
+  // sprint. Collapsing undefined and null would make "All items" snap straight
+  // back to the active sprint.
+  const [selectedId, setSelectedId] = useState<string | null | undefined>(undefined);
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1];
   const intervalsHref = `/${orgSlug}/projects/${projectKey}/intervals`;
@@ -72,6 +70,24 @@ export function SprintBoard({
 
   const active = useMemo(() => pickActiveSprint(intervals ?? []), [intervals]);
 
+  // What the board is actually showing: the user's pick, else the auto-picked
+  // active sprint. Resolved against the loaded list so a stale id (a sprint that
+  // was deleted, or a filter-bar interval from another project) falls back
+  // rather than blanking the header.
+  const shown = useMemo(() => {
+    if (selectedId === null) return null; // "All items"
+    // A stale id (sprint deleted since) falls back to the active sprint rather
+    // than leaving the header blank over a board that is still showing rows.
+    if (selectedId) return intervals?.find((c) => c.id === selectedId) ?? active;
+    return active;
+  }, [selectedId, intervals, active]);
+
+  // Stable identity — KanbanBoard has this in an effect dependency list, so a
+  // fresh function each render would re-fire it every time.
+  const handleIntervalChange = useCallback((id: string | null) => {
+    setSelectedId(id);
+  }, []);
+
   return (
     <div className="flex h-full flex-col">
       {intervals === null ? (
@@ -79,8 +95,8 @@ export function SprintBoard({
           <Skeleton className="h-5 w-48" />
           <Skeleton className="mt-2 h-3 w-72" />
         </div>
-      ) : active ? (
-        <SprintHeader sprint={active} />
+      ) : shown ? (
+        <SprintHeader sprint={shown} />
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3">
           <p className="text-sm text-[var(--text-muted)]">
@@ -96,8 +112,10 @@ export function SprintBoard({
         </div>
       )}
 
-      {/* All sprints — click any to see its details (FR). The board itself stays
-          scoped to the active sprint; this is a quick read/jump-off. */}
+      {/* All sprints — click any to SCOPE THE BOARD to it. These used to open a
+          read-only modal, which meant the one obvious way to move between
+          sprints didn't move the board at all; the details they showed now live
+          in the header above, which follows the selection. */}
       {intervals && intervals.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--border)] px-6 py-2">
           <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
@@ -117,22 +135,43 @@ export function SprintBoard({
           )
             .slice()
             .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-            .map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setDetailSprint(c)}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
-                  c.id === active?.id
-                    ? "border-[var(--primary)] text-[var(--primary)]"
-                    : "border-[var(--border)] text-[var(--text-muted)]",
-                )}
-                title={`${c.name || `Sprint ${c.number}`} — view details`}
-              >
-                {c.name || `Sprint ${c.number}`}
-              </button>
-            ))}
+            .map((c) => {
+              const isShown = c.id === shown?.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  aria-pressed={isShown}
+                  onClick={() => setSelectedId(c.id)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
+                    isShown
+                      ? "border-[var(--primary)] bg-[var(--primary-tint)] font-medium text-[var(--primary)]"
+                      : "border-[var(--border)] text-[var(--text-muted)]",
+                  )}
+                  title={`Show ${c.name || `Sprint ${c.number}`}`}
+                >
+                  {c.name || `Sprint ${c.number}`}
+                </button>
+              );
+            })}
+          {/* Escape hatch back to every item, matching the filter bar's "all
+              intervals" state — otherwise, once a pill is picked there is no way
+              back to the unscoped board from this row. */}
+          <button
+            type="button"
+            aria-pressed={shown == null}
+            onClick={() => setSelectedId(null)}
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-[var(--primary-tint)]",
+              shown == null
+                ? "border-[var(--primary)] bg-[var(--primary-tint)] font-medium text-[var(--primary)]"
+                : "border-[var(--border)] text-[var(--text-muted)]",
+            )}
+            title="Show every item, regardless of sprint"
+          >
+            All items
+          </button>
         </div>
       )}
 
@@ -153,7 +192,8 @@ export function SprintBoard({
             projectId={projectId}
             projectKey={projectKey}
             boardId={boardId}
-            initialIntervalId={active?.id}
+            initialIntervalId={shown?.id}
+            onIntervalChange={handleIntervalChange}
           />
         )}
       </div>
@@ -177,88 +217,6 @@ export function SprintBoard({
         </SheetContent>
       </Sheet>
 
-      {/* Sprint detail modal (FR: "click any sprint → a modal shows its details"). */}
-      <Dialog
-        open={detailSprint !== null}
-        onOpenChange={(o) => !o && setDetailSprint(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          {detailSprint && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center gap-2">
-                  <DialogTitle>
-                    {detailSprint.name || `Sprint ${detailSprint.number}`}
-                  </DialogTitle>
-                  <Badge variant={statusBadge(detailSprint.status).variant} showDot={false}>
-                    {statusBadge(detailSprint.status).label}
-                  </Badge>
-                </div>
-                <DialogDescription>
-                  {new Date(detailSprint.startDate).toLocaleDateString(undefined, {
-                    timeZone: "UTC",
-                  })}{" "}
-                  –{" "}
-                  {new Date(detailSprint.endDate).toLocaleDateString(undefined, {
-                    timeZone: "UTC",
-                  })}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-2 text-sm">
-                {detailSprint.goal && (
-                  <p className="flex items-start gap-1.5 text-[var(--text-muted)]">
-                    <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{detailSprint.goal}</span>
-                  </p>
-                )}
-                {typeof detailSprint._count?.workItems === "number" && (
-                  <p className="text-[var(--text-muted)]">
-                    {detailSprint._count.workItems} item
-                    {detailSprint._count.workItems === 1 ? "" : "s"} in this sprint.
-                  </p>
-                )}
-                {detailSprint.report &&
-                  (() => {
-                    const r = detailSprint.report as {
-                      velocity?: number;
-                      completedStoryPoints?: number;
-                      completedItems?: number;
-                      incompleteItems?: number;
-                    };
-                    return (
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-[var(--surface)] p-2 text-xs text-[var(--text-muted)]">
-                        <span>
-                          Velocity:{" "}
-                          <span className="font-medium text-[var(--text)]">
-                            {r.velocity ?? r.completedStoryPoints ?? 0} pts
-                          </span>
-                        </span>
-                        <span>
-                          Completed:{" "}
-                          <span className="font-medium text-[var(--text)]">
-                            {r.completedItems ?? 0}
-                          </span>
-                        </span>
-                        <span>
-                          Carried over:{" "}
-                          <span className="font-medium text-[var(--text)]">
-                            {r.incompleteItems ?? 0}
-                          </span>
-                        </span>
-                      </div>
-                    );
-                  })()}
-                <Link
-                  href={intervalsHref}
-                  className={cn(buttonVariants({ size: "sm", variant: "outline" }), "mt-1 gap-1.5")}
-                >
-                  Manage sprints
-                </Link>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -297,6 +255,12 @@ function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
 
   const { label: statusLabel, variant } = statusBadge(sprint.status);
   const itemCount = sprint._count?.workItems;
+  const report = sprint.report as {
+    velocity?: number;
+    completedStoryPoints?: number;
+    completedItems?: number;
+    incompleteItems?: number;
+  } | null;
 
   const dateFmt = (d: Date) =>
     d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -344,6 +308,33 @@ function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
           <p className="mt-1 text-[10px] text-[var(--text-muted)]">
             Day {elapsedDays} of {totalDays}
           </p>
+        </div>
+      )}
+
+      {/* Close-out numbers for a finished sprint. These used to live only in the
+          per-sprint modal that the pills opened; the pills now scope the board,
+          so the report follows the selection into the header instead of being
+          lost with the modal. */}
+      {report && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-[var(--surface)] p-2 text-xs text-[var(--text-muted)]">
+          <span>
+            Velocity:{" "}
+            <span className="font-medium text-[var(--text)]">
+              {report.velocity ?? report.completedStoryPoints ?? 0} pts
+            </span>
+          </span>
+          <span>
+            Completed:{" "}
+            <span className="font-medium text-[var(--text)]">
+              {report.completedItems ?? 0}
+            </span>
+          </span>
+          <span>
+            Carried over:{" "}
+            <span className="font-medium text-[var(--text)]">
+              {report.incompleteItems ?? 0}
+            </span>
+          </span>
         </div>
       )}
     </div>

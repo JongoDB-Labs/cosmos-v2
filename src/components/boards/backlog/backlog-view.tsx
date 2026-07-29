@@ -34,6 +34,7 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import {
   resolveDrag,
+  buildIntervalSections,
   BACKLOG_CONTAINER,
   type Containers,
 } from "@/lib/boards/backlog-dnd";
@@ -287,38 +288,14 @@ export function BacklogView({
     [visibleItems, byRank],
   );
 
-  // One section per interval, in (status, startDate) order, with its ranked items.
-  const intervalSections = useMemo(() => {
-    const grouped = new Map<string, WorkItem[]>();
-    for (const item of visibleItems) {
-      if (item.intervalId == null) continue;
-      const arr = grouped.get(item.intervalId);
-      if (arr) arr.push(item);
-      else grouped.set(item.intervalId, [item]);
-    }
-    // Order: known intervals first (by startDate), then any orphan intervalId buckets.
-    const statusRank: Record<Interval["status"], number> = {
-      ACTIVE: 0,
-      PLANNED: 1,
-      COMPLETED: 2,
-    };
-    return Array.from(grouped.entries())
-      .map(([intervalId, secItems]) => ({
-        interval: intervalMap.get(intervalId) ?? null,
-        intervalId,
-        items: secItems.slice().sort(byRank),
-      }))
-      .sort((a, b) => {
-        if (a.interval && b.interval) {
-          const sr = statusRank[a.interval.status] - statusRank[b.interval.status];
-          if (sr !== 0) return sr;
-          return (a.interval.startDate ?? "").localeCompare(b.interval.startDate ?? "");
-        }
-        if (a.interval) return -1;
-        if (b.interval) return 1;
-        return a.intervalId.localeCompare(b.intervalId);
-      });
-  }, [visibleItems, intervalMap, byRank]);
+  // One section per interval, in (status, startDate) order, with its ranked
+  // items. Every plannable sprint gets a section even when EMPTY — the section
+  // is what renders the drop target, so without this a brand-new sprint could
+  // not be dragged into at all.
+  const intervalSections = useMemo(
+    () => buildIntervalSections(visibleItems, intervals, byRank),
+    [visibleItems, intervals, byRank],
+  );
 
   // Container model for cross-section drag: the backlog plus one bucket per
   // sprint, each an ordered list of item ids.
