@@ -95,10 +95,40 @@ export function buildCreateBody(f: CreateIssueFields): Record<string, unknown> {
  * A self-contained "+ New issue" affordance for the board views that lack
  * per-column quick-create (table, backlog, timeline, calendar, RAID) and the
  * org-wide Issues view. Opens a small dialog (title + type + status) and POSTs
- * to the work-items create endpoint; the status options are the board's own
- * columns, fetched on open so the caller only has to pass boardId. The caller's
- * onCreated refreshes its view (e.g. invalidate the work-items query).
+ * to the work-items create endpoint. The caller's onCreated refreshes its view
+ * (e.g. invalidate the work-items query).
+ *
+ * Status options come from the board's own columns, falling back to the rest of
+ * the PROJECT's boards when this one has none. That fallback is load-bearing:
+ * Timeline, Calendar, RAID and Roadmap boards are seeded with `columns: []`,
+ * and status is required to submit — so on those boards the dialog opened with
+ * an empty, disabled Status and a permanently greyed-out "Create issue". The
+ * button was there, it just could never be pressed.
  */
+function sortColumns(cols: BoardColumn[]): BoardColumn[] {
+  return [...cols].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+/**
+ * The project's status vocabulary, gathered from every board that defines one.
+ *
+ * Timeline, Calendar, RAID and Roadmap boards are seeded with `columns: []`,
+ * and a status is required to submit — so on those boards this dialog used to
+ * open with an empty, disabled Status and a "Create issue" button that could
+ * never be pressed. Statuses are deduped by key (boards share them) and the
+ * first spelling of a key wins, matching how the Issues view builds the same
+ * list from the same rows.
+ */
+export function projectStatusColumns(
+  boards: Array<{ columns?: BoardColumn[] }>,
+): BoardColumn[] {
+  const byKey = new Map<string, BoardColumn>();
+  for (const b of boards) {
+    for (const c of b.columns ?? []) if (!byKey.has(c.key)) byKey.set(c.key, c);
+  }
+  return sortColumns([...byKey.values()]);
+}
+
 export function CreateIssueButton({
   orgId,
   projectId,
@@ -191,9 +221,16 @@ export function CreateIssueButton({
       );
       if (res.ok) {
         const board = await res.json();
-        const cols: BoardColumn[] = (board.columns ?? []).sort(
-          (a: BoardColumn, b: BoardColumn) => a.sortOrder - b.sortOrder,
-        );
+        let cols = sortColumns(board.columns ?? []);
+        // This board defines no workflow of its own (Timeline/Calendar/RAID/
+        // Roadmap ship with none). Borrow the project's — the same statuses the
+        // Issues view offers, which it derives from every board in the project.
+        if (cols.length === 0) {
+          const all = await fetch(
+            `/api/v1/orgs/${orgId}/projects/${projectId}/boards`,
+          );
+          if (all.ok) cols = projectStatusColumns(await all.json());
+        }
         setColumns(cols);
         setColumnKey((prev) => prev || cols[0]?.key || "");
       }
