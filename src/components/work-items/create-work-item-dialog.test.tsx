@@ -40,7 +40,10 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
 
 // Mock the async hooks the dialog reads so the test controls exactly what the
 // types/custom-fields fetches "returned" — no QueryClientProvider needed.
-vi.mock("@/hooks/use-work-item-types", () => ({ useWorkItemTypes: vi.fn() }));
+vi.mock("@/hooks/use-work-item-types", () => ({
+  // Fixtures here contain no shadow types, so a passthrough matches the real
+  // filter exactly; use-work-item-types.test.ts covers the filtering itself.
+  selectableTypes: <T,>(types: T[]) => types, useWorkItemTypes: vi.fn() }));
 vi.mock("@/hooks/use-custom-fields", () => ({ useCustomFields: vi.fn() }));
 vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));

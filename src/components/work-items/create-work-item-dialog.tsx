@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo} from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -18,7 +18,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
-import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
   isCustomFieldEmpty,
@@ -128,7 +128,11 @@ export function CreateWorkItemDialog({
   // a "Feature" type. We submit the selected type's id (workItemTypeId) so the
   // server doesn't have to re-derive a sector-prefixed key — which never
   // resolves bare custom keys like "feature".
-  const { types: workItemTypes } = useWorkItemTypes(orgId);
+  const { types: allTypes } = useWorkItemTypes(orgId);
+  // Creating only. The shadow types (Milestone, Goal, KPI, Objective, Key
+  // Result, Risk) each duplicate a real table, so an item filed as one never
+  // reaches the board that owns that concept.
+  const workItemTypes = useMemo(() => selectableTypes(allTypes), [allTypes]);
 
   // Reset the form each time the dialog opens; default the project. In duplicate
   // mode the seed effect below owns initialization, so skip the reset — otherwise

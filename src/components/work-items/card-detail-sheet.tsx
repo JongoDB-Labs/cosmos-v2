@@ -44,7 +44,7 @@ import { RoadmapDescriptionField } from "@/components/roadmap/roadmap-descriptio
 import { WorkItemDocumentSource } from "@/components/files/work-item-document-source";
 import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { useCustomFields, fieldAppliesToType } from "@/hooks/use-custom-fields";
-import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
   isRenderableCustomField,
@@ -157,7 +157,14 @@ export function CardDetailSheet({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [workItemTypeId, setWorkItemTypeId] = useState<string | null>(null);
-  const { types: workItemTypes } = useWorkItemTypes(orgId);
+  const { types: allTypes } = useWorkItemTypes(orgId);
+  // Editing, so the item's OWN type is always kept even if it is one of the
+  // shadow types now hidden from creation — otherwise a ticket already filed as
+  // "Milestone" renders a blank Select and cannot be retyped to anything valid.
+  const workItemTypes = useMemo(
+    () => selectableTypes(allTypes, item?.workItemTypeId),
+    [allTypes, item?.workItemTypeId],
+  );
   const [priority, setPriority] = useState<WorkItem["priority"]>("MEDIUM");
   // SAFe classification (FR gantt-enh): business value vs. enabler work.
   const [workCategory, setWorkCategory] = useState<WorkItem["workCategory"]>("BUSINESS");

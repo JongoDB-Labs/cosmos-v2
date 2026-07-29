@@ -44,6 +44,45 @@ const FALLBACK_BARE_KEYS = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
  * The query key flows through `useOrgQueryKey` so an org switch serves a
  * different cache namespace (multi-tenant cache isolation).
  */
+/**
+ * Cross-cutting types that SHADOW a real table.
+ *
+ * Each of these names an entity that already exists in its own right — Goal,
+ * KeyResult, Kpi, Milestone, Objective and Risk are all Prisma models with
+ * their own boards and APIs. Having them as work-item types too meant one word
+ * described two unrelated rows: a "Milestone" created from a New issue dialog
+ * is a WorkItem and never appears on the Milestones board, which is exactly
+ * what got reported.
+ *
+ * They are hidden from CREATE pickers rather than deleted. Existing items keep
+ * their type, stay visible, and can be retyped to something else — see
+ * `selectableTypes`. Nothing is lost and the decision stays reversible.
+ */
+export const SHADOW_TYPE_KEYS = new Set([
+  "cross.goal",
+  "cross.milestone",
+  "cross.kpi",
+  "cross.objective",
+  "cross.key_result",
+  "cross.risk",
+]);
+
+/**
+ * Types offered in a picker.
+ *
+ * Drops the shadow types, but always keeps `currentTypeId` — an item already
+ * filed as one has to render its own value, or the Select shows blank and the
+ * user cannot even change it to something valid.
+ */
+export function selectableTypes<T extends { id: string; key: string }>(
+  types: T[],
+  currentTypeId?: string | null,
+): T[] {
+  return types.filter(
+    (t) => !SHADOW_TYPE_KEYS.has(t.key) || t.id === currentTypeId,
+  );
+}
+
 export function useWorkItemTypes(orgId: string) {
   const key = useOrgQueryKey("work-item-types");
   const query = useQuery({

@@ -56,6 +56,9 @@ vi.mock("@/components/files/work-item-document-source", () => ({
   WorkItemDocumentSource: () => null,
 }));
 vi.mock("@/hooks/use-work-item-types", () => ({
+  // Fixtures here contain no shadow types, so a passthrough matches the real
+  // filter exactly; use-work-item-types.test.ts covers the filtering itself.
+  selectableTypes: <T,>(types: T[]) => types,
   useWorkItemTypes: () => ({
     types: [
       { id: "wt", key: "software.story", name: "Story" },
