@@ -115,9 +115,11 @@ export function CreateWorkItemDialog({
   onCreated?: () => void;
 }) {
   const isDuplicate = Boolean(duplicateSource);
-  // Primitive form of `initialLabels`, so effects can depend on its VALUE rather
-  // than an array identity that changes on every parent render.
+  // Primitive forms of the two array props, so effects can depend on their
+  // VALUES rather than identities that change whenever a parent re-renders or a
+  // lazy fetch resolves. See the reset effect below for why that matters.
   const initialLabelsText = (initialLabels ?? []).join(", ");
+  const firstProjectId = projects[0]?.id ?? "";
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState(prefilledProjectId ?? "");
   const [workItemTypeId, setWorkItemTypeId] = useState("");
@@ -172,12 +174,18 @@ export function CreateWorkItemDialog({
       setLabels(initialLabelsText);
       setCustomValues({});
       setShowCustomErrors(false);
-      setProjectId(prefilledProjectId ?? projects[0]?.id ?? "");
+      setProjectId(prefilledProjectId ?? firstProjectId);
     }
-    // `initialLabelsText` (a string), NOT the array: callers pass an inline
-    // literal, so depending on the array's identity would re-run this on every
-    // parent render and wipe whatever the user had typed.
-  }, [open, prefilledProjectId, projects, duplicateSource, initialLabelsText]);
+    // Depend on VALUES, never on the identity of `projects` or `initialLabels`.
+    // This effect wipes the form, so anything in its dependency list that gets
+    // a fresh identity mid-edit blanks whatever the user has typed. Both are
+    // live hazards, not hypotheticals: `NewIssueButton` loads its project list
+    // lazily (`enabled: open`), so the array's identity changes moments AFTER
+    // the dialog opens — long enough for someone to have started typing — and
+    // the Issues view rebuilds `facets.projects` on every refetch. Depending on
+    // the array meant the title silently emptied and "Create issue" went back
+    // to disabled.
+  }, [open, prefilledProjectId, firstProjectId, duplicateSource, initialLabelsText]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
   // opened from a board, else the project's, pooled across its boards.

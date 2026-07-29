@@ -452,3 +452,91 @@ describe("CreateWorkItemDialog — Status picker", () => {
     expect(postBody().tags).toEqual(["risk"]);
   });
 });
+
+// Found by e2e-interaction, not by unit tests: "Create issue" sat permanently
+// disabled because the title had been silently emptied.
+//
+// The reset effect blanks the form, and it depended on the IDENTITY of the
+// `projects` array. `NewIssueButton` loads that list lazily (`enabled: open`),
+// so it arrives moments AFTER the dialog opens — long enough for someone to
+// have started typing — and the new identity re-ran the reset, wiping the
+// title. The Issues view has the same hazard: it rebuilds `facets.projects` on
+// every refetch.
+describe("CreateWorkItemDialog — a late-arriving project list must not wipe the form", () => {
+  beforeEach(() => {
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(useWorkItemTypes).mockReturnValue({
+      types: [{ id: "t1", key: "software.task", name: "Task" }],
+    } as never);
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url.endsWith("/boards")) {
+        return Promise.resolve([{ id: "b1", columns: [{ key: "todo", name: "To Do" }] }]);
+      }
+      if (url.endsWith("/work-items") && init?.method === "POST") {
+        return Promise.resolve({ id: "wi1", ticketNumber: 3 });
+      }
+      return Promise.resolve([]);
+    }) as never);
+  });
+
+  it("keeps a typed title when the projects array is replaced mid-edit", async () => {
+    const user = userEvent.setup();
+    // Same VALUE, fresh identity — exactly what a resolving query produces.
+    const first = [{ id: "p1", key: "ENG", name: "Engineering" }];
+    const { rerender } = render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={first}
+        prefilledProjectId="p1"
+      />,
+    );
+
+    await screen.findByRole("dialog");
+    await user.type(screen.getByLabelText("Title"), "Half-typed title");
+
+    rerender(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={[{ id: "p1", key: "ENG", name: "Engineering" }]}
+        prefilledProjectId="p1"
+      />,
+    );
+
+    // The reported symptom: the title emptied and the button went back to
+    // disabled, so the issue could never be created.
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
+      "Half-typed title",
+    );
+    expect(screen.getByRole("button", { name: "Create issue" })).not.toBeDisabled();
+  });
+
+  it("still resets the form on a genuine reopen", async () => {
+    // The reset itself is load-bearing — a stale draft must not survive close
+    // and reopen.
+    const user = userEvent.setup();
+    const projects = [{ id: "p1", key: "ENG", name: "Engineering" }];
+    const { rerender } = render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={projects}
+        prefilledProjectId="p1"
+      />,
+    );
+    await screen.findByRole("dialog");
+    await user.type(screen.getByLabelText("Title"), "Abandoned draft");
+
+    const props = { orgId: "o1", onOpenChange: vi.fn(), projects, prefilledProjectId: "p1" };
+    rerender(<CreateWorkItemDialog {...props} open={false} />);
+    rerender(<CreateWorkItemDialog {...props} open />);
+
+    await waitFor(() =>
+      expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(""),
+    );
+  });
+});
