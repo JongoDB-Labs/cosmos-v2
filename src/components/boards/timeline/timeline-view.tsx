@@ -5,8 +5,8 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Route,
-  Minimize2,
-  Maximize2,
+  ZoomIn,
+  ZoomOut,
   ChevronLeft,
   ChevronRight,
   ChevronsDownUp,
@@ -68,7 +68,16 @@ const typeColorMap: Record<string, { fill: string; stroke: string; text: string 
 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 50;
-const DAY_WIDTH = 28;
+// Day column width at 100% zoom. The rendered width is BASE_DAY_WIDTH * zoom —
+// see `dayWidth` in the component, which every x/width computation reads.
+const BASE_DAY_WIDTH = 28;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 1.25;
+/** Work-items column font scales with zoom so the two panes stay legible together. */
+function labelScale(zoom: number): number {
+  return Math.min(Math.max(zoom, 0.75), 1.4);
+}
 
 // ── Collapse-state persistence (FR COSMOS-69) ───────────────────────────────
 // The per-parent expand/collapse state is kept in sessionStorage, keyed by
@@ -342,6 +351,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [showCritical, setShowCritical] = useState(false);
   const [showPlanDrift, setShowPlanDrift] = useState(false);
   const [showEnablers, setShowEnablers] = useState(false);
+  // Zoom replaces the old Compress/Expand controls. Those MUTATED the schedule —
+  // they rewrote every item's dates by a factor, which is a destructive way to
+  // get a wider or narrower picture. Zoom changes only how the same dates are
+  // DRAWN, so looking closer can no longer move anyone's plan.
+  const [zoom, setZoom] = useState(1);
+  const dayWidth = Math.round(BASE_DAY_WIDTH * zoom);
+  const zoomBy = useCallback(
+    (factor: number) =>
+      setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z * factor))),
+    [],
+  );
   const [showDeps, setShowDeps] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -568,8 +588,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             month: new Date(
               dateHeaders[startIdx].date
             ).toLocaleString("default", { month: "short", year: "numeric" }),
-            startX: startIdx * DAY_WIDTH,
-            width: (i - startIdx) * DAY_WIDTH,
+            startX: startIdx * dayWidth,
+            width: (i - startIdx) * dayWidth,
           });
         }
         currentMonth = monthKey;
@@ -582,13 +602,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         month: new Date(
           dateHeaders[startIdx].date
         ).toLocaleString("default", { month: "short", year: "numeric" }),
-        startX: startIdx * DAY_WIDTH,
-        width: (dateHeaders.length - startIdx) * DAY_WIDTH,
+        startX: startIdx * dayWidth,
+        width: (dateHeaders.length - startIdx) * dayWidth,
       });
     }
 
     return labels;
-  }, [dateHeaders]);
+  }, [dayWidth, dateHeaders]);
 
   // Bar geometry per item id — the SAME formulas the bar renderer below uses,
   // so the dependency-arrow layer can resolve each end's bar position. Keyed by
@@ -616,16 +636,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       const startOffset = diffDays(timelineStart, start);
       const duration = Math.max(diffDays(start, end), 1);
       map.set(item.id, {
-        x: startOffset * DAY_WIDTH,
+        x: startOffset * dayWidth,
         // Body-SVG coordinates: the date header lives in its own sticky SVG, so
         // rows start at y=0 here.
         y: i * ROW_HEIGHT + 8,
-        w: Math.max(duration * DAY_WIDTH, DAY_WIDTH),
+        w: Math.max(duration * dayWidth, dayWidth),
         h: ROW_HEIGHT - 16,
       });
     });
     return map;
-  }, [sortedItems, timelineStart]);
+  }, [dayWidth, sortedItems, timelineStart]);
 
   // ── Drag-to-reschedule ───────────────────────────────────────────────────
   // Drag a bar's body to shift both dates; drag its left/right edge to move just
@@ -678,11 +698,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
       d.captured = true;
     }
-    const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
+    const deltaDays = Math.round((e.clientX - d.startClientX) / dayWidth);
     setDragPreview((p) =>
       p && p.deltaDays === deltaDays ? p : { id: d.id, mode: d.mode, deltaDays },
     );
-  }, []);
+  }, [dayWidth, ]);
 
   // The browser/OS can fire pointercancel mid-drag (touch scroll-takeover,
   // incoming call, palm rejection) — and then NO pointerup follows. Without
@@ -733,7 +753,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       const d = dragRef.current;
       dragRef.current = null;
       if (!d) return;
-      const deltaDays = Math.round((e.clientX - d.startClientX) / DAY_WIDTH);
+      const deltaDays = Math.round((e.clientX - d.startClientX) / dayWidth);
       setDragPreview(null);
       if (deltaDays === 0) return; // a tap, not a drag — let onClick open detail
       justDraggedRef.current = true; // suppress the trailing click after a drag
@@ -765,7 +785,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       setRedoStack([]);
       commitDates(d.id, after);
     },
-    [commitDates],
+    [dayWidth, commitDates],
   );
 
   const undo = useCallback(() => {
@@ -928,15 +948,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       end: addDays(end, days),
     }));
 
-  const scaleBy = (factor: number) =>
-    void bulkReschedule(({ start, end }) => {
-      const offset = diffDays(timelineStart, start);
-      const dur = Math.max(diffDays(start, end), 1);
-      const newStart = addDays(timelineStart, Math.round(offset * factor));
-      const newEnd = addDays(newStart, Math.max(Math.round(dur * factor), 1));
-      return { start: newStart, end: newEnd };
-    });
-
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
@@ -948,11 +959,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       if (!m.dueDate) return [];
       const offset = diffDays(timelineStart, startOfDay(new Date(m.dueDate)));
       if (offset < 0 || offset >= totalDays) return [];
-      return [{ ...m, x: offset * DAY_WIDTH + DAY_WIDTH / 2 }];
+      return [{ ...m, x: offset * dayWidth + dayWidth / 2 }];
     });
-  }, [milestonesQ.data, timelineStart, totalDays]);
+  }, [dayWidth, milestonesQ.data, timelineStart, totalDays]);
 
-  const svgWidth = totalDays * DAY_WIDTH;
+  const svgWidth = totalDays * dayWidth;
   // The date header renders in its own sticky SVG; the body SVG holds only rows.
   const bodyHeight = sortedItems.length * ROW_HEIGHT + 20;
 
@@ -1059,6 +1070,39 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               )}
             </button>
           )}
+          {/* Zoom is a VIEW control, so it sits outside the canEdit guard — a
+              read-only viewer needs to see the far end of a plan just as much. */}
+          <div className="mx-1 h-5 w-px bg-border" />
+          <span className="text-xs text-muted-foreground">Zoom</span>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => zoomBy(1 / ZOOM_STEP)}
+            disabled={zoom <= ZOOM_MIN + 0.001}
+            title="Zoom out (⌘/Ctrl + scroll over the chart)"
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="size-3" />
+          </Button>
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            className="min-w-11 rounded-md px-1 text-xs tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+            title="Reset zoom to 100%"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => zoomBy(ZOOM_STEP)}
+            disabled={zoom >= ZOOM_MAX - 0.001}
+            title="Zoom in (⌘/Ctrl + scroll over the chart)"
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="size-3" />
+          </Button>
+
           {canEdit && (
             <>
               <div className="mx-1 h-5 w-px bg-border" />
@@ -1078,26 +1122,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   {d > 0 ? <ChevronRight className="size-3" /> : null}
                 </Button>
               ))}
-              <div className="mx-1 h-5 w-px bg-border" />
-              <span className="text-xs text-muted-foreground">Scale</span>
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={busy}
-                onClick={() => scaleBy(0.9)}
-                title="Compress the schedule 10% (pull dates toward the start)"
-              >
-                <Minimize2 className="size-3" /> Compress
-              </Button>
-              <Button
-                variant="outline"
-                size="xs"
-                disabled={busy}
-                onClick={() => scaleBy(1.1)}
-                title="Expand the schedule 10% (push dates out from the start)"
-              >
-                <Maximize2 className="size-3" /> Expand
-              </Button>
               <div className="mx-1 h-5 w-px bg-border" />
               <Button
                 variant="outline"
@@ -1203,7 +1227,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         <div
           data-testid="gantt-left"
           className="sticky left-0 z-20 shrink-0 border-r bg-background"
-          style={{ width: nameColW }}
+          // Row TEXT scales with zoom (clamped) so the two panes stay legible
+          // together — zooming the bars right out used to leave full-size labels
+          // beside hairline bars. Row HEIGHT is deliberately untouched: it is
+          // what keeps these rows aligned with their bars in the SVG.
+          style={{ width: nameColW, fontSize: `${labelScale(zoom)}rem` }}
         >
           <div
             className="sticky top-0 z-10 border-b bg-[var(--surface)] flex items-center px-3 text-xs font-medium text-muted-foreground"
@@ -1247,7 +1275,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     style={{ backgroundColor: colors.fill }}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs truncate">
+                    {/* em, not text-xs: a rem-based Tailwind size would OVERRIDE
+                        the zoom-scaled fontSize on the column and the label
+                        would never move. 0.75em reproduces text-xs at 100%. */}
+                    <p className="truncate" style={{ fontSize: "0.75em" }}>
                       <span className="text-muted-foreground mr-1">
                         {projectKey}-{item.ticketNumber}
                       </span>
@@ -1272,7 +1303,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
         {/* Right column - the chart. Sized to its full content; the shared outer
             container does the scrolling for both panes. */}
-        <div data-testid="gantt-chart" className="shrink-0" style={{ width: svgWidth }}>
+        <div
+          data-testid="gantt-chart"
+          className="shrink-0"
+          style={{ width: svgWidth }}
+          // Ctrl/Cmd + wheel zooms, matching how maps and design tools behave.
+          // A BARE wheel is deliberately left alone: the rows scroll vertically
+          // and the chart scrolls horizontally, and stealing that would make a
+          // long plan unnavigable. preventDefault stops the browser's own
+          // page-zoom from firing on the same gesture.
+          onWheel={(e) => {
+            if (!e.ctrlKey && !e.metaKey) return;
+            e.preventDefault();
+            zoomBy(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+          }}
+        >
             {/* Sticky date header (FR e4d1732e / COSMOS-68): pinned to the outer
                 scroller while scrolling down (needs `items-start` on the scroller
                 — see the scroll container above), but scrolls horizontally with
@@ -1305,7 +1350,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   </g>
                 ))}
                 {dateHeaders.map((h, i) => {
-                  const x = i * DAY_WIDTH;
+                  const x = i * dayWidth;
                   const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
                   return (
                     <g key={i}>
@@ -1313,13 +1358,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         <rect
                           x={x}
                           y={24}
-                          width={DAY_WIDTH}
+                          width={dayWidth}
                           height={HEADER_HEIGHT - 24}
                           className="fill-muted/20"
                         />
                       )}
                       <text
-                        x={x + DAY_WIDTH / 2}
+                        x={x + dayWidth / 2}
                         y={40}
                         textAnchor="middle"
                         className="fill-muted-foreground text-[9px]"
@@ -1333,7 +1378,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {/* Today dot — the dashed line itself lives in the body SVG. */}
                 {todayOffset >= 0 && todayOffset < totalDays && (
                   <circle
-                    cx={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                    cx={todayOffset * dayWidth + dayWidth / 2}
                     cy={HEADER_HEIGHT - 5}
                     r={4}
                     fill="var(--status-critical)"
@@ -1391,7 +1436,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
             {/* Weekend shading + week gridlines */}
             {dateHeaders.map((h, i) => {
-              const x = i * DAY_WIDTH;
+              const x = i * dayWidth;
               const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
               if (!isWeekend && !h.isWeekStart) return null;
               return (
@@ -1400,7 +1445,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     <rect
                       x={x}
                       y={0}
-                      width={DAY_WIDTH}
+                      width={dayWidth}
                       height={bodyHeight}
                       className="fill-muted/20"
                     />
@@ -1504,9 +1549,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const startOffset = diffDays(timelineStart, start);
               const duration = Math.max(diffDays(start, end), 1);
 
-              const baseX = startOffset * DAY_WIDTH;
+              const baseX = startOffset * dayWidth;
               const y = i * ROW_HEIGHT + 8;
-              const baseW = Math.max(duration * DAY_WIDTH, DAY_WIDTH);
+              const baseW = Math.max(duration * dayWidth, dayWidth);
               const h = ROW_HEIGHT - 16;
 
               // Apply the live drag preview to this bar's geometry (day-snapped),
@@ -1515,14 +1560,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               let w = baseW;
               const preview = dragPreview?.id === item.id ? dragPreview : null;
               if (preview) {
-                const px = preview.deltaDays * DAY_WIDTH;
+                const px = preview.deltaDays * dayWidth;
                 if (preview.mode === "move") {
                   x = baseX + px;
                 } else if (preview.mode === "start") {
-                  x = Math.min(baseX + px, baseX + baseW - DAY_WIDTH);
+                  x = Math.min(baseX + px, baseX + baseW - dayWidth);
                   w = baseX + baseW - x;
                 } else {
-                  w = Math.max(baseW + px, DAY_WIDTH);
+                  w = Math.max(baseW + px, dayWidth);
                 }
               }
 
@@ -1547,8 +1592,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
               let actualBar: { x: number; w: number } | null = null;
               if (actualStartD) {
-                const ax = diffDays(timelineStart, actualStartD) * DAY_WIDTH;
-                const aw = Math.max(diffDays(actualStartD, actualEndD) * DAY_WIDTH, 3);
+                const ax = diffDays(timelineStart, actualStartD) * dayWidth;
+                const aw = Math.max(diffDays(actualStartD, actualEndD) * dayWidth, 3);
                 actualBar = { x: ax, w: aw };
               }
               const primaryX = actualBar ? actualBar.x : x;
@@ -1574,7 +1619,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               };
 
               if (isMilestone) {
-                const cx = x + DAY_WIDTH / 2;
+                const cx = x + dayWidth / 2;
                 const cy = y + h / 2;
                 const size = 8;
                 return (
@@ -1809,9 +1854,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             {/* Today marker — the dot sits in the sticky header SVG above. */}
             {todayOffset >= 0 && todayOffset < totalDays && (
               <line
-                x1={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                x1={todayOffset * dayWidth + dayWidth / 2}
                 y1={0}
-                x2={todayOffset * DAY_WIDTH + DAY_WIDTH / 2}
+                x2={todayOffset * dayWidth + dayWidth / 2}
                 y2={bodyHeight}
                 stroke="var(--status-critical)"
                 strokeWidth={2}

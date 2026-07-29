@@ -368,3 +368,50 @@ describe("TimelineView — milestones come from the milestone table", () => {
     expect(await screen.findAllByTestId("gantt-milestone")).toHaveLength(1);
   });
 });
+
+// Zoom replaced the old Compress/Expand controls. Those MUTATED the schedule —
+// they rewrote every item's dates by a factor — so "look wider" and "change the
+// plan" were the same button. Zoom changes only how the same dates are drawn.
+describe("TimelineView — zoom replaces the destructive scale controls", () => {
+  it("no longer offers Compress/Expand", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    // Their absence is the point: rescheduling every item is not a view control.
+    expect(screen.queryByRole("button", { name: /compress/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^expand$/i })).toBeNull();
+  });
+
+  it("offers zoom controls and a reset, to everyone", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Zoom out" })).toBeTruthy();
+    expect(screen.getByText("100%")).toBeTruthy();
+  });
+
+  it("widens the chart when zooming in and restores it on reset", async () => {
+    renderTimeline();
+    const chart = await screen.findByTestId("gantt-chart");
+    const base = chart.style.width;
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    const zoomed = screen.getByTestId("gantt-chart").style.width;
+    expect(parseFloat(zoomed)).toBeGreaterThan(parseFloat(base));
+    expect(screen.getByText("125%")).toBeTruthy();
+
+    // The percentage doubles as the reset control.
+    fireEvent.click(screen.getByText("125%"));
+    expect(screen.getByTestId("gantt-chart").style.width).toBe(base);
+  });
+
+  it("scales the work-items column text with the zoom", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    const before = screen.getByTestId("gantt-left").style.fontSize;
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(screen.getByTestId("gantt-left").style.fontSize).not.toBe(before);
+  });
+});
