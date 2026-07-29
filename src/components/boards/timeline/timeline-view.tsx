@@ -5,6 +5,8 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Route,
+  Check,
+  Settings2,
   ZoomIn,
   ZoomOut,
   ChevronLeft,
@@ -20,6 +22,16 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
@@ -70,6 +82,14 @@ const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 50;
 // Day column width at 100% zoom. The rendered width is BASE_DAY_WIDTH * zoom —
 // see `dayWidth` in the component, which every x/width computation reads.
+type CriticalMode = "dependencies" | "duration" | "latest-finish" | "at-risk";
+const CRITICAL_MODES: { key: CriticalMode; label: string; hint: string }[] = [
+  { key: "dependencies", label: "Most dependencies", hint: "The chain with the most linked items" },
+  { key: "duration", label: "Longest duration", hint: "The chain with the most days of work" },
+  { key: "latest-finish", label: "Latest finish", hint: "The chain that sets the plan's end date" },
+  { key: "at-risk", label: "Most at risk", hint: "The chain carrying the most overdue or blocked work" },
+];
+
 const BASE_DAY_WIDTH = 28;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 3;
@@ -349,6 +369,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
   const [showCritical, setShowCritical] = useState(false);
+  const [criticalMode, setCriticalMode] = useState<CriticalMode>("dependencies");
+  // Dim everything off the path rather than hiding it: the surrounding bars are
+  // what make a path read as critical. Hiding them leaves a chain floating with
+  // nothing to be critical RELATIVE to.
+  const [criticalIsolate, setCriticalIsolate] = useState(true);
   const [showPlanDrift, setShowPlanDrift] = useState(false);
   const [showEnablers, setShowEnablers] = useState(false);
   // Zoom replaces the old Compress/Expand controls. Those MUTATED the schedule —
@@ -822,16 +847,42 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   }, [undo, redo]);
 
   // ── Critical path ────────────────────────────────────────────────────────
-  // The longest dependency chain (by summed bar duration) through the currently
-  // visible items. DP over the dependency DAG (interval-guarded); highlighted only
-  // when toggled on.
+  // "Critical" is not one thing, so the user picks what it means. Every mode is
+  // the same longest-path DP over the dependency DAG (cycle-guarded); they
+  // differ only in what a node is WORTH and which chain end is chosen.
+  //
+  //  dependencies  — the most-linked chain. Weight 1 per node, so the winner is
+  //                  the chain with the most items in it. This is the one people
+  //                  usually mean by "the critical path".
+  //  duration      — the longest chain by summed bar length (the prior behaviour).
+  //  latest-finish — the chain ending at the item that finishes last, i.e. the
+  //                  one actually setting the plan's end date.
+  //  at-risk       — the chain carrying the most trouble: overdue or blocked
+  //                  items are weighted heavily, so it surfaces where a slip is
+  //                  already happening rather than where one merely could.
   const criticalSet = useMemo(() => {
     if (!showCritical) return new Set<string>();
+    // Local, not the `today` below: this memo is declared above it.
+    const now = startOfDay(new Date());
     const ids = new Set(filteredItems.map((i) => i.id));
     const dur = new Map<string, number>();
+    const endAt = new Map<string, number>();
+    const weight = new Map<string, number>();
     for (const it of filteredItems) {
       const { start, end } = itemSpan(it);
-      dur.set(it.id, Math.max(diffDays(start, end), 1));
+      const d = Math.max(diffDays(start, end), 1);
+      dur.set(it.id, d);
+      endAt.set(it.id, end.getTime());
+      const overdue = end < now && !it.completedAt;
+      const blocked = (it.tags ?? []).some((t) => t.toLowerCase() === "blocked");
+      weight.set(
+        it.id,
+        criticalMode === "dependencies"
+          ? 1
+          : criticalMode === "at-risk"
+            ? (overdue ? 8 : 0) + (blocked ? 8 : 0) + 1
+            : d,
+      );
     }
     const preds = new Map<string, string[]>();
     for (const l of links) {
@@ -847,7 +898,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     const dp = (id: string): number => {
       const cached = memo.get(id);
       if (cached !== undefined) return cached;
-      if (visiting.has(id)) return dur.get(id) ?? 1; // cycle guard
+      if (visiting.has(id)) return weight.get(id) ?? 1; // cycle guard
       visiting.add(id);
       let bestVal = 0;
       let bestPred: string | null = null;
@@ -859,7 +910,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         }
       }
       visiting.delete(id);
-      const total = (dur.get(id) ?? 1) + bestVal;
+      const total = (weight.get(id) ?? 1) + bestVal;
       memo.set(id, total);
       best.set(id, bestPred);
       return total;
@@ -867,9 +918,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     let endId: string | null = null;
     let max = -1;
     for (const it of filteredItems) {
-      const v = dp(it.id);
-      if (v > max) {
-        max = v;
+      const score = dp(it.id);
+      // latest-finish ranks by when the chain ENDS, not by how heavy it is.
+      const rank = criticalMode === "latest-finish" ? (endAt.get(it.id) ?? 0) : score;
+      if (rank > max) {
+        max = rank;
         endId = it.id;
       }
     }
@@ -880,7 +933,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       cur = best.get(cur) ?? null;
     }
     return set;
-  }, [showCritical, filteredItems, links]);
+  }, [showCritical, criticalMode, filteredItems, links]);
 
   // Dependency focus: when the Dependencies lens is on and a bar is hovered,
   // resolve its DIRECT upstream (blockers) + downstream (dependents) so the
@@ -1016,9 +1069,51 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             onClick={() => setShowCritical((v) => !v)}
             icon={<Route className="size-3.5" />}
             label="Critical path"
-            title="Highlight the longest chain of dependencies driving the end date"
+            title={
+              CRITICAL_MODES.find((m) => m.key === criticalMode)?.hint ??
+              "Highlight the driving chain of dependencies"
+            }
             accent="var(--status-critical)"
           />
+          {/* What "critical" MEANS is a judgement about the plan, not something
+              this board can decide — so the definition is the user's, and the
+              gear sits on the button it governs. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Critical path settings"
+              title="Choose what counts as the critical path"
+            >
+              <Settings2 className="size-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72">
+              <DropdownMenuLabel>Highlight the chain with…</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={criticalMode}
+                onValueChange={(v) => {
+                  setCriticalMode(v as CriticalMode);
+                  // Choosing a definition implies wanting to see it.
+                  setShowCritical(true);
+                }}
+              >
+                {CRITICAL_MODES.map((m) => (
+                  <DropdownMenuRadioItem key={m.key} value={m.key}>
+                    <span className="flex flex-col">
+                      <span>{m.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={criticalIsolate}
+                onCheckedChange={setCriticalIsolate}
+              >
+                Dim everything off the path
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <LensToggle
             active={showPlanDrift}
             onClick={() => setShowPlanDrift((v) => !v)}
@@ -1580,6 +1675,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
               // Dependency hover-focus: fade bars outside the hovered item neighborhood.
               const depDim = depFocus && !depFocus.all.has(item.id) ? 0.22 : 1;
+              // Isolate the chosen path: everything off it recedes so the path
+              // reads at a glance. Dimmed, not hidden — a path needs the rest of
+              // the plan visible to be critical relative to anything.
+              const critDim = showCritical && criticalIsolate && !isCrit ? 0.15 : 1;
 
               // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
               // (startDate -> dueDate) renders behind it as a faded, health-colored
@@ -1688,7 +1787,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim}
+                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim * critDim}
                       onPointerDown={(e) => beginDrag(item, "move", e)}
                       onPointerMove={onDragMove}
                       onPointerUp={onDragEnd}
@@ -1713,7 +1812,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       stroke={isCrit ? "var(--status-critical)" : "transparent"}
                       strokeWidth={isCrit ? 2.5 : 1}
                       strokeDasharray="3 3"
-                      opacity={0.3 * dimForEnablerLens * depDim}
+                      opacity={0.3 * dimForEnablerLens * depDim * critDim}
                       style={{ pointerEvents: "none" }}
                     />
                   ) : null}
@@ -1736,7 +1835,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim}
+                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim * critDim}
                       onClick={() => openDetail(item)}
                       onContextMenu={(e) => {
                         e.preventDefault();
