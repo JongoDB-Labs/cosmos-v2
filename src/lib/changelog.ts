@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.244.0",
+    date: "2026-07-29",
+    title: "A Timeline / Gantt you can actually drive",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Zoom in and out of the timeline — buttons, a percentage that resets to 100% when clicked, and Ctrl/Cmd + scroll over the chart. The work-items column text scales with it. Ordinary scrolling still scrolls.",
+      },
+      {
+        kind: "feature",
+        text: "A fullscreen view showing just the work items and the calendar, with everything else out of the way. Escape leaves it.",
+      },
+      {
+        kind: "feature",
+        text: "You choose what the Critical Path means. The gear beside the button offers the chain with the most dependencies, the longest duration, the latest finish, or the most overdue and blocked work — and can dim everything off the path so it stands out.",
+      },
+      {
+        kind: "improvement",
+        text: "Shift now moves only the work items you tick, instead of every item on the board at once. With nothing selected the Shift buttons stay disabled rather than quietly moving everything.",
+      },
+      {
+        kind: "improvement",
+        text: "Removed the Compress and Expand buttons. They looked like view controls but rewrote every visible item's dates, so “see a wider window” and “move everyone's plan” were the same click. Zoom replaces them without touching your schedule.",
+      },
+    ],
+  },
+  {
     version: "2.243.3",
     date: "2026-07-29",
     title: "Fixes for creating and classifying work",
