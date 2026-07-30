@@ -34,6 +34,8 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [newCommitted, setNewCommitted] = useState(true);
+  const [newIntervalId, setNewIntervalId] = useState("");
   const [adding, setAdding] = useState(false);
 
   const [editObjective, setEditObjective] = useState<Objective | null>(null);
@@ -41,6 +43,12 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [editDescription, setEditDescription] = useState("");
   const [editPeriod, setEditPeriod] = useState("");
   const [editParentId, setEditParentId] = useState("");
+  // The two fields the 2.247.0 schema added. Without an editor here they were
+  // unreachable: the columns and the API accepted them, and nothing in the
+  // product could write them.
+  const [editCommitted, setEditCommitted] = useState(true);
+  const [editIntervalId, setEditIntervalId] = useState("");
+  const [intervals, setIntervals] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -70,6 +78,22 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     void reload();
   }, [reload]);
 
+  // Intervals for the timebox picker. SPRINT_READ can be denied independently of
+  // OKR_READ, so a failure just leaves the picker empty rather than breaking the
+  // board — an objective simply stays untimeboxed.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${basePath}/intervals`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        if (!cancelled) setIntervals(Array.isArray(d) ? d : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [basePath]);
+
   async function handleAddObjective() {
     if (!newTitle.trim()) return;
     setAdding(true);
@@ -78,7 +102,12 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
       const res = await fetch(`${basePath}/objectives`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle.trim(), status: "ACTIVE" }),
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          status: "ACTIVE",
+          committed: newCommitted,
+          ...(newIntervalId ? { intervalId: newIntervalId } : {}),
+        }),
       });
 
       if (!res.ok) throw new Error("Failed to create objective");
@@ -176,6 +205,8 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     setEditDescription(objective.description ?? "");
     setEditPeriod(objective.period ?? "");
     setEditParentId(objective.parentId ?? "");
+    setEditCommitted(objective.committed ?? true);
+    setEditIntervalId(objective.intervalId ?? "");
   }
 
   async function handleSaveEdit() {
@@ -191,6 +222,8 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           description: editDescription.trim() || null,
           period: editPeriod.trim() || null,
           parentId: editParentId || null,
+          committed: editCommitted,
+          intervalId: editIntervalId || null,
         }),
       });
 
@@ -310,7 +343,8 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
       )}
 
       {showAddForm ? (
-        <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed">
+        <div className="space-y-2 p-3 rounded-lg border border-dashed">
+        <div className="flex items-center gap-2">
           <Input
             placeholder="Objective title..."
             value={newTitle}
@@ -336,6 +370,33 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           >
             Cancel
           </Button>
+        </div>
+        {/* The two fields the schema gained in 2.247.0. Optional: an objective
+            with neither is an ordinary, committed, untimeboxed one. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            aria-label="Interval"
+            value={newIntervalId}
+            onChange={(e) => setNewIntervalId(e.target.value)}
+            className="h-8 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-xs"
+          >
+            <option value="">— Not in an interval —</option>
+            {intervals.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+            <input
+              type="checkbox"
+              className="accent-[var(--primary)]"
+              checked={!newCommitted}
+              onChange={(e) => setNewCommitted(!e.target.checked)}
+            />
+            Uncommitted (stretch)
+          </label>
+        </div>
         </div>
       ) : (
         objectives.length > 0 && (
@@ -414,6 +475,37 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
                   ))}
               </select>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="objective-interval">Interval (PI or sprint)</Label>
+              <select
+                id="objective-interval"
+                value={editIntervalId}
+                onChange={(e) => setEditIntervalId(e.target.value)}
+                className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-sm"
+              >
+                <option value="">— Not in an interval —</option>
+                {intervals.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-[var(--primary)]"
+                checked={!editCommitted}
+                onChange={(e) => setEditCommitted(!e.target.checked)}
+              />
+              <span>
+                Uncommitted (stretch)
+                <span className="block text-xs text-muted-foreground">
+                  Planned for, but not promised — excluded from what the interval is
+                  accountable for.
+                </span>
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditObjective(null)}>
