@@ -40,6 +40,7 @@ interface ProjectSettingsClientProps {
   objectiveLinkTypeId: string | null;
   boards: { id: string; name: string; type: string }[];
   hiddenBoardIds: string[];
+  teamScopedAccess: boolean;
 }
 
 // The 13 board VIEW types. A project starts with all enabled; toggling one OFF
@@ -73,6 +74,7 @@ export function ProjectSettingsClient({
   objectiveLinkTypeId,
   boards,
   hiddenBoardIds,
+  teamScopedAccess,
 }: ProjectSettingsClientProps) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -89,6 +91,8 @@ export function ProjectSettingsClient({
   const [disabledTypes, setDisabledTypes] = useState<string[]>(disabledBoardTypes);
   const [hiddenBoards, setHiddenBoards] = useState<string[]>(hiddenBoardIds);
   const [savingBoards, setSavingBoards] = useState(false);
+  const [teamScoped, setTeamScoped] = useState(teamScopedAccess);
+  const [savingScope, setSavingScope] = useState(false);
   const [savingTypes, setSavingTypes] = useState(false);
   const [krType, setKrType] = useState<string | null>(krLinkTypeId);
   const [objType, setObjType] = useState<string | null>(objectiveLinkTypeId);
@@ -247,6 +251,42 @@ export function ProjectSettingsClient({
       toast.error("Failed to update default boards");
     } finally {
       setSavingBoards(false);
+    }
+  }
+
+  /**
+   * Limit the project to its members.
+   *
+   * OFF for every project until someone turns it on — the historical posture is
+   * "any org member with the read bit sees every project", and flipping that
+   * wholesale would hide live projects from people who use them daily. On, only
+   * project members (plus org admins and the owner) can see it.
+   *
+   * The API restricts this to canManageProject even though the rest of this page
+   * needs only PROJECT_UPDATE: it decides who can SEE the project, so it is not
+   * an ordinary settings edit.
+   */
+  async function toggleTeamScoped(on: boolean) {
+    const prev = teamScoped;
+    setTeamScoped(on); // optimistic
+    setSavingScope(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamScopedAccess: on }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Failed to update project visibility");
+      }
+      toast.success(on ? "Project limited to its members" : "Project visible to the whole org");
+      router.refresh();
+    } catch (err) {
+      setTeamScoped(prev); // rollback
+      toast.error(err instanceof Error ? err.message : "Failed to update project visibility");
+    } finally {
+      setSavingScope(false);
     }
   }
 
@@ -426,6 +466,39 @@ export function ProjectSettingsClient({
             types={types}
             disabled={!canUpdate || savingLinkType}
             onChange={(v) => saveLinkType("objectiveLinkTypeId", v)}
+          />
+        </div>
+      </div>
+
+      {/* Visibility — who can see this project at all. */}
+      <div className="rounded-lg border">
+        <div className="flex items-start justify-between border-b px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Visibility</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Who in the organisation can see this project.
+            </p>
+          </div>
+          {savingScope ? (
+            <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Limit to project members</div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Off, anyone in the organisation with read access sees this project.
+              On, only its members do — plus org admins and the owner, who always
+              retain access so a project cannot be locked away from its
+              administrators. Use this for work a subcontractor or partner team
+              should not see.
+            </p>
+          </div>
+          <ToggleSwitch
+            checked={teamScoped}
+            disabled={!canUpdate || savingScope}
+            onCheckedChange={toggleTeamScoped}
+            aria-label="Limit this project to its members"
           />
         </div>
       </div>

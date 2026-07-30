@@ -45,6 +45,11 @@ const updateProjectSchema = z.object({
   // degrade to that fallback rather than 400 the whole update.
   krLinkTypeId: z.string().uuid().nullable().optional(),
   objectiveLinkTypeId: z.string().uuid().nullable().optional(),
+  // Opt-in read narrowing (#35). Off for every project until someone turns it
+  // on; see src/lib/rbac/project-access.ts. Gated below on canManageProject
+  // rather than PROJECT_UPDATE — this decides who can SEE the project, so it is
+  // an access-control change, not an ordinary settings edit.
+  teamScopedAccess: z.boolean().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -116,6 +121,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateProjectSchema.parse(body);
 
+    // teamScopedAccess needs MORE than the gate above. That gate admits an
+    // org-wide PROJECT_UPDATE holder, but this flag decides who can SEE the
+    // project — flipping it on can hide a live project from everyone who is not
+    // a member. Restrict it to the people who administer this project.
+    if (data.teamScopedAccess !== undefined && !(await canManageProject(ctx, projectId))) {
+      return new Response(
+        JSON.stringify({
+          error: "Only a project manager or org admin can change who this project is visible to.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     const updated = await prisma.project.update({
       where: { id: projectId },
       data: {
@@ -138,6 +156,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.objectiveLinkTypeId !== undefined && {
           objectiveLinkTypeId: data.objectiveLinkTypeId,
         }),
+        ...(data.teamScopedAccess !== undefined && { teamScopedAccess: data.teamScopedAccess }),
       },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },
