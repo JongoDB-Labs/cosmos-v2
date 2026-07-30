@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.8",
+    date: "2026-07-30",
+    title: "Create and staff teams from a project's Members page",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A project's Members page now has a Teams section: create a team, add people from the project onto it, mark a lead, and remove or delete as things change. Only a project manager or org admin can edit them; everyone else sees the teams read-only.",
+      },
+    ],
+  },
+  {
     version: "2.249.7",
     date: "2026-07-30",
     title: "Limiting a project to its members now actually hides it",
