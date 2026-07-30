@@ -247,6 +247,22 @@ are administrative/system surfaces where a silently incomplete export is the
 worse failure. This holds only while `teamScopedAccess` is a *visibility
 default*; if it is ever promoted to a hard boundary, they must be revisited.
 
+### Known inconsistency: 403 vs 404 for a project that isn't there
+
+`requireProjectRead` runs before the project-exists check in **18 of the 48**
+converted routes, so those return **403** for a missing or cross-tenant
+`projectId` where they previously returned **404**. The other 30 still 404.
+
+Not a user-visible regression today: the only client that branches on the status
+of a project route treats them identically (`issues-view.tsx:317` —
+`status === 404 || status === 403`). And 403-for-both is arguably the better
+answer, since it does not distinguish "does not exist" from "you may not see
+it".
+
+Recorded rather than fixed because making all 48 consistent means touching every
+one of them again for no behavioural gain. Worth settling deliberately if that
+subtree is ever revisited — pick one and apply it everywhere.
+
 ### Still open
 
 - **`ProjectRole.LEAD`/`MEMBER`/`VIEWER` remain decorative** — two references in
