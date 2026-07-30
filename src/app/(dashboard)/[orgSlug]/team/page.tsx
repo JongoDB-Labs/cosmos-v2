@@ -111,7 +111,7 @@ async function TeamPageContent({ params }: PageParams) {
 
   return (
     <PageShell
-      title="Team"
+      title="Org"
       description={`${members.length} members across ${org.name}`}
       actions={canInvite ? <InviteMemberButton orgId={ctx.orgId} /> : null}
     >

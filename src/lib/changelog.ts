@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.1",
+    date: "2026-07-30",
+    title: "Adding someone to a project tells you the truth",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Adding a member to a project reported “Member added to project.” even when the request had failed — alongside the error, with the form cleared and no new member in the list. It now only confirms when the person was actually added, and keeps your selection if something goes wrong so you can retry.",
+      },
+      {
+        kind: "improvement",
+        text: "The top-level Team tab is now called Org, since it lists everyone in the organisation. Teams are a project-level concept now, and one word could not keep meaning both.",
+      },
+    ],
+  },
+  {
     version: "2.249.0",
     date: "2026-07-30",
     title: "See objectives delivered by Features, not just numbers",
