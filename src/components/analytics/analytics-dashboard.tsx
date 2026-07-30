@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
+import { toChartDate } from "@/lib/charts/chart-date";
 import {
   Select,
   SelectContent,
@@ -997,7 +998,10 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
                         fontSize: "12px",
                       }}
                       labelFormatter={(val) => {
-                        const d = new Date(val);
+                        const d = toChartDate(val);
+                        // Empty beats the literal "Invalid Date" a missing
+                        // label used to render into the tooltip.
+                        if (!d) return "";
                         return d.toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
