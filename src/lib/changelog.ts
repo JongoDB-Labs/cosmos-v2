@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.2",
+    date: "2026-07-30",
+    title: "Intervals read top to bottom, and PIs fold away",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Intervals page listed everything newest-first, so Sprint 5 sat above Sprint 1 and a Program Increment's sprints read backwards. Intervals now run in order down the page, inside a PI as well as outside one.",
+      },
+      {
+        kind: "feature",
+        text: "A Program Increment can now be collapsed to tuck its sprints out of the way, and expanded again. PIs start expanded, so nothing disappears until you choose to fold it.",
+      },
+    ],
+  },
+  {
     version: "2.249.1",
     date: "2026-07-30",
     title: "Adding someone to a project tells you the truth",
