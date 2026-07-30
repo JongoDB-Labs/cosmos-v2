@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.6",
+    date: "2026-07-30",
+    title: "A limited project stays out of the analytics rollup too",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A project limited to its members still appeared in the portfolio analytics rollup — its name, key and progress were visible to anyone who could read analytics, even though they could not open it. It is now excluded for people who cannot see the project. Organisations with no limited projects are unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.249.5",
     date: "2026-07-30",
     title: "Dependency refresh, and no more “Invalid Date” in chart tooltips",

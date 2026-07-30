@@ -211,3 +211,62 @@ so a cross-tenant projectId 404s rather than leaking.
 4. **Prefer extending work-roles over inventing a parallel team-permission path** — the ceiling
    validation and ABAC plumbing already exist and are tested.
 5. **Resolve GUEST's `ITEM_READ`-without-`PROJECT_READ` shape** as part of the same decision.
+
+---
+
+## Addendum — what shipped (2026-07-30)
+
+The audit above describes the state **before** the fixes. What changed:
+
+| Finding | Status |
+|---|---|
+| 5 — ABAC `in_project` deny bypassable on the project board | **Fixed** (#497). Regression test asserts 403. |
+| 1/3 — `ProjectMember` is a roster, not a boundary | **Addressed** (#503, #505). `Team`/`TeamMember` in core; `teamScopedAccess` opt-in; every project-scoped read goes through `requireProjectRead`. |
+| 6 — no team concept in core | **Fixed** (#503). |
+| 3a — `ProjectRole` below MANAGER is decorative | **Still true.** Not addressed; see below. |
+| GUEST holds `ITEM_READ` without `PROJECT_READ` | **Still true, and now load-bearing.** `isProjectVisible` is deliberately separate from `canReadProject` so the conversion did not silently revoke GUEST access. |
+
+### Correction to the audit's own framing
+
+The audit said the fix was "46 routes". That count came from searching for a
+*pattern* — `requirePermission(ctx, Permission.*_READ)` under
+`projects/[projectId]/**`. The right question was "where can a project be
+**observed**?", which is a larger set, and a pattern search cannot find a
+surface that never used the pattern.
+
+Three such surfaces were missed on the first pass and fixed afterwards: the
+projects **list** API, the projects **page** and dashboard overview (#505), and
+**portfolio analytics**. Each showed a restricted project's name and key to
+people who could not open it — hiding the detail page but not the index.
+
+### Deliberately NOT scoped
+
+Org **export** (JSON/CSV) and **feedback remediation** enumerate every project
+regardless of `teamScopedAccess`, and carry a `SCOPING NOTE` saying so. These
+are administrative/system surfaces where a silently incomplete export is the
+worse failure. This holds only while `teamScopedAccess` is a *visibility
+default*; if it is ever promoted to a hard boundary, they must be revisited.
+
+### Known inconsistency: 403 vs 404 for a project that isn't there
+
+`requireProjectRead` runs before the project-exists check in **18 of the 48**
+converted routes, so those return **403** for a missing or cross-tenant
+`projectId` where they previously returned **404**. The other 30 still 404.
+
+Not a user-visible regression today: the only client that branches on the status
+of a project route treats them identically (`issues-view.tsx:317` —
+`status === 404 || status === 403`). And 403-for-both is arguably the better
+answer, since it does not distinguish "does not exist" from "you may not see
+it".
+
+Recorded rather than fixed because making all 48 consistent means touching every
+one of them again for no behavioural gain. Worth settling deliberately if that
+subtree is ever revisited — pick one and apply it everywhere.
+
+### Still open
+
+- **`ProjectRole.LEAD`/`MEMBER`/`VIEWER` remain decorative** — two references in
+  all of `src/`, both `MANAGER`. A role enum that looks enforced and is not.
+- **Team-level narrowing within a project** (which of a project's boards a given
+  team sees) is not implemented. `Team`/`TeamMember` exist to make it possible;
+  today `teamScopedAccess` gates the whole project, not per-team surfaces.

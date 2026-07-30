@@ -1,3 +1,10 @@
+// SCOPING NOTE — deliberately NOT filtered by teamScopedAccess.
+//
+// This is an administrative/system surface, not a day-to-day read. Filtering it
+// would make an org export silently incomplete, which is worse than the
+// restriction leaking to an admin who already holds org-wide rights. See
+// docs/design/access-control-audit.md; revisit if teamScopedAccess is ever
+// promoted from a visibility default to a hard boundary.
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
