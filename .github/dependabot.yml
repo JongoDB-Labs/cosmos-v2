@@ -22,6 +22,22 @@ updates:
       # major upgrades are done deliberately as their own PR, not auto-proposed.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # Hold TypeScript at 6.x until the lint toolchain supports 7.
+      #
+      # `typescript-eslint` declares `typescript: ">=4.8.4 <6.1.0"`, and no
+      # published version — 8.65.x including its alphas, and there is no v9 —
+      # accepts 7. eslint-config-next depends on it, so `next lint` dies at
+      # config load before it reads a single file:
+      #
+      #   Error: typescript-eslint does not support TS 7.0.
+      #     at node_modules/eslint-config-next/node_modules/typescript-eslint/dist/index.js:52:11
+      #
+      # That is the whole of why #480 could not merge: not our code, and not
+      # fixable here. Re-raising it weekly just re-runs a doomed CI job. Remove
+      # this entry once typescript-eslint ships TS 7 support, and take the
+      # upgrade deliberately as its own PR.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
