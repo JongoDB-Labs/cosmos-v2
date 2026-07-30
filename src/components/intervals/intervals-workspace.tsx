@@ -37,7 +37,10 @@ import {
   Target,
   Users,
   ListPlus,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
+import { buildIntervalTree } from "@/lib/intervals/interval-tree";
 import { CapacityDialog } from "./capacity-dialog";
 import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
@@ -151,6 +154,19 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
   // Program Increments (top-level PI intervals) — used both to render the PI
   // grouping and to populate each sprint's "Move to PI" selector.
   const pis = intervals.filter((c) => c.intervalKind === PI_KIND);
+  // Ordered top-down (ascending), with each PI's sprints grouped under it. The
+  // API returns `number: desc`; ordering here rather than there keeps the five
+  // other consumers of that endpoint untouched.
+  const tree = buildIntervalTree(intervals);
+  // Collapsed PI ids. Default is EXPANDED — collapsing hides sprints, and a
+  // default that hides existing content on upgrade is a surprise, not a feature.
+  const [collapsedPis, setCollapsedPis] = useState<Set<string>>(new Set());
+  const togglePi = (id: string) =>
+    setCollapsedPis((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   // Shared IntervalCard wiring so the PI section and the status groups render
   // identical cards (a sprint may appear in either place).
   const cardProps = (interval: Interval): IntervalCardProps => ({
@@ -502,23 +518,51 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
                 Program Increments ({pis.length})
               </h3>
               <div className="space-y-4">
-                {pis.map((pi) => {
-                  const children = intervals.filter((c) => c.parentId === pi.id);
+                {tree.pis.map(({ interval: pi, children }) => {
+                  const collapsed = collapsedPis.has(pi.id);
+                  const childLabel = `${children.length} ${children.length === 1 ? "sprint" : "sprints"}`;
                   return (
                     <div
                       key={pi.id}
                       className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
                     >
-                      <IntervalCard {...cardProps(pi)} />
-                      <div className="ml-3 space-y-2 border-l-2 border-primary/20 pl-3">
-                        {children.length === 0 ? (
-                          <p className="py-1 text-xs text-muted-foreground">
-                            No sprints in this PI yet — use “Move to PI” on a sprint below.
-                          </p>
-                        ) : (
-                          children.map((child) => <IntervalCard key={child.id} {...cardProps(child)} />)
-                        )}
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          onClick={() => togglePi(pi.id)}
+                          aria-expanded={!collapsed}
+                          // Names the PI so the control is distinguishable when
+                          // several are on screen — "Collapse" alone is not.
+                          aria-label={`${collapsed ? "Expand" : "Collapse"} ${pi.name} (${childLabel})`}
+                          className="mt-1 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
+                        >
+                          {collapsed ? (
+                            <ChevronRight className="size-4" />
+                          ) : (
+                            <ChevronDown className="size-4" />
+                          )}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <IntervalCard {...cardProps(pi)} />
+                        </div>
                       </div>
+                      {collapsed ? (
+                        <p className="ml-8 text-xs text-muted-foreground">
+                          {children.length === 0 ? "No sprints yet" : `${childLabel} hidden`}
+                        </p>
+                      ) : (
+                        <div className="ml-3 space-y-2 border-l-2 border-primary/20 pl-3">
+                          {children.length === 0 ? (
+                            <p className="py-1 text-xs text-muted-foreground">
+                              No sprints in this PI yet — use “Move to PI” on a sprint below.
+                            </p>
+                          ) : (
+                            children.map((child) => (
+                              <IntervalCard key={child.id} {...cardProps(child)} />
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -529,9 +573,9 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
           {STATUS_GROUPS.map(({ status, label }) => {
             // Sprints nested in a PI show under that PI above; here we list the
             // top-level intervals (not PIs, not already grouped under a PI).
-            const group = intervals.filter(
-              (c) => c.status === status && c.intervalKind !== PI_KIND && c.parentId == null,
-            );
+            // From the tree so these read top-down too, and so a sprint whose
+            // PI has been deleted still appears here rather than vanishing.
+            const group = tree.standalone.filter((c) => c.status === status);
             if (group.length === 0) return null;
             return (
               <section key={status} className="space-y-3">
