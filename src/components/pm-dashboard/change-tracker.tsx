@@ -33,6 +33,7 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
+import { branchLabel } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type ChangeRequestStatus =
@@ -350,7 +351,7 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
         type: "select",
         value: c.branchId,
         editable: canEdit && branches.length > 0,
-        options: branches.map((b) => ({ value: b.id, label: `${b.code} ${b.name}` })),
+        options: branches.map((b) => ({ value: b.id, label: branchLabel(b.code, b.name) })),
         placeholder: "Select branch",
       },
       {

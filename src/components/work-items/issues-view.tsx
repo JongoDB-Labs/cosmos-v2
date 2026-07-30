@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { DataTable } from "@/components/ui/data-table";
@@ -264,6 +264,10 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     projectId: string;
   } | null>(null);
   const [detailRow, setDetailRow] = useState<IssueRow | null>(null);
+  // Deep-link plumbing: the id already handled (so stripping the param can't
+  // re-trigger a fetch) and the message shown when the link can't be opened.
+  const handledDeepLinkRef = useRef<string | null>(null);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
@@ -290,21 +294,45 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // param so closing it doesn't re-open and the URL stays clean.
   useEffect(() => {
     const itemId = searchParams.get("item");
-    if (!itemId) return;
-    let cancelled = false;
+    if (!itemId || handledDeepLinkRef.current === itemId) return;
+    // Remember the id BEFORE fetching. The param strip below re-runs this effect
+    // (searchParams is a dependency), and this guard — rather than a `cancelled`
+    // flag — is what stops a second fetch. The old code stripped the param
+    // synchronously and cancelled on cleanup, so the re-run's cleanup fired
+    // while the first fetch was still in flight and its result was thrown away:
+    // the sheet never opened, for items that existed perfectly well. It only
+    // ever worked if the fetch beat the router, which it usually didn't.
+    handledDeepLinkRef.current = itemId;
+
     jsonFetch<IssueRow>(`/api/v1/orgs/${orgId}/work-items/${itemId}/row`)
       .then((row) => {
-        if (!cancelled && row) setDetailRow(row);
+        if (row) setDetailRow(row);
       })
-      .catch(() => {
-        /* item not readable / gone — leave the list as-is */
+      .catch((err) => {
+        // Say something rather than silently dumping the user on the list.
+        // 403 and 404 are deliberately worded the same: telling someone an item
+        // exists but is denied to them leaks its existence.
+        const status = err instanceof FetchError ? err.status : 0;
+        setDeepLinkError(
+          status === 404 || status === 403
+            ? "That issue no longer exists, or you don't have access to it."
+            : "Couldn't open that issue. Check your connection and try the link again.",
+        );
+      })
+      .finally(() => {
+        // Strip AFTER the round trip, so closing the sheet doesn't re-open it
+        // and the URL stays clean — but the fetch is never cut short.
+        const url = new URL(window.location.href);
+        url.searchParams.delete("item");
+        router.replace(url.pathname + url.search);
+        // Then release the guard, so navigating to the SAME id again actually
+        // retries. Leaving it set made a second visit to one ticket — two
+        // mention chips pointing at it, or acting on the error dialog's "try the
+        // link again" — return early: no sheet, no dialog, and the param never
+        // stripped. Safe to clear here: the strip above has already emptied
+        // `item`, so the re-run this triggers exits at the guard above.
+        handledDeepLinkRef.current = null;
       });
-    const url = new URL(window.location.href);
-    url.searchParams.delete("item");
-    router.replace(url.pathname + url.search);
-    return () => {
-      cancelled = true;
-    };
   }, [searchParams, orgId, router]);
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
@@ -1311,6 +1339,20 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           }
         />
       )}
+
+      {/* A deep link that can't be opened (deleted issue, or one the viewer
+          can't read) used to leave the user on the list with no explanation. */}
+      <Dialog open={deepLinkError !== null} onOpenChange={(o) => !o && setDeepLinkError(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Can&rsquo;t open that issue</DialogTitle>
+            <DialogDescription>{deepLinkError}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setDeepLinkError(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {canCreateItem && facets && (
         <CreateWorkItemDialog

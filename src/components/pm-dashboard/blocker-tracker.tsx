@@ -33,6 +33,7 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
+import { branchLabel } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type BlockerStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "ESCALATED";
@@ -363,7 +364,7 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
         type: "select",
         value: b.branchId,
         editable: canEdit && branches.length > 0,
-        options: branches.map((br) => ({ value: br.id, label: `${br.code} ${br.name}` })),
+        options: branches.map((br) => ({ value: br.id, label: branchLabel(br.code, br.name) })),
         placeholder: "Select branch",
       },
       { key: "source", label: "Source", type: "text", value: b.source, editable: canEdit },
