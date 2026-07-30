@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.7",
+    date: "2026-07-30",
+    title: "Limiting a project to its members now actually hides it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Turning on “Limit to project members” hid the project from lists and blocked its data, but someone who navigated straight to the project could still open it and see its boards, milestones, risks and the rest. Every page of a limited project is now hidden from people who are not members. Org admins and the owner still keep access, as before.",
+      },
+    ],
+  },
+  {
     version: "2.249.6",
     date: "2026-07-30",
     title: "A limited project stays out of the analytics rollup too",

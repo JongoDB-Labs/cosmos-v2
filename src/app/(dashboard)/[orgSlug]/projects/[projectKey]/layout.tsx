@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
+import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,19 @@ export default async function ProjectLayout({
   });
 
   if (!project) notFound();
+
+  // Visibility gate for the WHOLE project subtree.
+  //
+  // The API routes under projects/[projectId] all go through requireProjectRead,
+  // but server components read Prisma DIRECTLY and never touch those routes —
+  // so with teamScopedAccess on, a non-member could still open the project and
+  // have every page render server-side. That was the reported bug.
+  //
+  // This layout is the single ancestor of all 29 pages beneath it, which makes
+  // it the one place the check belongs; refusing here means none of them render.
+  // notFound() rather than a forbidden screen: whether a restricted project
+  // exists is not something a non-member should be able to confirm.
+  if (!(await canReadProject(ctx, project.id))) notFound();
 
   // Board create/delete inherit like everything else: an org grant holder OR a
   // manager of THIS project. Computed server-side and passed to the tabs so a
