@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { resolveLinkSubject } from "@/lib/pm/subjects";
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ANALYTICS_READ);
+    await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const { searchParams } = new URL(request.url);
     const subjectType = searchParams.get("subjectType") ?? "";

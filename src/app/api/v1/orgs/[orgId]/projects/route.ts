@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -48,7 +49,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { createdAt: "desc" },
     });
 
-    return success(projects);
+    // Drop the projects this actor may not see. The read-gate conversion
+    // covered projects/[projectId]/**, which is everything that reads a
+    // project's CONTENTS — but the LIST sits one level up, so a restricted
+    // project still appeared as a card and only 403'd once opened. That leaks
+    // its existence, name, key and counts to precisely the people it is meant
+    // to be hidden from.
+    //
+    // Filtered in memory rather than in the WHERE clause: visibility depends on
+    // the actor's memberships and org role, not on anything expressible as a
+    // Prisma predicate here, and getVisibleProjectIds short-circuits when
+    // nothing in the set is restricted (the common case) without querying
+    // memberships at all.
+    const visible = await getVisibleProjectIds(
+      ctx,
+      projects.map((p) => p.id),
+    );
+
+    return success(projects.filter((p) => visible.has(p.id)));
   } catch (error) {
     return handleApiError(error);
   }

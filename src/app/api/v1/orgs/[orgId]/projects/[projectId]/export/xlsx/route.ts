@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import JSZip from "jszip";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { handleApiError } from "@/lib/api-helpers";
 import { buildCombinedWorkbook } from "@/lib/pm/combined-export";
 import {
@@ -48,7 +47,7 @@ async function resolveContext(orgId: string, projectId: string) {
   if (!org) return { error: new Response("Not found", { status: 404 }) } as const;
   const ctx = await getAuthContext(org.slug);
   if (!ctx) return { error: new Response("Unauthorized", { status: 401 }) } as const;
-  requirePermission(ctx, Permission.ANALYTICS_READ);
+  await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
   const project = await prisma.project.findFirst({
     where: { id: projectId, orgId },
     select: { key: true },

@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -37,7 +36,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await resolve(orgId, projectId);
     if (r.error) return r.error;
-    requirePermission(r.ctx, Permission.PROJECT_READ);
+    await requireProjectRead(r.ctx, projectId, "PROJECT_READ");
 
     // Explicit select throughout — OrgMember.permissions is a permission mask
     // and must never ride out in a response payload.

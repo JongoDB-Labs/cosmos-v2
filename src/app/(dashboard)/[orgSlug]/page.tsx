@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { getAuthContext } from "@/lib/auth/session";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import {
   getOrgById,
   getActiveProjectCountForOrg,
@@ -184,7 +185,14 @@ async function ProjectGrid({
   // Overview teaser. Slicing client-side from a cached array is cheaper than
   // a second uncached query.
   const allProjects = await getActiveProjectsForOrg(orgId);
-  const projects = allProjects.slice(0, 6);
+  // getActiveProjectsForOrg is `"use cache"` keyed per ORG, so it cannot filter
+  // by actor without either leaking one user's view to another or destroying the
+  // cache. Keep the cached org-wide query, then narrow per request.
+  const listCtx = await getAuthContext(orgSlug);
+  const visibleIds = listCtx
+    ? await getVisibleProjectIds(listCtx, allProjects.map((p) => p.id))
+    : new Set<string>();
+  const projects = allProjects.filter((p) => visibleIds.has(p.id)).slice(0, 6);
 
   if (projects.length === 0) {
     return (
