@@ -2,9 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
-import { Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
@@ -21,7 +20,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.COMMENT_READ);
+    await requireProjectRead(ctx, projectId, "COMMENT_READ");
 
     const { searchParams } = new URL(request.url);
     const subjectType = searchParams.get("subjectType") ?? "";

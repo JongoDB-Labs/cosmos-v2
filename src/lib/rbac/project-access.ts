@@ -39,11 +39,31 @@ export async function canReadProject(
   projectId: string,
 ): Promise<boolean> {
   if (!hasPermission(ctx.permissions, Permission.PROJECT_READ)) return false;
+  return isProjectVisible(ctx, projectId);
+}
 
+/**
+ * Project VISIBILITY alone — deliberately with NO opinion about permission bits.
+ *
+ * Kept separate from `canReadProject` because the routes that gate on their own
+ * action bit (ITEM_READ, BOARD_READ, MILESTONE_READ, …) must not silently
+ * acquire a PROJECT_READ requirement on top. GUEST is granted ITEM_READ and NOT
+ * PROJECT_READ (permissions.ts:321), so folding the two together would revoke
+ * GUEST access to items on every unrestricted project — a behaviour change
+ * nobody asked for, wearing the costume of a security fix.
+ *
+ * Answers only: "is this project one the actor is allowed to see at all?"
+ */
+export async function isProjectVisible(
+  ctx: AuthContext,
+  projectId: string,
+): Promise<boolean> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, orgId: ctx.orgId },
     select: { id: true, teamScopedAccess: true },
   });
+  // Also covers a cross-tenant id: scoped by orgId, so another org's project is
+  // indistinguishable from a missing one.
   if (!project) return false;
 
   // The default, and the reason existing orgs see no behaviour change.

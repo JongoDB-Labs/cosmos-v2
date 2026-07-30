@@ -3,9 +3,8 @@ import { z } from "zod";
 import { ObjectiveStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
-import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = {
@@ -26,7 +25,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.OKR_READ);
+    await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const objective = await prisma.objective.findFirst({
       where: { id: objectiveId, orgId, projectId },

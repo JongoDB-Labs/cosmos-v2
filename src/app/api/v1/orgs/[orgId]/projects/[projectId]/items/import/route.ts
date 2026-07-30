@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { itemImportSchema, ingestItems } from "@/lib/ingest/items";
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await resolveAuth(request, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_READ);
+    await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     // The template is the same for any project, but verify the project belongs
     // to this org so a cross-org projectId returns 404 instead of a 200 (which

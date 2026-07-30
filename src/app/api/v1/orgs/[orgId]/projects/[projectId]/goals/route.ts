@@ -4,6 +4,7 @@ import { GoalStatus, GoalProgressMode } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { computeAutoProgress, type GoalWithLinks } from "@/lib/goals/rollup";
@@ -18,7 +19,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.OKR_READ);
+    await requireProjectRead(ctx, projectId, "OKR_READ");
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, orgId },

@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = {
@@ -18,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_READ);
+    await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     const link = await prisma.documentItemLink.findFirst({
       where: { orgId, projectId, itemType: "WORK_ITEM", itemId },

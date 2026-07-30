@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
@@ -22,7 +23,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ANALYTICS_READ);
+    await requireProjectRead(ctx, projectId, "ANALYTICS_READ");
 
     const kpi = await loadKpi(orgId, projectId, kpiId);
     if (!kpi) return new Response("Not found", { status: 404 });

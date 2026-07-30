@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
@@ -10,13 +11,13 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string; interva
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, intervalId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.SPRINT_READ);
+    await requireProjectRead(ctx, projectId, "SPRINT_READ");
 
     const capacities = await prisma.intervalCapacity.findMany({
       where: { intervalId },
@@ -42,7 +43,7 @@ const upsertSchema = z.object({
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
-    const { orgId, intervalId } = await params;
+    const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return new Response("Not found", { status: 404 });
 

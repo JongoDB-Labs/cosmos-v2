@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { Prisma } from "@prisma/client";
 
@@ -57,7 +56,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     // Any member who can READ the project may tailor their OWN view.
-    requirePermission(ctx, Permission.PROJECT_READ);
+    await requireProjectRead(ctx, projectId, "PROJECT_READ");
 
     // Resolve the project within this org by id or (insensitive) key.
     const project = await prisma.project.findFirst({
