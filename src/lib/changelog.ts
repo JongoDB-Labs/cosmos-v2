@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.248.2",
+    date: "2026-07-30",
+    title: "A project limited to its members is hidden everywhere, not just when opened",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a project is limited to its own members, that limit now holds across every one of its screens — boards, milestones, risks, deliverables, intervals, analytics — and the project no longer appears in the projects list or on the dashboard for people who cannot open it. Projects that are not limited behave exactly as before.",
+      },
+    ],
+  },
+  {
     version: "2.248.1",
     date: "2026-07-30",
     title: "Sprint planning asks the right people for capacity",
