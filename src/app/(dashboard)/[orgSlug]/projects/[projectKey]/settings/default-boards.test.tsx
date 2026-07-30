@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 if (!("ResizeObserver" in globalThis)) {
   globalThis.ResizeObserver = class {
@@ -31,7 +32,12 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
   }
 }
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+// usePathname is needed too: the Delivery-mapping section added in #512 reaches
+// useOrgQueryKey, which reads the pathname to namespace the cache per org.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/acme/projects/APL/settings",
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/components/providers/permissions-provider", async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
@@ -46,7 +52,11 @@ const BOARDS = [
 ];
 
 function renderSettings(hiddenBoardIds: string[] = []) {
+  // The Delivery-mapping section added in #512 uses React Query, so the whole
+  // settings client now needs a provider even for a test about board toggles.
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
+    <QueryClientProvider client={qc}>
     <ProjectSettingsClient
       orgId="o1"
       orgSlug="acme"
@@ -60,7 +70,8 @@ function renderSettings(hiddenBoardIds: string[] = []) {
       hiddenBoardIds={hiddenBoardIds}
       krLinkTypeId={null}
       objectiveLinkTypeId={null}
-    />,
+    />
+    </QueryClientProvider>,
   );
 }
 
@@ -97,10 +108,16 @@ describe("Default Boards", () => {
     renderSettings();
     await user.click(await screen.findByLabelText("Show Bug Tracker by default"));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0];
+    // Find the PUT rather than assuming it is the first call: the Delivery-
+    // mapping section fires its own GET on mount, so call order is not ours to
+    // rely on.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === "PUT"),
+      ).toBe(true),
+    );
+    const [url, init] = fetchMock.mock.calls.find(([, i]) => i?.method === "PUT")!;
     expect(url).toBe("/api/v1/orgs/o1/projects/p1");
-    expect(init.method).toBe("PUT");
     const body = JSON.parse(init.body);
     // Nested under `settings` so the server's shallow merge preserves
     // disabledBoardTypes; a top-level key would not be persisted at all.
