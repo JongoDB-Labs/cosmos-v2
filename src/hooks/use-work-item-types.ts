@@ -45,7 +45,7 @@ const FALLBACK_BARE_KEYS = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
  * different cache namespace (multi-tenant cache isolation).
  */
 /**
- * Cross-cutting types that SHADOW a real table.
+ * Work-item types that SHADOW a real table.
  *
  * Each of these names an entity that already exists in its own right — Goal,
  * KeyResult, Kpi, Milestone, Objective and Risk are all Prisma models with
@@ -57,6 +57,15 @@ const FALLBACK_BARE_KEYS = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
  * They are hidden from CREATE pickers rather than deleted. Existing items keep
  * their type, stay visible, and can be retyped to something else — see
  * `selectableTypes`. Nothing is lost and the decision stays reversible.
+ *
+ * NOT only the `cross.*` namespace. This list was originally written as "the
+ * cross-cutting types", which is what let `consulting.milestone_item` — seeded
+ * as name "Milestone", pluralName "Milestones", the same Flag icon — slip
+ * through and keep offering a second, duplicate Milestone in every Client
+ * Engagement project. What qualifies a key is that its NAME collides with a
+ * real model, whatever namespace it lives in; `shadowed-types.test.ts` asserts
+ * that against the seeds so the next sector to add one fails a test instead of
+ * shipping a duplicate.
  */
 export const SHADOW_TYPE_KEYS = new Set([
   "cross.goal",
@@ -65,6 +74,7 @@ export const SHADOW_TYPE_KEYS = new Set([
   "cross.objective",
   "cross.key_result",
   "cross.risk",
+  "consulting.milestone_item",
 ]);
 
 /**
