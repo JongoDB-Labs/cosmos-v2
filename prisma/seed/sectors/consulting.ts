@@ -73,8 +73,12 @@ const CONSULTING_PROJECT_TEMPLATE = {
   description: "Professional services with workstreams, deliverables, and milestone tracking.",
   defaultConfig: {
     intervalKinds: ["PHASE"],
+    // No consumer today; retained as the intended per-sector term. See aec.ts.
     cycleNavLabel: "Phases",
-    enabledFeatures: ["goal", "milestone", "kpi", "risk", "decision", "meeting_note"],
+    // Dead keys removed ("risk"/"decision"/"meeting_note" are not in
+    // TOGGLEABLE_FEATURES). "risk" becomes pm-dashboard + risk-register, and
+    // "interval" is added so the Intervals button matches the PHASE kinds above.
+    enabledFeatures: ["goal", "kpi", "milestone", "interval", "pm-dashboard", "risk-register"],
   },
 };
 

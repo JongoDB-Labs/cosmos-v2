@@ -93,8 +93,16 @@ const AEC_PROJECT_TEMPLATE = {
   description: "Phase-gated construction with submittals, RFIs, change orders, and daily logs.",
   defaultConfig: {
     intervalKinds: ["PHASE"],
+    // cycleNavLabel has no consumer today (the header button reads "Intervals"
+    // for every sector); kept because it records the intended per-sector term.
     cycleNavLabel: "Phases",
-    enabledFeatures: ["milestone", "kpi", "risk", "decision", "meeting_note"],
+    // "risk", "decision" and "meeting_note" were never real keys — see
+    // TOGGLEABLE_FEATURES in @/lib/project-features — so they did nothing.
+    // "risk" becomes pm-dashboard + risk-register (the dashboard tab is the only
+    // nav into the register); phase-gated construction genuinely tracks risk.
+    // "interval" was missing entirely, which is why a new AEC project had no
+    // Intervals button despite this template declaring PHASE intervals.
+    enabledFeatures: ["kpi", "milestone", "interval", "pm-dashboard", "risk-register"],
   },
 };
 

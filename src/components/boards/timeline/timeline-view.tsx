@@ -5,7 +5,6 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Route,
-  Check,
   Settings2,
   ZoomIn,
   ZoomOut,

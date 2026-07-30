@@ -9,30 +9,14 @@ import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { z } from "zod";
 import { Prisma, BoardType } from "@prisma/client";
+import { isToggleableFeature } from "@/lib/project-features";
 
 // Project features that drive the optional board tabs (see board-tabs.tsx).
 // Toggleable from Project Settings; validated here so only known flags persist.
-export const TOGGLEABLE_FEATURES = [
-  "okr",
-  "goal",
-  "kpi",
-  "milestone",
-  "interval",
-  "roadmap",
-  "files",
-  "pm-dashboard",
-  // PM Dashboard register sub-tabs — each gated by its own flag (see
-  // pm-dashboard/pm-nav.tsx). Independent of "pm-dashboard" (which only shows
-  // the Overview); enable the registers you want as sub-tabs.
-  "risk-register",
-  "change-log",
-  "blocked-items",
-  "schedule-variance",
-  "deliverables-tracker",
-  "vendors",
-  "staffing",
-  "clin-burn",
-] as const;
+// The list itself lives in @/lib/project-features so the settings UI and the org
+// template editor validate against the same keys this route accepts — three
+// hand-synced copies is what let "risk"/"decision"/"meeting_note" ship.
+export { TOGGLEABLE_FEATURES } from "@/lib/project-features";
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -46,9 +30,7 @@ const updateProjectSchema = z.object({
   // both fixes that and cleans the orphaned value out on the next save.
   enabledFeatures: z
     .array(z.string())
-    .transform((arr) =>
-      arr.filter((f) => (TOGGLEABLE_FEATURES as readonly string[]).includes(f)),
-    )
+    .transform((arr) => arr.filter(isToggleableFeature))
     .optional(),
   // Board view types this project may NOT create (opt-out; absent/empty = all 13
   // allowed). Persisted under settings.disabledBoardTypes; the New-board gallery

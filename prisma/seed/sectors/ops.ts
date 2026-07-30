@@ -85,8 +85,13 @@ const OPS_PROJECT_TEMPLATE = {
   description: "Incident management, change requests, runbooks, and SLA tracking.",
   defaultConfig: {
     intervalKinds: ["RELEASE"],
+    // No consumer today; retained as the intended per-sector term. See aec.ts.
     cycleNavLabel: "Releases",
-    enabledFeatures: ["kpi", "risk", "decision", "meeting_note"],
+    // Dead keys removed ("risk"/"decision"/"meeting_note" are not in
+    // TOGGLEABLE_FEATURES). "risk" becomes pm-dashboard + risk-register — an ops
+    // workspace runs incidents and change requests off exactly that register —
+    // and "interval" surfaces the RELEASE intervals declared above.
+    enabledFeatures: ["kpi", "interval", "pm-dashboard", "risk-register"],
   },
 };
 
