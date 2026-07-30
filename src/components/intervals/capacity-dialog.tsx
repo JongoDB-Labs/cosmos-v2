@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,7 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useOrgMembers } from "@/components/chat/mention-typeahead";
+import { useProjectMembers } from "./use-project-members";
+import { allocatableMembers } from "@/lib/intervals/allocatable-members";
 import { notifyError } from "@/lib/errors/notify";
 
 interface CapacityEntry {
@@ -33,8 +34,9 @@ interface CapacityDialogProps {
 /**
  * Per-member capacity planning for an interval. Reads/writes the existing
  * /intervals/[id]/capacity route (GET returns IntervalCapacity rows; PUT upserts an
- * `entries` array and removes anyone omitted). Candidate members come from the
- * org member list — their User ids are the uuids the route expects.
+ * `entries` array and removes anyone omitted). Candidates are the PROJECT's
+ * members with bots excluded — the route keys on User ids, so rows expose
+ * `userId` explicitly rather than reusing `id` (which is the ProjectMember id).
  */
 export function CapacityDialog({
   orgId,
@@ -45,7 +47,13 @@ export function CapacityDialog({
   onClose,
 }: CapacityDialogProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}`;
-  const { data: members } = useOrgMembers(orgId);
+  // Project members, humans only — not the org-wide @-mention roster, which
+  // offered everyone in the org plus bots like the Foreman agent.
+  const { data: projectMembers } = useProjectMembers(orgId, projectId);
+  const members = useMemo(
+    () => allocatableMembers(projectMembers ?? []),
+    [projectMembers],
+  );
 
   // userId -> hours, as a string for the controlled input.
   const [hours, setHours] = useState<Record<string, string>>({});
@@ -110,7 +118,7 @@ export function CapacityDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {loading || !members ? (
+        {loading || !projectMembers ? (
           <div className="space-y-2 py-2">
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
@@ -123,7 +131,7 @@ export function CapacityDialog({
         ) : (
           <div className="max-h-80 space-y-2 overflow-y-auto py-1">
             {members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between gap-3">
+              <div key={m.userId} className="flex items-center justify-between gap-3">
                 <span className="truncate text-sm">{m.displayName}</span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Input
@@ -134,9 +142,9 @@ export function CapacityDialog({
                     aria-label={`Capacity hours for ${m.displayName}`}
                     className="w-24"
                     disabled={!canEdit}
-                    value={hours[m.id] ?? ""}
+                    value={hours[m.userId] ?? ""}
                     onChange={(e) =>
-                      setHours((prev) => ({ ...prev, [m.id]: e.target.value }))
+                      setHours((prev) => ({ ...prev, [m.userId]: e.target.value }))
                     }
                   />
                   <span className="text-xs text-muted-foreground">hrs</span>

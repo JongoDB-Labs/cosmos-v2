@@ -20,17 +20,22 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
-vi.mock("@/components/chat/mention-typeahead", () => ({
-  useOrgMembers: vi.fn(),
+vi.mock("./use-project-members", () => ({
+  useProjectMembers: vi.fn(),
 }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 import { StartSprintDialog } from "./start-sprint-dialog";
-import { useOrgMembers } from "@/components/chat/mention-typeahead";
+import { useProjectMembers } from "./use-project-members";
+import type { ProjectMemberRow } from "@/lib/intervals/allocatable-members";
 
-const MEMBERS = [
-  { id: "u1", displayName: "Alice", email: "a@x.io", avatarUrl: null },
-  { id: "u2", displayName: "Bob", email: "b@x.io", avatarUrl: null },
+const MEMBERS: ProjectMemberRow[] = [
+  { id: "pm1", userId: "u1", displayName: "Alice", email: "a@x.io", avatarUrl: null, isBot: false, teamIds: [] },
+  { id: "pm2", userId: "u2", displayName: "Bob", email: "b@x.io", avatarUrl: null, isBot: false, teamIds: [] },
+  // The Foreman plugin's agent is a project member but is NOT a person: it must
+  // never be offered a capacity allocation. Included here so the dialog has to
+  // exclude it rather than the fixture doing so silently.
+  { id: "pm3", userId: "u3", displayName: "Foreman", email: "f@bot", avatarUrl: null, isBot: true, teamIds: [] },
 ];
 
 const PLANNING = {
@@ -76,8 +81,8 @@ afterEach(() => {
 
 describe("StartSprintDialog", () => {
   it("seeds capacity from suggestion/default and flags over-commitment", async () => {
-    vi.mocked(useOrgMembers).mockReturnValue({ data: MEMBERS } as ReturnType<
-      typeof useOrgMembers
+    vi.mocked(useProjectMembers).mockReturnValue({ data: MEMBERS } as ReturnType<
+      typeof useProjectMembers
     >);
     installFetch();
 
@@ -103,8 +108,8 @@ describe("StartSprintDialog", () => {
   });
 
   it("saves per-member effective capacity, then activates the sprint", async () => {
-    vi.mocked(useOrgMembers).mockReturnValue({ data: MEMBERS } as ReturnType<
-      typeof useOrgMembers
+    vi.mocked(useProjectMembers).mockReturnValue({ data: MEMBERS } as ReturnType<
+      typeof useProjectMembers
     >);
     const fetchMock = installFetch();
     const onStarted = vi.fn();
@@ -142,5 +147,33 @@ describe("StartSprintDialog", () => {
       (u) => u.endsWith("/intervals/c1") && !u.endsWith("/capacity"),
     );
     expect(activateBody.status).toBe("ACTIVE");
+  });
+
+  it("does not offer a bot an allocation, and excludes it from team capacity", async () => {
+    // Reported from the running app: the Foreman agent appeared in sprint
+    // planning asking for a capacity allocation. It is a bot, not a person.
+    vi.mocked(useProjectMembers).mockReturnValue({ data: MEMBERS } as ReturnType<
+      typeof useProjectMembers
+    >);
+    installFetch();
+
+    render(
+      <StartSprintDialog
+        orgId="o1"
+        projectId="p1"
+        interval={{ id: "c1", name: "Sprint 5", goal: null }}
+        onClose={() => {}}
+        onStarted={() => {}}
+      />,
+    );
+
+    await screen.findByLabelText("Capacity (pts) for Alice");
+    expect(screen.queryByLabelText("Capacity (pts) for Foreman")).toBeNull();
+    expect(screen.queryByText("Foreman")).toBeNull();
+
+    // Team capacity stays 18 (Alice 10 + Bob 8) — the bot contributes nothing,
+    // which also proves it was dropped before the total was computed rather
+    // than merely hidden from the list.
+    expect(screen.getByText("18 pts")).toBeTruthy();
   });
 });

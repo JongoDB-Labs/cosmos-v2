@@ -196,6 +196,7 @@ model Organization {
   invitations            Invitation[]
   apiKeys                ApiKey[]
   projects               Project[]
+  teams                  Team[]
   integrations           Integration[]
   webhooks               Webhook[]
   complianceControls     ComplianceControl[]
@@ -618,11 +619,21 @@ model Project {
   archived          Boolean  @default(false)
   projectTemplateId String?  @map("project_template_id") @db.Uuid
   enabledFeatures   String[] @default([]) @map("enabled_features")
+  // OPT-IN read narrowing. False (the default, and every existing row) keeps
+  // the historical posture: any org member holding the read bit sees this
+  // project. True means membership is required to read it — which is what makes
+  // "a subcontractor sees only their own team's work" expressible at all.
+  //
+  // Defaulting to false is deliberate and load-bearing: flipping every existing
+  // org to members-only would silently hide live projects from people who use
+  // them daily. See src/lib/rbac/project-access.ts.
+  teamScopedAccess  Boolean  @default(false) @map("team_scoped_access")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   members             ProjectMember[]
+  teams               Team[]
   boards              Board[]
   intervals           Interval[]
   objectives          Objective[]
@@ -645,6 +656,48 @@ model Project {
   @@map("projects")
 }
 
+/// A team WITHIN a project. org -> projects -> teams -> members is the source of
+/// truth for who works on what; ADR/#35 makes core own this, and the PI Planning
+/// plugin maps its own PiPlanningTeam onto these rather than keeping a second
+/// registry. Direction of dependency is plugin -> core, never the reverse.
+model Team {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String
+  /// Short display code (e.g. "PLT-1"). Optional; teams are identified by name.
+  key       String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members TeamMember[]
+
+  @@unique([projectId, name])
+  @@index([orgId])
+  @@map("teams")
+}
+
+/// Team membership. Points at ProjectMember rather than OrgMember or User: you
+/// cannot be on a project's team without being on the project, and deleting the
+/// project membership removes the team membership with it. That invariant is
+/// enforced by the FK instead of by application code remembering to check.
+model TeamMember {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId          String   @map("team_id") @db.Uuid
+  projectMemberId String   @map("project_member_id") @db.Uuid
+  /// Team lead — distinct from ProjectRole.MANAGER, which is project-wide.
+  isLead          Boolean  @default(false) @map("is_lead")
+  joinedAt        DateTime @default(now()) @map("joined_at")
+
+  team          Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  projectMember ProjectMember @relation(fields: [projectMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, projectMemberId])
+  @@map("team_members")
+}
+
 model ProjectMember {
   id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId   String      @map("project_id") @db.Uuid
@@ -659,8 +712,9 @@ model ProjectMember {
   ndaStatus       String?   @map("nda_status")
   complianceNotes String?   @map("compliance_notes")
 
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  orgMember OrgMember @relation(fields: [orgMemberId], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  orgMember   OrgMember    @relation(fields: [orgMemberId], references: [id], onDelete: Cascade)
+  teamMembers TeamMember[]
 
   @@unique([projectId, orgMemberId])
   @@map("project_members")
