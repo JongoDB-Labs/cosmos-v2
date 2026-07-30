@@ -628,6 +628,23 @@ model Project {
   // org to members-only would silently hide live projects from people who use
   // them daily. See src/lib/rbac/project-access.ts.
   teamScopedAccess  Boolean  @default(false) @map("team_scoped_access")
+  // Which work-item TYPE a link picker offers first — the org/project's answer
+  // to "what does a KR (or an objective) deliver?". Resolved by
+  // `workItemTypeId`, never by building a sector-prefixed key: "Feature" is a
+  // CUSTOM type with a BARE key ("feature") in some orgs and a prefixed one
+  // (e.g. "software.feature") in others, and constructing that key has broken
+  // type resolution here before (see src/hooks/use-work-item-types.ts).
+  //
+  // NULL = not configured, so the reader falls back to the org's type NAMED
+  // "Feature" if one exists, else no preferred type and the picker is ordered
+  // as before. Existing KeyResultLink rows point at Stories and are untouched:
+  // this only changes which type a picker offers FIRST, so those links stay
+  // valid and the auto-tracking progress they drive does not move.
+  krLinkTypeId      String?  @map("kr_link_type_id") @db.Uuid
+  // Objectives ladder to other objectives by default (Objective.parentId), so
+  // NULL here means objective→objective. Set it to offer objective→work-item
+  // links of that type instead.
+  objectiveLinkTypeId String? @map("objective_link_type_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -830,6 +847,7 @@ model WorkItem {
   watchers       WorkItemWatcher[]
   labels         WorkItemLabel[]
   keyResultLinks KeyResultLink[]
+  objectiveLinks ObjectiveLink[]
 
   @@unique([orgId, projectId, ticketNumber])
   // Idempotent re-import key (prod-parity): one imported record per source per org.
@@ -2422,6 +2440,7 @@ model Objective {
   parent     Objective?   @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
   children   Objective[]  @relation("ObjectiveAlignment")
   interval   Interval?    @relation(fields: [intervalId], references: [id], onDelete: SetNull)
+  links      ObjectiveLink[]
 
   @@index([orgId, projectId])
   @@index([parentId])
@@ -2476,6 +2495,36 @@ model KeyResultLink {
   @@index([workItemId])
   @@index([orgId])
   @@map("key_result_links")
+}
+
+// Links a work item to an Objective — the high-level delivery an objective is
+// tracked against, so a stakeholder can see PI Objective progress from real
+// Feature delivery rather than only from key-result numbers.
+//
+// Objective→OBJECTIVE laddering is NOT modelled here: `Objective.parentId`
+// already does that, and a second mechanism for the same relationship is
+// exactly the "two boards, two datasets, one concept" defect this codebase has
+// already had to fix twice. This table is only for objective→work-item.
+//
+// Deliberately shaped like KeyResultLink (untyped, just a workItemId) rather
+// than carrying a type column: the work item already knows its own type, and
+// duplicating it here would let the two disagree. Which TYPE a link picker
+// offers first is configuration — `Project.objectiveLinkTypeId` — not a
+// property of the link.
+model ObjectiveLink {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  objectiveId String   @map("objective_id") @db.Uuid
+  workItemId  String   @map("work_item_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  objective Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+  workItem  WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+
+  @@unique([objectiveId, workItemId])
+  @@index([workItemId])
+  @@index([orgId])
+  @@map("objective_links")
 }
 
 // A point-in-time check-in on a key result: the value + confidence + stoplight at
