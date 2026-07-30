@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import { entityUrl } from "@/lib/mentions/urls";
 
 /** Best-effort human reason from a rejected bulk request — the server message
  *  carried by a jsonFetch FetchError, or a network error's own message. */
@@ -965,9 +966,20 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
               label: "Copy link",
               icon: Link2,
               onClick: () => {
+                // The ISSUE, not the board it sits on. This copied `boardHref`
+                // — so pasting it dropped the recipient on the project with no
+                // indication which ticket was meant, which is the opposite of
+                // what "copy link" on a specific row promises.
+                //
+                // `entityUrl` is the shared builder the mention chips, home
+                // widgets and dependency map already use, so every deep link in
+                // the product has one definition. The issues view honours
+                // `?item=` by opening that item's detail sheet.
+                const href = entityUrl("workItem", { orgSlug, id: r.id });
+                if (!href) return;
                 try {
-                  void navigator.clipboard?.writeText(`${window.location.origin}${boardHref}`);
-                  toast.success("Board link copied");
+                  void navigator.clipboard?.writeText(`${window.location.origin}${href}`);
+                  toast.success("Issue link copied");
                 } catch {
                   /* clipboard unavailable */
                 }

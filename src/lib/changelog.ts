@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.11",
+    date: "2026-07-30",
+    title: "Copy link gives you the issue, and labels are editable after filing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "“Copy link” on an issue copied a link to the project, not the issue — so pasting it left the reader on the board with no idea which ticket you meant. It now copies a link that opens that issue's details.",
+      },
+      {
+        kind: "improvement",
+        text: "Labels can be added, changed and removed from an issue's details. They could be set when the issue was created and never touched again, because the details panel had no label control at all.",
+      },
+    ],
+  },
+  {
     version: "2.249.10",
     date: "2026-07-30",
     title: "Member-only projects hold on three more screens",
