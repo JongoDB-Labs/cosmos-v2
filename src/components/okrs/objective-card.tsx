@@ -15,7 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, Link2} from "lucide-react";
 import { KeyResultRow } from "./key-result-row";
-import { krProgressPercent } from "@/lib/okr/progress";
+import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
 import { HEALTH_LABEL, type ObjectiveHealth } from "@/lib/okr/health";
 import type { BadgeVariant } from "@/components/ui/badge";
 
@@ -26,7 +26,7 @@ const HEALTH_VARIANT: Record<ObjectiveHealth, BadgeVariant> = {
   behind: "critical",
   no_date: "neutral",
 };
-import type { Objective, KeyResult } from "@/types/models";
+import type { Objective } from "@/types/models";
 
 interface ObjectiveCardProps {
   objective: Objective;
@@ -46,14 +46,23 @@ interface ObjectiveCardProps {
   onExpandedChange?: (expanded: boolean) => void;
 }
 
-function computeProgress(keyResults: KeyResult[]): number {
-  if (!keyResults || keyResults.length === 0) return 0;
-  const total = keyResults.reduce(
-    (sum, kr) =>
-      sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
-    0,
+/**
+ * Progress for the card, through the SAME function the API roll-up uses.
+ *
+ * This used to average the key results here and hardcode 0 when there were
+ * none, which is a second implementation of a rule the server also owns — so
+ * an objective tracked by linked delivery (#52) would have read 0% on the card
+ * while the API said otherwise. One function, both sides.
+ */
+function computeProgress(objective: Objective): number {
+  const keyResults = objective.keyResults ?? [];
+  return objectiveProgressPercent(
+    keyResults.map((kr) =>
+      krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
+    ),
+    objective.linkedTotal ?? 0,
+    objective.linkedDone ?? 0,
   );
-  return Math.round(total / keyResults.length);
 }
 
 function getProgressColor(percent: number): string {
@@ -164,7 +173,7 @@ export function ObjectiveCard({
       Add Key Result
     </Button>
   );
-  const progress = computeProgress(keyResults);
+  const progress = computeProgress(objective);
   const ownerName = objective.owner?.user?.displayName ?? "Unassigned";
   const ownerAvatar = objective.owner?.user?.avatarUrl ?? null;
   const ownerInitials = ownerName
@@ -219,6 +228,22 @@ export function ObjectiveCard({
             >
               {progress}%
             </span>
+            {/* #52 — the delivery behind the number. Shown whenever an objective
+                has links, not only when they drive the percentage, so a reader
+                can always see what it is tracked against. */}
+            {(objective.linkedTotal ?? 0) > 0 && (
+              <span
+                className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"
+                title={
+                  objective.autoTracked
+                    ? "Progress is the share of these linked items that are done"
+                    : "Linked delivery. Progress comes from this objective's key results"
+                }
+              >
+                <Link2 className="h-3 w-3" />
+                {objective.linkedDone ?? 0}/{objective.linkedTotal} delivered
+              </span>
+            )}
           </div>
         </div>
 

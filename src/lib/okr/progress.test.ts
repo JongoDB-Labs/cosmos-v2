@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { krFraction, krProgressPercent } from "./progress";
+import { krFraction, krProgressPercent, objectiveProgressPercent } from "./progress";
 
 describe("krFraction — higher-is-better (default)", () => {
   it("is 0 at start, 1 at target, 0.5 halfway", () => {
@@ -72,5 +72,39 @@ describe("krProgressPercent", () => {
   it("mirrors for lower-is-better", () => {
     expect(krProgressPercent(200, 150, 100, true)).toBe(50);
     expect(krProgressPercent(200, 260, 100, true)).toBe(0);
+  });
+});
+
+describe("objectiveProgressPercent", () => {
+  it("averages key results when the objective has any", () => {
+    expect(objectiveProgressPercent([50, 100], 0, 0)).toBe(75);
+  });
+
+  it("IGNORES links when key results exist, so no existing number moves", () => {
+    // The safety property of #52: an objective that already had KRs reports
+    // exactly what it reported before, whatever gets linked to it.
+    expect(objectiveProgressPercent([50, 100], 10, 0)).toBe(75);
+    expect(objectiveProgressPercent([50, 100], 10, 10)).toBe(75);
+    expect(objectiveProgressPercent([0], 4, 4)).toBe(0);
+  });
+
+  it("derives from linked delivery when there are no key results", () => {
+    // Previously a hardcoded 0 forever — the gap this closes.
+    expect(objectiveProgressPercent([], 4, 1)).toBe(25);
+    expect(objectiveProgressPercent([], 3, 3)).toBe(100);
+    expect(objectiveProgressPercent([], 3, 0)).toBe(0);
+  });
+
+  it("is still 0 with neither key results nor links", () => {
+    expect(objectiveProgressPercent([], 0, 0)).toBe(0);
+  });
+
+  it("never exceeds 100 if done somehow outruns total", () => {
+    expect(objectiveProgressPercent([], 2, 5)).toBe(100);
+  });
+
+  it("rounds to a whole percent", () => {
+    expect(objectiveProgressPercent([], 3, 1)).toBe(33);
+    expect(objectiveProgressPercent([], 6, 5)).toBe(83);
   });
 });

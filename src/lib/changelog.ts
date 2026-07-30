@@ -27,11 +27,19 @@ export const CHANGELOG: Release[] = [
     highlights: [
       {
         kind: "feature",
-        text: "An objective can now be linked to the work items that deliver it, so a stakeholder reading a PI Objective can see the Features behind it rather than only a key-result number. Use “Link work items” on an objective’s menu on the OKR View board.",
+        text: "An objective can now be linked to the work items that deliver it, so a stakeholder reading a PI Objective can see the Features behind it rather than only a key-result number. Use “Link work items” on an objective’s menu on the OKR View board. The objective then shows how much of that delivery is done — “2/3 delivered” — next to its progress.",
+      },
+      {
+        kind: "improvement",
+        text: "An objective with no key results used to sit at 0% forever, whatever was happening underneath. It now reports the share of its linked delivery that is complete. Objectives that already have key results are unaffected: those still set the percentage, so no number you are reading today changes.",
       },
       {
         kind: "improvement",
         text: "Key-result and objective link pickers now offer Features first instead of listing every ticket in creation order. Project Settings → Delivery mapping changes that to any type you prefer, separately for key results and objectives. Nothing is hidden: every other type stays linkable, and links you already have are untouched.",
+      },
+    ],
+  },
+  {
     version: "2.248.2",
     date: "2026-07-30",
     title: "A project limited to its members is hidden everywhere, not just when opened",
