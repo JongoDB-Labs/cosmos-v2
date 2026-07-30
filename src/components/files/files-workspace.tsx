@@ -7,6 +7,7 @@ import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Pl
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { milestoneInvalidations } from "@/lib/query/milestone-keys";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -140,7 +141,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
     invalidate: [
       ["document-links", projectId, selectedId ?? "none"],
       ["work-items", projectId],
-      ["milestones", projectId],
+      ...milestoneInvalidations(projectId),
       ["objectives", projectId],
       ["goals", projectId],
       ["intervals", projectId],

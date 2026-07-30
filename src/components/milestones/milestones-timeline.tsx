@@ -29,6 +29,7 @@ import {
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { milestoneInvalidations } from "@/lib/query/milestone-keys";
 import { cn } from "@/lib/utils";
 import type { WorkItem, OrgMember } from "@/types/models";
 
@@ -182,7 +183,7 @@ export function MilestonesTimeline({ orgId, projectId }: MilestonesTimelineProps
         method: "POST",
         body: JSON.stringify(payload),
       }),
-    invalidate: [["milestones", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onSuccess: () => setCreateOpen(false),
   });
 
@@ -196,7 +197,7 @@ export function MilestonesTimeline({ orgId, projectId }: MilestonesTimelineProps
         method: "PATCH",
         body: JSON.stringify(patch),
       }),
-    invalidate: [["milestones", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onSuccess: () => setEditMilestone(null),
   });
 
@@ -205,7 +206,7 @@ export function MilestonesTimeline({ orgId, projectId }: MilestonesTimelineProps
       jsonFetch<{ id: string }>(`${basePath}/milestones/${id}`, {
         method: "DELETE",
       }),
-    invalidate: [["milestones", projectId]],
+    invalidate: milestoneInvalidations(projectId),
   });
 
   function handleDelete(m: Milestone) {
@@ -772,7 +773,7 @@ function LinkDialog({
         method: "POST",
         body: JSON.stringify({ workItemId }),
       }),
-    invalidate: [["milestones", projectId]],
+    invalidate: milestoneInvalidations(projectId),
   });
 
   const unlinkMutation = useOrgMutation<{ id: string }, Error, string>({
@@ -781,7 +782,7 @@ function LinkDialog({
         `${basePath}/milestones/${milestone.id}/links/${linkId}`,
         { method: "DELETE" },
       ),
-    invalidate: [["milestones", projectId]],
+    invalidate: milestoneInvalidations(projectId),
   });
 
   // Map workItemId -> link so linked chips can carry the linkId for removal.
