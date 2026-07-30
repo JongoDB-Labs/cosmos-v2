@@ -21,3 +21,22 @@ export function branchLabel(code: string, name: string): string {
     ? trimmedName
     : `${trimmedCode} — ${trimmedName}`;
 }
+
+/**
+ * Every branch picker's options, labelled once.
+ *
+ * Each PM register renders the branch picker TWICE — once as `options` on the
+ * inline-edit field, once as `SelectItem`s in its create dialog — and the
+ * original stutter fix only reached the inline-edit half. All four registers
+ * therefore kept offering "LOE1 LOE 1 — …" in the dialog that actually creates
+ * the record, which is the one a user meets first.
+ *
+ * Building the options here rather than at each call site means there is one
+ * place to be right. `branch-options.arch.test.ts` fails on any register that
+ * goes back to interpolating `code` and `name` itself.
+ */
+export function branchOptions(
+  branches: readonly { id: string; code: string; name: string }[],
+): { value: string; label: string }[] {
+  return branches.map((b) => ({ value: b.id, label: branchLabel(b.code, b.name) }));
+}

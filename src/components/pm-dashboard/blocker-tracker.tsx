@@ -33,7 +33,7 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
-import { branchLabel } from "@/lib/pm/branch-label";
+import { branchOptions } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type BlockerStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "ESCALATED";
@@ -364,7 +364,7 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
         type: "select",
         value: b.branchId,
         editable: canEdit && branches.length > 0,
-        options: branches.map((br) => ({ value: br.id, label: branchLabel(br.code, br.name) })),
+        options: branchOptions(branches),
         placeholder: "Select branch",
       },
       { key: "source", label: "Source", type: "text", value: b.source, editable: canEdit },
@@ -656,8 +656,10 @@ function BlockerDialog({
               <Select value={form.branchId} onValueChange={(v) => setForm((f) => ({ ...f, branchId: v ?? "" }))}>
                 <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
                 <SelectContent>
-                  {branches.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.code} {b.name}</SelectItem>
+                  {branchOptions(branches).map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

@@ -35,7 +35,7 @@ import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { healthOf, slipDays } from "@/lib/schedule/health";
-import { branchLabel } from "@/lib/pm/branch-label";
+import { branchOptions } from "@/lib/pm/branch-label";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -449,7 +449,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         type: "select",
         value: m.branchId,
         editable: canEdit && branches.length > 0,
-        options: branches.map((b) => ({ value: b.id, label: branchLabel(b.code, b.name) })),
+        options: branchOptions(branches),
         placeholder: "Select branch",
       },
       {
@@ -810,9 +810,9 @@ function MilestoneDialog({
                   <SelectValue placeholder="Select branch" />
                 </SelectTrigger>
                 <SelectContent>
-                  {branches.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      {b.code} {b.name}
+                  {branchOptions(branches).map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
