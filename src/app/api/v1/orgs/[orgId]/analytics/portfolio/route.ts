@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
@@ -17,11 +18,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ANALYTICS_READ);
 
-    const projects = await prisma.project.findMany({
+    const allProjects = await prisma.project.findMany({
       where: { orgId, archived: false },
       select: { id: true, name: true, key: true },
       orderBy: { name: "asc" },
     });
+
+    // Another INDEX over projects, and it leaked the same way the projects list
+    // did: a restricted project's name, key and progress were returned to
+    // anyone holding ANALYTICS_READ. Rollups are exactly where "they can see
+    // the numbers but not the work" stops being a meaningful distinction.
+    //
+    // Short-circuits when nothing in the org is restricted, so the common case
+    // costs one extra query on ids we already have.
+    const visible = await getVisibleProjectIds(ctx, allProjects.map((p) => p.id));
+    const projects = allProjects.filter((p) => visible.has(p.id));
 
     const now = new Date();
 
