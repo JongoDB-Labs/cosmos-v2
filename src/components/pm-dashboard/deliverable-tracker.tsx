@@ -35,7 +35,7 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
-import { branchLabel } from "@/lib/pm/branch-label";
+import { branchOptions } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type DeliverableStatus =
@@ -465,7 +465,7 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         type: "select",
         value: d.branchId,
         editable: canEdit && branches.length > 0,
-        options: branches.map((b) => ({ value: b.id, label: branchLabel(b.code, b.name) })),
+        options: branchOptions(branches),
         placeholder: "Select branch",
       },
       { key: "owner", label: "Owner", type: "text", value: d.owner, editable: canEdit },
@@ -789,8 +789,10 @@ function DeliverableDialog({
               >
                 <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
                 <SelectContent>
-                  {branches.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.code} {b.name}</SelectItem>
+                  {branchOptions(branches).map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

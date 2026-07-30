@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.247.5",
+    date: "2026-07-30",
+    title: "Each line of effort listed once when you log PM work",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Branch picker repeated the LOE number — “LOE1 LOE 1 — Authorize, Cloud & Data” — in the New Change Request, New Blocker, New Deliverable and New Schedule Item dialogs. It read correctly when editing an existing row, so only the dialog that creates the record was affected. Every line of effort is now named once, everywhere.",
+      },
+    ],
+  },
+  {
     version: "2.247.4",
     date: "2026-07-30",
     title: "Clearer empty state on Goals / Objectives",
