@@ -38,6 +38,8 @@ interface ProjectSettingsClientProps {
   disabledBoardTypes: string[];
   krLinkTypeId: string | null;
   objectiveLinkTypeId: string | null;
+  boards: { id: string; name: string; type: string }[];
+  hiddenBoardIds: string[];
 }
 
 // The 13 board VIEW types. A project starts with all enabled; toggling one OFF
@@ -69,6 +71,8 @@ export function ProjectSettingsClient({
   disabledBoardTypes,
   krLinkTypeId,
   objectiveLinkTypeId,
+  boards,
+  hiddenBoardIds,
 }: ProjectSettingsClientProps) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -83,6 +87,8 @@ export function ProjectSettingsClient({
   const [features, setFeatures] = useState<string[]>(enabledFeatures);
   const [savingFeatures, setSavingFeatures] = useState(false);
   const [disabledTypes, setDisabledTypes] = useState<string[]>(disabledBoardTypes);
+  const [hiddenBoards, setHiddenBoards] = useState<string[]>(hiddenBoardIds);
+  const [savingBoards, setSavingBoards] = useState(false);
   const [savingTypes, setSavingTypes] = useState(false);
   const [krType, setKrType] = useState<string | null>(krLinkTypeId);
   const [objType, setObjType] = useState<string | null>(objectiveLinkTypeId);
@@ -205,6 +211,42 @@ export function ProjectSettingsClient({
       toast.error("Failed to update board types");
     } finally {
       setSavingTypes(false);
+    }
+  }
+
+  /**
+   * Show/hide a board for the whole project.
+   *
+   * Writes settings.hiddenBoardIds, which the project layout has always read as
+   * the baseline (`tp.hiddenBoardIds ?? projectSettings.hiddenBoardIds`) — the
+   * mechanism existed with no way to set it. It is a BASELINE, not a lock: a
+   * member who has already tailored their own strip keeps their choice, and
+   * anyone can re-show a board from the strip's overflow menu. The board and its
+   * data are untouched, which is why this is not a permission.
+   */
+  async function toggleBoard(boardId: string, on: boolean) {
+    const next = on
+      ? hiddenBoards.filter((id) => id !== boardId)
+      : [...new Set([...hiddenBoards, boardId])];
+    const prev = hiddenBoards;
+    setHiddenBoards(next); // optimistic
+    setSavingBoards(true);
+    try {
+      // settings shallow-merges server-side, so this cannot clobber
+      // disabledBoardTypes or anything else already stored there.
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { hiddenBoardIds: next } }),
+      });
+      if (!res.ok) throw new Error("Failed to update default boards");
+      toast.success(on ? "Board shown by default" : "Board hidden by default");
+      router.refresh();
+    } catch {
+      setHiddenBoards(prev); // rollback
+      toast.error("Failed to update default boards");
+    } finally {
+      setSavingBoards(false);
     }
   }
 
@@ -386,6 +428,54 @@ export function ProjectSettingsClient({
             onChange={(v) => saveLinkType("objectiveLinkTypeId", v)}
           />
         </div>
+      </div>
+
+      {/* Default boards — which of this project's boards everyone sees. */}
+      <div className="rounded-lg border">
+        <div className="flex items-start justify-between border-b px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Default Boards</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Which of this project&apos;s boards appear in the strip for everyone
+              by default. Turning one off hides the tab — the board and its items
+              are untouched, and anyone can bring it back from the strip&apos;s
+              overflow menu.
+            </p>
+          </div>
+          {savingBoards ? (
+            <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+        {boards.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-muted-foreground">
+            This project has no boards yet.
+          </p>
+        ) : (
+          <div className="divide-y">
+            {boards.map((b) => {
+              const on = !hiddenBoards.includes(b.id);
+              return (
+                <div
+                  key={b.id}
+                  className="flex items-center justify-between gap-4 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{b.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {BOARD_TYPE_OPTIONS.find((o) => o.key === b.type)?.label ?? b.type}
+                    </div>
+                  </div>
+                  <ToggleSwitch
+                    checked={on}
+                    disabled={!canUpdate || savingBoards}
+                    onCheckedChange={(v) => toggleBoard(b.id, v)}
+                    aria-label={`Show ${b.name} by default`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Board Types */}

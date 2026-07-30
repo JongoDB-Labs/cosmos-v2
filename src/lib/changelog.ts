@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.3",
+    date: "2026-07-30",
+    title: "Choose which boards your project shows by default",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Project Settings has a new Default Boards section listing every board in the project with a switch. Turn one off — a Bug Tracker nobody needs, say — and it stops appearing in the board strip for the whole team. The board and everything in it are untouched, and anyone can bring it back for themselves from the strip's overflow menu.",
+      },
+    ],
+  },
+  {
     version: "2.249.2",
     date: "2026-07-30",
     title: "Intervals read top to bottom, and PIs fold away",
