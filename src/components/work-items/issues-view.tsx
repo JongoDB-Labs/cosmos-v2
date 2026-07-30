@@ -325,6 +325,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         const url = new URL(window.location.href);
         url.searchParams.delete("item");
         router.replace(url.pathname + url.search);
+        // Then release the guard, so navigating to the SAME id again actually
+        // retries. Leaving it set made a second visit to one ticket — two
+        // mention chips pointing at it, or acting on the error dialog's "try the
+        // link again" — return early: no sheet, no dialog, and the param never
+        // stripped. Safe to clear here: the strip above has already emptied
+        // `item`, so the re-run this triggers exits at the guard above.
+        handledDeepLinkRef.current = null;
       });
   }, [searchParams, orgId, router]);
 

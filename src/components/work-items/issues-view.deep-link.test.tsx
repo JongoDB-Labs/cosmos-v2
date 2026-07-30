@@ -2,8 +2,8 @@
 //
 // Reported twice: clicking a ticket link (`/issues?item=<id>`) dropped the user
 // on the Issues list with no explanation. It was first assumed to be a deleted
-// ticket, but the second report was for USMC-46, which existed — so the deep
-// link was broken for VALID items too.
+// ticket, but the second report named a ticket that existed — so the deep link
+// was broken for VALID items too.
 //
 // The cause was a race, not a missing row. The effect stripped the `item` param
 // synchronously via router.replace, and `searchParams` is one of its
@@ -181,6 +181,33 @@ describe("IssuesView — ?item= deep link", () => {
       .mocked(jsonFetch)
       .mock.calls.filter(([url]) => String(url).includes("/row"));
     expect(rowCalls).toHaveLength(1);
+  });
+
+  it("retries the SAME id on a second visit, rather than silently doing nothing", async () => {
+    // The guard that stops the param-strip re-running the fetch used to be set
+    // and never released, so a second navigation to one ticket — two mention
+    // chips pointing at it, or acting on the error dialog's "try the link
+    // again" — returned early: no sheet, no dialog, param never stripped.
+    let calls = 0;
+    vi.mocked(jsonFetch).mockImplementation(((url: string) => {
+      if (url.endsWith("/facets")) return Promise.resolve(FACETS);
+      if (url.includes("/row")) {
+        calls += 1;
+        return Promise.resolve(ROW);
+      }
+      if (url.includes("/search")) return Promise.resolve({ data: [], total: 0 });
+      return Promise.resolve([]);
+    }) as never);
+
+    const { again } = renderView();
+    await screen.findByTestId("sheet");
+    expect(calls).toBe(1);
+
+    // Same id arrives again while the view stays mounted.
+    itemParam = "w1";
+    again();
+
+    await waitFor(() => expect(calls).toBe(2));
   });
 
   it("explains a link it cannot open instead of failing silently", async () => {
