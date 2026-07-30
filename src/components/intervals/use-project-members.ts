@@ -14,9 +14,15 @@ import type { ProjectMemberRow } from "@/lib/intervals/allocatable-members";
  *
  * Key flows through `useOrgQueryKey` so switching orgs serves a different cache
  * namespace (multi-tenant cache isolation).
+ *
+ * The key says "allocatable" deliberately. project-members-manager.tsx already
+ * caches the SAME endpoint under `("project-members", projectId)` in its own raw
+ * shape; React Query dedupes by key, so reusing it would let whichever component
+ * mounted first serve the other a wrong-shaped object. Same request, different
+ * projection — therefore a different key.
  */
 export function useProjectMembers(orgId: string, projectId: string) {
-  const key = useOrgQueryKey("project-members", projectId);
+  const key = useOrgQueryKey("project-members", "allocatable", projectId);
   return useQuery({
     queryKey: key,
     queryFn: async (): Promise<ProjectMemberRow[]> => {
