@@ -95,6 +95,11 @@ const createSchema = z.object({
   period: z.string().nullish(),
   status: z.nativeEnum(ObjectiveStatus).default(ObjectiveStatus.ACTIVE),
   parentId: z.string().uuid().nullish(),
+  // The timebox this objective belongs to — a PI for a PI Objective, a sprint
+  // for a sprint-level one. Validated below to be an interval of THIS project.
+  intervalId: z.string().uuid().nullish(),
+  // SAFe committed vs uncommitted (stretch). Defaults to committed.
+  committed: z.boolean().default(true),
 });
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -114,6 +119,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const data = createSchema.parse(await request.json());
 
+    // An interval from ANOTHER project would silently mis-file the objective
+    // under a timebox its team never plans against, so it is rejected rather
+    // than quietly dropped.
+    if (data.intervalId) {
+      const interval = await prisma.interval.findFirst({
+        where: { id: data.intervalId, projectId },
+        select: { id: true },
+      });
+      if (!interval) {
+        return new Response("intervalId must be an interval of this project", {
+          status: 400,
+        });
+      }
+    }
+
     // Append to the end of the project's manual order.
     const last = await prisma.objective.findFirst({
       where: { orgId, projectId },
@@ -131,6 +151,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         period: data.period ?? null,
         status: data.status,
         parentId: data.parentId ?? null,
+        intervalId: data.intervalId ?? null,
+        committed: data.committed,
         progress: 0,
         sortOrder,
       },

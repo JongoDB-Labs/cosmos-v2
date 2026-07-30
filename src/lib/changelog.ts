@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.247.0",
+    date: "2026-07-29",
+    title: "PI Objectives and sprint goals, next to your project goals",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An objective can now belong to an interval — a Program Increment or a sprint — and be marked committed or uncommitted. Uncommitted is SAFe's stretch objective: planned for, deliberately not promised, and not counted toward what the PI is accountable for.",
+      },
+      {
+        kind: "feature",
+        text: "The Goals board is now Goals / Objectives, and lists those objectives grouped under the interval they belong to, with a count of what's committed to each. A sprint's own goal appears at the head of its group — until now it was only visible inside that sprint's settings.",
+      },
+      {
+        kind: "improvement",
+        text: "Deleting a Program Increment leaves its objectives in place, simply untimeboxed, rather than deleting them along with it — the same way deleting a PI already leaves its sprints alone.",
+      },
+    ],
+  },
+  {
     version: "2.246.3",
     date: "2026-07-29",
     title: "One Milestone, not two, in Client Engagement projects",

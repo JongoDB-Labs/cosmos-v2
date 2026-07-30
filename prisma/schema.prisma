@@ -1273,6 +1273,7 @@ model Interval {
   capacities IntervalCapacity[]
   parent     Interval?       @relation("IntervalProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
   children   Interval[]      @relation("IntervalProgramIncrement")
+  objectives Objective[]
 
   @@unique([projectId, number])
   @@index([parentId])
@@ -2346,6 +2347,18 @@ model Objective {
   // Alignment: this objective ladders up to a parent objective (org→team→…).
   // SetNull on parent delete so a child is orphaned, never cascade-deleted.
   parentId    String?         @map("parent_objective_id") @db.Uuid
+  // The interval this objective belongs to — a Program Increment for a PI
+  // Objective, a sprint for a sprint-level one. Null = not tied to a timebox.
+  // SetNull on delete so removing a PI never destroys the objectives committed
+  // to it; they fall back to untimeboxed, the same way a PI orphans (never
+  // deletes) its child sprints.
+  intervalId  String?         @map("interval_id") @db.Uuid
+  // SAFe: a PI Objective is either COMMITTED — the team is accountable for it
+  // and it counts toward the PI's business-value score — or UNCOMMITTED, a
+  // stretch objective that is planned for but deliberately not promised.
+  // Defaults to committed: an objective stated without qualification is a
+  // commitment, and stretch is the deliberate exception.
+  committed   Boolean         @default(true)
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -2354,9 +2367,11 @@ model Objective {
   keyResults KeyResult[]
   parent     Objective?   @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
   children   Objective[]  @relation("ObjectiveAlignment")
+  interval   Interval?    @relation(fields: [intervalId], references: [id], onDelete: SetNull)
 
   @@index([orgId, projectId])
   @@index([parentId])
+  @@index([intervalId])
   @@map("objectives")
 }
 

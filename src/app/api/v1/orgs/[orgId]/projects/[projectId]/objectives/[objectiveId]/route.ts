@@ -49,6 +49,10 @@ const updateSchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
   // Target/end date for health (FR a94ff583); null clears it.
   targetDate: z.string().datetime().nullable().optional(),
+  // Timebox (PI / sprint); null unsets it. Validated to this project below.
+  intervalId: z.string().uuid().nullable().optional(),
+  // SAFe committed vs uncommitted (stretch).
+  committed: z.boolean().optional(),
 });
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
@@ -97,6 +101,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Same rule as create: an interval belonging to another project would
+    // mis-file the objective under a timebox its team never plans against.
+    if (data.intervalId) {
+      const interval = await prisma.interval.findFirst({
+        where: { id: data.intervalId, projectId },
+        select: { id: true },
+      });
+      if (!interval) {
+        return new Response("intervalId must be an interval of this project", {
+          status: 400,
+        });
+      }
+    }
+
     const updated = await prisma.objective.update({
       where: { id: objectiveId },
       data: {
@@ -108,6 +126,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.targetDate !== undefined && {
           targetDate: data.targetDate ? new Date(data.targetDate) : null,
         }),
+        ...(data.intervalId !== undefined && { intervalId: data.intervalId }),
+        ...(data.committed !== undefined && { committed: data.committed }),
       },
       include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
