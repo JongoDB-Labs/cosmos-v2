@@ -35,11 +35,13 @@ describe("selectableTypes", () => {
 
   // Six shadowed ENTITIES, seven keys: Milestone is seeded twice, once
   // cross-cutting and once by the consulting sector. Both create a WorkItem
-  // that never reaches the Milestones board, so both have to be hidden.
+  // that never reaches the Milestones board, so it has to be hidden.
+  // `consulting.milestone_item` is NOT here any more: it is no longer seeded
+  // (it produced a second, identical "Milestone" in the Issues type filter,
+  // matching nothing), so there is no key left to hide.
   // shadowed-types.test.ts derives this from the seeds rather than listing it.
   it("covers every key that shadows a real table", () => {
     expect([...SHADOW_TYPE_KEYS].sort()).toEqual([
-      "consulting.milestone_item",
       "cross.goal",
       "cross.key_result",
       "cross.kpi",

@@ -58,14 +58,16 @@ const FALLBACK_BARE_KEYS = ["EPIC", "STORY", "TASK", "BUG", "SUBTASK"] as const;
  * their type, stay visible, and can be retyped to something else — see
  * `selectableTypes`. Nothing is lost and the decision stays reversible.
  *
- * NOT only the `cross.*` namespace. This list was originally written as "the
- * cross-cutting types", which is what let `consulting.milestone_item` — seeded
- * as name "Milestone", pluralName "Milestones", the same Flag icon — slip
- * through and keep offering a second, duplicate Milestone in every Client
- * Engagement project. What qualifies a key is that its NAME collides with a
- * real model, whatever namespace it lives in; `shadowed-types.test.ts` asserts
- * that against the seeds so the next sector to add one fails a test instead of
- * shipping a duplicate.
+ * NOT only the `cross.*` namespace. What qualifies a key is that its NAME
+ * collides with a real model, whatever namespace it lives in;
+ * `shadowed-types.test.ts` asserts that against the seeds so the next sector to
+ * add one fails a test instead of shipping a duplicate.
+ *
+ * `consulting.milestone_item` used to be listed here. Hiding it from create
+ * pickers was only half a fix: it still appeared in the Issues TYPE FILTER,
+ * which reads every seeded type, so the org saw two identical "Milestone"
+ * options — one of which matched nothing. It is no longer seeded and the unused
+ * rows are dropped by migration, so there is nothing left to hide.
  */
 export const SHADOW_TYPE_KEYS = new Set([
   "cross.goal",
@@ -74,7 +76,6 @@ export const SHADOW_TYPE_KEYS = new Set([
   "cross.objective",
   "cross.key_result",
   "cross.risk",
-  "consulting.milestone_item",
 ]);
 
 /**
