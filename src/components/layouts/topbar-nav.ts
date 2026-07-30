@@ -49,7 +49,7 @@ export const TOPBAR_NAV: TopbarNavItem[] = [
   {
     id: "team",
     icon: Users,
-    label: "Team",
+    label: "Org",
     href: "/team",
   },
 ];

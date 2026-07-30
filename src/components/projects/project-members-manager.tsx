@@ -85,7 +85,15 @@ export function ProjectMembersManager({
   const inProject = new Set(members.map((m) => m.orgMemberId));
   const addable = orgMembers.filter((m) => !inProject.has(m.id));
 
-  async function setRole(orgMemberId: string, role: ProjectRole) {
+  /**
+   * Returns whether the write actually landed.
+   *
+   * It has to report that: this swallowed its own failure and returned void, so
+   * `add()` could not tell a rejected write from a successful one and announced
+   * "Member added to project." either way. A caller that cannot observe failure
+   * will eventually claim success on one — see add() below.
+   */
+  async function setRole(orgMemberId: string, role: ProjectRole): Promise<boolean> {
     setBusy(true);
     try {
       const res = await fetch(base, {
@@ -98,8 +106,10 @@ export function ProjectMembersManager({
         throw new Error(j.error ?? "Couldn't update the role.");
       }
       await refetch();
+      return true;
     } catch (err) {
       notifyError(err, "Couldn't update the role.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -124,7 +134,10 @@ export function ProjectMembersManager({
 
   async function add() {
     if (!addId) return;
-    await setRole(addId, addRole);
+    // Only confirm and clear when the write actually landed. Clearing on failure
+    // discarded the user's selection as well as lying about the outcome, so a
+    // failed add looked exactly like a successful one that had not refreshed.
+    if (!(await setRole(addId, addRole))) return;
     setAddId("");
     setAddRole("MEMBER");
     toast.success("Member added to project.");

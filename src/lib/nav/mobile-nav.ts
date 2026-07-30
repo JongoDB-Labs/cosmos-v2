@@ -36,7 +36,7 @@ export const MOBILE_NAV_DESTINATIONS: MobileNavDest[] = [
   { key: "issues", label: "Issues", href: "/issues", icon: ListChecks },
   { key: "notes", label: "Notes", href: "/notes", icon: FileText },
   { key: "meetings", label: "Meetings", href: "/meetings", icon: Video },
-  { key: "team", label: "Team", href: "/team", icon: Users },
+  { key: "team", label: "Org", href: "/team", icon: Users },
   { key: "crm", label: "CRM", href: "/crm", icon: Building2 },
   { key: "finance", label: "Finance", href: "/finance", icon: Wallet },
   { key: "analytics", label: "Analytics", href: "/analytics", icon: BarChart3 },

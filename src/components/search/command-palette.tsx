@@ -297,7 +297,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     { id: "chat", label: "Chat", suffix: "/chat", drawer: "chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "notes", label: "Notes", suffix: "/notes", icon: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "meetings", label: "Meetings", suffix: "/meetings", icon: <Video className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "team", label: "Team", suffix: "/team", icon: <Users className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "team", label: "Org", suffix: "/team", icon: <Users className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "crm", label: "CRM", suffix: "/crm", icon: <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "contracts", label: "Contracts", suffix: "/contracts", icon: <FileSignature className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "analytics", label: "Analytics", suffix: "/analytics", icon: <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
