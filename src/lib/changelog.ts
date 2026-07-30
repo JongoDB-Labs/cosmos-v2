@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.248.1",
+    date: "2026-07-30",
+    title: "Sprint planning asks the right people for capacity",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Starting a sprint listed everyone in the organisation for capacity planning, including automated agents like Foreman — which were being asked for an allocation of points or hours they cannot have. Capacity now lists the people on that project only, and never bots.",
+      },
+      {
+        kind: "improvement",
+        text: "Projects can now have teams, and a project can be set so that only its members see it. Existing projects are unchanged: every project stays visible exactly as it is today until someone turns this on.",
+      },
+    ],
+  },
+  {
     version: "2.248.0",
     date: "2026-07-30",
     title: "Create objectives on Goals / Objectives, not just the OKR board",

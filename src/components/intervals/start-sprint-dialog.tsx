@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useOrgMembers } from "@/components/chat/mention-typeahead";
+import { useProjectMembers } from "./use-project-members";
+import { allocatableMembers } from "@/lib/intervals/allocatable-members";
 import { notifyError } from "@/lib/errors/notify";
 import { AlertTriangle } from "lucide-react";
 import {
@@ -65,7 +66,13 @@ export function StartSprintDialog({
   onStarted,
 }: StartSprintDialogProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${interval.id}`;
-  const { data: members } = useOrgMembers(orgId);
+  // Project members, humans only — not the org-wide @-mention roster, which
+  // offered everyone in the org plus bots like the Foreman agent.
+  const { data: projectMembers } = useProjectMembers(orgId, projectId);
+  const members = useMemo(
+    () => allocatableMembers(projectMembers ?? []),
+    [projectMembers],
+  );
 
   const [plan, setPlan] = useState<PlanningData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,7 +123,7 @@ export function StartSprintDialog({
   const team = members
     ? teamCapacity(
         members.map((m) => {
-          const r = rowFor(m.id);
+          const r = rowFor(m.userId);
           return { base: Number(r.base), availabilityPct: Number(r.availability) };
         }),
       )
@@ -132,9 +139,9 @@ export function StartSprintDialog({
       // 1. Save per-member effective capacity (base × availability).
       const entries = (members ?? [])
         .map((m) => {
-          const r = rowFor(m.id);
+          const r = rowFor(m.userId);
           return {
-            userId: m.id,
+            userId: m.userId,
             capacity: effectiveCapacity(Number(r.base), Number(r.availability)),
           };
         })
@@ -182,7 +189,7 @@ export function StartSprintDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {loading || !members || !plan ? (
+        {loading || !projectMembers || !plan ? (
           <div className="space-y-2 py-2">
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />
@@ -223,14 +230,14 @@ export function StartSprintDialog({
                   </div>
                   <div className="max-h-64 space-y-1.5 overflow-y-auto">
                     {members.map((m) => {
-                      const row = rowFor(m.id);
+                      const row = rowFor(m.userId);
                       const eff = effectiveCapacity(
                         Number(row.base),
                         Number(row.availability),
                       );
                       return (
                         <div
-                          key={m.id}
+                          key={m.userId}
                           className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3"
                         >
                           <div className="min-w-0">
@@ -252,7 +259,7 @@ export function StartSprintDialog({
                             onChange={(e) =>
                               setRows((prev) => ({
                                 ...prev,
-                                [m.id]: { ...row, base: e.target.value },
+                                [m.userId]: { ...row, base: e.target.value },
                               }))
                             }
                           />
@@ -268,7 +275,7 @@ export function StartSprintDialog({
                             onChange={(e) =>
                               setRows((prev) => ({
                                 ...prev,
-                                [m.id]: { ...row, availability: e.target.value },
+                                [m.userId]: { ...row, availability: e.target.value },
                               }))
                             }
                           />

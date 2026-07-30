@@ -39,6 +39,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (r.error) return r.error;
     requirePermission(r.ctx, Permission.PROJECT_READ);
 
+    // Explicit select throughout — OrgMember.permissions is a permission mask
+    // and must never ride out in a response payload.
     const members = await prisma.projectMember.findMany({
       where: { projectId },
       select: {
@@ -48,9 +50,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         orgMember: {
           select: {
             userId: true,
-            user: { select: { displayName: true, email: true, avatarUrl: true } },
+            // isBot distinguishes a real person from an agent (the Foreman
+            // plugin registers one). Consumers that allocate human capacity
+            // filter on it — see lib/intervals/allocatable-members.ts.
+            user: { select: { displayName: true, email: true, avatarUrl: true, isBot: true } },
           },
         },
+        teamMembers: { select: { teamId: true } },
       },
     });
     return success(
@@ -62,6 +68,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         displayName: m.orgMember.user.displayName,
         email: m.orgMember.user.email,
         avatarUrl: m.orgMember.user.avatarUrl,
+        isBot: m.orgMember.user.isBot,
+        teamIds: m.teamMembers.map((tm) => tm.teamId),
       })),
     );
   } catch (e) {
