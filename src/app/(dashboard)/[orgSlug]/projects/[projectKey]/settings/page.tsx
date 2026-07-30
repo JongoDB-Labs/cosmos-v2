@@ -31,6 +31,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         select: { id: true, name: true, type: true },
         orderBy: { sortOrder: "asc" },
       },
+      teamScopedAccess: true,
     },
   });
 
@@ -64,6 +65,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         objectiveLinkTypeId={project.objectiveLinkTypeId}
         boards={project.boards}
         hiddenBoardIds={hiddenBoardIds}
+        teamScopedAccess={project.teamScopedAccess}
       />
       <MentionedIn
         orgId={ctx.orgId}

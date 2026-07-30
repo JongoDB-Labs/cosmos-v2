@@ -136,3 +136,39 @@ describe("PUT /projects/[projectId] — set project-wide default view (COSMOS-7)
     );
   });
 });
+
+describe("PUT teamScopedAccess — stricter than an ordinary settings edit", () => {
+  it("403s a PROJECT_UPDATE holder who does not administer the project", async () => {
+    // The general PUT gate admits PROJECT_UPDATE alone. This flag decides who
+    // can SEE the project, so it must not ride that gate: turning it on could
+    // hide a live project from everyone who is not a member.
+    getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
+    prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+    prisma.orgMember.findUnique.mockResolvedValue({ id: ORG_MEMBER_ID });
+    prisma.projectMember.findFirst.mockResolvedValue(null); // not a MANAGER
+    prisma.project.findFirst.mockResolvedValue({ id: PROJECT_ID, orgId: ORG_ID, settings: {} });
+
+    const res = await PUT(putRequest({ teamScopedAccess: true }), {
+      params: Promise.resolve({ orgId: ORG_ID, projectId: PROJECT_ID }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(prisma.project.update).not.toHaveBeenCalled();
+  });
+
+  it("allows a MANAGER of the project", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(Permission.PROJECT_UPDATE));
+    prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+    prisma.orgMember.findUnique.mockResolvedValue({ id: ORG_MEMBER_ID });
+    prisma.projectMember.findFirst.mockResolvedValue({ id: "pm1", role: ProjectRole.MANAGER });
+    prisma.project.findFirst.mockResolvedValue({ id: PROJECT_ID, orgId: ORG_ID, settings: {} });
+    prisma.project.update.mockResolvedValue({ id: PROJECT_ID, teamScopedAccess: true });
+
+    const res = await PUT(putRequest({ teamScopedAccess: true }), {
+      params: Promise.resolve({ orgId: ORG_ID, projectId: PROJECT_ID }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(prisma.project.update).toHaveBeenCalled();
+  });
+});
