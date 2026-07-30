@@ -27,8 +27,9 @@ vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { useProjectMembers } from "./use-project-members";
+import type { ProjectMemberRow } from "@/lib/intervals/allocatable-members";
 
-const MEMBERS = [
+const MEMBERS: ProjectMemberRow[] = [
   { id: "pm1", userId: "u1", displayName: "Alice", email: "a@x.io", avatarUrl: null, isBot: false, teamIds: [] },
   { id: "pm2", userId: "u2", displayName: "Bob", email: "b@x.io", avatarUrl: null, isBot: false, teamIds: [] },
   // The Foreman plugin's agent is a project member but is NOT a person: it must
