@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // org-wide Issues surfaces (which narrow via getReadableProjectIds) and
     // silently ignored here, leaving the board readable by URL. Identical to
     // requirePermission until an org authors a policy referencing ITEM_READ.
-    await requireAccess(ctx, "ITEM_READ", { orgId, projectId });
+    await requireProjectRead(ctx, projectId, "ITEM_READ");
 
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });

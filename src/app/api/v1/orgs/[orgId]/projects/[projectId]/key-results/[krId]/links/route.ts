@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = {
@@ -27,7 +28,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!org) return new Response("Not found", { status: 404 });
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    await requireAccess(ctx, "OKR_READ", { projectId });
+    await requireProjectRead(ctx, projectId, "OKR_READ");
 
     if (!(await loadKr(orgId, projectId, krId))) return new Response("Not found", { status: 404 });
 
