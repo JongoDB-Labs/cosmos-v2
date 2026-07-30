@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.246.1",
+    date: "2026-07-29",
+    title: "Project boards now honour access policies",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If your organisation used an access policy to keep someone out of a project's work, the org-wide Issues list respected it but the project's own board did not — the items were still readable by opening the project directly. The board now applies the same policy as everywhere else. Organisations with no such policies see no change.",
+      },
+    ],
+  },
+  {
     version: "2.246.0",
     date: "2026-07-29",
     title: "One “New issue” form, on every board",
