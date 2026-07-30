@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.247.2",
+    date: "2026-07-29",
+    title: "A comment box that starts small, and activity that names the sprint",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The comment box on a ticket opened as a 300-pixel-tall empty rectangle — it was borrowing its shape from the full-page note editor. It now rests at about two lines, grows as you write, and scrolls in place once it is tall enough, so a one-line reply no longer leaves a crater in the detail panel and a long one is still comfortable to write. Editing a posted comment behaves the same way, and so does the comment box in the PM dashboard's side panel.",
+      },
+      {
+        kind: "fix",
+        text: "Activity for a sprint change read “changed interval to Unknown” instead of naming the sprint you moved the item into. The Activity page now names the sprint — and the status lane, the person and the work-item type — behind every change. A ticket's own Activity tab had the same gap for type changes and is fixed too.",
+      },
+      {
+        kind: "improvement",
+        text: "When a change points at something since deleted, activity no longer invents a value: it says what changed and leaves the value out rather than claiming “Unknown”. The home dashboard's Recent activity widget also stopped showing raw database column names like “intervalId”.",
+      },
+    ],
+  },
+  {
     version: "2.247.1",
     date: "2026-07-29",
     title: "Ticket links open again, and a tidier risk register",

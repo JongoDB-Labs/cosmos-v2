@@ -51,6 +51,10 @@ interface Facets {
   projects: { id: string; key: string; name: string; archived: boolean }[];
   types: { id: string; key: string; name: string }[];
   members: { id: string; displayName: string }[];
+  // Not filter options — these two only feed the activity-value lookups below,
+  // so an interval or status change reads as a name instead of an id/slug.
+  intervals: { id: string; name: string }[];
+  statuses: { key: string; name: string }[];
 }
 
 const ANY = "__any__";
@@ -147,11 +151,17 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
 
   const items = useMemo(() => data?.pages.flatMap((p) => p.data) ?? [], [data]);
 
-  // Resolve id-valued activity fields to names (facets carry members + types).
+  // Resolve id-valued activity fields to names. The facets payload already
+  // carries every lookup this needs — members, types, intervals and statuses,
+  // all scoped to the projects the actor can read — so wire ALL FOUR. Missing
+  // `interval` here is what made an interval change read "changed interval to
+  // Unknown"; missing `column` printed the raw status slug.
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => facets?.members.find((m) => m.id === id)?.displayName,
       type: (id: string) => facets?.types.find((t) => t.id === id)?.name,
+      interval: (id: string) => facets?.intervals?.find((i) => i.id === id)?.name,
+      column: (key: string) => facets?.statuses?.find((s) => s.key === key)?.name,
     }),
     [facets],
   );
