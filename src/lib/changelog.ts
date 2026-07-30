@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.5",
+    date: "2026-07-30",
+    title: "Dependency refresh, and no more “Invalid Date” in chart tooltips",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Hovering a point on the analytics or KPI charts could show “Invalid Date” in the tooltip when a data point had no date. Those tooltips now leave the label blank instead.",
+      },
+      {
+        kind: "improvement",
+        text: "Routine update of 50 libraries to their latest compatible versions.",
+      },
+    ],
+  },
+  {
     version: "2.249.4",
     date: "2026-07-30",
     title: "Teams, and a switch to limit a project to its members",
