@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.0",
+    date: "2026-07-30",
+    title: "See objectives delivered by Features, not just numbers",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An objective can now be linked to the work items that deliver it, so a stakeholder reading a PI Objective can see the Features behind it rather than only a key-result number. Use “Link work items” on an objective’s menu on the OKR View board.",
+      },
+      {
+        kind: "improvement",
+        text: "Key-result and objective link pickers now offer Features first instead of listing every ticket in creation order. Project Settings → Delivery mapping changes that to any type you prefer, separately for key results and objectives. Nothing is hidden: every other type stays linkable, and links you already have are untouched.",
     version: "2.248.2",
     date: "2026-07-30",
     title: "A project limited to its members is hidden everywhere, not just when opened",

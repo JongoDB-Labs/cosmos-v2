@@ -22,6 +22,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { OkrObjectivesView } from "./okr-objectives-view";
 import { OkrHealthView } from "./okr-health-view";
 import { OkrAlignmentView } from "./okr-alignment-view";
+import { ObjectiveLinksDialog } from "./objective-links-dialog";
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
 import type { Objective, KeyResult } from "@/types/models";
@@ -52,6 +53,8 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [view, setView] = useState<"objectives" | "health" | "alignment">("objectives");
+  // #52 — the objective whose work-item links are being edited.
+  const [linkTarget, setLinkTarget] = useState<Objective | null>(null);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -350,6 +353,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           onDelete={(id: string) =>
             setDeleteTarget(objectives.find((o) => o.id === id) ?? null)
           }
+          onLinkItems={(o: Objective) => setLinkTarget(o)}
           onCheckedIn={reload}
           onReorder={handleReorderObjectives}
         />
@@ -533,6 +537,21 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* #52 — the work items an objective is delivered by. */}
+      {linkTarget && (
+        <ObjectiveLinksDialog
+          orgId={orgId}
+          projectId={projectId}
+          objectiveId={linkTarget.id}
+          objectiveTitle={linkTarget.title}
+          open
+          onOpenChange={(o) => {
+            if (!o) setLinkTarget(null);
+          }}
+          onChanged={reload}
+        />
+      )}
 
       <Dialog
         open={deleteTarget !== null}

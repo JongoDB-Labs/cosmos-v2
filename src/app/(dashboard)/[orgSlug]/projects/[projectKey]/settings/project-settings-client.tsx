@@ -24,6 +24,8 @@ import {
 // Defined once alongside the TOGGLEABLE_FEATURES the project PUT validates
 // against, so this picker cannot offer a key the API silently drops.
 import { FEATURE_OPTIONS } from "@/lib/project-features";
+import { useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { resolveLinkTypeId } from "@/lib/okr/link-type-default";
 
 interface ProjectSettingsClientProps {
   orgId: string;
@@ -34,6 +36,8 @@ interface ProjectSettingsClientProps {
   projectDescription: string;
   enabledFeatures: string[];
   disabledBoardTypes: string[];
+  krLinkTypeId: string | null;
+  objectiveLinkTypeId: string | null;
 }
 
 // The 13 board VIEW types. A project starts with all enabled; toggling one OFF
@@ -63,6 +67,8 @@ export function ProjectSettingsClient({
   projectDescription,
   enabledFeatures,
   disabledBoardTypes,
+  krLinkTypeId,
+  objectiveLinkTypeId,
 }: ProjectSettingsClientProps) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -78,6 +84,17 @@ export function ProjectSettingsClient({
   const [savingFeatures, setSavingFeatures] = useState(false);
   const [disabledTypes, setDisabledTypes] = useState<string[]>(disabledBoardTypes);
   const [savingTypes, setSavingTypes] = useState(false);
+  const [krType, setKrType] = useState<string | null>(krLinkTypeId);
+  const [objType, setObjType] = useState<string | null>(objectiveLinkTypeId);
+  const [savingLinkType, setSavingLinkType] = useState(false);
+  // The org's types, so the picker offers real ids. `resolveLinkTypeId` tells us
+  // what an unset value actually resolves to, which is what the row shows as the
+  // default rather than a bare "None".
+  const { types } = useWorkItemTypes(orgId);
+  const krResolvedName =
+    types.find((t) => t.id === resolveLinkTypeId(krType, types))?.name ?? null;
+  const objResolvedName =
+    types.find((t) => t.id === resolveLinkTypeId(objType, types))?.name ?? null;
 
   const canUpdate = can(Permission.PROJECT_UPDATE);
   const canDelete = can(Permission.PROJECT_DELETE);
@@ -105,6 +122,39 @@ export function ProjectSettingsClient({
       toast.error("Failed to update project");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * #52 — which work-item type the KR / objective link pickers offer first.
+   *
+   * Sent as a `workItemTypeId`, never a constructed type key: "Feature" is a
+   * CUSTOM type whose key is BARE in some orgs, and building
+   * `${sector}.feature` has broken type resolution here before. "" in the
+   * <select> means "not configured" and is sent as null, which makes the reader
+   * fall back to the type NAMED "Feature".
+   */
+  async function saveLinkType(
+    field: "krLinkTypeId" | "objectiveLinkTypeId",
+    value: string | null,
+  ) {
+    const setLocal = field === "krLinkTypeId" ? setKrType : setObjType;
+    const prev = field === "krLinkTypeId" ? krType : objType;
+    setLocal(value); // optimistic
+    setSavingLinkType(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      if (!res.ok) throw new Error("Failed to update link type");
+      toast.success("Link type saved");
+    } catch {
+      setLocal(prev); // rollback
+      toast.error("Failed to update link type");
+    } finally {
+      setSavingLinkType(false);
     }
   }
 
@@ -300,6 +350,44 @@ export function ProjectSettingsClient({
         </div>
       </div>
 
+      {/* Link types — #52 */}
+      <div className="rounded-lg border">
+        <div className="flex items-start justify-between border-b px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold">Delivery mapping</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Which kind of work a key result or an objective is tracked against,
+              so stakeholders can read progress off real delivery. Defaults to
+              Feature. Other types stay linkable either way — this only sets what
+              the picker offers first.
+            </p>
+          </div>
+          {savingLinkType ? (
+            <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+        <div className="divide-y">
+          <LinkTypeRow
+            label="Key results deliver"
+            hint="A key result's linked tickets — its progress tracks how many are done."
+            value={krType}
+            resolvedName={krResolvedName}
+            types={types}
+            disabled={!canUpdate || savingLinkType}
+            onChange={(v) => saveLinkType("krLinkTypeId", v)}
+          />
+          <LinkTypeRow
+            label="Objectives deliver"
+            hint="Objectives ladder to other objectives by default. Choose a type here to link them to work items instead."
+            value={objType}
+            resolvedName={objResolvedName}
+            types={types}
+            disabled={!canUpdate || savingLinkType}
+            onChange={(v) => saveLinkType("objectiveLinkTypeId", v)}
+          />
+        </div>
+      </div>
+
       {/* Board Types */}
       <div className="rounded-lg border">
         <div className="flex items-start justify-between border-b px-4 py-3">
@@ -441,6 +529,50 @@ export function ProjectSettingsClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** One "what does this deliver" picker. */
+function LinkTypeRow({
+  label,
+  hint,
+  value,
+  resolvedName,
+  types,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string | null;
+  resolvedName: string | null;
+  types: { id: string; name: string }[];
+  disabled: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <select
+        aria-label={label}
+        value={value ?? ""}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        className="h-8 shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-xs disabled:opacity-50"
+      >
+        <option value="">
+          {resolvedName ? `Default (${resolvedName})` : "No preference"}
+        </option>
+        {types.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, Link2} from "lucide-react";
 import { KeyResultRow } from "./key-result-row";
 import { krProgressPercent } from "@/lib/okr/progress";
 import { HEALTH_LABEL, type ObjectiveHealth } from "@/lib/okr/health";
@@ -33,6 +33,8 @@ interface ObjectiveCardProps {
   onUpdateKeyResult: (krId: string, currentValue: number) => void;
   onAddKeyResult: (objectiveId: string, title: string) => void | Promise<void>;
   onEdit: (objective: Objective) => void;
+  /** #52 — link the work items this objective is delivered by. */
+  onLinkItems: (objective: Objective) => void;
   onDelete: (objectiveId: string) => void;
   orgId: string;
   projectId: string;
@@ -78,6 +80,7 @@ export function ObjectiveCard({
   onUpdateKeyResult,
   onAddKeyResult,
   onEdit,
+  onLinkItems,
   onDelete,
   orgId,
   projectId,
@@ -248,6 +251,15 @@ export function ObjectiveCard({
               >
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onLinkItems(objective);
+                }}
+              >
+                <Link2 className="mr-2 h-4 w-4" />
+                Link work items
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
