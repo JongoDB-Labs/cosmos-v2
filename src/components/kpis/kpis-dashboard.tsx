@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
+import { toChartDate } from "@/lib/charts/chart-date";
 import {
   Select,
   SelectContent,
@@ -721,7 +722,13 @@ function KpiCard({
                   fontSize: "12px",
                   color: "var(--text)",
                 }}
-                labelFormatter={(label) => new Date(Number(label)).toLocaleString()}
+                labelFormatter={(label) =>
+                  // Number() first: these labels are epoch milliseconds, and a
+                  // numeric STRING must not be date-parsed as text. Number(undefined)
+                  // is NaN, which toChartDate rejects rather than rendering
+                  // "Invalid Date" — this compiled before but could show that.
+                  toChartDate(Number(label))?.toLocaleString() ?? ""
+                }
                 formatter={(value) => [
                   `${formatValue(Number(value))}${kpi.unit ? ` ${kpi.unit}` : ""}`,
                   kpi.name,
