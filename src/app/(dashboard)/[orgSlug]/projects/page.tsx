@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { getAuthContext } from "@/lib/auth/session";
+import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import {
   getOrgById,
   getActiveProjectCountForOrg,
@@ -99,7 +100,15 @@ async function ProjectGrid({
   // Fetch the full set (including archived) so the client-side Active/Archived/
   // All filter can switch scope without a refetch. Rollups (item counts,
   // %complete, lead, active interval, next due) come batched from the cache query.
-  const projects = await getActiveProjectsForOrg(orgId, true);
+  const allProjects = await getActiveProjectsForOrg(orgId, true);
+  // getActiveProjectsForOrg is `"use cache"` keyed per ORG, so it cannot filter
+  // by actor without either leaking one user's view to another or destroying the
+  // cache. Keep the cached org-wide query, then narrow per request.
+  const listCtx = await getAuthContext(orgSlug);
+  const visibleIds = listCtx
+    ? await getVisibleProjectIds(listCtx, allProjects.map((p) => p.id))
+    : new Set<string>();
+  const projects = allProjects.filter((p) => visibleIds.has(p.id));
 
   if (projects.length === 0) {
     return (
