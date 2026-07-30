@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
 import { canManageProject } from "@/lib/rbac/scope";
 import { ProjectMembersManager } from "@/components/projects/project-members-manager";
+import { ProjectTeamsSection } from "@/components/projects/project-teams-section";
 
 type PageParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -29,11 +30,18 @@ export default async function ProjectMembersPage({ params }: PageParams) {
   const canManage = await canManageProject(ctx, project.id);
 
   return (
-    <ProjectMembersManager
-      orgId={ctx.orgId}
-      projectId={project.id}
-      projectName={project.name}
-      canManage={canManage}
-    />
+    <div className="mx-auto max-w-3xl pb-6">
+      <ProjectMembersManager
+        orgId={ctx.orgId}
+        projectId={project.id}
+        projectName={project.name}
+        canManage={canManage}
+      />
+      <ProjectTeamsSection
+        orgId={ctx.orgId}
+        projectId={project.id}
+        canManage={canManage}
+      />
+    </div>
   );
 }
