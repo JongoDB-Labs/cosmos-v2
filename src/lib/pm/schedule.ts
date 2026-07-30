@@ -63,6 +63,30 @@ export function deriveMilestone(
 
 const branchSelect = { select: { id: true, code: true, name: true } } as const;
 
+/**
+ * Which work item a milestone takes its date from, if any.
+ *
+ * A milestone marks the delivery of ONE ticket, so its date is that ticket's
+ * planned end rather than a second number someone has to keep in step. Applies
+ * only when there is EXACTLY ONE link and that item actually has a planned end:
+ *
+ *   * no links      → the milestone owns its date (7 of 20 on production)
+ *   * exactly one   → follow it (13 of 20)
+ *   * more than one → the milestone owns its date. Picking one of several
+ *     tickets would be a guess, and guessing wrong silently moves a schedule
+ *     date, so this declines rather than choosing.
+ *   * linked item has no planned end → nothing to follow; keep the milestone's.
+ */
+export function milestoneDateSource(
+  links: readonly { workItemId: string }[],
+  dueDateByItemId: ReadonlyMap<string, Date | null>,
+): { workItemId: string; dueDate: Date } | null {
+  if (links.length !== 1) return null;
+  const workItemId = links[0].workItemId;
+  const dueDate = dueDateByItemId.get(workItemId) ?? null;
+  return dueDate ? { workItemId, dueDate } : null;
+}
+
 export type DerivedMilestone = Awaited<
   ReturnType<typeof loadMilestonesWithDerived>
 >[number];
@@ -83,16 +107,33 @@ export async function loadMilestonesWithDerived(orgId: string, projectId?: strin
     new Set(milestones.flatMap((m) => m.links.map((l) => l.workItemId))),
   );
   const columnByItemId = new Map<string, string>();
+  const dueDateByItemId = new Map<string, Date | null>();
   if (linkedItemIds.length > 0) {
     // ids already scope to this org's items; no projectId filter needed (works
     // for both the project tab and the org-wide roll-up).
     const items = await prisma.workItem.findMany({
       where: { id: { in: linkedItemIds }, orgId },
-      select: { id: true, columnKey: true },
+      select: { id: true, columnKey: true, dueDate: true },
     });
-    for (const item of items) columnByItemId.set(item.id, item.columnKey);
+    for (const item of items) {
+      columnByItemId.set(item.id, item.columnKey);
+      dueDateByItemId.set(item.id, item.dueDate);
+    }
   }
 
   const now = new Date();
-  return milestones.map((m) => ({ ...m, ...deriveMilestone(m, columnByItemId, now) }));
+  return milestones.map((m) => {
+    const follows = milestoneDateSource(m.links, dueDateByItemId);
+    return {
+      ...m,
+      // The DATE follows the ticket, derived on read like the status above and
+      // never persisted — so the milestone cannot drift from the delivery it
+      // marks. Two milestones on production already had: 2026-08-10 and
+      // 2026-08-23 against tickets planned for 2026-09-25.
+      ...(follows ? { dueDate: follows.dueDate } : {}),
+      /** The work item this milestone's date follows, or null when it owns it. */
+      dateFollowsWorkItemId: follows?.workItemId ?? null,
+      ...deriveMilestone(m, columnByItemId, now),
+    };
+  });
 }

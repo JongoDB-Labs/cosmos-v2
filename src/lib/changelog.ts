@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.13",
+    date: "2026-07-30",
+    title: "A milestone shows its ticket's date, everywhere",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A milestone that marks one ticket now shows that ticket's planned end date, instead of carrying a second date that could drift from it — and some had. Changing the date on the Milestones board now moves the ticket itself, so the board, the ticket, the Gantt and the Release Timeline all agree. Milestones that aren't tied to a single ticket keep their own date exactly as before.",
+      },
+    ],
+  },
+  {
     version: "2.249.8",
     date: "2026-07-30",
     title: "Create and staff teams from a project's Members page",

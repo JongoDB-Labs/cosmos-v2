@@ -14,6 +14,9 @@ type RouteParams = {
 function loadMilestone(orgId: string, projectId: string, milestoneId: string) {
   return prisma.milestone.findFirst({
     where: { id: milestoneId, orgId, projectId },
+    // links: a date edit on a milestone that follows a ticket is redirected to
+    // that ticket, so the PATCH needs to know whether it has exactly one.
+    include: { links: true },
   });
 }
 
@@ -43,12 +46,45 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const data = updateSchema.parse(await request.json());
 
+    /**
+     * A date change on a milestone that FOLLOWS a ticket is written to the
+     * TICKET, not the milestone.
+     *
+     * The milestone's date is derived from its single linked work item's
+     * planned end (see `milestoneDateSource`). Writing the milestone row here
+     * would be overwritten by that derivation on the very next read — the edit
+     * would appear to work and then silently revert. Writing the ticket instead
+     * makes the change land in the one place every surface reads: the board,
+     * the item's own detail sheet, the Gantt and the Release Timeline all move
+     * together, which is what "change it across the org" means.
+     *
+     * Only when the milestone owns its date (no link, several links, or a
+     * ticket with no planned end) does the milestone row take the write.
+     */
+    let dateWrittenToWorkItemId: string | null = null;
+    if (data.dueDate !== undefined && existing.links.length === 1) {
+      const workItemId = existing.links[0].workItemId;
+      const item = await prisma.workItem.findFirst({
+        where: { id: workItemId, orgId },
+        select: { id: true, dueDate: true },
+      });
+      // `dueDate` non-null is the same condition milestoneDateSource follows on;
+      // if the ticket has no planned end the milestone still owns its date.
+      if (item?.dueDate) {
+        await prisma.workItem.update({
+          where: { id: item.id },
+          data: { dueDate: new Date(data.dueDate) },
+        });
+        dateWrittenToWorkItemId = item.id;
+      }
+    }
+
     const updated = await prisma.milestone.update({
       where: { id: milestoneId },
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
-        ...(data.dueDate !== undefined && { dueDate: new Date(data.dueDate) }),
+        ...(data.dueDate !== undefined && dateWrittenToWorkItemId === null && { dueDate: new Date(data.dueDate) }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.autoStatus !== undefined && { autoStatus: data.autoStatus }),
         ...(data.completedAt !== undefined && {
