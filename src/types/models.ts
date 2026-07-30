@@ -191,6 +191,13 @@ export interface Objective {
   sortOrder: number;
   /** Alignment: the objective this one ladders up to (null = top-level). */
   parentId: string | null;
+  /** The timebox this belongs to — a PI for a PI Objective, a sprint for a
+   *  sprint-level one. Null = not tied to an interval. */
+  intervalId?: string | null;
+  /** SAFe committed vs uncommitted. False = a stretch objective: planned for,
+   *  deliberately not promised, and excluded from what the interval is
+   *  accountable for. Defaults true server-side. */
+  committed?: boolean;
   createdAt: string;
   updatedAt: string;
   keyResults?: KeyResult[];

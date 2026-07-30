@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.247.3",
+    date: "2026-07-30",
+    title: "You can actually set an objective's interval and commitment now",
+    highlights: [
+      {
+        kind: "fix",
+        text: "PI Objectives shipped without a way to create one. An objective could be tied to an interval and marked committed or uncommitted in the data, but no screen offered either field — so the feature was unreachable. The OKRs board now has an interval picker and an “Uncommitted (stretch)” checkbox, on both the create row and the edit dialog.",
+      },
+      {
+        kind: "fix",
+        text: "The Objectives section on the Goals / Objectives board rendered nothing at all when a project had no objectives, so there was no sign the feature existed and no hint where objectives are created. It now says so, and points at the OKRs board.",
+      },
+    ],
+  },
+  {
     version: "2.247.2",
     date: "2026-07-29",
     title: "A comment box that starts small, and activity that names the sprint",

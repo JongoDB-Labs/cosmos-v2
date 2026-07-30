@@ -71,7 +71,24 @@ export function ObjectivesPanel({
     );
   }
 
-  if (groups.length === 0) return null;
+  // Previously `return null`, which made the whole feature invisible until an
+  // objective happened to exist — so on a project with none there was no sign it
+  // was there, and no hint where objectives are authored. Say so instead.
+  if (groups.length === 0) {
+    return (
+      <section className="space-y-2">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          Objectives
+        </h2>
+        <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-xs text-[var(--text-muted)]">
+          No objectives yet. Create them on the{" "}
+          <span className="font-medium text-[var(--text)]">OKRs</span> board — set an
+          interval there and they&rsquo;ll appear here grouped by it, with committed
+          and stretch shown separately.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-3">
