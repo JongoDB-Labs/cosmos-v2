@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.4",
+    date: "2026-07-30",
+    title: "Teams, and a switch to limit a project to its members",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A project can now have teams, managed by its manager or an org admin, and Project Settings gains a Visibility switch. Turn it on and only the project's members can see it — plus org admins and the owner, who always keep access so a project cannot be locked away from the people who administer it. Use it for work a subcontractor or partner team should not see.",
+      },
+      {
+        kind: "improvement",
+        text: "Every project stays visible to the whole organisation until someone turns that switch on, so nothing changes for existing projects.",
+      },
+    ],
+  },
+  {
     version: "2.249.3",
     date: "2026-07-30",
     title: "Choose which boards your project shows by default",
