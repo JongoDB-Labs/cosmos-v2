@@ -53,9 +53,14 @@ export function ObjectivesPanel({
     [objectives, intervals],
   );
 
-  // OKR_READ / SPRINT_READ may be denied independently of GOAL_READ. A failure
-  // hides this panel rather than breaking the Goals board around it.
-  if (objectivesQ.isError && intervalsQ.isError) return null;
+  // OKR_READ / SPRINT_READ may be denied independently of GOAL_READ. EITHER
+  // failing hides the panel rather than breaking the Goals board around it.
+  //
+  // `||`, not `&&`: with OKR_READ but not SPRINT_READ the objectives load and the
+  // intervals don't, so every group would resolve to "Unknown interval" — the
+  // same dishonest label this release removes from the activity feed. A panel
+  // that can't name the timebox an objective belongs to isn't worth showing.
+  if (objectivesQ.isError || intervalsQ.isError) return null;
 
   if (objectivesQ.isLoading || intervalsQ.isLoading) {
     return (
