@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.247.4",
+    date: "2026-07-30",
+    title: "Clearer empty state on Goals / Objectives",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Objectives section named the wrong board when a project had none, and ran two words together. It now points at the OKR View board by name.",
+      },
+    ],
+  },
+  {
     version: "2.247.3",
     date: "2026-07-30",
     title: "You can actually set an objective's interval and commitment now",

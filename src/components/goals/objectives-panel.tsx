@@ -81,9 +81,8 @@ export function ObjectivesPanel({
           Objectives
         </h2>
         <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-xs text-[var(--text-muted)]">
-          No objectives yet. Create them on the{" "}
-          <span className="font-medium text-[var(--text)]">OKRs</span> board — set an
-          interval there and they&rsquo;ll appear here grouped by it, with committed
+          No objectives yet. They&rsquo;re created on the OKR View board — give one an
+          interval there and it appears here grouped by that interval, with committed
           and stretch shown separately.
         </p>
       </section>
