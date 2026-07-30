@@ -11,7 +11,43 @@ Bump `package.json`'s `version` for every user-visible code change using SemVer:
 - **minor** (1.7.0 → 1.8.0): new features, non-breaking additions
 - **major** (1.7.0 → 2.0.0): breaking API or DB schema changes
 
-The version is surfaced in the sidebar via `NEXT_PUBLIC_APP_VERSION`, built from `npm_package_version` in `next.config.ts:5` — `package.json` is the single source of truth for what's running. Use `npm version patch|minor|major` (it edits `package.json` and creates a git tag), or edit `version` directly when you don't want the tag.
+The version is surfaced in the sidebar via `NEXT_PUBLIC_APP_VERSION`, built from `npm_package_version` in `next.config.ts:5` — `package.json` is the single source of truth for what's running.
+
+**Use `npm run release:bump <version>`, not `npm version`.** The composed-plugin tree needs the bump staged specially, and CI's "Config assertions" job fails the build unless `package.json`'s version equals the TOP `version:` in `src/lib/changelog.ts` — so every bump needs a user-facing changelog entry in the same commit.
+
+`release:bump` deliberately leaves the index and the working tree disagreeing: it stages the version-only `package.json`, then restores the composed tree **on disk**. Two consequences, in opposite directions:
+
+- In the main checkout, `scripts/plugins/sync.mjs` marks `package.json`, `package-lock.json` and `prisma/schema.prisma` skip-worktree, so edits to those files silently never commit. Run `node scripts/plugins/sync.mjs --clean` before editing them.
+- In a fresh `git worktree` nothing is skip-worktree, so a later **`git add -A` stages the restored file and reverts the bump**, and CI fails with `CHANGELOG top (X) != package.json version (Y)`.
+
+Either way: run the bump, then commit immediately with only the changelog explicitly added — never `git add -A` afterwards. Verify with `git show HEAD:package.json | grep '"version"'` before pushing.
+
+When several changes are in flight, pick the version against `origin/main` **at merge time**; a stale claim from an earlier rebase fails the parity gate.
+
+# Before you push: check `e2e/`
+
+`tsc`, `eslint` and `vitest` never load `e2e/`, so a renamed or removed UI affordance breaks Playwright silently and CI fails 15+ minutes later. The specs locate elements by accessible name — button text, tab labels, placeholders, `aria-label`s, headings.
+
+For every label you rename or remove, `grep -rn "<old label>" e2e/`. If a *seeding* affordance goes away, replace it with a shared helper in `e2e/fixtures/` rather than patching each spec. Do this **before** implementing where you can: an existing spec's selector is a constraint on your design, not just a thing to fix afterwards.
+
+# Verification
+
+- **Mutation-test your tests.** Break the source, confirm a *named* test fails, restore. A test that passes either way is worse than no test, because it reads as coverage. Watch for vacuity in React tests specifically: re-rendering an identical element lets React bail out, so a test can pass against the very bug it guards.
+- **`npx vitest run` has a large local baseline.** ~82 failures across ~31 files under `src/lib/{ai,feedback,files,ingest,org,rbac,work-items}` and `src/app/api/**` are `PrismaClientKnownRequestError`s from having no seeded test database. That set is expected; compare against it, and never let it mask a real failure in `src/components`.
+- **`tsc` catches what vitest runs straight past** — vitest does not typecheck, so a test can pass with a missing required prop. Always finish with `npx tsc --noEmit 2>&1 | grep -v "^\.next/"`.
+- **Validate a migration by applying it**, from scratch, to a throwaway database — then assert the behaviour it promises (defaults on existing rows, `ON DELETE` semantics), not just that it applied.
+- **A green pipeline is not a delivered feature.** Deployment is pull-based: CI publishes an image and the Foreman daemon polls and deploys it. After it lands, drive the actual screen.
+
+# Concurrent agents need separate worktrees
+
+Two agents sharing one working tree destroy each other's uncommitted work — a branch switch in a shared checkout discards the other's edits and can land a commit on the wrong branch. Give each concurrent worker its own:
+
+```
+git worktree add <dir> origin/main -b <branch>
+cd <dir> && npm ci && npx prisma generate
+```
+
+`prisma generate` is not optional — without it `tsc` reports dozens of phantom errors in `prisma/seed/**` and `e2e/**`. Note a worktree checks out **tracked files only**, so anything gitignored (`node_modules`, `.env`, `CLAUDE.md`) is absent and must be symlinked or copied in.
 
 # Container image: never bake secrets in
 
