@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,9 +32,6 @@ interface OkrBoardProps {
 }
 
 export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
-  const [objectives, setObjectives] = useState<Objective[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newCommitted, setNewCommitted] = useState(true);
@@ -48,7 +48,6 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   // product could write them.
   const [editCommitted, setEditCommitted] = useState(true);
   const [editIntervalId, setEditIntervalId] = useState("");
-  const [intervals, setIntervals] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Objective | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -56,43 +55,57 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
-  // Refetch all objectives (with their key results). Reused on mount and after a
-  // check-in (which changes value + progress + RAG + confidence).
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${basePath}/objectives`);
-      if (!res.ok) throw new Error("Failed to load objectives");
-      setObjectives(await res.json());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, [basePath]);
+  /**
+   * Objectives live in the SHARED React Query cache, not local state.
+   *
+   * This board and the Goals / Objectives panel show the same Objective rows,
+   * and both can now create them. While this board kept its list in `useState`
+   * fed by a bare `fetch`, a create on either screen was invisible to the other
+   * until a reload — two boards, one record, two answers. Reading and writing
+   * `useOrgQueryKey("objectives", projectId)` — the key the panel already
+   * used — makes both surfaces one cache entry, so either screen's write shows
+   * up on the other immediately.
+   */
+  const queryClient = useQueryClient();
+  const objectivesKey = useOrgQueryKey("objectives", projectId);
+  const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  useEffect(() => {
-    // Intended one-shot mount fetch (reload also sets loading/error state).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void reload();
-  }, [reload]);
+  const {
+    data: objectives = [],
+    isLoading: loading,
+    isError,
+  } = useQuery({
+    queryKey: objectivesKey,
+    queryFn: () => jsonFetch<Objective[]>(`${basePath}/objectives`),
+  });
+  const error = isError ? "Failed to load objectives" : null;
 
-  // Intervals for the timebox picker. SPRINT_READ can be denied independently of
-  // OKR_READ, so a failure just leaves the picker empty rather than breaking the
-  // board — an objective simply stays untimeboxed.
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${basePath}/intervals`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => {
-        if (!cancelled) setIntervals(Array.isArray(d) ? d : []);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [basePath]);
+  // Intervals for the timebox picker, on the key the panel already reads.
+  // SPRINT_READ can be denied independently of OKR_READ, so a failure just
+  // leaves the picker empty rather than breaking the board — an objective
+  // simply stays untimeboxed.
+  const { data: intervals = [] } = useQuery({
+    queryKey: intervalsKey,
+    queryFn: () => jsonFetch<{ id: string; name: string }[]>(`${basePath}/intervals`),
+    retry: false,
+  });
+
+  // Drop-in for the old `setObjectives`, writing straight into the shared cache
+  // so the optimistic reorder and its rollback keep working unchanged. Plain
+  // functions, not `useCallback` — nothing here is memoized, and a stable
+  // identity would have to be keyed on the query key, which is a fresh array
+  // every render.
+  function setObjectives(
+    next: Objective[] | ((prev: Objective[]) => Objective[]),
+  ) {
+    queryClient.setQueryData<Objective[]>(objectivesKey, (prev) =>
+      typeof next === "function" ? next(prev ?? []) : next,
+    );
+  }
+
+  function reload() {
+    void queryClient.invalidateQueries({ queryKey: objectivesKey });
+  }
 
   async function handleAddObjective() {
     if (!newTitle.trim()) return;

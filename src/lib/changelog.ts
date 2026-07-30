@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.248.0",
+    date: "2026-07-30",
+    title: "Create objectives on Goals / Objectives, not just the OKR board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can add an objective straight from the Goals / Objectives board — title, interval and committed-or-stretch — instead of having to go to the OKR View board for it. That board is optional, so on a project without it there was previously no way to create an objective at all, even though the section describing them was right there.",
+      },
+      {
+        kind: "improvement",
+        text: "The two boards now stay in step. They show the same objectives, and an objective created on either one appears on the other immediately rather than after a reload.",
+      },
+    ],
+  },
+  {
     version: "2.247.5",
     date: "2026-07-30",
     title: "Each line of effort listed once when you log PM work",
