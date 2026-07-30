@@ -1,3 +1,12 @@
+// SCOPING NOTE — getActiveProjectsForOrg is `use cache`, keyed per ORG.
+//
+// It deliberately does NOT narrow by actor: the cache is shared across everyone
+// in the org, so filtering inside it would either serve one user's view to
+// another or destroy the cache entirely. Narrowing happens at each CALL SITE
+// instead — see projects/page.tsx and the org dashboard, which both run
+// getVisibleProjectIds over the cached result.
+//
+// If you add a new consumer of this function, filter it there.
 /**
  * Data-layer cache helpers for high-traffic read paths.
  *

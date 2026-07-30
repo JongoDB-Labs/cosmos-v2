@@ -17,6 +17,7 @@
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { evaluateAccess } from "@/lib/abac/engine";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 /**
  * Resolve the set of Project.ids in `orgId` the actor may read work items from.
@@ -27,12 +28,16 @@ import { evaluateAccess } from "@/lib/abac/engine";
 export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]> {
   const projects = await prisma.project.findMany({
     where: { orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, teamScopedAccess: true },
   });
   if (projects.length === 0) return [];
 
   // OWNER break-glass — every project, no policy evaluation needed.
   if (ctx.orgRole === "OWNER") return projects.map((p) => p.id);
+
+  // Admins keep access to every project, matching isProjectVisible — a project
+  // must not be lockable away from the people who administer it.
+  const adminEverywhere = hasPermission(ctx.permissions, Permission.PROJECT_MANAGE);
 
   // Does any rule the actor carries reference ITEM_READ with an in_project
   // predicate? If not, no per-project resolution is needed — fast path.
@@ -45,8 +50,15 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
 
   // Pre-resolve the actor's project memberships once (userId → OrgMember.id →
   // ProjectMember.projectId), only if a relevant policy actually needs it.
+  // teamScopedAccess ALSO needs memberships, independently of any policy. This
+  // is the leak that shipped: a restricted project the actor was not on still
+  // came back here, so the org-wide Issues list, its facets, the activity feed
+  // and export all showed its work items — the page layout was gated but this
+  // was not. Reported in production on 2.249.7.
+  const hasRestricted = projects.some((p) => p.teamScopedAccess);
+
   let memberProjectIds = new Set<string>();
-  if (needsProjectMembership) {
+  if (needsProjectMembership || (hasRestricted && !adminEverywhere)) {
     const member = await prisma.orgMember.findUnique({
       where: { orgId_userId: { orgId: ctx.orgId, userId: ctx.userId } },
       select: { id: true },
@@ -61,6 +73,10 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
   }
 
   return projects
+    // Team scoping first: it is a visibility question, decided before any
+    // policy evaluation, and short-circuits to true for every unrestricted
+    // project — which is every project until someone opts one in.
+    .filter((p) => !p.teamScopedAccess || adminEverywhere || memberProjectIds.has(p.id))
     .filter((p) =>
       evaluateAccess({
         effectivePermissions: ctx.permissions,

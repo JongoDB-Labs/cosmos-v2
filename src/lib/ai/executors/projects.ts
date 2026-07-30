@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -71,7 +72,7 @@ export async function listProjects(
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
 
-  const projects = await prisma.project.findMany({
+  const allProjects = await prisma.project.findMany({
     where: {
       orgId: ctx.orgId,
       ...(parsed.data.includeArchived ? {} : { archived: false }),
@@ -88,6 +89,15 @@ export async function listProjects(
       updatedAt: true,
     },
   });
+
+  // The assistant must not narrate a project the asker cannot open. Same rule
+  // as every other surface; short-circuits when nothing in the org is limited.
+  const visible = await visibleProjectIdsForActor(
+    ctx.orgId,
+    ctx.userId,
+    allProjects.map((p) => p.id),
+  );
+  const projects = allProjects.filter((p) => visible.has(p.id));
 
   // No query ⇒ unchanged behavior (all active projects, recent-first).
   const q = parsed.data.query?.trim();

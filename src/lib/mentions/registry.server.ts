@@ -10,6 +10,7 @@
  * the route layer (ORG_READ), matching the existing /search route.
  */
 import { prisma } from "@/lib/db/client";
+import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import {
   ENTITY_ORDER,
   type EntityRef,
@@ -134,22 +135,31 @@ const HANDLERS: Record<EntityType, Handler> = {
     },
   },
   project: {
-    async search(q, { orgId }, take) {
+    // Both paths narrow to the projects this actor may SEE. Without it, a
+    // project limited to its members stayed discoverable by name through
+    // @-mention search — the pages and the Issues list were gated, this was not.
+    async search(q, { orgId, userId }, take) {
       const rows = await prisma.project.findMany({
         where: { orgId, name: ci(q), archived: false },
         select: { id: true, name: true, key: true },
         take,
         orderBy: { name: "asc" },
       });
-      return rows.map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
+      const visible = await visibleProjectIdsForActor(orgId, userId, rows.map((r) => r.id));
+      return rows
+        .filter((r) => visible.has(r.id))
+        .map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
     },
-    async resolve(ids, { orgId }) {
+    async resolve(ids, { orgId, userId }) {
       if (ids.length === 0) return [];
       const rows = await prisma.project.findMany({
         where: { orgId, id: { in: ids } },
         select: { id: true, name: true, key: true },
       });
-      return rows.map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
+      const visible = await visibleProjectIdsForActor(orgId, userId, rows.map((r) => r.id));
+      return rows
+        .filter((r) => visible.has(r.id))
+        .map((r) => ({ id: r.id, title: r.name, projectKey: r.key, sublabel: r.key }));
     },
   },
   note: {
