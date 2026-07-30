@@ -202,6 +202,12 @@ export interface Objective {
   updatedAt: string;
   keyResults?: KeyResult[];
   owner?: OrgMember;
+  /** #52 — the work items this objective is delivered by. */
+  linkedItems?: KeyResultLinkedItem[];
+  linkedTotal?: number;
+  linkedDone?: number;
+  /** True when `progress` came from linked delivery rather than key results. */
+  autoTracked?: boolean;
 }
 
 /** A ticket linked to a Key Result (as returned in the objectives payload). */

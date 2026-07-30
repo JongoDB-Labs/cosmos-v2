@@ -22,6 +22,8 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
       key: true,
       description: true,
       enabledFeatures: true,
+      krLinkTypeId: true,
+      objectiveLinkTypeId: true,
       settings: true,
     },
   });
@@ -47,6 +49,8 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
         projectDescription={project.description ?? ""}
         enabledFeatures={project.enabledFeatures}
         disabledBoardTypes={disabledBoardTypes}
+        krLinkTypeId={project.krLinkTypeId}
+        objectiveLinkTypeId={project.objectiveLinkTypeId}
       />
       <MentionedIn
         orgId={ctx.orgId}

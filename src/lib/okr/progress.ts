@@ -37,3 +37,34 @@ export function krProgressPercent(
 ): number {
   return Math.round(krFraction(start, current, target, lowerIsBetter) * 100);
 }
+
+/**
+ * An objective's whole-percent progress.
+ *
+ * Key results win when the objective has any: that is the established roll-up
+ * and changing it would move numbers people already read.
+ *
+ * An objective with NO key results used to be hardcoded to 0 — permanently, no
+ * matter what was happening underneath. That is the gap #52 closes: an
+ * objective tracked by linked delivery (Features) now reports how much of that
+ * delivery is done. Because the only objectives affected are the ones that
+ * previously read a constant 0 AND have links (a capability that did not exist
+ * before), no pre-existing figure can change.
+ *
+ * Order matters and is deliberate: KRs first, then links, then 0.
+ */
+export function objectiveProgressPercent(
+  keyResultPercents: readonly number[],
+  linkedTotal: number,
+  linkedDone: number,
+): number {
+  if (keyResultPercents.length > 0) {
+    return Math.round(
+      keyResultPercents.reduce((sum, p) => sum + p, 0) / keyResultPercents.length,
+    );
+  }
+  if (linkedTotal > 0) {
+    return Math.round((Math.min(linkedDone, linkedTotal) / linkedTotal) * 100);
+  }
+  return 0;
+}

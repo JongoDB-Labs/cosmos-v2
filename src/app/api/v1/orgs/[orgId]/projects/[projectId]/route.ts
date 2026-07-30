@@ -37,6 +37,14 @@ const updateProjectSchema = z.object({
   // allowed). Persisted under settings.disabledBoardTypes; the New-board gallery
   // hides these and the board POST route rejects them.
   disabledBoardTypes: z.array(z.nativeEnum(BoardType)).optional(),
+  // Which work-item TYPE the KR / objective link pickers offer first. A
+  // `workItemTypeId`, never a constructed type key — "Feature" is a CUSTOM type
+  // whose key is BARE in some orgs (see src/lib/okr/link-type-default.ts).
+  // `null` clears the setting and falls back to the type named "Feature".
+  // Not validated against work_item_types on purpose: a retired type must
+  // degrade to that fallback rather than 400 the whole update.
+  krLinkTypeId: z.string().uuid().nullable().optional(),
+  objectiveLinkTypeId: z.string().uuid().nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -126,6 +134,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }),
         ...(data.archived !== undefined && { archived: data.archived }),
         ...(data.enabledFeatures !== undefined && { enabledFeatures: data.enabledFeatures }),
+        ...(data.krLinkTypeId !== undefined && { krLinkTypeId: data.krLinkTypeId }),
+        ...(data.objectiveLinkTypeId !== undefined && {
+          objectiveLinkTypeId: data.objectiveLinkTypeId,
+        }),
       },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },

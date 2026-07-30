@@ -7,7 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { krProgressPercent } from "@/lib/okr/progress";
+import { krProgressPercent, objectiveProgressPercent } from "@/lib/okr/progress";
 import { objectiveHealth } from "@/lib/okr/health";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -42,6 +42,22 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
             },
           },
         },
+        // #52 — the delivery this objective is tracked against.
+        links: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            workItem: {
+              select: {
+                id: true,
+                ticketNumber: true,
+                title: true,
+                columnKey: true,
+                completedAt: true,
+                workItemTypeId: true,
+              },
+            },
+          },
+        },
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
@@ -66,20 +82,31 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           linkedItems,
         };
       });
-      const progress =
-        keyResults.length === 0
-          ? 0
-          : Math.round(
-              keyResults.reduce(
-                (sum, kr) =>
-                  sum + krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
-                0,
-              ) / keyResults.length,
-            );
+      // #52 — the work items this objective is delivered by. Key results still
+      // win the roll-up; these only speak for an objective that has none, which
+      // previously reported a permanent 0.
+      const linkedItems = o.links.map((l) => l.workItem);
+      const linkedTotal = linkedItems.length;
+      const linkedDone = linkedItems.filter((w) => w.completedAt != null).length;
+
+      const progress = objectiveProgressPercent(
+        keyResults.map((kr) =>
+          krProgressPercent(kr.startValue, kr.currentValue, kr.targetValue, kr.lowerIsBetter),
+        ),
+        linkedTotal,
+        linkedDone,
+      );
       return {
         ...o,
+        links: undefined,
         keyResults,
         progress,
+        // `autoTracked` mirrors the KR vocabulary: the number is derived from
+        // delivery rather than typed in.
+        autoTracked: keyResults.length === 0 && linkedTotal > 0,
+        linkedTotal,
+        linkedDone,
+        linkedItems,
         health: objectiveHealth(progress, o.targetDate, o.status, o.createdAt),
       };
     });
