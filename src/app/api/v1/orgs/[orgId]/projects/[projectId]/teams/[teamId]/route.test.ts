@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
-import { OrgRole, ProjectRole } from "@prisma/client";
+import { OrgRole } from "@prisma/client";
 
 const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
