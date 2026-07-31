@@ -59,6 +59,12 @@ export interface BoardFilters {
    * work is what is assigned to its members — items carry no team of their
    * own — so an item can match more than one team. See lib/teams/item-teams.
    */
+  /**
+   * Selected labels. An item matches if it carries ANY of them — unlike Type or
+   * Priority, an item has many labels, so this is an intersection rather than a
+   * membership test. See lib/work-items/label-filter.
+   */
+  labels: string[];
   teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
@@ -76,6 +82,7 @@ export const emptyFilters: BoardFilters = {
   priorities: [],
   assigneeId: null,
   intervalId: null,
+  labels: [],
   teamId: null,
   swimlaneBy: "none",
   customFields: {},
@@ -94,6 +101,12 @@ interface FilterBarProps {
    * that have no team concept (and the table view) are unaffected.
    */
   teams?: { id: string; name: string }[];
+  /**
+   * Labels actually present on THIS board's items. Derived from what is on
+   * screen rather than the org catalog, so the menu never offers a label that
+   * cannot match anything — same precedent as presentTypeKeys.
+   */
+  presentLabelNames?: string[];
   /**
    * Org id, used to load the org's ACTUAL work-item types so the Type filter
    * lists custom types (e.g. "Feature") alongside the built-ins instead of a
@@ -161,6 +174,7 @@ export function serializeFilters(filters: BoardFilters): string {
   if (filters.priorities.length > 0)
     params.set("priority", filters.priorities.join(","));
   if (filters.assigneeId) params.set("assignee", filters.assigneeId);
+  if (filters.labels.length > 0) params.set("label", filters.labels.join(","));
   if (filters.teamId) params.set("team", filters.teamId);
   if (filters.intervalId) params.set("interval", filters.intervalId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
@@ -200,6 +214,7 @@ export function parseFilters(
     types: types ? types.split(",").filter(Boolean) : [],
     priorities: priorities ? priorities.split(",").filter(Boolean) : [],
     assigneeId: params.get("assignee") || null,
+    labels: (params.get("label") || "").split(",").filter(Boolean),
     teamId: params.get("team") || null,
     intervalId: params.get("interval") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
@@ -304,6 +319,7 @@ export function FilterBar({
   members,
   intervals,
   teams = [],
+  presentLabelNames = [],
   orgId,
   showSwimlane = false,
   customFields = [],
@@ -361,6 +377,7 @@ export function FilterBar({
     filters.types.length > 0 ||
     filters.priorities.length > 0 ||
     filters.assigneeId !== null ||
+    filters.labels.length > 0 ||
     filters.teamId !== null ||
     filters.intervalId !== null ||
     filters.swimlaneBy !== "none" ||
@@ -413,6 +430,15 @@ export function FilterBar({
         onChange={(types) => onFilterChange({ ...filters, types })}
         colorMap={typeColorMap}
       />
+
+      {presentLabelNames.length > 0 && (
+        <MultiSelectMenu
+          label="Label"
+          options={presentLabelNames}
+          selected={filters.labels}
+          onChange={(labels) => onFilterChange({ ...filters, labels })}
+        />
+      )}
 
       <MultiSelectMenu
         label="Priority"

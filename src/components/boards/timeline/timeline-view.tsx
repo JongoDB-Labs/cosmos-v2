@@ -40,6 +40,7 @@ import {
   itemMatchesTeam,
   type TeamLike,
 } from "@/lib/teams/item-teams";
+import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
@@ -233,6 +234,7 @@ export function matchesFilters(
   if (f.intervalId && item.intervalId !== f.intervalId) return false;
   // A team's work is what its members are assigned; an item can match several.
   if (!itemMatchesTeam(item.assigneeId, f.teamId, teamsByUserId)) return false;
+  if (!matchesLabelFilter(item.tags, f.labels)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -400,6 +402,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
   const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
+  const presentLabelNames = useMemo(() => presentLabels(items), [items]);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
@@ -1239,6 +1242,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           members={members}
           intervals={intervals}
           teams={teams}
+          presentLabelNames={presentLabelNames}
           orgId={orgId}
           customFields={projectCustomFields}
           presentTypeKeys={presentTypeKeys}

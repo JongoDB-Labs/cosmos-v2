@@ -37,6 +37,7 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
+import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import {
   teamsByUser,
   teamLaneFor,
@@ -414,6 +415,7 @@ function KanbanBoardInner({
   // Apply filters
   // Rebuilt only when the roster changes, not per item.
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
+  const presentLabelNames = useMemo(() => presentLabels(items), [items]);
 
   const filteredItems = items.filter((item) => {
     if (
@@ -451,6 +453,9 @@ function KanbanBoardInner({
     // both — filtering to one team must not hide work whose owner also helps
     // out elsewhere.
     if (!itemMatchesTeam(item.assigneeId, filters.teamId, teamsByUserId)) {
+      return false;
+    }
+    if (!matchesLabelFilter(item.tags, filters.labels)) {
       return false;
     }
     if (
@@ -913,6 +918,7 @@ function KanbanBoardInner({
         members={members}
         intervals={intervals}
         teams={teams}
+        presentLabelNames={presentLabelNames}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
