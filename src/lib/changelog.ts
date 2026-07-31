@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.10",
+    date: "2026-07-30",
+    title: "Member-only projects hold on three more screens",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a project is limited to its own members, three screens still answered for anyone in the organisation who held the matching permission — the project's own work-item list, and a key result's linked tickets and check-ins. They now apply the same members-only rule as everywhere else. No project is affected unless it has that limit switched on.",
+      },
+    ],
+  },
+  {
     version: "2.249.9",
     date: "2026-07-30",
     title: "Milestones stay in step across every screen that shows them",

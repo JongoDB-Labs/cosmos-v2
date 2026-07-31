@@ -4,6 +4,8 @@ import { RagStatus, KeyResultStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
+import { isProjectVisible } from "@/lib/rbac/project-access";
+import { ForbiddenError } from "@/lib/rbac/check";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { krFraction } from "@/lib/okr/progress";
 
@@ -47,10 +49,19 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const kr = await loadScopedKr(orgId, projectId, krId);
     if (!kr) return new Response("Not found", { status: 404 });
 
+    // NOT `requireProjectRead` here: it rebuilds the attribute bag as
+    // `{orgId, projectId}` and would DROP `objectiveId`, weakening any ABAC
+    // policy written against a specific objective. So the two halves are done
+    // explicitly — the richer requireAccess, then the same team-scoping check
+    // requireProjectRead performs — which is equivalent for visibility and
+    // strictly stronger for policy.
     await requireAccess(ctx, "OKR_READ", {
       projectId: kr.objective.projectId,
       objectiveId: kr.objectiveId,
     });
+    if (!(await isProjectVisible(ctx, kr.objective.projectId))) {
+      throw new ForbiddenError("Access denied by policy");
+    }
 
     const checkins = await prisma.keyResultCheckin.findMany({
       where: { keyResultId: krId },
