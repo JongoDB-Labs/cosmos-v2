@@ -38,3 +38,23 @@ export function deriveMilestoneDueDate(
   // so the earliest date would mark it met while work remains outstanding.
   return dates.reduce((a, b) => (b.getTime() > a.getTime() ? b : a));
 }
+
+/**
+ * Is this milestone's due date derived right now — i.e. NOT the user's to type?
+ *
+ * The edit dialog sends `dueDate` on every submit, including a plain rename, and
+ * the API stores it. When the date is derived that stored value is discarded on
+ * the next read, so the edit appears to work and then reverts. The UI uses this
+ * to say so plainly instead: while the date follows linked work the field is
+ * read-only, and turning Auto status off hands it back.
+ *
+ * Callers here know only the link COUNT, not whether the linked items carry
+ * dates. That is deliberately coarser than `deriveMilestoneDueDate`, which keeps
+ * the stored date when no linked item has one — so a milestone whose links are
+ * all undated is shown as read-only while its stored date would in fact have
+ * stuck. The cost of that corner is one toggle; the cost of the opposite error
+ * is an edit that silently disappears, which is the bug being fixed.
+ */
+export function dueDateFollowsLinkedWork(autoStatus: boolean, linkCount: number): boolean {
+  return autoStatus && linkCount > 0;
+}

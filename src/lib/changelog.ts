@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.17",
+    date: "2026-07-31",
+    title: "The milestone date field tells you when it isn't yours to set",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a milestone follows its linked work, its due date comes from that work — so typing a date into the edit dialog was saved and then immediately replaced, with nothing explaining why. The field is now read-only in that case and says what it follows. Turning Auto status off hands it straight back, no save required.",
+      },
+    ],
+  },
+  {
     version: "2.249.16",
     date: "2026-07-31",
     title: "A board can belong to a team",
