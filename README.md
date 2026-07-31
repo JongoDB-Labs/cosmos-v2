@@ -454,3 +454,15 @@ are baked); see [`AGENTS.md`](AGENTS.md).
   auto-remediation, observability, public hostname & TLS, and secret rotation.
   Many are NIST 800-171 control-mapped.
 - **Contributor conventions** — [`AGENTS.md`](AGENTS.md). Read it first.
+
+---
+
+## License
+
+Licensed under the **GNU Affero General Public License v3.0** — see
+[LICENSE](LICENSE) for the full text.
+
+AGPL-3.0 is a network copyleft license: if you modify this software and make it
+available to users over a network, you must also offer those users the
+corresponding source. For alternative licensing terms, open an issue to start a
+conversation.
