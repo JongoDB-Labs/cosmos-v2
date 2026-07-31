@@ -6,6 +6,8 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { timesheetIdForEntry, isTimesheetOpen } from "@/lib/time/timesheet";
+import { recordRevision } from "@/lib/time/revisions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -46,6 +48,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         // are the SAME 404 — a 403 here would confirm an entry exists, which is
         // itself information an actor without access should not obtain.
         userId: timeUserIdFilter(await readableTimeUserIds(ctx)),
+        // A voided entry reads as gone, same 404 as one that never existed.
+        voidedAt: null,
       },
     });
 
@@ -95,9 +99,35 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateTimeEntrySchema.parse(body);
 
+    // Once a period is submitted or approved, its hours must not move — that is
+    // the whole point of approving them. Checked even for admins: an approved
+    // period changing silently is exactly what an audit trail exists to catch.
+    if (!(await isTimesheetOpen(existing.timesheetId))) {
+      return new Response(
+        JSON.stringify({ error: "This timesheet has been submitted and can no longer be edited" }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // Moving an entry's date can move it to a DIFFERENT pay period, which
+    // reparents it. Refuse if the destination period is already settled,
+    // otherwise hours could be walked into a closed period after the fact.
+    let timesheetId = existing.timesheetId;
+    if (data.date) {
+      const destination = await timesheetIdForEntry(orgId, existing.userId, data.date);
+      if (destination !== existing.timesheetId && !(await isTimesheetOpen(destination))) {
+        return new Response(
+          JSON.stringify({ error: "That date falls in a timesheet that has already been submitted" }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      timesheetId = destination;
+    }
+
     const updated = await prisma.timeEntry.update({
       where: { id: entryId },
       data: {
+        timesheetId,
         ...(data.date !== undefined && data.date !== null && { date: new Date(data.date) }),
         ...(data.hours !== undefined && { hours: data.hours }),
         ...(data.rate !== undefined && { rate: data.rate }),
@@ -109,6 +139,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.billableType !== undefined && { billableType: data.billableType }),
         ...(data.tags !== undefined && { tags: data.tags }),
       },
+    });
+
+    // Values, not just field names: "hours changed" cannot answer "changed from
+    // what?". Written AFTER the update so a failed write leaves no history of a
+    // change that did not happen.
+    await recordRevision({
+      orgId,
+      timeEntryId: entryId,
+      before: existing as unknown as Record<string, unknown>,
+      after: updated as unknown as Record<string, unknown>,
+      actorId: ctx.userId,
+      actorIp: getIpAddress(request),
     });
 
     await logAudit({
@@ -137,7 +179,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
 
     const existing = await prisma.timeEntry.findFirst({
-      where: { id: entryId, orgId },
+      // An already-voided entry is gone as far as callers are concerned, so
+      // voiding it again is a 404 rather than a second void record.
+      where: { id: entryId, orgId, voidedAt: null },
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
@@ -161,12 +205,43 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    await prisma.timeEntry.delete({ where: { id: entryId } });
+    // VOID, not DELETE. The row and its hours are retained; every read filters
+    // `voidedAt: null`, so the caller sees exactly what a delete looked like.
+    // Hard deletion would make the dataset inadmissible — an auditor cannot
+    // distinguish "never entered" from "removed after the fact" — and this is
+    // the record a timesheet exists to produce.
+    // An optional { reason } body. The current client sends no body at all on
+    // DELETE, so parsing must never throw — a missing reason is allowed here
+    // and becomes mandatory only under a strict timekeeping policy.
+    let reason: string | null = null;
+    try {
+      const parsed = (await request.json()) as { reason?: unknown };
+      if (typeof parsed?.reason === "string" && parsed.reason.trim()) {
+        reason = parsed.reason.trim();
+      }
+    } catch {
+      /* no body, or not JSON — reason stays null */
+    }
+
+    const voided = await prisma.timeEntry.update({
+      where: { id: entryId },
+      data: { voidedAt: new Date(), voidedById: ctx.userId, voidReason: reason },
+    });
+
+    await recordRevision({
+      orgId,
+      timeEntryId: entryId,
+      before: existing as unknown as Record<string, unknown>,
+      after: voided as unknown as Record<string, unknown>,
+      actorId: ctx.userId,
+      actorIp: getIpAddress(request),
+      reason,
+    });
 
     await logAudit({
       orgId,
       userId: ctx.userId,
-      action: "time_entry.deleted",
+      action: "time_entry.voided",
       entity: "time_entry",
       entityId: entryId,
       ipAddress: getIpAddress(request),

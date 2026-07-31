@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.251.0",
+    date: "2026-08-01",
+    title: "Time entries keep their history",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Deleting a time entry no longer erases it. The entry disappears from your timesheet exactly as before, but the record is kept — who removed it, when, and optionally why. A timekeeping record that can be silently deleted cannot be used to answer an audit, or to settle a billing dispute.",
+      },
+      {
+        kind: "feature",
+        text: "Every edit to a time entry is now recorded with the actual values — what it said before, what it says now, and who changed it. Previously the log only noted that \"hours changed\", which cannot answer \"changed from what?\".",
+      },
+      {
+        kind: "improvement",
+        text: "Hours are now grouped into pay periods, which is what approval, payroll and invoicing all work in. Existing entries were filed into the week they were already logged against; nothing moved.",
+      },
+    ],
+  },
+  {
     version: "2.250.5",
     date: "2026-08-01",
     title: "The Project Manager role fits its name",

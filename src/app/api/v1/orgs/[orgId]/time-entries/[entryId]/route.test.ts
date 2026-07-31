@@ -19,8 +19,10 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
-    timeEntry: { findFirst: vi.fn() },
+    timeEntry: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     employee: { findMany: vi.fn() },
+    timesheet: { findUnique: vi.fn(), upsert: vi.fn() },
+    timeEntryRevision: { create: vi.fn() },
   },
 }));
 
@@ -28,7 +30,7 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 
-import { GET } from "./route";
+import { GET, DELETE } from "./route";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ACTOR_ID = "44444444-4444-4444-4444-444444444444";
@@ -151,5 +153,127 @@ describe("GET /time-entries/[entryId] — read scoping", () => {
 
     expect(res.status).toBe(403);
     expect(prisma.timeEntry.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Delete became VOID. Hard deletion makes a timekeeping dataset inadmissible —
+ * an auditor cannot distinguish "never entered" from "removed after the fact" —
+ * so the row and its hours are retained and every read filters them out.
+ *
+ * The caller sees exactly what a delete looked like (204, entry gone from
+ * lists), which is why these assert the DATABASE CALL rather than the response:
+ * a response-only test passes identically against a real delete.
+ */
+describe("DELETE /time-entries/[entryId] — voids, never deletes", () => {
+  const DRAFT_ENTRY = {
+    id: ENTRY_ID,
+    userId: ACTOR_ID,
+    orgId: ORG_ID,
+    status: "DRAFT",
+    hours: 8,
+    timesheetId: "ts-1",
+  };
+
+  /** The `data` of the most recent update() call. Typed so `tsc` is satisfied
+   *  without scattering non-null assertions through the assertions. */
+  function lastUpdateData(): Record<string, unknown> {
+    const call = prisma.timeEntry.update.mock.calls.at(-1);
+    if (!call) throw new Error("timeEntry.update was never called");
+    return (call[0] as { data: Record<string, unknown> }).data;
+  }
+
+  function lastRevisionData(): Record<string, unknown> {
+    const call = prisma.timeEntryRevision.create.mock.calls.at(-1);
+    if (!call) throw new Error("timeEntryRevision.create was never called");
+    return (call[0] as { data: Record<string, unknown> }).data;
+  }
+
+  function deleteRequest(body?: unknown): NextRequest {
+    return new NextRequest(
+      `http://localhost/api/v1/orgs/o/time-entries/${ENTRY_ID}`,
+      body === undefined
+        ? { method: "DELETE" }
+        : {
+            method: "DELETE",
+            body: JSON.stringify(body),
+            headers: { "Content-Type": "application/json" },
+          },
+    );
+  }
+
+  beforeEach(() => {
+    getAuthContext.mockResolvedValue(
+      ctxWith(bits("TIME_READ", "TIME_DELETE")),
+    );
+    prisma.timeEntry.findFirst.mockResolvedValue(DRAFT_ENTRY);
+    prisma.timeEntry.update.mockResolvedValue({ ...DRAFT_ENTRY, voidedAt: new Date() });
+    prisma.timesheet.findUnique.mockResolvedValue({ status: "OPEN" });
+  });
+
+  it("never calls delete()", async () => {
+    await DELETE(deleteRequest(), { params });
+
+    expect(prisma.timeEntry.delete).not.toHaveBeenCalled();
+  });
+
+  it("stamps voidedAt and who did it", async () => {
+    await DELETE(deleteRequest(), { params });
+
+    const data = lastUpdateData();
+    expect(data.voidedAt).toBeInstanceOf(Date);
+    expect(data.voidedById).toBe(ACTOR_ID);
+  });
+
+  it("still answers 204, so the client behaves exactly as before", async () => {
+    const res = await DELETE(deleteRequest(), { params });
+
+    expect(res.status).toBe(204);
+  });
+
+  it("works with NO request body — the current client sends none", async () => {
+    // Parsing a body must never throw here, or every existing delete 500s.
+    const res = await DELETE(deleteRequest(), { params });
+
+    expect(res.status).toBe(204);
+    expect(lastUpdateData().voidReason).toBeNull();
+  });
+
+  it("records an optional reason when one is supplied", async () => {
+    await DELETE(deleteRequest({ reason: "logged against the wrong project" }), {
+      params,
+    });
+
+    expect(lastUpdateData().voidReason).toBe("logged against the wrong project");
+  });
+
+  it("writes a revision recording the void", async () => {
+    await DELETE(deleteRequest({ reason: "duplicate" }), { params });
+
+    expect(prisma.timeEntryRevision.create).toHaveBeenCalled();
+    const rev = lastRevisionData();
+    expect(rev.reason).toBe("duplicate");
+    expect(rev.actorId).toBe(ACTOR_ID);
+  });
+
+  it("an ALREADY-voided entry is a 404, not a second void", async () => {
+    // The mock HONOURS the where-clause. A fixed null would pass whether or not
+    // the route filtered `voidedAt: null` — it would only assert "null yields
+    // 404", which was never in doubt. Here the row EXISTS and is voided, so
+    // only a route that actually filters gets nothing back.
+    const alreadyVoided = { ...DRAFT_ENTRY, voidedAt: new Date("2026-07-01") };
+    prisma.timeEntry.findFirst.mockImplementation(
+      ({ where }: { where: { voidedAt?: null } }) =>
+        Promise.resolve(
+          where.voidedAt === null && alreadyVoided.voidedAt !== null
+            ? null
+            : alreadyVoided,
+        ),
+    );
+
+    const res = await DELETE(deleteRequest(), { params });
+
+    expect(res.status).toBe(404);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
   });
 });
