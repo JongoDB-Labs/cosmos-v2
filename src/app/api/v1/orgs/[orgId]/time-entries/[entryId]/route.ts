@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
+import { canReadAllTime, redactRates } from "@/lib/time/visibility";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -35,12 +36,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.TIME_READ);
 
     const entry = await prisma.timeEntry.findFirst({
-      where: { id: entryId, orgId },
+      where: {
+        id: entryId,
+        orgId,
+        // Same scoping rule as the list route: without TIME_READ_ALL you see
+        // only your own. Folded into the query rather than checked after, so
+        // "not yours" and "does not exist" are the SAME 404 — a 403 here would
+        // confirm an entry exists, which is itself information an actor
+        // without access should not be able to obtain.
+        ...(canReadAllTime(ctx) ? {} : { userId: ctx.userId }),
+      },
     });
 
     if (!entry) return new Response("Not found", { status: 404 });
 
-    return success(entry);
+    return success(redactRates(ctx, [entry])[0]);
   } catch (error) {
     return handleApiError(error);
   }
