@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.13",
+    date: "2026-07-31",
+    title: "A project limited to its members is now hidden everywhere",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A project limited to its members was hidden from the projects list and its own pages, but its work items still appeared in the org-wide Issues list, its filters and the activity feed — and its name could still be found through @-mention search or by asking the assistant to list projects. All of those now respect the limit. Org admins and the owner keep access, as before, and organisations with no limited projects are unaffected.",
+      },
+    ],
+  },
+  {
     version: "2.249.12",
     date: "2026-07-30",
     title: "One Milestone type in the Issues filter, not two",

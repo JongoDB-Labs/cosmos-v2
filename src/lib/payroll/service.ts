@@ -1,3 +1,11 @@
+// SCOPING NOTE — deliberately NOT narrowed by teamScopedAccess.
+//
+// Payroll rollups are an administrative surface whose whole purpose is a
+// complete picture of cost across the org; an incomplete one is the worse
+// failure, and reaching it already requires org-level payroll permissions.
+//
+// Revisit if teamScopedAccess is ever promoted from a visibility default to a
+// hard boundary.
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { ConflictError, NotFoundError } from "@/lib/rbac/check";

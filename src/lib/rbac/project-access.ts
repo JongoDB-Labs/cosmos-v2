@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
+import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 
 /**
  * The single decision point for "may this actor READ this project?".
@@ -139,4 +140,57 @@ async function memberProjectIds(ctx: AuthContext): Promise<Set<string>> {
     select: { projectId: true },
   });
   return new Set(rows.map((r) => r.projectId));
+}
+
+/**
+ * Visibility for a surface that only knows WHO is asking, not their full
+ * AuthContext — the @-mention picker and the AI tools both have orgId + userId
+ * and nothing else.
+ *
+ * Resolves the actor's role and effective permissions itself (via the same
+ * loader HTTP routes use, so work-role grants count identically), then applies
+ * the ordinary rule. A non-member of the org sees nothing.
+ *
+ * Exists because those two surfaces leaked: both listed every project in the
+ * org by name, so a restricted project stayed discoverable through @-mention
+ * search and through asking the assistant to list projects — after the pages
+ * and the Issues list had been gated.
+ */
+export async function visibleProjectIdsForActor(
+  orgId: string,
+  userId: string,
+  projectIds: string[],
+): Promise<Set<string>> {
+  if (projectIds.length === 0) return new Set();
+
+  const projects = await prisma.project.findMany({
+    where: { id: { in: projectIds }, orgId },
+    select: { id: true, teamScopedAccess: true },
+  });
+  const unrestricted = projects.filter((p) => !p.teamScopedAccess).map((p) => p.id);
+  const restricted = projects.filter((p) => p.teamScopedAccess).map((p) => p.id);
+
+  // Nothing opted in — the common case. No role lookup, no membership query.
+  if (restricted.length === 0) return new Set(unrestricted);
+
+  const effective = await loadEffectivePermissions(orgId, userId);
+  if (!effective) return new Set(); // not a member of this org at all
+  if (
+    effective.orgRole === "OWNER" ||
+    hasPermission(effective.permissions, Permission.PROJECT_MANAGE)
+  ) {
+    return new Set([...unrestricted, ...restricted]);
+  }
+
+  const member = await prisma.orgMember.findUnique({
+    where: { orgId_userId: { orgId, userId } },
+    select: { id: true },
+  });
+  if (!member) return new Set(unrestricted);
+  const rows = await prisma.projectMember.findMany({
+    where: { orgMemberId: member.id, projectId: { in: restricted } },
+    select: { projectId: true },
+  });
+  const memberOf = new Set(rows.map((r) => r.projectId));
+  return new Set([...unrestricted, ...restricted.filter((id) => memberOf.has(id))]);
 }

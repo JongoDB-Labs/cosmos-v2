@@ -1,3 +1,12 @@
+// SCOPING NOTE — deliberately NOT narrowed by teamScopedAccess.
+//
+// Feedback remediation is a system path: it routes reported items into the
+// right project on behalf of the org, not on behalf of a viewer. Narrowing it
+// would silently drop items whose destination happens to be a limited project.
+// No project identity is returned to an end user from here.
+//
+// Revisit if teamScopedAccess is ever promoted from a visibility default to a
+// hard boundary.
 import { prisma } from "@/lib/db/client";
 import { runModelTurn } from "@/lib/ai/egress";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
