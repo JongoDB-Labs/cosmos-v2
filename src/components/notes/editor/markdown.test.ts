@@ -115,7 +115,7 @@ describe("notes markdown round-trip", () => {
 
   it("preserves a <@uuid> mention as the same token", () => {
     const id = "f1244511-9f53-4a78-b4d0-91851b50de2e";
-    const map = new Map([[id, "Jon Rannabargar"]]);
+    const map = new Map([[id, "Ada Lovelace"]]);
     const md = `Ping <@${id}> about the SSP`;
     expect(roundTrip(md, map)).toBe(md);
   });

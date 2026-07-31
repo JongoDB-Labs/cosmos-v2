@@ -4,7 +4,7 @@ import { BASE_SYSTEM_PROMPT, buildAssistantSystemPrompt } from "./assistant-prom
 describe("buildAssistantSystemPrompt — requesting-user identity injection", () => {
   const identity = {
     userId: "11111111-1111-1111-1111-111111111111",
-    name: "Jon Rannabargar",
+    name: "Ada Lovelace",
     role: "OWNER",
   };
 
@@ -15,7 +15,7 @@ describe("buildAssistantSystemPrompt — requesting-user identity injection", ()
 
   it("tells the model exactly who it is talking to (name, id, role) and keeps email out of it", () => {
     const p = buildAssistantSystemPrompt(identity);
-    expect(p).toContain("Jon Rannabargar");
+    expect(p).toContain("Ada Lovelace");
     expect(p).toContain(identity.userId);
     expect(p).toContain("OWNER");
     // GOV-mode withholds member email as PII from tool data (egress/projection.ts);
