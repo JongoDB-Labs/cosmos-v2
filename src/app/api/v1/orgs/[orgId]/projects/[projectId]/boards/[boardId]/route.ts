@@ -14,6 +14,10 @@ const updateBoardSchema = z.object({
   type: z.nativeEnum(BoardType).optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   sortOrder: z.number().int().optional(),
+  // Which team owns this board; null shares it with the whole project. Nullable
+  // rather than optional-undefined so "share it again" is expressible — the
+  // undefined case means "leave as-is", which is a different instruction.
+  teamId: z.string().uuid().nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string; boardId: string }> };
@@ -66,6 +70,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateBoardSchema.parse(body);
 
+    // A team id from another project would otherwise be accepted and make the
+    // board invisible to everyone on THIS one — the FK only proves the team
+    // exists, not that it is relevant here.
+    if (data.teamId) {
+      const team = await prisma.team.findFirst({
+        where: { id: data.teamId, projectId },
+        select: { id: true },
+      });
+      if (!team) {
+        return new Response(
+          JSON.stringify({ error: "That team is not part of this project." }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     const updated = await prisma.board.update({
       where: { id: boardId },
       data: {
@@ -73,6 +93,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.type !== undefined && { type: data.type }),
         ...(data.config !== undefined && { config: data.config as Prisma.InputJsonValue }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
+        ...(data.teamId !== undefined && { teamId: data.teamId }),
       },
       include: { columns: { orderBy: { sortOrder: "asc" } } },
     });

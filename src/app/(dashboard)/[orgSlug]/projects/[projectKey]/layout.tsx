@@ -3,6 +3,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
+import { visibleBoards } from "@/lib/rbac/board-visibility";
+import { teamIdsForActor } from "@/lib/rbac/team-membership";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
@@ -35,7 +37,7 @@ export default async function ProjectLayout({
     include: {
       boards: {
         orderBy: { sortOrder: "asc" },
-        select: { id: true, name: true, type: true, slug: true },
+        select: { id: true, name: true, type: true, slug: true, teamId: true },
       },
       projectTemplate: {
         select: { defaultConfig: true },
@@ -58,6 +60,13 @@ export default async function ProjectLayout({
   // exists is not something a non-member should be able to confirm.
   if (!(await canReadProject(ctx, project.id))) notFound();
 
+  // Which of this project's boards this person sees. A board with no team is
+  // shared with the whole project — every board until someone assigns one — so
+  // this is a no-op for existing projects.
+  const myTeamIds = await teamIdsForActor(ctx, project.id);
+  const isProjectAdminForBoards =
+    ctx.orgRole === "OWNER" || hasPermission(ctx.permissions, Permission.PROJECT_MANAGE);
+
   // Board create/delete inherit like everything else: an org grant holder OR a
   // manager of THIS project. Computed server-side and passed to the tabs so a
   // project manager without org-wide grants can still manage boards — and,
@@ -68,6 +77,10 @@ export default async function ProjectLayout({
   // the POST will actually allow: MANAGER/LEAD may, VIEWER may not, everyone
   // else falls back to their org grant exactly as before.
   const mayManageBoards = await canManageBoardsInProject(ctx, project.id);
+  const boards = visibleBoards(project.boards, {
+    teamIds: myTeamIds,
+    isProjectAdmin: isProjectAdminForBoards || isProjectManager,
+  });
   const canManageBoards =
     (hasPermission(ctx.permissions, Permission.BOARD_DELETE) && mayManageBoards) || isProjectManager;
   const canCreateBoards = mayManageBoards;
@@ -184,7 +197,7 @@ export default async function ProjectLayout({
         projectKey={projectKey}
         orgId={ctx.orgId}
         projectId={project.id}
-        boards={project.boards}
+        boards={boards}
         enabledFeatures={project.enabledFeatures}
         canManageBoards={canManageBoards}
         canCreateBoards={canCreateBoards}

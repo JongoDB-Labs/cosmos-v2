@@ -690,6 +690,7 @@ model Team {
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   members TeamMember[]
+  boards  Board[]
 
   @@unique([projectId, name])
   @@index([orgId])
@@ -741,6 +742,11 @@ model Board {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String    @map("org_id") @db.Uuid
   projectId String    @map("project_id") @db.Uuid
+  /// The team this board belongs to, or null for a board the whole project
+  /// shares. Null is the default and every existing row, so nothing narrows
+  /// until someone assigns one — the same opt-in shape as teamScopedAccess.
+  /// SetNull on team delete: losing a team must not hide its boards forever.
+  teamId    String?   @map("team_id") @db.Uuid
   name      String
   // URL slug, unique per project (prod-parity). Nullable so the additive migration
   // can land before any backfill populates existing rows (Postgres treats NULLs as
@@ -752,10 +758,14 @@ model Board {
   createdAt DateTime  @default(now()) @map("created_at")
 
   project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
   columns          BoardColumn[]
   dashboardWidgets DashboardWidget[]
 
   @@unique([projectId, slug])
+  // Filtering is always "team is null OR team is one of mine", never a bare
+  // team, so the project leads the index.
+  @@index([projectId, teamId])
   @@map("boards")
 }
 
