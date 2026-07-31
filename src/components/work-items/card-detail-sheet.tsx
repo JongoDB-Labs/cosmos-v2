@@ -225,6 +225,57 @@ export function CardDetailSheet({
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
+
+  /**
+   * Labels, editable here.
+   *
+   * The create dialog has always accepted labels, and the PUT route has always
+   * written them (`setWorkItemLabels` keeps the catalogue in step). Only this
+   * sheet was missing the control — so a label could be set when an issue was
+   * filed and never touched again, which is the parity gap reported: the same
+   * granularity when editing as when creating.
+   */
+  const [labelDraft, setLabelDraft] = useState("");
+  // Suggestions only. Plain fetch, matching how the rest of this sheet loads
+  // (comments, watch state, links) — deliberately NOT React Query: that would
+  // add a `usePathname`/QueryClient dependency to a component whose existing
+  // render sites and tests don't provide one, and a picker's suggestions are
+  // not worth that coupling. A failure just means no autocomplete.
+  const [labelCatalogue, setLabelCatalogue] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch(`/api/v1/orgs/${orgId}/labels?projectId=${projectId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        if (!cancelled) setLabelCatalogue(Array.isArray(d) ? d : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orgId, projectId]);
+
+  const tags = item?.tags ?? [];
+
+  /** Case-insensitive add; a duplicate is a no-op rather than a second chip. */
+  function addLabel(raw: string) {
+    const name = raw.trim();
+    if (!name) return;
+    if (tags.some((t) => t.toLowerCase() === name.toLowerCase())) {
+      setLabelDraft("");
+      return;
+    }
+    setLabelDraft("");
+    void patchField("tags", [...tags, name]);
+  }
+
+  function removeLabel(name: string) {
+    void patchField(
+      "tags",
+      tags.filter((t) => t !== name),
+    );
+  }
   const itemCustomFields = customFields.filter(
     (f) =>
       isRenderableCustomField(f) &&
@@ -1210,6 +1261,58 @@ export function CardDetailSheet({
                 />
               </MetadataField>
             )}
+          </div>
+
+          {/* Labels. Chips with a remove affordance plus an add box backed by the
+              org's label catalogue, so editing has the same reach as creating.
+              Each change persists immediately through the same per-field PUT the
+              rest of this sheet uses. */}
+          <Separator />
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground">Labels</h3>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs"
+                >
+                  {t}
+                  <button
+                    type="button"
+                    aria-label={`Remove label ${t}`}
+                    onClick={() => removeLabel(t)}
+                    className="text-muted-foreground transition-colors hover:text-[var(--danger,#dc2626)]"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+              {tags.length === 0 && (
+                <span className="text-xs text-muted-foreground">No labels</span>
+              )}
+            </div>
+            <input
+              list="card-detail-label-suggestions"
+              aria-label="Add label"
+              placeholder="Add a label…"
+              value={labelDraft}
+              onChange={(e) => setLabelDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addLabel(labelDraft);
+                }
+              }}
+              onBlur={() => addLabel(labelDraft)}
+              className="h-7 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-xs"
+            />
+            <datalist id="card-detail-label-suggestions">
+              {labelCatalogue
+                .filter((l) => !tags.some((t) => t.toLowerCase() === l.name.toLowerCase()))
+                .map((l) => (
+                  <option key={l.id} value={l.name} />
+                ))}
+            </datalist>
           </div>
 
           {/* Custom fields. Each def renders its typed editor; a change persists
