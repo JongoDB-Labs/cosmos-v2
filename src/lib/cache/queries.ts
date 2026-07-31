@@ -125,6 +125,11 @@ export async function getActiveProjectsForOrg(
 
   const where = includeArchived ? { orgId } : { orgId, archived: false };
 
+  // SCOPING NOTE — org-wide ON PURPOSE, and safe only because of the contract in
+  // this function's name: it is `"use cache"` keyed per ORG, so it must not vary
+  // by actor. Every caller narrows the result per request with
+  // getVisibleProjectIds. Filtering here instead would either serve one user's
+  // view to another or destroy the cache.
   const projects = await prisma.project.findMany({
     where,
     orderBy: { updatedAt: "desc" },
@@ -245,12 +250,11 @@ export async function getActiveProjectsForOrg(
   });
 }
 
-export async function getActiveProjectCountForOrg(orgId: string) {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(`org:${orgId}:projects`);
-  return prisma.project.count({ where: { orgId, archived: false } });
-}
+// getActiveProjectCountForOrg was REMOVED. It counted every active project in
+// the org with no actor, so every header showed the full total even when the
+// list beneath it was correctly narrowed — see countVisibleActiveProjects in
+// lib/projects/visible-count.ts, which derives the number from the set the
+// actor can actually open.
 
 // ---------------------------------------------------------------------------
 // Member lookups

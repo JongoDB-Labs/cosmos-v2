@@ -2,6 +2,19 @@ import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
+import type { OrgRole } from "@prisma/client";
+
+/**
+ * Org-wide administration: the only thing that breaks glass on a project whose
+ * visibility is limited to its members.
+ *
+ * The org ROLE, never `PROJECT_MANAGE`. That permission is delegable to an
+ * ordinary member through a work role, so keying on it turned "runs a project"
+ * into "sees every project". OWNER and ADMIN cannot be handed out that way.
+ */
+export function isOrgAdministrator(role: OrgRole | string): boolean {
+  return role === "OWNER" || role === "ADMIN";
+}
 
 /**
  * The single decision point for "may this actor READ this project?".
@@ -26,10 +39,18 @@ import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
  *   3. `teamScopedAccess === false` → allow. This is the historical posture and
  *      the default for every existing row. **This branch is why the change is
  *      safe to deploy**: nothing narrows until someone opts a project in.
- *   4. OWNER break-glass, mirroring `evaluateAccess`.
- *   5. Org-wide PROJECT_MANAGE inherits downward, mirroring `canManageProject`
- *      — an admin cannot lock themselves out of a project they administer.
- *   6. Otherwise: membership of the project is required.
+ *   4. Org-wide administration (OWNER or ADMIN) breaks glass, so a project
+ *      cannot be locked away from the people who run the org.
+ *   5. Otherwise: membership of the project is required.
+ *
+ * Step 4 deliberately keys off the org ROLE and NOT `PROJECT_MANAGE`. That
+ * permission is DELEGABLE — a work role hands it to an ordinary member so they
+ * can run their own project — so treating it as org-wide reach meant a "Project
+ * Manager" saw every restricted project in the org, which was reported from the
+ * running app. A project manager typically manages one project; org-wide reach
+ * is what the owner/admin roles are for, and those cannot be granted by a work
+ * role. Writing inside a project still follows the permission (see
+ * `project-role.ts`) — this governs only who may SEE a project at all.
  *
  * This governs project-level visibility. Narrowing *within* a project (which of
  * a project's boards a given team sees) builds on the Team rows this ships and
@@ -70,8 +91,7 @@ export async function isProjectVisible(
   // The default, and the reason existing orgs see no behaviour change.
   if (!project.teamScopedAccess) return true;
 
-  if (ctx.orgRole === "OWNER") return true;
-  if (hasPermission(ctx.permissions, Permission.PROJECT_MANAGE)) return true;
+  if (isOrgAdministrator(ctx.orgRole)) return true;
 
   return isProjectMember(ctx, projectId);
 }
@@ -107,7 +127,7 @@ export async function getVisibleProjectIds(
   // Nothing opted in — the common case. Skip the membership query entirely.
   if (restricted.length === 0) return new Set(unrestricted);
 
-  if (ctx.orgRole === "OWNER" || hasPermission(ctx.permissions, Permission.PROJECT_MANAGE)) {
+  if (isOrgAdministrator(ctx.orgRole)) {
     return new Set([...unrestricted, ...restricted]);
   }
 
@@ -175,10 +195,7 @@ export async function visibleProjectIdsForActor(
 
   const effective = await loadEffectivePermissions(orgId, userId);
   if (!effective) return new Set(); // not a member of this org at all
-  if (
-    effective.orgRole === "OWNER" ||
-    hasPermission(effective.permissions, Permission.PROJECT_MANAGE)
-  ) {
+  if (isOrgAdministrator(effective.orgRole)) {
     return new Set([...unrestricted, ...restricted]);
   }
 

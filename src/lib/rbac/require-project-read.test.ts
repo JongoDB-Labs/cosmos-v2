@@ -112,16 +112,31 @@ describe("requireProjectRead — team-scoped projects", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("allows an org admin holding PROJECT_MANAGE", async () => {
+  it("allows an org ADMIN (org-wide administration breaks glass)", async () => {
+    project(true);
+    notInProject();
+    await expect(
+      requireProjectRead(ctx({ orgRole: OrgRole.ADMIN }), PROJECT_ID, "ITEM_READ"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("REFUSES a plain member carrying a delegated PROJECT_MANAGE grant", async () => {
+    // Reported from the running app. PROJECT_MANAGE is handed to ordinary
+    // members by a work role so they can run their own project; treating it as
+    // org-wide reach let a "Project Manager" read every restricted project in
+    // the org. Break-glass follows the org ROLE, which a work role cannot grant.
     project(true);
     notInProject();
     await expect(
       requireProjectRead(
-        ctx({ permissions: Permission.ITEM_READ | Permission.PROJECT_MANAGE }),
+        ctx({
+          orgRole: OrgRole.MEMBER,
+          permissions: Permission.ITEM_READ | Permission.PROJECT_MANAGE,
+        }),
         PROJECT_ID,
         "ITEM_READ",
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow();
   });
 });
 

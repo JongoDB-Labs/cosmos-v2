@@ -76,11 +76,22 @@ describe("getReadableProjectIds — teamScopedAccess", () => {
     expect(ids).toContain(RESTRICTED);
   });
 
-  it("includes it for a PROJECT_MANAGE holder — admins keep access", async () => {
-    const ids = await getReadableProjectIds(
-      ctx({ permissions: Permission.ITEM_READ | Permission.PROJECT_MANAGE }),
-    );
+  it("includes it for an org ADMIN — org-wide administration keeps access", async () => {
+    const ids = await getReadableProjectIds(ctx({ orgRole: OrgRole.ADMIN }));
     expect(ids).toContain(RESTRICTED);
+  });
+
+  it("EXCLUDES a plain member carrying a delegated PROJECT_MANAGE grant", async () => {
+    // The same reported bug, on the org-wide work-item surfaces: a "Project
+    // Manager" work role is not org-wide reach, so it must not surface the work
+    // items of a restricted project they are not on.
+    const ids = await getReadableProjectIds(
+      ctx({
+        orgRole: OrgRole.MEMBER,
+        permissions: Permission.ITEM_READ | Permission.PROJECT_MANAGE,
+      }),
+    );
+    expect(ids).not.toContain(RESTRICTED);
   });
 
   it("leaves an org with nothing restricted completely unchanged", async () => {

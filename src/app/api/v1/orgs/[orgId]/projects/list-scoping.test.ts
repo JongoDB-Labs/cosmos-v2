@@ -90,12 +90,25 @@ describe("GET projects — team-scoped projects stay out of the list", () => {
     expect(ids).toContain(RESTRICTED);
   });
 
-  it("shows it to an org admin holding PROJECT_MANAGE", async () => {
-    getAuthContext.mockResolvedValue(
-      ctx({ permissions: Permission.PROJECT_READ | Permission.PROJECT_MANAGE }),
-    );
+  it("shows it to an org ADMIN (org-wide administration)", async () => {
+    getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.ADMIN }));
     const ids = await listedIds(await GET(listReq(), { params }));
     expect(ids).toContain(RESTRICTED);
+  });
+
+  it("HIDES it from a plain member carrying a delegated PROJECT_MANAGE grant", async () => {
+    // Reported from the running app: a "Project Manager" work role hands
+    // PROJECT_MANAGE to an ordinary member so they can run their own project.
+    // Treating that as org-wide reach listed every restricted project in the org.
+    getAuthContext.mockResolvedValue(
+      ctx({
+        orgRole: OrgRole.MEMBER,
+        permissions: Permission.PROJECT_READ | Permission.PROJECT_MANAGE,
+      }),
+    );
+    const ids = await listedIds(await GET(listReq(), { params }));
+    expect(ids).not.toContain(RESTRICTED);
+    expect(ids).toContain(OPEN);
   });
 
   it("leaves an org with nothing restricted completely unchanged", async () => {

@@ -68,6 +68,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
+    // SCOPING NOTE — org-wide on purpose: this is the ADMIN form that chooses
+    // which projects the remediation loop may file into, gated on ORG_UPDATE.
+    // Narrowing it would hide projects an admin is configuring FOR others.
     const projects = await prisma.project.findMany({
       where: { orgId, archived: false },
       select: { id: true, key: true, name: true },
@@ -128,6 +131,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       ...(data.autoRemediation.defaultProjectId ? [data.autoRemediation.defaultProjectId] : []),
     ];
     if (referencedIds.length > 0) {
+      // SCOPING NOTE — a VALIDATION set, never returned to the caller. It exists
+      // only to reject an id that isn't a live project in this org; nothing about
+      // it reaches the response, so it discloses no project the actor can't see.
       const orgProjects = await prisma.project.findMany({
         where: { orgId, archived: false },
         select: { id: true },

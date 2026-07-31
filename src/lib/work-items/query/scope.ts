@@ -16,6 +16,7 @@
  */
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
+import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { evaluateAccess } from "@/lib/abac/engine";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
@@ -35,9 +36,12 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
   // OWNER break-glass — every project, no policy evaluation needed.
   if (ctx.orgRole === "OWNER") return projects.map((p) => p.id);
 
-  // Admins keep access to every project, matching isProjectVisible — a project
-  // must not be lockable away from the people who administer it.
-  const adminEverywhere = hasPermission(ctx.permissions, Permission.PROJECT_MANAGE);
+  // Org-wide administration keeps access to every project, matching
+  // isProjectVisible — a project must not be lockable away from the people who
+  // run the org. The org ROLE, not PROJECT_MANAGE: that permission is delegable
+  // to an ordinary member by a work role, so keying on it here let a "Project
+  // Manager" read work items from every restricted project in the org.
+  const adminEverywhere = isOrgAdministrator(ctx.orgRole);
 
   // Does any rule the actor carries reference ITEM_READ with an in_project
   // predicate? If not, no per-project resolution is needed — fast path.

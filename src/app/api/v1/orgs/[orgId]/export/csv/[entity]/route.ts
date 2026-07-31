@@ -18,6 +18,8 @@ type RouteParams = { params: Promise<{ orgId: string; entity: string }> };
 
 // Allowlist of entity slugs → Prisma model accessor
 const FETCHERS: Record<string, (orgId: string) => Promise<unknown[]>> = {
+  // SCOPING NOTE — org-wide on purpose; see the note at the top of this file.
+  // Gated on ORG_EXPORT, which is a whole-org capability by definition.
   projects: (orgId) => prisma.project.findMany({ where: { orgId } }),
   "work-items": (orgId) => prisma.workItem.findMany({ where: { orgId } }).catch(() => []),
   intervals: (orgId) => prisma.interval.findMany({ where: { orgId } }).catch(() => []),
