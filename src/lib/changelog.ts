@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.250.1",
+    date: "2026-07-31",
+    title: "Time entries show the day they were logged",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The time-tracking list showed every entry one day earlier than it was logged for anyone in a timezone behind UTC — so the same entry appeared on two different days depending on whether you looked at the list or the week grid. The list was the one that was wrong. Because the day decides which week and which pay period an entry belongs to, this affected more than appearances.",
+      },
+    ],
+  },
+  {
     version: "2.250.0",
     date: "2026-07-31",
     title: "Supervisors can see their team's time",
