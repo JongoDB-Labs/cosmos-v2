@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.252.2",
+    date: "2026-08-01",
+    title: "Filter a board by milestone, blockers and points",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards can now be filtered by milestone, by whether work is blocked, and by story points — including an explicit \"No estimate\" option for unestimated work. Points and milestones list only what's actually on the board.",
+      },
+    ],
+  },
+  {
     version: "2.252.1",
     date: "2026-07-31",
     title: "Breadcrumbs spell board names properly",

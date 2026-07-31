@@ -18,6 +18,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DUE_PRESETS, type DuePreset } from "@/lib/work-items/metadata-filters";
+import {
+  BLOCKED_OPTIONS,
+  NO_ESTIMATE,
+  type BlockedFilter,
+} from "@/lib/work-items/relation-filters";
 import { Search, X, UserCheck, ChevronDown } from "lucide-react";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
@@ -74,6 +79,12 @@ export interface BoardFilters {
   createdById: string | null;
   /** Rolling due-date lens; a preset rather than a picker (see metadata-filters). */
   due: DuePreset;
+  /** Only work linked to this milestone. */
+  milestoneId: string | null;
+  /** Blocked / not blocked / any — resolved from work-item links. */
+  blocked: BlockedFilter;
+  /** Story-point values, plus NO_ESTIMATE for unestimated work. */
+  storyPoints: string[];
   teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
@@ -96,6 +107,9 @@ export const emptyFilters: BoardFilters = {
   workCategories: [],
   createdById: null,
   due: "any",
+  milestoneId: null,
+  blocked: "any",
+  storyPoints: [],
   teamId: null,
   swimlaneBy: "none",
   customFields: {},
@@ -122,6 +136,10 @@ interface FilterBarProps {
   presentLabelNames?: string[];
   /** Board columns, for the Status filter. Omitted ⇒ no Status control. */
   boardColumns?: { key: string; name: string }[];
+  /** Project milestones, for the Milestone filter. Omitted ⇒ no control. */
+  milestoneOptions?: { id: string; title: string }[];
+  /** Story-point values present on this board. Omitted ⇒ no control. */
+  presentPointValues?: string[];
   /**
    * Org id, used to load the org's ACTUAL work-item types so the Type filter
    * lists custom types (e.g. "Feature") alongside the built-ins instead of a
@@ -177,6 +195,7 @@ export function bareTypeKey(key: string | null | undefined): string {
 
 const VALID_SWIMLANES = new Set<string>(SWIMLANE_OPTIONS.map((o) => o.value));
 const VALID_DUE = new Set<string>(DUE_PRESETS.map((o) => o.value));
+const VALID_BLOCKED = new Set<string>(BLOCKED_OPTIONS.map((o) => o.value));
 
 /**
  * Serialize active filters into a URLSearchParams query string. Only non-empty
@@ -195,6 +214,9 @@ export function serializeFilters(filters: BoardFilters): string {
   if (filters.workCategories.length > 0) params.set("cat", filters.workCategories.join(","));
   if (filters.createdById) params.set("reporter", filters.createdById);
   if (filters.due !== "any") params.set("due", filters.due);
+  if (filters.milestoneId) params.set("milestone", filters.milestoneId);
+  if (filters.blocked !== "any") params.set("blocked", filters.blocked);
+  if (filters.storyPoints.length > 0) params.set("points", filters.storyPoints.join(","));
   if (filters.teamId) params.set("team", filters.teamId);
   if (filters.intervalId) params.set("interval", filters.intervalId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
@@ -239,6 +261,11 @@ export function parseFilters(
     workCategories: (params.get("cat") || "").split(",").filter(Boolean),
     createdById: params.get("reporter") || null,
     due: VALID_DUE.has(params.get("due") || "") ? (params.get("due") as DuePreset) : "any",
+    milestoneId: params.get("milestone") || null,
+    blocked: VALID_BLOCKED.has(params.get("blocked") || "")
+      ? (params.get("blocked") as BlockedFilter)
+      : "any",
+    storyPoints: (params.get("points") || "").split(",").filter(Boolean),
     teamId: params.get("team") || null,
     intervalId: params.get("interval") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
@@ -265,12 +292,15 @@ function MultiSelectMenu({
   selected,
   onChange,
   colorMap,
+  labelMap,
 }: {
   label: string;
   options: readonly string[];
   selected: string[];
   onChange: (values: string[]) => void;
   colorMap?: Record<string, string>;
+  /** Display text for an option whose raw value is not readable (e.g. NONE). */
+  labelMap?: Record<string, string>;
 }) {
   const count = selected.length;
   return (
@@ -301,7 +331,10 @@ function MultiSelectMenu({
             }
           >
             <span className={cn("rounded px-1.5 py-0.5 text-xs", colorMap?.[opt])}>
-              {opt.charAt(0) + opt.slice(1).toLowerCase()}
+              {/* Title-casing suits enum-ish values (BUSINESS → Business) but
+                  mangles a label the user typed and turns "13" into "13". An
+                  explicit labelMap entry wins outright. */}
+              {labelMap?.[opt] ?? opt.charAt(0) + opt.slice(1).toLowerCase()}
             </span>
           </DropdownMenuCheckboxItem>
         ))}
@@ -345,6 +378,8 @@ export function FilterBar({
   teams = [],
   presentLabelNames = [],
   boardColumns = [],
+  milestoneOptions = [],
+  presentPointValues = [],
   orgId,
   showSwimlane = false,
   customFields = [],
@@ -408,6 +443,9 @@ export function FilterBar({
     filters.workCategories.length > 0 ||
     filters.createdById !== null ||
     filters.due !== "any" ||
+    filters.milestoneId !== null ||
+    filters.blocked !== "any" ||
+    filters.storyPoints.length > 0 ||
     filters.teamId !== null ||
     filters.intervalId !== null ||
     filters.swimlaneBy !== "none" ||
@@ -429,6 +467,9 @@ export function FilterBar({
     (filters.workCategories.length > 0 ? 1 : 0) +
     (filters.createdById !== null ? 1 : 0) +
     (filters.due !== "any" ? 1 : 0) +
+    (filters.milestoneId !== null ? 1 : 0) +
+    (filters.blocked !== "any" ? 1 : 0) +
+    (filters.storyPoints.length > 0 ? 1 : 0) +
     (filters.teamId !== null ? 1 : 0) +
     (filters.intervalId !== null ? 1 : 0) +
     (hasActiveCustom ? 1 : 0);
@@ -638,6 +679,72 @@ export function FilterBar({
               </SelectContent>
             </Select>
           </div>
+
+          {milestoneOptions.length > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Milestone:</span>
+              <Select
+                items={{
+                  __all__: "Any milestone",
+                  ...Object.fromEntries(milestoneOptions.map((m) => [m.id, m.title])),
+                }}
+                value={filters.milestoneId ?? "__all__"}
+                onValueChange={(v) =>
+                  onFilterChange({
+                    ...filters,
+                    milestoneId: v && v !== "__all__" ? v : null,
+                  })
+                }
+              >
+                <SelectTrigger size="sm" aria-label="Filter by milestone" className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Any milestone</SelectItem>
+                  {milestoneOptions.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground mr-1">Blocked:</span>
+            <Select
+              items={Object.fromEntries(BLOCKED_OPTIONS.map((o) => [o.value, o.label]))}
+              value={filters.blocked}
+              onValueChange={(v) =>
+                onFilterChange({
+                  ...filters,
+                  blocked: VALID_BLOCKED.has(v as string) ? (v as BlockedFilter) : "any",
+                })
+              }
+            >
+              <SelectTrigger size="sm" aria-label="Filter by blocked state" className="h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BLOCKED_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {presentPointValues.length > 0 && (
+            <MultiSelectMenu
+              label="Points"
+              options={presentPointValues}
+              selected={filters.storyPoints}
+              onChange={(storyPoints) => onFilterChange({ ...filters, storyPoints })}
+              labelMap={{ [NO_ESTIMATE]: "No estimate" }}
+            />
+          )}
 
           {members.length > 0 && (
             <div className="flex items-center gap-1">

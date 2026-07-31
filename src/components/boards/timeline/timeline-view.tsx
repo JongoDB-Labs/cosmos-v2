@@ -42,6 +42,14 @@ import {
 } from "@/lib/teams/item-teams";
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
+import {
+  blockedItemIds,
+  matchesBlocked,
+  milestoneItemIds,
+  matchesMilestone,
+  presentStoryPoints,
+  matchesStoryPoints,
+} from "@/lib/work-items/relation-filters";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
@@ -217,6 +225,14 @@ export function matchesFilters(
   teamsByUserId: Map<string, TeamLike[]> = new Map(),
   /** One instant for the whole pass — see the Kanban note. */
   now: Date = new Date(),
+  /**
+   * Relation-derived lookups, pre-resolved by the caller. An options bag rather
+   * than a seventh positional parameter, which is where argument-order bugs live.
+   */
+  rel: {
+    blocked?: Set<string>;
+    milestones?: Map<string, Set<string>>;
+  } = {},
 ): boolean {
   if (
     f.search &&
@@ -242,6 +258,9 @@ export function matchesFilters(
   if (!matchesOneOf(item.workCategory, f.workCategories)) return false;
   if (f.createdById && item.createdById !== f.createdById) return false;
   if (!matchesDuePreset(item.dueDate, f.due, now)) return false;
+  if (!matchesMilestone(item.id, f.milestoneId, rel.milestones ?? new Map())) return false;
+  if (!matchesBlocked(item.id, f.blocked, rel.blocked ?? new Set())) return false;
+  if (!matchesStoryPoints(item.storyPoints, f.storyPoints)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -411,6 +430,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   const presentLabelNames = useMemo(() => presentLabels(items), [items]);
   const filterNow = useMemo(() => new Date(), [items]);
+  const blockedIds = useMemo(() => blockedItemIds(links), [links]);
+  const milestoneRows = useMemo(
+    () => (milestonesQ.data as { id: string; title: string; links?: { workItemId: string }[] }[] | undefined) ?? [],
+    [milestonesQ.data],
+  );
+  const milestoneMap = useMemo(() => milestoneItemIds(milestoneRows), [milestoneRows]);
+  const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
@@ -443,8 +469,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow)),
-    [items, filters, projectCustomFields, teamsByUserId, filterNow],
+    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
+        blocked: blockedIds,
+        milestones: milestoneMap,
+      })),
+    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap],
   );
   const hasEnablers = useMemo(
     () => filteredItems.some((it) => it.workCategory === "ENABLER"),
@@ -1252,6 +1281,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           teams={teams}
           presentLabelNames={presentLabelNames}
           boardColumns={columns}
+          milestoneOptions={milestoneRows}
+          presentPointValues={presentPointValues}
           orgId={orgId}
           customFields={projectCustomFields}
           presentTypeKeys={presentTypeKeys}
