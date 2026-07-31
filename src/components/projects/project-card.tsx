@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { formatDateStable, formatDateShortStable } from "@/lib/format/stable-date";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 
@@ -72,12 +73,16 @@ function progressVariant(pct: number): BadgeVariant {
   return "neutral";
 }
 
-/** Short, locale-aware due date (e.g. "Jun 14"). */
+/**
+ * Short due date (e.g. "Jun 14"), stable across server and client.
+ *
+ * Was `toLocaleDateString(undefined, …)`, whose `undefined` locale means "use
+ * the runtime's" — so the container and the browser rendered different text and
+ * React threw hydration error #418, surfaced to users as a "Something went
+ * wrong" toast on this very page.
+ */
 function formatDueDate(value: Date | string): string {
-  return new Date(value).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateShortStable(value);
 }
 
 /** Whether a due date is in the past (overdue). */
@@ -264,7 +269,7 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
             </div>
 
             <p className="mt-3 text-xs text-[var(--text-muted)]">
-              Updated {new Date(project.updatedAt).toLocaleDateString()}
+              Updated {formatDateStable(project.updatedAt)}
             </p>
           </Link>
         </div>
@@ -601,7 +606,7 @@ function ProjectsTable({
                 {p.doneItems}/{p.totalItems}
               </td>
               <td className="px-3 py-2.5 text-[var(--text-muted)]">
-                {new Date(p.updatedAt).toLocaleDateString()}
+                {formatDateStable(p.updatedAt)}
               </td>
             </tr>
           ))}
