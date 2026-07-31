@@ -2,8 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
-import { canManageProject } from "@/lib/rbac/scope";
+
+import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { uniqueBoardSlug } from "@/lib/templates/slugify";
@@ -54,12 +54,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    // Inheriting authority: org-wide BOARD_CREATE holder OR a MANAGER of this
-    // project (a project-admin can add boards to their own project).
-    if (
-      !hasPermission(ctx.permissions, Permission.BOARD_CREATE) &&
-      !(await canManageProject(ctx, projectId))
-    ) {
+    // Inheriting authority, now including the PROJECT role: an org-wide
+    // BOARD_CREATE holder, or a MANAGER/LEAD of this project. A project VIEWER
+    // is refused even holding the org bit — that is what the label promises.
+    if (!(await canManageBoardsInProject(ctx, projectId))) {
       return new Response("Forbidden", { status: 403 });
     }
 
