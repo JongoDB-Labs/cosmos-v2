@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.252.1",
+    date: "2026-07-31",
+    title: "Breadcrumbs spell board names properly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The breadcrumb above a board wrote acronyms as ordinary words — “Okr View” next to a tab reading “OKR View”, and the same for the RAID Log, RFI Tracker, BOM Table, SLA Dashboard, Attendee CRM and seven others. Each now reads exactly as the board is named.",
+      },
+    ],
+  },
+  {
     version: "2.252.0",
     date: "2026-08-01",
     title: "Submit your week, and have it approved",

@@ -29,14 +29,39 @@ export function buildCrumbs(
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Slugs whose canonical casing isn't recoverable by naive title-casing
-// (acronyms, mixed-case). Keeps the breadcrumb in sync with the page title
-// (e.g. "CRM", not "Crm").
+// (acronyms, mixed-case, punctuation). Keeps the breadcrumb in sync with the
+// page title (e.g. "CRM", not "Crm").
+//
+// A board's URL segment is its slug, derived from its NAME by `slugify` —
+// lowercased with every non-alphanumeric run collapsed to "-". Title-casing
+// that back cannot recover an acronym or a bracket, so every built-in board
+// whose name contains one needs an entry here. `breadcrumbs.test.tsx` derives
+// the expected set from the built-in template list, so adding a board named
+// with an acronym fails there until it is added below.
+//
+// User-renamed boards are out of reach by construction: their names are
+// arbitrary, so the breadcrumb title-cases them and that is the best available.
 const LABEL_OVERRIDES: Record<string, string> = {
   crm: "CRM",
   okrs: "OKRs",
   kpis: "KPIs",
   "mcp-servers": "MCP Servers",
   "pm-dashboard": "PM Dashboard",
+  // Built-in boards, core set.
+  "okr-view": "OKR View",
+  "raid-log": "RAID Log",
+  "rfi-tracker": "RFI Tracker",
+  "timeline-gantt": "Timeline / Gantt",
+  "program-board-safe": "Program Board (SAFe)",
+  // Built-in boards, sector packs.
+  "attendee-crm": "Attendee CRM",
+  "bom-table": "BOM Table",
+  "sla-dashboard": "SLA Dashboard",
+  "quality-ncr-tracker": "Quality NCR Tracker",
+  "on-call-rotation": "On-Call Rotation",
+  "run-of-show-timeline": "Run-of-Show Timeline",
+  "work-order-kanban": "Work-Order Kanban",
+  "risk-contingency": "Risk + Contingency",
 };
 
 function titleCase(segment: string): string {
