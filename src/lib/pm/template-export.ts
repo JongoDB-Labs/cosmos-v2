@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { loadMilestonesWithDerived } from "./schedule";
 import { loadStaffing } from "./staffing";
 import { loadClinsWithBurn } from "./burn";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 /**
  * Template-based PM export. Unlike the flat `buildProjectWorkbook` (export.ts),
@@ -652,7 +653,7 @@ async function populateBurn(
   const clinIds = clins.map((c) => c.id);
   const [timeEntries, expenses, employees] = await Promise.all([
     prisma.timeEntry.findMany({
-      where: { orgId, clinId: { in: clinIds }, status: "APPROVED" },
+      where: { orgId, clinId: { in: clinIds }, status: "APPROVED", ...NOT_VOIDED },
       select: { clinId: true, date: true, hours: true, rate: true, userId: true },
     }),
     prisma.expense.findMany({

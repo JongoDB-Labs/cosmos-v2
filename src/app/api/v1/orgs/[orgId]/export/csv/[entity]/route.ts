@@ -13,6 +13,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { toCSV } from "@/lib/export/csv";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 type RouteParams = { params: Promise<{ orgId: string; entity: string }> };
 
@@ -29,7 +30,8 @@ const FETCHERS: Record<string, (orgId: string) => Promise<unknown[]>> = {
   contracts: (orgId) => prisma.contract.findMany({ where: { orgId } }).catch(() => []),
   notes: (orgId) => prisma.note.findMany({ where: { orgId } }).catch(() => []),
   meetings: (orgId) => prisma.syncMeeting.findMany({ where: { orgId } }).catch(() => []),
-  "time-entries": (orgId) => prisma.timeEntry.findMany({ where: { orgId } }).catch(() => []),
+  "time-entries": (orgId) =>
+    prisma.timeEntry.findMany({ where: { orgId, ...NOT_VOIDED } }).catch(() => []),
   revenues: (orgId) => prisma.revenue.findMany({ where: { orgId } }).catch(() => []),
   expenses: (orgId) => prisma.expense.findMany({ where: { orgId } }).catch(() => []),
 };

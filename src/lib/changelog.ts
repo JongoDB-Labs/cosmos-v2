@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.251.1",
+    date: "2026-08-01",
+    title: "A removed time entry stays removed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A time entry you had removed could still be submitted for approval, approved, and counted toward a contract's consumed budget — putting deleted hours back into billing without anyone seeing it happen. Removed entries are now excluded everywhere: approvals, pay runs, contract burn, the finance summary, exports, and anything the assistant reports about hours.",
+      },
+    ],
+  },
+  {
     version: "2.251.0",
     date: "2026-08-01",
     title: "Time entries keep their history",

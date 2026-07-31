@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { sumMoney, multiplyMoney, moneyToNumber } from "@/lib/money";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       prisma.revenue.findMany({ where: revenueWhere }),
       prisma.expense.findMany({ where: expenseWhere }),
       prisma.timeEntry.findMany({
-        where: { ...timeWhere, status: "APPROVED" },
+        where: { ...timeWhere, status: "APPROVED", ...NOT_VOIDED },
       }),
     ]);
 

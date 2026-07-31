@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 /**
  * CLIN burn — attribute approved time + expenses to a CLIN and roll up actuals
@@ -36,11 +37,11 @@ export async function loadClinsWithBurn(
 
   const [timeEntries, expenses, employees] = await Promise.all([
     prisma.timeEntry.findMany({
-      where: { orgId, clinId: { in: clinIds }, status: "APPROVED" },
+      where: { orgId, clinId: { in: clinIds }, status: "APPROVED", ...NOT_VOIDED },
       select: { clinId: true, hours: true, rate: true, userId: true },
     }),
     prisma.expense.findMany({
-      where: { orgId, clinId: { in: clinIds }, status: "APPROVED" },
+      where: { orgId, clinId: { in: clinIds }, status: "APPROVED", ...NOT_VOIDED },
       select: { clinId: true, amount: true },
     }),
     prisma.employee.findMany({ where: { orgId }, select: { userId: true, costRate: true } }),

@@ -12,6 +12,7 @@ import { ConflictError, NotFoundError } from "@/lib/rbac/check";
 import { postEntry, type PostingLine } from "@/lib/ledger/posting";
 import { ACCOUNT_CODES, resolveAccount } from "@/lib/ledger/chart-of-accounts";
 import { laborCostFor, summarizeLabor, type LaborSummary } from "./labor";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 // ── Employees ────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,7 @@ async function gatherUndistributed(orgId: string, periodStart: Date, periodEnd: 
       status: "APPROVED",
       payRunId: null,
       date: { gte: periodStart, lte: periodEnd },
+      ...NOT_VOIDED,
     },
     select: { id: true, userId: true, projectId: true, hours: true },
   });
