@@ -134,6 +134,14 @@ export const Permission = {
   // surfaces and runs provisioning hooks — scope-able to a WorkRole without handing
   // over all org settings.
   PLUGIN_MANAGE: 1n << 117n,
+
+  // Time — read OTHER people's time entries. TIME_READ is held by MEMBER and
+  // VIEWER and means "you participate in timekeeping"; it never meant "you may
+  // read the whole org's", but the list route treated it that way and returned
+  // every entry (with its rate) to anyone holding it. Dedicated bit rather than
+  // reusing TIME_APPROVE: finance reads all time without approving any, and a
+  // supervisor approves without needing the money. See lib/time/visibility.ts.
+  TIME_READ_ALL: 1n << 118n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -222,6 +230,7 @@ export const RolePermissions = {
     Permission.CUSTOM_FIELD_MANAGE,
     Permission.TIME_CREATE,
     Permission.TIME_READ,
+    Permission.TIME_READ_ALL,
     Permission.TIME_UPDATE,
     Permission.TIME_DELETE,
     Permission.TIME_APPROVE,

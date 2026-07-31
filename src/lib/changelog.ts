@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.22",
+    date: "2026-07-31",
+    title: "Your time entries are yours",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The time-tracking list returned every entry in the organisation — including the rate on each one — to anyone who could open the page. Members and view-only users now see their own entries and nobody else's. Supervisors, finance and admins are unaffected.",
+      },
+      {
+        kind: "fix",
+        text: "Rates on other people's entries are now shown only with finance access. Your own rate is always visible to you.",
+      },
+      {
+        kind: "improvement",
+        text: "Filtering time by project now respects team-scoped project access, so the time list can no longer surface work on a project you cannot otherwise see.",
+      },
+    ],
+  },
+  {
     version: "2.249.21",
     date: "2026-07-31",
     title: "See a project's work by team",

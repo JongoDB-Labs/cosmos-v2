@@ -17,6 +17,11 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     timeEntry: { findMany: vi.fn(), count: vi.fn() },
+    // isProjectVisible reads this. Unset it returns undefined → "no such
+    // project" → denied, which is the deny-safe default we want in tests.
+    project: { findFirst: vi.fn() },
+    projectMember: { findFirst: vi.fn() },
+    orgMember: { findUnique: vi.fn() },
   },
 }));
 
@@ -112,5 +117,161 @@ describe("GET /time-entries — { data, total } list-envelope contract", () => {
 
     expect(res.status).toBe(403);
     expect(prisma.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TIME_READ is held by MEMBER *and* VIEWER. Before this, GET applied no owner
+ * scoping and `userId` was an optional filter the client never sent — so the
+ * default response was every entry in the org, each carrying its `rate`. Any
+ * read-only viewer could enumerate the company's hours and billing rates.
+ *
+ * These assert the SCOPE of the query, not just the response shape: a test that
+ * only checked the returned rows would pass against the bug, because findMany
+ * is mocked and returns whatever it is told regardless of `where`.
+ */
+describe("GET /time-entries — read scoping", () => {
+  const OTHER_ID = "55555555-5555-5555-5555-555555555555";
+
+  /** The `where` the route actually handed Prisma. */
+  function lastWhere(): Record<string, unknown> {
+    const call = prisma.timeEntry.findMany.mock.calls.at(-1);
+    return (call?.[0] as { where: Record<string, unknown> }).where;
+  }
+
+  function respondWith(rows: unknown[]) {
+    prisma.timeEntry.findMany.mockResolvedValue(rows);
+    prisma.timeEntry.count.mockResolvedValue(rows.length);
+  }
+
+  it("plain TIME_READ is pinned to the actor's own entries", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    respondWith([]);
+
+    const res = await GET(getRequest(), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toBe(ACTOR_ID);
+  });
+
+  it("TIME_READ cannot widen to another user by passing ?userId= (403, no query)", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    respondWith([]);
+
+    const res = await GET(getRequest(`?userId=${OTHER_ID}`), { params });
+
+    // A denial, not a silent narrowing: a caller that asked for someone else's
+    // rows and received its own has been given a wrong answer, not a safe one.
+    expect(res.status).toBe(403);
+    expect(prisma.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("passing one's OWN userId is allowed and still scoped", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    respondWith([]);
+
+    const res = await GET(getRequest(`?userId=${ACTOR_ID}`), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toBe(ACTOR_ID);
+  });
+
+  it("TIME_READ_ALL sees the whole org (no userId filter)", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
+    respondWith([]);
+
+    const res = await GET(getRequest(), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toBeUndefined();
+  });
+
+  it("TIME_READ_ALL may narrow to a named user", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
+    respondWith([]);
+
+    const res = await GET(getRequest(`?userId=${OTHER_ID}`), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toBe(OTHER_ID);
+  });
+
+  it("?projectId= runs the team-aware gate and denies an invisible project", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
+    respondWith([]);
+    // isProjectVisible: no such project (or another org's) → not visible.
+    prisma.project.findFirst.mockResolvedValue(null);
+
+    const res = await GET(
+      getRequest("?projectId=66666666-6666-6666-6666-666666666666"),
+      { params },
+    );
+
+    expect(res.status).toBe(403);
+    expect(prisma.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("?projectId= on a visible project filters by it", async () => {
+    const PROJECT_ID = "66666666-6666-6666-6666-666666666666";
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
+    respondWith([]);
+    prisma.project.findFirst.mockResolvedValue({
+      id: PROJECT_ID,
+      teamScopedAccess: false,
+    });
+
+    const res = await GET(getRequest(`?projectId=${PROJECT_ID}`), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().projectId).toBe(PROJECT_ID);
+  });
+});
+
+/**
+ * Rate visibility is a SEPARATE question from row visibility: a supervisor
+ * approving hours needs the hours and has no business seeing the money, and
+ * `rate` becomes cost rate — compensation data — once rate cards land.
+ */
+describe("GET /time-entries — rate redaction", () => {
+  const OTHER_ID = "55555555-5555-5555-5555-555555555555";
+
+  function rows() {
+    return [
+      { id: "mine", userId: ACTOR_ID, hours: 2, rate: "150" },
+      { id: "theirs", userId: OTHER_ID, hours: 3, rate: "225" },
+    ];
+  }
+
+  it("without FINANCE_READ, another user's rate is stripped but their row remains", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
+    prisma.timeEntry.findMany.mockResolvedValue(rows());
+    prisma.timeEntry.count.mockResolvedValue(2);
+
+    const body = await (await GET(getRequest(), { params })).json();
+
+    expect(body.data).toHaveLength(2);
+    expect(body.data.find((e: { id: string }) => e.id === "theirs").rate).toBeNull();
+  });
+
+  it("one's OWN rate is never redacted — the actor typed it", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_READ_ALL")));
+    prisma.timeEntry.findMany.mockResolvedValue(rows());
+    prisma.timeEntry.count.mockResolvedValue(2);
+
+    const body = await (await GET(getRequest(), { params })).json();
+
+    expect(body.data.find((e: { id: string }) => e.id === "mine").rate).toBe("150");
+  });
+
+  it("FINANCE_READ sees every rate", async () => {
+    getAuthContext.mockResolvedValue(
+      ctxWith(bits("TIME_READ", "TIME_READ_ALL", "FINANCE_READ")),
+    );
+    prisma.timeEntry.findMany.mockResolvedValue(rows());
+    prisma.timeEntry.count.mockResolvedValue(2);
+
+    const body = await (await GET(getRequest(), { params })).json();
+
+    expect(body.data.find((e: { id: string }) => e.id === "theirs").rate).toBe("225");
   });
 });

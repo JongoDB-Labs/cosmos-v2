@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { requirePermission, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { canReadAllTime, redactRates } from "@/lib/time/visibility";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -41,9 +43,28 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const endDate = sp.get("endDate");
     const billableType = sp.get("billableType");
 
+    // TIME_READ alone means "this org does timekeeping and you take part" —
+    // MEMBER and VIEWER both hold it. Reading OTHER people's rows needs
+    // TIME_READ_ALL. Without it the scope is forced to self, and naming
+    // someone else is a denial rather than a silent narrowing: a caller that
+    // asked for Bob's rows and got its own has been given a wrong answer, not
+    // a safe one.
+    const readAll = canReadAllTime(ctx);
+    if (!readAll && userId && userId !== ctx.userId) {
+      throw new ForbiddenError("Access denied by policy");
+    }
+
     const where: Record<string, unknown> = { orgId };
-    if (userId) where.userId = userId;
-    if (projectId) where.projectId = projectId;
+    // undefined = "no filter" to Prisma, which is what readAll with no userId
+    // wants; the non-readAll branch always pins to the actor.
+    where.userId = readAll ? (userId ?? undefined) : ctx.userId;
+    if (projectId) {
+      // The same gate the routes under projects/[projectId] use (#505): the
+      // action's own bit plus team scoping. Without it this org-level endpoint
+      // is a side door to precisely the rows that gate closed the front door on.
+      await requireProjectRead(ctx, projectId, "TIME_READ");
+      where.projectId = projectId;
+    }
     if (status) where.status = status;
     if (billableType) where.billableType = billableType;
     if (startDate || endDate) {
@@ -61,7 +82,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       prisma.timeEntry.count({ where }),
     ]);
 
-    return success({ data: entries, total });
+    return success({ data: redactRates(ctx, entries), total });
   } catch (error) {
     return handleApiError(error);
   }
