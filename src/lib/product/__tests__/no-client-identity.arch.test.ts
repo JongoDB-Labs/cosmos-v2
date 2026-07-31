@@ -25,8 +25,16 @@ import { join } from "node:path";
 const B64_SUBSTR = [
   "ZGVmY29u", "cG9udGlz", "xJJTTw==", "xJNzbw==",
   "aW52aWN0dXM=", "Y29zbW9zLWFzc2VtYmx5", "ZmlnaHRpbmdzbWFydA==", "ZGVmY29uYWk=",
+  // A customer's name, and a real person's — both had reached the public repo
+  // (the person's in two test fixtures, the customer's in commit messages and
+  // PR descriptions this gate does not read). Substrings: a space or an unusual
+  // letter run makes a false positive inside base64 vanishingly unlikely.
+  "bWFyaW5lIGNvcnBz", "cmFubmFiYXJnYXI=",
 ];
-const B64_WORD = ["RVNP", "VklUTA=="];
+// Whole-word ONLY. These are short enough to appear inside base64 by chance —
+// package-lock.json carries an integrity hash containing the letters of one of
+// them — so a substring match here would fail the build on a coincidence.
+const B64_WORD = ["RVNP", "VklUTA==", "bWNlbg==", "dXNtYw=="];
 const dec = (s: string): string => Buffer.from(s, "base64").toString("utf8");
 const FORBIDDEN = new RegExp(
   [...B64_SUBSTR.map(dec), ...B64_WORD.map((w) => `\\b${dec(w)}\\b`)].join("|"),
