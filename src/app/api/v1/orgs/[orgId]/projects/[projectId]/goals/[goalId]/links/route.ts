@@ -4,6 +4,7 @@ import { GoalLinkKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.OKR_UPDATE);
+    await requireProjectManage(ctx, projectId, Permission.OKR_UPDATE);
 
     const goal = await prisma.goal.findFirst({
       where: { id: goalId, orgId, projectId },
