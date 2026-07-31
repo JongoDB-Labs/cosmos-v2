@@ -1,4 +1,5 @@
 import type { Milestone, MilestoneLink, MilestoneStatus } from "@prisma/client";
+import { deriveMilestoneDueDate } from "./milestone-date";
 import { prisma } from "@/lib/db/client";
 
 /**
@@ -83,16 +84,33 @@ export async function loadMilestonesWithDerived(orgId: string, projectId?: strin
     new Set(milestones.flatMap((m) => m.links.map((l) => l.workItemId))),
   );
   const columnByItemId = new Map<string, string>();
+  // The linked item's planned end, so an auto-managed milestone's date can
+  // follow it — it never did, which is what got reported.
+  const dueByItemId = new Map<string, Date | null>();
   if (linkedItemIds.length > 0) {
     // ids already scope to this org's items; no projectId filter needed (works
     // for both the project tab and the org-wide roll-up).
     const items = await prisma.workItem.findMany({
       where: { id: { in: linkedItemIds }, orgId },
-      select: { id: true, columnKey: true },
+      select: { id: true, columnKey: true, dueDate: true },
     });
-    for (const item of items) columnByItemId.set(item.id, item.columnKey);
+    for (const item of items) {
+      columnByItemId.set(item.id, item.columnKey);
+      dueByItemId.set(item.id, item.dueDate);
+    }
   }
 
   const now = new Date();
-  return milestones.map((m) => ({ ...m, ...deriveMilestone(m, columnByItemId, now) }));
+  return milestones.map((m) => {
+    // Derive the date BEFORE the status: "past due and not all done" means
+    // MISSED, and it must be judged against the date the milestone actually
+    // has now, not the stale one it was created with.
+    const dueDate = deriveMilestoneDueDate(
+      m.dueDate,
+      m.autoStatus,
+      m.links.map((l) => ({ dueDate: dueByItemId.get(l.workItemId) ?? null })),
+    );
+    const withDate = { ...m, dueDate };
+    return { ...withDate, ...deriveMilestone(withDate, columnByItemId, now) };
+  });
 }
