@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.250.4",
+    date: "2026-07-31",
+    title: "A calmer board filter bar",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The board filter bar now leads with what you reach for most — assignee, type, priority, label — and tucks the rest behind \"More filters\". Anything you've actually set stays visible: if a tucked-away filter is narrowing the board, the row opens itself and the button shows how many are active, so a filtered board never looks broken.",
+      },
+    ],
+  },
+  {
     version: "2.250.3",
     date: "2026-07-31",
     title: "No more “Something went wrong” on the projects list",
