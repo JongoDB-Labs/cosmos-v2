@@ -153,10 +153,24 @@ export function ProjectMembersManager({
         <Users className="h-5 w-5 text-[var(--primary)]" />
         <h1 className="text-xl font-semibold">Members of {projectName}</h1>
       </div>
+      {/* Each role now states what it actually does. The picker previously
+          offered four levels while only Manager was enforced, so someone could
+          set a colleague to Viewer and reasonably believe they could not edit. */}
       <p className="mb-6 text-sm text-muted-foreground">
-        Project-scoped access. A <span className="font-medium">Manager</span> can
-        administer this project (incl. its boards) and manage its members, even
-        without org-wide admin. Org admins inherit access automatically.
+        Project-scoped access, on top of a person&apos;s organisation permissions
+        — a project role can narrow what someone may do here, never widen it.
+        <span className="mt-2 block">
+          <span className="font-medium">Manager</span> administers this project
+          and its members, even without org-wide admin.{" "}
+          <span className="font-medium">Lead</span> can also manage its boards.{" "}
+          <span className="font-medium">Member</span> follows their organisation
+          permissions.{" "}
+          <span className="font-medium">Viewer</span> is read-only here whatever
+          those permissions allow.
+        </span>
+        <span className="mt-2 block">
+          Org admins and the owner keep access regardless.
+        </span>
         {!canManage && " You have read-only access here."}
       </p>
 

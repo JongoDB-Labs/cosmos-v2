@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.15",
+    date: "2026-07-31",
+    title: "Project roles below Manager now mean something",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Members picker has always offered Manager, Lead, Member and Viewer, but only Manager changed anything — someone set to Viewer could still edit. Viewer is now genuinely read-only within that project, and Lead can manage the project's boards without needing an org-wide grant. Member is unchanged, and nobody loses access they had.",
+      },
+    ],
+  },
+  {
     version: "2.249.14",
     date: "2026-07-31",
     title: "A milestone's date follows the work it tracks",

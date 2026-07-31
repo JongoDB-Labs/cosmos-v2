@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
+import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
@@ -63,10 +64,13 @@ export default async function ProjectLayout({
   // conversely, a VIEWER/GUEST (no grant, not a manager) doesn't see the create
   // affordance at all (the POST would 403 anyway). One manager check, reused.
   const isProjectManager = await canManageProject(ctx, project.id);
+  // Board affordances follow the PROJECT role too, so the strip matches what
+  // the POST will actually allow: MANAGER/LEAD may, VIEWER may not, everyone
+  // else falls back to their org grant exactly as before.
+  const mayManageBoards = await canManageBoardsInProject(ctx, project.id);
   const canManageBoards =
-    hasPermission(ctx.permissions, Permission.BOARD_DELETE) || isProjectManager;
-  const canCreateBoards =
-    hasPermission(ctx.permissions, Permission.BOARD_CREATE) || isProjectManager;
+    (hasPermission(ctx.permissions, Permission.BOARD_DELETE) && mayManageBoards) || isProjectManager;
+  const canCreateBoards = mayManageBoards;
   // Who may set the PROJECT-WIDE default view (the tab everyone without a
   // personal override lands on). Mirrors the PUT …/projects/[projectId] gate
   // exactly: an org-wide PROJECT_UPDATE holder OR a MANAGER of this project.
