@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.20",
+    date: "2026-07-31",
+    title: "A project's manager can actually run it",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Someone set as a Manager on a project can now manage it end to end — settings, boards, the PM dashboard, sprints, milestones, risks, deliverables, KPIs and the rest — without needing an org-wide admin role. Around 44 actions previously required org-level permission an ordinary member doesn't have.",
+      },
+      {
+        kind: "fix",
+        text: "A project-management permission granted through a job-function role no longer confers authority over every project in the org. It now applies where you are a manager of that project; org owners and admins are unchanged. Deleting a project remains with owners and admins.",
+      },
+    ],
+  },
+  {
     version: "2.249.19",
     date: "2026-07-31",
     title: "Project cards show the project's managers",

@@ -36,11 +36,11 @@ const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const TEAM_ID = "44444444-4444-4444-8444-444444444444";
 const PM_ID = "55555555-5555-4555-8555-555555555555";
 
-function ctx(perms = Permission.PROJECT_READ | Permission.PROJECT_MANAGE): AuthContext {
+function ctx(perms = Permission.PROJECT_READ, role: OrgRole = OrgRole.MEMBER): AuthContext {
   return {
     userId: "33333333-3333-4333-8333-333333333333",
     orgId: ORG_ID,
-    orgRole: OrgRole.MEMBER,
+    orgRole: role,
     permissions: perms,
     basePermissions: perms,
     abacRules: [],
@@ -65,7 +65,9 @@ beforeEach(() => {
   prisma.teamMember.create.mockResolvedValue({ id: "tm1" });
   prisma.teamMember.deleteMany.mockResolvedValue({ count: 1 });
   prisma.orgMember.findUnique.mockResolvedValue({ id: "om1" });
-  getAuthContext.mockResolvedValue(ctx());
+  // Org-wide administration now comes from the ROLE, not the delegable
+  // PROJECT_MANAGE bit, so the happy path is an ADMIN.
+  getAuthContext.mockResolvedValue(ctx(Permission.PROJECT_READ, OrgRole.ADMIN));
 });
 
 describe("POST — add a member to a team", () => {

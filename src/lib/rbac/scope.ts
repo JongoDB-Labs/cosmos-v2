@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { type AuthContext } from "@/lib/rbac/check";
+import { isOrgAdministrator } from "@/lib/rbac/project-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { ProjectRole } from "@prisma/client";
 
@@ -15,8 +16,15 @@ export async function canManageProject(
   ctx: AuthContext,
   projectId: string,
 ): Promise<boolean> {
-  // Org-tier (and above) inherit: org-wide project-management permission.
-  if (hasPermission(ctx.permissions, Permission.PROJECT_MANAGE)) return true;
+  // Org-tier inherit: org-wide ADMINISTRATION, taken from the org ROLE.
+  //
+  // NOT the PROJECT_MANAGE bit. That bit is delegable — a "Project Manager" work
+  // role hands it to an ordinary member so they can run their own project — so
+  // reading it as org-wide authority meant granting someone one project silently
+  // granted them every project. The same mistake was fixed for VISIBILITY in
+  // project-access.ts; this is the write-side half of it. Authority over a
+  // specific project comes from being its MANAGER, immediately below.
+  if (isOrgAdministrator(ctx.orgRole)) return true;
 
   // Project-tier: a MANAGER of this exact project. ProjectMember.orgMemberId is
   // an OrgMember.id (not a User.id), so resolve userId → OrgMember first.
@@ -35,7 +43,7 @@ export async function canManageProject(
 /**
  * The subset of `projectIds` the actor can administer — the set form of
  * {@link canManageProject}, for the org-wide Issues view (which can't ask
- * per-project). Org-wide PROJECT_MANAGE holders manage all of them; otherwise
+ * per-project). Org administrators (OWNER/ADMIN) manage all of them; otherwise
  * it's the projects where they're a ProjectMember MANAGER. Returns a Set for
  * O(1) membership tests at the call site.
  */
@@ -44,7 +52,10 @@ export async function getManagedProjectIds(
   projectIds: string[],
 ): Promise<Set<string>> {
   if (projectIds.length === 0) return new Set();
-  if (hasPermission(ctx.permissions, Permission.PROJECT_MANAGE)) {
+  // Org ROLE, not the delegable PROJECT_MANAGE bit — same reasoning as
+  // canManageProject above. These two must agree or the org-wide Issues view
+  // offers an action the per-project route then refuses.
+  if (isOrgAdministrator(ctx.orgRole)) {
     return new Set(projectIds);
   }
   const member = await prisma.orgMember.findUnique({

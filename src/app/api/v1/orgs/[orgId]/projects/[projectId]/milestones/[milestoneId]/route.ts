@@ -4,6 +4,7 @@ import { MilestoneStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 
@@ -36,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_UPDATE);
+    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await loadMilestone(orgId, projectId, milestoneId);
     if (!existing) return new Response("Not found", { status: 404 });
@@ -74,7 +75,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_UPDATE);
+    await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
     const existing = await loadMilestone(orgId, projectId, milestoneId);
     if (!existing) return new Response("Not found", { status: 404 });

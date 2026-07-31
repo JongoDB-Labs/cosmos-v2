@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -54,7 +55,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ITEM_BULK_EDIT);
+    await requireProjectManage(ctx, projectId, Permission.ITEM_BULK_EDIT);
 
     const body = await request.json();
     const { ids, update } = bulkUpdateSchema.parse(body);
@@ -162,7 +163,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.ITEM_DELETE);
+    await requireProjectManage(ctx, projectId, Permission.ITEM_DELETE);
 
     const body = await request.json();
     const { ids } = bulkDeleteSchema.parse(body);

@@ -89,10 +89,10 @@ describe("POST teams — who may create one", () => {
     expect(prisma.team.create).not.toHaveBeenCalled();
   });
 
-  it("allows an org admin holding PROJECT_MANAGE", async () => {
-    getAuthContext.mockResolvedValue(
-      ctx({ permissions: Permission.PROJECT_READ | Permission.PROJECT_MANAGE }),
-    );
+  it("allows an org ADMIN — org-wide administration, from the org role", async () => {
+    // The delegable PROJECT_MANAGE bit no longer stands in for org-wide reach:
+    // a "Project Manager" work role must not administer every project's teams.
+    getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.ADMIN }));
     const res = await POST(postReq({ name: "Alpha" }), { params });
     expect(res.status).toBe(201);
     expect(prisma.team.create).toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe("POST teams — who may create one", () => {
 describe("POST teams — validation", () => {
   beforeEach(() => {
     getAuthContext.mockResolvedValue(
-      ctx({ permissions: Permission.PROJECT_READ | Permission.PROJECT_MANAGE }),
+      ctx({ orgRole: OrgRole.ADMIN }),
     );
   });
 
