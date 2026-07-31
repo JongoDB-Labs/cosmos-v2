@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.251.2",
+    date: "2026-07-31",
+    title: "Timesheet dates read the same everywhere",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The date on a time entry is now formatted the same way everywhere it appears, so the list and the week grid can never show an entry on different days, and the column no longer risks the “Something went wrong” error that comes from the page and the server disagreeing about a date.",
+      },
+    ],
+  },
+  {
     version: "2.251.1",
     date: "2026-08-01",
     title: "A removed time entry stays removed",

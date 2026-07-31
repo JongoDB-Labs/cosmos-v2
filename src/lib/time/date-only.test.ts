@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { dateOnlyKey, formatDateOnly, byDateOnlyDesc } from "./date-only";
+import { dateOnlyKey, byDateOnlyDesc } from "./date-only";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 /**
  * The bug these guard, reproduced from production data:
@@ -25,10 +26,17 @@ afterAll(() => {
 /** Exactly what Prisma returns for a `@db.Date` column. */
 const UTC_MIDNIGHT = "2026-07-20T00:00:00.000Z";
 
-describe("formatDateOnly", () => {
+/**
+ * Display now goes through `formatDateStable`, which pins the formatter to UTC.
+ * That is a strictly stronger guarantee than the `formatDateOnly` it replaced:
+ * it keeps the calendar day AND renders identically on server and client, so a
+ * date-only value can be shown during SSR without tripping hydration error
+ * #418. These assertions are the originals, re-pointed at it.
+ */
+describe("formatDateStable, on date-only values", () => {
   it("renders the stored calendar day, not the viewer's shifted one", () => {
     // The whole bug in one assertion: naive parsing yields 7/19 here.
-    expect(formatDateOnly(UTC_MIDNIGHT, "en-US")).toBe("7/20/2026");
+    expect(formatDateStable(UTC_MIDNIGHT)).toBe("7/20/2026");
   });
 
   it("does NOT agree with the naive Date-based formatting it replaces", () => {
@@ -36,19 +44,32 @@ describe("formatDateOnly", () => {
     // helper would be a no-op and the assertion above would be vacuous.
     const naive = new Date(UTC_MIDNIGHT).toLocaleDateString("en-US");
     expect(naive).toBe("7/19/2026");
-    expect(formatDateOnly(UTC_MIDNIGHT, "en-US")).not.toBe(naive);
+    expect(formatDateStable(UTC_MIDNIGHT)).not.toBe(naive);
   });
 
   it("accepts a bare YYYY-MM-DD just as well", () => {
-    expect(formatDateOnly("2026-07-20", "en-US")).toBe("7/20/2026");
+    expect(formatDateStable("2026-07-20")).toBe("7/20/2026");
   });
 
   it("handles a New Year boundary, where the shift changes the YEAR", () => {
-    expect(formatDateOnly("2026-01-01T00:00:00.000Z", "en-US")).toBe("1/1/2026");
+    expect(formatDateStable("2026-01-01T00:00:00.000Z")).toBe("1/1/2026");
   });
 
-  it("passes unparseable input through rather than rendering 'Invalid Date'", () => {
-    expect(formatDateOnly("not-a-date", "en-US")).toBe("not-a-date");
+  it("renders nothing for unparseable input", () => {
+    // A deliberate change from `formatDateOnly`, which echoed the raw string
+    // back. `TimeEntry.date` is a Postgres DATE, so the API cannot deliver an
+    // unparseable value; showing an empty cell beats showing "not-a-date" to a
+    // user, and it matches every other date on the screen.
+    expect(formatDateStable("not-a-date")).toBe("");
+  });
+
+  it("agrees with dateOnlyKey about the day, which is what stops the drift", () => {
+    // The list and the week grid disagreeing is the original production bug.
+    // Both sides now read the value in UTC, so they cannot diverge.
+    for (const v of [UTC_MIDNIGHT, "2026-07-20T23:30:00.000Z", "2026-12-31T00:00:00.000Z"]) {
+      const [y, m, d] = dateOnlyKey(v).split("-").map(Number);
+      expect(formatDateStable(v)).toBe(`${m}/${d}/${y}`);
+    }
   });
 });
 
@@ -58,12 +79,11 @@ describe("dateOnlyKey", () => {
     expect(dateOnlyKey("2026-07-20")).toBe("2026-07-20");
   });
 
-  it("agrees with formatDateOnly about which day it is", () => {
-    // The real defect was these two DISAGREEING. Same source value, same day.
+  it("agrees with the display formatter about which day it is", () => {
+    // The real defect was these two DISAGREEING. Same source value, same day —
+    // whether it is formatted from the full instant or from the bucketed key.
     const key = dateOnlyKey(UTC_MIDNIGHT);
-    expect(formatDateOnly(UTC_MIDNIGHT, "en-US")).toBe(
-      formatDateOnly(key, "en-US"),
-    );
+    expect(formatDateStable(UTC_MIDNIGHT)).toBe(formatDateStable(key));
   });
 });
 
