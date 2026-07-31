@@ -25,13 +25,30 @@ export const BUILTIN_WORK_ROLES: BuiltinWorkRole[] = [
   {
     key: "builtin.project-manager",
     name: "Project Manager",
-    description: "Plan and run projects end to end — boards, work items, sprints, OKRs, meetings, and approvals.",
+    description: "Create projects and run the ones you manage — boards, work items, sprints, OKRs, meetings, and approvals.",
+    // SCOPING NOTE — this role grants no ORG-WIDE project administration.
+    //
+    // It used to carry PROJECT_MANAGE, PROJECT_UPDATE, the SPRINT_* and BOARD_*
+    // write bits, ITEM_DELETE/BULK_EDIT and OKR_DELETE. Because a work role is
+    // additive on top of the ORG role, that made a "Project Manager" an
+    // administrator of EVERY project in the org — a project manager typically
+    // manages one. The reported symptom was seeing projects they were not on.
+    //
+    // Every one of those capabilities is still theirs INSIDE a project they
+    // manage: the routes accept `org-wide bit OR MANAGER of this project` via
+    // requireProjectManage, and creating a project already makes the creator its
+    // MANAGER. So this narrows org-wide reach without narrowing what they can do
+    // where they actually work.
+    //
+    // Ticket work in projects they merely belong to is unaffected — the base
+    // MEMBER org role already grants ITEM_CREATE/READ/UPDATE/ASSIGN and
+    // COMMENT_*, so none of it depended on this role.
     permissions: [
-      "PROJECT_CREATE", "PROJECT_READ", "PROJECT_UPDATE", "PROJECT_MANAGE",
-      "BOARD_CREATE", "BOARD_READ", "BOARD_UPDATE", "BOARD_DELETE", "BOARD_MANAGE",
-      "ITEM_CREATE", "ITEM_READ", "ITEM_UPDATE", "ITEM_DELETE", "ITEM_ASSIGN", "ITEM_BULK_EDIT",
-      "SPRINT_CREATE", "SPRINT_READ", "SPRINT_UPDATE", "SPRINT_COMPLETE",
-      "OKR_CREATE", "OKR_READ", "OKR_UPDATE", "OKR_DELETE",
+      "PROJECT_CREATE", "PROJECT_READ",
+      "BOARD_CREATE", "BOARD_READ",
+      "ITEM_CREATE", "ITEM_READ", "ITEM_UPDATE", "ITEM_ASSIGN",
+      "SPRINT_READ",
+      "OKR_CREATE", "OKR_READ", "OKR_UPDATE",
       "MEETING_CREATE", "MEETING_READ", "MEETING_UPDATE", "MEETING_DELETE",
       "TIME_READ", "TIME_APPROVE",
       "COMMENT_CREATE", "COMMENT_READ",

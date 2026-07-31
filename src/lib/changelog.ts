@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.250.5",
+    date: "2026-08-01",
+    title: "The Project Manager role fits its name",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The built-in Project Manager role no longer grants authority over every project in the organisation. It lets you create projects and fully run the ones you manage — settings, boards, sprints, milestones and the rest — while projects you're merely a member of behave like any other member's. Owners and admins are unchanged, and everyone keeps the ticket editing they already had.",
+      },
+    ],
+  },
+  {
     version: "2.250.4",
     date: "2026-07-31",
     title: "A calmer board filter bar",

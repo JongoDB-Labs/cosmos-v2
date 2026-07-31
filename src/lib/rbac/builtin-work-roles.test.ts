@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BUILTIN_WORK_ROLES, BUILTIN_KEY_PREFIX } from "./builtin-work-roles";
-import { Permission } from "./permissions";
+import { Permission, permissionMaskFromKeys, maskToDb } from "./permissions";
+import { readFileSync } from "node:fs";
 
 describe("BUILTIN_WORK_ROLES catalog", () => {
   it("has 8 entries with unique keys and names", () => {
@@ -26,6 +27,40 @@ describe("BUILTIN_WORK_ROLES catalog", () => {
       expect(r.description.trim().split(". ").length).toBeLessThanOrEqual(2);
     }
   });
+  it("Project Manager grants no ORG-WIDE project administration", () => {
+    // A work role is additive on top of the org role, so any of these would make
+    // the holder an administrator of EVERY project in the org — which is the bug
+    // this catalog change fixed. Each is still theirs inside a project they
+    // MANAGE, via requireProjectManage.
+    const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
+    expect(pm.permissions).not.toContain("PROJECT_MANAGE");
+    expect(pm.permissions).not.toContain("PROJECT_UPDATE");
+    for (const p of ["SPRINT_CREATE", "SPRINT_UPDATE", "SPRINT_COMPLETE"]) {
+      expect(pm.permissions).not.toContain(p);
+    }
+    for (const p of ["BOARD_UPDATE", "BOARD_DELETE", "BOARD_MANAGE"]) {
+      expect(pm.permissions).not.toContain(p);
+    }
+    expect(pm.permissions).not.toContain("ITEM_DELETE");
+    expect(pm.permissions).not.toContain("ITEM_BULK_EDIT");
+    // …but they must still be able to CREATE a project, which is what makes them
+    // its MANAGER and hands back everything above, scoped to that project.
+    expect(pm.permissions).toContain("PROJECT_CREATE");
+  });
+
+  it("the re-sync migration's mask still matches the catalog", () => {
+    // The migration carries a literal because SQL cannot read this file. If the
+    // catalog changes and the migration does not, existing orgs silently keep
+    // the old grants while new orgs get the new ones — a split-brain that is
+    // invisible until someone compares two orgs.
+    const sql = readFileSync(
+      "prisma/migrations/20260801120000_scope_builtin_project_manager/migration.sql",
+      "utf8",
+    );
+    const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
+    expect(sql).toContain(maskToDb(permissionMaskFromKeys(pm.permissions)));
+  });
+
   it("Analyst grants no write bits", () => {
     const analyst = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.analyst")!;
     const writes = analyst.permissions.filter((p) =>
