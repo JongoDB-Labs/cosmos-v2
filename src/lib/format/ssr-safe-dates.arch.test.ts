@@ -38,6 +38,22 @@ const CONVERTED = [
   "src/components/boards/backlog/backlog-view.tsx",
   "src/components/boards/dashboard/widgets/activity-feed.tsx",
   "src/components/boards/table/table-view.tsx",
+  "src/components/work-items/card-detail-sheet.tsx",
+  "src/components/work-items/updates-feed.tsx",
+  "src/components/pm-dashboard/deliverable-tracker.tsx",
+  "src/components/pm-dashboard/pm-entity-drawer.tsx",
+  "src/components/pm-dashboard/schedule-tracker.tsx",
+];
+
+/**
+ * Already correct before this migration reached them: an explicit locale AND an
+ * explicit `timeZone: "UTC"`, which is the same guarantee the helpers give.
+ * Listed so a later edit that drops the `timeZone` is caught, and so nobody
+ * "converts" them a second time.
+ */
+const ALREADY_PINNED = [
+  "src/components/work-items/issues-view.tsx",
+  "src/components/pm-dashboard/pm-dashboard.tsx",
 ];
 
 /**
@@ -72,7 +88,7 @@ describe("converted surfaces format dates SSR-safely", () => {
       });
 
       it("uses a stable formatter", () => {
-        expect(src).toMatch(/formatDate(Short)?Stable/);
+        expect(src).toMatch(/formatDate(Short|Long)?Stable/);
       });
 
       it("has no ambient-locale date formatting left", () => {
@@ -83,6 +99,22 @@ describe("converted surfaces format dates SSR-safely", () => {
 
         expect(offenders).toEqual([]);
       });
+    });
+  }
+});
+
+describe("surfaces that pin the time zone inline stay pinned", () => {
+  for (const file of ALREADY_PINNED) {
+    it(`${file} keeps timeZone: "UTC" on every date format`, () => {
+      const src = stripComments(readFileSync(file, "utf8"));
+      const calls = src.match(/\.toLocaleDateString\([\s\S]{0,220}?\)/g) ?? [];
+
+      // Guards the guard: if the call disappears or is renamed, this must fail
+      // rather than pass over an empty list.
+      expect(calls.length).toBeGreaterThan(0);
+
+      const unpinned = calls.filter((c) => !c.includes('timeZone: "UTC"'));
+      expect(unpinned).toEqual([]);
     });
   }
 });

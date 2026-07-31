@@ -22,6 +22,7 @@ import {
   activityValueLabel,
   type ActivityValueResolvers,
 } from "@/lib/work-items/activity-label";
+import { formatDateLongStable } from "@/lib/format/stable-date";
 
 interface FeedItem {
   id: string;
@@ -100,7 +101,7 @@ function dayLabel(iso: string): string {
     a.getDate() === b.getDate();
   if (sameDay(d, today)) return "Today";
   if (sameDay(d, y)) return "Yesterday";
-  return d.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" });
+  return formatDateLongStable(d);
 }
 
 function timeLabel(iso: string): string {

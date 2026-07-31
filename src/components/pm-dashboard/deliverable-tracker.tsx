@@ -37,6 +37,7 @@ import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
 import { branchOptions } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 type DeliverableStatus =
   | "NOT_STARTED"
@@ -250,7 +251,7 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
     sortingFn: (a, b) => baselineTime(a.original) - baselineTime(b.original),
     cell: ({ row }) => (
       <span className="text-[var(--text-muted)]">
-        {row.original.baselineDue ? new Date(row.original.baselineDue).toLocaleDateString() : "—"}
+        {row.original.baselineDue ? formatDateStable(row.original.baselineDue) : "—"}
       </span>
     ),
   },

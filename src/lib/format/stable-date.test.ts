@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatDateStable, formatDateShortStable } from "./stable-date";
+import {
+  formatDateStable,
+  formatDateShortStable,
+  formatDateLongStable,
+} from "./stable-date";
 
 /**
  * These dates render during SSR, so the server and the browser must produce
@@ -44,6 +48,30 @@ describe("formatDateStable", () => {
     expect(formatDateStable(undefined)).toBe("");
     expect(formatDateStable("")).toBe("");
     expect(formatDateStable("not-a-date")).toBe("");
+  });
+});
+
+describe("formatDateLongStable", () => {
+  it("formats a long date", () => {
+    expect(formatDateLongStable("2026-07-30T12:00:00.000Z")).toBe("July 30, 2026");
+  });
+
+  it("uses UTC, not the machine's zone, when the two disagree on the day", () => {
+    // 02:00 UTC on the 31st is 22:00 on the 30th in America/New_York. A
+    // formatter reading the ambient zone returns "July 30, 2026" here.
+    expect(formatDateLongStable("2026-07-31T02:00:00.000Z")).toBe("July 31, 2026");
+  });
+
+  it("crosses a year boundary in UTC, not locally", () => {
+    // 01:00 UTC on Jan 1 is still Dec 31 in New York — the shift changes the
+    // YEAR, which is the most visible way this goes wrong.
+    expect(formatDateLongStable("2027-01-01T01:00:00.000Z")).toBe("January 1, 2027");
+  });
+
+  it("returns empty string for absent or unparseable input", () => {
+    expect(formatDateLongStable(null)).toBe("");
+    expect(formatDateLongStable(undefined)).toBe("");
+    expect(formatDateLongStable("nope")).toBe("");
   });
 });
 

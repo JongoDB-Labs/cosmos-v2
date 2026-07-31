@@ -86,6 +86,7 @@ import {
   activityFieldLabel,
   activityValueLabel,
 } from "@/lib/work-items/activity-label";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 interface CardDetailSheetProps {
   item: WorkItem | null;
@@ -1516,7 +1517,7 @@ export function CardDetailSheet({
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium">{name}</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {new Date(c.createdAt).toLocaleDateString()}
+                          {formatDateStable(c.createdAt)}
                           {edited ? " · edited" : ""}
                         </span>
                         {!isEditing && (c.canEdit || c.canDelete) && (
@@ -1671,7 +1672,7 @@ export function CardDetailSheet({
                       </>
                     )}
                     <span className="ml-2 text-[10px]">
-                      {new Date(a.createdAt).toLocaleDateString()}
+                      {formatDateStable(a.createdAt)}
                     </span>
                   </div>
                 </div>
