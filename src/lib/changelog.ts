@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.250.3",
+    date: "2026-07-31",
+    title: "No more “Something went wrong” on the projects list",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening Projects could pop a “Something went wrong” error, caused by the “Updated” and due dates on project cards being formatted differently by the server and your browser. Those dates now read the same from both, so the error is gone.",
+      },
+    ],
+  },
+  {
     version: "2.250.2",
     date: "2026-07-31",
     title: "Filter a board by label",
