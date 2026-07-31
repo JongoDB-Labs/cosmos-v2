@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.252.0",
+    date: "2026-08-01",
+    title: "Submit your week, and have it approved",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time is now submitted a week at a time, not an entry at a time. \"Submit week\" sits in the week header, and the week's status — Open, Submitted, Approved or Returned — is shown alongside it.",
+      },
+      {
+        kind: "feature",
+        text: "Supervisors can approve or return a report's week from the same screen: pick the person, review the week, then Approve or Return. Returning requires a reason, and that reason is shown to them on the week that came back.",
+      },
+      {
+        kind: "improvement",
+        text: "You cannot approve your own timesheet when you have a supervisor — that is theirs to do. If you have no supervisor, you can, because otherwise your hours could never be approved at all.",
+      },
+      {
+        kind: "improvement",
+        text: "Approving a week never revives entries you had removed from it, and a returned week clears its earlier approval rather than carrying a stale signature.",
+      },
+    ],
+  },
+  {
     version: "2.251.5",
     date: "2026-07-31",
     title: "Issue and schedule dates read the same everywhere",
