@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.250.2",
+    date: "2026-07-31",
+    title: "Filter a board by label",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards now have a Label filter, on the Kanban and Sprint boards and the Timeline. Picking several labels widens the view — an item shows if it carries any of them. The menu lists only labels actually on the board, and hides itself when there are none.",
+      },
+    ],
+  },
+  {
     version: "2.250.1",
     date: "2026-07-31",
     title: "Time entries show the day they were logged",
