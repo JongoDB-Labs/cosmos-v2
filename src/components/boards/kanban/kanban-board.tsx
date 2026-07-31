@@ -40,6 +40,14 @@ import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import {
+  blockedItemIds,
+  matchesBlocked,
+  milestoneItemIds,
+  matchesMilestone,
+  presentStoryPoints,
+  matchesStoryPoints,
+} from "@/lib/work-items/relation-filters";
+import {
   teamsByUser,
   teamLaneFor,
   itemMatchesTeam,
@@ -145,6 +153,8 @@ function KanbanBoardInner({
   // Teams in this project, with their members — a team's work is derived from
   // who it is assigned to, so the roster is what makes the lane/filter possible.
   const [teams, setTeams] = useState<TeamLike[]>([]);
+  const [links, setLinks] = useState<{ sourceItemId: string; targetItemId: string; type: string }[]>([]);
+  const [milestones, setMilestones] = useState<{ id: string; title: string; links?: { workItemId: string }[] | null }[]>([]);
   const [intervals, setIntervals] = useState<Interval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -216,6 +226,8 @@ function KanbanBoardInner({
   const orgSlug = useOrgSlug();
   const itemsKey = useMemo(() => ["org", orgSlug, "work-items", projectId], [orgSlug, projectId]);
   const membersKey = useMemo(() => ["org", orgSlug, "members"], [orgSlug]);
+  const linksKey = useMemo(() => ["org", orgSlug, "item-links", projectId], [orgSlug, projectId]);
+  const milestonesKey = useMemo(() => ["org", orgSlug, "milestones", projectId], [orgSlug, projectId]);
   const teamsKey = useMemo(
     () => ["org", orgSlug, "project-teams", projectId],
     [orgSlug, projectId],
@@ -293,7 +305,8 @@ function KanbanBoardInner({
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
       try {
-        const [boardData, itemsData, membersData, teamsData, intervalsData] = await Promise.all([
+        const [boardData, itemsData, membersData, linksData, milestonesData, teamsData, intervalsData] =
+          await Promise.all([
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
@@ -309,6 +322,26 @@ function KanbanBoardInner({
             .fetchQuery({
               queryKey: membersKey,
               queryFn: () => jsonFetch<OrgMember[]>(`/api/v1/orgs/${orgId}/members`),
+              staleTime,
+            })
+            .catch(() => null),
+          qc
+            .fetchQuery({
+              queryKey: linksKey,
+              queryFn: () =>
+                jsonFetch<{ sourceItemId: string; targetItemId: string; type: string }[]>(
+                  `${basePath}/work-item-links`,
+                ),
+              staleTime,
+            })
+            .catch(() => null),
+          qc
+            .fetchQuery({
+              queryKey: milestonesKey,
+              queryFn: () =>
+                jsonFetch<{ id: string; title: string; links?: { workItemId: string }[] }[]>(
+                  `${basePath}/milestones`,
+                ),
               staleTime,
             })
             .catch(() => null),
@@ -339,6 +372,8 @@ function KanbanBoardInner({
         );
         setItems(itemsData);
         if (membersData) setMembers(membersData);
+        if (linksData) setLinks(linksData);
+        if (milestonesData) setMilestones(milestonesData);
         if (teamsData) setTeams(teamsData);
         if (intervalsData) setIntervals(intervalsData);
       } catch (err) {
@@ -349,7 +384,7 @@ function KanbanBoardInner({
         if (seq === reqSeq.current && !opts?.silent) setLoading(false);
       }
     },
-    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, teamsKey, intervalsKey],
+    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, linksKey, milestonesKey, teamsKey, intervalsKey],
   );
 
   // Initial load. fetchData sets `loading` up front (the skeleton); that's the
@@ -420,6 +455,11 @@ function KanbanBoardInner({
   // One instant for the whole pass: reading the clock per item lets a date
   // filter change its mind mid-list across a midnight boundary.
   const filterNow = useMemo(() => new Date(), [items]);
+  // Resolved once, then asked per item — scanning the links per card would be
+  // quadratic on a busy board.
+  const blockedIds = useMemo(() => blockedItemIds(links), [links]);
+  const milestoneMap = useMemo(() => milestoneItemIds(milestones), [milestones]);
+  const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
 
   const filteredItems = items.filter((item) => {
     if (
@@ -466,6 +506,9 @@ function KanbanBoardInner({
     if (!matchesOneOf(item.workCategory, filters.workCategories)) return false;
     if (filters.createdById && item.createdById !== filters.createdById) return false;
     if (!matchesDuePreset(item.dueDate, filters.due, filterNow)) return false;
+    if (!matchesMilestone(item.id, filters.milestoneId, milestoneMap)) return false;
+    if (!matchesBlocked(item.id, filters.blocked, blockedIds)) return false;
+    if (!matchesStoryPoints(item.storyPoints, filters.storyPoints)) return false;
 
     if (
       !matchesCustomFieldFilters(
@@ -929,6 +972,8 @@ function KanbanBoardInner({
         teams={teams}
         presentLabelNames={presentLabelNames}
         boardColumns={columns}
+        milestoneOptions={milestones}
+        presentPointValues={presentPointValues}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
