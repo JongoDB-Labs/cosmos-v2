@@ -22,6 +22,7 @@
  */
 import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/db/client";
+import { managersByProject, type ProjectManager } from "@/lib/projects/project-managers";
 
 // ---------------------------------------------------------------------------
 // Organization lookups
@@ -92,8 +93,8 @@ export interface ProjectRollup {
   doneItems: number;
   /** Math.round(doneItems / totalItems * 100); 0 when there are no items. */
   percentComplete: number;
-  /** Project lead/owner (LEAD, else MANAGER) if one is assigned. */
-  lead: { displayName: string; avatarUrl: string | null } | null;
+  /** The project's MANAGERS, sorted by display name. Empty when none is set. */
+  managers: ProjectManager[];
   /** Name of the single ACTIVE interval, if any. */
   activeIntervalName: string | null;
   /** Earliest upcoming (>= now) due date among incomplete work items. */
@@ -147,7 +148,7 @@ export async function getActiveProjectsForOrg(
   const projectIds = projects.map((p) => p.id);
   const now = new Date();
 
-  const [totals, dones, nextDues, activeIntervals, leadMembers] =
+  const [totals, dones, nextDues, activeIntervals, managerRows] =
     await Promise.all([
       // Total work items per project.
       prisma.workItem.groupBy({
@@ -177,13 +178,13 @@ export async function getActiveProjectsForOrg(
         select: { projectId: true, name: true },
         orderBy: { startDate: "desc" },
       }),
-      // Lead/owner per project: prefer LEAD, fall back to MANAGER. Note: User
-      // is selected without OrgMember.permissions (BigInt) to keep the result
-      // JSON-serializable across the server→client boundary.
+      // The project's MANAGERS — who runs it. Note: User is selected without
+      // OrgMember.permissions (BigInt) to keep the result JSON-serializable
+      // across the server→client boundary.
       prisma.projectMember.findMany({
         where: {
           projectId: { in: projectIds },
-          role: { in: ["LEAD", "MANAGER"] },
+          role: "MANAGER",
         },
         select: {
           projectId: true,
@@ -208,29 +209,11 @@ export async function getActiveProjectsForOrg(
   for (const c of activeIntervals) {
     if (!intervalByProject.has(c.projectId)) intervalByProject.set(c.projectId, c.name);
   }
-  // Resolve one lead per project. A LEAD always beats a MANAGER; among equals
-  // the first row wins. We track the chosen role so a later LEAD can upgrade an
-  // already-chosen MANAGER, but never the reverse.
-  const leadByProject = new Map<
-    string,
-    { displayName: string; avatarUrl: string | null; role: string }
-  >();
-  for (const m of leadMembers) {
-    const existing = leadByProject.get(m.projectId);
-    if (existing && !(existing.role === "MANAGER" && m.role === "LEAD")) {
-      continue;
-    }
-    leadByProject.set(m.projectId, {
-      displayName: m.orgMember.user.displayName,
-      avatarUrl: m.orgMember.user.avatarUrl,
-      role: m.role,
-    });
-  }
+  const managersByProjectId = managersByProject(managerRows);
 
   return projects.map<ProjectRollup>((p) => {
     const totalItems = totalByProject.get(p.id) ?? 0;
     const doneItems = doneByProject.get(p.id) ?? 0;
-    const leadEntry = leadByProject.get(p.id);
     return {
       id: p.id,
       key: p.key,
@@ -241,9 +224,7 @@ export async function getActiveProjectsForOrg(
       doneItems,
       percentComplete:
         totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0,
-      lead: leadEntry
-        ? { displayName: leadEntry.displayName, avatarUrl: leadEntry.avatarUrl }
-        : null,
+      managers: managersByProjectId.get(p.id) ?? [],
       activeIntervalName: intervalByProject.get(p.id) ?? null,
       nextDueDate: nextDueByProject.get(p.id) ?? null,
     };
