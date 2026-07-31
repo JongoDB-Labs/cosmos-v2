@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.9",
+    date: "2026-07-30",
+    title: "Milestones stay in step across every screen that shows them",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A milestone added, renamed, re-dated or deleted on the Milestones board did not update the PM Dashboard's Schedule until you reloaded — and a change made on Schedule did not reach the Milestones board or the Release Timeline. They are the same milestones, and every screen now updates as soon as any of them changes.",
+      },
+    ],
+  },
+  {
     version: "2.249.8",
     date: "2026-07-30",
     title: "Create and staff teams from a project's Members page",

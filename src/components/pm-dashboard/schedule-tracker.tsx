@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { milestoneInvalidations } from "@/lib/query/milestone-keys";
 import { notifyError } from "@/lib/errors/notify";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -337,7 +338,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   const createMutation = useOrgMutation<Milestone, Error, MilestoneForm>({
     mutationFn: (f) =>
       jsonFetch(apiBase, { method: "POST", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["schedule", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onSuccess: () => setCreateOpen(false),
     onError: (e) => notifyError(e, "Couldn't create the milestone."),
   });
@@ -345,14 +346,14 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   const updateMutation = useOrgMutation<Milestone, Error, { id: string; f: MilestoneForm }>({
     mutationFn: ({ id, f }) =>
       jsonFetch(`${apiBase}/${id}`, { method: "PATCH", body: JSON.stringify(formToBody(f)) }),
-    invalidate: [["schedule", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onSuccess: () => setEditing(null),
     onError: (e) => notifyError(e, "Couldn't update the milestone."),
   });
 
   const deleteMutation = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) => jsonFetch(`${apiBase}/${id}`, { method: "DELETE" }),
-    invalidate: [["schedule", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onSuccess: () => setDeleting(null),
     onError: (e) => notifyError(e, "Couldn't delete the milestone."),
   });
@@ -365,13 +366,13 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         method: "POST",
         body: JSON.stringify({ workItemId }),
       }),
-    invalidate: [["schedule", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onError: (e) => notifyError(e, "Couldn't link the work item."),
   });
   const unlinkMutation = useOrgMutation<unknown, Error, { milestoneId: string; linkId: string }>({
     mutationFn: ({ milestoneId, linkId }) =>
       jsonFetch(`${milestonesBase}/${milestoneId}/links/${linkId}`, { method: "DELETE" }),
-    invalidate: [["schedule", projectId]],
+    invalidate: milestoneInvalidations(projectId),
     onError: (e) => notifyError(e, "Couldn't unlink the work item."),
   });
 
