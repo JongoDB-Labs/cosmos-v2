@@ -64,6 +64,7 @@ import {
 } from "lucide-react";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 interface TableViewProps {
   orgId: string;
@@ -835,7 +836,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
               }
             >
               {d ? (
-                d.toLocaleDateString()
+                formatDateStable(d)
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}

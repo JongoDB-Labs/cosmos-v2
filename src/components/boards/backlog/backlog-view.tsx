@@ -51,6 +51,7 @@ import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { formatDateShortStable } from "@/lib/format/stable-date";
 import type {
   Board,
   BoardColumn,
@@ -96,7 +97,7 @@ function formatIntervalRange(interval: Interval): string {
     const d = new Date(s);
     return Number.isNaN(d.getTime())
       ? ""
-      : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      : formatDateShortStable(d);
   };
   const start = formatStart(interval.startDate, fmt);
   const end = formatStart(interval.endDate, fmt);
