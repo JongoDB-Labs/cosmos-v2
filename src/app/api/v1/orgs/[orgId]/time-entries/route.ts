@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { redactRates } from "@/lib/time/visibility";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { timesheetIdForEntry } from "@/lib/time/timesheet";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -62,6 +63,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const where: Record<string, unknown> = { orgId };
+    // Voided entries are RETAINED but never shown. The record survives for the
+    // audit trail; the product behaves as though the row is gone.
+    where.voidedAt = null;
     // An explicit (and permitted) userId always wins; otherwise fall back to
     // the readable set, or `undefined` — "no filter" to Prisma — for READ_ALL.
     where.userId = userId ?? timeUserIdFilter(allowed);
@@ -108,10 +112,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = createTimeEntrySchema.parse(body);
 
+    // Resolve the pay period BEFORE the insert so an entry is never briefly
+    // unattached — a row with no timesheet is invisible to every period-level
+    // read, and "briefly" is long enough for a concurrent report to miss it.
+    const timesheetId = await timesheetIdForEntry(orgId, ctx.userId, data.date);
+
     const entry = await prisma.timeEntry.create({
       data: {
         orgId,
         userId: ctx.userId,
+        timesheetId,
         date: new Date(data.date),
         hours: data.hours,
         rate: data.rate ?? null,

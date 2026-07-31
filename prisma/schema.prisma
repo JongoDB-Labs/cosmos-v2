@@ -1462,12 +1462,106 @@ model TimeEntry {
   // prod's Prisma defines it as a bare scalar, not a PayRun relation).
   payRunId     String?         @map("pay_run_id") @db.Uuid
   clinId       String?         @map("clin_id") @db.Uuid
+  // The pay period this entry rolls up into. Nullable ONLY so the column could
+  // be added to a live table; every write path sets it.
+  timesheetId  String?         @map("timesheet_id") @db.Uuid
+  // VOIDED, never deleted. Hard deletion makes the dataset inadmissible: an
+  // auditor cannot tell "never entered" from "removed afterwards". Every read
+  // filters `voidedAt: null`, so a void is invisible in the product and
+  // permanent in the record.
+  voidedAt     DateTime?       @map("voided_at")
+  voidedById   String?         @map("voided_by_id") @db.Uuid
+  voidReason   String?         @map("void_reason")
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
+  timesheet Timesheet?          @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
+  revisions TimeEntryRevision[]
+
   @@index([orgId, userId, date])
   @@index([orgId, status])
+  // Reads exclude voided rows, so the filter belongs in the index.
+  @@index([orgId, userId, voidedAt])
+  @@index([timesheetId])
   @@map("time_entries")
+}
+
+enum TimesheetStatus {
+  OPEN
+  SUBMITTED
+  /// Lane 1 (the people manager) has signed off; lane 2 is outstanding.
+  LABOR_APPROVED
+  APPROVED
+  REJECTED
+  /// The accounting period closed. Nothing inside may move.
+  LOCKED
+}
+
+/// A person's hours for one pay period, and the unit approval attaches to.
+///
+/// Approving entry-by-entry does not scale, is not how payroll or accounting
+/// think, and is not what "review my team's week" means. The period is resolved
+/// PER ENTRY from its own date (see lib/time/period.ts), so a week spanning a
+/// semi-monthly boundary correctly lands in two timesheets.
+///
+/// Rows are created lazily on the first entry in a period. A derived timesheet
+/// was considered and rejected: approval state needs somewhere concrete to
+/// live, and a computed row cannot carry `submittedAt` or an approver.
+model Timesheet {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String          @map("org_id") @db.Uuid
+  userId      String          @map("user_id") @db.Uuid
+  periodStart DateTime        @map("period_start") @db.Date
+  periodEnd   DateTime        @map("period_end") @db.Date
+  status      TimesheetStatus @default(OPEN)
+  submittedAt DateTime?       @map("submitted_at")
+  // Two lanes, because approval answers two different questions held by
+  // different people: "were these hours worked" (people manager) and "are they
+  // chargeable to my project" (project/CLIN owner). A policy may require one.
+  laborApprovedById String?   @map("labor_approved_by_id") @db.Uuid
+  laborApprovedAt   DateTime? @map("labor_approved_at")
+  costApprovedById  String?   @map("cost_approved_by_id") @db.Uuid
+  costApprovedAt    DateTime? @map("cost_approved_at")
+  rejectedReason    String?   @map("rejected_reason")
+  /// The worker's own attestation, where policy requires one.
+  attestedAt        DateTime? @map("attested_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  entries TimeEntry[]
+
+  @@unique([orgId, userId, periodStart])
+  @@index([orgId, status])
+  @@map("timesheets")
+}
+
+/// Append-only history of what a time entry USED to say.
+///
+/// `logAudit` records that `hours` changed, not from what to what — insufficient
+/// for the question an auditor actually asks: "this row says 8 hours, what did
+/// it say before, who changed it, when, and why?"
+///
+/// No update or delete path exists, in the application or the database.
+model TimeEntryRevision {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  timeEntryId String   @map("time_entry_id") @db.Uuid
+  /// Full prior state. JSON rather than a column per field so adding a field to
+  /// TimeEntry never needs a migration here — and so a revision keeps meaning
+  /// what it meant even after the entry's shape changes.
+  previous    Json
+  /// Only the keys that moved, so a reader does not have to diff.
+  changed     Json
+  /// Required once the entry has left OPEN, under a strict policy.
+  reason      String?
+  actorId     String   @map("actor_id") @db.Uuid
+  actorIp     String?  @map("actor_ip")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  entry TimeEntry @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, timeEntryId, createdAt])
+  @@map("time_entry_revisions")
 }
 
 model Revenue {
