@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.250.0",
+    date: "2026-07-31",
+    title: "Supervisors can see their team's time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Employees can now be given a supervisor, set on the employee record under Finance → Payroll. A supervisor can then review a report's hours week by week from the time-tracking page, without being handed access to the whole organisation.",
+      },
+      {
+        kind: "feature",
+        text: "Time tracking has a \"whose time\" picker for anyone who can see more than their own. Your own time is always the default, and a colleague's week is read-only — you cannot log or edit hours on someone else's behalf.",
+      },
+      {
+        kind: "fix",
+        text: "Day and week totals now describe one person. Anyone able to see other people's entries — org admins, until now — had those hours silently added into their own weekly total.",
+      },
+      {
+        kind: "improvement",
+        text: "Supervisors see hours, not money. Rates on someone else's entry still require finance access, so confirming that a week was worked never reveals what anyone is paid.",
+      },
+      {
+        kind: "improvement",
+        text: "The supervisor picker will not offer anyone who already reports up through that person, so the org chart cannot be tangled into a loop.",
+      },
+    ],
+  },
+  {
     version: "2.249.22",
     date: "2026-07-31",
     title: "Your time entries are yours",

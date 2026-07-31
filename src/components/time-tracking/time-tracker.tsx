@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { TimePerson } from "@/lib/time/scope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,6 +134,38 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [clins, setClins] = useState<Clin[]>([]);
+  // Whose time is on screen. This page shows ONE person at a time on purpose:
+  // getDayTotal/weekTotal below sum every row they are handed, so a response
+  // mixing several people would turn "your week" into their hours added
+  // together. "" means the signed-in user.
+  const [people, setPeople] = useState<TimePerson[]>([]);
+  const [personId, setPersonId] = useState("");
+  // Viewing a colleague's time is READ-ONLY. Every write path here acts on the
+  // SIGNED-IN user — POST /time-entries takes userId from the session, and the
+  // API refuses edits to another person's rows — so leaving "Log Time" on
+  // screen while a report's week is shown would silently file the entry
+  // against the supervisor instead.
+  const viewingSomeoneElse = personId !== "";
+  // "" means ME, and ME has to be sent EXPLICITLY. A TIME_READ_ALL holder who
+  // sends no userId gets every entry in the org, and the week grid would sum
+  // all of it into "your week" — the arithmetic bug this picker exists to fix,
+  // still present in the default state. Resolved from the people list rather
+  // than threaded in as a prop, so there is one source of "who am I".
+  const selfUserId = people.find((p) => p.isSelf)?.userId ?? "";
+  const shownUserId = personId || selfUserId;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/time-entries/people`);
+        if (!res.ok) return; // no picker beats a broken page
+        const body = await res.json();
+        setPeople(body.data ?? []);
+      } catch {
+        /* the picker is an enhancement, not a prerequisite */
+      }
+    })();
+  }, [orgId]);
 
   useEffect(() => {
     (async () => {
@@ -191,6 +224,8 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       }
       if (filterStatus !== "ALL") params.set("status", filterStatus);
       if (filterBillable !== "ALL") params.set("billableType", filterBillable);
+      // Pin to one person so the day/week totals below describe THAT person.
+      if (shownUserId) params.set("userId", shownUserId);
       const res = await fetch(`/api/v1/orgs/${orgId}/time-entries?${params}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -208,7 +243,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     } finally {
       if (reqRef.current === token) setLoading(false);
     }
-  }, [orgId, view, weekStart, weekEnd, filterStatus, filterBillable, refreshKey]);
+  }, [orgId, view, weekStart, weekEnd, filterStatus, filterBillable, shownUserId, refreshKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -337,6 +372,27 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
             only carries the view controls + actions, which wrap on mobile so
             the "Log Time" button never clips off the right edge. */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Only worth rendering when there IS someone else to look at — a
+              picker with one option is noise on everyone else's page. */}
+          {people.length > 1 && (
+            <select
+              aria-label="Whose time to show"
+              className="h-9 rounded-md border bg-background px-2 text-sm"
+              value={personId}
+              onChange={(e) => setPersonId(e.target.value)}
+            >
+              {/* Self is always "" so that picking yourself can never read as
+                  "viewing someone else" and hide your own Log Time button. */}
+              <option value="">My time</option>
+              {people
+                .filter((p) => !p.isSelf)
+                .map((p) => (
+                  <option key={p.userId} value={p.userId}>
+                    {p.displayName ?? "Teammate"}
+                  </option>
+                ))}
+            </select>
+          )}
           <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
             <button
               onClick={() => setView("week")}
@@ -366,14 +422,16 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
             Filters
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger
-              render={
-                <Button onClick={() => openCreate()}>
-                  <Plus className="size-4" />
-                  Log Time
-                </Button>
-              }
-            />
+            {!viewingSomeoneElse && (
+              <DialogTrigger
+                render={
+                  <Button onClick={() => openCreate()}>
+                    <Plus className="size-4" />
+                    Log Time
+                  </Button>
+                }
+              />
+            )}
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>
@@ -551,16 +609,16 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           getDayTotal={getDayTotal}
           weekTotal={weekTotal}
           onNavigate={navigateWeek}
-          onCellClick={openCreate}
-          onEdit={openEdit}
-          onSubmit={handleSubmit}
+          onCellClick={viewingSomeoneElse ? undefined : openCreate}
+          onEdit={viewingSomeoneElse ? undefined : openEdit}
+          onSubmit={viewingSomeoneElse ? undefined : handleSubmit}
         />
       ) : (
         <ListView
           entries={entries}
-          onEdit={openEdit}
-          onSubmit={handleSubmit}
-          onDelete={handleDelete}
+          onEdit={viewingSomeoneElse ? undefined : openEdit}
+          onSubmit={viewingSomeoneElse ? undefined : handleSubmit}
+          onDelete={viewingSomeoneElse ? undefined : handleDelete}
         />
       )}
     </div>
@@ -582,9 +640,12 @@ function WeekView({
   getDayTotal: (date: string) => number;
   weekTotal: number;
   onNavigate: (dir: number) => void;
-  onCellClick: (date: string) => void;
-  onEdit: (entry: TimeEntry) => void;
-  onSubmit: (id: string) => void;
+  // Write handlers are OPTIONAL: absent = read-only, which is how another
+  // person's week is shown. Optional rather than a `readOnly` boolean so the
+  // type makes an unhandled action impossible instead of merely discouraged.
+  onCellClick?: (date: string) => void;
+  onEdit?: (entry: TimeEntry) => void;
+  onSubmit?: (id: string) => void;
 }) {
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -676,7 +737,7 @@ function WeekView({
                               <div className="hidden gap-0.5 group-hover:flex">
                                 {cellEntries.map((entry) => (
                                   <div key={entry.id} className="flex gap-0.5">
-                                    {entry.status === "DRAFT" && (
+                                    {entry.status === "DRAFT" && onEdit && (
                                       <button
                                         onClick={() => onEdit(entry)}
                                         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -684,7 +745,7 @@ function WeekView({
                                         <Pencil className="size-3" />
                                       </button>
                                     )}
-                                    {entry.status === "DRAFT" && (
+                                    {entry.status === "DRAFT" && onSubmit && (
                                       <button
                                         onClick={() => onSubmit(entry.id)}
                                         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -696,7 +757,7 @@ function WeekView({
                                 ))}
                               </div>
                             </div>
-                          ) : (
+                          ) : onCellClick ? (
                             <button
                               onClick={() => onCellClick(ds)}
                               aria-label={`Add time entry for ${ds}`}
@@ -704,6 +765,9 @@ function WeekView({
                             >
                               <Plus className="size-4" />
                             </button>
+                          ) : (
+                            // Read-only (viewing someone else): no add affordance.
+                            <span className="block size-full" />
                           )}
                         </td>
                       );
@@ -746,9 +810,10 @@ function ListView({
   onDelete,
 }: {
   entries: TimeEntry[];
-  onEdit: (entry: TimeEntry) => void;
-  onSubmit: (id: string) => void;
-  onDelete: (id: string) => void;
+  // Optional = read-only; see WeekView above.
+  onEdit?: (entry: TimeEntry) => void;
+  onSubmit?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   const sorted = [...entries].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
@@ -761,6 +826,10 @@ function ListView({
   const rowActions = useCallback(
     (entry: TimeEntry): ActionMenuGroup[] => {
       if (entry.status !== "DRAFT") return [];
+      // Read-only (another person's time): no context menu either. The inline
+      // buttons below are hidden on the same condition, so the two cannot
+      // disagree about what is possible.
+      if (!onEdit || !onSubmit || !onDelete) return [];
       return [
         {
           items: [
@@ -837,7 +906,7 @@ function ListView({
         const entry = row.original;
         return (
           <div className="flex items-center justify-end gap-1">
-            {entry.status === "DRAFT" && (
+            {entry.status === "DRAFT" && onEdit && onSubmit && onDelete && (
               <>
                 <Button
                   variant="ghost"
