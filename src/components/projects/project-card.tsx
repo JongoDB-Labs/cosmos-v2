@@ -54,7 +54,7 @@ export interface ProjectCardProject {
   totalItems: number;
   doneItems: number;
   percentComplete: number;
-  lead: { displayName: string; avatarUrl: string | null } | null;
+  managers: { displayName: string; avatarUrl: string | null }[];
   activeIntervalName: string | null;
   nextDueDate: Date | string | null;
 }
@@ -188,18 +188,29 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
                 {project.name.charAt(0).toUpperCase()}
               </div>
               <h3 className="font-medium truncate flex-1">{project.name}</h3>
-              {project.lead && (
-                <Avatar size="sm" title={`Lead: ${project.lead.displayName}`}>
-                  {project.lead.avatarUrl && (
-                    <AvatarImage
-                      src={project.lead.avatarUrl}
-                      alt={project.lead.displayName}
-                    />
+              {/* Every manager is named in the tooltip even though only the
+                  first two get an avatar — the card has room for two, and
+                  silently dropping the rest is what made this display
+                  misleading before. */}
+              {project.managers.length > 0 && (
+                <div
+                  className="flex -space-x-2"
+                  title={`${project.managers.length === 1 ? "Manager" : "Managers"}: ${project.managers
+                    .map((m) => m.displayName)
+                    .join(", ")}`}
+                >
+                  {project.managers.slice(0, 2).map((m) => (
+                    <Avatar key={m.displayName} size="sm">
+                      {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
+                      <AvatarFallback>{initials(m.displayName)}</AvatarFallback>
+                    </Avatar>
+                  ))}
+                  {project.managers.length > 2 && (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[10px] font-medium text-[var(--text-muted)]">
+                      +{project.managers.length - 2}
+                    </span>
                   )}
-                  <AvatarFallback>
-                    {initials(project.lead.displayName)}
-                  </AvatarFallback>
-                </Avatar>
+                </div>
               )}
             </div>
 

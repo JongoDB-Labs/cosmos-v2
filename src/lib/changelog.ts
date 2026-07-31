@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.19",
+    date: "2026-07-31",
+    title: "Project cards show the project's managers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A project card showed a single person under a \"Lead\" label, chosen in a way that could change on its own when more than one person qualified — and it preferred the Lead role, so a project's actual managers were hidden. Cards now show the project's managers, all of them, in a stable order.",
+      },
+    ],
+  },
+  {
     version: "2.249.18",
     date: "2026-07-31",
     title: "Limited-visibility projects are properly hidden",
