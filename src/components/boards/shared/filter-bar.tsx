@@ -327,6 +327,7 @@ export function FilterBar({
   presentCustomFieldKeys,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const currentUserId = useCurrentUserId();
   // Drive the Type filter off the org's ACTUAL types (built-ins + custom) so a
   // custom type like "Feature" appears as a filter chip too. `bareKeys` falls
@@ -383,6 +384,23 @@ export function FilterBar({
     filters.swimlaneBy !== "none" ||
     hasActiveCustom;
 
+  /**
+   * Progressive disclosure, the way Jira/Linear/Asana/Monday all settle on it:
+   * search first, a small high-frequency set inline, the long tail one click
+   * away. Ordering inline by how often a board is actually sliced that way —
+   * "who is this on" beats "which sprint" beats everything else.
+   *
+   * The one rule that matters more than the layout: an ACTIVE filter is never
+   * hidden. A collapsed filter still narrowing the board is how you get a user
+   * staring at an empty screen wondering what broke. So the overflow row forces
+   * itself open whenever anything in it is set, and the toggle carries a count.
+   */
+  const overflowCount =
+    (filters.teamId !== null ? 1 : 0) +
+    (filters.intervalId !== null ? 1 : 0) +
+    (hasActiveCustom ? 1 : 0);
+  const showOverflow = moreOpen || overflowCount > 0;
+
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b bg-background/50">
       <div
@@ -423,31 +441,6 @@ export function FilterBar({
         </Button>
       )}
 
-      <MultiSelectMenu
-        label="Type"
-        options={shownTypeOptions}
-        selected={filters.types}
-        onChange={(types) => onFilterChange({ ...filters, types })}
-        colorMap={typeColorMap}
-      />
-
-      {presentLabelNames.length > 0 && (
-        <MultiSelectMenu
-          label="Label"
-          options={presentLabelNames}
-          selected={filters.labels}
-          onChange={(labels) => onFilterChange({ ...filters, labels })}
-        />
-      )}
-
-      <MultiSelectMenu
-        label="Priority"
-        options={PRIORITIES}
-        selected={filters.priorities}
-        onChange={(priorities) => onFilterChange({ ...filters, priorities })}
-        colorMap={priorityColors}
-      />
-
       <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground mr-1">Assignee:</span>
         <SearchableSelect
@@ -473,6 +466,105 @@ export function FilterBar({
         />
       </div>
 
+      <MultiSelectMenu
+        label="Type"
+        options={shownTypeOptions}
+        selected={filters.types}
+        onChange={(types) => onFilterChange({ ...filters, types })}
+        colorMap={typeColorMap}
+      />
+
+      <MultiSelectMenu
+        label="Priority"
+        options={PRIORITIES}
+        selected={filters.priorities}
+        onChange={(priorities) => onFilterChange({ ...filters, priorities })}
+        colorMap={priorityColors}
+      />
+
+      {presentLabelNames.length > 0 && (
+        <MultiSelectMenu
+          label="Label"
+          options={presentLabelNames}
+          selected={filters.labels}
+          onChange={(labels) => onFilterChange({ ...filters, labels })}
+        />
+      )}
+
+      {/* Everything past this point is the long tail: useful, but not what a
+          board is sliced by minute to minute. One click away, and forced open
+          below whenever any of it is active. */}
+      <button
+        type="button"
+        onClick={() => setMoreOpen((v) => !v)}
+        aria-expanded={showOverflow}
+        className={cn(
+          "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+          overflowCount > 0
+            ? "border-primary/50 text-foreground"
+            : "border-input text-muted-foreground hover:bg-muted",
+        )}
+      >
+        {showOverflow ? "Fewer filters" : "More filters"}
+        {overflowCount > 0 && (
+          <span className="rounded bg-primary/20 px-1 text-[10px] tabular-nums text-primary">
+            {overflowCount}
+          </span>
+        )}
+      </button>
+
+      {showSwimlane && (
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">Swimlanes:</span>
+          <Select
+            items={Object.fromEntries(
+              SWIMLANE_OPTIONS.map((o) => [o.value, o.label]),
+            )}
+            value={filters.swimlaneBy}
+            onValueChange={(v) =>
+              onFilterChange({
+                ...filters,
+                swimlaneBy: VALID_SWIMLANES.has(v as string)
+                  ? (v as SwimlaneKey)
+                  : "none",
+              })
+            }
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Group into swimlanes"
+              className="h-7 text-xs"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SWIMLANE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {hasFilters && (
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() => onFilterChange(emptyFilters)}
+          className="gap-1 text-muted-foreground"
+        >
+          <X className="h-3 w-3" />
+          Clear
+        </Button>
+      )}
+      {showOverflow && (
+        // Second row rather than a popover: these controls are Selects, and a
+        // Select inside a dropdown portal is a well-known focus/click-outside
+        // trap. A row also lets several be read at once, which is the point of
+        // opening it.
+        <div className="flex w-full flex-wrap items-center gap-3 border-t pt-2">
       {teams.length > 0 && (
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Team:</span>
@@ -599,52 +691,9 @@ export function FilterBar({
         );
       })}
 
-      {showSwimlane && (
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground mr-1">Swimlanes:</span>
-          <Select
-            items={Object.fromEntries(
-              SWIMLANE_OPTIONS.map((o) => [o.value, o.label]),
-            )}
-            value={filters.swimlaneBy}
-            onValueChange={(v) =>
-              onFilterChange({
-                ...filters,
-                swimlaneBy: VALID_SWIMLANES.has(v as string)
-                  ? (v as SwimlaneKey)
-                  : "none",
-              })
-            }
-          >
-            <SelectTrigger
-              size="sm"
-              aria-label="Group into swimlanes"
-              className="h-7 text-xs"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SWIMLANE_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       )}
 
-      {hasFilters && (
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => onFilterChange(emptyFilters)}
-          className="gap-1 text-muted-foreground"
-        >
-          <X className="h-3 w-3" />
-          Clear
-        </Button>
-      )}
     </div>
   );
 }
