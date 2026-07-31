@@ -86,6 +86,11 @@ beforeAll(async () => {
   const base = Permission.PROJECT_READ | Permission.ITEM_READ;
 
   actors.owner = await makeActor("owner", OrgRole.OWNER, base, null);
+  // A MEMBER carrying a delegated "Project Manager" grant. Reported from the
+  // running app: this account could see a restricted project it was not on.
+  actors.projectManager = await makeActor(
+    "pm", OrgRole.MEMBER, base | Permission.PROJECT_MANAGE, null,
+  );
   actors.admin = await makeActor("admin", OrgRole.ADMIN, base | Permission.PROJECT_MANAGE, null);
   actors.memberOn = await makeActor("member-on", OrgRole.MEMBER, base, restrictedId);
   actors.memberOff = await makeActor("member-off", OrgRole.MEMBER, base, null);
@@ -121,12 +126,42 @@ describe("visibility toggle — a MEMBER who is not on the project", () => {
     expect(ids.has(openId)).toBe(true);
   });
 
+  it("is not merely absent from the LIST but absent from the COUNT", async () => {
+    // Reported: with the project correctly hidden, the header still read the
+    // full total. A count is not a lesser disclosure than a list — it tells a
+    // non-member exactly how much they are not being shown.
+    const ids = await getVisibleProjectIds(actors.memberOff, [restrictedId, openId]);
+    expect(ids.size).toBe(1);
+  });
+
   it("cannot see it in getReadableProjectIds (Issues, facets, activity, export)", async () => {
     // The helper behind the FOURTH leak, and a different one from the three
     // above — same question, older code path.
     const ids = await getReadableProjectIds(actors.memberOff);
     expect(ids).not.toContain(restrictedId);
     expect(ids).toContain(openId);
+  });
+});
+
+describe("a delegated Project Manager grant does NOT bypass the limit", () => {
+  // PROJECT_MANAGE is a DELEGABLE capability — a work role hands it to an
+  // ordinary member so they can run their own project. It is not org-wide
+  // administration, so it must not reveal projects they are not on. Break-glass
+  // belongs to the org ROLE (owner/admin), which cannot be delegated this way.
+  it("cannot see a restricted project it is not a member of", async () => {
+    await expect(isProjectVisible(actors.projectManager, restrictedId)).resolves.toBe(false);
+  });
+
+  it("is excluded from every list surface too", async () => {
+    const a = actors.projectManager;
+    expect((await getVisibleProjectIds(a, [restrictedId, openId])).has(restrictedId)).toBe(false);
+    expect((await visibleProjectIdsForActor(orgId, a.userId, [restrictedId, openId])).has(restrictedId)).toBe(false);
+    expect(await getReadableProjectIds(a)).not.toContain(restrictedId);
+  });
+
+  it("still sees an unrestricted project, and one it IS on", async () => {
+    // The grant keeps everything it ever legitimately reached.
+    expect(await isProjectVisible(actors.projectManager, openId)).toBe(true);
   });
 });
 
@@ -145,10 +180,10 @@ describe("visibility toggle — everyone who SHOULD still see it", () => {
     expect(await getReadableProjectIds(a)).toContain(restrictedId);
   });
 
-  it("a PROJECT_MANAGE holder sees it — org admins keep access, by design", async () => {
-    // Worth asserting loudly: an org ADMIN carries PROJECT_MANAGE, so admins do
-    // NOT lose sight of a restricted project. Someone reporting "I can still see
-    // it" from an admin account is seeing the design, not a leak.
+  it("an org ADMIN sees it — org-wide administration keeps access, by design", async () => {
+    // Break-glass follows the org ROLE, not the permission bit: the role cannot
+    // be handed to an ordinary member by a work role, so it stays a deliberate
+    // grant of org-wide reach rather than a side effect of running a project.
     const a = actors.admin;
     expect(await isProjectVisible(a, restrictedId)).toBe(true);
     expect(await getReadableProjectIds(a)).toContain(restrictedId);

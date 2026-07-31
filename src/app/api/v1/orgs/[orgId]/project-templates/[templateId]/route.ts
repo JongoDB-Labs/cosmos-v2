@@ -123,6 +123,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // SCOPING NOTE — not an actor-visible listing. This is the delete guard:
+    // it counts projects still using this TEMPLATE so the template cannot be
+    // removed from under them. It discloses no project identity, and the count
+    // must be the true one or the guard is worthless.
     const projectCount = await prisma.project.count({ where: { projectTemplateId: templateId } });
     if (projectCount > 0) {
       return new Response(

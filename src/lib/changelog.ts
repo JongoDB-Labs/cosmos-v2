@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.18",
+    date: "2026-07-31",
+    title: "Limited-visibility projects are properly hidden",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a project's visibility is limited to its members, someone holding a Project Manager role no longer sees it across the org — that role is meant for running a project, not for reaching every project. Owners and org admins still see everything, as before.",
+      },
+      {
+        kind: "fix",
+        text: "Project counts now match what you can actually open. A hidden project was still included in the totals in the header and on the dashboard, so the number disagreed with the list beneath it.",
+      },
+    ],
+  },
+  {
     version: "2.249.17",
     date: "2026-07-31",
     title: "The milestone date field tells you when it isn't yours to set",

@@ -42,6 +42,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       exportedAt: new Date().toISOString(),
       organization: await prisma.organization.findUnique({ where: { id: ctx.orgId } }),
       members: await prisma.orgMember.findMany({ where: { orgId: ctx.orgId }, include: { user: true } }),
+      // SCOPING NOTE — org-wide on purpose; see the top of this file. Gated on
+      // ORG_EXPORT, a whole-org capability.
       projects: await prisma.project.findMany({ where: { orgId: ctx.orgId } }),
       workItems: await prisma.workItem.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       intervals: await prisma.interval.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),

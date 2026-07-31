@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import { getAuthContext } from "@/lib/auth/session";
+import { countVisibleActiveProjects } from "@/lib/projects/visible-count";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import {
   getOrgById,
-  getActiveProjectCountForOrg,
   getActiveProjectsForOrg,
   getOrgMemberCount,
 } from "@/lib/cache/queries";
@@ -57,7 +57,7 @@ async function HeaderAndContent({ params }: PageParams) {
   return (
     <PageShell
       title={org.name}
-      description={<MembersAndProjectsLine orgId={ctx.orgId} plan={org.plan} />}
+      description={<MembersAndProjectsLine orgSlug={orgSlug} orgId={ctx.orgId} plan={org.plan} />}
       actions={
         <Link
           href={`/${orgSlug}/projects/new`}
@@ -69,7 +69,7 @@ async function HeaderAndContent({ params }: PageParams) {
     >
       {/* Streaming section 1: KPI cards. */}
       <Suspense fallback={<StatCardsSkeleton />}>
-        <StatCards orgId={ctx.orgId} />
+        <StatCards orgSlug={orgSlug} orgId={ctx.orgId} />
       </Suspense>
 
       {/* Personal, customizable widget dashboard (client-rendered). */}
@@ -119,14 +119,16 @@ function HeaderSkeleton() {
 }
 
 async function MembersAndProjectsLine({
+  orgSlug,
   orgId,
   plan,
 }: {
+  orgSlug: string;
   orgId: string;
   plan: string;
 }) {
   const [projectCount, memberCount] = await Promise.all([
-    getActiveProjectCountForOrg(orgId),
+    countVisibleActiveProjects(orgSlug, orgId),
     getOrgMemberCount(orgId),
   ]);
   return (
@@ -136,9 +138,9 @@ async function MembersAndProjectsLine({
   );
 }
 
-async function StatCards({ orgId }: { orgId: string }) {
+async function StatCards({ orgSlug, orgId }: { orgSlug: string; orgId: string }) {
   const [activeProjects, members, org] = await Promise.all([
-    getActiveProjectCountForOrg(orgId),
+    countVisibleActiveProjects(orgSlug, orgId),
     getOrgMemberCount(orgId),
     getOrgById(orgId),
   ]);

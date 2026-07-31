@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import { getAuthContext } from "@/lib/auth/session";
+import { countVisibleActiveProjects } from "@/lib/projects/visible-count";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import {
   getOrgById,
-  getActiveProjectCountForOrg,
   getActiveProjectsForOrg,
 } from "@/lib/cache/queries";
 import { redirect, notFound } from "next/navigation";
@@ -46,7 +46,7 @@ async function HeaderAndContent({ params }: PageParams) {
   return (
     <PageShell
       title="Projects"
-      description={<ProjectsCountLine orgId={ctx.orgId} orgName={org.name} />}
+      description={<ProjectsCountLine orgSlug={orgSlug} orgId={ctx.orgId} orgName={org.name} />}
       actions={
         <Link
           href={`/${orgSlug}/projects/new`}
@@ -76,13 +76,15 @@ function HeaderSkeleton() {
 }
 
 async function ProjectsCountLine({
+  orgSlug,
   orgId,
   orgName,
 }: {
+  orgSlug: string;
   orgId: string;
   orgName: string;
 }) {
-  const count = await getActiveProjectCountForOrg(orgId);
+  const count = await countVisibleActiveProjects(orgSlug, orgId);
   return (
     <>
       {count} active across {orgName}
