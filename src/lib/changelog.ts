@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.16",
+    date: "2026-07-31",
+    title: "A board can belong to a team",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A project's boards can now be assigned to a team, so a board only appears for that team's members. Boards with no team stay shared with the whole project — which is every board today, so nothing changes until you assign one. Project managers and admins continue to see all of them.",
+      },
+    ],
+  },
+  {
     version: "2.249.15",
     date: "2026-07-31",
     title: "Project roles below Manager now mean something",
