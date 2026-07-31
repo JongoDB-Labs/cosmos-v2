@@ -31,6 +31,13 @@ const DATE_MED_FMT = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
+const DATE_LONG_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+});
+
 /** `7/30/2026` — identical on server and client. Empty string for no date. */
 export function formatDateStable(value: string | Date | null | undefined): string {
   if (!value) return "";
@@ -47,4 +54,14 @@ export function formatDateShortStable(
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return "";
   return DATE_MED_FMT.format(d);
+}
+
+/** `July 30, 2026` — identical on server and client. Empty string for no date. */
+export function formatDateLongStable(
+  value: string | Date | null | undefined,
+): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return DATE_LONG_FMT.format(d);
 }

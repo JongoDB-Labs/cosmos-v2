@@ -41,6 +41,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 // The set a PM entity can reference: the 8 drill-down subjects plus board work
 // items. Mirrors LinkSubjectType in lib/pm/subjects.ts (kept local so the drawer
@@ -187,7 +188,7 @@ function relativeTime(iso: string): string {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.round(hr / 24);
   if (day < 7) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDateStable(iso);
 }
 
 /**

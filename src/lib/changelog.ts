@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.251.5",
+    date: "2026-07-31",
+    title: "Issue and schedule dates read the same everywhere",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Comment and attachment dates on an issue, the updates feed, and the deliverable and schedule trackers are now written identically by the server and by your browser, so they can no longer disagree and pop a “Something went wrong” error.",
+      },
+    ],
+  },
+  {
     version: "2.251.4",
     date: "2026-07-31",
     title: "Board dates no longer risk an error on load",

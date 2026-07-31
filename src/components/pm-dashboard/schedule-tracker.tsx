@@ -37,6 +37,7 @@ import { bulkFanOut } from "@/lib/pm/bulk";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { healthOf, slipDays } from "@/lib/schedule/health";
 import { branchOptions } from "@/lib/pm/branch-label";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
 
@@ -223,7 +224,7 @@ const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
     accessorFn: (m) => dateMs(m.dueDate),
     sortingFn: (a, b) => dateMs(a.original.dueDate) - dateMs(b.original.dueDate),
     cell: ({ row }) => (
-      <span className="tabular-nums text-[var(--text)]">{new Date(row.original.dueDate).toLocaleDateString()}</span>
+      <span className="tabular-nums text-[var(--text)]">{formatDateStable(row.original.dueDate)}</span>
     ),
   },
   {
@@ -255,7 +256,7 @@ const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
         : health === "green" ? "text-green-600 dark:text-green-400" : "text-[var(--text-muted)]";
       return (
         <span className={`tabular-nums ${cls}`}>
-          {row.original.actualDate ? new Date(row.original.actualDate).toLocaleDateString() : "—"}
+          {row.original.actualDate ? formatDateStable(row.original.actualDate) : "—"}
         </span>
       );
     },
