@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 type RouteParams = { params: Promise<{ orgId: string; entryId: string }> };
 
@@ -17,7 +18,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
 
     const existing = await prisma.timeEntry.findFirst({
-      where: { id: entryId, orgId },
+      // A voided entry must not be submittable — that path silently undid a void.
+      where: { id: entryId, orgId, ...NOT_VOIDED },
     });
     if (!existing) return new Response("Not found", { status: 404 });
 

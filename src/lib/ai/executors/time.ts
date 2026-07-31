@@ -3,6 +3,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { BillableType, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, type ToolContext } from "./_ctx";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 const logTimeSchema = z.object({
   date: z.string().min(1),
@@ -76,7 +77,9 @@ export async function listTimeEntries(
   }
   const data = parsed.data;
 
-  const where: Prisma.TimeEntryWhereInput = { orgId: ctx.orgId };
+  // Voided entries must not reach the agent either — it answers questions
+  // about hours, and a deleted entry is not an hour anyone worked.
+  const where: Prisma.TimeEntryWhereInput = { orgId: ctx.orgId, ...NOT_VOIDED };
   if (data.userId) where.userId = data.userId;
   if (data.projectId) where.projectId = data.projectId;
   if (data.billableType) where.billableType = data.billableType;

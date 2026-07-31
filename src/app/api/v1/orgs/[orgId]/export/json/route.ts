@@ -12,6 +12,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -53,7 +54,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       contracts: await prisma.contract.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       notes: await prisma.note.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       meetings: await prisma.syncMeeting.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
-      timeEntries: await prisma.timeEntry.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
+      timeEntries: await prisma.timeEntry
+        .findMany({ where: { orgId: ctx.orgId, ...NOT_VOIDED } })
+        .catch(() => []),
       revenues: await prisma.revenue.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
       expenses: await prisma.expense.findMany({ where: { orgId: ctx.orgId } }).catch(() => []),
     };

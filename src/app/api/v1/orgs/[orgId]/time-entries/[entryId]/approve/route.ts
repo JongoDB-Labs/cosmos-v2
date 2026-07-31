@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 const approveSchema = z.object({
   action: z.enum(["approve", "reject"]),
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.TIME_APPROVE);
 
     const existing = await prisma.timeEntry.findFirst({
-      where: { id: entryId, orgId },
+      where: { id: entryId, orgId, ...NOT_VOIDED },
     });
     if (!existing) return new Response("Not found", { status: 404 });
 

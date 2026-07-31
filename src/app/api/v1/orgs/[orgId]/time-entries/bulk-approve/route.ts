@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 const schema = z.object({
   entryIds: z.array(z.string().uuid()).min(1).max(500),
@@ -31,6 +32,7 @@ export async function POST(
         id: { in: body.entryIds },
         orgId: ctx.orgId,
         status: "SUBMITTED",
+        ...NOT_VOIDED,
       },
       data: {
         status: "APPROVED",
