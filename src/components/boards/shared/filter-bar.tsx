@@ -35,6 +35,7 @@ export type SwimlaneKey =
   | "priority"
   | "type"
   | "interval"
+  | "team"
   | "parent";
 
 export const SWIMLANE_OPTIONS: { value: SwimlaneKey; label: string }[] = [
@@ -43,6 +44,7 @@ export const SWIMLANE_OPTIONS: { value: SwimlaneKey; label: string }[] = [
   { value: "priority", label: "Priority" },
   { value: "type", label: "Type" },
   { value: "interval", label: "Interval" },
+  { value: "team", label: "Team" },
   { value: "parent", label: "Parent" },
 ];
 
@@ -52,6 +54,12 @@ export interface BoardFilters {
   priorities: string[];
   assigneeId: string | null;
   intervalId: string | null;
+  /**
+   * Show only work belonging to this team, or null for all teams. A team's
+   * work is what is assigned to its members — items carry no team of their
+   * own — so an item can match more than one team. See lib/teams/item-teams.
+   */
+  teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
    * Active custom-field constraints, keyed by CustomField.key. The value is the
@@ -68,6 +76,7 @@ export const emptyFilters: BoardFilters = {
   priorities: [],
   assigneeId: null,
   intervalId: null,
+  teamId: null,
   swimlaneBy: "none",
   customFields: {},
 };
@@ -80,6 +89,11 @@ interface FilterBarProps {
   onFilterChange: (filters: BoardFilters) => void;
   members: OrgMember[];
   intervals: Interval[];
+  /**
+   * Teams in this project. Optional: omitted ⇒ no Team control, so consumers
+   * that have no team concept (and the table view) are unaffected.
+   */
+  teams?: { id: string; name: string }[];
   /**
    * Org id, used to load the org's ACTUAL work-item types so the Type filter
    * lists custom types (e.g. "Feature") alongside the built-ins instead of a
@@ -147,6 +161,7 @@ export function serializeFilters(filters: BoardFilters): string {
   if (filters.priorities.length > 0)
     params.set("priority", filters.priorities.join(","));
   if (filters.assigneeId) params.set("assignee", filters.assigneeId);
+  if (filters.teamId) params.set("team", filters.teamId);
   if (filters.intervalId) params.set("interval", filters.intervalId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
     params.set("lane", filters.swimlaneBy);
@@ -185,6 +200,7 @@ export function parseFilters(
     types: types ? types.split(",").filter(Boolean) : [],
     priorities: priorities ? priorities.split(",").filter(Boolean) : [],
     assigneeId: params.get("assignee") || null,
+    teamId: params.get("team") || null,
     intervalId: params.get("interval") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
     customFields,
@@ -287,6 +303,7 @@ export function FilterBar({
   onFilterChange,
   members,
   intervals,
+  teams = [],
   orgId,
   showSwimlane = false,
   customFields = [],
@@ -344,6 +361,7 @@ export function FilterBar({
     filters.types.length > 0 ||
     filters.priorities.length > 0 ||
     filters.assigneeId !== null ||
+    filters.teamId !== null ||
     filters.intervalId !== null ||
     filters.swimlaneBy !== "none" ||
     hasActiveCustom;
@@ -428,6 +446,37 @@ export function FilterBar({
           ]}
         />
       </div>
+
+      {teams.length > 0 && (
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">Team:</span>
+          <Select
+            items={{
+              __all__: "All teams",
+              ...Object.fromEntries(teams.map((t) => [t.id, t.name])),
+            }}
+            value={filters.teamId ?? "__all__"}
+            onValueChange={(v) =>
+              onFilterChange({
+                ...filters,
+                teamId: v && v !== "__all__" ? v : null,
+              })
+            }
+          >
+            <SelectTrigger size="sm" aria-label="Filter by team" className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All teams</SelectItem>
+              {teams.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {intervals.length > 0 && (
         <div className="flex items-center gap-1">

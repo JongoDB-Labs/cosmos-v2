@@ -35,6 +35,11 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import {
+  teamsByUser,
+  itemMatchesTeam,
+  type TeamLike,
+} from "@/lib/teams/item-teams";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
@@ -203,6 +208,11 @@ export function matchesFilters(
   item: WorkItem,
   f: BoardFilters,
   defs: CustomField[] = [],
+  /**
+   * userId → their teams. Optional so existing callers are unaffected; without
+   * it the team filter is inert rather than silently hiding everything.
+   */
+  teamsByUserId: Map<string, TeamLike[]> = new Map(),
 ): boolean {
   if (
     f.search &&
@@ -221,6 +231,8 @@ export function matchesFilters(
   )
     return false;
   if (f.intervalId && item.intervalId !== f.intervalId) return false;
+  // A team's work is what its members are assigned; an item can match several.
+  if (!itemMatchesTeam(item.assigneeId, f.teamId, teamsByUserId)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -294,6 +306,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   const qc = useQueryClient();
   const itemsKey = useOrgQueryKey("work-items", projectId);
+  const teamsKey = useOrgQueryKey("project-teams", projectId);
   const membersKey = useOrgQueryKey("members");
   const linksKey = useOrgQueryKey("work-item-links", projectId);
   const boardKey = useOrgQueryKey("board", boardId);
@@ -302,7 +315,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // table; this board renders it, it does not own a private notion of one.
   const milestonesKey = useOrgQueryKey("milestones", projectId);
 
-  const [itemsQ, membersQ, linksQ, boardQ, intervalsQ, milestonesQ] = useQueries({
+  const [itemsQ, membersQ, linksQ, boardQ, intervalsQ, milestonesQ, teamsQ] = useQueries({
     queries: [
       {
         queryKey: itemsKey,
@@ -335,6 +348,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         // not milestones at all — two datasets for one idea.
         queryKey: milestonesKey,
         queryFn: () => jsonFetch<ProjectMilestone[]>(`${basePath}/milestones`),
+      },
+      {
+        // Teams + their rosters. A team's work is derived from who it is
+        // assigned to, so the roster is what makes the Team filter possible.
+        queryKey: teamsKey,
+        queryFn: () =>
+          jsonFetch<{ id: string; name: string; members: { userId: string }[] }[]>(
+            `${basePath}/teams`,
+          ),
       },
     ],
   });
@@ -376,6 +398,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // FilterBar filters (search/type/priority/assignee/interval), a critical-path
   // highlight toggle, and a busy flag while a bulk shift/compress is in flight.
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
+  const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
@@ -408,8 +432,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields)),
-    [items, filters, projectCustomFields],
+    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields, teamsByUserId)),
+    [items, filters, projectCustomFields, teamsByUserId],
   );
   const hasEnablers = useMemo(
     () => filteredItems.some((it) => it.workCategory === "ENABLER"),
@@ -1214,6 +1238,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           onFilterChange={setFilters}
           members={members}
           intervals={intervals}
+          teams={teams}
           orgId={orgId}
           customFields={projectCustomFields}
           presentTypeKeys={presentTypeKeys}

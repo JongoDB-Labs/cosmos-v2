@@ -37,6 +37,12 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
+import {
+  teamsByUser,
+  teamLaneFor,
+  itemMatchesTeam,
+  type TeamLike,
+} from "@/lib/teams/item-teams";
 import { selectRange } from "@/lib/boards/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -134,6 +140,9 @@ function KanbanBoardInner({
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
   const [members, setMembers] = useState<OrgMember[]>([]);
+  // Teams in this project, with their members — a team's work is derived from
+  // who it is assigned to, so the roster is what makes the lane/filter possible.
+  const [teams, setTeams] = useState<TeamLike[]>([]);
   const [intervals, setIntervals] = useState<Interval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -205,6 +214,10 @@ function KanbanBoardInner({
   const orgSlug = useOrgSlug();
   const itemsKey = useMemo(() => ["org", orgSlug, "work-items", projectId], [orgSlug, projectId]);
   const membersKey = useMemo(() => ["org", orgSlug, "members"], [orgSlug]);
+  const teamsKey = useMemo(
+    () => ["org", orgSlug, "project-teams", projectId],
+    [orgSlug, projectId],
+  );
   const intervalsKey = useMemo(() => ["org", orgSlug, "intervals", projectId], [orgSlug, projectId]);
   const boardKey = useMemo(() => ["org", orgSlug, "board", boardId], [orgSlug, boardId]);
 
@@ -278,7 +291,7 @@ function KanbanBoardInner({
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
       try {
-        const [boardData, itemsData, membersData, intervalsData] = await Promise.all([
+        const [boardData, itemsData, membersData, teamsData, intervalsData] = await Promise.all([
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
@@ -299,6 +312,16 @@ function KanbanBoardInner({
             .catch(() => null),
           qc
             .fetchQuery({
+              queryKey: teamsKey,
+              queryFn: () =>
+                jsonFetch<{ id: string; name: string; members: { userId: string }[] }[]>(
+                  `${basePath}/teams`,
+                ),
+              staleTime,
+            })
+            .catch(() => null),
+          qc
+            .fetchQuery({
               queryKey: intervalsKey,
               queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
               staleTime,
@@ -314,6 +337,7 @@ function KanbanBoardInner({
         );
         setItems(itemsData);
         if (membersData) setMembers(membersData);
+        if (teamsData) setTeams(teamsData);
         if (intervalsData) setIntervals(intervalsData);
       } catch (err) {
         if (seq === reqSeq.current) {
@@ -323,7 +347,7 @@ function KanbanBoardInner({
         if (seq === reqSeq.current && !opts?.silent) setLoading(false);
       }
     },
-    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, intervalsKey],
+    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, teamsKey, intervalsKey],
   );
 
   // Initial load. fetchData sets `loading` up front (the skeleton); that's the
@@ -388,6 +412,9 @@ function KanbanBoardInner({
   }, [items]);
 
   // Apply filters
+  // Rebuilt only when the roster changes, not per item.
+  const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
+
   const filteredItems = items.filter((item) => {
     if (
       filters.search &&
@@ -417,6 +444,13 @@ function KanbanBoardInner({
       return false;
     }
     if (filters.intervalId && item.intervalId !== filters.intervalId) {
+      return false;
+    }
+    // A team's work is what its members are assigned. Unlike the swimlane, this
+    // is a membership test, so an item owned by someone on two teams matches
+    // both — filtering to one team must not hide work whose owner also helps
+    // out elsewhere.
+    if (!itemMatchesTeam(item.assigneeId, filters.teamId, teamsByUserId)) {
       return false;
     }
     if (
@@ -470,6 +504,11 @@ function KanbanBoardInner({
           id: item.assigneeId ?? "",
           label: memberName(item.assigneeId) ?? "Unassigned",
         };
+      case "team":
+        // One lane per card: the assignee's alphabetically-first team. See
+        // lib/teams/item-teams for why filtering may match several but a lane
+        // cannot.
+        return teamLaneFor(item.assigneeId, teamsByUserId);
       case "priority":
         return { id: item.priority, label: titleCase(item.priority) };
       case "type": {
@@ -873,6 +912,7 @@ function KanbanBoardInner({
         onFilterChange={setFilters}
         members={members}
         intervals={intervals}
+        teams={teams}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
