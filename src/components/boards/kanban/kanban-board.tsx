@@ -38,6 +38,7 @@ import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
+import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import {
   teamsByUser,
   teamLaneFor,
@@ -416,6 +417,9 @@ function KanbanBoardInner({
   // Rebuilt only when the roster changes, not per item.
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   const presentLabelNames = useMemo(() => presentLabels(items), [items]);
+  // One instant for the whole pass: reading the clock per item lets a date
+  // filter change its mind mid-list across a midnight boundary.
+  const filterNow = useMemo(() => new Date(), [items]);
 
   const filteredItems = items.filter((item) => {
     if (
@@ -458,6 +462,11 @@ function KanbanBoardInner({
     if (!matchesLabelFilter(item.tags, filters.labels)) {
       return false;
     }
+    if (!matchesOneOf(item.columnKey, filters.columnKeys)) return false;
+    if (!matchesOneOf(item.workCategory, filters.workCategories)) return false;
+    if (filters.createdById && item.createdById !== filters.createdById) return false;
+    if (!matchesDuePreset(item.dueDate, filters.due, filterNow)) return false;
+
     if (
       !matchesCustomFieldFilters(
         item.customFields,
@@ -919,6 +928,7 @@ function KanbanBoardInner({
         intervals={intervals}
         teams={teams}
         presentLabelNames={presentLabelNames}
+        boardColumns={columns}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}

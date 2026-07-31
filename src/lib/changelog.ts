@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.251.3",
+    date: "2026-08-01",
+    title: "More ways to slice a board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards can now be filtered by status, work category, reporter and due date, alongside the existing lenses. Due date offers what you'd actually ask a board — overdue, due this week, due this month, or no date — rather than a calendar picker.",
+      },
+    ],
+  },
+  {
     version: "2.251.2",
     date: "2026-07-31",
     title: "Timesheet dates read the same everywhere",
