@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.251.4",
+    date: "2026-07-31",
+    title: "Board dates no longer risk an error on load",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Sprint dates, backlog interval ranges, the table view's due dates and the dashboard activity feed are now written the same way by the server and by your browser. Previously the two could disagree and pop a “Something went wrong” error when a board first loaded.",
+      },
+    ],
+  },
+  {
     version: "2.251.3",
     date: "2026-08-01",
     title: "More ways to slice a board",

@@ -17,6 +17,7 @@ import {
 import { IntervalsWorkspace } from "@/components/intervals/intervals-workspace";
 import { cn } from "@/lib/utils";
 import type { Interval } from "@/types/models";
+import { formatDateShortStable } from "@/lib/format/stable-date";
 
 interface SprintBoardProps {
   orgId: string;
@@ -263,7 +264,7 @@ function SprintHeader({ sprint }: { sprint: IntervalWithCount }) {
   } | null;
 
   const dateFmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    formatDateShortStable(d);
 
   return (
     <div className="border-b border-[var(--border)] px-6 py-4">
