@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.21",
+    date: "2026-07-31",
+    title: "See a project's work by team",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards can now be grouped into swimlanes by team, and a Team filter shows one team's tasking or all of it. Available on the Kanban and Sprint boards, and the Team filter on the Timeline/Gantt. The control only appears on projects that actually have teams.",
+      },
+      {
+        kind: "improvement",
+        text: "A team's work means the work assigned to its members, so it reflects your existing data with nothing to set up. Unassigned work sits under \"No team\", and someone on two teams has their items counted under both when filtering.",
+      },
+    ],
+  },
+  {
     version: "2.249.20",
     date: "2026-07-31",
     title: "A project's manager can actually run it",
