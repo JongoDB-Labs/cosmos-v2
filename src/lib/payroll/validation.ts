@@ -6,6 +6,11 @@ const costIn = z
     message: "cost rate must be a non-negative number",
   });
 
+// The supervisor, as an Employee id — NOT a User id. The org chart is a graph
+// over employee records, and conflating the two ids is how a lookup silently
+// matches nothing. Nullable so a supervisor can be cleared.
+const managerIn = z.string().uuid().nullish();
+
 export const employeeSchema = z.object({
   userId: z.string().uuid(),
   employmentType: z.enum(["SALARY", "HOURLY"]).optional(),
@@ -15,6 +20,7 @@ export const employeeSchema = z.object({
   status: z.string().trim().min(1).optional(),
   startDate: z.coerce.date().nullish(),
   endDate: z.coerce.date().nullish(),
+  managerId: managerIn,
 });
 
 export const employeeUpdateSchema = z.object({
@@ -25,6 +31,7 @@ export const employeeUpdateSchema = z.object({
   status: z.string().trim().min(1).optional(),
   startDate: z.coerce.date().nullish(),
   endDate: z.coerce.date().nullish(),
+  managerId: managerIn,
 });
 
 export const payRunSchema = z.object({

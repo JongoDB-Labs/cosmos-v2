@@ -20,6 +20,7 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
   prisma: {
     organization: { findUnique: vi.fn() },
     timeEntry: { findFirst: vi.fn() },
+    employee: { findMany: vi.fn() },
   },
 }));
 
@@ -72,26 +73,27 @@ beforeEach(() => {
 describe("GET /time-entries/[entryId] — read scoping", () => {
   it("plain TIME_READ constrains the lookup to the actor's own entries", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]);
     prisma.timeEntry.findFirst.mockResolvedValue(null);
 
     await GET(getRequest(), { params });
 
-    expect(lastWhere().userId).toBe(ACTOR_ID);
+    expect(lastWhere().userId).toEqual({ in: [ACTOR_ID] });
   });
 
   it("another user's entry is a 404, indistinguishable from one that never existed", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]);
     // The mock HONOURS the where-clause rather than returning a fixed null.
     // Hard-coding null would pass whether or not the route scoped the query —
     // it would assert "null yields 404", which was never in doubt. Filtering
     // for real is what makes this a guard: drop the owner constraint and the
     // row comes back with a 200.
     prisma.timeEntry.findFirst.mockImplementation(
-      ({ where }: { where: { userId?: string } }) => {
+      ({ where }: { where: { userId?: { in: string[] } } }) => {
         const row = { id: ENTRY_ID, userId: OTHER_ID, rate: "225" };
-        return Promise.resolve(
-          where.userId && where.userId !== row.userId ? null : row,
-        );
+        const allowed = where.userId?.in;
+        return Promise.resolve(allowed && !allowed.includes(row.userId) ? null : row);
       },
     );
 
@@ -130,6 +132,7 @@ describe("GET /time-entries/[entryId] — read scoping", () => {
 
   it("keeps the rate on one's own entry", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]);
     prisma.timeEntry.findFirst.mockResolvedValue({
       id: ENTRY_ID,
       userId: ACTOR_ID,

@@ -4,7 +4,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission, ForbiddenError } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { canReadAllTime, redactRates } from "@/lib/time/visibility";
+import { redactRates } from "@/lib/time/visibility";
+import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -36,7 +37,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.TIME_READ);
 
     const sp = request.nextUrl.searchParams;
-    const userId = sp.get("userId");
+    // `?userId=` with no value yields "", not null — and "" is NOT nullish, so
+    // it survives the `??` below and would pin the query to userId="", matching
+    // nothing and returning a silent empty list. Normalise to null so an empty
+    // param means "unset", the way the other filters here already behave via
+    // their `if (x)` guards.
+    const userId = sp.get("userId") || null;
     const projectId = sp.get("projectId");
     const status = sp.get("status");
     const startDate = sp.get("startDate");
@@ -44,20 +50,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const billableType = sp.get("billableType");
 
     // TIME_READ alone means "this org does timekeeping and you take part" —
-    // MEMBER and VIEWER both hold it. Reading OTHER people's rows needs
-    // TIME_READ_ALL. Without it the scope is forced to self, and naming
-    // someone else is a denial rather than a silent narrowing: a caller that
-    // asked for Bob's rows and got its own has been given a wrong answer, not
-    // a safe one.
-    const readAll = canReadAllTime(ctx);
-    if (!readAll && userId && userId !== ctx.userId) {
+    // MEMBER and VIEWER both hold it. Reading OTHER people's rows needs either
+    // TIME_READ_ALL or a supervisory relationship: `allowed` is null for the
+    // former and [self, ...direct reports] otherwise.
+    const allowed = await readableTimeUserIds(ctx);
+    // Naming someone outside that set is a denial rather than a silent
+    // narrowing: a caller that asked for Bob's rows and got its own has been
+    // given a wrong answer, not a safe one.
+    if (allowed && userId && !allowed.includes(userId)) {
       throw new ForbiddenError("Access denied by policy");
     }
 
     const where: Record<string, unknown> = { orgId };
-    // undefined = "no filter" to Prisma, which is what readAll with no userId
-    // wants; the non-readAll branch always pins to the actor.
-    where.userId = readAll ? (userId ?? undefined) : ctx.userId;
+    // An explicit (and permitted) userId always wins; otherwise fall back to
+    // the readable set, or `undefined` — "no filter" to Prisma — for READ_ALL.
+    where.userId = userId ?? timeUserIdFilter(allowed);
     if (projectId) {
       // The same gate the routes under projects/[projectId] use (#505): the
       // action's own bit plus team scoping. Without it this org-level endpoint

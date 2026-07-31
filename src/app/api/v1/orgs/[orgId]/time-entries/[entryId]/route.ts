@@ -4,7 +4,8 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { canReadAllTime, redactRates } from "@/lib/time/visibility";
+import { redactRates } from "@/lib/time/visibility";
+import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -39,12 +40,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: {
         id: entryId,
         orgId,
-        // Same scoping rule as the list route: without TIME_READ_ALL you see
-        // only your own. Folded into the query rather than checked after, so
-        // "not yours" and "does not exist" are the SAME 404 — a 403 here would
-        // confirm an entry exists, which is itself information an actor
-        // without access should not be able to obtain.
-        ...(canReadAllTime(ctx) ? {} : { userId: ctx.userId }),
+        // Same scoping rule as the list route: TIME_READ_ALL sees everything,
+        // otherwise it is the actor plus their direct reports. Folded into the
+        // query rather than checked after, so "not yours" and "does not exist"
+        // are the SAME 404 — a 403 here would confirm an entry exists, which is
+        // itself information an actor without access should not obtain.
+        userId: timeUserIdFilter(await readableTimeUserIds(ctx)),
       },
     });
 

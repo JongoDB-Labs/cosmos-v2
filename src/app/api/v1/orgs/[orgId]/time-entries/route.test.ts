@@ -22,6 +22,8 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
     project: { findFirst: vi.fn() },
     projectMember: { findFirst: vi.fn() },
     orgMember: { findUnique: vi.fn() },
+    // readableTimeUserIds reads the org chart here.
+    employee: { findMany: vi.fn() },
   },
 }));
 
@@ -146,16 +148,76 @@ describe("GET /time-entries — read scoping", () => {
 
   it("plain TIME_READ is pinned to the actor's own entries", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]); // no org chart → self only
     respondWith([]);
 
     const res = await GET(getRequest(), { params });
 
     expect(res.status).toBe(200);
-    expect(lastWhere().userId).toBe(ACTOR_ID);
+    expect(lastWhere().userId).toEqual({ in: [ACTOR_ID] });
+  });
+
+  it("an EMPTY ?userId= means 'unset', not 'match nobody'", async () => {
+    // searchParams.get() returns "" for a present-but-valueless param, and ""
+    // is not nullish — so `userId ?? fallback` keeps the "" and pins the query
+    // to userId="", which matches no rows and returns a silent empty list.
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]);
+    respondWith([]);
+
+    const res = await GET(getRequest("?userId="), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toEqual({ in: [ACTOR_ID] });
+  });
+
+  it("a supervisor also sees their direct reports' entries", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    // The org chart says OTHER_ID reports to the actor.
+    prisma.employee.findMany.mockResolvedValue([
+      { userId: ACTOR_ID },
+      { userId: OTHER_ID },
+    ]);
+    respondWith([]);
+
+    const res = await GET(getRequest(), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toEqual({ in: [ACTOR_ID, OTHER_ID] });
+  });
+
+  it("a supervisor may name a direct report with ?userId=", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([
+      { userId: ACTOR_ID },
+      { userId: OTHER_ID },
+    ]);
+    respondWith([]);
+
+    const res = await GET(getRequest(`?userId=${OTHER_ID}`), { params });
+
+    expect(res.status).toBe(200);
+    expect(lastWhere().userId).toBe(OTHER_ID);
+  });
+
+  it("naming someone who is NOT a report is still a 403", async () => {
+    const STRANGER = "77777777-7777-7777-7777-777777777777";
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([
+      { userId: ACTOR_ID },
+      { userId: OTHER_ID },
+    ]);
+    respondWith([]);
+
+    const res = await GET(getRequest(`?userId=${STRANGER}`), { params });
+
+    expect(res.status).toBe(403);
+    expect(prisma.timeEntry.findMany).not.toHaveBeenCalled();
   });
 
   it("TIME_READ cannot widen to another user by passing ?userId= (403, no query)", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]);
     respondWith([]);
 
     const res = await GET(getRequest(`?userId=${OTHER_ID}`), { params });
@@ -168,6 +230,7 @@ describe("GET /time-entries — read scoping", () => {
 
   it("passing one's OWN userId is allowed and still scoped", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ")));
+    prisma.employee.findMany.mockResolvedValue([]);
     respondWith([]);
 
     const res = await GET(getRequest(`?userId=${ACTOR_ID}`), { params });

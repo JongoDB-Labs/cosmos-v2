@@ -22,6 +22,7 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { PayRunDialog } from "./pay-run-dialog";
+import { supervisorCandidates } from "@/lib/payroll/org-chart";
 
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -36,6 +37,8 @@ type Employee = {
   costRate: string;
   laborCategory: string | null;
   status: string;
+  /** Supervisor, as another Employee's id. */
+  managerId: string | null;
 };
 type PayRun = {
   id: string;
@@ -109,6 +112,18 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
       cell: ({ row }) => <span className="tabular-nums">{fmt(row.original.costRate)}</span>,
     },
     { accessorKey: "laborCategory", header: "Category", cell: ({ row }) => row.original.laborCategory ?? "—" },
+    {
+      id: "supervisor",
+      header: "Supervisor",
+      cell: ({ row }) => (
+        <SupervisorCell
+          orgId={orgId}
+          employee={row.original}
+          employees={employees}
+          nameFor={nameFor}
+        />
+      ),
+    },
   ];
 
   const payRunCols: ColumnDef<PayRun>[] = [
@@ -266,6 +281,63 @@ function NewPayRunForm({ orgId }: { orgId: string }) {
         Create pay run
       </Button>
     </div>
+  );
+}
+
+/**
+ * The supervisor picker, editable in place.
+ *
+ * Deliberately inline rather than in the Add dialog: a supervisor changes when
+ * people move teams, so setting it only at creation would make the org chart
+ * unmaintainable — you would have to delete and recreate the employee, which
+ * would take their cost rate (and any pay run referencing it) with them.
+ *
+ * Candidates exclude the employee and anyone reporting up through them, so the
+ * picker cannot OFFER a choice that closes a loop. The server refuses those
+ * anyway (`assertNoManagerCycle`); this keeps the common case from surfacing as
+ * an error the user has to read and undo.
+ */
+function SupervisorCell({
+  orgId,
+  employee,
+  employees,
+  nameFor,
+}: {
+  orgId: string;
+  employee: Employee;
+  employees: Employee[];
+  nameFor: (userId: string) => string;
+}) {
+  const update = useOrgMutation<unknown, Error, string | null>({
+    mutationFn: (managerId) =>
+      jsonFetch(`/api/v1/orgs/${orgId}/employees/${employee.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ managerId }),
+      }),
+    invalidate: [["employees"]],
+    onError: (e) => notifyError(e, "Couldn't change the supervisor."),
+  });
+
+  const candidates = supervisorCandidates(employees, employee.id);
+
+  return (
+    <select
+      // Every row renders one of these, so the accessible name has to carry
+      // WHOSE supervisor this is — "Supervisor" alone repeats N times.
+      aria-label={`Supervisor for ${nameFor(employee.userId)}`}
+      className="h-8 rounded-md border bg-background px-2 text-xs"
+      value={employee.managerId ?? ""}
+      disabled={update.isPending}
+      onChange={(e) => update.mutate(e.target.value || null)}
+    >
+      <option value="">— none —</option>
+      {candidates.map((c) => (
+        <option key={c.id} value={c.id}>
+          {nameFor(c.userId)}
+        </option>
+      ))}
+    </select>
   );
 }
 

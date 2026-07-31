@@ -3274,12 +3274,22 @@ model Employee {
   status         String         @default("active")
   startDate      DateTime?      @map("start_date") @db.Date
   endDate        DateTime?      @map("end_date") @db.Date
+  // The org chart. Set by HR/finance on the employee record, never by the
+  // subject — someone who nominates their own approver defeats the control.
+  // SetNull rather than Cascade: a departing manager must orphan their reports
+  // (visible, fixable) and never delete them.
+  managerId      String?        @map("manager_id") @db.Uuid
   createdById    String         @map("created_by_id") @db.Uuid
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
+  manager Employee?  @relation("Reports", fields: [managerId], references: [id], onDelete: SetNull)
+  reports Employee[] @relation("Reports")
+
   @@unique([orgId, userId])
   @@index([orgId, status])
+  // Drives "who reports to me" on every scoped time read.
+  @@index([orgId, managerId])
   @@map("employees")
 }
 

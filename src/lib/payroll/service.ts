@@ -24,7 +24,67 @@ export type EmployeeInput = {
   status?: string;
   startDate?: Date | null;
   endDate?: Date | null;
+  /** Supervisor, as an Employee id. Null clears it. */
+  managerId?: string | null;
 };
+
+/** Depth cap for the cycle walk below — an org chart deeper than this is
+ *  already pathological, and the cap guarantees termination even if a cycle
+ *  somehow reached the database by another route. */
+const MAX_CHAIN_DEPTH = 100;
+
+/**
+ * Reject a manager assignment that would create a cycle.
+ *
+ * Direct-reports-only reads cannot loop, so a cycle would not hang today's
+ * scoped time query — but it is still nonsense data that WOULD hang any later
+ * org-chart rollup, and it is far cheaper to refuse at write time than to
+ * detect afterwards.
+ *
+ * Walks UP from the proposed manager: if we reach `employeeId`, then making it
+ * the manager would close a loop. Self-assignment is the degenerate case and is
+ * caught by the same walk starting at step zero.
+ */
+async function assertNoManagerCycle(
+  orgId: string,
+  employeeId: string,
+  managerId: string,
+): Promise<void> {
+  if (managerId === employeeId) {
+    throw new ConflictError("An employee cannot be their own supervisor");
+  }
+
+  let cursor: string | null = managerId;
+  for (let depth = 0; cursor && depth < MAX_CHAIN_DEPTH; depth++) {
+    if (cursor === employeeId) {
+      throw new ConflictError(
+        "That supervisor already reports to this employee",
+      );
+    }
+    const next: { managerId: string | null } | null =
+      await prisma.employee.findFirst({
+        where: { id: cursor, orgId },
+        select: { managerId: true },
+      });
+    // Scoped by orgId, so a manager in another tenant reads as chain-end and
+    // the assignment is refused below rather than silently accepted.
+    if (!next) break;
+    cursor = next.managerId;
+  }
+}
+
+/** The proposed manager must be a real employee IN THIS ORG. The FK alone only
+ *  proves the row exists — it does not constrain it to the same tenant. */
+async function assertManagerInOrg(
+  orgId: string,
+  managerId: string,
+): Promise<void> {
+  const manager = await prisma.employee.findFirst({
+    where: { id: managerId, orgId },
+    select: { id: true },
+  });
+  if (!manager) throw new NotFoundError("Supervisor is not an employee of this org");
+}
 
 export function listEmployees(orgId: string) {
   return prisma.employee.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } });
@@ -40,6 +100,9 @@ export async function createEmployee(
     select: { id: true },
   });
   if (!member) throw new NotFoundError("User is not a member of this org");
+  if (input.managerId) await assertManagerInOrg(orgId, input.managerId);
+  // No cycle check on create: the row does not exist yet, so it cannot be
+  // anywhere in the proposed manager's chain.
   return prisma.employee.create({
     data: {
       orgId,
@@ -52,6 +115,7 @@ export async function createEmployee(
       status: input.status ?? "active",
       startDate: input.startDate ?? null,
       endDate: input.endDate ?? null,
+      managerId: input.managerId ?? null,
     },
   });
 }
@@ -61,7 +125,10 @@ export async function updateEmployee(
   employeeId: string,
   input: Partial<Omit<EmployeeInput, "userId">>,
 ) {
-  const data: Prisma.EmployeeUpdateManyMutationInput = {};
+  // Unchecked, not EmployeeUpdateManyMutationInput: declaring the `manager`
+  // relation makes Prisma drop the `managerId` SCALAR from the checked input,
+  // so the checked type cannot express "set the supervisor" at all.
+  const data: Prisma.EmployeeUncheckedUpdateManyInput = {};
   if (input.employmentType !== undefined) data.employmentType = input.employmentType;
   if (input.costRate !== undefined) data.costRate = new Prisma.Decimal(input.costRate);
   if (input.laborCategory !== undefined) data.laborCategory = input.laborCategory;
@@ -69,6 +136,13 @@ export async function updateEmployee(
   if (input.status !== undefined) data.status = input.status;
   if (input.startDate !== undefined) data.startDate = input.startDate;
   if (input.endDate !== undefined) data.endDate = input.endDate;
+  if (input.managerId !== undefined) {
+    if (input.managerId !== null) {
+      await assertManagerInOrg(orgId, input.managerId);
+      await assertNoManagerCycle(orgId, employeeId, input.managerId);
+    }
+    data.managerId = input.managerId;
+  }
 
   const updated = await prisma.employee.updateMany({
     where: { id: employeeId, orgId },
