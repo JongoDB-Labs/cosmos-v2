@@ -41,6 +41,7 @@ import {
   type TeamLike,
 } from "@/lib/teams/item-teams";
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
+import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
@@ -214,6 +215,8 @@ export function matchesFilters(
    * it the team filter is inert rather than silently hiding everything.
    */
   teamsByUserId: Map<string, TeamLike[]> = new Map(),
+  /** One instant for the whole pass — see the Kanban note. */
+  now: Date = new Date(),
 ): boolean {
   if (
     f.search &&
@@ -235,6 +238,10 @@ export function matchesFilters(
   // A team's work is what its members are assigned; an item can match several.
   if (!itemMatchesTeam(item.assigneeId, f.teamId, teamsByUserId)) return false;
   if (!matchesLabelFilter(item.tags, f.labels)) return false;
+  if (!matchesOneOf(item.columnKey, f.columnKeys)) return false;
+  if (!matchesOneOf(item.workCategory, f.workCategories)) return false;
+  if (f.createdById && item.createdById !== f.createdById) return false;
+  if (!matchesDuePreset(item.dueDate, f.due, now)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -403,6 +410,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const teams: TeamLike[] = useMemo(() => teamsQ.data ?? [], [teamsQ.data]);
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
   const presentLabelNames = useMemo(() => presentLabels(items), [items]);
+  const filterNow = useMemo(() => new Date(), [items]);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
@@ -435,8 +443,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const [busy, setBusy] = useState(false);
 
   const filteredItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields, teamsByUserId)),
-    [items, filters, projectCustomFields, teamsByUserId],
+    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow)),
+    [items, filters, projectCustomFields, teamsByUserId, filterNow],
   );
   const hasEnablers = useMemo(
     () => filteredItems.some((it) => it.workCategory === "ENABLER"),
@@ -1243,6 +1251,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           intervals={intervals}
           teams={teams}
           presentLabelNames={presentLabelNames}
+          boardColumns={columns}
           orgId={orgId}
           customFields={projectCustomFields}
           presentTypeKeys={presentTypeKeys}

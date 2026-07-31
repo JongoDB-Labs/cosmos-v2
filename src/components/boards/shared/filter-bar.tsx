@@ -17,6 +17,7 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { DUE_PRESETS, type DuePreset } from "@/lib/work-items/metadata-filters";
 import { Search, X, UserCheck, ChevronDown } from "lucide-react";
 import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
@@ -65,6 +66,14 @@ export interface BoardFilters {
    * membership test. See lib/work-items/label-filter.
    */
   labels: string[];
+  /** Board column keys (status). Single-valued per item, so a plain multi-select. */
+  columnKeys: string[];
+  /** BUSINESS / ENABLER. */
+  workCategories: string[];
+  /** Who raised it — User.id. */
+  createdById: string | null;
+  /** Rolling due-date lens; a preset rather than a picker (see metadata-filters). */
+  due: DuePreset;
   teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
@@ -83,6 +92,10 @@ export const emptyFilters: BoardFilters = {
   assigneeId: null,
   intervalId: null,
   labels: [],
+  columnKeys: [],
+  workCategories: [],
+  createdById: null,
+  due: "any",
   teamId: null,
   swimlaneBy: "none",
   customFields: {},
@@ -107,6 +120,8 @@ interface FilterBarProps {
    * cannot match anything — same precedent as presentTypeKeys.
    */
   presentLabelNames?: string[];
+  /** Board columns, for the Status filter. Omitted ⇒ no Status control. */
+  boardColumns?: { key: string; name: string }[];
   /**
    * Org id, used to load the org's ACTUAL work-item types so the Type filter
    * lists custom types (e.g. "Feature") alongside the built-ins instead of a
@@ -161,6 +176,7 @@ export function bareTypeKey(key: string | null | undefined): string {
 }
 
 const VALID_SWIMLANES = new Set<string>(SWIMLANE_OPTIONS.map((o) => o.value));
+const VALID_DUE = new Set<string>(DUE_PRESETS.map((o) => o.value));
 
 /**
  * Serialize active filters into a URLSearchParams query string. Only non-empty
@@ -175,6 +191,10 @@ export function serializeFilters(filters: BoardFilters): string {
     params.set("priority", filters.priorities.join(","));
   if (filters.assigneeId) params.set("assignee", filters.assigneeId);
   if (filters.labels.length > 0) params.set("label", filters.labels.join(","));
+  if (filters.columnKeys.length > 0) params.set("status", filters.columnKeys.join(","));
+  if (filters.workCategories.length > 0) params.set("cat", filters.workCategories.join(","));
+  if (filters.createdById) params.set("reporter", filters.createdById);
+  if (filters.due !== "any") params.set("due", filters.due);
   if (filters.teamId) params.set("team", filters.teamId);
   if (filters.intervalId) params.set("interval", filters.intervalId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
@@ -215,6 +235,10 @@ export function parseFilters(
     priorities: priorities ? priorities.split(",").filter(Boolean) : [],
     assigneeId: params.get("assignee") || null,
     labels: (params.get("label") || "").split(",").filter(Boolean),
+    columnKeys: (params.get("status") || "").split(",").filter(Boolean),
+    workCategories: (params.get("cat") || "").split(",").filter(Boolean),
+    createdById: params.get("reporter") || null,
+    due: VALID_DUE.has(params.get("due") || "") ? (params.get("due") as DuePreset) : "any",
     teamId: params.get("team") || null,
     intervalId: params.get("interval") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
@@ -320,6 +344,7 @@ export function FilterBar({
   intervals,
   teams = [],
   presentLabelNames = [],
+  boardColumns = [],
   orgId,
   showSwimlane = false,
   customFields = [],
@@ -379,6 +404,10 @@ export function FilterBar({
     filters.priorities.length > 0 ||
     filters.assigneeId !== null ||
     filters.labels.length > 0 ||
+    filters.columnKeys.length > 0 ||
+    filters.workCategories.length > 0 ||
+    filters.createdById !== null ||
+    filters.due !== "any" ||
     filters.teamId !== null ||
     filters.intervalId !== null ||
     filters.swimlaneBy !== "none" ||
@@ -396,6 +425,10 @@ export function FilterBar({
    * itself open whenever anything in it is set, and the toggle carries a count.
    */
   const overflowCount =
+    (filters.columnKeys.length > 0 ? 1 : 0) +
+    (filters.workCategories.length > 0 ? 1 : 0) +
+    (filters.createdById !== null ? 1 : 0) +
+    (filters.due !== "any" ? 1 : 0) +
     (filters.teamId !== null ? 1 : 0) +
     (filters.intervalId !== null ? 1 : 0) +
     (hasActiveCustom ? 1 : 0);
@@ -565,6 +598,74 @@ export function FilterBar({
         // trap. A row also lets several be read at once, which is the point of
         // opening it.
         <div className="flex w-full flex-wrap items-center gap-3 border-t pt-2">
+          {boardColumns.length > 0 && (
+            <MultiSelectMenu
+              label="Status"
+              options={boardColumns.map((c) => c.key)}
+              selected={filters.columnKeys}
+              onChange={(columnKeys) => onFilterChange({ ...filters, columnKeys })}
+            />
+          )}
+
+          <MultiSelectMenu
+            label="Category"
+            options={["BUSINESS", "ENABLER"]}
+            selected={filters.workCategories}
+            onChange={(workCategories) => onFilterChange({ ...filters, workCategories })}
+          />
+
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground mr-1">Due:</span>
+            <Select
+              items={Object.fromEntries(DUE_PRESETS.map((o) => [o.value, o.label]))}
+              value={filters.due}
+              onValueChange={(v) =>
+                onFilterChange({
+                  ...filters,
+                  due: VALID_DUE.has(v as string) ? (v as DuePreset) : "any",
+                })
+              }
+            >
+              <SelectTrigger size="sm" aria-label="Filter by due date" className="h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DUE_PRESETS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {members.length > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Reporter:</span>
+              <SearchableSelect
+                size="sm"
+                aria-label="Filter by reporter"
+                className="h-7 text-xs"
+                searchPlaceholder="Search people…"
+                emptyText="No matching people"
+                value={filters.createdById ?? "__all__"}
+                onValueChange={(v) =>
+                  onFilterChange({
+                    ...filters,
+                    createdById: v && v !== "__all__" ? v : null,
+                  })
+                }
+                options={[
+                  { value: "__all__", label: "All" },
+                  ...members.map((m) => ({
+                    value: m.userId,
+                    label: m.user?.displayName ?? m.user?.email ?? "Unknown",
+                  })),
+                ]}
+              />
+            </div>
+          )}
+
       {teams.length > 0 && (
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground mr-1">Team:</span>
