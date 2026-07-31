@@ -3,14 +3,19 @@ import { test, expect } from "./fixtures/auth";
 /**
  * E2E journey — time-tracking log + submit. From the time-tracking page, open
  * the "Log Time" dialog, create a DRAFT entry (hours + a unique description on
- * today's date), then switch to the List view, find that entry's row, and
- * submit it for approval — asserting the status text flips DRAFT → SUBMITTED.
+ * today's date), submit the WEEK, then switch to the List view and assert that
+ * entry's status flipped DRAFT → SUBMITTED.
+ *
+ * Submission is PERIOD-level as of the approval workflow: the per-row "Submit
+ * for approval" button is gone, replaced by "Submit week" in the week header.
+ * Submitting entries one at a time produced half-submitted weeks that no
+ * approver or payroll run could interpret.
  *
  * Mutating — CI e2e job (Postgres + seed). alice is ADMIN → has TIME_CREATE
  * (log own) + TIME_APPROVE. The List view shows the raw status enum text
- * (DRAFT / SUBMITTED) per row; the per-row Submit action is the <Button> titled
- * "Submit for approval" (only rendered while the entry is DRAFT). Approval is
- * not reachable from this component's UI, so the journey ends at SUBMITTED.
+ * (DRAFT / SUBMITTED) per row. Approval needs a DIFFERENT person — alice
+ * cannot approve her own timesheet once she has a supervisor — so the journey
+ * ends at SUBMITTED.
  *
  * TIMING: the TimeTracker uses a raw fetch + a `refreshKey` bump (NOT React
  * Query) and only refetches when the view / filters / refreshKey change. Save
@@ -58,29 +63,27 @@ test.describe("journey — time tracking", () => {
     // trigger the list fetch below.
     await expect(dialog).toBeHidden({ timeout: 15_000 });
 
-    // Switch to the List view, where each entry is its own row with a status
-    // cell and a per-row Submit action. Changing the view triggers a fresh
-    // fetch (no date filter), which now includes the committed entry. (The Week
-    // view groups rows by description and hides actions behind hover.)
+    // Submit the WEEK from the week-view header. The entry was logged for
+    // today, so it is in the week currently on screen.
+    const submitWeek = page.getByRole("button", { name: /submit week/i }).first();
+    await expect(submitWeek).toBeEnabled({ timeout: 15_000 });
+    await submitWeek.click();
+
+    // The period's badge is the immediate confirmation the action landed.
+    await expect(page.getByText("Submitted").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Switch to the List view and confirm the ENTRY moved with its timesheet —
+    // the propagation that keeps CLIN burn and payroll (which filter on
+    // TimeEntry.status) working without joining through the timesheet.
     await page.getByRole("button", { name: /^List$/ }).first().click();
 
-    // The new DRAFT entry appears as a row. Scope every later assertion to that
-    // row so other entries in the shared DB can't make selectors ambiguous.
     const entryRow = page
       .getByRole("row")
       .filter({ hasText: description })
       .first();
     await expect(entryRow).toBeVisible({ timeout: 20_000 });
-    await expect(entryRow.getByText("DRAFT").first()).toBeVisible({
-      timeout: 10_000,
-    });
-
-    // Submit for approval → the row's status flips to SUBMITTED (and the DRAFT
-    // action buttons, including Submit, are no longer rendered for the row).
-    await entryRow
-      .getByRole("button", { name: /submit for approval/i })
-      .first()
-      .click();
     await expect(entryRow.getByText("SUBMITTED").first()).toBeVisible({
       timeout: 15_000,
     });

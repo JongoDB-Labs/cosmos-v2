@@ -13,17 +13,20 @@ import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma } = vi.hoisted(() => ({
+const { getAuthContext, prisma, applyTimesheetTransition } = vi.hoisted(() => ({
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn() },
-    timeEntry: { findFirst: vi.fn(), update: vi.fn() },
+    timeEntry: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    timesheet: { findFirst: vi.fn() },
   },
+  applyTimesheetTransition: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("@/lib/time/timesheet-actions", () => ({ applyTimesheetTransition }));
 
 import { POST } from "./route";
 
@@ -55,7 +58,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   getAuthContext.mockResolvedValue(ctxWith(bits("TIME_UPDATE", "TIME_READ")));
-  prisma.timeEntry.update.mockResolvedValue({ id: ENTRY_ID, status: "SUBMITTED" });
+  prisma.timeEntry.findUnique.mockResolvedValue({ id: ENTRY_ID, status: "SUBMITTED" });
+  prisma.timesheet.findFirst.mockResolvedValue({ status: "OPEN" });
+  applyTimesheetTransition.mockResolvedValue({ id: "ts-1", status: "SUBMITTED" });
 });
 
 describe("POST /time-entries/[entryId]/submit — voided entries stay withdrawn", () => {
@@ -75,24 +80,35 @@ describe("POST /time-entries/[entryId]/submit — voided entries stay withdrawn"
       id: ENTRY_ID,
       userId: ACTOR_ID,
       status: "DRAFT",
+      timesheetId: "ts-1",
       voidedAt: new Date("2026-07-31"),
     });
 
     const res = await POST(req(), { params });
 
     expect(res.status).toBe(404);
-    // The decisive assertion: it must never reach the write that would put a
-    // withdrawn entry back into the approval pipeline.
-    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+    // The decisive assertion: it must never reach the transition that would put
+    // a withdrawn entry back into the approval pipeline.
+    expect(applyTimesheetTransition).not.toHaveBeenCalled();
   });
 
   it("a live DRAFT entry still submits normally", async () => {
     // Guards against fixing the leak by breaking the feature.
-    entryIs({ id: ENTRY_ID, userId: ACTOR_ID, status: "DRAFT", voidedAt: null });
+    entryIs({
+      id: ENTRY_ID,
+      userId: ACTOR_ID,
+      status: "DRAFT",
+      timesheetId: "ts-1",
+      voidedAt: null,
+    });
 
     const res = await POST(req(), { params });
 
     expect(res.status).toBe(200);
-    expect(prisma.timeEntry.update).toHaveBeenCalled();
+    // Submission is PERIOD-level now: this route delegates to the same
+    // transition the timesheet route uses, so the two doors cannot diverge.
+    expect(applyTimesheetTransition).toHaveBeenCalledWith(
+      expect.objectContaining({ timesheetId: "ts-1", next: "SUBMITTED" }),
+    );
   });
 });

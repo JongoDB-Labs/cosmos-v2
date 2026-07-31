@@ -63,6 +63,24 @@ interface TimeTrackerProps {
 
 type ViewMode = "week" | "list";
 
+type Timesheet = {
+  id: string;
+  userId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: "OPEN" | "SUBMITTED" | "LABOR_APPROVED" | "APPROVED" | "REJECTED" | "LOCKED";
+  rejectedReason: string | null;
+};
+
+const TIMESHEET_LABELS: Record<Timesheet["status"], string> = {
+  OPEN: "Open",
+  SUBMITTED: "Submitted",
+  LABOR_APPROVED: "Awaiting cost approval",
+  APPROVED: "Approved",
+  REJECTED: "Returned",
+  LOCKED: "Locked",
+};
+
 const STATUS_COLORS: Record<TimeEntry["status"], string> = {
   DRAFT: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   SUBMITTED: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
@@ -148,6 +166,12 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   // screen while a report's week is shown would silently file the entry
   // against the supervisor instead.
   const viewingSomeoneElse = personId !== "";
+
+  // The pay period covering the week on screen, for the person on screen.
+  // Approval is a PERIOD-level action — submitting entries one at a time
+  // produces half-submitted weeks that no approver or payroll run can read.
+  const [timesheet, setTimesheet] = useState<Timesheet | null>(null);
+  const [actionPending, setActionPending] = useState(false);
   // "" means ME, and ME has to be sent EXPLICITLY. A TIME_READ_ALL holder who
   // sends no userId gets every entry in the org, and the week grid would sum
   // all of it into "your week" — the arithmetic bug this picker exists to fix,
@@ -247,6 +271,58 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     }
   }, [orgId, view, weekStart, weekEnd, filterStatus, filterBillable, shownUserId, refreshKey]);
 
+  // The week's timesheet, refetched whenever the week, the person, or a
+  // successful action changes it. Inline IIFE + cancel flag, matching the CLIN
+  // fetch above: a useCallback here trips the React Compiler's
+  // "existing memoization could not be preserved".
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ periodStart: weekStart });
+        if (shownUserId) params.set("userId", shownUserId);
+        const res = await fetch(`/api/v1/orgs/${orgId}/timesheets?${params}`);
+        if (cancelled || !res.ok) return;
+        const body = await res.json();
+        const rows: Timesheet[] = body.data ?? [];
+        if (!cancelled) setTimesheet(rows[0] ?? null);
+      } catch {
+        /* the week still renders without its status */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, weekStart, shownUserId, refreshKey]);
+
+  const runTimesheetAction = async (
+    action: "submit" | "approve" | "reject",
+    reason?: string,
+  ) => {
+    if (!timesheet) return;
+    setActionPending(true);
+    try {
+      const res = await fetch(
+        `/api/v1/orgs/${orgId}/timesheets/${timesheet.id}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, reason }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "That action could not be completed.");
+      }
+      // Entry statuses move with the timesheet, so both have to refetch.
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      notifyError(err, "Couldn't update the timesheet.");
+    } finally {
+      setActionPending(false);
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
@@ -302,19 +378,6 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     } catch (err) {
       console.error(err);
       notifyError(err, "Couldn't delete the time entry.");
-    }
-  };
-
-  const handleSubmit = async (id: string) => {
-    try {
-      const res = await fetch(`/api/v1/orgs/${orgId}/time-entries/${id}/submit`, {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error("Failed to submit time entry.");
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      console.error(err);
-      notifyError(err, "Couldn't submit the time entry for approval.");
     }
   };
 
@@ -615,13 +678,15 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           onNavigate={navigateWeek}
           onCellClick={viewingSomeoneElse ? undefined : openCreate}
           onEdit={viewingSomeoneElse ? undefined : openEdit}
-          onSubmit={viewingSomeoneElse ? undefined : handleSubmit}
+          timesheet={timesheet}
+          isOwnTimesheet={!viewingSomeoneElse}
+          actionPending={actionPending}
+          onTimesheetAction={runTimesheetAction}
         />
       ) : (
         <ListView
           entries={entries}
           onEdit={viewingSomeoneElse ? undefined : openEdit}
-          onSubmit={viewingSomeoneElse ? undefined : handleSubmit}
           onDelete={viewingSomeoneElse ? undefined : handleDelete}
         />
       )}
@@ -637,7 +702,10 @@ function WeekView({
   onNavigate,
   onCellClick,
   onEdit,
-  onSubmit,
+  timesheet,
+  isOwnTimesheet,
+  actionPending,
+  onTimesheetAction,
 }: {
   weekDates: Date[];
   groupedByRow: Map<string, Map<string, TimeEntry[]>>;
@@ -649,7 +717,13 @@ function WeekView({
   // type makes an unhandled action impossible instead of merely discouraged.
   onCellClick?: (date: string) => void;
   onEdit?: (entry: TimeEntry) => void;
-  onSubmit?: (id: string) => void;
+  timesheet: Timesheet | null;
+  isOwnTimesheet: boolean;
+  actionPending: boolean;
+  onTimesheetAction: (
+    action: "submit" | "approve" | "reject",
+    reason?: string,
+  ) => void;
 }) {
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -665,11 +739,80 @@ function WeekView({
             <ChevronRight className="size-4" />
           </Button>
         </div>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-3 text-sm">
+          {timesheet && (
+            <Badge
+              variant={
+                timesheet.status === "APPROVED"
+                  ? "done"
+                  : timesheet.status === "REJECTED"
+                    ? "blocked"
+                    : "review"
+              }
+            >
+              {TIMESHEET_LABELS[timesheet.status]}
+            </Badge>
+          )}
+
+          {/* Submitting is the WORKER's action on their OWN week. */}
+          {timesheet && isOwnTimesheet &&
+            (timesheet.status === "OPEN" || timesheet.status === "REJECTED") && (
+              <Button
+                size="sm"
+                disabled={actionPending || weekTotal === 0}
+                // Nothing to submit is a real state, and a button that errors
+                // on an empty week teaches people to distrust it.
+                title={weekTotal === 0 ? "Log some time first" : undefined}
+                onClick={() => onTimesheetAction("submit")}
+              >
+                <Send className="size-4" />
+                Submit week
+              </Button>
+            )}
+
+          {/* Approving is the SUPERVISOR's action on someone else's week. The
+              server is authoritative about who may — this only decides what is
+              worth rendering. */}
+          {timesheet && !isOwnTimesheet &&
+            (timesheet.status === "SUBMITTED" ||
+              timesheet.status === "LABOR_APPROVED") && (
+              <>
+                <Button
+                  size="sm"
+                  disabled={actionPending}
+                  onClick={() => onTimesheetAction("approve")}
+                >
+                  Approve week
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={actionPending}
+                  onClick={() => {
+                    // A rejection the worker cannot act on is a dead end, so a
+                    // reason is required rather than optional.
+                    const reason = window.prompt(
+                      "Why is this week being returned?",
+                    );
+                    if (reason?.trim()) onTimesheetAction("reject", reason.trim());
+                  }}
+                >
+                  Return
+                </Button>
+              </>
+            )}
+
           <Clock className="size-4 text-muted-foreground" />
           <span className="font-medium">{weekTotal.toFixed(2)}h total</span>
         </div>
       </div>
+
+      {/* Why it came back, shown to whoever is looking at the week. */}
+      {timesheet?.status === "REJECTED" && timesheet.rejectedReason && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+          <span className="font-medium">Returned:</span> {timesheet.rejectedReason}
+        </div>
+      )}
 
       <div className="overflow-x-auto scrollbar-x rounded-lg border">
         <table className="w-full text-sm">
@@ -749,14 +892,6 @@ function WeekView({
                                         <Pencil className="size-3" />
                                       </button>
                                     )}
-                                    {entry.status === "DRAFT" && onSubmit && (
-                                      <button
-                                        onClick={() => onSubmit(entry.id)}
-                                        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                      >
-                                        <Send className="size-3" />
-                                      </button>
-                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -810,13 +945,11 @@ function WeekView({
 function ListView({
   entries,
   onEdit,
-  onSubmit,
   onDelete,
 }: {
   entries: TimeEntry[];
   // Optional = read-only; see WeekView above.
   onEdit?: (entry: TimeEntry) => void;
-  onSubmit?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
   const sorted = [...entries].sort(byDateOnlyDesc);
@@ -831,12 +964,11 @@ function ListView({
       // Read-only (another person's time): no context menu either. The inline
       // buttons below are hidden on the same condition, so the two cannot
       // disagree about what is possible.
-      if (!onEdit || !onSubmit || !onDelete) return [];
+      if (!onEdit || !onDelete) return [];
       return [
         {
           items: [
             { label: "Edit", icon: Pencil, onClick: () => onEdit(entry) },
-            { label: "Submit for approval", icon: Send, onClick: () => onSubmit(entry.id) },
           ],
         },
         {
@@ -851,7 +983,7 @@ function ListView({
         },
       ];
     },
-    [onEdit, onSubmit, onDelete],
+    [onEdit, onDelete],
   );
 
   const columns: ColumnDef<TimeEntry>[] = [
@@ -915,7 +1047,7 @@ function ListView({
         const entry = row.original;
         return (
           <div className="flex items-center justify-end gap-1">
-            {entry.status === "DRAFT" && onEdit && onSubmit && onDelete && (
+            {entry.status === "DRAFT" && onEdit && onDelete && (
               <>
                 <Button
                   variant="ghost"
@@ -923,14 +1055,6 @@ function ListView({
                   onClick={() => onEdit(entry)}
                 >
                   <Pencil className="size-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => onSubmit(entry.id)}
-                  title="Submit for approval"
-                >
-                  <Send className="size-3" />
                 </Button>
                 <Button
                   variant="destructive"

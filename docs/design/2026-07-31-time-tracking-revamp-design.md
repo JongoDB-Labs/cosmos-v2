@@ -123,6 +123,45 @@ levels up who needs it can be given `TIME_READ_ALL`.
 `FINANCE_READ`. A supervisor confirming hours has no business seeing the money,
 and this is what keeps that true by default.
 
+### 3.3 Decisions taken when the workflow was built (2.252.0)
+
+Recorded here because each was expensive to reverse and none is obvious from
+the code alone.
+
+**Submission is PERIOD-level, and the per-entry submit is gone.** Submitting
+entries one at a time produces half-submitted weeks that no approver, payroll
+run or auditor can interpret, and it left two sources of approval truth free to
+disagree. The old `POST /time-entries/[id]/submit` route is kept — deleting an
+endpoint is a breaking change for callers outside this repo — but now delegates
+to the same transition as `POST /timesheets/[id]`, so the two doors cannot
+diverge.
+
+**Timesheet status PROPAGATES to `TimeEntry.status`, in the same transaction.**
+The entry field is load-bearing: `lib/pm/burn.ts` (CLIN burn), payroll pricing
+and the finance summary all filter `status: "APPROVED"`. Rewriting those to join
+through the timesheet would have been a wider, riskier change than making the
+timesheet authoritative and the entry field a projection of it. Same
+transaction, so the two can never be observed disagreeing — a half-applied
+approval would show hours as billable that nobody approved.
+
+`LABOR_APPROVED` maps to entry status **SUBMITTED**, not APPROVED. It contains
+the word *approved* but is only half done; treating it as APPROVED would bill
+hours the cost owner has not accepted.
+
+**Voided entries do not move with a transition.** Approving a timesheet must not
+quietly bring withdrawn hours back into billing (see `not-voided.ts`).
+
+**Self-approval is refused when the person HAS a manager, allowed when they do
+not.** Someone designated means approving your own hours bypasses them. Nobody
+designated means refusing would deadlock — the top of an org chart has no one
+above it, and their hours could never be approved, so never billed. Holding
+`TIME_APPROVE` does not buy past the first case.
+
+**Approval authority lives in the route, not ABAC** — it is a widening, and that
+engine can only narrow (§3, correction). An org that wants admins restricted to
+their own reports authors a deny over `is_manager_of_assignee`, which narrows
+this result rather than replacing it.
+
 ### 3.2 Supervisor APPROVAL — where the predicate earns its keep
 
 Approval answers two different questions, often held by different people:
