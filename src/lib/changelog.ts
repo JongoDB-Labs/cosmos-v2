@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.14",
+    date: "2026-07-31",
+    title: "A milestone's date follows the work it tracks",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A milestone created from a ticket kept whatever date it started with, even after you changed that ticket's planned end date — so the Milestones board and the issue disagreed. The milestone's date now follows its linked work, using the latest planned end where several items are linked. Milestones you manage by hand, and ones with no linked work, are unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.249.13",
     date: "2026-07-31",
     title: "A project limited to its members is now hidden everywhere",
