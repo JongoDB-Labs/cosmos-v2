@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { TimePerson } from "@/lib/time/scope";
+import { formatDateOnly, byDateOnlyDesc, dateOnlyKey } from "@/lib/time/date-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -325,7 +326,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   const openEdit = (entry: TimeEntry) => {
     setEditingEntry(entry);
     setForm({
-      date: entry.date.split("T")[0],
+      date: dateOnlyKey(entry.date),
       hours: String(entry.hours),
       projectId: entry.projectId || "",
       clinId: entry.clinId || "",
@@ -343,7 +344,9 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   };
 
   const getEntriesForDate = (date: string): TimeEntry[] => {
-    return entries.filter((e) => e.date.startsWith(date));
+    // Same key the list cell formats from — the two views disagreeing about
+    // which day an entry falls on was the bug.
+    return entries.filter((e) => dateOnlyKey(e.date) === date);
   };
 
   const getDayTotal = (date: string): number => {
@@ -815,9 +818,7 @@ function ListView({
   onSubmit?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
-  const sorted = [...entries].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  const sorted = [...entries].sort(byDateOnlyDesc);
 
   // Surface the same row operations available in the inline actions column
   // (edit / submit / delete) via right-click + the trailing ⋯ menu. Gated on
@@ -858,7 +859,11 @@ function ListView({
       header: "Date",
       cell: ({ row }) => (
         <span className="whitespace-nowrap">
-          {new Date(row.original.date).toLocaleDateString()}
+          {/* NOT `new Date(...).toLocaleDateString()` — `date` is a Postgres
+              DATE serialised at UTC midnight, so that converts it into the
+              viewer's zone and shows the previous day west of UTC. This row
+              read 7/19 while the week grid drew the same entry on Jul 20. */}
+          {formatDateOnly(row.original.date)}
         </span>
       ),
     },
