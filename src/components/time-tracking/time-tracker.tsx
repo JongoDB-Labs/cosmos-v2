@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { TimePerson } from "@/lib/time/scope";
-import { formatDateOnly, byDateOnlyDesc, dateOnlyKey } from "@/lib/time/date-only";
+import { byDateOnlyDesc, dateOnlyKey } from "@/lib/time/date-only";
+import { formatDateStable } from "@/lib/format/stable-date";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -862,8 +863,11 @@ function ListView({
           {/* NOT `new Date(...).toLocaleDateString()` — `date` is a Postgres
               DATE serialised at UTC midnight, so that converts it into the
               viewer's zone and shows the previous day west of UTC. This row
-              read 7/19 while the week grid drew the same entry on Jul 20. */}
-          {formatDateOnly(row.original.date)}
+              read 7/19 while the week grid drew the same entry on Jul 20.
+              `formatDateStable` reads it in UTC, so it agrees with the
+              `dateOnlyKey` the grid buckets on, and renders the same text on
+              the server as in the browser. */}
+          {formatDateStable(row.original.date)}
         </span>
       ),
     },

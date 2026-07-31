@@ -30,7 +30,7 @@ describe("time entry dates are never parsed as instants", () => {
   it("scanned the real file", () => {
     // A rename must fail loudly rather than scan nothing and pass.
     expect(src.length).toBeGreaterThan(1000);
-    expect(src).toContain("formatDateOnly");
+    expect(src).toContain("formatDateStable");
   });
 
   it("the time tracker never wraps an entry date in new Date()", () => {
@@ -45,10 +45,12 @@ describe("time entry dates are never parsed as instants", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("formats and groups through the shared helper", () => {
-    // Both call sites reading from one helper is what stops the list view and
+  it("formats and groups through UTC-derived helpers", () => {
+    // Both call sites reading the value in UTC is what stops the list view and
     // the week grid disagreeing about which day an entry belongs to.
-    expect(src).toContain("formatDateOnly(row.original.date)");
+    // `formatDateStable` replaced `formatDateOnly` here: it keeps that property
+    // and additionally renders identically on server and client.
+    expect(src).toContain("formatDateStable(row.original.date)");
     expect(src).toContain("dateOnlyKey(e.date) === date");
   });
 });
