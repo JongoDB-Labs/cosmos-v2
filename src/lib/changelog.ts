@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.249.12",
+    date: "2026-07-30",
+    title: "One Milestone type in the Issues filter, not two",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Issues page offered “Milestone” twice in its Type filter, and one of them matched nothing — two different milestone types were being seeded under the same name. The unused one is gone, so there is a single Milestone to filter by. Nothing you have filed changes: the duplicate is only removed where no work item was using it.",
+      },
+    ],
+  },
+  {
     version: "2.249.11",
     date: "2026-07-30",
     title: "Copy link gives you the issue, and labels are editable after filing",

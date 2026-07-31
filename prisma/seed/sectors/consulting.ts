@@ -16,7 +16,6 @@ const CONSULTING_WORK_ITEM_TYPES: ConsultingWorkItemType[] = [
   { key: "consulting.workstream", name: "Workstream", pluralName: "Workstreams", icon: "GitBranch", color: "#3b82f6", sortOrder: 1, defaultParentTypeKey: "consulting.engagement", celebrateOnComplete: false },
   { key: "consulting.deliverable", name: "Deliverable", pluralName: "Deliverables", icon: "Package", color: "#10b981", sortOrder: 2, defaultParentTypeKey: "consulting.workstream", celebrateOnComplete: true },
   { key: "consulting.task", name: "Task", pluralName: "Tasks", icon: "CheckSquare", color: "#64748b", sortOrder: 3, defaultParentTypeKey: "consulting.deliverable", celebrateOnComplete: true },
-  { key: "consulting.milestone_item", name: "Milestone", pluralName: "Milestones", icon: "Flag", color: "#f59e0b", sortOrder: 4, celebrateOnComplete: true },
 ];
 
 const CONSULTING_BOARD_TEMPLATES = [
