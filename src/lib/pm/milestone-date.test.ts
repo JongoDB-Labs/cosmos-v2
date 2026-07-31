@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { deriveMilestoneDueDate, type LinkedItemDate } from "./milestone-date";
+import {
+  deriveMilestoneDueDate,
+  dueDateFollowsLinkedWork,
+  type LinkedItemDate,
+} from "./milestone-date";
 
 // REPORTED: a milestone's date on the Milestones board does not follow the
 // planned end date of the work item it came from.
@@ -62,5 +66,37 @@ describe("deriveMilestoneDueDate", () => {
     // So a caller can compare by identity/time and skip a pointless write.
     const same = [{ dueDate: new Date(STORED.getTime()) }];
     expect(deriveMilestoneDueDate(STORED, true, same)?.getTime()).toBe(STORED.getTime());
+  });
+});
+
+// The WRITE side of the same rule.
+//
+// #529 made a milestone's date FOLLOW its linked work on read. The edit dialog,
+// though, still sends `dueDate` on every submit — including a plain rename — and
+// the server still stores it. Whenever the date is derived, that stored value is
+// discarded on the very next read: the edit appears to work and then reverts,
+// with nothing on screen explaining why.
+//
+// `Milestone.autoStatus` is already the switch for this ("follow my linked
+// work"), and the dialog already exposes it. So the fix is to tell the truth in
+// the UI — while the date is derived the field is not the user's to set — rather
+// than to silently redirect the write into somebody's ticket.
+describe("dueDateFollowsLinkedWork", () => {
+  it("is true for an auto-managed milestone with linked work", () => {
+    expect(dueDateFollowsLinkedWork(true, 1)).toBe(true);
+  });
+
+  it("is false when the milestone is managed by hand", () => {
+    // Turning Auto status off is exactly how someone takes the date back.
+    expect(dueDateFollowsLinkedWork(false, 3)).toBe(false);
+  });
+
+  it("is false when nothing is linked", () => {
+    // Nothing to follow, so the stored date is the only date there is.
+    expect(dueDateFollowsLinkedWork(true, 0)).toBe(false);
+  });
+
+  it("is false when both are off", () => {
+    expect(dueDateFollowsLinkedWork(false, 0)).toBe(false);
   });
 });

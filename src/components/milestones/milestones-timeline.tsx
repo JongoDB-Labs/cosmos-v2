@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { dueDateFollowsLinkedWork } from "@/lib/pm/milestone-date";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { milestoneInvalidations } from "@/lib/query/milestone-keys";
@@ -584,7 +585,7 @@ function CreateDialog({
             <div>
               <Label className="text-sm">Auto status</Label>
               <p className="text-xs text-[var(--text-muted)]">
-                Derive status from linked work items.
+                Derive status and due date from linked work items.
               </p>
             </div>
             <ToggleSwitch
@@ -636,14 +637,21 @@ function EditDialog({
   const [autoStatus, setAutoStatus] = useState(milestone.autoStatus);
   const [status, setStatus] = useState<MilestoneStatus>(milestone.status);
 
+  // While the date follows linked work it is not this dialog's to set: the API
+  // would store what we send and then discard it on the very next read, so the
+  // edit would appear to work and silently revert. Keyed off the LOCAL toggle so
+  // switching Auto status off hands the field back immediately, without a save.
+  const dateIsDerived = dueDateFollowsLinkedWork(autoStatus, milestone.links.length);
+
   function submit() {
     if (!title.trim() || !dueDate) return;
     const patch: UpdatePayload = {
       title: title.trim(),
       description: description.trim() || null,
-      dueDate: fromDateInput(dueDate),
       autoStatus,
     };
+    // Same reasoning as `status` below: only send a date the server will keep.
+    if (!dateIsDerived) patch.dueDate = fromDateInput(dueDate);
     // Only send a manual status when auto-status is off; otherwise the server
     // derives it and a stored value would just get overwritten on next read.
     if (!autoStatus) patch.status = status;
@@ -687,13 +695,21 @@ function EditDialog({
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
+              disabled={dateIsDerived}
+              aria-describedby={dateIsDerived ? "edit-milestone-due-hint" : undefined}
             />
+            {dateIsDerived && (
+              <p id="edit-milestone-due-hint" className="text-xs text-[var(--text-muted)]">
+                Follows the planned end date of the linked work. Turn off Auto status to set it
+                by hand.
+              </p>
+            )}
           </div>
           <div className="flex items-center justify-between rounded-[var(--radius)] border border-[var(--border)] p-3">
             <div>
               <Label className="text-sm">Auto status</Label>
               <p className="text-xs text-[var(--text-muted)]">
-                Derive status from linked work items.
+                Derive status and due date from linked work items.
               </p>
             </div>
             <ToggleSwitch
