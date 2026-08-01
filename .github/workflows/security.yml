@@ -285,8 +285,15 @@ jobs:
       - name: Assert CHANGELOG is current (What's-new per release)
         run: |
           set -euo pipefail
-          PKG="$(grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' package.json | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
-          TOP="$(grep -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' src/lib/changelog.ts | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          # `grep -m1` rather than `grep | head -1`: head closes the pipe after one
+          # line, the upstream grep gets EPIPE on its next write, and `set -o
+          # pipefail` turns that into a failed step. It is size-dependent — with
+          # 225+ changelog entries grep now has plenty left to write when head
+          # exits — so this surfaced as a mysterious "Config assertions" failure
+          # on a PR whose versions were perfectly correct. -m1 stops grep itself,
+          # so nothing is left to write and there is no pipe to break.
+          PKG="$(grep -m1 -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' package.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          TOP="$(grep -m1 -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' src/lib/changelog.ts | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
           if [ "$PKG" != "$TOP" ]; then
             echo "FAIL: CHANGELOG top ($TOP) != package.json version ($PKG) - every release must add a Whats-new entry" | tee -a evidence/${{ github.sha }}/config-asserts.txt
             exit 1
