@@ -31,7 +31,7 @@ export const CHANGELOG: Release[] = [
       },
       {
         kind: "improvement",
-        text: "Only people who can actually approve time are offered as supervisors. Naming someone without that permission used to be possible, and produced a week that was routed to them and then refused when they tried to sign it.",
+        text: "Only people who can actually approve time are offered when you add a supervisor. Anyone already assigned stays listed even if they lack that permission, marked as such, so an existing arrangement is never silently lost — but new ones have to be someone the organisation has trusted with approvals.",
       },
       {
         kind: "improvement",

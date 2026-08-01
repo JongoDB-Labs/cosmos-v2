@@ -312,7 +312,13 @@ function SupervisorCell({
   const queryKey = useOrgQueryKey("employee-supervisors", employee.id);
   const { data } = useQuery<{
     supervisorIds: string[];
-    candidates: Array<{ employeeId: string; userId: string; displayName: string | null }>;
+    candidates: Array<{
+      employeeId: string;
+      userId: string;
+      displayName: string | null;
+      /** False for someone assigned before they lost the approve-time permission. */
+      canApprove: boolean;
+    }>;
   }>({
     queryKey,
     queryFn: () =>
@@ -389,6 +395,12 @@ function SupervisorCell({
                   onChange={(e) => toggle(c.employeeId, e.target.checked)}
                 />
                 {c.displayName ?? nameFor(c.userId)}
+                {!c.canApprove && (
+                  // Assigned before they lost the permission. Shown so the
+                  // assignment stays visible and removable, but marked — they
+                  // are here by history rather than by policy.
+                  <span className="text-muted-foreground">(no approve permission)</span>
+                )}
               </label>
             ))
           )}

@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { Permission, hasAnyPermission } from "@/lib/rbac/permissions";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { setSupervisors } from "@/lib/org/supervisors";
-import { assignableSupervisors } from "@/lib/org/assignable-supervisors";
+import { supervisorPickerOptions } from "@/lib/org/assignable-supervisors";
 import { createNotification } from "@/lib/notifications/create";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -59,17 +59,19 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     });
     if (!employee) return new Response("Not found", { status: 404 });
 
-    const [current, candidates] = await Promise.all([
+    const [current, picker] = await Promise.all([
       prisma.employeeSupervisor.findMany({
         where: { orgId, employeeId },
         select: { supervisorId: true },
       }),
-      assignableSupervisors(orgId, employeeId),
+      supervisorPickerOptions(orgId, employeeId),
     ]);
 
     return success({
       supervisorIds: current.map((r) => r.supervisorId),
-      candidates,
+      // Includes anyone already assigned who no longer qualifies, so an
+      // existing assignment stays visible and removable.
+      candidates: picker.options,
     });
   } catch (error) {
     return handleApiError(error);
@@ -94,13 +96,25 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const { supervisorIds } = bodySchema.parse(await request.json());
 
-    // Only people who actually hold TIME_APPROVE may be named. Without this the
-    // chart could route a week to someone the authority check then refuses,
-    // and the week would sit unapprovable with nobody realising why.
-    const allowed = new Set(
-      (await assignableSupervisors(orgId, employeeId)).map((c) => c.employeeId),
+    // Only people who hold TIME_APPROVE may be NEWLY named, so the chart cannot
+    // start routing weeks to someone the org has not trusted with approvals.
+    //
+    // Checked against what is being ADDED, not the whole set: a supervisor who
+    // has since lost the permission must still be removable, and re-saving an
+    // unchanged list must not fail. Validating the whole set is how a permission
+    // change quietly makes a record unsaveable.
+    const existing = new Set(
+      (
+        await prisma.employeeSupervisor.findMany({
+          where: { orgId, employeeId },
+          select: { supervisorId: true },
+        })
+      ).map((r) => r.supervisorId),
     );
-    const rejected = supervisorIds.filter((id) => !allowed.has(id));
+    const addable = new Set((await supervisorPickerOptions(orgId, employeeId)).addableIds);
+    const rejected = supervisorIds.filter(
+      (id) => !existing.has(id) && !addable.has(id),
+    );
     if (rejected.length > 0) {
       return bad(
         "Those people cannot approve time, so they cannot be supervisors",

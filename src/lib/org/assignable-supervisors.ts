@@ -24,6 +24,71 @@ export interface SupervisorCandidate {
   employeeId: string;
   userId: string;
   displayName: string | null;
+  /**
+   * False for someone ALREADY assigned who no longer holds TIME_APPROVE.
+   *
+   * They are listed so the assignment stays visible and removable — see
+   * `withCurrent` — but the UI should mark them, because they are there by
+   * history rather than by policy.
+   */
+  canApprove: boolean;
+}
+
+/**
+ * Candidates, PLUS anyone already assigned who would not otherwise qualify.
+ *
+ * Without this, restricting candidates to TIME_APPROVE holders quietly bricks
+ * an existing assignment: the supervisor vanishes from the list, the picker
+ * claims nobody can approve, and saving is refused because the unchanged set
+ * now contains an id the server will not accept. Losing a permission must not
+ * make a record unsaveable.
+ *
+ * Note that a grandfathered supervisor can still genuinely approve — supervising
+ * a report confers authority on its own (`approvalAuthority`). The TIME_APPROVE
+ * restriction is a policy about who may be NEWLY named, not a correctness rule.
+ */
+export async function supervisorPickerOptions(
+  orgId: string,
+  employeeId: string,
+): Promise<{ options: SupervisorCandidate[]; addableIds: string[] }> {
+  const [candidates, current] = await Promise.all([
+    assignableSupervisors(orgId, employeeId),
+    prisma.employeeSupervisor.findMany({
+      where: { orgId, employeeId },
+      select: { supervisorId: true },
+    }),
+  ]);
+
+  const addableIds = candidates.map((c) => c.employeeId);
+  const known = new Set(addableIds);
+  const missing = current
+    .map((r) => r.supervisorId)
+    .filter((id) => !known.has(id));
+  if (missing.length === 0) return { options: candidates, addableIds };
+
+  const rows = await prisma.employee.findMany({
+    where: { id: { in: missing }, orgId },
+    select: { id: true, userId: true },
+  });
+  const users = await prisma.user.findMany({
+    where: { id: { in: rows.map((r) => r.userId) } },
+    select: { id: true, displayName: true },
+  });
+  const nameOf = new Map(users.map((u) => [u.id, u.displayName]));
+
+  const grandfathered = rows.map((r) => ({
+    employeeId: r.id,
+    userId: r.userId,
+    displayName: nameOf.get(r.userId) ?? null,
+    canApprove: false,
+  }));
+
+  return {
+    options: [...candidates, ...grandfathered].sort((a, b) =>
+      (a.displayName ?? "").localeCompare(b.displayName ?? ""),
+    ),
+    addableIds,
+  };
 }
 
 export async function assignableSupervisors(
@@ -63,6 +128,7 @@ export async function assignableSupervisors(
       employeeId: e.id,
       userId: e.userId,
       displayName: nameOf.get(e.userId) ?? null,
+      canApprove: true,
     }))
     .sort((a, b) => (a.displayName ?? "").localeCompare(b.displayName ?? ""));
 }
