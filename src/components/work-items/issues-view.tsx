@@ -87,7 +87,15 @@ interface IssueRow {
 }
 
 interface Facets {
-  projects: { id: string; key: string; name: string; archived: boolean }[];
+  // `sector` comes from the project's template and scopes the New-issue Type
+  // picker. Nullable: a project without a template gets the full catalogue.
+  projects: {
+    id: string;
+    key: string;
+    name: string;
+    archived: boolean;
+    sector: string | null;
+  }[];
   types: { id: string; key: string; name: string; icon: string | null; color: string | null }[];
   statuses: { key: string; name: string; category: string }[];
   /** Lane options keyed by project id — the valid statuses for each project's
