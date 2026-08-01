@@ -10,7 +10,8 @@ import { join } from "node:path";
  * the gap was not cosmetic: it reopened a path that silently undoes a void.
  *
  *   void a DRAFT entry  ->  POST .../submit (looked up by id+orgId only, still
- *   DRAFT, so it becomes SUBMITTED)  ->  bulk-approve  ->  lib/pm/burn.ts counts
+ *   DRAFT, so it becomes SUBMITTED)  ->  bulk-approve (since retired)  ->
+ *   lib/pm/burn.ts counts
  *   `status: APPROVED` toward the CLIN's consumed funded value.
  *
  * A deleted entry's hours billed against a contract. Prisma has no global model

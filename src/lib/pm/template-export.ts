@@ -1,7 +1,10 @@
 import path from "path";
 import JSZip from "jszip";
 import XlsxPopulate from "xlsx-populate";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
+import { moneyToNumber } from "@/lib/money";
+import { laborCostFor } from "@/lib/payroll/labor";
 import { loadMilestonesWithDerived } from "./schedule";
 import { loadStaffing } from "./staffing";
 import { loadClinsWithBurn } from "./burn";
@@ -662,7 +665,10 @@ async function populateBurn(
     }),
     prisma.employee.findMany({ where: { orgId }, select: { userId: true, costRate: true } }),
   ]);
-  const rateByUser = new Map(employees.map((e) => [e.userId, Number(e.costRate)]));
+  // Decimals kept as Decimals, priced through the SAME `laborCostFor` that
+  // payroll and CLIN burn use. 2.253.1 fixed this in burn.ts and missed here,
+  // which left the export disagreeing with both on identical hours.
+  const rateByUser = new Map(employees.map((e) => [e.userId, e.costRate]));
   const mKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   // actual[clinId][YYYY-MM] = $
   const actual = new Map<string, Map<string, number>>();
@@ -673,12 +679,12 @@ async function populateBurn(
   };
   for (const t of timeEntries) {
     if (!t.clinId) continue;
-    const rate = t.rate != null ? Number(t.rate) : (rateByUser.get(t.userId) ?? 0);
-    noteActual(t.clinId, mKey(t.date), t.hours * rate);
+    const rate = t.rate ?? rateByUser.get(t.userId) ?? new Prisma.Decimal(0);
+    noteActual(t.clinId, mKey(t.date), moneyToNumber(laborCostFor(t.hours, rate)));
   }
   for (const e of expenses) {
     if (!e.clinId) continue;
-    noteActual(e.clinId, mKey(e.date), Number(e.amount));
+    noteActual(e.clinId, mKey(e.date), moneyToNumber(e.amount));
   }
 
   // ── ⚙️ Setup CLIN master ──
