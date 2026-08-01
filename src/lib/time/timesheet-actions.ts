@@ -47,6 +47,12 @@ export async function applyTimesheetTransition(params: {
     sheetData.costApprovedById = actorId;
     sheetData.costApprovedAt = now;
   }
+  if (next === "OPEN") {
+    // Withdrawn: the sheet was never handed over, so it should not look like it
+    // was. A stale submittedAt would make a re-submission look like a duplicate.
+    sheetData.submittedAt = null;
+    sheetData.rejectedReason = null;
+  }
   if (next === "REJECTED") {
     sheetData.rejectedReason = params.rejectedReason ?? null;
     // Approval stamps are cleared so a later re-approval cannot inherit a

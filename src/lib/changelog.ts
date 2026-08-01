@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.253.0",
+    date: "2026-08-01",
+    title: "Take back a timesheet you submitted by mistake",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Submitted the wrong week, or spotted a missing entry straight after? A \"Withdraw\" button now sits next to a submitted week's status, and puts it back in your hands. Previously the only way out was asking your supervisor to return it, which recorded a rejection nobody had actually made.",
+      },
+      {
+        kind: "improvement",
+        text: "Withdrawing is not a rejection: no reason is recorded, the week simply goes back to Open, and resubmitting is clean. Once a supervisor has approved it the button is gone — at that point returning it is theirs to do.",
+      },
+    ],
+  },
+  {
     version: "2.252.3",
     date: "2026-07-31",
     title: "An issue's right-click menu says where it takes you",

@@ -210,3 +210,77 @@ describe("POST /timesheets/[id] — reject", () => {
     expect(res.status).toBe(409);
   });
 });
+
+/**
+ * Withdrawing is the worker taking their OWN submission back, and it is NOT a
+ * rejection — sharing that path would stamp a rejection reason on a week
+ * nobody rejected, and read to everyone as "your supervisor bounced this".
+ */
+describe("POST /timesheets/[id] — withdraw", () => {
+  function sheetWith(over: Record<string, unknown>) {
+    prisma.timesheet.findFirst.mockResolvedValue({
+      id: SHEET_ID,
+      orgId: ORG_ID,
+      userId: ME,
+      status: "SUBMITTED",
+      laborApprovedById: null,
+      costApprovedById: null,
+      ...over,
+    });
+  }
+
+  it("the owner can take back a submitted week, returning it to OPEN", async () => {
+    sheetWith({});
+
+    const res = await POST(req({ action: "withdraw" }), { params });
+
+    expect(res.status).toBe(200);
+    expect(applyTimesheetTransition).toHaveBeenCalledWith(
+      expect.objectContaining({ next: "OPEN", timesheetId: SHEET_ID }),
+    );
+  });
+
+  it("never sets a rejection reason — that is the whole point", async () => {
+    sheetWith({});
+
+    await POST(req({ action: "withdraw" }), { params });
+
+    const call = applyTimesheetTransition.mock.calls.at(-1)?.[0] as
+      | { rejectedReason?: unknown }
+      | undefined;
+    expect(call?.rejectedReason).toBeUndefined();
+  });
+
+  it("you cannot withdraw SOMEONE ELSE's timesheet", async () => {
+    // Not even an approver: returning someone's week is `reject`, which is
+    // recorded as such and carries a reason they can act on.
+    getAuthContext.mockResolvedValue(ctxWith(bits("TIME_READ", "TIME_APPROVE")));
+    sheetWith({ userId: THEM });
+
+    const res = await POST(req({ action: "withdraw" }), { params });
+
+    expect(res.status).toBe(403);
+    expect(applyTimesheetTransition).not.toHaveBeenCalled();
+  });
+
+  it("is refused once an approver has signed a lane", async () => {
+    sheetWith({ laborApprovedById: THEM });
+
+    const res = await POST(req({ action: "withdraw" }), { params });
+
+    expect(res.status).toBe(409);
+    expect(applyTimesheetTransition).not.toHaveBeenCalled();
+  });
+
+  it("a week that was never submitted has nothing to withdraw", async () => {
+    sheetWith({ status: "OPEN" });
+
+    expect((await POST(req({ action: "withdraw" }), { params })).status).toBe(409);
+  });
+
+  it("an APPROVED week cannot be withdrawn", async () => {
+    sheetWith({ status: "APPROVED", laborApprovedById: THEM });
+
+    expect((await POST(req({ action: "withdraw" }), { params })).status).toBe(409);
+  });
+});

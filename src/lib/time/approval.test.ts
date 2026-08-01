@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   submitTransition,
+  withdrawTransition,
   approveTransition,
   rejectTransition,
   entryStatusFor,
@@ -214,5 +215,45 @@ describe("approvalAuthority", () => {
         hasTimeApprove: false, isManagerOfSubject: false, subjectHasManager: false,
       }).allowed,
     ).toBe(false);
+  });
+});
+
+describe("withdrawTransition", () => {
+  it("a SUBMITTED week can be taken back by its owner", () => {
+    expect(withdrawTransition("SUBMITTED", false)).toEqual({ ok: true, next: "OPEN" });
+  });
+
+  it("returns to OPEN, not REJECTED — withdrawing is not a rejection", () => {
+    // The whole point: sharing REJECTED would stamp a rejection reason and read
+    // as "your supervisor bounced this".
+    const r = withdrawTransition("SUBMITTED", false);
+    expect(r.ok && r.next).toBe("OPEN");
+  });
+
+  it("is refused once an approver has signed a lane", () => {
+    // Defence in depth: status alone excludes this today, but a signature on a
+    // still-SUBMITTED sheet must never be silently pulled back.
+    const r = withdrawTransition("SUBMITTED", true);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.reason).toMatch(/approved/i);
+  });
+
+  it("cannot withdraw what was never submitted", () => {
+    expect(withdrawTransition("OPEN", false).ok).toBe(false);
+    expect(withdrawTransition("REJECTED", false).ok).toBe(false);
+  });
+
+  it("cannot withdraw an APPROVED, LABOR_APPROVED or LOCKED week", () => {
+    for (const s of ["APPROVED", "LABOR_APPROVED", "LOCKED"] as const) {
+      expect(withdrawTransition(s, false).ok).toBe(false);
+    }
+  });
+
+  it("every status yields a decision — no undefined fallthrough", () => {
+    for (const s of ALL) {
+      for (const signed of [true, false]) {
+        expect(typeof withdrawTransition(s, signed).ok).toBe("boolean");
+      }
+    }
   });
 });
