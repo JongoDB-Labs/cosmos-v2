@@ -99,52 +99,12 @@ export async function applyTimesheetTransition(params: {
   });
 }
 
-/** Is `actorUserId` the direct manager of `subjectUserId` in this org? */
-export async function isManagerOf(
-  orgId: string,
-  actorUserId: string,
-  subjectUserId: string,
-): Promise<boolean> {
-  try {
-    const subject = await prisma.employee.findFirst({
-      where: { orgId, userId: subjectUserId },
-      select: { manager: { select: { userId: true, orgId: true } } },
-    });
-    return (
-      subject?.manager?.userId === actorUserId &&
-      subject?.manager?.orgId === orgId
-    );
-  } catch {
-    // Fail CLOSED: an unresolvable relationship must not confer authority.
-    return false;
-  }
-}
-
 /**
- * Does this person have a supervisor at all? Drives the self-approval rule.
+ * Is `actorUserId` a supervisor of `subjectUserId` in this org?
  *
- * A self-referential employee record names NO supervisor. Counting it as one
- * deadlocks the sheet outright: `approvalAuthority` refuses self-approval
- * whenever a manager exists, so the worker could neither sign their own week nor
- * be covered by anyone else's authority, and nothing in the schema prevents a
- * record from pointing at itself. Kept in step with `routeFor`, which drops a
- * self-manager for the same reason — the two must agree or a sheet is routed to
- * someone the authority check will not accept.
+ * Thin re-exports of the org-chart module: supervision is a GRAPH now (several
+ * supervisors per person), and every consumer must ask the same code or the
+ * chart, the approval check and the time scope drift apart. The names are kept
+ * so the approval route reads the same as before.
  */
-export async function hasManager(
-  orgId: string,
-  subjectUserId: string,
-): Promise<boolean> {
-  try {
-    const employee = await prisma.employee.findFirst({
-      where: { orgId, userId: subjectUserId },
-      select: { id: true, managerId: true },
-    });
-    if (!employee?.managerId) return false;
-    return employee.managerId !== employee.id;
-  } catch {
-    // Fail SAFE toward the stricter rule: assume a supervisor exists, which
-    // refuses self-approval rather than granting it on a lookup failure.
-    return true;
-  }
-}
+export { isSupervisorOf as isManagerOf, hasSupervisor as hasManager } from "@/lib/org/supervisors";

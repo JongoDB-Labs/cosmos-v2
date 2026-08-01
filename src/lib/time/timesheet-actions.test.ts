@@ -21,7 +21,10 @@ const { prisma } = vi.hoisted(() => {
 
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
-import { applyTimesheetTransition, hasManager } from "./timesheet-actions";
+// hasManager/isManagerOf are now thin re-exports of lib/org/supervisors, and
+// are tested there against the supervisor GRAPH — re-testing them here would
+// pin a mock of the wrong table.
+import { applyTimesheetTransition } from "./timesheet-actions";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
 const SHEET = "22222222-2222-2222-2222-222222222222";
@@ -128,33 +131,6 @@ describe("applyTimesheetTransition — the routed approver", () => {
     });
 
     expect(sheetData().approverIds).toEqual([]);
-  });
-});
-
-describe("hasManager", () => {
-  it("is true for a normal supervisor", async () => {
-    prisma.employee.findFirst.mockResolvedValue({ id: "emp-1", managerId: "emp-2" });
-    await expect(hasManager(ORG, ACTOR)).resolves.toBe(true);
-  });
-
-  it("is false when no supervisor is set", async () => {
-    prisma.employee.findFirst.mockResolvedValue({ id: "emp-1", managerId: null });
-    await expect(hasManager(ORG, ACTOR)).resolves.toBe(false);
-  });
-
-  it("is FALSE for a self-referential record — that names no supervisor", async () => {
-    // Counting it as one deadlocks the sheet: approvalAuthority refuses
-    // self-approval whenever a manager exists, so the worker could neither sign
-    // their own week nor be covered by anyone else's authority.
-    prisma.employee.findFirst.mockResolvedValue({ id: "emp-1", managerId: "emp-1" });
-    await expect(hasManager(ORG, ACTOR)).resolves.toBe(false);
-  });
-
-  it("fails SAFE toward the stricter rule when the lookup throws", async () => {
-    // Assume a supervisor exists, which refuses self-approval rather than
-    // granting it on a database error.
-    prisma.employee.findFirst.mockRejectedValue(new Error("db down"));
-    await expect(hasManager(ORG, ACTOR)).resolves.toBe(true);
   });
 });
 

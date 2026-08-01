@@ -107,7 +107,7 @@ function submitHint(route: RoutedTo | null, noHours: boolean): string | undefine
   if (noHours) return "Log some time first";
   if (!route) return undefined;
   if (route.reason === "none") {
-    return "Nobody is set up to approve your time yet. You can still submit, but ask an admin to set your supervisor.";
+    return "You have no supervisor set, so this week would reach nobody. You can still submit it, but ask your supervisor to add you first.";
   }
   if (route.approverNames.length > 0) {
     return `Goes to ${route.approverNames.join(", ")} for approval.`;
@@ -140,7 +140,7 @@ function submissionMessage(routedTo: RoutedTo | undefined): string {
     return "Week submitted. Your organisation's approvers have been notified.";
   }
   if (routedTo?.reason === "none") {
-    return "Week submitted, but nobody is set up to approve it yet — ask an admin to set your supervisor.";
+    return "Week submitted, but you have no supervisor, so nobody was asked to approve it — ask your supervisor to add you.";
   }
   return "Week submitted for approval.";
 }
@@ -989,10 +989,9 @@ function WeekView({
         myRoute?.reason === "none" &&
         timesheet?.status !== "APPROVED" && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-            <span className="font-medium">No approver set up.</span> Your
-            employee record has no supervisor, and nobody else in this
-            organisation can approve time. You can still submit, but the week
-            will sit unapproved until an admin sets one.
+            <span className="font-medium">You have no supervisor set.</span> Ask
+            your supervisor to add you under Finance → Payroll. Until they do,
+            a submitted week reaches nobody and will sit unapproved.
           </div>
         )}
 

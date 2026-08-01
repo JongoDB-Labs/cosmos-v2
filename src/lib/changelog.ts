@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.256.0",
+    date: "2026-08-01",
+    title: "More than one supervisor, and only people who can actually approve",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An employee can now have several supervisors — a deputy covering leave, or a second lead on another programme. Every one of them is notified when a week is submitted, so a single approver being away no longer stalls a timesheet.",
+      },
+      {
+        kind: "improvement",
+        text: "Only people who can actually approve time are offered as supervisors. Naming someone without that permission used to be possible, and produced a week that was routed to them and then refused when they tried to sign it.",
+      },
+      {
+        kind: "improvement",
+        text: "Supervisors are still set by someone with permission to manage people or payroll — never by the person being supervised — and every change is written to the audit log. Whoever is named is notified that they now approve that person's time.",
+      },
+      {
+        kind: "improvement",
+        text: "If you have no supervisor, the time-tracking page now says so plainly and tells you to ask your supervisor to add you, rather than letting you submit a week that reaches nobody.",
+      },
+      {
+        kind: "fix",
+        text: "Setting a supervisor no longer requires finance access. An HR or people admin can now run the org chart without also being able to see pay rates.",
+      },
+    ],
+  },
+  {
     version: "2.255.0",
     date: "2026-08-01",
     title: "Submitted timesheets now go to someone",

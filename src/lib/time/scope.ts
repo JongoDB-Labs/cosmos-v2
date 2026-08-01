@@ -18,9 +18,10 @@ import { canReadAllTime } from "./visibility";
  * widening belongs here, in the route's scope computation.
  *
  * ── Direct reports only ─────────────────────────────────────────────────────
- * `managerId` is a self-referential FK, so walking the chain needs a cycle
- * guard and a depth cap. Skip-level visibility is a policy question nobody has
- * asked for; a manager two levels up who genuinely needs it gets TIME_READ_ALL.
+ * One hop down the chart, deliberately. Skip-level visibility is a policy
+ * question nobody has asked for; a manager two levels up who genuinely needs it
+ * gets TIME_READ_ALL. Since an employee may have SEVERAL supervisors, "my
+ * reports" is every employee with an edge to me — not a single-parent walk.
  *
  * Supervisors still do not see RATES — that stays `canSeeRate` (own row, or
  * FINANCE_READ). Confirming someone's hours does not require seeing their pay.
@@ -31,15 +32,22 @@ export async function readableTimeUserIds(
   if (canReadAllTime(ctx)) return null;
 
   try {
-    // One query: the actor's own employee row (if any) OR any employee whose
-    // manager is the actor. `manager` is scoped to the org too — the FK alone
-    // does not constrain a manager to the same tenant.
+    // One query: the actor's own employee row (if any) OR any employee one of
+    // whose supervisors is the actor. Both sides are scoped to the org — the
+    // FKs alone do not constrain a row to the same tenant.
     const rows = await prisma.employee.findMany({
       where: {
         orgId: ctx.orgId,
         OR: [
           { userId: ctx.userId },
-          { manager: { orgId: ctx.orgId, userId: ctx.userId } },
+          {
+            supervisors: {
+              some: {
+                orgId: ctx.orgId,
+                supervisor: { orgId: ctx.orgId, userId: ctx.userId },
+              },
+            },
+          },
         ],
       },
       select: { userId: true },

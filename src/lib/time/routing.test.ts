@@ -8,17 +8,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { prisma } = vi.hoisted(() => ({
   prisma: {
     orgMember: { findMany: vi.fn() },
-    employee: { findFirst: vi.fn() },
+    employeeSupervisor: { findMany: vi.fn() },
   },
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
-import {
-  routeFor,
-  approversInOrg,
-  managerUserIdOf,
-  resolveApprovalRoute,
-} from "./routing";
+import { routeFor, approversInOrg, resolveApprovalRoute } from "./routing";
 import { Permission, maskToDb } from "@/lib/rbac/permissions";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
@@ -35,7 +30,7 @@ describe("routeFor", () => {
     expect(
       routeFor({
         subjectUserId: WORKER,
-        managerUserId: BOSS,
+        supervisorUserIds: [BOSS],
         approverUserIds: [ADMIN_A, ADMIN_B],
       }),
     ).toEqual({ approverId: BOSS, notify: [BOSS], reason: "manager" });
@@ -47,7 +42,7 @@ describe("routeFor", () => {
     // just one voice in a broadcast.
     const route = routeFor({
       subjectUserId: WORKER,
-      managerUserId: BOSS,
+      supervisorUserIds: [BOSS],
       approverUserIds: [ADMIN_A, ADMIN_B],
     });
     expect(route.notify).toEqual([BOSS]);
@@ -57,7 +52,7 @@ describe("routeFor", () => {
   it("falls back to the approver pool when there is no supervisor", () => {
     const route = routeFor({
       subjectUserId: WORKER,
-      managerUserId: null,
+      supervisorUserIds: [],
       approverUserIds: [ADMIN_A, ADMIN_B],
     });
     expect(route.reason).toBe("admin_pool");
@@ -72,7 +67,7 @@ describe("routeFor", () => {
     // week nor be covered by anyone else's authority.
     const route = routeFor({
       subjectUserId: WORKER,
-      managerUserId: WORKER,
+      supervisorUserIds: [WORKER],
       approverUserIds: [ADMIN_A],
     });
     expect(route.reason).toBe("admin_pool");
@@ -83,7 +78,7 @@ describe("routeFor", () => {
   it("never notifies the worker about their own submission", () => {
     const route = routeFor({
       subjectUserId: ADMIN_A,
-      managerUserId: null,
+      supervisorUserIds: [],
       approverUserIds: [ADMIN_A, ADMIN_B],
     });
     expect(route.notify).toEqual([ADMIN_B]);
@@ -95,16 +90,40 @@ describe("routeFor", () => {
     // was asked.
     const route = routeFor({
       subjectUserId: ADMIN_A,
-      managerUserId: null,
+      supervisorUserIds: [],
       approverUserIds: [ADMIN_A],
     });
     expect(route).toEqual({ approverId: null, notify: [], reason: "none" });
   });
 
+  it("notifies EVERY supervisor, and names none of them", () => {
+    // Picking one silently would leave a week waiting on somebody who may be on
+    // leave — the exact situation multiple supervisors exist to cover. And with
+    // several there is no "the" approver, so approverId stays null rather than
+    // misreporting the chart.
+    const route = routeFor({
+      subjectUserId: WORKER,
+      supervisorUserIds: [BOSS, ADMIN_B],
+      approverUserIds: [ADMIN_A],
+    });
+    expect(route.reason).toBe("manager");
+    expect(route.notify).toEqual([BOSS, ADMIN_B]);
+    expect(route.approverId).toBeNull();
+  });
+
+  it("drops the worker from their OWN supervisor list", () => {
+    const route = routeFor({
+      subjectUserId: WORKER,
+      supervisorUserIds: [WORKER, BOSS],
+      approverUserIds: [ADMIN_A],
+    });
+    expect(route.notify).toEqual([BOSS]);
+  });
+
   it("deduplicates the pool", () => {
     const route = routeFor({
       subjectUserId: WORKER,
-      managerUserId: null,
+      supervisorUserIds: [],
       approverUserIds: [ADMIN_A, ADMIN_A, ADMIN_B],
     });
     expect(route.notify).toHaveLength(2);
@@ -157,40 +176,11 @@ describe("approversInOrg", () => {
   });
 });
 
-describe("managerUserIdOf", () => {
-  it("returns the supervisor's user id", async () => {
-    prisma.employee.findFirst.mockResolvedValue({
-      manager: { userId: BOSS, orgId: ORG },
-    });
-    await expect(managerUserIdOf(ORG, WORKER)).resolves.toBe(BOSS);
-  });
-
-  it("returns null when the employee has no manager", async () => {
-    prisma.employee.findFirst.mockResolvedValue({ manager: null });
-    await expect(managerUserIdOf(ORG, WORKER)).resolves.toBeNull();
-  });
-
-  it("returns null when there is no employee record at all", async () => {
-    prisma.employee.findFirst.mockResolvedValue(null);
-    await expect(managerUserIdOf(ORG, WORKER)).resolves.toBeNull();
-  });
-
-  it("refuses a manager belonging to another org", async () => {
-    // Employee.managerId is a bare FK with no org constraint, so a cross-tenant
-    // pointer is representable. Routing to it would leak one org's timesheet
-    // into another's approval queue.
-    prisma.employee.findFirst.mockResolvedValue({
-      manager: { userId: BOSS, orgId: OTHER_ORG },
-    });
-    await expect(managerUserIdOf(ORG, WORKER)).resolves.toBeNull();
-  });
-});
-
 describe("resolveApprovalRoute", () => {
   it("combines the org chart and the approver pool", async () => {
-    prisma.employee.findFirst.mockResolvedValue({
-      manager: { userId: BOSS, orgId: ORG },
-    });
+    prisma.employeeSupervisor.findMany.mockResolvedValue([
+      { supervisor: { userId: BOSS, orgId: ORG } },
+    ]);
     prisma.orgMember.findMany.mockResolvedValue([
       { userId: ADMIN_A, role: "ADMIN", permissions: null, workRoles: [] },
     ]);
@@ -204,7 +194,7 @@ describe("resolveApprovalRoute", () => {
 
   it("falls back to the pool when the worker has no employee record", async () => {
     // The user's own org today: zero Employee rows, so nobody has a supervisor.
-    prisma.employee.findFirst.mockResolvedValue(null);
+    prisma.employeeSupervisor.findMany.mockResolvedValue([]);
     prisma.orgMember.findMany.mockResolvedValue([
       { userId: ADMIN_A, role: "OWNER", permissions: null, workRoles: [] },
     ]);

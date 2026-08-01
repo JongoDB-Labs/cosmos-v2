@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { resolvePermissions } from "@/lib/rbac/check";
+import { supervisorUserIdsOf } from "@/lib/org/supervisors";
 import { Permission, hasPermission, maskFromDb } from "@/lib/rbac/permissions";
 
 /**
@@ -45,28 +46,33 @@ export interface ApprovalRoute {
 /**
  * The routing decision, as a pure function.
  *
- * `managerUserId` is dropped when it is the subject: an employee record whose
- * manager points at itself names no supervisor, and treating it as one
- * deadlocks the sheet outright — `approvalAuthority` refuses self-approval
- * whenever a manager exists, so a self-managed worker could neither approve
- * their own sheet nor have anyone else's authority apply.
+ * The subject is dropped from their own supervisor list: an employee record
+ * that supervises itself names no supervisor, and treating it as one deadlocks
+ * the sheet outright — `approvalAuthority` refuses self-approval whenever a
+ * supervisor exists, so a self-supervised worker could neither approve their
+ * own sheet nor have anyone else's authority apply.
+ *
+ * ALL supervisors are notified, not the "first" one. With several, picking one
+ * silently would leave a week waiting on somebody who may be on leave —
+ * precisely the situation multiple supervisors exist to cover.
  */
 export function routeFor(params: {
   subjectUserId: string;
-  managerUserId: string | null;
+  supervisorUserIds: string[];
   /** Everyone in the org who may approve, including possibly the subject. */
   approverUserIds: string[];
 }): ApprovalRoute {
   const { subjectUserId, approverUserIds } = params;
-  const managerUserId =
-    params.managerUserId && params.managerUserId !== subjectUserId
-      ? params.managerUserId
-      : null;
+  const supervisors = [...new Set(params.supervisorUserIds)].filter(
+    (id) => id !== subjectUserId,
+  );
 
-  if (managerUserId) {
+  if (supervisors.length > 0) {
     return {
-      approverId: managerUserId,
-      notify: [managerUserId],
+      // Named only when exactly one, and used for wording alone. With several
+      // there is no "the" approver, and inventing one would misreport the chart.
+      approverId: supervisors.length === 1 ? supervisors[0] : null,
+      notify: supervisors,
       reason: "manager",
     };
   }
@@ -115,29 +121,14 @@ export async function approversInOrg(orgId: string): Promise<string[]> {
     .map((m) => m.userId);
 }
 
-/** The subject's supervisor, as a user id — null when the org chart names none. */
-export async function managerUserIdOf(
-  orgId: string,
-  subjectUserId: string,
-): Promise<string | null> {
-  const employee = await prisma.employee.findFirst({
-    where: { orgId, userId: subjectUserId },
-    select: { manager: { select: { userId: true, orgId: true } } },
-  });
-  // The org guard matters: a manager record belonging to another tenant must
-  // never be routed to, and Employee.managerId is a bare FK with no org check.
-  if (!employee?.manager || employee.manager.orgId !== orgId) return null;
-  return employee.manager.userId;
-}
-
 /** Resolve the full route for a submission. */
 export async function resolveApprovalRoute(
   orgId: string,
   subjectUserId: string,
 ): Promise<ApprovalRoute> {
-  const [managerUserId, approverUserIds] = await Promise.all([
-    managerUserIdOf(orgId, subjectUserId),
+  const [supervisorUserIds, approverUserIds] = await Promise.all([
+    supervisorUserIdsOf(orgId, subjectUserId),
     approversInOrg(orgId),
   ]);
-  return routeFor({ subjectUserId, managerUserId, approverUserIds });
+  return routeFor({ subjectUserId, supervisorUserIds, approverUserIds });
 }
