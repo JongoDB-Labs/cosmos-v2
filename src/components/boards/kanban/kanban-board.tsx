@@ -47,6 +47,7 @@ import {
   presentStoryPoints,
   matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
+import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
 import {
   teamsByUser,
   teamLaneFor,
@@ -460,6 +461,7 @@ function KanbanBoardInner({
   const blockedIds = useMemo(() => blockedItemIds(links), [links]);
   const milestoneMap = useMemo(() => milestoneItemIds(milestones), [milestones]);
   const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
+  const showEstimate = useMemo(() => hasAnyEstimate(items), [items]);
 
   const filteredItems = items.filter((item) => {
     if (
@@ -509,6 +511,7 @@ function KanbanBoardInner({
     if (!matchesMilestone(item.id, filters.milestoneId, milestoneMap)) return false;
     if (!matchesBlocked(item.id, filters.blocked, blockedIds)) return false;
     if (!matchesStoryPoints(item.storyPoints, filters.storyPoints)) return false;
+    if (!matchesEstimateBand(item.originalEstimate, filters.estimate)) return false;
 
     if (
       !matchesCustomFieldFilters(
@@ -974,6 +977,7 @@ function KanbanBoardInner({
         boardColumns={columns}
         milestoneOptions={milestones}
         presentPointValues={presentPointValues}
+        showEstimate={showEstimate}
         orgId={orgId}
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}

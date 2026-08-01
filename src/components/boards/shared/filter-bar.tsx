@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DUE_PRESETS, type DuePreset } from "@/lib/work-items/metadata-filters";
+import { ESTIMATE_BANDS, type EstimateBand } from "@/lib/work-items/estimate-filter";
 import {
   BLOCKED_OPTIONS,
   NO_ESTIMATE,
@@ -85,6 +86,8 @@ export interface BoardFilters {
   blocked: BlockedFilter;
   /** Story-point values, plus NO_ESTIMATE for unestimated work. */
   storyPoints: string[];
+  /** Time-tracking estimate, as a size band rather than a comparator. */
+  estimate: EstimateBand;
   teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**
@@ -110,6 +113,7 @@ export const emptyFilters: BoardFilters = {
   milestoneId: null,
   blocked: "any",
   storyPoints: [],
+  estimate: "any",
   teamId: null,
   swimlaneBy: "none",
   customFields: {},
@@ -140,6 +144,8 @@ interface FilterBarProps {
   milestoneOptions?: { id: string; title: string }[];
   /** Story-point values present on this board. Omitted ⇒ no control. */
   presentPointValues?: string[];
+  /** Whether ANY item carries an estimate; the control hides otherwise. */
+  showEstimate?: boolean;
   /**
    * Org id, used to load the org's ACTUAL work-item types so the Type filter
    * lists custom types (e.g. "Feature") alongside the built-ins instead of a
@@ -196,6 +202,7 @@ export function bareTypeKey(key: string | null | undefined): string {
 const VALID_SWIMLANES = new Set<string>(SWIMLANE_OPTIONS.map((o) => o.value));
 const VALID_DUE = new Set<string>(DUE_PRESETS.map((o) => o.value));
 const VALID_BLOCKED = new Set<string>(BLOCKED_OPTIONS.map((o) => o.value));
+const VALID_EST = new Set<string>(ESTIMATE_BANDS.map((o) => o.value));
 
 /**
  * Serialize active filters into a URLSearchParams query string. Only non-empty
@@ -217,6 +224,7 @@ export function serializeFilters(filters: BoardFilters): string {
   if (filters.milestoneId) params.set("milestone", filters.milestoneId);
   if (filters.blocked !== "any") params.set("blocked", filters.blocked);
   if (filters.storyPoints.length > 0) params.set("points", filters.storyPoints.join(","));
+  if (filters.estimate !== "any") params.set("est", filters.estimate);
   if (filters.teamId) params.set("team", filters.teamId);
   if (filters.intervalId) params.set("interval", filters.intervalId);
   if (filters.swimlaneBy && filters.swimlaneBy !== "none")
@@ -266,6 +274,9 @@ export function parseFilters(
       ? (params.get("blocked") as BlockedFilter)
       : "any",
     storyPoints: (params.get("points") || "").split(",").filter(Boolean),
+    estimate: VALID_EST.has(params.get("est") || "")
+      ? (params.get("est") as EstimateBand)
+      : "any",
     teamId: params.get("team") || null,
     intervalId: params.get("interval") || null,
     swimlaneBy: VALID_SWIMLANES.has(lane) ? (lane as SwimlaneKey) : "none",
@@ -380,6 +391,7 @@ export function FilterBar({
   boardColumns = [],
   milestoneOptions = [],
   presentPointValues = [],
+  showEstimate = false,
   orgId,
   showSwimlane = false,
   customFields = [],
@@ -446,6 +458,7 @@ export function FilterBar({
     filters.milestoneId !== null ||
     filters.blocked !== "any" ||
     filters.storyPoints.length > 0 ||
+    filters.estimate !== "any" ||
     filters.teamId !== null ||
     filters.intervalId !== null ||
     filters.swimlaneBy !== "none" ||
@@ -470,6 +483,7 @@ export function FilterBar({
     (filters.milestoneId !== null ? 1 : 0) +
     (filters.blocked !== "any" ? 1 : 0) +
     (filters.storyPoints.length > 0 ? 1 : 0) +
+    (filters.estimate !== "any" ? 1 : 0) +
     (filters.teamId !== null ? 1 : 0) +
     (filters.intervalId !== null ? 1 : 0) +
     (hasActiveCustom ? 1 : 0);
@@ -735,6 +749,33 @@ export function FilterBar({
               </SelectContent>
             </Select>
           </div>
+
+          {showEstimate && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground mr-1">Estimate:</span>
+              <Select
+                items={Object.fromEntries(ESTIMATE_BANDS.map((o) => [o.value, o.label]))}
+                value={filters.estimate}
+                onValueChange={(v) =>
+                  onFilterChange({
+                    ...filters,
+                    estimate: VALID_EST.has(v as string) ? (v as EstimateBand) : "any",
+                  })
+                }
+              >
+                <SelectTrigger size="sm" aria-label="Filter by estimate" className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ESTIMATE_BANDS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {presentPointValues.length > 0 && (
             <MultiSelectMenu

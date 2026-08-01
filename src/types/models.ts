@@ -71,6 +71,10 @@ export interface WorkItem {
   parentId: string | null;
   ticketNumber: number;
   storyPoints: number | null;
+  /** Time tracking, in SECONDS (Jira's worklog unit). */
+  originalEstimate?: number | null;
+  remainingEstimate?: number | null;
+  timeSpent?: number | null;
   sortOrder: number;
   dueDate: string | null;
   startDate: string | null;

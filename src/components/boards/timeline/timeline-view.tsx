@@ -50,6 +50,7 @@ import {
   presentStoryPoints,
   matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
+import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
@@ -261,6 +262,7 @@ export function matchesFilters(
   if (!matchesMilestone(item.id, f.milestoneId, rel.milestones ?? new Map())) return false;
   if (!matchesBlocked(item.id, f.blocked, rel.blocked ?? new Set())) return false;
   if (!matchesStoryPoints(item.storyPoints, f.storyPoints)) return false;
+  if (!matchesEstimateBand(item.originalEstimate, f.estimate)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
 }
@@ -437,6 +439,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   );
   const milestoneMap = useMemo(() => milestoneItemIds(milestoneRows), [milestoneRows]);
   const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
+  const showEstimate = useMemo(() => hasAnyEstimate(items), [items]);
   // Analysis "lenses" (FR gantt-enh) — a small set of overlay toggles the user
   // flips to read the schedule a particular way, replacing the lone Critical
   // path button: critical chain, planned-vs-actual baselines, enabler emphasis.
@@ -1283,6 +1286,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           boardColumns={columns}
           milestoneOptions={milestoneRows}
           presentPointValues={presentPointValues}
+          showEstimate={showEstimate}
           orgId={orgId}
           customFields={projectCustomFields}
           presentTypeKeys={presentTypeKeys}

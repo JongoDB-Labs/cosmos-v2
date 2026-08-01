@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.253.2",
+    date: "2026-08-01",
+    title: "Filter a board by estimate",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Boards can be filtered by time estimate — under 4h, 4–8h, 1–3 days, over 3 days, or not yet estimated. The bands are working days rather than round numbers, and the control only appears when something on the board is estimated.",
+      },
+    ],
+  },
+  {
     version: "2.253.1",
     date: "2026-08-01",
     title: "Contract burn and payroll agree on the same hours",
