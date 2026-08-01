@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.252.3",
+    date: "2026-07-31",
+    title: "An issue's right-click menu says where it takes you",
+    highlights: [
+      {
+        kind: "fix",
+        text: "“Open in board” on an issue sounded like it would open the board that issue sits on, but it opens your default board for that project — an issue lives in a column, so it can appear on several boards at once. The entry now reads “Open project board”. To share a specific issue, use Copy link, which addresses the issue itself.",
+      },
+    ],
+  },
+  {
     version: "2.252.2",
     date: "2026-08-01",
     title: "Filter a board by milestone, blockers and points",

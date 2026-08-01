@@ -822,7 +822,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
   // Per-row actions — surfaced by DataTable as a ⋯ column AND on right-click.
   const rowActions = useCallback(
     (r: IssueRow): ActionMenuGroup[] => {
-      const boardHref = `/${orgSlug}/projects/${r.project.key}`;
+      // The PROJECT, which redirects to whichever board you land on by default
+      // — your per-project preference, else the project's. Deliberately NOT
+      // "the item's board": a work item carries a `columnKey`, not a board, so
+      // it appears on every board of the project with a matching column. There
+      // is no single board that holds this row, which is why the menu entry
+      // names the project instead of promising one.
+      const projectBoardHref = `/${orgSlug}/projects/${r.project.key}`;
       const itemBase = `/api/v1/orgs/${orgId}/projects/${r.project.id}/work-items/${r.id}`;
       const crud = [
         ...(canCreateItem
@@ -961,15 +967,19 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
         {
           items: [
             { label: "View details", icon: Eye, onClick: () => setDetailRow(r) },
-            { label: "Open in board", icon: ExternalLink, onClick: () => router.push(boardHref) },
+            {
+              label: "Open project board",
+              icon: ExternalLink,
+              onClick: () => router.push(projectBoardHref),
+            },
             {
               label: "Copy link",
               icon: Link2,
               onClick: () => {
-                // The ISSUE, not the board it sits on. This copied `boardHref`
-                // — so pasting it dropped the recipient on the project with no
-                // indication which ticket was meant, which is the opposite of
-                // what "copy link" on a specific row promises.
+                // The ISSUE, not the project it belongs to. This used to copy
+                // the project href — so pasting it dropped the recipient on the
+                // project with no indication which ticket was meant, the
+                // opposite of what "copy link" on a specific row promises.
                 //
                 // `entityUrl` is the shared builder the mention chips, home
                 // widgets and dependency map already use, so every deep link in

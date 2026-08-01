@@ -85,3 +85,37 @@ describe("Copy link call site", () => {
     expect(copyLinkHandler()).not.toContain("Board link copied");
   });
 });
+
+/**
+ * The sibling menu entry, which sits directly above Copy link and used to be
+ * confused with it.
+ *
+ * It navigates to the PROJECT, which redirects to whichever board you land on
+ * by default. It cannot open "the board this row is on", because a work item
+ * carries a `columnKey` and not a board — the same item appears on every board
+ * of the project with a matching column. So the label has to name the project,
+ * or it promises something the data model cannot deliver.
+ */
+describe("the project-board menu entry names what it opens", () => {
+  const SRC = "src/components/work-items/issues-view.tsx";
+  const src = readFileSync(SRC, "utf8");
+
+  it("does not claim to open the board holding this item", () => {
+    // "Open in board" reads as "the board this issue is on", which does not
+    // exist. Guarded as a substring so a re-word back to it fails here.
+    expect(src).not.toContain('label: "Open in board"');
+  });
+
+  it("offers an entry that names the project board", () => {
+    expect(src).toContain('label: "Open project board"');
+  });
+
+  it("navigates to the project, letting the default-board redirect choose", () => {
+    const i = src.indexOf('label: "Open project board"');
+    expect(i).toBeGreaterThan(-1); // not vacuous: the entry must exist
+    const entry = src.slice(i, i + 220);
+    expect(entry).toContain("projectBoardHref");
+    // Not a hardcoded /boards/<id>: the redirect honours the user's preference.
+    expect(entry).not.toMatch(/\/boards\//);
+  });
+});
