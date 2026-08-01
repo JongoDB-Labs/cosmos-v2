@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import {
   submitTransition,
+  withdrawTransition,
   approveTransition,
   rejectTransition,
   approvalAuthority,
@@ -21,7 +22,7 @@ import { logAudit } from "@/lib/audit";
 type RouteParams = { params: Promise<{ orgId: string; timesheetId: string }> };
 
 const actionSchema = z.object({
-  action: z.enum(["submit", "approve", "reject"]),
+  action: z.enum(["submit", "withdraw", "approve", "reject"]),
   lane: z.enum(["labor", "cost"]).optional(),
   reason: z.string().trim().max(500).optional(),
 });
@@ -75,6 +76,28 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         actorId: ctx.userId,
       });
       await audit(request, ctx.userId, orgId, timesheetId, "timesheet.submitted");
+      return success(updated);
+    }
+
+    // ── Withdraw: also the worker's own action, and only theirs ─────────────
+    if (body.action === "withdraw") {
+      if (!isOwner) {
+        return bad("You can only withdraw your own timesheet", 403);
+      }
+      const t = withdrawTransition(
+        sheet.status,
+        // Any signed lane blocks it, regardless of status.
+        Boolean(sheet.laborApprovedById || sheet.costApprovedById),
+      );
+      if (!t.ok) return bad(t.reason, 409);
+
+      const updated = await applyTimesheetTransition({
+        orgId,
+        timesheetId,
+        next: t.next,
+        actorId: ctx.userId,
+      });
+      await audit(request, ctx.userId, orgId, timesheetId, "timesheet.withdrawn");
       return success(updated);
     }
 

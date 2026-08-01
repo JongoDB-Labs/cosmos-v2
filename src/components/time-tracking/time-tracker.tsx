@@ -296,7 +296,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   }, [orgId, weekStart, shownUserId, refreshKey]);
 
   const runTimesheetAction = async (
-    action: "submit" | "approve" | "reject",
+    action: "submit" | "withdraw" | "approve" | "reject",
     reason?: string,
   ) => {
     if (!timesheet) return;
@@ -721,7 +721,7 @@ function WeekView({
   isOwnTimesheet: boolean;
   actionPending: boolean;
   onTimesheetAction: (
-    action: "submit" | "approve" | "reject",
+    action: "submit" | "withdraw" | "approve" | "reject",
     reason?: string,
   ) => void;
 }) {
@@ -769,6 +769,21 @@ function WeekView({
                 Submit week
               </Button>
             )}
+
+          {/* Taking your OWN submission back. Without this the only route is to
+              ask an approver to Return it, which stamps a rejection reason and
+              reads as "your supervisor bounced this" rather than "I withdrew
+              it". Gone once an approver has signed — see withdrawTransition. */}
+          {timesheet && isOwnTimesheet && timesheet.status === "SUBMITTED" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={actionPending}
+              onClick={() => onTimesheetAction("withdraw")}
+            >
+              Withdraw
+            </Button>
+          )}
 
           {/* Approving is the SUPERVISOR's action on someone else's week. The
               server is authoritative about who may — this only decides what is

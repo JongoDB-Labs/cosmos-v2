@@ -89,6 +89,42 @@ export function approveTransition(
   return { ok: true, next: "APPROVED" };
 }
 
+/**
+ * Withdrawing a submission — the worker taking their OWN week back.
+ *
+ * Without this, someone who submitted the wrong week or forgot an entry has no
+ * route back: their only option is to ask an approver to REJECT it, which
+ * stamps a rejection reason and reads to everyone as "your supervisor bounced
+ * this" rather than "I withdrew it". Two different events should not share one
+ * record.
+ *
+ * Refused the moment an approver has signed ANY lane. Status alone already
+ * excludes that today (approving moves the sheet off SUBMITTED), but the stamp
+ * is checked too: a future lane configuration could leave a signature on a
+ * still-SUBMITTED sheet, and silently pulling back hours an approver has
+ * already accepted is precisely what an audit trail exists to prevent.
+ */
+export function withdrawTransition(
+  current: TimesheetStatus,
+  anyApprovalSigned: boolean,
+): Transition {
+  if (anyApprovalSigned) {
+    return {
+      ok: false,
+      reason: "This timesheet has already been approved and cannot be withdrawn",
+    };
+  }
+  if (current === "SUBMITTED") return { ok: true, next: "OPEN" };
+  if (current === "OPEN" || current === "REJECTED") {
+    return { ok: false, reason: "This timesheet has not been submitted" };
+  }
+  if (current === "LOCKED") return { ok: false, reason: "This timesheet is locked" };
+  return {
+    ok: false,
+    reason: "This timesheet has already been approved and cannot be withdrawn",
+  };
+}
+
 /** Rejection sends the period back to the worker, from either approval state. */
 export function rejectTransition(current: TimesheetStatus): Transition {
   if (current === "SUBMITTED" || current === "LABOR_APPROVED") {
