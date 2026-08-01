@@ -1,5 +1,8 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import { sumMoney, roundMoney, moneyToNumber } from "@/lib/money";
+import { laborCostFor } from "@/lib/payroll/labor";
 
 /**
  * CLIN burn — attribute approved time + expenses to a CLIN and roll up actuals
@@ -22,6 +25,10 @@ export interface ClinBurn {
   percentConsumed: number | null; // burned / value
 }
 
+/** Float rounding, retained ONLY for PROJECTIONS — run rate, EAC and the
+ *  forecast line. Those are estimates, not recorded money. Every actual
+ *  (labour, expense, burned, the cumulative series) goes through lib/money so
+ *  it agrees with payroll to the cent. */
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function loadClinsWithBurn(
@@ -47,25 +54,40 @@ export async function loadClinsWithBurn(
     prisma.employee.findMany({ where: { orgId }, select: { userId: true, costRate: true } }),
   ]);
 
-  const rateByUser = new Map(employees.map((e) => [e.userId, Number(e.costRate)]));
+  // Decimals kept as Decimals. Converting to `number` here and multiplying in
+  // floating point is what made this figure disagree with payroll, which
+  // computes the SAME labour from the SAME hours via lib/money.
+  const rateByUser = new Map(employees.map((e) => [e.userId, e.costRate]));
 
-  const laborByClin = new Map<string, number>();
+  const laborByClin = new Map<string, Prisma.Decimal[]>();
   for (const t of timeEntries) {
     if (!t.clinId) continue;
-    const rate = t.rate != null ? Number(t.rate) : (rateByUser.get(t.userId) ?? 0);
-    laborByClin.set(t.clinId, (laborByClin.get(t.clinId) ?? 0) + t.hours * rate);
+    const rate = t.rate ?? rateByUser.get(t.userId) ?? new Prisma.Decimal(0);
+    // `laborCostFor` is the shared definition of "labour cost for these hours
+    // at this rate" — half-even to cents, per line, exactly as a pay run and an
+    // invoice line do it. Sharing the function is what keeps the two agreeing.
+    const line = laborCostFor(t.hours, rate);
+    const acc = laborByClin.get(t.clinId);
+    if (acc) acc.push(line);
+    else laborByClin.set(t.clinId, [line]);
   }
-  const expenseByClin = new Map<string, number>();
+  const expenseByClin = new Map<string, Prisma.Decimal[]>();
   for (const e of expenses) {
     if (!e.clinId) continue;
-    expenseByClin.set(e.clinId, (expenseByClin.get(e.clinId) ?? 0) + Number(e.amount));
+    const acc = expenseByClin.get(e.clinId);
+    if (acc) acc.push(e.amount);
+    else expenseByClin.set(e.clinId, [e.amount]);
   }
 
   return clins.map((c): ClinBurn => {
     const value = Number(c.value);
-    const laborCost = round2(laborByClin.get(c.id) ?? 0);
-    const expenseCost = round2(expenseByClin.get(c.id) ?? 0);
-    const burned = round2(laborCost + expenseCost);
+    const laborDec = roundMoney(sumMoney(laborByClin.get(c.id) ?? []));
+    const expenseDec = roundMoney(sumMoney(expenseByClin.get(c.id) ?? []));
+    // Number only at the boundary — ClinBurn is a DTO of plain numbers, but
+    // every arithmetic step above it stayed exact.
+    const laborCost = moneyToNumber(laborDec);
+    const expenseCost = moneyToNumber(expenseDec);
+    const burned = moneyToNumber(roundMoney(laborDec.plus(expenseDec)));
     return {
       id: c.id,
       code: c.code,
@@ -136,8 +158,10 @@ export async function loadClinBurnTimePhased(
     where: projectId ? { orgId, projectId } : { orgId },
     select: { id: true, value: true, fundedValue: true, popStart: true, popEnd: true },
   });
-  const ceiling = round2(clins.reduce((s, c) => s + Number(c.value), 0));
-  const funded = round2(clins.reduce((s, c) => s + Number(c.fundedValue), 0));
+  // Contract values, not estimates: summed in Decimal. `fundedValue` is what
+  // you are actually permitted to bill against, so it has to be exact.
+  const ceiling = moneyToNumber(roundMoney(sumMoney(clins.map((c) => c.value))));
+  const funded = moneyToNumber(roundMoney(sumMoney(clins.map((c) => c.fundedValue))));
   const base: ClinBurnTimePhased = {
     ceiling, funded, burnedToDate: 0, eac: 0, eacVsCeiling: round2(-ceiling),
     percentFunded: null, monthlyRunRate: 0, popStart: null, popEnd: null, series: [],
@@ -156,19 +180,25 @@ export async function loadClinBurnTimePhased(
     }),
     prisma.employee.findMany({ where: { orgId }, select: { userId: true, costRate: true } }),
   ]);
-  const rateByUser = new Map(employees.map((e) => [e.userId, Number(e.costRate)]));
+  const rateByUser = new Map(employees.map((e) => [e.userId, e.costRate]));
 
-  const actualByMonth = new Map<string, number>();
-  const note = (key: string, amt: number) => {
-    actualByMonth.set(key, (actualByMonth.get(key) ?? 0) + amt);
+  // Same rule as clinBurn and payroll: Decimal per line, half-even to cents.
+  // The monthly curve has to add up to the same total the CLIN roll-up shows.
+  const actualByMonth = new Map<string, Prisma.Decimal[]>();
+  const note = (key: string, amt: Prisma.Decimal) => {
+    const acc = actualByMonth.get(key);
+    if (acc) acc.push(amt);
+    else actualByMonth.set(key, [amt]);
   };
   for (const t of timeEntries) {
-    const rate = t.rate != null ? Number(t.rate) : (rateByUser.get(t.userId) ?? 0);
-    note(mKey(t.date), t.hours * rate);
+    const rate = t.rate ?? rateByUser.get(t.userId) ?? new Prisma.Decimal(0);
+    note(mKey(t.date), laborCostFor(t.hours, rate));
   }
-  for (const e of expenses) note(mKey(e.date), Number(e.amount));
+  for (const e of expenses) note(mKey(e.date), e.amount);
 
-  const burnedToDate = round2([...actualByMonth.values()].reduce((s, v) => s + v, 0));
+  const burnedToDate = moneyToNumber(
+    roundMoney(sumMoney([...actualByMonth.values()].flat())),
+  );
   const earliest = actualByMonth.size ? [...actualByMonth.keys()].sort()[0] : null;
 
   const starts = clins.map((c) => c.popStart).filter((d): d is Date => !!d);
@@ -189,10 +219,16 @@ export async function loadClinBurnTimePhased(
   const eac = round2(burnedToDate + runRate * monthsRemaining);
 
   const series: ClinBurnSeriesPoint[] = [];
-  let cum = 0;
+  // The cumulative line accumulates in Decimal and is only rendered as a
+  // number, so the last point equals burnedToDate exactly rather than drifting
+  // away from it month by month.
+  let cumDec = new Prisma.Decimal(0);
   for (let k = startKey, guard = 0; guard < 360; k = mAdd(k, 1), guard++) {
     const isPast = mDiff(k, nowKey) >= 0; // k ≤ now
-    if (isPast) cum = round2(cum + (actualByMonth.get(k) ?? 0));
+    if (isPast) {
+      cumDec = roundMoney(cumDec.plus(sumMoney(actualByMonth.get(k) ?? [])));
+    }
+    const cum = moneyToNumber(cumDec);
     series.push({
       month: k, label: mLabel(k),
       cumActual: isPast ? cum : null,
