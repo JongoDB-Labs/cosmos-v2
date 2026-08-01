@@ -58,6 +58,92 @@ export async function createEmployee(
   });
 }
 
+/**
+ * The cost rate a bulk-created employee starts on.
+ *
+ * `costRate` is NOT NULL, so a bulk create has to put SOMETHING there, and the
+ * only honest value is zero. Guessing a rate — an org average, the last one
+ * entered — would silently mis-state labor expense, CLIN burn and every posted
+ * pay run, and nothing downstream would flag it because the number looks
+ * plausible. A zero is obviously unset: `postPayRun` costs it to nothing and
+ * reports it, and the payroll table shows $0.00 in a column an admin reads.
+ */
+const UNSET_COST_RATE = new Prisma.Decimal(0);
+
+export type BulkEmployeeResult = {
+  /** User ids that gained an employee record on THIS call. */
+  createdUserIds: string[];
+  /** User ids that already had one. Re-running is a no-op over these. */
+  skippedUserIds: string[];
+};
+
+/**
+ * Give a batch of org members employee records in one go.
+ *
+ * Supervision, timesheet approval and labor costing all hang off `Employee`, so
+ * an org with members but no employee records has an inert approval chain and
+ * no way to fix it except adding people one at a time. This is the way out of
+ * that hole.
+ *
+ * Two properties matter and neither is incidental:
+ *
+ *   - **All-or-nothing on membership.** Every id must already be an OrgMember of
+ *     this org. A batch containing an outsider is rejected whole rather than
+ *     partly applied, because a caller cannot tell which half of a partial
+ *     application landed, and a stray employee record in the wrong tenant is
+ *     exactly the kind of thing nobody notices until payroll runs.
+ *   - **Idempotent by the DATABASE, not by a prior read.** `ON CONFLICT DO
+ *     NOTHING RETURNING` (`createManyAndReturn` + `skipDuplicates`) leans on the
+ *     `[orgId, userId]` unique index, so two admins clicking at once cannot
+ *     produce a duplicate — and the rows it returns are the ones this call
+ *     actually inserted, which is what the audit record needs. A read-then-write
+ *     would both race and mis-report.
+ */
+export async function createEmployeesForMembers(
+  orgId: string,
+  createdById: string,
+  userIds: string[],
+): Promise<BulkEmployeeResult> {
+  const wanted = [...new Set(userIds)];
+  if (wanted.length === 0) return { createdUserIds: [], skippedUserIds: [] };
+
+  const members = await prisma.orgMember.findMany({
+    where: { orgId, userId: { in: wanted } },
+    select: { userId: true },
+  });
+  const isMember = new Set(members.map((m) => m.userId));
+  const strangers = wanted.filter((id) => !isMember.has(id));
+  if (strangers.length > 0) {
+    // Same failure, same shape as the single-employee create above — one
+    // condition should not answer differently depending on which route reached
+    // it. The count is named because the caller sent a list and needs to know
+    // it was the list, not the org, that was wrong.
+    throw new NotFoundError(
+      strangers.length === 1
+        ? "One of those people is not a member of this org"
+        : `${strangers.length} of those people are not members of this org`,
+    );
+  }
+
+  const created = await prisma.employee.createManyAndReturn({
+    data: wanted.map((userId) => ({
+      orgId,
+      userId,
+      createdById,
+      costRate: UNSET_COST_RATE,
+    })),
+    skipDuplicates: true,
+    select: { userId: true },
+  });
+
+  const createdUserIds = created.map((e) => e.userId);
+  const madeNew = new Set(createdUserIds);
+  return {
+    createdUserIds,
+    skippedUserIds: wanted.filter((id) => !madeNew.has(id)),
+  };
+}
+
 export async function updateEmployee(
   orgId: string,
   employeeId: string,

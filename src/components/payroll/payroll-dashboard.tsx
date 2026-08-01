@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import { Eye } from "lucide-react";
+import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -192,6 +193,9 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
             Add employee
           </Button>
         </div>
+        {!employeesQ.isLoading && !membersQ.isLoading && availableMembers.length > 0 && (
+          <BulkAddEmployeesPrompt orgId={orgId} members={availableMembers} />
+        )}
         {employeesQ.isLoading ? (
           <Skeleton className="h-32 rounded-lg" />
         ) : (
@@ -278,6 +282,154 @@ function NewPayRunForm({ orgId }: { orgId: string }) {
       <Button size="sm" disabled={!valid || create.isPending} onClick={() => create.mutate()}>
         Create pay run
       </Button>
+    </div>
+  );
+}
+
+/**
+ * "These people have no employee record" — and one click to fix it.
+ *
+ * Everything about supervision, timesheet approval and labor costing hangs off
+ * an `Employee` row. An org that has never used payroll has none, so nobody can
+ * be given a supervisor and the approval chain never starts; the only cure was
+ * "Add employee", one person at a time, each demanding a cost rate before it
+ * would save. That is why production orgs sat at 26 members and zero employees.
+ *
+ * Everyone is pre-selected because onboarding the whole org is the normal case
+ * and the exceptions are few — but they are individually deselectable, because
+ * contractors and non-billable members exist and adding them is not free to
+ * undo.
+ *
+ * The zero cost rate is stated on the button's own line rather than buried: the
+ * server will not invent a rate (a plausible-looking wrong one corrupts labor
+ * expense and CLIN burn silently), so the person clicking has to know the rates
+ * arrive unset and are theirs to fill in.
+ */
+function BulkAddEmployeesPrompt({
+  orgId,
+  members,
+}: {
+  orgId: string;
+  members: Member[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  // Tracks EXCLUSIONS rather than selections so the default is "everyone", and
+  // so a stale id left behind after a successful add is harmless — the list it
+  // filters has already lost that person.
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+
+  const chosen = members.filter((m) => !excluded.has(m.userId));
+
+  const add = useOrgMutation<
+    { created: number; skipped: number },
+    Error,
+    void
+  >({
+    mutationFn: () =>
+      jsonFetch(`/api/v1/orgs/${orgId}/employees/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: chosen.map((m) => m.userId) }),
+      }),
+    invalidate: [["employees"]],
+    onSuccess: (res) => {
+      setExpanded(false);
+      toast.success(
+        res.created === 1
+          ? "1 employee record added. Set its cost rate before running payroll."
+          : `${res.created} employee records added. Set their cost rates before running payroll.`,
+      );
+    },
+    onError: (e) => notifyError(e, "Couldn't add the employee records."),
+  });
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-dashed bg-muted/30 p-4">
+      <div>
+        <h4 className="text-sm font-semibold">
+          {members.length === 1
+            ? "1 member has no employee record"
+            : `${members.length} members have no employee record`}
+        </h4>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Until someone has an employee record they cannot be given a
+          supervisor, so their timesheets have nobody to go to and their hours
+          cost nothing. Adding them here creates each record with a{" "}
+          <strong className="font-medium text-foreground">
+            cost rate of $0.00
+          </strong>{" "}
+          — no rate is guessed. Set the real rates in the table below before you
+          run payroll, or that time will be costed at zero.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          disabled={chosen.length === 0 || add.isPending}
+          onClick={() => add.mutate()}
+        >
+          {chosen.length === 1
+            ? "Add 1 employee record"
+            : `Add ${chosen.length} employee records`}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Hide list" : "Choose who"}
+        </Button>
+        {chosen.length < members.length && (
+          <span className="text-xs text-muted-foreground">
+            {members.length - chosen.length} skipped
+          </span>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setExcluded(new Set())}
+            >
+              Select all
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setExcluded(new Set(members.map((m) => m.userId)))}
+            >
+              Select none
+            </Button>
+          </div>
+          <ul className="max-h-64 overflow-y-auto rounded-md border bg-background p-2">
+            {members.map((m) => (
+              <li key={m.userId}>
+                <label className="flex items-center gap-2 px-1 py-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!excluded.has(m.userId)}
+                    disabled={add.isPending}
+                    onChange={(e) =>
+                      setExcluded((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.delete(m.userId);
+                        else next.add(m.userId);
+                        return next;
+                      })
+                    }
+                  />
+                  {m.user.displayName ?? "Member"}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { Permission, hasAnyPermission } from "@/lib/rbac/permissions";
-import { ForbiddenError } from "@/lib/rbac/check";
+import { requireEmployeeAdmin } from "@/lib/rbac/employee-admin";
 import { setSupervisors } from "@/lib/org/supervisors";
 import { supervisorPickerOptions } from "@/lib/org/assignable-supervisors";
 import { createNotification } from "@/lib/notifications/create";
@@ -22,25 +21,9 @@ const bodySchema = z.object({
 /**
  * Who supervises this employee, and who MAY.
  *
- * Setting supervisors is deliberately NOT something the subject can do. A worker
- * who nominates their own approver defeats the control the approval workflow
- * exists to provide, so this needs a people- or finance-admin permission.
- * Either works: an HR admin without finance access still has to be able to run
- * the org chart, and gating on FINANCE_MANAGE alone (as the employee record
- * historically did) locks them out of it.
+ * Gated by `requireEmployeeAdmin` — see `@/lib/rbac/employee-admin` for why
+ * either the finance or the people-admin permission is enough.
  */
-function requireEmployeeAdmin(permissions: bigint): void {
-  if (
-    !hasAnyPermission(
-      permissions,
-      Permission.FINANCE_MANAGE,
-      Permission.ORG_MANAGE_MEMBERS,
-    )
-  ) {
-    throw new ForbiddenError("Missing required permission");
-  }
-}
-
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, employeeId } = await params;
