@@ -210,17 +210,27 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Hard deletion would make the dataset inadmissible — an auditor cannot
     // distinguish "never entered" from "removed after the fact" — and this is
     // the record a timesheet exists to produce.
-    // An optional { reason } body. The current client sends no body at all on
-    // DELETE, so parsing must never throw — a missing reason is allowed here
-    // and becomes mandatory only under a strict timekeeping policy.
+    // A reason is REQUIRED. Recorded hours price a CLIN and can reach an
+    // invoice, so a removal nobody can explain is exactly what an audit finds —
+    // and enforcing it only in the dialog is not a control, since anything
+    // calling the API directly would skip it.
+    //
+    // Historic rows keep `void_reason` NULL: they were voided when no reason
+    // was collected, and backfilling one would fabricate a record.
     let reason: string | null = null;
     try {
       const parsed = (await request.json()) as { reason?: unknown };
       if (typeof parsed?.reason === "string" && parsed.reason.trim()) {
-        reason = parsed.reason.trim();
+        reason = parsed.reason.trim().slice(0, 500);
       }
     } catch {
-      /* no body, or not JSON — reason stays null */
+      /* no body, or not JSON — caught by the check below */
+    }
+    if (!reason) {
+      return new Response(
+        JSON.stringify({ error: "A reason is required when removing a time entry" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     const voided = await prisma.timeEntry.update({

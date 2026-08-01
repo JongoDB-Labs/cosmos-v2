@@ -216,6 +216,9 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   // can say so BEFORE it is pressed — discovering that nobody was asked only
   // after handing the week in is too late to act on.
   const [myRoute, setMyRoute] = useState<RoutedTo | null>(null);
+  // Removing time is a recorded, permanent event — the entry is voided, never
+  // erased — so it gets a confirmation AND a reason rather than firing on click.
+  const [voiding, setVoiding] = useState<TimeEntry | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [form, setForm] = useState<EntryFormData>(emptyForm);
@@ -501,16 +504,21 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, reason: string) => {
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/time-entries/${id}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        // The API has always accepted a reason; the UI never sent one, so every
+        // void read as "removed by X at 14:32" with no why — the weakest link
+        // in an otherwise complete audit chain.
+        body: JSON.stringify({ reason }),
       });
       if (!res.ok) throw new Error("Failed to delete time entry.");
       setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error(err);
-      notifyError(err, "Couldn't delete the time entry.");
+      notifyError(err, "Couldn't remove the time entry.");
     }
   };
 
@@ -821,10 +829,118 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
         <ListView
           entries={entries}
           onEdit={viewingSomeoneElse ? undefined : openEdit}
-          onDelete={viewingSomeoneElse ? undefined : handleDelete}
+          onDelete={viewingSomeoneElse ? undefined : (id) => {
+            const entry = entries.find((e) => e.id === id);
+            if (entry) setVoiding(entry);
+          }}
         />
       )}
+
+      <VoidEntryDialog
+        // Keyed on the entry so it REMOUNTS per row: a reason typed for one
+        // entry can never be recorded against another, and resetting via an
+        // effect trips the React Compiler's set-state-in-effect rule.
+        key={voiding?.id ?? "none"}
+        entry={voiding}
+        onClose={() => setVoiding(null)}
+        onConfirm={async (reason) => {
+          const id = voiding?.id;
+          setVoiding(null);
+          if (id) await handleDelete(id, reason);
+        }}
+      />
     </div>
+  );
+}
+
+/** The standard reasons, so recording one costs a click rather than a sentence.
+ *  A free-text box alone gets "asdf" — or gets skipped, which is how the field
+ *  became useless in the first place. */
+const VOID_REASONS = [
+  "Logged on the wrong day",
+  "Duplicate entry",
+  "Logged to the wrong project",
+  "Did not work these hours",
+];
+
+/**
+ * Confirm removing a time entry, and record WHY.
+ *
+ * The reason is required. Recorded hours are a financial record — they price a
+ * CLIN and can reach an invoice — so a removal with no justification is exactly
+ * the gap an audit finds. The quick picks keep that from being friction: the
+ * common cases are one click, and free text is there for everything else.
+ */
+export function VoidEntryDialog({
+  entry,
+  onClose,
+  onConfirm,
+}: {
+  entry: TimeEntry | null;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [choice, setChoice] = useState("");
+  const [other, setOther] = useState("");
+
+  const reason = choice === "__other" ? other.trim() : choice;
+
+  return (
+    <Dialog open={entry !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove this time entry?</DialogTitle>
+        </DialogHeader>
+
+        <p className="text-sm text-muted-foreground">
+          The entry is removed from your week and from any billing, but it is
+          kept in the record with your name, the time, and this reason.
+        </p>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="void-reason">Reason</Label>
+          <select
+            id="void-reason"
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+            value={choice}
+            onChange={(e) => setChoice(e.target.value)}
+          >
+            <option value="">Choose a reason…</option>
+            {VOID_REASONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+            <option value="__other">Something else…</option>
+          </select>
+
+          {choice === "__other" && (
+            <Input
+              aria-label="Reason for removing this entry"
+              placeholder="Why is this entry being removed?"
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              maxLength={500}
+            />
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            // Required, not optional — a removal nobody can explain is the gap
+            // an audit finds.
+            disabled={reason.length === 0}
+            onClick={() => onConfirm(reason)}
+          >
+            Remove entry
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1162,7 +1278,10 @@ function ListView({
         {
           items: [
             {
-              label: "Delete",
+              // "Remove", not "Delete": the entry is voided and kept in the
+              // record with who removed it and why. Calling it a delete
+              // promises an erasure that does not — and must not — happen.
+              label: "Remove",
               icon: Trash2,
               variant: "destructive",
               onClick: () => onDelete(entry.id),
