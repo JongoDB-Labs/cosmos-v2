@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.255.0",
+    date: "2026-08-01",
+    title: "Submitted timesheets now go to someone",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Submitting a week now tells you who it went to. If your employee record names a supervisor it goes to them; otherwise it goes to everyone in your organisation who can approve time.",
+      },
+      {
+        kind: "feature",
+        text: "Approvers are notified the moment a timesheet is submitted, and you are notified when yours is approved or returned — with the reason it came back. Opening the notification takes you straight to that week.",
+      },
+      {
+        kind: "feature",
+        text: "The Submit button now says who the week is about to go to before you press it, and warns you plainly when nobody is set up to approve your time — so hours are never handed in to nobody.",
+      },
+      {
+        kind: "improvement",
+        text: "A submitted week shows who it is waiting on, not just that it was submitted. Everyone it was routed to is recorded on the timesheet as of the moment you submitted, so later changes to the org chart never rewrite who a past week was handed to.",
+      },
+      {
+        kind: "fix",
+        text: "An employee record listing itself as its own supervisor made that person's timesheet impossible to approve — they were barred from approving their own week, and nobody else was designated. Such a record is now correctly read as having no supervisor.",
+      },
+    ],
+  },
+  {
     version: "2.254.0",
     date: "2026-08-01",
     title: "One way to approve time, and an export that agrees with payroll",

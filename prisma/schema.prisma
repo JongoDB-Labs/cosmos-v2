@@ -1525,6 +1525,23 @@ model Timesheet {
   rejectedReason    String?   @map("rejected_reason")
   /// The worker's own attestation, where policy requires one.
   attestedAt        DateTime? @map("attested_at")
+  /// Everyone the submission was routed TO, fixed at submit time.
+  ///
+  /// A SET, not one person, because both real cases are plural: a worker may
+  /// have several supervisors, and a worker with none falls to the whole pool
+  /// of people who may approve. Recording only "the" approver would throw away
+  /// who was actually asked in either case.
+  ///
+  /// NOT an access control list — authority still comes from
+  /// approvalAuthority(), so a sheet never deadlocks because an approver left,
+  /// went on leave, or was deleted. And NOT derived at read time, so
+  /// reorganising the org chart cannot rewrite who last quarter's timesheets
+  /// were handed to.
+  ///
+  /// Empty means nobody could approve it — the top of an org chart, or an org
+  /// that has not set anyone up yet. `laborApprovedById` records who actually
+  /// SIGNED; an auditor needs both, and they are not always the same person.
+  approverIds       String[]  @map("approver_ids") @db.Uuid
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -1532,6 +1549,9 @@ model Timesheet {
 
   @@unique([orgId, userId, periodStart])
   @@index([orgId, status])
+  /// Drives the approvals queue: sheets routed to me and still awaiting a
+  /// signature. GIN, because the lookup is "is my id in this array".
+  @@index([approverIds], type: Gin)
   @@map("timesheets")
 }
 

@@ -44,6 +44,7 @@ import {
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
+import { toast } from "sonner";
 
 interface Project {
   id: string;
@@ -70,7 +71,49 @@ type Timesheet = {
   periodEnd: string;
   status: "OPEN" | "SUBMITTED" | "LABOR_APPROVED" | "APPROVED" | "REJECTED" | "LOCKED";
   rejectedReason: string | null;
+  /** Everyone the week was routed to at submit time. Empty = nobody could. */
+  approverIds: string[];
+  approverNames: string[];
 };
+
+/**
+ * "Waiting on whom?" — the question a status badge alone cannot answer.
+ *
+ * Names people rather than counting them wherever it fits: "2 approvers" tells a
+ * worker nothing they can act on, and chasing an approval is the main reason
+ * they come back to this page.
+ */
+function waitingOnLabel(names: string[]): string {
+  if (names.length === 0) return "Waiting on an approver";
+  if (names.length <= 2) return `Waiting on ${names.join(" and ")}`;
+  return `Waiting on ${names[0]} and ${names.length - 1} others`;
+}
+
+/** Where a submission went, or would go — see lib/time/routing.ts. */
+type RoutedTo = {
+  reason: "manager" | "admin_pool" | "none";
+  approverNames: string[];
+};
+
+/**
+ * What the Submit button promises before it is pressed.
+ *
+ * The `none` case is the one that matters: without it a worker hands in a week
+ * that reaches nobody and has no way to tell. Saying so on the button — and
+ * disabling nothing, because the hours still need recording — lets them fix the
+ * cause instead of waiting on an approval that is never coming.
+ */
+function submitHint(route: RoutedTo | null, noHours: boolean): string | undefined {
+  if (noHours) return "Log some time first";
+  if (!route) return undefined;
+  if (route.reason === "none") {
+    return "Nobody is set up to approve your time yet. You can still submit, but ask an admin to set your supervisor.";
+  }
+  if (route.approverNames.length > 0) {
+    return `Goes to ${route.approverNames.join(", ")} for approval.`;
+  }
+  return undefined;
+}
 
 const TIMESHEET_LABELS: Record<Timesheet["status"], string> = {
   OPEN: "Open",
@@ -80,6 +123,27 @@ const TIMESHEET_LABELS: Record<Timesheet["status"], string> = {
   REJECTED: "Returned",
   LOCKED: "Locked",
 };
+
+/**
+ * What to tell the worker after they submit.
+ *
+ * Each branch is a genuinely different situation, and collapsing them into one
+ * cheerful "Submitted!" is what left the worker unable to answer "waiting on
+ * whom?". The `none` case in particular is a problem they need to act on —
+ * their hours are in limbo until somebody is given authority to approve them.
+ */
+function submissionMessage(routedTo: RoutedTo | undefined): string {
+  if (routedTo?.reason === "manager" && routedTo.approverNames.length > 0) {
+    return `Week submitted to ${routedTo.approverNames.join(", ")} for approval.`;
+  }
+  if (routedTo?.reason === "admin_pool") {
+    return "Week submitted. Your organisation's approvers have been notified.";
+  }
+  if (routedTo?.reason === "none") {
+    return "Week submitted, but nobody is set up to approve it yet — ask an admin to set your supervisor.";
+  }
+  return "Week submitted for approval.";
+}
 
 const STATUS_COLORS: Record<TimeEntry["status"], string> = {
   DRAFT: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
@@ -145,6 +209,13 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<ViewMode>("week");
   const [weekBase, setWeekBase] = useState<Date>(new Date());
+  // Whose week the URL asked for, held until the people list arrives — setting
+  // the picker to somebody it has never heard of leaves it blank.
+  const [requestedUserId, setRequestedUserId] = useState<string | null>(null);
+  // Where MY next submission would go. Fetched up front so the Submit button
+  // can say so BEFORE it is pressed — discovering that nobody was asked only
+  // after handing the week in is too late to act on.
+  const [myRoute, setMyRoute] = useState<RoutedTo | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [form, setForm] = useState<EntryFormData>(emptyForm);
@@ -193,6 +264,42 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     })();
   }, [orgId]);
 
+  /**
+   * Open the week a notification points at: `?userId=…&week=YYYY-MM-DD`.
+   *
+   * Without this an approver told "Ada submitted a timesheet" lands on their
+   * OWN current week and has to find Ada's by hand, which is most of the work
+   * the notification was supposed to save.
+   *
+   * Read from `window.location` in a mount effect rather than
+   * `useSearchParams()`: this component is not inside a Suspense boundary, and
+   * with Cache Components on, that hook would fail the build.
+   */
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const week = sp.get("week");
+    const who = sp.get("userId");
+    // Parsed as UTC midnight. `new Date("2026-07-27")` is already UTC, but
+    // being explicit keeps it out of the class of timezone bugs that made time
+    // entries render a day early west of UTC.
+    if (week && /^\d{4}-\d{2}-\d{2}$/.test(week)) {
+      const parsed = new Date(`${week}T00:00:00.000Z`);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!Number.isNaN(parsed.getTime())) setWeekBase(parsed);
+    }
+    if (who) setRequestedUserId(who);
+  }, []);
+
+  // Applied once the picker knows who that is. Self needs no selection — ""
+  // already means "me" — and asking for someone unreadable is simply ignored.
+  useEffect(() => {
+    if (!requestedUserId || people.length === 0) return;
+    const match = people.find((p) => p.userId === requestedUserId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (match) setPersonId(match.isSelf ? "" : match.userId);
+    setRequestedUserId(null);
+  }, [requestedUserId, people]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -234,6 +341,26 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   const weekEnd = toDateString(weekDates[6]);
 
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Where MY submissions go. Refetched on refreshKey so that setting a
+  // supervisor and coming back shows the new answer rather than a stale warning.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/v1/orgs/${orgId}/time-entries/my-approvers`);
+        if (cancelled || !res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setMyRoute(body ?? null);
+      } catch {
+        /* the button simply loses its hint — never block submitting */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, refreshKey]);
+
 
   // Guards against stale responses: only the most recent load() applies state,
   // so a slow request for a previous week/filter can't clobber the current one.
@@ -313,6 +440,12 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error ?? "That action could not be completed.");
+      }
+      // "Who did this go to?" had no answer before — submitting flipped a
+      // status silently. Say it out loud, at the moment they ask.
+      if (action === "submit") {
+        const body = await res.json().catch(() => null);
+        toast.success(submissionMessage(body?.routedTo));
       }
       // Entry statuses move with the timesheet, so both have to refetch.
       setRefreshKey((k) => k + 1);
@@ -682,6 +815,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           isOwnTimesheet={!viewingSomeoneElse}
           actionPending={actionPending}
           onTimesheetAction={runTimesheetAction}
+          myRoute={myRoute}
         />
       ) : (
         <ListView
@@ -706,6 +840,7 @@ function WeekView({
   isOwnTimesheet,
   actionPending,
   onTimesheetAction,
+  myRoute,
 }: {
   weekDates: Date[];
   groupedByRow: Map<string, Map<string, TimeEntry[]>>;
@@ -724,6 +859,8 @@ function WeekView({
     action: "submit" | "withdraw" | "approve" | "reject",
     reason?: string,
   ) => void;
+  /** Where the SIGNED-IN user's submissions go — drives the pre-submit hint. */
+  myRoute: RoutedTo | null;
 }) {
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -754,6 +891,25 @@ function WeekView({
             </Badge>
           )}
 
+          {/* The badge alone says a week was handed over but not to whom, which
+              is exactly the question a worker asks after submitting. Shown
+              beside it rather than inside it so the badge text stays a plain
+              status. */}
+          {timesheet &&
+            (timesheet.status === "SUBMITTED" ||
+              timesheet.status === "LABOR_APPROVED") && (
+              <span
+                className="text-muted-foreground"
+                title={
+                  timesheet.approverNames.length > 0
+                    ? `Routed to ${timesheet.approverNames.join(", ")} when this week was submitted.`
+                    : "This week was submitted without a supervisor set, so nobody was asked to approve it."
+                }
+              >
+                {waitingOnLabel(timesheet.approverNames)}
+              </span>
+            )}
+
           {/* Submitting is the WORKER's action on their OWN week. */}
           {timesheet && isOwnTimesheet &&
             (timesheet.status === "OPEN" || timesheet.status === "REJECTED") && (
@@ -761,8 +917,10 @@ function WeekView({
                 size="sm"
                 disabled={actionPending || weekTotal === 0}
                 // Nothing to submit is a real state, and a button that errors
-                // on an empty week teaches people to distrust it.
-                title={weekTotal === 0 ? "Log some time first" : undefined}
+                // on an empty week teaches people to distrust it. Beyond that,
+                // the hint names who the week is about to go to — or warns that
+                // it would reach nobody.
+                title={submitHint(myRoute, weekTotal === 0)}
                 onClick={() => onTimesheetAction("submit")}
               >
                 <Send className="size-4" />
@@ -821,6 +979,22 @@ function WeekView({
           <span className="font-medium">{weekTotal.toFixed(2)}h total</span>
         </div>
       </div>
+
+      {/* Nobody can approve this person's time. Shown standing, not just as a
+          tooltip: a hover hint is invisible to someone who never hovers, and
+          the consequence here is hours that reach no approver at all. Limited
+          to your OWN week — it is your problem to escalate, not a note about a
+          colleague. */}
+      {isOwnTimesheet &&
+        myRoute?.reason === "none" &&
+        timesheet?.status !== "APPROVED" && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            <span className="font-medium">No approver set up.</span> Your
+            employee record has no supervisor, and nobody else in this
+            organisation can approve time. You can still submit, but the week
+            will sit unapproved until an admin sets one.
+          </div>
+        )}
 
       {/* Why it came back, shown to whoever is looking at the week. */}
       {timesheet?.status === "REJECTED" && timesheet.rejectedReason && (
