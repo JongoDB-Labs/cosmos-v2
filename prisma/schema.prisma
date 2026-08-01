@@ -3388,10 +3388,13 @@ model Employee {
   status         String         @default("active")
   startDate      DateTime?      @map("start_date") @db.Date
   endDate        DateTime?      @map("end_date") @db.Date
-  // The org chart. Set by HR/finance on the employee record, never by the
-  // subject — someone who nominates their own approver defeats the control.
-  // SetNull rather than Cascade: a departing manager must orphan their reports
-  // (visible, fixable) and never delete them.
+  /// DEPRECATED — superseded by the `supervisors` relation below.
+  ///
+  /// A worker can have SEVERAL supervisors (a matrixed org, a deputy covering
+  /// leave), which a scalar column cannot express. Backfilled into
+  /// `employee_supervisors` by migration 20260801200000 and no longer read by
+  /// anything. Kept for one release rather than dropped in the same migration,
+  /// so a rollback to the previous image still finds its column.
   managerId      String?        @map("manager_id") @db.Uuid
   createdById    String         @map("created_by_id") @db.Uuid
   createdAt      DateTime       @default(now()) @map("created_at")
@@ -3400,11 +3403,49 @@ model Employee {
   manager Employee?  @relation("Reports", fields: [managerId], references: [id], onDelete: SetNull)
   reports Employee[] @relation("Reports")
 
+  /// Who approves this person's time. Several are allowed.
+  supervisors EmployeeSupervisor[] @relation("SupervisedBy")
+  /// The people this person supervises.
+  supervisees EmployeeSupervisor[] @relation("Supervises")
+
   @@unique([orgId, userId])
   @@index([orgId, status])
   // Drives "who reports to me" on every scoped time read.
   @@index([orgId, managerId])
   @@map("employees")
+}
+
+/// One supervisor of one employee. The org chart, as a graph rather than a tree.
+///
+/// Set by someone holding the permission to manage employees, NEVER by the
+/// subject: a worker who nominates their own approver defeats the control the
+/// approval workflow exists to provide. Candidates are further restricted to
+/// people who actually hold TIME_APPROVE, so a supervisor is always someone the
+/// authority check would accept — see `assignableSupervisors`.
+///
+/// Cascade on BOTH sides is deliberate. Deleting an employee should not leave
+/// rows pointing at a ghost, and a departing supervisor should leave their
+/// reports visibly UNSUPERVISED — which the product now surfaces on the
+/// timesheet — rather than silently supervised by a deleted record.
+model EmployeeSupervisor {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  employeeId   String   @map("employee_id") @db.Uuid
+  supervisorId String   @map("supervisor_id") @db.Uuid
+  /// Who made this assignment. The audit trail records the change; this keeps
+  /// the answer on the row itself for the common "who set this up?" question.
+  createdById  String   @map("created_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  employee   Employee @relation("SupervisedBy", fields: [employeeId], references: [id], onDelete: Cascade)
+  supervisor Employee @relation("Supervises", fields: [supervisorId], references: [id], onDelete: Cascade)
+
+  /// One row per pair — assigning the same supervisor twice is a no-op, not a duplicate.
+  @@unique([employeeId, supervisorId])
+  /// Drives "whose time may I see / approve", the hot path on every scoped read.
+  @@index([orgId, supervisorId])
+  @@index([orgId, employeeId])
+  @@map("employee_supervisors")
 }
 
 model PayRun {

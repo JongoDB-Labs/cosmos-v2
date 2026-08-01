@@ -22,7 +22,6 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { PayRunDialog } from "./pay-run-dialog";
-import { supervisorCandidates } from "@/lib/payroll/org-chart";
 
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -119,7 +118,6 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
         <SupervisorCell
           orgId={orgId}
           employee={row.original}
-          employees={employees}
           nameFor={nameFor}
         />
       ),
@@ -285,59 +283,130 @@ function NewPayRunForm({ orgId }: { orgId: string }) {
 }
 
 /**
- * The supervisor picker, editable in place.
+ * The supervisors picker, editable in place.
  *
- * Deliberately inline rather than in the Add dialog: a supervisor changes when
- * people move teams, so setting it only at creation would make the org chart
- * unmaintainable — you would have to delete and recreate the employee, which
- * would take their cost rate (and any pay run referencing it) with them.
+ * SEVERAL are allowed — a matrixed org, a deputy covering leave, someone split
+ * across two programmes — so this is a checklist rather than a dropdown. Every
+ * supervisor is notified when a week is submitted, which is the point: a single
+ * named approver on holiday is exactly how a timesheet stalls.
  *
- * Candidates exclude the employee and anyone reporting up through them, so the
- * picker cannot OFFER a choice that closes a loop. The server refuses those
- * anyway (`assertNoManagerCycle`); this keeps the common case from surfacing as
- * an error the user has to read and undo.
+ * Deliberately inline rather than in the Add dialog: supervisors change when
+ * people move teams, so setting them only at creation would make the org chart
+ * unmaintainable — you would have to delete and recreate the employee, taking
+ * their cost rate (and any pay run referencing it) with them.
+ *
+ * Candidates come from the SERVER, not from the rows on screen, because the
+ * rule is no longer purely structural: a candidate must also hold TIME_APPROVE.
+ * The client cannot evaluate that — permission masks never leave the server.
  */
 function SupervisorCell({
   orgId,
   employee,
-  employees,
   nameFor,
 }: {
   orgId: string;
   employee: Employee;
-  employees: Employee[];
   nameFor: (userId: string) => string;
 }) {
-  const update = useOrgMutation<unknown, Error, string | null>({
-    mutationFn: (managerId) =>
-      jsonFetch(`/api/v1/orgs/${orgId}/employees/${employee.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ managerId }),
-      }),
-    invalidate: [["employees"]],
-    onError: (e) => notifyError(e, "Couldn't change the supervisor."),
+  const [open, setOpen] = useState(false);
+  const queryKey = useOrgQueryKey("employee-supervisors", employee.id);
+  const { data } = useQuery<{
+    supervisorIds: string[];
+    candidates: Array<{
+      employeeId: string;
+      userId: string;
+      displayName: string | null;
+      /** False for someone assigned before they lost the approve-time permission. */
+      canApprove: boolean;
+    }>;
+  }>({
+    queryKey,
+    queryFn: () =>
+      jsonFetch(`/api/v1/orgs/${orgId}/employees/${employee.id}/supervisors`),
+    // Only fetched once the row is actually being edited: one request per
+    // employee on every payroll load would be N requests for a control most
+    // visits never touch.
+    enabled: open,
   });
 
-  const candidates = supervisorCandidates(employees, employee.id);
+  const update = useOrgMutation<unknown, Error, string[]>({
+    mutationFn: (supervisorIds) =>
+      jsonFetch(`/api/v1/orgs/${orgId}/employees/${employee.id}/supervisors`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supervisorIds }),
+      }),
+    invalidate: [["employees"], ["employee-supervisors", employee.id]],
+    onError: (e) => notifyError(e, "Couldn't change the supervisors."),
+  });
+
+  const selected = data?.supervisorIds ?? [];
+  const label =
+    selected.length === 0
+      ? "— none —"
+      : selected.length === 1
+        ? nameFor(
+            data?.candidates.find((c) => c.employeeId === selected[0])?.userId ?? "",
+          ) || "1 supervisor"
+        : `${selected.length} supervisors`;
+
+  function toggle(employeeId: string, on: boolean) {
+    const next = on
+      ? [...selected, employeeId]
+      : selected.filter((id) => id !== employeeId);
+    update.mutate(next);
+  }
 
   return (
-    <select
-      // Every row renders one of these, so the accessible name has to carry
-      // WHOSE supervisor this is — "Supervisor" alone repeats N times.
-      aria-label={`Supervisor for ${nameFor(employee.userId)}`}
-      className="h-8 rounded-md border bg-background px-2 text-xs"
-      value={employee.managerId ?? ""}
-      disabled={update.isPending}
-      onChange={(e) => update.mutate(e.target.value || null)}
-    >
-      <option value="">— none —</option>
-      {candidates.map((c) => (
-        <option key={c.id} value={c.id}>
-          {nameFor(c.userId)}
-        </option>
-      ))}
-    </select>
+    <div className="relative">
+      <button
+        type="button"
+        // Every row renders one of these, so the accessible name has to carry
+        // WHOSE supervisors these are — "Supervisors" alone repeats N times.
+        aria-label={`Supervisors for ${nameFor(employee.userId)}`}
+        aria-expanded={open}
+        className="h-8 rounded-md border bg-background px-2 text-xs"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? "Done" : label}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 min-w-52 rounded-md border bg-popover p-2 shadow-md">
+          {data === undefined ? (
+            <p className="px-1 py-0.5 text-xs text-muted-foreground">Loading…</p>
+          ) : data.candidates.length === 0 ? (
+            // The likeliest cause by far, and the one worth naming: nobody in
+            // the org has been given permission to approve time yet.
+            <p className="px-1 py-0.5 text-xs text-muted-foreground">
+              Nobody in this organisation can approve time yet. Grant someone the
+              approve-time permission first.
+            </p>
+          ) : (
+            data.candidates.map((c) => (
+              <label
+                key={c.employeeId}
+                className="flex items-center gap-2 px-1 py-0.5 text-xs"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(c.employeeId)}
+                  disabled={update.isPending}
+                  onChange={(e) => toggle(c.employeeId, e.target.checked)}
+                />
+                {c.displayName ?? nameFor(c.userId)}
+                {!c.canApprove && (
+                  // Assigned before they lost the permission. Shown so the
+                  // assignment stays visible and removable, but marked — they
+                  // are here by history rather than by policy.
+                  <span className="text-muted-foreground">(no approve permission)</span>
+                )}
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

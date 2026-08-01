@@ -270,15 +270,33 @@ async function ensureOrgChart(
     },
   });
 
-  await prisma.employee.upsert({
+  const aliceEmployee = await prisma.employee.upsert({
     where: { orgId_userId: { orgId, userId: aliceId } },
-    update: { managerId: bobEmployee.id },
+    update: {},
     create: {
       orgId,
       userId: aliceId,
       employmentType: "SALARY",
       costRate: "125.0000",
-      managerId: bobEmployee.id,
+      createdById: aliceId,
+    },
+  });
+
+  // The supervisor edge lives in `employee_supervisors`, NOT `Employee.managerId`
+  // — that column is deprecated and nothing reads it. Writing the old one here
+  // would seed a chart the product cannot see.
+  await prisma.employeeSupervisor.upsert({
+    where: {
+      employeeId_supervisorId: {
+        employeeId: aliceEmployee.id,
+        supervisorId: bobEmployee.id,
+      },
+    },
+    update: {},
+    create: {
+      orgId,
+      employeeId: aliceEmployee.id,
+      supervisorId: bobEmployee.id,
       createdById: aliceId,
     },
   });

@@ -76,10 +76,16 @@ describe("readableTimeUserIds", () => {
 
     const where = prisma.employee.findMany.mock.calls[0][0].where;
     expect(where.orgId).toBe(ORG_ID);
-    // The manager side is scoped too: the FK alone does not keep a manager in
-    // the same tenant, so an unscoped join could pull a foreign org's reports.
+    // The supervisor side is scoped at BOTH hops — the join row and the
+    // supervisor's own employee record. Neither FK keeps a row in the same
+    // tenant by itself, so an unscoped join could pull a foreign org's reports.
     expect(where.OR).toContainEqual({
-      manager: { orgId: ORG_ID, userId: ACTOR },
+      supervisors: {
+        some: {
+          orgId: ORG_ID,
+          supervisor: { orgId: ORG_ID, userId: ACTOR },
+        },
+      },
     });
   });
 
