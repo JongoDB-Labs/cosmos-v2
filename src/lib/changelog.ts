@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.260.0",
+    date: "2026-08-01",
+    title: "You can open the timesheet you were asked to approve",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a week was sent to you for approval but you are not that person's supervisor, you were notified and then met an empty page — and the notification linked straight to it. You can now open and act on any timesheet routed to you.",
+      },
+      {
+        kind: "improvement",
+        text: "That visibility is limited to weeks still waiting on your decision. Once you approve or return one it lapses — being asked to approve somebody's week does not become standing access to their time.",
+      },
+    ],
+  },
+  {
     version: "2.259.0",
     date: "2026-08-01",
     title: "Put your whole team on payroll in one click",

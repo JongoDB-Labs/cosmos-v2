@@ -5,7 +5,10 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
 const { prisma } = vi.hoisted(() => ({
-  prisma: { employee: { findMany: vi.fn() } },
+  prisma: {
+    employee: { findMany: vi.fn() },
+    timesheet: { findMany: vi.fn() },
+  },
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 
@@ -15,6 +18,7 @@ const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ACTOR = "44444444-4444-4444-4444-444444444444";
 const REPORT_A = "55555555-5555-5555-5555-555555555555";
 const REPORT_B = "66666666-6666-6666-6666-666666666666";
+const STRANGER = "77777777-7777-7777-7777-777777777777";
 
 function bits(...keys: PermissionKey[]): bigint {
   return keys.reduce((acc, k) => acc | Permission[k], 0n);
@@ -30,7 +34,13 @@ function ctxWith(permissions: bigint): AuthContext {
   };
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Default: nothing is waiting on the actor. Cases that care set this
+  // explicitly — leaving it unmocked would reject and send every test down the
+  // fail-narrow catch, where they would all "pass" for the wrong reason.
+  prisma.timesheet.findMany.mockResolvedValue([]);
+});
 
 describe("readableTimeUserIds", () => {
   it("TIME_READ_ALL means no restriction, and asks the DB nothing", async () => {
@@ -106,5 +116,60 @@ describe("timeUserIdFilter", () => {
     expect(timeUserIdFilter([ACTOR, REPORT_A])).toEqual({
       in: [ACTOR, REPORT_A],
     });
+  });
+});
+
+/**
+ * Being routed a timesheet and being able to OPEN it were separate things.
+ *
+ * An approver who is not the person's supervisor — the pool case — was notified
+ * about a week, followed the deep link, and met an empty page: reads were
+ * scoped to self-and-reports only.
+ */
+describe("readableTimeUserIds — weeks waiting on me", () => {
+  it("includes someone whose week is routed to me, even if I do not supervise them", async () => {
+    prisma.employee.findMany.mockResolvedValue([]);
+    prisma.timesheet.findMany.mockResolvedValue([{ userId: STRANGER }]);
+
+    const result = await readableTimeUserIds(ctxWith(bits("TIME_READ")));
+
+    expect(result).toContain(STRANGER);
+  });
+
+  it("asks only for sheets AWAITING a decision", async () => {
+    // The widening exists because they owe an answer, not as a permanent grant
+    // over that person's time. Once approved or returned it lapses.
+    prisma.employee.findMany.mockResolvedValue([]);
+
+    await readableTimeUserIds(ctxWith(bits("TIME_READ")));
+
+    const where = prisma.timesheet.findMany.mock.calls[0][0].where;
+    expect(where.status).toEqual({ in: ["SUBMITTED", "LABOR_APPROVED"] });
+  });
+
+  it("scopes that lookup to my org and to ME as the routed approver", async () => {
+    prisma.employee.findMany.mockResolvedValue([]);
+
+    await readableTimeUserIds(ctxWith(bits("TIME_READ")));
+
+    const where = prisma.timesheet.findMany.mock.calls[0][0].where;
+    expect(where.orgId).toBe(ORG_ID);
+    expect(where.approverIds).toEqual({ has: ACTOR });
+  });
+
+  it("does not duplicate someone who is BOTH my report and routed to me", async () => {
+    prisma.employee.findMany.mockResolvedValue([{ userId: REPORT_A }]);
+    prisma.timesheet.findMany.mockResolvedValue([{ userId: REPORT_A }]);
+
+    const result = await readableTimeUserIds(ctxWith(bits("TIME_READ")));
+
+    expect(result).toEqual([ACTOR, REPORT_A]);
+  });
+
+  it("still fails NARROW if the routing lookup throws", async () => {
+    prisma.employee.findMany.mockResolvedValue([{ userId: REPORT_A }]);
+    prisma.timesheet.findMany.mockRejectedValue(new Error("db down"));
+
+    expect(await readableTimeUserIds(ctxWith(bits("TIME_READ")))).toEqual([ACTOR]);
   });
 });

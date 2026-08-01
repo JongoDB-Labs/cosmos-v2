@@ -22,8 +22,12 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
     project: { findFirst: vi.fn() },
     projectMember: { findFirst: vi.fn() },
     orgMember: { findUnique: vi.fn() },
-    // readableTimeUserIds reads the org chart here.
+    // readableTimeUserIds reads the org chart here…
     employee: { findMany: vi.fn() },
+    // …and here, for weeks currently routed to the actor for approval. Leaving
+    // it unmocked rejects, which sends the helper down its fail-NARROW catch —
+    // every scoping test would then "pass" while proving nothing.
+    timesheet: { findMany: vi.fn() },
   },
 }));
 
@@ -62,6 +66,9 @@ const params = Promise.resolve({ orgId: ORG_ID });
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
+  // Default: no week is waiting on the actor, so scoping comes from the org
+  // chart alone. Cases about routed sheets set this themselves.
+  prisma.timesheet.findMany.mockResolvedValue([]);
 });
 
 describe("GET /time-entries — { data, total } list-envelope contract", () => {

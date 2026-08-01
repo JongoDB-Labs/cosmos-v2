@@ -32,29 +32,57 @@ export async function readableTimeUserIds(
   if (canReadAllTime(ctx)) return null;
 
   try {
-    // One query: the actor's own employee row (if any) OR any employee one of
-    // whose supervisors is the actor. Both sides are scoped to the org — the
-    // FKs alone do not constrain a row to the same tenant.
-    const rows = await prisma.employee.findMany({
-      where: {
-        orgId: ctx.orgId,
-        OR: [
-          { userId: ctx.userId },
-          {
-            supervisors: {
-              some: {
-                orgId: ctx.orgId,
-                supervisor: { orgId: ctx.orgId, userId: ctx.userId },
+    const [rows, routed] = await Promise.all([
+      // The actor's own employee row (if any) OR any employee one of whose
+      // supervisors is the actor. Both sides are scoped to the org — the FKs
+      // alone do not constrain a row to the same tenant.
+      prisma.employee.findMany({
+        where: {
+          orgId: ctx.orgId,
+          OR: [
+            { userId: ctx.userId },
+            {
+              supervisors: {
+                some: {
+                  orgId: ctx.orgId,
+                  supervisor: { orgId: ctx.orgId, userId: ctx.userId },
+                },
               },
             },
-          },
-        ],
-      },
-      select: { userId: true },
-    });
+          ],
+        },
+        select: { userId: true },
+      }),
+      // Plus anyone whose week is CURRENTLY WAITING ON THIS ACTOR.
+      //
+      // Being routed a timesheet and being able to open it were separate
+      // things: an approver who is not the person's supervisor — the pool
+      // case — was notified about a week and then met an empty page, because
+      // reads were scoped to self-and-reports only. The notification even
+      // deep-links to that week.
+      //
+      // Deliberately bounded to sheets awaiting a decision. Once approved or
+      // returned the widening LAPSES: it exists because they owe an answer,
+      // not as a permanent grant over that person's time. Anyone who needs
+      // standing visibility has TIME_READ_ALL.
+      prisma.timesheet.findMany({
+        where: {
+          orgId: ctx.orgId,
+          approverIds: { has: ctx.userId },
+          status: { in: ["SUBMITTED", "LABOR_APPROVED"] },
+        },
+        select: { userId: true },
+      }),
+    ]);
     // ctx.userId is added unconditionally: an actor with no Employee row at all
     // still reads their own time.
-    return [...new Set([ctx.userId, ...rows.map((r) => r.userId)])];
+    return [
+      ...new Set([
+        ctx.userId,
+        ...rows.map((r) => r.userId),
+        ...routed.map((r) => r.userId),
+      ]),
+    ];
   } catch {
     // Fail NARROW, never open. A lookup failure must not widen the scope to
     // the org — own entries only is the safe answer.
