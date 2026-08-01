@@ -28,6 +28,12 @@ export async function applyTimesheetTransition(params: {
   actorId: string;
   lane?: ApprovalLane;
   rejectedReason?: string | null;
+  /**
+   * Everyone the submission is routed to, resolved at submit time. Undefined
+   * leaves the existing stamp untouched; an EMPTY array is meaningful — "nobody
+   * could approve this" — so it is written rather than skipped.
+   */
+  approverIds?: string[];
 }) {
   const { orgId, timesheetId, next, actorId, lane } = params;
   const now = new Date();
@@ -39,6 +45,9 @@ export async function applyTimesheetTransition(params: {
     // reason shown against a resubmitted week reads as a fresh complaint.
     sheetData.rejectedReason = null;
   }
+  if (params.approverIds !== undefined) {
+    sheetData.approverIds = params.approverIds;
+  }
   if (lane === "labor") {
     sheetData.laborApprovedById = actorId;
     sheetData.laborApprovedAt = now;
@@ -49,9 +58,12 @@ export async function applyTimesheetTransition(params: {
   }
   if (next === "OPEN") {
     // Withdrawn: the sheet was never handed over, so it should not look like it
-    // was. A stale submittedAt would make a re-submission look like a duplicate.
+    // was. A stale submittedAt would make a re-submission look like a duplicate,
+    // and a stale approver would keep the week sitting in someone's queue after
+    // the worker pulled it back.
     sheetData.submittedAt = null;
     sheetData.rejectedReason = null;
+    sheetData.approverIds = [];
   }
   if (next === "REJECTED") {
     sheetData.rejectedReason = params.rejectedReason ?? null;
@@ -108,7 +120,17 @@ export async function isManagerOf(
   }
 }
 
-/** Does this person have a supervisor at all? Drives the self-approval rule. */
+/**
+ * Does this person have a supervisor at all? Drives the self-approval rule.
+ *
+ * A self-referential employee record names NO supervisor. Counting it as one
+ * deadlocks the sheet outright: `approvalAuthority` refuses self-approval
+ * whenever a manager exists, so the worker could neither sign their own week nor
+ * be covered by anyone else's authority, and nothing in the schema prevents a
+ * record from pointing at itself. Kept in step with `routeFor`, which drops a
+ * self-manager for the same reason — the two must agree or a sheet is routed to
+ * someone the authority check will not accept.
+ */
 export async function hasManager(
   orgId: string,
   subjectUserId: string,
@@ -116,9 +138,10 @@ export async function hasManager(
   try {
     const employee = await prisma.employee.findFirst({
       where: { orgId, userId: subjectUserId },
-      select: { managerId: true },
+      select: { id: true, managerId: true },
     });
-    return Boolean(employee?.managerId);
+    if (!employee?.managerId) return false;
+    return employee.managerId !== employee.id;
   } catch {
     // Fail SAFE toward the stricter rule: assume a supervisor exists, which
     // refuses self-approval rather than granting it on a lookup failure.

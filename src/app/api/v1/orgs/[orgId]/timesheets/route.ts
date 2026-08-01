@@ -49,11 +49,36 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (status) where.status = status;
     if (periodStart) where.periodStart = new Date(`${periodStart}T00:00:00.000Z`);
 
-    const data = await prisma.timesheet.findMany({
+    const rows = await prisma.timesheet.findMany({
       where,
       orderBy: { periodStart: "desc" },
       take: 200,
     });
+
+    // Names for the worker and the routed approver, resolved in ONE query.
+    // Without them the UI can only say "Submitted", which is precisely the gap
+    // the worker hit: a status with no answer to "waiting on whom?".
+    const ids = [
+      ...new Set(rows.flatMap((r) => [r.userId, ...r.approverIds])),
+    ];
+    const names = new Map<string, string>();
+    if (ids.length > 0) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, displayName: true },
+      });
+      for (const u of users) names.set(u.id, u.displayName);
+    }
+
+    const data = rows.map((r) => ({
+      ...r,
+      workerName: names.get(r.userId) ?? null,
+      // A name per routed approver, in the stored order. An id with no user row
+      // (a deleted account) is dropped rather than rendered as a raw UUID.
+      approverNames: r.approverIds
+        .map((id) => names.get(id))
+        .filter((n): n is string => Boolean(n)),
+    }));
 
     return success({ data, total: data.length });
   } catch (error) {

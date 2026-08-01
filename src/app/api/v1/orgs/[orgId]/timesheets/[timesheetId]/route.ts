@@ -16,6 +16,11 @@ import {
   isManagerOf,
   hasManager,
 } from "@/lib/time/timesheet-actions";
+import { resolveApprovalRoute } from "@/lib/time/routing";
+import {
+  notifyTimesheetSubmitted,
+  notifyTimesheetDecision,
+} from "@/lib/time/notify";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
@@ -69,14 +74,44 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const t = submitTransition(sheet.status);
       if (!t.ok) return bad(t.reason, 409);
 
+      // Resolved BEFORE the write and stamped with it, so the sheet records who
+      // it was handed to at the moment it was handed over. Deriving it later
+      // would let an org-chart change rewrite the history of a closed period.
+      const route = await resolveApprovalRoute(orgId, sheet.userId);
+
       const updated = await applyTimesheetTransition({
         orgId,
         timesheetId,
         next: t.next,
         actorId: ctx.userId,
+        // The people actually asked — all of them. Stamping only a "primary"
+        // approver would discard the rest, and the pool case has no primary.
+        approverIds: route.notify,
       });
       await audit(request, ctx.userId, orgId, timesheetId, "timesheet.submitted");
-      return success(updated);
+
+      const [worker, approverNames] = await Promise.all([
+        displayNameOf(sheet.userId),
+        displayNamesOf(route.notify),
+      ]);
+
+      // After the write, and unable to fail it — see lib/time/notify.ts.
+      await notifyTimesheetSubmitted({
+        orgId,
+        timesheetId,
+        workerUserId: sheet.userId,
+        workerName: worker,
+        periodStart: sheet.periodStart,
+        periodEnd: sheet.periodEnd,
+        route,
+      });
+
+      // The worker asked "who am I submitting this to?" — answer it in the
+      // response rather than making them guess from a status badge.
+      return success({
+        ...updated,
+        routedTo: { reason: route.reason, approverNames },
+      });
     }
 
     // ── Withdraw: also the worker's own action, and only theirs ─────────────
@@ -129,6 +164,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         rejectedReason: body.reason,
       });
       await audit(request, ctx.userId, orgId, timesheetId, "timesheet.rejected");
+      await notifyTimesheetDecision({
+        orgId,
+        timesheetId,
+        workerUserId: sheet.userId,
+        deciderName: await displayNameOf(ctx.userId),
+        decision: "rejected",
+        reason: body.reason,
+        periodStart: sheet.periodStart,
+        periodEnd: sheet.periodEnd,
+      });
       return success(updated);
     }
 
@@ -144,9 +189,52 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       lane,
     });
     await audit(request, ctx.userId, orgId, timesheetId, "timesheet.approved");
+
+    // Only when the sheet is FULLY approved. Under a two-lane policy, telling a
+    // worker their week is "approved" after the labor lane alone would be
+    // wrong: the cost lane can still reject it.
+    if (t.next === "APPROVED") {
+      await notifyTimesheetDecision({
+        orgId,
+        timesheetId,
+        workerUserId: sheet.userId,
+        deciderName: await displayNameOf(ctx.userId),
+        decision: "approved",
+        periodStart: sheet.periodStart,
+        periodEnd: sheet.periodEnd,
+      });
+    }
     return success(updated);
   } catch (error) {
     return handleApiError(error);
+  }
+}
+
+/** Display name for a notification body. Never throws — a missing name must not
+ *  fail an approval that has already been written. */
+async function displayNameOf(userId: string): Promise<string> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { displayName: true },
+    });
+    return user?.displayName?.trim() || "Someone";
+  } catch {
+    return "Someone";
+  }
+}
+
+/** Names for the routed approvers, in one query. Same never-throws contract. */
+async function displayNamesOf(userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  try {
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { displayName: true },
+    });
+    return users.map((u) => u.displayName).filter(Boolean);
+  } catch {
+    return [];
   }
 }
 
