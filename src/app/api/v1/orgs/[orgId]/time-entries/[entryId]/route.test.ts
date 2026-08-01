@@ -212,34 +212,45 @@ describe("DELETE /time-entries/[entryId] — voids, never deletes", () => {
   });
 
   it("never calls delete()", async () => {
-    await DELETE(deleteRequest(), { params });
+    await DELETE(deleteRequest({ reason: "duplicate entry" }), { params });
 
     expect(prisma.timeEntry.delete).not.toHaveBeenCalled();
   });
 
   it("stamps voidedAt and who did it", async () => {
-    await DELETE(deleteRequest(), { params });
+    await DELETE(deleteRequest({ reason: "duplicate entry" }), { params });
 
     const data = lastUpdateData();
     expect(data.voidedAt).toBeInstanceOf(Date);
     expect(data.voidedById).toBe(ACTOR_ID);
   });
 
-  it("still answers 204, so the client behaves exactly as before", async () => {
-    const res = await DELETE(deleteRequest(), { params });
+  it("still answers 204 once a reason is given", async () => {
+    const res = await DELETE(deleteRequest({ reason: "duplicate entry" }), {
+      params,
+    });
 
     expect(res.status).toBe(204);
   });
 
-  it("works with NO request body — the current client sends none", async () => {
-    // Parsing a body must never throw here, or every existing delete 500s.
+  it("REFUSES a removal with no reason", async () => {
+    // Recorded hours price a CLIN and can reach an invoice, so a removal
+    // nobody can explain is exactly what an audit finds. Enforcing it only in
+    // the dialog is not a control — anything calling the API directly skips it.
     const res = await DELETE(deleteRequest(), { params });
 
-    expect(res.status).toBe(204);
-    expect(lastUpdateData().voidReason).toBeNull();
+    expect(res.status).toBe(400);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
   });
 
-  it("records an optional reason when one is supplied", async () => {
+  it("REFUSES a blank reason", async () => {
+    const res = await DELETE(deleteRequest({ reason: "   " }), { params });
+
+    expect(res.status).toBe(400);
+    expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+  });
+
+  it("records the reason it was given", async () => {
     await DELETE(deleteRequest({ reason: "logged against the wrong project" }), {
       params,
     });

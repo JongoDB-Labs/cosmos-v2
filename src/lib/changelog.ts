@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.257.0",
+    date: "2026-08-01",
+    title: "Removing time now asks why — and says what really happens",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Removing a time entry now asks you to confirm and to say why, with the common reasons — wrong day, duplicate, wrong project — as one-click choices. Until now it removed the entry the instant you clicked, and recorded no explanation at all.",
+      },
+      {
+        kind: "improvement",
+        text: "The action is called \"Remove\" rather than \"Delete\", and the dialog says plainly that the entry is kept in the record with your name, the time and your reason. It was never actually deleted — the wording just implied it was.",
+      },
+      {
+        kind: "improvement",
+        text: "A reason is now required by the system itself, not merely by the screen, so hours can never be removed without an explanation attached.",
+      },
+    ],
+  },
+  {
     version: "2.256.0",
     date: "2026-08-01",
     title: "More than one supervisor, and only people who can actually approve",
