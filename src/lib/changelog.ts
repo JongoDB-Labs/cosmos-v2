@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.252.4",
+    date: "2026-07-31",
+    title: "New issue offers your project's types, not every sector's",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Type picker on New issue listed every type in the organisation — a software project was offering Permit, Safety Incident, Course and Production Order among roughly fifty options. It now shows the types belonging to that project's sector, plus the ones common to all sectors and any type your organisation created itself. A project set up without a template still shows everything, and editing an issue already filed under another sector's type keeps that type.",
+      },
+    ],
+  },
+  {
     version: "2.252.3",
     date: "2026-07-31",
     title: "An issue's right-click menu says where it takes you",

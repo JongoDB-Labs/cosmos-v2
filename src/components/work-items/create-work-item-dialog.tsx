@@ -18,7 +18,7 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
-import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { selectableTypes, typesForSector, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import {
   CustomFieldInput,
   isCustomFieldEmpty,
@@ -51,6 +51,13 @@ export interface CreateProject {
   id: string;
   key: string;
   name: string;
+  /**
+   * The project template's sector, scoping the Type picker to the types that
+   * belong to this project. Optional and nullable on purpose: a project without
+   * a template, or a caller that has not loaded it, gets the full catalogue
+   * rather than a silently truncated one.
+   */
+  sector?: string | null;
 }
 
 /** The source issue to seed a duplicate from (COSMOS-13). */
@@ -155,7 +162,19 @@ export function CreateWorkItemDialog({
   // Creating only. The shadow types (Milestone, Goal, KPI, Objective, Key
   // Result, Risk) each duplicate a real table, so an item filed as one never
   // reaches the board that owns that concept.
-  const workItemTypes = useMemo(() => selectableTypes(allTypes), [allTypes]);
+  //
+  // Then narrowed to the SELECTED project's sector: the catalogue is org-wide,
+  // so a Consulting project was offering Permit, Safety Incident, Course and
+  // Production Order among ~49 options. `typesForSector` fails open — a project
+  // with no template, or one whose sector hasn't loaded, still sees everything.
+  const selectedSector = useMemo(
+    () => projects.find((p) => p.id === projectId)?.sector ?? null,
+    [projects, projectId],
+  );
+  const workItemTypes = useMemo(
+    () => typesForSector(selectableTypes(allTypes), selectedSector),
+    [allTypes, selectedSector],
+  );
 
   // Reset the form each time the dialog opens; default the project. In duplicate
   // mode the seed effect below owns initialization, so skip the reset — otherwise

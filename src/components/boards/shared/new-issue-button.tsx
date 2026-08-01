@@ -12,6 +12,8 @@ interface ProjectRow {
   id: string;
   key: string;
   name: string;
+  /** The template's sector, which scopes the Type picker. Null = no template. */
+  sector: string | null;
 }
 
 /**
@@ -67,7 +69,12 @@ export function NewIssueButton({
   // doesn't need.
   const projectRows = useMemo(() => {
     const found = projects?.find((p) => p.id === projectId);
-    return [found ?? { id: projectId, key: projectKey, name: projectKey }];
+    // `sector: null` on the fallback is deliberate — before the GET resolves we
+    // do not know the sector, and guessing would hide types. Null means "show
+    // the whole catalogue", so the picker only ever narrows once it is certain.
+    return [
+      found ?? { id: projectId, key: projectKey, name: projectKey, sector: null },
+    ];
   }, [projects, projectId, projectKey]);
 
   return (

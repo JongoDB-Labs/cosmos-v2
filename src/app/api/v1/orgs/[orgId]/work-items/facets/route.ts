@@ -47,7 +47,15 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const [projects, types, columns, members, intervals, tagRows] = await Promise.all([
       prisma.project.findMany({
         where: { id: { in: allowedProjectIds } },
-        select: { id: true, key: true, name: true, archived: true },
+        select: {
+          id: true,
+          key: true,
+          name: true,
+          archived: true,
+          // The template's sector scopes the New-issue Type picker to the types
+          // belonging to this project, rather than every type in the org.
+          projectTemplate: { select: { sector: true } },
+        },
         orderBy: { name: "asc" },
       }),
       prisma.workItemType.findMany({
@@ -99,7 +107,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     }
 
     return success({
-      projects,
+      // Flatten the template relation to a bare `sector`, so the client reads
+      // one field rather than reaching through a join it has no other use for.
+      projects: projects.map(({ projectTemplate, ...p }) => ({
+        ...p,
+        sector: projectTemplate?.sector ?? null,
+      })),
       types,
       statuses: [...statusByKey.values()],
       // Per-project lane options for scoped inline status editing (COSMOS-30).

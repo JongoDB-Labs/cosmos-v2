@@ -40,10 +40,13 @@ for (const m of ["hasPointerCapture", "setPointerCapture", "releasePointerCaptur
 
 // Mock the async hooks the dialog reads so the test controls exactly what the
 // types/custom-fields fetches "returned" — no QueryClientProvider needed.
-vi.mock("@/hooks/use-work-item-types", () => ({
-  // Fixtures here contain no shadow types, so a passthrough matches the real
-  // filter exactly; use-work-item-types.test.ts covers the filtering itself.
-  selectableTypes: <T,>(types: T[]) => types, useWorkItemTypes: vi.fn() }));
+// Only the data-fetching hook is faked. `selectableTypes` and `typesForSector`
+// come through REAL, so this dialog is filtered by the same code production
+// runs — a passthrough stub would let a broken filter pass here unnoticed.
+vi.mock("@/hooks/use-work-item-types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-work-item-types")>()),
+  useWorkItemTypes: vi.fn(),
+}));
 vi.mock("@/hooks/use-custom-fields", () => ({ useCustomFields: vi.fn() }));
 vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
@@ -538,5 +541,79 @@ describe("CreateWorkItemDialog — a late-arriving project list must not wipe th
     await waitFor(() =>
       expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(""),
     );
+  });
+});
+
+/**
+ * The Type picker is scoped to the selected project's sector.
+ *
+ * The org's type catalogue is org-wide — 55 rows on production spanning every
+ * sector we ship — so a fresh single-sector project offered Permit, Safety
+ * Incident, Course and Production Order alongside its own types.
+ *
+ * This renders the real dialog rather than calling `typesForSector` directly,
+ * because the unit test cannot see the wiring: `sector` has to travel from the
+ * facets/projects payload, through `CreateProject`, to the filter. It was
+ * dropped by both call sites' local types on the first attempt, which type-
+ * checked cleanly and silently did nothing.
+ */
+describe("Type picker scoping", () => {
+  const CATALOGUE = [
+    { id: "sw-task", key: "software.task", name: "Task" },
+    { id: "sw-epic", key: "software.epic", name: "Epic" },
+    { id: "aec-permit", key: "aec.permit", name: "Permit" },
+    { id: "edu-course", key: "education.course", name: "Course" },
+    // A real non-shadow cross type. `cross.risk` would NOT work here: it is
+    // in SHADOW_TYPE_KEYS and `selectableTypes` drops it before this filter
+    // ever runs, which is correct and caught this fixture being wrong.
+    { id: "cross-decision", key: "cross.decision", name: "Decision" },
+    { id: "custom-feature", key: "feature", name: "Feature" },
+  ];
+
+  function renderWith(project: Record<string, unknown>) {
+    vi.mocked(useWorkItemTypes).mockReturnValue({ types: CATALOGUE } as never);
+    vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
+    vi.mocked(jsonFetch).mockImplementation((() => Promise.resolve([])) as never);
+    render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={[project as never]}
+        prefilledProjectId={project.id as string}
+      />,
+    );
+  }
+
+  /**
+   * Visible option labels of the Type select.
+   *
+   * Located by its options rather than its label: the Type `<Label>` carries no
+   * `htmlFor` and the `<select>` no `id`, so there is no accessible association
+   * to query by. Worth fixing, but not while changing behaviour.
+   */
+  async function typeOptions() {
+    await screen.findByRole("dialog");
+    const selects = [...document.querySelectorAll("select")] as HTMLSelectElement[];
+    const typeSelect = selects.find((s) =>
+      [...s.options].some((o) => CATALOGUE.some((t) => t.name === o.textContent?.trim())),
+    );
+    if (!typeSelect) throw new Error("Type select not found");
+    return [...typeSelect.options].map((o) => o.textContent?.trim());
+  }
+
+  it("offers only this project's sector, plus cross and custom types", async () => {
+    renderWith({ id: "p1", key: "ENG", name: "Engineering", sector: "software" });
+    const opts = await typeOptions();
+    expect(opts).toEqual(expect.arrayContaining(["Task", "Epic", "Decision", "Feature"]));
+    expect(opts).not.toContain("Permit");
+    expect(opts).not.toContain("Course");
+  });
+
+  it("offers everything when the project has no sector", async () => {
+    // Fail open: a project with no template must not lose its type picker.
+    renderWith({ id: "p1", key: "ENG", name: "Engineering", sector: null });
+    const opts = await typeOptions();
+    expect(opts).toEqual(expect.arrayContaining(["Task", "Permit", "Course"]));
   });
 });
