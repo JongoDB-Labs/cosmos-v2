@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.254.0",
+    date: "2026-08-01",
+    title: "One way to approve time, and an export that agrees with payroll",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Approving time now happens in exactly one place — a person's week, through the timesheet. A separate bulk endpoint could approve any set of entries directly, skipping the week's workflow and the check that you are actually the approver for those people. It had no users and has been removed.",
+      },
+      {
+        kind: "fix",
+        text: "The PM template export priced labour differently from payroll and contract burn, so the same hours produced a different figure depending on where you read it. All three now use the same calculation.",
+      },
+    ],
+  },
+  {
     version: "2.253.2",
     date: "2026-08-01",
     title: "Filter a board by estimate",
