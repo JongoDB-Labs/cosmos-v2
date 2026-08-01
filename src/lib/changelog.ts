@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.253.1",
+    date: "2026-08-01",
+    title: "Contract burn and payroll agree on the same hours",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Contract burn — how much of a CLIN's funded value has been consumed — was calculated differently from payroll, so the same hours at the same rates produced two different figures. On 400 entries they differed by 22 cents, and the gap widened as entries accumulated. Both now price labour the same way, rounded to the cent per line as an invoice or a pay run does.",
+      },
+      {
+        kind: "fix",
+        text: "A time entry with no rate and no employee cost rate no longer makes a CLIN's burn unreadable; it counts as zero.",
+      },
+    ],
+  },
+  {
     version: "2.253.0",
     date: "2026-08-01",
     title: "Take back a timesheet you submitted by mistake",
