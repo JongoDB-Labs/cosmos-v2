@@ -50,7 +50,14 @@ export const BUILTIN_WORK_ROLES: BuiltinWorkRole[] = [
       "SPRINT_READ",
       "OKR_CREATE", "OKR_READ", "OKR_UPDATE",
       "MEETING_CREATE", "MEETING_READ", "MEETING_UPDATE", "MEETING_DELETE",
-      "TIME_READ", "TIME_APPROVE",
+      // TIME_READ, but deliberately NOT TIME_APPROVE. Running a project and
+      // signing off company time are different authorities: approving hours
+      // commits them to payroll, to a CLIN and potentially to an invoice, and
+      // none of that is needed to manage delivery. Approval belongs to whoever
+      // SUPERVISES the worker, or to the Reviewer / Approver role — which
+      // exists precisely so approval can be granted without also handing
+      // someone a project.
+      "TIME_READ",
       "COMMENT_CREATE", "COMMENT_READ",
       "NOTE_CREATE", "NOTE_READ", "NOTE_UPDATE", "NOTE_DELETE",
       "ANALYTICS_READ", "REPORT_CREATE", "TEMPLATE_READ", "NOTIFICATION_READ", "CHAT_USE",

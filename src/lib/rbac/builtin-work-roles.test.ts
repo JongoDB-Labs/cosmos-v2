@@ -48,17 +48,49 @@ describe("BUILTIN_WORK_ROLES catalog", () => {
     expect(pm.permissions).toContain("PROJECT_CREATE");
   });
 
-  it("the re-sync migration's mask still matches the catalog", () => {
+  it("a Project Manager cannot approve time", () => {
+    // Running a project and signing off company time are different authorities.
+    // Bundling them meant granting someone a project silently made them an
+    // approver of everyone's hours — 16 people in the first org to hit it.
+    const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
+    expect(pm.permissions).not.toContain("TIME_APPROVE");
+    // They still SEE time — a manager tracking delivery needs the hours.
+    expect(pm.permissions).toContain("TIME_READ");
+  });
+
+  it("Reviewer / Approver is where time approval lives instead", () => {
+    // The separation only works if there is somewhere else to put the authority.
+    const ra = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.reviewer-approver")!;
+    expect(ra.permissions).toContain("TIME_APPROVE");
+    expect(ra.permissions).toContain("TIME_READ");
+  });
+
+  it("the LATEST re-sync migration's mask still matches the catalog", () => {
     // The migration carries a literal because SQL cannot read this file. If the
     // catalog changes and the migration does not, existing orgs silently keep
     // the old grants while new orgs get the new ones — a split-brain that is
     // invisible until someone compares two orgs.
+    //
+    // Points at the NEWEST re-sync. Earlier ones are history: they have already
+    // run in production, and their literals must never be edited to match a
+    // catalog they predate.
     const sql = readFileSync(
-      "prisma/migrations/20260801120000_scope_builtin_project_manager/migration.sql",
+      "prisma/migrations/20260801220000_project_manager_loses_time_approve/migration.sql",
       "utf8",
     );
     const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
     expect(sql).toContain(maskToDb(permissionMaskFromKeys(pm.permissions)));
+  });
+
+  it("the change from the previous re-sync is TIME_APPROVE and NOTHING else", () => {
+    // A mask literal is opaque. A typo, or an unrelated catalog edit made in the
+    // same commit, would quietly revoke other permissions from 16 people and
+    // look identical in review.
+    const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
+    const previous = 283954336511455713695124606159872n;
+    expect(previous - permissionMaskFromKeys(pm.permissions)).toBe(
+      Permission.TIME_APPROVE,
+    );
   });
 
   it("Analyst grants no write bits", () => {

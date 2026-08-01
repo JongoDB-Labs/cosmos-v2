@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.258.0",
+    date: "2026-08-01",
+    title: "Managing a project no longer means approving everyone's time",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Project Manager role no longer approves time. Running a project and signing off company hours are separate authorities — approved hours go to payroll, to a contract line and sometimes to an invoice — and bundling them meant that giving someone a project quietly made them an approver for the whole organisation. Project managers still see time; they no longer sign it off.",
+      },
+      {
+        kind: "improvement",
+        text: "Time approval now sits with whoever supervises the person, with organisation owners and admins, or with the Reviewer / Approver role — which exists so you can grant approval authority without also handing someone a project. ACTION NEEDED: nobody is given that role automatically, so assign it to the people who should be approving.",
+      },
+    ],
+  },
+  {
     version: "2.257.0",
     date: "2026-08-01",
     title: "Removing time now asks why — and says what really happens",
