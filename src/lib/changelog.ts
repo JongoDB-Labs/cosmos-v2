@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.259.0",
+    date: "2026-08-01",
+    title: "Put your whole team on payroll in one click",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Finance → Payroll now tells you how many people have no employee record and offers to create them all at once. Until now they had to be added one at a time, so organisations sat with a full member list and no employee records — which meant nobody could be given a supervisor and no timesheet had anywhere to go for approval.",
+      },
+      {
+        kind: "improvement",
+        text: "Everyone missing a record is pre-selected, and you can untick anyone who should not be on payroll — contractors, or people who do not book time. Running it again is safe: anyone who already has a record is left exactly as they are.",
+      },
+      {
+        kind: "improvement",
+        text: "ACTION NEEDED: new records are created with a cost rate of $0.00. No rate is ever guessed, because an invented one would quietly mis-state labor cost and contract burn. Set the real rates in the Employees table before your next pay run, or that time will be costed at zero.",
+      },
+    ],
+  },
+  {
     version: "2.258.0",
     date: "2026-08-01",
     title: "Managing a project no longer means approving everyone's time",
