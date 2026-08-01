@@ -152,6 +152,29 @@ describe("Payroll — bulk-add prompt", () => {
     await waitFor(() => expect(postedUserIds()).toEqual([ALICE, CARA]));
   });
 
+  it("stops excluding people once the batch has gone in", async () => {
+    // An untick means "not in THIS batch", not "never". Carrying it over
+    // stranded the prompt on a disabled "Add 0 employee records" whose only
+    // explanation was hidden behind "Choose who" — found by driving the real
+    // screen, not by any mocked test.
+    stubApi([]);
+    renderDashboard();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Choose who" }),
+    );
+    await userEvent.click(screen.getByRole("checkbox", { name: "Cara Okafor" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Add 2 employee records" }),
+    );
+
+    // Everyone still missing a record is offered again — nobody is silently
+    // held back from the next batch.
+    expect(
+      await screen.findByRole("button", { name: "Add 3 employee records" }),
+    ).toBeTruthy();
+  });
+
   it("is not shown at all once everyone has a record", async () => {
     stubApi([ALICE, BOB, CARA]);
     renderDashboard();

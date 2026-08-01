@@ -334,6 +334,12 @@ function BulkAddEmployeesPrompt({
     invalidate: [["employees"]],
     onSuccess: (res) => {
       setExpanded(false);
+      // An untick means "not in THIS batch", not "never". Once the batch is
+      // committed the prompt is a fresh question about whoever is left, and
+      // carrying the exclusions over strands it on a DISABLED "Add 0 employee
+      // records" whose only explanation is hidden behind "Choose who" — the
+      // exact dead end that appeared when this was driven on a real screen.
+      setExcluded(new Set());
       toast.success(
         res.created === 1
           ? "1 employee record added. Set its cost rate before running payroll."
