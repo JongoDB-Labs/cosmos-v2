@@ -237,6 +237,53 @@ async function ensureMentionFixtures(orgId: string, aliceId: string): Promise<vo
   });
 }
 
+/**
+ * An org chart, so the timesheet approval JOURNEY is reachable at all.
+ *
+ * Without employee records nobody has a supervisor, submissions fall to the
+ * approver pool, and — because alice is the only person holding TIME_APPROVE and
+ * a worker is never routed to themselves — a submitted week is routed to NOBODY.
+ * That is a legitimate state the product handles, but it means the routing and
+ * notification paths cannot be exercised end to end.
+ *
+ * bob supervises alice. Deliberately that direction: alice is the ADMIN the
+ * specs sign in as, so making HER the one with a supervisor is what exercises
+ * "submitted to a named person". bob needs no TIME_APPROVE — supervising a
+ * report confers approval authority on its own (see approvalAuthority).
+ *
+ * Idempotent: employees are unique on (orgId, userId).
+ */
+async function ensureOrgChart(
+  orgId: string,
+  aliceId: string,
+  bobId: string,
+): Promise<void> {
+  const bobEmployee = await prisma.employee.upsert({
+    where: { orgId_userId: { orgId, userId: bobId } },
+    update: {},
+    create: {
+      orgId,
+      userId: bobId,
+      employmentType: "SALARY",
+      costRate: "95.0000",
+      createdById: aliceId,
+    },
+  });
+
+  await prisma.employee.upsert({
+    where: { orgId_userId: { orgId, userId: aliceId } },
+    update: { managerId: bobEmployee.id },
+    create: {
+      orgId,
+      userId: aliceId,
+      employmentType: "SALARY",
+      costRate: "125.0000",
+      managerId: bobEmployee.id,
+      createdById: aliceId,
+    },
+  });
+}
+
 async function main() {
   const org = await prisma.organization.upsert({
     where: { slug: "test-org" },
@@ -280,6 +327,7 @@ async function main() {
   await ensureSecondBoard(org.id, projectId);
   await ensureBuiltInTaskType();
   await ensureMentionFixtures(org.id, alice.id);
+  await ensureOrgChart(org.id, alice.id, bob.id);
 
   console.log("Seeded test fixtures:", {
     orgId: org.id,
