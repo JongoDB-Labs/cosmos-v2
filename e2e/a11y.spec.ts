@@ -10,7 +10,8 @@ import { runAxe, blocking } from "./fixtures/axe";
  * The route list is reconciled to v2's actual IA (see nav-config.ts /
  * topbar-nav.ts): the grouped sidebar (Overview / Projects / Issues /
  * Time-Tracking / CRM group / Accounting group / Analytics / Settings) plus the
- * topbar tabs (Chat / Meetings / Notes / Team). Project-scoped feature tabs
+ * topbar tabs (Chat / Meetings / Notes / Team). The Accounting group's pages
+ * live under /accounting/* so each URL segment matches its nav label. Project-scoped feature tabs
  * (goals / kpis / milestones) are excluded because they sit behind per-project
  * feature toggles the CI seed doesn't enable — visiting them would render an
  * error/empty surface and pass falsely; their components are covered by the
@@ -39,13 +40,14 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "crm/partners", path: "/partners" },
   { name: "crm/products", path: "/products" },
   { name: "crm/contracts", path: "/contracts" },
-  // Accounting group.
-  { name: "finance", path: "/finance" },
-  { name: "finance/accounting", path: "/finance/accounting" },
-  { name: "finance/invoices", path: "/finance/invoices" },
-  { name: "finance/banking", path: "/finance/banking" },
-  { name: "finance/payroll", path: "/finance/payroll" },
-  { name: "finance/tax", path: "/finance/tax" },
+  // Accounting group. Every path mirrors its breadcrumb trail; the old
+  // /finance/* paths still 307 here (src/lib/nav/legacy-redirects.ts).
+  { name: "accounting (redirects to first child)", path: "/accounting" },
+  { name: "accounting/finance", path: "/accounting/finance" },
+  { name: "accounting/invoices", path: "/accounting/invoices" },
+  { name: "accounting/banking", path: "/accounting/banking" },
+  { name: "accounting/payroll", path: "/accounting/payroll" },
+  { name: "accounting/tax", path: "/accounting/tax" },
   // Analytics.
   { name: "analytics", path: "/analytics" },
   { name: "analytics/reports", path: "/analytics/reports" },

@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import bundleAnalyzer from "@next/bundle-analyzer";
+import { legacyRedirectRules } from "./src/lib/nav/legacy-redirects";
 
 const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === "true",
@@ -20,6 +21,11 @@ const nextConfig: NextConfig = {
   experimental: {
     viewTransition: true,
   },
+  // The Accounting section moved from /{org}/finance/* to /{org}/accounting/*
+  // so the URLs match the sidebar labels and breadcrumbs. Keep the old paths
+  // alive for bookmarks/links — the map lives (and is unit-tested) in
+  // src/lib/nav/legacy-redirects.ts.
+  redirects: legacyRedirectRules,
   images: {
     remotePatterns: [
       // Google profile avatars from OAuth.

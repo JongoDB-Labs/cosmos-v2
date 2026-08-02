@@ -301,7 +301,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     { id: "crm", label: "CRM", suffix: "/crm", icon: <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "contracts", label: "Contracts", suffix: "/contracts", icon: <FileSignature className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "analytics", label: "Analytics", suffix: "/analytics", icon: <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "finance", label: "Finance", suffix: "/finance", icon: <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" /> },
+    { id: "finance", label: "Finance", suffix: "/accounting/finance", icon: <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "time", label: "Time Tracking", suffix: "/time-tracking", icon: <Clock className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "feedback", label: "Feedback", suffix: "/feedback", icon: <MessageSquarePlus className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "settings", label: "Settings", suffix: "/settings", icon: <Settings className="h-4 w-4 shrink-0 text-muted-foreground" /> },

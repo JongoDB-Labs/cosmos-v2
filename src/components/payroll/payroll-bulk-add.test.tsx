@@ -24,7 +24,7 @@ if (!("ResizeObserver" in globalThis)) {
   } as unknown as typeof ResizeObserver;
 }
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/acme/finance/payroll" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/acme/accounting/payroll" }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 vi.mock("@/lib/query/json-fetcher", async (orig) => {
