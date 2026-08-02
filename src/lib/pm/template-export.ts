@@ -101,7 +101,15 @@ async function loadRegisterRows(
       case "schedule":
         return loadMilestonesWithDerived(orgId, projectId);
       case "staffing":
-        return loadStaffing(orgId, projectId, { includeCost: true });
+        // FALSE, rather than a permission check, because the personnel template
+        // has no cost-rate cell — every field it writes is compliance data
+        // (CAC, training, NDA, system access). Requesting a rate this code then
+        // discards is exactly how the field leaks later: add a "Cost Rate"
+        // column to the template and it would silently populate for every
+        // caller. With `false` that column arrives blank, so whoever adds it
+        // has to thread FINANCE_READ through deliberately — as
+        // `buildProjectWorkbook` now does.
+        return loadStaffing(orgId, projectId, { includeCost: false });
       case "vendors":
         return prisma.contract.findMany({
           where,

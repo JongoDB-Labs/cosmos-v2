@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { buildProjectWorkbook } from "@/lib/pm/export";
 import { graphUploadFile } from "@/lib/integrations/microsoft-graph";
@@ -53,7 +54,14 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const buf = await buildProjectWorkbook(orgId, projectId);
+    // Same rule as GET /projects/:id/staffing: cost rate rides on FINANCE_READ,
+    // not on project read. It matters MORE here, not less — the workbook lands
+    // in SharePoint, under a different system's access control, and the caller
+    // is handed its URL. An unprivileged member must not be able to copy pay
+    // rates out of the app's own permission model.
+    const includeCost =
+      (ctx.permissions & Permission.FINANCE_READ) === Permission.FINANCE_READ;
+    const buf = await buildProjectWorkbook(orgId, projectId, { includeCost });
     const folder = sp.folder ? `${sp.folder.replace(/^\/+|\/+$/g, "")}/` : "";
     const filename = `${project.key}-pm-dashboard.xlsx`;
     const uploadPath = `/sites/${sp.siteId}/drives/${sp.driveId}/root:/${folder}${filename}:/content`;

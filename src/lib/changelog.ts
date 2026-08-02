@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.263.1",
+    date: "2026-08-02",
+    title: "Pay rates stay behind finance permissions in exports too",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The project workbook mirrored to SharePoint included a Cost Rate column for every staffed person, whatever the permissions of whoever triggered it — even though the staffing screen deliberately hides that column from the same people. Exports now follow the same rule as the screen: rates appear only for those with finance access.",
+      },
+    ],
+  },
+  {
     version: "2.263.0",
     date: "2026-08-02",
     title: "A timesheet needs a supervisor before it can be submitted",

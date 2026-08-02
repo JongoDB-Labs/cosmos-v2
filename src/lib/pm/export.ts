@@ -29,10 +29,22 @@ export type ExportTracker =
  * `trackers` is omitted, every register is included (original behavior). Used
  * for the "combined" export mode; the full-fidelity path is the template
  * populator in template-export.ts.
+ *
+ * `includeCost` is REQUIRED rather than defaulted, and it is the whole reason
+ * this signature changed. The Staffing sheet carries a "Cost Rate" column and
+ * this used to hardcode `includeCost: true` — so the workbook contained every
+ * staffed person's pay rate for any caller, while `GET /projects/:id/staffing`
+ * withheld exactly that field from exactly those callers. One rule, two
+ * consumers, only one of them obeying it.
+ *
+ * No default value, deliberately: a default is how it drifts back. A new call
+ * site that omits the option would silently take the permissive branch, whereas
+ * a required argument forces whoever adds it to have asked the question.
  */
 export async function buildProjectWorkbook(
   orgId: string,
   projectId: string,
+  opts: { includeCost: boolean },
   trackers?: ExportTracker[],
 ): Promise<Buffer> {
   const want = (t: ExportTracker) => !trackers || trackers.includes(t);
@@ -56,7 +68,7 @@ export async function buildProjectWorkbook(
         },
         orderBy: { value: "desc" },
       }),
-      loadStaffing(orgId, projectId, { includeCost: true }),
+      loadStaffing(orgId, projectId, { includeCost: opts.includeCost }),
       loadClinsWithBurn(orgId, projectId),
     ]);
 
