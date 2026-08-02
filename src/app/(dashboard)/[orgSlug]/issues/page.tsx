@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import { getAuthContext } from "@/lib/auth/session";
 import { getOrgById } from "@/lib/cache/queries";
 import { redirect, notFound } from "next/navigation";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { PageShell } from "@/components/ui/page-shell";
+import { canViewPage } from "@/lib/nav/page-access";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IssuesView } from "@/components/work-items/issues-view";
@@ -35,7 +35,9 @@ async function IssuesPageContent({ params }: PageParams) {
   const org = await getOrgById(ctx.orgId);
   if (!org) notFound();
 
-  const canRead = hasPermission(ctx.permissions, Permission.ITEM_READ);
+  // Derived from the sidebar's own declaration rather than repeated here —
+  // two copies of one rule is how the page and the nav drift apart.
+  const canRead = canViewPage(ctx.permissions, "/issues");
 
   return (
     <PageShell

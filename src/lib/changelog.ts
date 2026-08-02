@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.262.0",
+    date: "2026-08-02",
+    title: "Pages you cannot see are now pages you cannot open",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Typing the address of a screen your role hides — Payroll, Finance, Banking, Tax, Invoices — used to open it anyway. No figures were ever exposed, because the data is checked separately, but the page itself should never have loaded. Those screens now show a clear \"no access\" message.",
+      },
+      {
+        kind: "improvement",
+        text: "Whether you may open a page is now decided by the same rule that decides whether it appears in your sidebar, so the two can no longer disagree.",
+      },
+      {
+        kind: "fix",
+        text: "Choosing supervisors opened a panel that was cut off by the employees table and pushed underneath it. It is now a proper dialog, with room for full names.",
+      },
+      {
+        kind: "improvement",
+        text: "Pay runs explain themselves: what a run actually does, what posting one means, and why to preview it first.",
+      },
+    ],
+  },
+  {
     version: "2.261.0",
     date: "2026-08-01",
     title: "Accounting pages now live at accounting addresses",
