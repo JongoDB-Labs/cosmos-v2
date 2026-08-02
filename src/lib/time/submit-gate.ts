@@ -107,9 +107,21 @@ export async function resolveSubmitGate(params: {
       hasSupervisor(orgId, subjectUserId),
     ]);
 
-    const eligible = employee
-      ? await assignableSupervisors(orgId, employee.id)
-      : [];
+    // `assignableSupervisors` loads every employee and every supervisor edge in
+    // the org, and this runs on each time-tracking page load. Skip it whenever
+    // an earlier exemption already decides the answer — which, once an org has
+    // rolled supervisors out, is the overwhelmingly common case.
+    //
+    // This is ONLY an optimisation, never a second decision: when it skips, the
+    // count passed below is 0, and `submitGate` returns allowed on one of its
+    // first three branches regardless of the count. The pure function stays the
+    // single place the rule is expressed.
+    const mightBlock =
+      !supervised && Boolean(employee) && !params.canApproveOwnTime;
+    const eligible =
+      mightBlock && employee
+        ? await assignableSupervisors(orgId, employee.id)
+        : [];
 
     return {
       ...submitGate({
