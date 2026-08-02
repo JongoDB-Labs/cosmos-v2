@@ -33,8 +33,8 @@ export function NavGroup({
   railOpen: boolean;
   /**
    * Every visible leaf href across the WHOLE nav (not just this group), so
-   * sibling-suppression works cross-group — e.g. /finance (Accounting group) is
-   * suppressed when /finance/invoices (CRM group) is the active page.
+   * sibling-suppression works cross-group: a shorter href in this group is
+   * suppressed when a longer href in another group is the active page.
    */
   allHrefs?: string[];
 }) {

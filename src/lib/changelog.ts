@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.261.0",
+    date: "2026-08-01",
+    title: "Accounting pages now live at accounting addresses",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Accounting menu served pages whose web address started with /finance, so the address bar and the breadcrumb trail disagreed with the menu you clicked. Finance, Banking, Payroll, Tax and Invoices now all sit under .../accounting/..., matching what the trail says. Existing links and bookmarks to the old addresses still work — they forward to the new ones.",
+      },
+      {
+        kind: "improvement",
+        text: "Invoices moved out of CRM and into Accounting, where people were already looking for it.",
+      },
+      {
+        kind: "improvement",
+        text: "The separate Accounting page is gone; its Reports, Journal and Chart of Accounts are now tabs on the Finance page. One less menu item to choose between, and the breadcrumb no longer reads \"Accounting › Accounting\".",
+      },
+    ],
+  },
+  {
     version: "2.260.1",
     date: "2026-08-01",
     title: "Point people at the right screen",

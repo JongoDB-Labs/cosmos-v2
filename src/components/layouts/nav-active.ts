@@ -10,9 +10,9 @@
  *     highlights.
  *  2. The org overview ("" href) must match EXACTLY — otherwise its "/{slug}"
  *     prefix lights it up on every sub-page.
- *  3. A parent route ("/finance") must not stay active when a more-specific
- *     sibling ("/finance/accounting") is the active page. Callers pass the
- *     sibling hrefs so we can suppress the shorter match.
+ *  3. A parent route ("/projects") must not stay active when a more-specific
+ *     sibling ("/projects/new") is the active page. Callers pass the sibling
+ *     hrefs so we can suppress the shorter match.
  */
 
 /** A path that can never equal a real pathname — used when there's no org. */

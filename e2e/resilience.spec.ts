@@ -14,7 +14,7 @@ const EMAIL = process.env.E2E_EMAIL ?? "alice@test.local";
 // `api` is the glob for that primary fetch; failing it should reveal LoadError.
 const SURFACES: Array<{ name: string; path: string; api: string }> = [
   { name: "time-tracking", path: "/time-tracking", api: "**/api/v1/orgs/*/time-entries*" },
-  { name: "finance", path: "/finance", api: "**/api/v1/orgs/*/finance/**" },
+  { name: "finance", path: "/accounting/finance", api: "**/api/v1/orgs/*/finance/**" },
   { name: "analytics", path: "/analytics", api: "**/api/v1/orgs/*/analytics/portfolio*" },
   { name: "meetings", path: "/meetings", api: "**/api/v1/orgs/*/meetings*" },
   { name: "compliance", path: "/settings/compliance", api: "**/api/v1/orgs/*/compliance/**" },

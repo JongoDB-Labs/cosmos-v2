@@ -135,7 +135,7 @@ Manual verification checklist for the audit + tracking-templates work. Open your
 
 ## Slice 6 — Finance + Analytics + Reports
 
-### Finance (`/[orgSlug]/finance`)
+### Finance (`/[orgSlug]/accounting/finance`)
 - [ ] Page renders with revenue/expense summary
 - [ ] Monthly chart uses design tokens (no hardcoded hex colors)
 - [ ] Try creating an expense → validates required fields

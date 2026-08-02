@@ -147,17 +147,16 @@ export const SIDEBAR_NAV: NavEntry[] = [
         href: "/contracts",
         anyOf: [Permission.CRM_READ],
       },
-      {
-        type: "leaf",
-        id: "crm-invoices",
-        icon: Receipt,
-        label: "Invoices",
-        href: "/finance/invoices",
-        anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
-      },
     ],
   },
   {
+    // Every child's URL mirrors its breadcrumb trail:
+    // /{orgSlug}/accounting/{page}. The section used to live under /finance/*,
+    // which put a group called "Accounting" in front of pages called
+    // /finance/… and produced TWO "Accounting" crumbs (the group, plus a
+    // /finance/accounting ledger page). The ledger is now a set of tabs on the
+    // Finance page, so "Accounting" appears exactly once. Old paths still
+    // resolve — see src/lib/nav/legacy-redirects.ts.
     type: "group",
     id: "accounting",
     icon: BookOpen,
@@ -168,23 +167,18 @@ export const SIDEBAR_NAV: NavEntry[] = [
         id: "acct-finance",
         icon: DollarSign,
         label: "Finance",
-        href: "/finance",
-        anyOf: [Permission.FINANCE_READ],
-      },
-      {
-        type: "leaf",
-        id: "acct-ledger",
-        icon: BookOpen,
-        label: "Accounting",
-        href: "/finance/accounting",
-        anyOf: [Permission.ACCOUNTING_READ, Permission.FINANCE_READ],
+        href: "/accounting/finance",
+        // Also visible to ACCOUNTING_READ: the chart of accounts, journal and
+        // financial statements are tabs on this page now, so it is the only
+        // way in to them.
+        anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
       },
       {
         type: "leaf",
         id: "acct-banking",
         icon: Landmark,
         label: "Banking",
-        href: "/finance/banking",
+        href: "/accounting/banking",
         anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
       },
       {
@@ -192,7 +186,7 @@ export const SIDEBAR_NAV: NavEntry[] = [
         id: "acct-payroll",
         icon: Wallet,
         label: "Payroll",
-        href: "/finance/payroll",
+        href: "/accounting/payroll",
         anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
       },
       {
@@ -200,7 +194,18 @@ export const SIDEBAR_NAV: NavEntry[] = [
         id: "acct-tax",
         icon: Percent,
         label: "Tax",
-        href: "/finance/tax",
+        href: "/accounting/tax",
+        anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
+      },
+      {
+        // Moved out of the CRM group: an invoice is an accounting artifact and
+        // it lives at /accounting/invoices, so CRM was both the wrong label
+        // and the wrong URL prefix.
+        type: "leaf",
+        id: "acct-invoices",
+        icon: Receipt,
+        label: "Invoices",
+        href: "/accounting/invoices",
         anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
       },
     ],

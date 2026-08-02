@@ -49,6 +49,12 @@ import {
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import {
+  AccountingPanel,
+  ACCOUNTING_TABS,
+  ACCOUNTING_TAB_LABELS,
+  type AccountingTab,
+} from "@/components/accounting/accounting-dashboard";
+import {
   BarChart,
   Bar,
   XAxis,
@@ -111,7 +117,17 @@ const PIE_COLORS = [
   "var(--status-info)",
 ];
 
-type FinanceTab = "revenue" | "expenses";
+/**
+ * One tab strip for the whole Finance page. "reports" | "journal" | "accounts"
+ * are the ledger panels that used to be their own page at /finance/accounting —
+ * folded in here so the section has a single "Accounting" breadcrumb.
+ */
+type FinanceTab = "revenue" | "expenses" | AccountingTab;
+
+const FINANCE_OWN_TABS = [
+  { id: "revenue", label: "Revenue" },
+  { id: "expenses", label: "Expenses" },
+] as const satisfies readonly { id: FinanceTab; label: string }[];
 
 interface RevenueFormData {
   amount: string;
@@ -462,6 +478,18 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
     deleteExpenseMutation.mutate(id);
   };
 
+  // The ledger tabs are only offered to a viewer who may read the ledger —
+  // they were a separately-permissioned nav item before this page absorbed them.
+  const tabs: { id: FinanceTab; label: string }[] = [
+    ...FINANCE_OWN_TABS,
+    ...(can(Permission.ACCOUNTING_READ)
+      ? ACCOUNTING_TABS.map((t) => ({
+          id: t as FinanceTab,
+          label: ACCOUNTING_TAB_LABELS[t],
+        }))
+      : []),
+  ];
+
   if (summaryQ.isError || revenueQ.isError || expensesQ.isError) {
     return (
       <div className="flex flex-col gap-6 p-6">
@@ -651,31 +679,30 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
-            <button
-              onClick={() => setTab("revenue")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                tab === "revenue"
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Revenue
-            </button>
-            <button
-              onClick={() => setTab("expenses")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                tab === "expenses"
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Expenses
-            </button>
+          <div className="flex flex-wrap items-center rounded-lg border bg-muted/50 p-0.5">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  tab === t.id
+                    ? "bg-background shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {tab === "revenue" ? (
+        {/* The ledger panels mount only while selected, so a viewer who never
+            opens them never issues their five queries. */}
+        {tab !== "revenue" && tab !== "expenses" && (
+          <AccountingPanel orgId={orgId} tab={tab} />
+        )}
+
+        {tab === "revenue" && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Revenue Entries</h3>
@@ -907,7 +934,9 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
               emptyState={<EmptyState title="No revenue entries yet." />}
             />
           </div>
-        ) : (
+        )}
+
+        {tab === "expenses" && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Expense Entries</h3>

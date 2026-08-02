@@ -1,4 +1,15 @@
 "use client";
+/**
+ * The ledger surface — chart of accounts, journal entries and the three
+ * financial statements.
+ *
+ * It no longer owns a page. `/{orgSlug}/finance/accounting` was a second page
+ * called "Accounting" underneath a nav GROUP called "Accounting", so the
+ * breadcrumb read "… › Accounting › Accounting". Its three panels are now tabs
+ * on the Finance page (`/{orgSlug}/accounting/finance`), which is why this
+ * exports a PANEL that takes its selected tab from the caller instead of a
+ * dashboard that renders its own tab strip.
+ */
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -62,12 +73,26 @@ type BalanceSheet = {
   equity: string;
   netIncome: string;
 };
-type Tab = "accounts" | "journal" | "reports";
+/** The ledger panels, in the order they appear on the Finance tab strip. */
+export const ACCOUNTING_TABS = ["reports", "journal", "accounts"] as const;
+export type AccountingTab = (typeof ACCOUNTING_TABS)[number];
 
-export function AccountingDashboard({ orgId }: { orgId: string }) {
+export const ACCOUNTING_TAB_LABELS: Record<AccountingTab, string> = {
+  reports: "Reports",
+  journal: "Journal",
+  accounts: "Chart of Accounts",
+};
+
+export function AccountingPanel({
+  orgId,
+  tab,
+}: {
+  orgId: string;
+  /** Which ledger panel to render. Owned by the caller's tab strip. */
+  tab: AccountingTab;
+}) {
   const { can } = usePermissions();
   const canManage = can(Permission.ACCOUNTING_MANAGE);
-  const [tab, setTab] = useState<Tab>("reports");
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [journalDialogOpen, setJournalDialogOpen] = useState(false);
   const accountsKey = useOrgQueryKey("accounting", "accounts");
@@ -133,7 +158,7 @@ export function AccountingDashboard({ orgId }: { orgId: string }) {
     bsQ.isError
   ) {
     return (
-      <div className="p-6">
+      <div>
         <LoadError
           onRetry={() => {
             accountsQ.refetch();
@@ -198,27 +223,10 @@ export function AccountingDashboard({ orgId }: { orgId: string }) {
   ];
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6">
+      {/* Tab strip lives on the Finance page; this row carries only the actions
+          that belong to the selected ledger panel. */}
       <div className="flex items-center gap-2">
-        <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
-          {(["reports", "journal", "accounts"] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                tab === t
-                  ? "bg-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t === "reports"
-                ? "Reports"
-                : t === "journal"
-                  ? "Journal"
-                  : "Chart of Accounts"}
-            </button>
-          ))}
-        </div>
         <div className="ml-auto flex items-center gap-2">
           {canManage && tab === "journal" && (
             <Button size="sm" onClick={() => setJournalDialogOpen(true)}>

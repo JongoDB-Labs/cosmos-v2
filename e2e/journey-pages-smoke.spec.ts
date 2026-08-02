@@ -30,7 +30,7 @@ type SmokeRoute = {
 const ROUTES: SmokeRoute[] = [
   { name: "overview", path: `/${ORG}`, heading: /^Active projects$/i },
   { name: "analytics", path: `/${ORG}/analytics`, heading: /^Analytics$/ },
-  { name: "finance", path: `/${ORG}/finance`, heading: /^Finance$/ },
+  { name: "finance", path: `/${ORG}/accounting/finance`, heading: /^Finance$/ },
   { name: "notes", path: `/${ORG}/notes`, heading: /^Notes$/ },
   { name: "crm", path: `/${ORG}/crm`, heading: /^CRM$/ },
   {

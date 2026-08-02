@@ -23,7 +23,7 @@ test.describe("journey — expense approval", () => {
     const stamp = Date.now().toString().slice(-6);
     const category = `E2E Exp ${stamp}`;
 
-    await page.goto(`/${ORG}/finance`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/${ORG}/accounting/finance`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("main", { timeout: 20_000 });
 
     // Switch to the Expenses tab and open the create dialog.

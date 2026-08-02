@@ -124,8 +124,11 @@ export function AppSidebar({
   );
 
   // Every visible leaf href across the WHOLE nav (top-level leaves + all group
-  // children), for cross-group sibling-suppression — e.g. /finance (Accounting)
-  // must NOT stay active when /finance/invoices (CRM) is the page.
+  // children), for cross-group sibling-suppression: a shorter href in one group
+  // must NOT stay active when a longer href in ANOTHER group is the page. (The
+  // case that motivated it — /finance vs the CRM group's /finance/invoices — is
+  // gone now that Accounting owns both, but plugins contribute nav entries at
+  // runtime, so the cross-group guard still has to hold.)
   const allLeafHrefs = entries.flatMap((e) =>
     e.type === "group"
       ? e.children.map((c) => resolveHref(orgSlug, c.href))

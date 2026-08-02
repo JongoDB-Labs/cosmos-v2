@@ -16,7 +16,7 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "overview", path: "" },
   { name: "projects", path: "/projects" },
   { name: "analytics", path: "/analytics" },
-  { name: "finance", path: "/finance" },
+  { name: "finance", path: "/accounting/finance" },
 ];
 
 // Catastrophic-only — a healthy prod LCP is well under 1s (see perf memory).
