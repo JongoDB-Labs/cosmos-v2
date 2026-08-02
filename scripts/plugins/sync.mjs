@@ -20,10 +20,23 @@
  *
  * The public core with NO `plugins/` dir composes to the neutral (zero-plugin) build.
  * Run: `node scripts/plugins/sync.mjs`  (or `--clean`).
+ *
+ * Overwrite guard: composed copies are git-invisible (exclude/skip-worktree), so
+ * git offers NO safety net for edits mistakenly made to them — a re-compose or
+ * `--clean` would silently discard the only copy. Every compose records a content
+ * hash per written file; any later run refuses (loudly, listing the files) when a
+ * composed copy has been edited since. `--force` discards the edits on purpose.
+ *
+ * `--watch` (or `npm run sync:watch`): after composing, watch each plugin's
+ * overlay/ and re-copy changed files into the composed tree immediately, so the
+ * CORRECT place to edit (the plugin repo) is also the one the dev server
+ * hot-reloads from. Structural changes (added/removed files, plugin.json, the
+ * schema fragment, migrations) trigger a full re-compose.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, rmSync, rmdirSync, appendFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync, rmSync, rmdirSync, appendFileSync, watch as fsWatch } from "node:fs";
 import { join, dirname, relative } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mergeDependencies } from "./merge-deps.mjs";
 import { renderRegistryIndex, renderRegistryServer } from "./render-registry.mjs";
 
@@ -40,6 +53,7 @@ const gitPath = (flag) => git(["rev-parse", "--path-format=absolute", flag]).toS
 // plugin sets don't clobber each other's --clean manifest.
 const EXCLUDE = join(gitPath("--git-common-dir"), "info", "exclude");
 const STATE = join(gitPath("--git-dir"), "plugin-sync.state");   // real composed paths (for --clean)
+const HASHES = join(gitPath("--git-dir"), "plugin-sync.hashes"); // "<sha1> <path>" per composed file (overwrite guard)
 const SCHEMA = join(ROOT, "prisma", "schema.prisma");
 const REG_INDEX = "src/lib/plugins/registry/index.ts";
 const REG_SERVER = "src/lib/plugins/registry/server.ts";
@@ -49,6 +63,49 @@ const MARK = "# --- plugin-sync managed (do not commit) ---";
 const excludeEntry = (p) => "/" + p.replace(/([[\]*?])/g, "\\$1");
 
 const clean = process.argv.includes("--clean");
+const force = process.argv.includes("--force");
+const watchMode = process.argv.includes("--watch");
+
+const fileHash = (abs) => createHash("sha1").update(readFileSync(abs)).digest("hex");
+
+const readHashes = () =>
+  !existsSync(HASHES)
+    ? {}
+    : Object.fromEntries(
+        readFileSync(HASHES, "utf8").split("\n").filter(Boolean).map((l) => {
+          const i = l.indexOf(" ");
+          return [l.slice(i + 1), l.slice(0, i)];
+        }),
+      );
+
+const writeHashes = (map) =>
+  writeFileSync(HASHES, Object.entries(map).map(([rel, h]) => `${h} ${rel}`).sort().join("\n") + "\n");
+
+/**
+ * The overwrite guard. Composed copies are hidden from git (exclude /
+ * skip-worktree), so an edit mistakenly made to one exists NOWHERE else — and
+ * both `--clean` and the fresh-compose restore would silently destroy it.
+ * Compare every managed file against the hash recorded at compose time and
+ * refuse before touching anything. Runs BEFORE removeManagedExclude(), which
+ * deletes the state this check needs.
+ */
+function guardDirtyComposed() {
+  if (force || !existsSync(STATE)) return;
+  const recorded = readHashes();
+  const dirty = [];
+  for (const rel of readFileSync(STATE, "utf8").split("\n").filter(Boolean)) {
+    const abs = join(ROOT, rel);
+    if (recorded[rel] && existsSync(abs) && fileHash(abs) !== recorded[rel]) dirty.push(rel);
+  }
+  if (dirty.length) {
+    console.error(`[plugin-sync] REFUSING to overwrite ${dirty.length} composed file(s) edited since the last compose:`);
+    for (const rel of dirty) console.error(`  ${rel}`);
+    console.error("[plugin-sync] Composed copies are git-invisible — these edits exist nowhere else.");
+    console.error("[plugin-sync] Move them into the owning plugin (edit plugins/<slug>/overlay/** — the same");
+    console.error("[plugin-sync] path under overlay/), then re-run. Or pass --force to DISCARD them.");
+    process.exit(1);
+  }
+}
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -70,10 +127,12 @@ function removeManagedExclude() {
   if (!existsSync(STATE)) return [];
   const managed = readFileSync(STATE, "utf8").split("\n").filter(Boolean);
   rmSync(STATE, { force: true });
+  rmSync(HASHES, { force: true });
   return managed;
 }
 
 function restore() {
+  guardDirtyComposed();
   const managed = removeManagedExclude();
   const tracked = [];
   const dirs = new Set();
@@ -117,6 +176,7 @@ const manifests = [];            // { slug, importPath }
 let schemaFragments = "";
 const backrel = {};              // Model -> [lines]
 const pluginDeps = [];           // { slug, dependencies } — npm deps to merge
+const watchTargets = [];         // { slug, overlayRoot, structural[] } for --watch
 
 // Which repo paths are TRACKED in core (collision guard: an overlay must never
 // silently clobber a real core file).
@@ -166,6 +226,12 @@ for (const slug of slugs) {
   const importPath = "@/" + (cfg.manifest ?? `src/plugins/${slug}/manifest.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   const serverPath = "@/" + (cfg.serverHooks ?? `src/plugins/${slug}/server.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   manifests.push({ slug, importPath, serverPath });
+  // 7) --watch bookkeeping: overlay edits hot-copy; these paths force a re-compose.
+  watchTargets.push({
+    slug,
+    overlayRoot,
+    structural: [join(dir, "plugin.json"), frag, migRoot].filter(existsSync),
+  });
 }
 
 // --- write schema (inject fragments + back-relations at the markers) ---
@@ -245,5 +311,81 @@ if (trackedWritten.length) git(["update-index", "--skip-worktree", ...trackedWri
 writeFileSync(STATE, [...written].sort().join("\n") + "\n");
 const block = [MARK, ...[...written].sort().map(excludeEntry)].join("\n") + "\n";
 appendFileSync(EXCLUDE, (existsSync(EXCLUDE) && readFileSync(EXCLUDE, "utf8").endsWith("\n") ? "" : "\n") + block);
+// Record what we wrote — the overwrite guard's baseline for the NEXT run.
+const hashes = {};
+for (const rel of written) hashes[rel] = fileHash(join(ROOT, rel));
+writeHashes(hashes);
+
 console.log(`[plugin-sync] composed ${slugs.length} plugin(s): ${slugs.join(", ")} — ${written.size} path(s) written + excluded`);
 console.log(`[plugin-sync] run \`npx prisma generate\` next, then build.`);
+
+// ─── --watch: keep the composed tree in lockstep with overlay edits ──────────
+// The failure mode this kills: the dev server hot-reloads the COMPOSED copies,
+// so the tempting place to edit is the wrong (git-invisible) one. With the
+// watcher running, editing the RIGHT place — plugins/<slug>/overlay/** — lands
+// in the composed tree within a debounce tick, so correct and convenient are
+// the same path. Content edits hot-copy; structural changes re-compose fully.
+if (watchMode) {
+  const overlayRel = new Map(); // composed rel -> { srcAbs } for fast hot-copy
+  for (const t of watchTargets) {
+    for (const abs of walk(t.overlayRoot)) overlayRel.set(relative(t.overlayRoot, abs), abs);
+  }
+
+  let timer = null;
+  const pendingCopies = new Map(); // overlay abs -> composed rel
+  let needRecompose = false;
+
+  const flush = () => {
+    timer = null;
+    if (needRecompose) {
+      needRecompose = false;
+      pendingCopies.clear();
+      console.log("[plugin-sync] structural change — re-composing…");
+      // Re-run ourselves WITHOUT --watch: the guard passes because incremental
+      // copies keep the hash baseline current. Watchers stay armed on the same
+      // overlay dirs, so the loop survives the re-compose.
+      const r = spawnSync(process.execPath, [process.argv[1]], { cwd: ROOT, stdio: "inherit" });
+      if (r.status !== 0) { console.error("[plugin-sync] re-compose FAILED — fix the error and save again"); return; }
+      // Adopt the child's world: fresh hash baseline + the new composed file set,
+      // so later hot-copies neither clobber the baseline nor miss added files.
+      for (const k of Object.keys(hashes)) delete hashes[k];
+      Object.assign(hashes, readHashes());
+      overlayRel.clear();
+      for (const t of watchTargets) {
+        for (const abs of walk(t.overlayRoot)) overlayRel.set(relative(t.overlayRoot, abs), abs);
+      }
+      return;
+    }
+    for (const [srcAbs, rel] of pendingCopies) {
+      pendingCopies.delete(srcAbs);
+      try {
+        copyFileSync(srcAbs, join(ROOT, rel));
+        hashes[rel] = fileHash(join(ROOT, rel));
+        console.log(`[plugin-sync] ↻ ${rel}`);
+      } catch (e) {
+        console.error(`[plugin-sync] copy failed for ${rel}: ${e.message}`);
+      }
+    }
+    writeHashes(hashes);
+  };
+  const schedule = () => { if (!timer) timer = setTimeout(flush, 150); };
+
+  for (const t of watchTargets) {
+    fsWatch(t.overlayRoot, { recursive: true }, (_event, filename) => {
+      if (!filename) { needRecompose = true; return schedule(); }
+      const srcAbs = join(t.overlayRoot, filename);
+      // Known file with content still present → hot-copy. Anything else (new
+      // file, deletion, rename) changes the composed file SET → re-compose.
+      if (overlayRel.has(filename) && existsSync(srcAbs) && statSync(srcAbs).isFile()) {
+        pendingCopies.set(srcAbs, filename);
+      } else {
+        needRecompose = true;
+      }
+      schedule();
+    });
+    for (const structuralPath of t.structural) {
+      fsWatch(structuralPath, { recursive: true }, () => { needRecompose = true; schedule(); });
+    }
+  }
+  console.log(`[plugin-sync] watching overlay(s) of: ${watchTargets.map((t) => t.slug).join(", ")} — Ctrl-C to stop`);
+}
