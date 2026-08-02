@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db/client";
 import { MeetingType, MeetingStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 
 /**
  * Meeting executors — the org's sync meetings (SyncMeeting model — there is no
@@ -37,7 +38,19 @@ export async function listMeetings(input: Record<string, unknown>, ctx: ToolCont
   const { projectId, sprintId, meetingType, status, limit } = parsed.data;
 
   const where: Prisma.SyncMeetingWhereInput = { orgId: ctx.orgId };
-  if (projectId) where.projectId = projectId;
+  if (projectId) {
+    const outOfScope = await assertProjectRead(ctx, projectId, "MEETING_READ");
+    if (outOfScope) return outOfScope;
+    where.projectId = projectId;
+  } else {
+    // No project named: without this the tool listed every meeting in the org,
+    // including those on projects the actor cannot open. Meetings with NO
+    // project are org-level and stay visible.
+    const auth = await loadAuthContext(ctx);
+    if (!auth) return { error: "Insufficient permissions" };
+    const readable = await getReadableProjectIds(auth);
+    where.OR = [{ projectId: null }, { projectId: { in: readable } }];
+  }
   if (sprintId) where.sprintId = sprintId;
   if (meetingType) where.meetingType = meetingType;
   if (status) where.status = status;
@@ -71,11 +84,8 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
 
   // A supplied project must be in this org (defense-in-depth; projectId is optional).
   if (data.projectId) {
-    const project = await prisma.project.findFirst({
-      where: { id: data.projectId, orgId: ctx.orgId },
-      select: { id: true },
-    });
-    if (!project) return { error: "Project not found" };
+    const outOfScope = await assertProjectRead(ctx, data.projectId, "MEETING_CREATE");
+    if (outOfScope) return outOfScope;
   }
   // SyncMeeting.sprintId has no FK relation (bare id) — require it to be one of
   // this org's intervals so an untrusted id can't plant a cross-org pointer.
@@ -122,9 +132,18 @@ export async function updateMeeting(input: Record<string, unknown>, ctx: ToolCon
 
   const existing = await prisma.syncMeeting.findFirst({
     where: { id: data.meetingId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Meeting not found" };
+
+  // `projectId` is NULLABLE on this model — a row with no project is org-level
+  // and nothing narrows it. Gate only when it belongs to a project, which may
+  // be team-scoped and closed to this actor. Same message either way, so a
+  // refusal never confirms the row is real.
+  if (existing.projectId) {
+    const outOfScope = await assertProjectRead(ctx, existing.projectId, "MEETING_UPDATE");
+    if (outOfScope) return { error: "Meeting not found" };
+  }
 
   const updated = await prisma.syncMeeting.update({
     where: { id: existing.id },
@@ -151,9 +170,18 @@ export async function deleteMeeting(input: Record<string, unknown>, ctx: ToolCon
 
   const existing = await prisma.syncMeeting.findFirst({
     where: { id: parsed.data.meetingId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Meeting not found" };
+
+  // `projectId` is NULLABLE on this model — a row with no project is org-level
+  // and nothing narrows it. Gate only when it belongs to a project, which may
+  // be team-scoped and closed to this actor. Same message either way, so a
+  // refusal never confirms the row is real.
+  if (existing.projectId) {
+    const outOfScope = await assertProjectRead(ctx, existing.projectId, "MEETING_DELETE");
+    if (outOfScope) return { error: "Meeting not found" };
+  }
 
   await prisma.syncMeeting.delete({ where: { id: existing.id } });
   return { deleted: true, id: existing.id };

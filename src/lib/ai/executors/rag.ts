@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { embedText, toVectorLiteral } from "@/lib/rag/embed";
 import { z } from "zod";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 
 const semanticSearchSchema = z.object({
   query: z.string().min(1).max(2000),
@@ -219,19 +220,31 @@ export async function semanticSearch(
   }
 
   // ── Meetings ──────────────────────────────────────────────────────────
-  // RBAC preserved EXACTLY: org-scoped (orgId = ctx.orgId), no further gate.
+  // Scoped by PROJECT, not merely by org. `sync_meetings.project_id` is real
+  // (and nullable), so an org-only filter searched meetings on projects the
+  // asker cannot open — and the snippet below is drawn from the TRANSCRIPT and
+  // AI summary, which is the most sensitive text in the record. A meeting with
+  // no project is org-level and stays searchable.
+  //
+  // This was the last place the agent could still reach a team-scoped project:
+  // `list_meetings` gates, but vector search bypassed it entirely.
   if (enabledTypes.has("meeting")) {
+    const meetingAuth = await loadAuthContext(ctx);
+    if (!meetingAuth) return { error: "Insufficient permissions" };
+    const readableForMeetings = await getReadableProjectIds(meetingAuth);
     const rows = await prisma.$queryRawUnsafe<VectorRow[]>(
       `SELECT "id", "title", "notes", "transcript", "ai_summary" AS "aiSummary",
               1 - ("embedding" <=> $1::vector) AS similarity
          FROM "sync_meetings"
         WHERE "org_id" = $2::uuid
           AND "embedding" IS NOT NULL
+          AND ("project_id" IS NULL OR "project_id" = ANY($4::uuid[]))
         ORDER BY "embedding" <=> $1::vector
         LIMIT $3`,
       qv,
       ctx.orgId,
-      cap
+      cap,
+      readableForMeetings
     );
     for (const row of rows) {
       hits.push({

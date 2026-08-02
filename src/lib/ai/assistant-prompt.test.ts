@@ -86,3 +86,40 @@ describe("BASE_SYSTEM_PROMPT — ask-when-unsure + sprint assignment", () => {
     expect(lower).toMatch(/sprint/);
   });
 });
+
+describe("BASE_SYSTEM_PROMPT — how Cosmo handles a refusal", () => {
+  // The server deliberately answers "not found" for BOTH a missing resource and
+  // one outside the caller's access (see executors/_ctx.ts assertProjectRead),
+  // so that a refusal cannot be used to discover what exists. That contract only
+  // holds if the model does not then guess which it was — "that project doesn't
+  // exist" would give the game away just as surely as the server saying so.
+  it("tells the model tools run AS THE USER, with their access", () => {
+    expect(BASE_SYSTEM_PROMPT).toMatch(/runs? AS THIS USER/i);
+  });
+
+  it("forbids asserting that a refused thing does not exist", () => {
+    expect(BASE_SYSTEM_PROMPT).toMatch(/never assert that it does not exist/i);
+  });
+
+  it("points the user at an admin rather than leaving them stuck", () => {
+    // A refusal the user cannot act on is a dead end — the same reason a
+    // returned timesheet requires a reason.
+    expect(BASE_SYSTEM_PROMPT).toMatch(/owner or admin/i);
+  });
+
+  it("forbids probing with other ids after a refusal", () => {
+    // Otherwise the model treats a denial as an obstacle and sweeps ids, which
+    // turns a closed door into an enumeration oracle.
+    expect(BASE_SYSTEM_PROMPT).toMatch(/never retry a refused call/i);
+  });
+
+  it("forbids calling the platform broken when access is denied", () => {
+    // Same failure mode the protected-data section already guards against: the
+    // model narrating a deliberate boundary as a malfunction.
+    expect(BASE_SYSTEM_PROMPT).toMatch(/never claim the platform is broken/i);
+  });
+
+  it("warns against passing a partial view off as the whole picture", () => {
+    expect(BASE_SYSTEM_PROMPT).toMatch(/partial result as the whole picture/i);
+  });
+});
