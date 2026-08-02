@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.265.0",
+    date: "2026-08-02",
+    title: "Timesheets waiting on you, in one place",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time tracking now lists the weeks waiting on your approval, oldest first, with a button that opens each one. Until now the notification announcing a submission was the only way to reach it — read once, and then gone.",
+      },
+      {
+        kind: "improvement",
+        text: "The list appears only when something is actually waiting, and counts only the weeks you were asked to approve — not every week you happen to have permission over.",
+      },
+    ],
+  },
+  {
     version: "2.264.0",
     date: "2026-08-02",
     title: "See who has asked you to supervise them",

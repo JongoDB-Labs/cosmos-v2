@@ -44,6 +44,7 @@ import {
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
+import { ApprovalsQueue } from "./approvals-queue";
 import { toast } from "sonner";
 
 interface Project {
@@ -679,6 +680,32 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
 
   return (
     <div className="flex flex-col gap-6 p-6">
+      {/* ABOVE the controls, because it is the reason an approver opened this
+          page at all — and it renders nothing when there is nothing waiting, so
+          it costs the other 90% of visits no space.
+
+          MOUNTED ONLY ONCE THE WEEK HAS LOADED, and that ordering is
+          load-bearing rather than cosmetic. This panel's request is not what the
+          page is for, so it must never compete with the one the user is waiting
+          on: issuing it during mount made an UNRELATED time-tracking spec
+          intermittently fail, because in dev the extra route is compiled on
+          first hit and delayed the very load that spec measures. It reads
+          better too — if the page cannot show your entries, a queue panel
+          floating above the error is noise. */}
+      {!loading && !loadError && (
+        <ApprovalsQueue
+          orgId={orgId}
+          refreshKey={refreshKey}
+          onOpen={(who, periodStart) => {
+            // Exactly what the notification deep-link does, minus the round trip
+            // through the URL: move the week, then the person.
+            const parsed = parseWeekParam(periodStart);
+            if (parsed) setWeekBase(parsed);
+            setRequestedUserId(who);
+          }}
+        />
+      )}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
         {/* Title/subtitle are owned by the page shell (PageShell). This row
             only carries the view controls + actions, which wrap on mobile so
