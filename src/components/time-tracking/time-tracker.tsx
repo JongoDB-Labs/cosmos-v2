@@ -158,6 +158,33 @@ const BILLABLE_LABELS: Record<TimeEntry["billableType"], string> = {
   INTERNAL: "Internal",
 };
 
+/**
+ * The `?week=YYYY-MM-DD` a notification links to, as a Date the week grid can use.
+ *
+ * Parsed at LOCAL midnight, deliberately. `getWeekDates` does every step of its
+ * arithmetic in local time — `getDay`, `setDate`, `setHours` — so handing it a
+ * UTC-midnight instant puts it in the WRONG DAY for anyone west of UTC: midnight
+ * UTC on Monday is Sunday evening in New York, `getDay()` returns 0, and the
+ * "go back to Monday" branch rewinds a further six days. An approver following
+ * a notification landed a full week early and saw a week with no hours in it.
+ *
+ * It only manifests at negative offsets, which is why CI (UTC) never caught it —
+ * the same directional blind spot that hid the entry-date bug in 2.250.1.
+ * Anything comparing a `@db.Date` against local calendar maths has to pick one
+ * clock and stay in it; this side is local, because the grid is.
+ */
+export function parseWeekParam(week: string | null): Date | null {
+  // The shape check states the contract; the NaN check below is what actually
+  // rejects everything, because appending a time to a malformed string always
+  // yields an Invalid Date. Mutation-tested and confirmed EQUIVALENT — removing
+  // this line changes no behaviour. Kept as intent, not as a guard to rely on.
+  if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(week)) return null;
+  // No `Z`, and no `new Date("YYYY-MM-DD")` either — the bare form is spec'd as
+  // UTC, which is the very bug this exists to avoid.
+  const parsed = new Date(`${week}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function getWeekDates(baseDate: Date): Date[] {
   const start = new Date(baseDate);
   const day = start.getDay();
@@ -285,11 +312,9 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     // Parsed as UTC midnight. `new Date("2026-07-27")` is already UTC, but
     // being explicit keeps it out of the class of timezone bugs that made time
     // entries render a day early west of UTC.
-    if (week && /^\d{4}-\d{2}-\d{2}$/.test(week)) {
-      const parsed = new Date(`${week}T00:00:00.000Z`);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (!Number.isNaN(parsed.getTime())) setWeekBase(parsed);
-    }
+    const parsed = parseWeekParam(week);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (parsed) setWeekBase(parsed);
     if (who) setRequestedUserId(who);
   }, []);
 
