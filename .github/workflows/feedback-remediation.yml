@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   remediate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     steps:
       - name: Trigger remediation pass
         env:

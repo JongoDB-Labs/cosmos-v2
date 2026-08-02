@@ -49,7 +49,7 @@ env:
 jobs:
   # ── Build the list of tickets to draft fixes for ─────────────────────────────
   plan:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     outputs:
       tickets: ${{ steps.pick.outputs.tickets }}
     steps:
@@ -87,7 +87,7 @@ jobs:
   draft:
     needs: plan
     if: ${{ needs.plan.outputs.tickets != '[]' && needs.plan.outputs.tickets != '' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jongodb]
     strategy:
       max-parallel: 1
       fail-fast: false
