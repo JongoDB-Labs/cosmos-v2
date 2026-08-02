@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.262.1",
+    date: "2026-08-02",
+    title: "Notifications open the week they are about",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening a notification about someone's submitted timesheet took you to the wrong week — a week earlier, with no hours in it — for anyone in a timezone behind UTC. The link now opens the week it refers to.",
+      },
+    ],
+  },
+  {
     version: "2.262.0",
     date: "2026-08-02",
     title: "Pages you cannot see are now pages you cannot open",
