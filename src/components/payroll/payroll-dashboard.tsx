@@ -40,6 +40,8 @@ type Employee = {
   status: string;
   /** Supervisor, as another Employee's id. */
   managerId: string | null;
+  /** They have asked somebody to supervise them and nobody has accepted yet. */
+  awaitingSupervisor?: boolean;
 };
 type PayRun = {
   id: string;
@@ -492,6 +494,8 @@ function SupervisorCell({
     }>;
     /** Can approve time, but has no employee record — so cannot be offered. */
     approversMissingEmployeeRecord: string[];
+    /** Employee ids this person has ASKED to supervise them. */
+    requestedIds: string[];
   }>({
     queryKey,
     queryFn: () =>
@@ -514,6 +518,7 @@ function SupervisorCell({
   });
 
   const selected = data?.supervisorIds ?? [];
+  const requestedIds = data?.requestedIds ?? [];
   const label =
     selected.length === 0
       ? "— none —"
@@ -542,6 +547,16 @@ function SupervisorCell({
       >
         {label}
       </button>
+      {/* Visible WITHOUT opening the row, because that is the whole problem it
+          solves: an approver told "Carol asked you" has to find Carol among
+          everyone, and anyone arriving here without that notification had no
+          way to know a request was waiting at all. Rendered from the employees
+          list, so it costs one query for the page rather than one per row. */}
+      {employee.awaitingSupervisor && (
+        <Badge variant="review" className="ml-2">
+          Supervisor requested
+        </Badge>
+      )}
 
       {/* A DIALOG, not an inline dropdown. The previous version was an
           absolutely-positioned panel inside the employees table, which sits in
@@ -599,6 +614,16 @@ function SupervisorCell({
                     onChange={(e) => toggle(c.employeeId, e.target.checked)}
                   />
                   {c.displayName ?? nameFor(c.userId)}
+                  {requestedIds.includes(c.employeeId) &&
+                    !selected.includes(c.employeeId) && (
+                      // This person was ASKED, and has not been added yet. The
+                      // approver arrives here from a notification; without this
+                      // the picker looks like any other and they have to trust
+                      // their memory of it to know they are in the right place.
+                      // Hidden once assigned — the request has been honoured,
+                      // and a standing "asked" badge would read as outstanding.
+                      <Badge variant="review">Asked</Badge>
+                    )}
                   {!c.canApprove && (
                     // Assigned before they lost the permission. Shown so the
                     // assignment stays visible and removable, but marked — they
