@@ -49,6 +49,28 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (status) where.status = status;
     if (periodStart) where.periodStart = new Date(`${periodStart}T00:00:00.000Z`);
 
+    // ── The approver's queue: weeks waiting on ME ──────────────────────────
+    //
+    // Filters on the ROUTING STAMP, not on authority. `approverIds` records who
+    // was ASKED at submit time, which is exactly what "waiting on me" means;
+    // authority is a wider set (`approvalAuthority`) and using it would fill an
+    // admin's queue with every open week in the org, most of which somebody else
+    // was actually asked to handle.
+    //
+    // Backed by the GIN index on `approverIds`, so `has` is a containment probe
+    // rather than a scan.
+    //
+    // The actor's OWN week can never appear: `routeFor` drops the subject from
+    // both the supervisor list and the pool, so their id is never stamped on
+    // their own sheet.
+    if (sp.get("awaitingMe") === "1") {
+      where.approverIds = { has: ctx.userId };
+      // Only sheets that still owe a decision. An approved or returned week is
+      // no longer waiting on anyone, and leaving it here would make the queue
+      // permanently non-empty — the fastest way to teach someone to ignore it.
+      where.status = { in: ["SUBMITTED", "LABOR_APPROVED"] };
+    }
+
     const rows = await prisma.timesheet.findMany({
       where,
       orderBy: { periodStart: "desc" },
