@@ -11,7 +11,8 @@ import { runAxe, blocking } from "./fixtures/axe";
  * topbar-nav.ts): the grouped sidebar (Overview / Projects / Issues /
  * Time-Tracking / CRM group / Accounting group / Analytics / Settings) plus the
  * topbar tabs (Chat / Meetings / Notes / Team). The Accounting group's pages
- * live under /accounting/* so each URL segment matches its nav label. Project-scoped feature tabs
+ * live under /accounting/* so each URL segment matches its nav label.
+ * Project-scoped feature tabs
  * (goals / kpis / milestones) are excluded because they sit behind per-project
  * feature toggles the CI seed doesn't enable — visiting them would render an
  * error/empty surface and pass falsely; their components are covered by the
