@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -38,8 +39,33 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const meetingType = sp.get("meetingType");
     const status = sp.get("status");
 
+    // MEETING_READ is held by MEMBER and VIEWER, so it authorises reading SOME
+    // meetings and says nothing about WHICH. `SyncMeeting.projectId` is real
+    // (and nullable), so without narrowing this listed every meeting in the org
+    // — including those on projects with `teamScopedAccess` that the caller is
+    // not a member of, whose records carry notes and transcripts.
+    //
+    // The agent was fixed first (2.265.3), which left the UI looser than the
+    // assistant: a user could see a meeting on screen that Cosmo refused to
+    // discuss. This closes that from the other end.
+    const readable = await getReadableProjectIds(ctx);
+
     const where: Record<string, unknown> = { orgId };
-    if (projectId) where.projectId = projectId;
+    if (projectId) {
+      // Naming a project outside the readable set is a denial, matching the
+      // contract of every other project-scoped route.
+      if (!readable.includes(projectId)) {
+        return new Response(JSON.stringify({ error: "Access denied by policy" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      where.projectId = projectId;
+    } else {
+      // Meetings with NO project are org-level and stay visible to everyone who
+      // may read meetings at all.
+      where.OR = [{ projectId: null }, { projectId: { in: readable } }];
+    }
     if (sprintId) where.sprintId = sprintId;
     if (meetingType) where.meetingType = meetingType;
     if (status) where.status = status;
