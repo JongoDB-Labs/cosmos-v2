@@ -19,6 +19,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
@@ -212,6 +213,18 @@ export function PayrollDashboard({ orgId }: { orgId: string }) {
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">Pay runs</h3>
         </div>
+        {/* Stated in the open rather than behind a hover tooltip. "Pay run" is
+            jargon — somebody who does not already know what one is has no
+            reason to hover over the words to find out, and a hover hint is
+            invisible on touch and to keyboard users. Same always-visible
+            description pattern PageShell uses on every screen. */}
+        <p className="-mt-2 text-xs text-muted-foreground">
+          A pay run closes a pay period: it prices every approved timesheet in
+          the date range at each person&apos;s cost rate and posts the total to
+          the ledger, split across the projects the hours were worked on.
+          Preview it first — posting is what turns those figures into real
+          accounting entries.
+        </p>
         <NewPayRunForm orgId={orgId} />
         {payRunsQ.isLoading ? (
           <Skeleton className="h-32 rounded-lg" />
@@ -477,6 +490,8 @@ function SupervisorCell({
       /** False for someone assigned before they lost the approve-time permission. */
       canApprove: boolean;
     }>;
+    /** Can approve time, but has no employee record — so cannot be offered. */
+    approversMissingEmployeeRecord: string[];
   }>({
     queryKey,
     queryFn: () =>
@@ -516,55 +531,95 @@ function SupervisorCell({
   }
 
   return (
-    <div className="relative">
+    <>
       <button
         type="button"
         // Every row renders one of these, so the accessible name has to carry
         // WHOSE supervisors these are — "Supervisors" alone repeats N times.
         aria-label={`Supervisors for ${nameFor(employee.userId)}`}
-        aria-expanded={open}
         className="h-8 rounded-md border bg-background px-2 text-xs"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(true)}
       >
-        {open ? "Done" : label}
+        {label}
       </button>
 
-      {open && (
-        <div className="absolute z-20 mt-1 min-w-52 rounded-md border bg-popover p-2 shadow-md">
-          {data === undefined ? (
-            <p className="px-1 py-0.5 text-xs text-muted-foreground">Loading…</p>
-          ) : data.candidates.length === 0 ? (
-            // The likeliest cause by far, and the one worth naming: nobody in
-            // the org has been given permission to approve time yet.
-            <p className="px-1 py-0.5 text-xs text-muted-foreground">
-              Nobody in this organisation can approve time yet. Grant someone the
-              approve-time permission first.
-            </p>
-          ) : (
-            data.candidates.map((c) => (
-              <label
-                key={c.employeeId}
-                className="flex items-center gap-2 px-1 py-0.5 text-xs"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(c.employeeId)}
-                  disabled={update.isPending}
-                  onChange={(e) => toggle(c.employeeId, e.target.checked)}
-                />
-                {c.displayName ?? nameFor(c.userId)}
-                {!c.canApprove && (
-                  // Assigned before they lost the permission. Shown so the
-                  // assignment stays visible and removable, but marked — they
-                  // are here by history rather than by policy.
-                  <span className="text-muted-foreground">(no approve permission)</span>
-                )}
-              </label>
-            ))
-          )}
-        </div>
-      )}
-    </div>
+      {/* A DIALOG, not an inline dropdown. The previous version was an
+          absolutely-positioned panel inside the employees table, which sits in
+          an overflow container — so it was clipped and pushed below the table
+          instead of floating over it. A dialog portals to the body and cannot
+          be trapped by an ancestor's overflow, and it gives long names room. */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Supervisors for {nameFor(employee.userId)}
+            </DialogTitle>
+          </DialogHeader>
+
+          <p className="text-sm text-muted-foreground">
+            Everyone selected is notified when this person submits a week, and
+            any one of them can approve it. Only people who can approve time are
+            listed.
+          </p>
+
+          <div className="flex flex-col gap-1">
+            {data === undefined ? (
+              <p className="px-1 py-0.5 text-sm text-muted-foreground">Loading…</p>
+            ) : data.candidates.length === 0 ? (
+              // Two DIFFERENT causes, and telling them apart is the whole
+              // point. Saying "nobody can approve time" to an admin who has
+              // just granted the Reviewer / Approver role sends them to redo
+              // the step they already did — the actual blocker is that the
+              // person they granted it to is not an employee.
+              data.approversMissingEmployeeRecord.length > 0 ? (
+                <p className="px-1 py-0.5 text-sm text-muted-foreground">
+                  {data.approversMissingEmployeeRecord.join(", ")}{" "}
+                  {data.approversMissingEmployeeRecord.length === 1
+                    ? "can approve time but has"
+                    : "can approve time but have"}{" "}
+                  no employee record, so they cannot be a supervisor yet. Add
+                  them under Employees above and they will appear here.
+                </p>
+              ) : (
+                <p className="px-1 py-0.5 text-sm text-muted-foreground">
+                  Nobody in this organisation can approve time yet. Grant
+                  someone the Reviewer / Approver role first.
+                </p>
+              )
+            ) : (
+              data.candidates.map((c) => (
+                <label
+                  key={c.employeeId}
+                  className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(c.employeeId)}
+                    disabled={update.isPending}
+                    onChange={(e) => toggle(c.employeeId, e.target.checked)}
+                  />
+                  {c.displayName ?? nameFor(c.userId)}
+                  {!c.canApprove && (
+                    // Assigned before they lost the permission. Shown so the
+                    // assignment stays visible and removable, but marked — they
+                    // are here by history rather than by policy.
+                    <span className="text-xs text-muted-foreground">
+                      (no approve permission)
+                    </span>
+                  )}
+                </label>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

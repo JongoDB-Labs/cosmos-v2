@@ -21,6 +21,37 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.262.0",
+    date: "2026-08-02",
+    title: "Pages you cannot see are now pages you cannot open",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Typing the address of a screen your role hides — Payroll, Finance, Banking, Tax, Invoices — used to open it anyway. No figures were ever exposed, because the data is checked separately, but the page itself should never have loaded. Those screens now show a clear \"no access\" message.",
+      },
+      {
+        kind: "improvement",
+        text: "Whether you may open a page is now decided by the same rule that decides whether it appears in your sidebar, so the two can no longer disagree.",
+      },
+      {
+        kind: "fix",
+        text: "Choosing supervisors opened a panel that was cut off by the employees table and pushed underneath it. It is now a proper dialog, with room for full names.",
+      },
+      {
+        kind: "improvement",
+        text: "Pay runs explain themselves: what a run actually does, what posting one means, and why to preview it first.",
+      },
+      {
+        kind: "fix",
+        text: "The supervisor picker told you nobody in the organisation could approve time, even right after you had granted somebody the Reviewer / Approver role. The real obstacle was that they had no employee record — it now names the person and says to add them.",
+      },
+      {
+        kind: "feature",
+        text: "Right-click any day in the week grid to edit or remove the hours on it, or to log more. Removing an entry previously existed only in List view, so fixing a day you had logged wrongly meant switching views to do it — the grid is where you spot the mistake, so it is now where you can fix it. Where a day holds several entries, each is named by its hours and description so you can tell them apart.",
+      },
+    ],
+  },
+  {
     version: "2.261.0",
     date: "2026-08-01",
     title: "Accounting pages now live at accounting addresses",

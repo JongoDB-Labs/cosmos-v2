@@ -145,3 +145,63 @@ describe("descendantsOf", () => {
     expect([...descendantsOf(edges, "a")].sort()).toEqual(["a", "b"]);
   });
 });
+
+/**
+ * The picker blamed the wrong thing.
+ *
+ * Reported from production: an admin granted Michael Albrecht the Reviewer /
+ * Approver role, and the picker still said "nobody in this organisation can
+ * approve time yet" — sending them to redo the step they had just done. He
+ * COULD approve; he had no employee record, and supervision is modelled
+ * employee-to-employee.
+ */
+describe("approvers who have no employee record", () => {
+  it("names them, so the message can say what is actually wrong", async () => {
+    approversInOrg.mockResolvedValue([BOSS_USER]);
+    // Approver exists, but no employee row for him.
+    prisma.employee.findMany.mockImplementation(
+      async (args: { where: { userId?: { in: string[] } } }) =>
+        args.where.userId ? [] : [{ id: ALICE_EMP, userId: ALICE_USER }],
+    );
+    prisma.employeeSupervisor.findMany.mockResolvedValue([]);
+
+    const { options, approversMissingEmployeeRecord } =
+      await supervisorPickerOptions(ORG, ALICE_EMP);
+
+    expect(options).toEqual([]);
+    expect(approversMissingEmployeeRecord).toEqual(["User 2"]);
+  });
+
+  it("reports nobody when every approver IS an employee", async () => {
+    approversInOrg.mockResolvedValue([BOSS_USER]);
+    prisma.employee.findMany.mockResolvedValue([
+      { id: ALICE_EMP, userId: ALICE_USER },
+      { id: BOSS_EMP, userId: BOSS_USER },
+    ]);
+    prisma.employeeSupervisor.findMany.mockResolvedValue([]);
+
+    const { approversMissingEmployeeRecord } = await supervisorPickerOptions(
+      ORG,
+      ALICE_EMP,
+    );
+
+    expect(approversMissingEmployeeRecord).toEqual([]);
+  });
+
+  it("reports nobody when the org has no approvers at all", async () => {
+    // The OTHER cause, which must stay distinguishable — this is the case where
+    // "grant someone the role" really is the right advice.
+    approversInOrg.mockResolvedValue([]);
+    prisma.employee.findMany.mockResolvedValue([
+      { id: ALICE_EMP, userId: ALICE_USER },
+    ]);
+    prisma.employeeSupervisor.findMany.mockResolvedValue([]);
+
+    const { approversMissingEmployeeRecord } = await supervisorPickerOptions(
+      ORG,
+      ALICE_EMP,
+    );
+
+    expect(approversMissingEmployeeRecord).toEqual([]);
+  });
+});

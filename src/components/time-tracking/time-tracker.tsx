@@ -41,7 +41,7 @@ import {
   Trash2,
   Filter,
 } from "lucide-react";
-import type { ActionMenuGroup } from "@/components/ui/action-menu";
+import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -522,6 +522,13 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
     }
   };
 
+  // Opening the confirm-and-say-why dialog. Shared by BOTH views so the week
+  // grid and the list cannot diverge on what removing an entry means.
+  const requestVoid = (id: string) => {
+    const entry = entries.find((e) => e.id === id);
+    if (entry) setVoiding(entry);
+  };
+
   const openCreate = (date?: string) => {
     setEditingEntry(null);
     setForm({ ...emptyForm, date: date || toDateString(new Date()) });
@@ -819,6 +826,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           onNavigate={navigateWeek}
           onCellClick={viewingSomeoneElse ? undefined : openCreate}
           onEdit={viewingSomeoneElse ? undefined : openEdit}
+          onDelete={viewingSomeoneElse ? undefined : requestVoid}
           timesheet={timesheet}
           isOwnTimesheet={!viewingSomeoneElse}
           actionPending={actionPending}
@@ -829,10 +837,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
         <ListView
           entries={entries}
           onEdit={viewingSomeoneElse ? undefined : openEdit}
-          onDelete={viewingSomeoneElse ? undefined : (id) => {
-            const entry = entries.find((e) => e.id === id);
-            if (entry) setVoiding(entry);
-          }}
+          onDelete={viewingSomeoneElse ? undefined : requestVoid}
         />
       )}
 
@@ -944,6 +949,59 @@ export function VoidEntryDialog({
   );
 }
 
+
+/**
+ * What right-clicking a day in the week grid offers.
+ *
+ * Built per cell rather than per entry, because a cell can hold SEVERAL entries
+ * and the menu has to disambiguate them — "Remove" is a dangerous word when the
+ * user cannot tell which of three rows it means. With one entry the labels stay
+ * short; with more, each carries its hours and description.
+ *
+ * Only DRAFT entries are editable. A submitted period is closed to edits and the
+ * server refuses them, so offering the action would produce an error the user
+ * did nothing to deserve.
+ */
+export function cellActions(
+  ds: string,
+  cellEntries: TimeEntry[],
+  onEdit?: (entry: TimeEntry) => void,
+  onDelete?: (id: string) => void,
+  onCellClick?: (date: string) => void,
+): ActionMenuGroup[] {
+  const groups: ActionMenuGroup[] = [];
+  const editable = cellEntries.filter((e) => e.status === "DRAFT");
+  const many = editable.length > 1;
+
+  for (const entry of editable) {
+    const what = many
+      ? ` ${Number(entry.hours).toFixed(2)}h${entry.description ? ` — ${entry.description}` : ""}`
+      : "";
+    const items = [];
+    if (onEdit) {
+      items.push({ label: `Edit${what}`, icon: Pencil, onClick: () => onEdit(entry) });
+    }
+    if (onDelete) {
+      items.push({
+        label: `Remove${what}`,
+        icon: Trash2,
+        variant: "destructive" as const,
+        onClick: () => onDelete(entry.id),
+      });
+    }
+    if (items.length > 0) groups.push({ items });
+  }
+
+  if (onCellClick) {
+    groups.push({
+      items: [
+        { label: "Log time on this day", icon: Plus, onClick: () => onCellClick(ds) },
+      ],
+    });
+  }
+  return groups;
+}
+
 function WeekView({
   weekDates,
   groupedByRow,
@@ -952,6 +1010,7 @@ function WeekView({
   onNavigate,
   onCellClick,
   onEdit,
+  onDelete,
   timesheet,
   isOwnTimesheet,
   actionPending,
@@ -968,6 +1027,7 @@ function WeekView({
   // type makes an unhandled action impossible instead of merely discouraged.
   onCellClick?: (date: string) => void;
   onEdit?: (entry: TimeEntry) => void;
+  onDelete?: (id: string) => void;
   timesheet: Timesheet | null;
   isOwnTimesheet: boolean;
   actionPending: boolean;
@@ -1178,36 +1238,40 @@ function WeekView({
                       return (
                         <td
                           key={ds}
-                          className={`group relative min-w-20 px-3 py-2 text-center ${
+                          className={`group group/action relative min-w-20 px-3 py-2 text-center ${
                             isToday ? "bg-primary/5" : ""
                           }`}
                         >
                           {cellEntries.length > 0 ? (
-                            <div className="flex flex-col items-center gap-1">
-                              <span className="font-medium">{cellTotal.toFixed(2)}</span>
-                              <div className="hidden gap-0.5 group-hover:flex">
-                                {cellEntries.map((entry) => (
-                                  <div key={entry.id} className="flex gap-0.5">
-                                    {entry.status === "DRAFT" && onEdit && (
-                                      <button
-                                        onClick={() => onEdit(entry)}
-                                        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                      >
-                                        <Pencil className="size-3" />
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : onCellClick ? (
-                            <button
-                              onClick={() => onCellClick(ds)}
-                              aria-label={`Add time entry for ${ds}`}
-                              className="flex size-full items-center justify-center rounded p-2 text-muted-foreground/30 hover:bg-muted hover:text-muted-foreground"
+                            // Right-click (or the hover ⋯) to edit or remove
+                            // WITHOUT leaving the week. Removing used to exist
+                            // only in List view, so correcting a mis-logged day
+                            // meant switching views to do it — the grid is where
+                            // you notice the mistake, so it should be where you
+                            // can fix it.
+                            <ActionMenu
+                              groups={cellActions(ds, cellEntries, onEdit, onDelete, onCellClick)}
+                              triggerLabel={`Actions for ${ds}`}
+                              triggerClassName="absolute right-0.5 top-0.5"
                             >
-                              <Plus className="size-4" />
-                            </button>
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="font-medium">{cellTotal.toFixed(2)}</span>
+                              </div>
+                            </ActionMenu>
+                          ) : onCellClick ? (
+                            <ActionMenu
+                              groups={cellActions(ds, [], onEdit, onDelete, onCellClick)}
+                              triggerLabel={`Actions for ${ds}`}
+                              triggerClassName="absolute right-0.5 top-0.5"
+                            >
+                              <button
+                                onClick={() => onCellClick(ds)}
+                                aria-label={`Add time entry for ${ds}`}
+                                className="flex size-full items-center justify-center rounded p-2 text-muted-foreground/30 hover:bg-muted hover:text-muted-foreground"
+                              >
+                                <Plus className="size-4" />
+                              </button>
+                            </ActionMenu>
                           ) : (
                             // Read-only (viewing someone else): no add affordance.
                             <span className="block size-full" />

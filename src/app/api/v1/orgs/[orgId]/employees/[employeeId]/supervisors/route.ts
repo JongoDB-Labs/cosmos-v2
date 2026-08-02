@@ -55,6 +55,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       // Includes anyone already assigned who no longer qualifies, so an
       // existing assignment stays visible and removable.
       candidates: picker.options,
+      // Names, not a count: the picker used to blame "nobody can approve time"
+      // when the real cause was an approver with no employee record.
+      approversMissingEmployeeRecord: picker.approversMissingEmployeeRecord,
     });
   } catch (error) {
     return handleApiError(error);
