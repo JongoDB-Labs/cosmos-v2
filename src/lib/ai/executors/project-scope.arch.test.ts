@@ -152,6 +152,26 @@ describe("agent tools cannot read past project scoping", () => {
     ).toEqual([]);
   });
 
+  it("vector search scopes every project-bearing table it queries", () => {
+    // `semantic_search` reaches the same data by a different route — raw SQL
+    // against pgvector — so the rules above, which read TypeScript call sites,
+    // are blind to it. It was the last place the agent could still reach a
+    // team-scoped project: `list_meetings` gates, and vector search did not,
+    // while returning a snippet drawn from the meeting TRANSCRIPT.
+    //
+    // Asserting on the query text is cruder than a behavioural test, and that
+    // is a real limit: it proves the filter is PRESENT, not that it is correct.
+    // It earns its place by failing if someone deletes it.
+    const rag = code("rag.ts");
+    const meetings = rag.slice(rag.indexOf('FROM "sync_meetings"'));
+
+    expect(rag).toContain('FROM "sync_meetings"');
+    expect(
+      meetings.slice(0, 400),
+      "the meetings vector query must filter on project_id",
+    ).toMatch(/project_id/);
+  });
+
   it("covers the registers that were actually leaking", () => {
     // Names the files this was written for, so removing one from the rule is a
     // visible change rather than a quiet one.
