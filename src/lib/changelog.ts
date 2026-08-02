@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.265.3",
+    date: "2026-08-02",
+    title: "Cosmo sees exactly what you see, and nothing more",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Projects restricted to their team were restricted only in the app. Asking Cosmo could still surface their risks, blockers, deliverables, changes, objectives, goals, KPIs, milestones, boards, documents, meetings, intervals, tickets and ticket comments — and let you edit or delete them. Every agent tool now checks whether you can open the project, not merely whether it exists.",
+      },
+      {
+        kind: "fix",
+        text: "Asking Cosmo about work items searched every ticket in the organisation, including projects you are not on. It now searches only what you can open.",
+      },
+      {
+        kind: "improvement",
+        text: "When Cosmo cannot reach something, it now says so without guessing whether it is missing or simply out of your reach, and points you at an owner or admin — rather than insisting it does not exist.",
+      },
+    ],
+  },
+  {
     version: "2.265.2",
     date: "2026-08-02",
     title: "Saving works on sites served through a proxy on a custom port",

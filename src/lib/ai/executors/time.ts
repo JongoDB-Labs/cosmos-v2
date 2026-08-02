@@ -2,7 +2,12 @@ import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { BillableType, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import {
+  assertPermission,
+  assertProjectRead,
+  loadAuthContext,
+  type ToolContext,
+} from "./_ctx";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { redactRates } from "@/lib/time/visibility";
@@ -40,6 +45,16 @@ export async function logTime(
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
   const data = parsed.data;
+
+  // Logging your OWN time is always allowed, but not against a project you
+  // cannot open: a team-scoped project is restricted to its members, and
+  // attaching hours to one both charges work you are not on and confirms the
+  // project exists. Only checked when a project is named — time with no project
+  // is not project-scoped data.
+  if (data.projectId) {
+    const outOfScope = await assertProjectRead(ctx, data.projectId, "TIME_CREATE");
+    if (outOfScope) return outOfScope;
+  }
 
   const entry = await prisma.timeEntry.create({
     data: {

@@ -1,5 +1,6 @@
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
-import { hasPermission } from "@/lib/rbac/permissions";
+import { hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import type { AuthContext } from "@/lib/rbac/check";
 import type { OrgRole } from "@prisma/client";
 
@@ -89,6 +90,44 @@ export async function loadAuthContext(
     basePermissions: effective.basePermissions,
     abacRules: effective.abacRules,
   };
+}
+
+/**
+ * May this actor reach this PROJECT at all?
+ *
+ * `projectInOrg(projectId, orgId)` — what these tools used to ask — answers a
+ * different question. It confirms the project EXISTS in the org, which is true
+ * of a project the caller may not open. A project with `teamScopedAccess` is
+ * restricted to its members, and #513 routed 48 HTTP routes through
+ * `requireProjectRead` for exactly that reason; the tools kept the existence
+ * check and so read straight past it.
+ *
+ * The gates the tools carry do not help: ANALYTICS_READ, ITEM_READ, OKR_READ
+ * and PROJECT_READ are all held by MEMBER and VIEWER, so they authorise reading
+ * SOME project data and say nothing about WHICH project.
+ *
+ * DELEGATES to `requireProjectRead` rather than re-implementing it — action bit,
+ * ABAC policy and team visibility, in the route's own order. Re-deriving the
+ * rule is what produced this class of bug twice; a wrapper that forwards cannot
+ * drift from what the routes enforce.
+ *
+ * The error deliberately does not distinguish "not visible" from "does not
+ * exist": that is `requireProjectRead`'s own contract, and telling them apart
+ * would leak the existence of projects the caller cannot open.
+ */
+export async function assertProjectRead(
+  ctx: ToolContext,
+  projectId: string,
+  action: PermissionKey,
+): Promise<{ error: string } | null> {
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Project not found" };
+  try {
+    await requireProjectRead(auth, projectId, action);
+    return null;
+  } catch {
+    return { error: "Project not found" };
+  }
 }
 
 /**

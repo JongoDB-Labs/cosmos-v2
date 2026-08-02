@@ -11,20 +11,14 @@ import { Permission } from "@/lib/rbac/permissions";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
 import { logPmActivity, logPmFieldChanges } from "@/lib/pm/activity-log";
 import { resolvePmSubject, isPmSubjectType } from "@/lib/pm/subjects";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 
-/**
- * Confirm a project exists inside the actor's org (mirrors the
- * `prisma.project.findFirst({ where: { id, orgId } })` guard every PM route
- * runs after auth). Returns true when the project is in-org.
- */
-async function projectInOrg(projectId: string, orgId: string): Promise<boolean> {
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, orgId },
-    select: { id: true },
-  });
-  return Boolean(project);
-}
+// `projectInOrg` lived here and asked whether a project EXISTS in the org. That
+// is not the question these tools needed: a project with `teamScopedAccess` is
+// restricted to its members, so "in the org" is true of one the caller may not
+// open, and every register read straight past the restriction. Replaced by
+// `assertProjectRead`, which forwards to the same `requireProjectRead` the HTTP
+// routes use. See _ctx.ts.
 
 function invalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
@@ -45,7 +39,8 @@ export async function listRisks(input: Record<string, unknown>, ctx: ToolContext
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, status, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "ANALYTICS_READ");
+  if (outOfScope) return outOfScope;
 
   const risks = await prisma.risk.findMany({
     where: { orgId: ctx.orgId, projectId, ...(status && { status }) },
@@ -94,7 +89,8 @@ export async function createRisk(input: Record<string, unknown>, ctx: ToolContex
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return outOfScope;
 
   const score = computeRiskScore(data.likelihood, data.impact);
   const created = await prisma.risk.create({
@@ -164,6 +160,12 @@ export async function updateRisk(input: Record<string, unknown>, ctx: ToolContex
     where: { id: data.riskId, orgId: ctx.orgId, projectId: data.projectId },
   });
   if (!existing) return { error: "Risk not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return { error: "Risk not found" };
 
   // Recompute score + level when either driver changes (matches the route).
   const likelihood = data.likelihood ?? existing.likelihood;
@@ -245,6 +247,11 @@ export async function addPmComment(input: Record<string, unknown>, ctx: ToolCont
     return { error: `Invalid subjectType: ${data.subjectType}` };
   }
 
+  // The subject is resolved against a caller-supplied projectId below, which
+  // narrows the lookup without establishing access to that project.
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "COMMENT_CREATE");
+  if (outOfScope) return outOfScope;
+
   const subject = await resolvePmSubject(
     data.subjectType,
     data.subjectId,
@@ -294,7 +301,8 @@ export async function listBlockers(input: Record<string, unknown>, ctx: ToolCont
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, status, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "ANALYTICS_READ");
+  if (outOfScope) return outOfScope;
 
   const blockers = await prisma.blocker.findMany({
     where: {
@@ -325,7 +333,8 @@ export async function listDeliverables(input: Record<string, unknown>, ctx: Tool
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, status, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "ANALYTICS_READ");
+  if (outOfScope) return outOfScope;
 
   const deliverables = await prisma.deliverable.findMany({
     where: {
@@ -357,7 +366,8 @@ export async function listChanges(input: Record<string, unknown>, ctx: ToolConte
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, status, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "ANALYTICS_READ");
+  if (outOfScope) return outOfScope;
 
   const changes = await prisma.changeRequest.findMany({
     where: {
@@ -415,7 +425,8 @@ export async function createBlocker(input: Record<string, unknown>, ctx: ToolCon
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return outOfScope;
 
   const created = await prisma.blocker.create({
     data: {
@@ -461,6 +472,12 @@ export async function updateBlocker(input: Record<string, unknown>, ctx: ToolCon
     where: { id: data.blockerId, orgId: ctx.orgId, projectId: data.projectId },
   });
   if (!existing) return { error: "Blocker not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return { error: "Blocker not found" };
 
   const updated = await prisma.blocker.update({
     where: { id: existing.id },
@@ -518,7 +535,8 @@ export async function createDeliverable(input: Record<string, unknown>, ctx: Too
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return outOfScope;
 
   const created = await prisma.deliverable.create({
     data: {
@@ -565,6 +583,12 @@ export async function updateDeliverable(input: Record<string, unknown>, ctx: Too
     where: { id: data.deliverableId, orgId: ctx.orgId, projectId: data.projectId },
   });
   if (!existing) return { error: "Deliverable not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return { error: "Deliverable not found" };
 
   const updated = await prisma.deliverable.update({
     where: { id: existing.id },
@@ -623,7 +647,8 @@ export async function createChangeRequest(input: Record<string, unknown>, ctx: T
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return outOfScope;
 
   const created = await prisma.changeRequest.create({
     data: {
@@ -668,6 +693,12 @@ export async function updateChangeRequest(input: Record<string, unknown>, ctx: T
     where: { id: data.changeId, orgId: ctx.orgId, projectId: data.projectId },
   });
   if (!existing) return { error: "Change request not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return { error: "Change request not found" };
 
   const updated = await prisma.changeRequest.update({
     where: { id: existing.id },

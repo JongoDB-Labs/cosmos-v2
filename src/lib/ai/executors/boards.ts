@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * Board executor — read-only listing of a project's boards. Org+project scoped.
@@ -22,11 +22,8 @@ export async function listBoards(input: Record<string, unknown>, ctx: ToolContex
   if (!parsed.success) return invalid(parsed.error);
   const { projectId } = parsed.data;
 
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, orgId: ctx.orgId },
-    select: { id: true },
-  });
-  if (!project) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "BOARD_READ");
+  if (outOfScope) return outOfScope;
 
   const boards = await prisma.board.findMany({
     where: { orgId: ctx.orgId, projectId },

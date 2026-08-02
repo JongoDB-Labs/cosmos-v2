@@ -9,7 +9,7 @@ import {
 } from "@/lib/work-items/dependency-graph";
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
@@ -159,6 +159,11 @@ export async function createWorkItem(
   });
   if (!project) return { error: "Project not found" };
 
+  // Creating a ticket in a project you cannot open plants work in someone
+  // else's board and confirms the project exists.
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "ITEM_CREATE");
+  if (outOfScope) return { error: "Project not found" };
+
   let resolvedTypeId = data.workItemTypeId ?? null;
   if (!resolvedTypeId) {
     resolvedTypeId = await resolveWorkItemTypeId(
@@ -253,6 +258,12 @@ export async function updateWorkItem(
   });
   if (!existing) return { error: "Work item not found" };
 
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
+  if (outOfScope) return { error: "Work item not found" };
+
   const update: Prisma.WorkItemUpdateInput = {};
   if (data.title !== undefined) update.title = data.title;
   if (data.description !== undefined) update.description = data.description;
@@ -322,9 +333,15 @@ export async function deleteWorkItem(
 
   const existing = await prisma.workItem.findFirst({
     where: { id: parsed.data.itemId, orgId: ctx.orgId },
-    select: { id: true, title: true, ticketNumber: true },
+    select: { id: true, title: true, ticketNumber: true, projectId: true },
   });
   if (!existing) return { error: "Work item not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_DELETE");
+  if (outOfScope) return { error: "Work item not found" };
 
   await prisma.workItem.delete({ where: { id: existing.id } });
   return { deleted: true, id: existing.id, ticketNumber: existing.ticketNumber, title: existing.title };
@@ -342,6 +359,11 @@ export async function listWorkItems(
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
   const data = parsed.data;
+
+  // The projectId comes from the caller and only narrowed the query — it never
+  // established that this actor may open that project.
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "ITEM_READ");
+  if (outOfScope) return outOfScope;
 
   const where: Prisma.WorkItemWhereInput = {
     orgId: ctx.orgId,
@@ -390,10 +412,10 @@ function linkInvalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
 }
 
-async function projectInOrgWi(projectId: string, orgId: string): Promise<boolean> {
-  const project = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
-  return Boolean(project);
-}
+// The old `projectInOrgWi` helper asked whether a project EXISTS in the org, which is
+// true of one the caller may not open — a project with `teamScopedAccess` is
+// restricted to its members. Replaced by `assertProjectRead`, which forwards to
+// the same `requireProjectRead` the HTTP routes use. See _ctx.ts.
 
 const listItemLinksSchema = z.object({
   projectId: z.string().uuid(),
@@ -409,7 +431,8 @@ export async function listItemLinks(input: Record<string, unknown>, ctx: ToolCon
   if (!parsed.success) return linkInvalid(parsed.error);
   const { projectId, itemId, limit } = parsed.data;
 
-  if (!(await projectInOrgWi(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "ITEM_READ");
+  if (outOfScope) return outOfScope;
 
   const links = await prisma.workItemLink.findMany({
     where: {
@@ -458,7 +481,8 @@ export async function linkItems(input: Record<string, unknown>, ctx: ToolContext
   const { projectId, fromId, toId, type } = parsed.data;
 
   if (fromId === toId) return { error: "A work item cannot link to itself" };
-  if (!(await projectInOrgWi(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "ITEM_READ");
+  if (outOfScope) return outOfScope;
 
   // BOTH ends must be work items in THIS org+project (no cross-project edges).
   const ends = await prisma.workItem.findMany({
@@ -513,6 +537,12 @@ export async function unlinkItems(input: Record<string, unknown>, ctx: ToolConte
   const parsed = unlinkItemsSchema.safeParse(input);
   if (!parsed.success) return linkInvalid(parsed.error);
   const { projectId, linkId } = parsed.data;
+
+  // The `projectId` below narrows the lookup but is supplied by the CALLER, so
+  // it constrains which link is found without establishing that the actor may
+  // touch that project. Team scoping has to be checked separately.
+  const outOfScope = await assertProjectRead(ctx, projectId, "ITEM_UPDATE");
+  if (outOfScope) return { error: "Link not found" };
 
   // Scope the link to this org + project (via its source item's project).
   const existing = await prisma.workItemLink.findFirst({

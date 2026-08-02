@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db/client";
 import { FeedbackType, FeedbackStatus } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 
 /**
  * Feedback executors — the org's bug/feature backlog (FeedbackItem). Every query
@@ -42,8 +43,19 @@ export async function listFeedback(input: Record<string, unknown>, ctx: ToolCont
   if (!parsed.success) return invalid(parsed.error);
   const { type, status, limit } = parsed.data;
 
+  // Feedback attached to a project inherits its scope; feedback with none is
+  // org-level and stays visible to everyone who may read items.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const readable = await getReadableProjectIds(auth);
+
   const feedback = await prisma.feedbackItem.findMany({
-    where: { orgId: ctx.orgId, ...(type && { type }), ...(status && { status }) },
+    where: {
+      orgId: ctx.orgId,
+      ...(type && { type }),
+      ...(status && { status }),
+      OR: [{ projectId: null }, { projectId: { in: readable } }],
+    },
     orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
     take: Math.min(limit ?? 50, 200),
     select: FEEDBACK_SELECT,
@@ -95,9 +107,18 @@ export async function setFeedbackStatus(input: Record<string, unknown>, ctx: Too
 
   const existing = await prisma.feedbackItem.findFirst({
     where: { id: data.feedbackId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Feedback item not found" };
+
+  // `projectId` is NULLABLE on this model — a row with no project is org-level
+  // and nothing narrows it. Gate only when it belongs to a project, which may
+  // be team-scoped and closed to this actor. Same message either way, so a
+  // refusal never confirms the row is real.
+  if (existing.projectId) {
+    const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
+    if (outOfScope) return { error: "Feedback item not found" };
+  }
 
   const updated = await prisma.feedbackItem.update({
     where: { id: existing.id },

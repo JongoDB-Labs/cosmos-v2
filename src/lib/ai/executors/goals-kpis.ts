@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { GoalStatus, GoalProgressMode, KpiDirection } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * Goals + KPIs executors. Every query is org+project scoped. Mirrors the routes
@@ -18,10 +18,10 @@ function invalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
 }
 
-async function projectInOrg(projectId: string, orgId: string): Promise<boolean> {
-  const project = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
-  return Boolean(project);
-}
+// The old `projectInOrg` helper asked whether a project EXISTS in the org, which is
+// true of one the caller may not open — a project with `teamScopedAccess` is
+// restricted to its members. Replaced by `assertProjectRead`, which forwards to
+// the same `requireProjectRead` the HTTP routes use. See _ctx.ts.
 
 const GOAL_SELECT = {
   id: true, projectId: true, ownerId: true, status: true, progress: true, progressMode: true,
@@ -48,7 +48,8 @@ export async function listGoals(input: Record<string, unknown>, ctx: ToolContext
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "OKR_READ");
+  if (outOfScope) return outOfScope;
 
   const goals = await prisma.goal.findMany({
     where: { orgId: ctx.orgId, projectId },
@@ -78,7 +79,8 @@ export async function createGoal(input: Record<string, unknown>, ctx: ToolContex
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "OKR_CREATE");
+  if (outOfScope) return outOfScope;
 
   const maxSort = await prisma.goal.aggregate({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -124,9 +126,15 @@ export async function updateGoal(input: Record<string, unknown>, ctx: ToolContex
 
   const existing = await prisma.goal.findFirst({
     where: { id: data.goalId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Goal not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "OKR_UPDATE");
+  if (outOfScope) return { error: "Goal not found" };
 
   const updated = await prisma.goal.update({
     where: { id: existing.id },
@@ -157,7 +165,8 @@ export async function listKpis(input: Record<string, unknown>, ctx: ToolContext)
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "OKR_READ");
+  if (outOfScope) return outOfScope;
 
   const kpis = await prisma.kpi.findMany({
     where: { orgId: ctx.orgId, projectId },
@@ -187,7 +196,8 @@ export async function createKpi(input: Record<string, unknown>, ctx: ToolContext
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "OKR_CREATE");
+  if (outOfScope) return outOfScope;
 
   const maxSort = await prisma.kpi.aggregate({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -232,9 +242,15 @@ export async function updateKpi(input: Record<string, unknown>, ctx: ToolContext
 
   const existing = await prisma.kpi.findFirst({
     where: { id: data.kpiId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "KPI not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "OKR_UPDATE");
+  if (outOfScope) return { error: "KPI not found" };
 
   const updated = await prisma.kpi.update({
     where: { id: existing.id },

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
 import { krProgressPercent, krFraction } from "@/lib/okr/progress";
 import { objectiveHealth } from "@/lib/okr/health";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * OKR executors — objectives, key results, check-ins, KR↔work-item links. Every
@@ -17,11 +17,10 @@ function invalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
 }
 
-/** Confirm a project is in the actor's org (mirrors every OKR route's guard). */
-async function projectInOrg(projectId: string, orgId: string): Promise<boolean> {
-  const project = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
-  return Boolean(project);
-}
+// The old `projectInOrg` helper asked whether a project EXISTS in the org, which is
+// true of one the caller may not open — a project with `teamScopedAccess` is
+// restricted to its members. Replaced by `assertProjectRead`, which forwards to
+// the same `requireProjectRead` the HTTP routes use. See _ctx.ts.
 
 /** Recompute + persist an objective's progress from all its key results (mirrors the routes). */
 async function recomputeObjectiveProgress(objectiveId: string): Promise<void> {
@@ -57,7 +56,13 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, limit } = parsed.data;
 
-  if (projectId && !(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  // `projectId` is OPTIONAL here — omitting it lists the org's objectives —
+  // so the gate applies only when one is named. Objectives with no project are
+  // not project-scoped data and nothing narrows them.
+  if (projectId) {
+    const outOfScope = await assertProjectRead(ctx, projectId, "OKR_READ");
+    if (outOfScope) return outOfScope;
+  }
 
   const objectives = await prisma.objective.findMany({
     where: { orgId: ctx.orgId, ...(projectId && { projectId }) },
@@ -146,7 +151,8 @@ export async function createObjective(input: Record<string, unknown>, ctx: ToolC
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "OKR_CREATE");
+  if (outOfScope) return outOfScope;
 
   const last = await prisma.objective.findFirst({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -191,9 +197,15 @@ export async function updateObjective(input: Record<string, unknown>, ctx: ToolC
 
   const existing = await prisma.objective.findFirst({
     where: { id: data.objectiveId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Objective not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "OKR_UPDATE");
+  if (outOfScope) return { error: "Objective not found" };
 
   const updated = await prisma.objective.update({
     where: { id: existing.id },
@@ -223,9 +235,15 @@ export async function deleteObjective(input: Record<string, unknown>, ctx: ToolC
 
   const existing = await prisma.objective.findFirst({
     where: { id: parsed.data.objectiveId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Objective not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "OKR_DELETE");
+  if (outOfScope) return { error: "Objective not found" };
 
   await prisma.objective.delete({ where: { id: existing.id } });
   return { deleted: true, id: existing.id };
@@ -252,9 +270,14 @@ export async function createKeyResult(input: Record<string, unknown>, ctx: ToolC
 
   const objective = await prisma.objective.findFirst({
     where: { id: data.objectiveId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!objective) return { error: "Objective not found" };
+
+  // The objective's project decides. Adding a key result to an objective on a
+  // project you cannot open writes into that project's plan.
+  const outOfScope = await assertProjectRead(ctx, objective.projectId, "OKR_CREATE");
+  if (outOfScope) return { error: "Objective not found" };
 
   const last = await prisma.keyResult.findFirst({
     where: { objectiveId: data.objectiveId },
@@ -304,9 +327,15 @@ export async function updateKeyResult(input: Record<string, unknown>, ctx: ToolC
 
   const existing = await prisma.keyResult.findFirst({
     where: { id: data.keyResultId, objective: { orgId: ctx.orgId } },
-    select: { id: true, objectiveId: true },
+    select: { id: true, objectiveId: true, objective: { select: { projectId: true } } },
   });
   if (!existing) return { error: "Key result not found" };
+  // A key result inherits its scope from the objective's project, which may be
+  // team-scoped. Same message as a genuine miss, so a refusal never confirms
+  // the key result is real.
+  const outOfScope = await assertProjectRead(ctx, existing.objective.projectId, "OKR_UPDATE");
+  if (outOfScope) return { error: "Key result not found" };
+
 
   const updated = await prisma.keyResult.update({
     where: { id: existing.id },
@@ -363,9 +392,15 @@ export async function addKrCheckin(input: Record<string, unknown>, ctx: ToolCont
 
   const kr = await prisma.keyResult.findFirst({
     where: { id: data.keyResultId, objective: { orgId: ctx.orgId } },
-    select: { id: true, objectiveId: true },
+    select: { id: true, objectiveId: true, objective: { select: { projectId: true } } },
   });
   if (!kr) return { error: "Key result not found" };
+  // A key result inherits its scope from the objective's project, which may be
+  // team-scoped. Same message as a genuine miss, so a refusal never confirms
+  // the key result is real.
+  const outOfScope = await assertProjectRead(ctx, kr.objective.projectId, "OKR_UPDATE");
+  if (outOfScope) return { error: "Key result not found" };
+
 
   const rag = data.rag ?? ragFromConfidence(data.confidence);
 
@@ -411,6 +446,12 @@ export async function linkKeyResultItem(input: Record<string, unknown>, ctx: Too
     select: { id: true, objective: { select: { projectId: true } } },
   });
   if (!kr) return { error: "Key result not found" };
+  // A key result inherits its scope from the objective's project, which may be
+  // team-scoped. Same message as a genuine miss, so a refusal never confirms
+  // the key result is real.
+  const outOfScope = await assertProjectRead(ctx, kr.objective.projectId, "OKR_UPDATE");
+  if (outOfScope) return { error: "Key result not found" };
+
 
   // The work item must be in the SAME org + project as the KR's objective (mirrors the route).
   const item = await prisma.workItem.findFirst({

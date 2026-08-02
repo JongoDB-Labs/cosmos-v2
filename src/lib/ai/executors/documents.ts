@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * Document executor — read-only listing of a project's ingested documents.
@@ -27,11 +27,8 @@ export async function listDocuments(input: Record<string, unknown>, ctx: ToolCon
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, limit } = parsed.data;
 
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, orgId: ctx.orgId },
-    select: { id: true },
-  });
-  if (!project) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "PROJECT_READ");
+  if (outOfScope) return outOfScope;
 
   const documents = await prisma.document.findMany({
     where: { orgId: ctx.orgId, projectId },

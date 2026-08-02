@@ -29,7 +29,8 @@ import { fetchUrl } from "./executors/utility";
 import { semanticSearch } from "./executors/rag";
 import { canonicalizeStageFilter } from "@/lib/crm/stages";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission } from "./executors/_ctx";
+import { assertPermission, assertProjectRead, loadAuthContext } from "./executors/_ctx";
+import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { logAudit } from "@/lib/audit";
 import { queryComplianceControls, updateComplianceControl, listOrgMembers } from "./executors/compliance";
 import {
@@ -578,8 +579,30 @@ async function auditAssistantToolUse(
 async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.ITEM_READ);
   if (denied) return denied;
+
+  // ITEM_READ is held by MEMBER and VIEWER, so it authorises reading SOME
+  // tickets and says nothing about WHICH. This is the widest read the agent
+  // has — it also matches free text against titles — so an unnarrowed query
+  // searched every ticket in the org, including projects the asker cannot
+  // open. Same helper the /work-items/search, /facets and /export routes use,
+  // which folds in ABAC ITEM_READ denies as well as team scoping.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const readable = await getReadableProjectIds(auth);
+
   const where: Prisma.WorkItemWhereInput = { orgId: ctx.orgId };
-  if (input.projectId) where.projectId = input.projectId as string;
+  if (input.projectId) {
+    // Naming a project outside the readable set is a denial, not a silent
+    // empty result, so the assistant can say why rather than imply the project
+    // is empty.
+    if (!readable.includes(input.projectId as string)) {
+      return { error: "Project not found" };
+    }
+    where.projectId = input.projectId as string;
+  } else {
+    // An EMPTY readable set must mean nothing, never "no filter".
+    where.projectId = { in: readable };
+  }
   if (input.assigneeId) where.assigneeId = input.assigneeId as string;
   if (input.priority) where.priority = input.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   if (input.intervalId) where.intervalId = input.intervalId as string;
@@ -607,6 +630,16 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
 async function queryIntervals(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
+  // SPRINT_READ is held by MEMBER and VIEWER, and the projectId comes straight
+  // from the caller — so this leaked interval names, goals and work-item counts
+  // for projects the asker cannot open.
+  const intervalScope = await assertProjectRead(
+    ctx,
+    input.projectId as string,
+    "SPRINT_READ",
+  );
+  if (intervalScope) return intervalScope;
+
   const where: Prisma.IntervalWhereInput = {
     orgId: ctx.orgId,
     projectId: input.projectId as string,
@@ -677,6 +710,14 @@ async function generateIntervalBrief(input: Record<string, unknown>, ctx: ToolCo
     interval = await prisma.interval.findFirst({ where: { orgId: ctx.orgId, projectId, status: "ACTIVE" } });
   }
   if (!interval) return { error: "No active interval found" };
+
+  // The brief summarises a project's tickets, points and completion — SPRINT_READ
+  // is held by MEMBER and VIEWER, and the interval was resolved by a caller id,
+  // so without this it reported on projects the asker cannot open. Gated on the
+  // INTERVAL's own project, not the input's: passing an intervalId from one
+  // project alongside a readable projectId would otherwise slip through.
+  const briefScope = await assertProjectRead(ctx, interval.projectId, "SPRINT_READ");
+  if (briefScope) return { error: "No active interval found" };
 
   const items = await prisma.workItem.findMany({ where: { orgId: ctx.orgId, projectId, intervalId: interval.id } });
   const totalPoints = items.reduce((s, i) => s + (i.storyPoints ?? 1), 0);

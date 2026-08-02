@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { z } from "zod";
-import { assertPermission, loadActorPermissions, type ToolContext } from "./_ctx";
+import {
+  assertPermission,
+  assertProjectRead,
+  loadActorPermissions,
+  type ToolContext,
+} from "./_ctx";
 
 const addCommentSchema = z.object({
   workItemId: z.string().uuid(),
@@ -31,9 +36,15 @@ export async function addComment(
 
   const item = await prisma.workItem.findFirst({
     where: { id: workItemId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!item) return { error: "Work item not found" };
+
+  // Commenting on a ticket in a project you cannot open both writes into that
+  // project's record and confirms the ticket exists. Same message as a genuine
+  // miss, so a refusal reveals nothing.
+  const outOfScope = await assertProjectRead(ctx, item.projectId, "COMMENT_CREATE");
+  if (outOfScope) return { error: "Work item not found" };
 
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
@@ -76,9 +87,20 @@ export async function listComments(
 
   const item = await prisma.workItem.findFirst({
     where: { id: parsed.data.workItemId, orgId: ctx.orgId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!item) return { error: "Work item not found" };
+
+  // COMMENT_READ is held by MEMBER and VIEWER, and the org check above only
+  // proves the ticket EXISTS — so this handed back the discussion on any ticket
+  // in the org, including projects with `teamScopedAccess` the asker is not a
+  // member of. Comments are usually the most candid thing attached to a ticket,
+  // which makes this the worst place to skip the check.
+  //
+  // Reported as "Work item not found", NOT as a project error: telling the two
+  // apart would confirm the ticket exists inside a project they cannot open.
+  const outOfScope = await assertProjectRead(ctx, item.projectId, "COMMENT_READ");
+  if (outOfScope) return { error: "Work item not found" };
 
   const comments = await prisma.comment.findMany({
     where: { workItemId: parsed.data.workItemId, orgId: ctx.orgId },
@@ -112,6 +134,20 @@ export async function deleteComment(
     where: { id: parsed.data.commentId, orgId: ctx.orgId },
   });
   if (!existing) return { error: "Comment not found" };
+
+  // A comment inherits its scope from the ticket it hangs off. Without this a
+  // non-member could DELETE discussion on a project closed to them.
+  // `workItemId` is NULLABLE — a comment not attached to a ticket has no
+  // project to inherit scope from, and the org check is all there is.
+  if (existing.workItemId) {
+    const parentItem = await prisma.workItem.findFirst({
+      where: { id: existing.workItemId, orgId: ctx.orgId },
+      select: { projectId: true },
+    });
+    if (!parentItem) return { error: "Comment not found" };
+    const outOfScope = await assertProjectRead(ctx, parentItem.projectId, "COMMENT_CREATE");
+    if (outOfScope) return { error: "Comment not found" };
+  }
 
   if (existing.authorId !== ctx.userId) {
     const actor = await loadActorPermissions(ctx);

@@ -3,7 +3,7 @@ import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 
 const listProjectsSchema = z.object({
@@ -128,11 +128,8 @@ export async function listIntervals(
   }
   const data = parsed.data;
 
-  const project = await prisma.project.findFirst({
-    where: { id: data.projectId, orgId: ctx.orgId },
-    select: { id: true },
-  });
-  if (!project) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "SPRINT_READ");
+  if (outOfScope) return outOfScope;
 
   const where: Prisma.IntervalWhereInput = {
     orgId: ctx.orgId,
@@ -163,11 +160,8 @@ export async function createInterval(
   }
   const data = parsed.data;
 
-  const project = await prisma.project.findFirst({
-    where: { id: data.projectId, orgId: ctx.orgId },
-    select: { id: true },
-  });
-  if (!project) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "SPRINT_CREATE");
+  if (outOfScope) return outOfScope;
 
   const maxNumber = await prisma.interval.aggregate({
     where: { projectId: data.projectId },
@@ -289,14 +283,14 @@ export async function updateProject(input: Record<string, unknown>, ctx: ToolCon
   }
   const data = parsed.data;
 
-  const existing = await prisma.project.findFirst({
-    where: { id: data.projectId, orgId: ctx.orgId },
-    select: { id: true },
-  });
-  if (!existing) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return outOfScope;
 
   const updated = await prisma.project.update({
-    where: { id: existing.id },
+    // `data.projectId` rather than a re-fetched row: the gate above already
+    // established the project is in this org AND reachable by this actor, so a
+    // second lookup would only be a chance for the two to disagree.
+    where: { id: data.projectId },
     data: {
       ...(data.name !== undefined && { name: data.name }),
       ...(data.description !== undefined && { description: data.description }),
@@ -336,9 +330,15 @@ export async function updateInterval(input: Record<string, unknown>, ctx: ToolCo
 
   const existing = await prisma.interval.findFirst({
     where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Interval not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "SPRINT_UPDATE");
+  if (outOfScope) return { error: "Interval not found" };
 
   // Re-parent validation: target must be a PROGRAM_INCREMENT in this project,
   // and an interval can't be its own parent (mirrors the PUT route).
@@ -401,6 +401,11 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
     include: { workItems: true },
   });
   if (!interval) return { error: "Interval not found" };
+
+  // Completing an interval rolls incomplete work forward — a write on the
+  // project's plan. The org check above only proves the interval exists.
+  const outOfScope = await assertProjectRead(ctx, interval.projectId, "SPRINT_COMPLETE");
+  if (outOfScope) return { error: "Interval not found" };
   if (interval.status !== "ACTIVE") return { error: "Only active intervals can be completed" };
 
   const completed = await prisma.$transaction(async (tx) => {

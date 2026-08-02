@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { MilestoneStatus } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * Milestone executors — project delivery milestones. Every query is org+project
@@ -13,10 +13,10 @@ function invalid(error: z.ZodError): { error: string } {
   return { error: `Invalid input: ${error.issues.map((i) => i.message).join("; ")}` };
 }
 
-async function projectInOrg(projectId: string, orgId: string): Promise<boolean> {
-  const project = await prisma.project.findFirst({ where: { id: projectId, orgId }, select: { id: true } });
-  return Boolean(project);
-}
+// The old `projectInOrg` helper asked whether a project EXISTS in the org, which is
+// true of one the caller may not open — a project with `teamScopedAccess` is
+// restricted to its members. Replaced by `assertProjectRead`, which forwards to
+// the same `requireProjectRead` the HTTP routes use. See _ctx.ts.
 
 const MILESTONE_SELECT = {
   id: true, projectId: true, ownerId: true, branchId: true, status: true, dueDate: true,
@@ -38,7 +38,8 @@ export async function listMilestones(input: Record<string, unknown>, ctx: ToolCo
   if (!parsed.success) return invalid(parsed.error);
   const { projectId, limit } = parsed.data;
 
-  if (!(await projectInOrg(projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, projectId, "PROJECT_READ");
+  if (outOfScope) return outOfScope;
 
   const milestones = await prisma.milestone.findMany({
     where: { orgId: ctx.orgId, projectId },
@@ -67,7 +68,8 @@ export async function createMilestone(input: Record<string, unknown>, ctx: ToolC
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  if (!(await projectInOrg(data.projectId, ctx.orgId))) return { error: "Project not found" };
+  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return outOfScope;
 
   const maxSort = await prisma.milestone.aggregate({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -111,9 +113,15 @@ export async function updateMilestone(input: Record<string, unknown>, ctx: ToolC
 
   const existing = await prisma.milestone.findFirst({
     where: { id: data.milestoneId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Milestone not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return { error: "Milestone not found" };
 
   const updated = await prisma.milestone.update({
     where: { id: existing.id },
@@ -146,9 +154,15 @@ export async function deleteMilestone(input: Record<string, unknown>, ctx: ToolC
 
   const existing = await prisma.milestone.findFirst({
     where: { id: data.milestoneId, orgId: ctx.orgId, projectId: data.projectId },
-    select: { id: true },
+    select: { id: true, projectId: true },
   });
   if (!existing) return { error: "Milestone not found" };
+
+  // The org check above only proves the row EXISTS. Its project may be
+  // team-scoped and closed to this actor — see _ctx.ts. Same message either
+  // way, so a refusal never confirms the row is real.
+  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
+  if (outOfScope) return { error: "Milestone not found" };
 
   await prisma.milestone.delete({ where: { id: existing.id } });
   return { deleted: true, id: existing.id };
