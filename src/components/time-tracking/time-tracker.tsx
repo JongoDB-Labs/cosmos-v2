@@ -1106,8 +1106,8 @@ function WeekView({
         timesheet?.status !== "APPROVED" && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
             <span className="font-medium">You have no supervisor set.</span> Ask
-            your supervisor to add you under Finance → Payroll. Until they do,
-            a submitted week reaches nobody and will sit unapproved.
+            your supervisor to add you under Accounting → Payroll. Until they
+            do, a submitted week reaches nobody and will sit unapproved.
           </div>
         )}
 

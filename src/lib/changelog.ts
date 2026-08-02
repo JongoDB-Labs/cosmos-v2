@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.260.1",
+    date: "2026-08-01",
+    title: "Point people at the right screen",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The prompt shown to someone with no supervisor told them to ask for one under \"Finance → Payroll\". Payroll lives under Accounting, so the one actionable instruction in that message pointed at a menu that does not exist.",
+      },
+    ],
+  },
+  {
     version: "2.260.0",
     date: "2026-08-01",
     title: "You can open the timesheet you were asked to approve",
@@ -42,7 +53,7 @@ export const CHANGELOG: Release[] = [
     highlights: [
       {
         kind: "feature",
-        text: "Finance → Payroll now tells you how many people have no employee record and offers to create them all at once. Until now they had to be added one at a time, so organisations sat with a full member list and no employee records — which meant nobody could be given a supervisor and no timesheet had anywhere to go for approval.",
+        text: "Accounting → Payroll now tells you how many people have no employee record and offers to create them all at once. Until now they had to be added one at a time, so organisations sat with a full member list and no employee records — which meant nobody could be given a supervisor and no timesheet had anywhere to go for approval.",
       },
       {
         kind: "improvement",
@@ -390,7 +401,7 @@ export const CHANGELOG: Release[] = [
     highlights: [
       {
         kind: "feature",
-        text: "Employees can now be given a supervisor, set on the employee record under Finance → Payroll. A supervisor can then review a report's hours week by week from the time-tracking page, without being handed access to the whole organisation.",
+        text: "Employees can now be given a supervisor, set on the employee record under Accounting → Payroll. A supervisor can then review a report's hours week by week from the time-tracking page, without being handed access to the whole organisation.",
       },
       {
         kind: "feature",
