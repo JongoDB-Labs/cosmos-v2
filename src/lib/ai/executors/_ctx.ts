@@ -1,5 +1,6 @@
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { hasPermission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
 import type { OrgRole } from "@prisma/client";
 
 /**
@@ -57,6 +58,37 @@ export async function assertPermission(
     return { error: "Insufficient permissions" };
   }
   return null;
+}
+
+/**
+ * The actor as a full `AuthContext`, so a tool can reuse the SAME scope helpers
+ * the HTTP routes use instead of re-deriving the rule.
+ *
+ * This exists because re-deriving is exactly how the assistant kept a read rule
+ * the API had already fixed. `GET /time-entries` narrows through
+ * `readableTimeUserIds` and strips rates via `canSeeRate`; the AI tool gated on
+ * a bare TIME_READ — a permission MEMBER and VIEWER both hold — and then
+ * queried the whole org with rates selected. Same table, different door.
+ *
+ * Every field comes from `loadEffectivePermissions`, which is the same source
+ * `getAuthContext` builds an HTTP AuthContext from, so the two cannot disagree
+ * about what an actor may do. Nothing here is defaulted or invented.
+ *
+ * Returns `null` when the user is not a member — callers treat that as denied.
+ */
+export async function loadAuthContext(
+  ctx: ToolContext,
+): Promise<AuthContext | null> {
+  const effective = await loadEffectivePermissions(ctx.orgId, ctx.userId);
+  if (!effective) return null;
+  return {
+    userId: ctx.userId,
+    orgId: ctx.orgId,
+    orgRole: effective.orgRole,
+    permissions: effective.permissions,
+    basePermissions: effective.basePermissions,
+    abacRules: effective.abacRules,
+  };
 }
 
 /**
