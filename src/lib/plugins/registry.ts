@@ -116,7 +116,31 @@ export type PluginServerHooks = {
   onUpgrade?: (prisma: PrismaClient, orgId: string, from: string | null) => Promise<void>;
   /** AI tools appended to the org's agent catalog while the plugin is enabled. */
   aiTools?: ToolDefinition[];
-  /** Executor for those tools. Return undefined for "not mine" (falls through). */
+  /**
+   * Executor for those tools. Return undefined for "not mine" (falls through).
+   *
+   * ACCESS CONTROL IS YOURS TO ENFORCE — nothing here does it for you. A plugin
+   * tool runs on the SAME agent surface as the core ones and reaches the same
+   * database, but it bypasses `lib/ai/executors/_ctx.ts` entirely: the core
+   * tools' gates are function calls each one makes, not middleware every tool
+   * passes through.
+   *
+   * `PluginToolContext` is deliberately shaped like the core `ToolContext`
+   * ({ orgId, userId }) so the same helpers work here. Use them:
+   *
+   *   assertPermission(ctx, Permission.X)          — the actor holds the bit
+   *   assertProjectRead(ctx, projectId, "X_READ")  — and may open THAT project
+   *
+   * The second is the one that gets missed. A permission MEMBER and VIEWER both
+   * hold — ITEM_READ, ANALYTICS_READ, SPRINT_READ, COMMENT_READ — says the actor
+   * may read SOME of a thing and nothing about WHICH. A project with
+   * `teamScopedAccess` is closed to non-members, and "it exists in this org" is
+   * a different question from "may this person open it". That gap was found
+   * across ~30 core tools in 2.265.3.
+   *
+   * A plugin can reintroduce it, and no test in THIS repo will notice, because
+   * plugins live in their own repositories.
+   */
   executeTool?: (
     name: string,
     args: Record<string, unknown>,
