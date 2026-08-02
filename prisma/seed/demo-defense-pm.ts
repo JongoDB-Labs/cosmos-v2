@@ -182,12 +182,12 @@ async function main() {
   const ssp = await prisma.deliverable.findFirst({ where: { orgId: org.id, code: "CDRL-A001" } });
   if (ssp) {
     const existing = await prisma.deliverableRevision.findFirst({
-      where: { deliverableId: ssp.id, interval: 1 },
+      where: { deliverableId: ssp.id, cycle: 1 },
     });
     if (!existing) {
       await prisma.deliverableRevision.create({
         data: {
-          orgId: org.id, deliverableId: ssp.id, interval: 1,
+          orgId: org.id, deliverableId: ssp.id, cycle: 1,
           title: "Gov review — Rev 1 comments",
           dateReturned: d(-6),
           commentSummary: "12 comments: tighten control-inheritance narrative; add an authorization-boundary diagram; clarify FIPS-validated crypto modules.",
