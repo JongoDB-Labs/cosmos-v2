@@ -251,12 +251,22 @@ async function ensureMentionFixtures(orgId: string, aliceId: string): Promise<vo
  * "submitted to a named person". bob needs no TIME_APPROVE — supervising a
  * report confers approval authority on its own (see approvalAuthority).
  *
+ * CAROL EXISTS TO BE BLOCKED, and a third person is genuinely required for it.
+ * The submit gate refuses an unsupervised employee only when somebody COULD
+ * supervise them, and neither of the other two qualifies for the other:
+ * `assignableSupervisors` excludes anyone who reports up through you, so alice
+ * is not offerable to bob (she reports to him) and bob holds no TIME_APPROVE.
+ * With only alice and bob, every worker lands on an EXEMPTION and the block is
+ * unreachable end to end. carol is an employee, unsupervised, and alice is
+ * assignable to her — the one shape that is actually blocked.
+ *
  * Idempotent: employees are unique on (orgId, userId).
  */
 async function ensureOrgChart(
   orgId: string,
   aliceId: string,
   bobId: string,
+  carolId: string,
 ): Promise<void> {
   const bobEmployee = await prisma.employee.upsert({
     where: { orgId_userId: { orgId, userId: bobId } },
@@ -300,6 +310,20 @@ async function ensureOrgChart(
       createdById: aliceId,
     },
   });
+
+  // carol: an employee with NO supervisor edge, deliberately. She is the only
+  // person in this fixture the submit gate actually blocks.
+  await prisma.employee.upsert({
+    where: { orgId_userId: { orgId, userId: carolId } },
+    update: {},
+    create: {
+      orgId,
+      userId: carolId,
+      employmentType: "HOURLY",
+      costRate: "70.0000",
+      createdById: aliceId,
+    },
+  });
 }
 
 async function main() {
@@ -322,6 +346,8 @@ async function main() {
 
   const alice = await findOrCreateUser("alice@test.local", "Alice");
   const bob = await findOrCreateUser("bob@test.local", "Bob");
+  // Exists to be BLOCKED by the submit gate — see ensureOrgChart.
+  const carol = await findOrCreateUser("carol@test.local", "Carol");
 
   async function upsertOrgMember(
     userId: string,
@@ -336,6 +362,9 @@ async function main() {
 
   const aliceMember = await upsertOrgMember(alice.id, "ADMIN");
   const bobMember = await upsertOrgMember(bob.id, "MEMBER");
+  // MEMBER, so she holds no TIME_APPROVE and cannot self-approve her way out
+  // of the block — the exemption that would otherwise let her through.
+  await upsertOrgMember(carol.id, "MEMBER");
 
   await ensureGeneralChannel(org.id, alice.id);
   await autoJoinGeneral(org.id, alice.id, true);
@@ -345,7 +374,7 @@ async function main() {
   await ensureSecondBoard(org.id, projectId);
   await ensureBuiltInTaskType();
   await ensureMentionFixtures(org.id, alice.id);
-  await ensureOrgChart(org.id, alice.id, bob.id);
+  await ensureOrgChart(org.id, alice.id, bob.id, carol.id);
 
   console.log("Seeded test fixtures:", {
     orgId: org.id,

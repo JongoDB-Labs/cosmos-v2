@@ -10,18 +10,21 @@ import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma, resolveApprovalRoute } = vi.hoisted(() => ({
-  getAuthContext: vi.fn(),
-  prisma: {
-    organization: { findUnique: vi.fn() },
-    user: { findMany: vi.fn() },
-  },
-  resolveApprovalRoute: vi.fn(),
-}));
+const { getAuthContext, prisma, resolveApprovalRoute, resolveSubmitGate } =
+  vi.hoisted(() => ({
+    getAuthContext: vi.fn(),
+    prisma: {
+      organization: { findUnique: vi.fn() },
+      user: { findMany: vi.fn() },
+    },
+    resolveApprovalRoute: vi.fn(),
+    resolveSubmitGate: vi.fn(),
+  }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/time/routing", () => ({ resolveApprovalRoute }));
+vi.mock("@/lib/time/submit-gate", () => ({ resolveSubmitGate }));
 
 import { GET } from "./route";
 
@@ -55,6 +58,7 @@ beforeEach(() => {
     reason: "manager",
   });
   prisma.user.findMany.mockResolvedValue([{ displayName: "Grace Hopper" }]);
+  resolveSubmitGate.mockResolvedValue({ allowed: true, eligible: [] });
 });
 
 describe("GET /time-entries/my-approvers", () => {
@@ -63,7 +67,13 @@ describe("GET /time-entries/my-approvers", () => {
     const body = await res.json();
 
     expect(resolveApprovalRoute).toHaveBeenCalledWith(ORG_ID, ME);
-    expect(body).toEqual({ reason: "manager", approverNames: ["Grace Hopper"] });
+    expect(body).toEqual({
+      reason: "manager",
+      approverNames: ["Grace Hopper"],
+      canSubmit: true,
+      blockCode: null,
+      eligibleSupervisors: [],
+    });
   });
 
   it("IGNORES a userId in the query string", async () => {
@@ -93,9 +103,63 @@ describe("GET /time-entries/my-approvers", () => {
     const res = await GET(req(), { params });
     const body = await res.json();
 
-    expect(body).toEqual({ reason: "none", approverNames: [] });
+    expect(body).toEqual({
+      reason: "none",
+      approverNames: [],
+      // ALLOWED, and that is the point: an org where nobody can approve is the
+      // exemption, not the block. Refusing here would lock every worker out of
+      // recording time with no fix available from inside the product.
+      canSubmit: true,
+      blockCode: null,
+      eligibleSupervisors: [],
+    });
     // No point querying for zero users.
     expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it("reports the BLOCK and who may be asked, so the client can act", async () => {
+    // The blocked case is NOT `reason: "none"` — the two nearly invert each
+    // other. Here approvers exist and none of them supervises this worker,
+    // which is exactly what the gate refuses.
+    resolveApprovalRoute.mockResolvedValue({
+      approverId: null,
+      notify: [BOSS],
+      reason: "admin_pool",
+    });
+    resolveSubmitGate.mockResolvedValue({
+      allowed: false,
+      code: "SUPERVISOR_REQUIRED",
+      reason: "You need a supervisor",
+      eligible: [
+        { employeeId: "emp-1", userId: BOSS, displayName: "Grace Hopper", canApprove: true },
+      ],
+    });
+
+    const res = await GET(req(), { params });
+    const body = await res.json();
+
+    expect(body.canSubmit).toBe(false);
+    // Matched on the code, never the prose — see lib/time/submit-gate.ts.
+    expect(body.blockCode).toBe("SUPERVISOR_REQUIRED");
+    expect(body.eligibleSupervisors).toEqual([
+      { employeeId: "emp-1", displayName: "Grace Hopper" },
+    ]);
+  });
+
+  it("does not leak candidate USER ids into the picker payload", async () => {
+    // The candidate list is an org-chart answer. The client acts on employee
+    // ids, so the user id is both unnecessary and one more handle on a member.
+    resolveSubmitGate.mockResolvedValue({
+      allowed: false,
+      code: "SUPERVISOR_REQUIRED",
+      eligible: [
+        { employeeId: "emp-1", userId: BOSS, displayName: "Grace Hopper", canApprove: true },
+      ],
+    });
+
+    const res = await GET(req(), { params });
+
+    expect(JSON.stringify(await res.json())).not.toContain(BOSS);
   });
 
   it("requires TIME_READ", async () => {

@@ -204,6 +204,18 @@ export async function setSupervisors(params: {
         })),
         skipDuplicates: true,
       });
+
+      // A request that has been honoured is no longer open, and a row IS an
+      // open request (see the SupervisorRequest model). Clearing it here does
+      // two things: it stops the approver being shown a stale "please supervise
+      // me", and — because the unique index is the spam guard — it lets the
+      // worker ask this person again if the assignment is later removed.
+      //
+      // Only the people actually ADDED. Someone else who was asked and has not
+      // answered still has a legitimate pending request.
+      await tx.supervisorRequest.deleteMany({
+        where: { orgId, employeeId, supervisorId: { in: added } },
+      });
     }
     return { added, removed };
   });

@@ -2,8 +2,9 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
-import { Permission } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { resolveApprovalRoute } from "@/lib/time/routing";
+import { resolveSubmitGate } from "@/lib/time/submit-gate";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -31,7 +32,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.TIME_READ);
 
-    const route = await resolveApprovalRoute(orgId, ctx.userId);
+    const [route, gate] = await Promise.all([
+      resolveApprovalRoute(orgId, ctx.userId),
+      resolveSubmitGate({
+        orgId,
+        subjectUserId: ctx.userId,
+        canApproveOwnTime: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
+      }),
+    ]);
 
     const names =
       route.notify.length > 0
@@ -46,6 +54,20 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       // Names only — the ids are of no use to the client and every id withheld
       // is one fewer handle on an org member.
       approverNames: names.map((u) => u.displayName),
+      // Whether the Submit button will be REFUSED, answered before it is
+      // pressed. This is not derivable from `reason`: the two nearly invert
+      // each other. `reason: "none"` (nobody in the org can approve) is an
+      // EXEMPTION and submits fine, while `reason: "admin_pool"` (approvers
+      // exist, but none supervises you) is exactly the blocked case.
+      canSubmit: gate.allowed,
+      blockCode: gate.code ?? null,
+      // Who this worker may ask, so the request modal opens already populated
+      // rather than fetching again at the moment it is needed. Employee ids
+      // are what the request endpoint accepts.
+      eligibleSupervisors: gate.eligible.map((c) => ({
+        employeeId: c.employeeId,
+        displayName: c.displayName,
+      })),
     });
   } catch (error) {
     return handleApiError(error);

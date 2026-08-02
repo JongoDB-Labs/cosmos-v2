@@ -89,25 +89,48 @@ function waitingOnLabel(names: string[]): string {
   return `Waiting on ${names[0]} and ${names.length - 1} others`;
 }
 
+/** Someone this worker may ask to supervise them — see assignableSupervisors. */
+type EligibleSupervisor = { employeeId: string; displayName: string | null };
+
 /** Where a submission went, or would go — see lib/time/routing.ts. */
 type RoutedTo = {
   reason: "manager" | "admin_pool" | "none";
   approverNames: string[];
+  /**
+   * Whether the server will ACCEPT a submission — see lib/time/submit-gate.ts.
+   *
+   * Not derivable from `reason`; the two nearly invert each other. `reason:
+   * "none"` (nobody in the org can approve) is an EXEMPTION and submits fine,
+   * while `reason: "admin_pool"` (approvers exist, but none supervises you) is
+   * precisely the blocked case. Optional so a client running against an older
+   * deployment defaults to permissive rather than blocking a button the server
+   * would have accepted.
+   */
+  canSubmit?: boolean;
+  eligibleSupervisors?: EligibleSupervisor[];
 };
 
 /**
  * What the Submit button promises before it is pressed.
  *
- * The `none` case is the one that matters: without it a worker hands in a week
- * that reaches nobody and has no way to tell. Saying so on the button — and
- * disabling nothing, because the hours still need recording — lets them fix the
- * cause instead of waiting on an approval that is never coming.
+ * The blocked case leads, because it is the one where pressing the button
+ * achieves nothing. Telling them what the click will DO — open a request — is
+ * the difference between a dead end and a next step.
  */
-function submitHint(route: RoutedTo | null, noHours: boolean): string | undefined {
+export function submitHint(
+  route: RoutedTo | null,
+  noHours: boolean,
+): string | undefined {
   if (noHours) return "Log some time first";
   if (!route) return undefined;
+  if (route.canSubmit === false) {
+    return "You need a supervisor before you can submit. Press this to ask someone to supervise you.";
+  }
   if (route.reason === "none") {
-    return "You have no supervisor set, so this week would reach nobody. You can still submit it, but ask your supervisor to add you first.";
+    // Not blocked — this is the exemption. Nobody in the org can approve time
+    // at all, so demanding a supervisor would lock everyone out. The week is
+    // accepted and the warning says why it will sit.
+    return "Nobody in your organisation can approve time yet, so this week will reach nobody. You can still submit it.";
   }
   if (route.approverNames.length > 0) {
     return `Goes to ${route.approverNames.join(", ")} for approval.`;
@@ -273,6 +296,10 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
   // produces half-submitted weeks that no approver or payroll run can read.
   const [timesheet, setTimesheet] = useState<Timesheet | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  // Opened by a refused submission, and directly from the standing banner —
+  // there is no reason to make someone press a button they know will fail just
+  // to reach the fix.
+  const [requestingSupervisor, setRequestingSupervisor] = useState(false);
   // "" means ME, and ME has to be sent EXPLICITLY. A TIME_READ_ALL holder who
   // sends no userId gets every entry in the org, and the week grid would sum
   // all of it into "your week" — the arithmetic bug this picker exists to fix,
@@ -467,6 +494,13 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => null);
+        // A refusal the worker can ACT on. Matched on the code rather than the
+        // message so rewording the prose cannot silently break the flow — see
+        // lib/time/submit-gate.ts.
+        if (body?.code === "SUPERVISOR_REQUIRED") {
+          setRequestingSupervisor(true);
+          return;
+        }
         throw new Error(body?.error ?? "That action could not be completed.");
       }
       // "Who did this go to?" had no answer before — submitting flipped a
@@ -479,6 +513,44 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       setRefreshKey((k) => k + 1);
     } catch (err) {
       notifyError(err, "Couldn't update the timesheet.");
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  /**
+   * Ask the chosen people to supervise you.
+   *
+   * Sends a REQUEST — it never writes the org chart. The people named are
+   * notified and one of them makes the assignment, which is what keeps the
+   * worker from nominating their own approver.
+   */
+  const requestSupervisors = async (employeeIds: string[]) => {
+    setActionPending(true);
+    try {
+      const res = await fetch(`/api/v1/orgs/${orgId}/supervisor-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supervisorEmployeeIds: employeeIds }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "That request could not be sent.");
+      }
+      const body = await res.json().catch(() => null);
+      setRequestingSupervisor(false);
+      // "Already asked" is a real outcome, not a failure — saying nothing there
+      // reads as a broken button.
+      toast.success(
+        body?.requested > 0
+          ? "Request sent. You can submit once somebody adds you."
+          : "You have already asked them — they have not responded yet.",
+      );
+      // The answer to "can I submit yet?" changes the moment they act, so the
+      // hint and banner refetch rather than waiting for a reload.
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      notifyError(err, "Couldn't send the request.");
     } finally {
       setActionPending(false);
     }
@@ -857,6 +929,7 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           actionPending={actionPending}
           onTimesheetAction={runTimesheetAction}
           myRoute={myRoute}
+          onRequestSupervisor={() => setRequestingSupervisor(true)}
         />
       ) : (
         <ListView
@@ -878,6 +951,17 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
           setVoiding(null);
           if (id) await handleDelete(id, reason);
         }}
+      />
+
+      <RequestSupervisorDialog
+        // Remounted per opening so a selection abandoned last time is not still
+        // ticked the next time it opens.
+        key={requestingSupervisor ? "open" : "closed"}
+        open={requestingSupervisor}
+        candidates={myRoute?.eligibleSupervisors ?? []}
+        pending={actionPending}
+        onClose={() => setRequestingSupervisor(false)}
+        onSubmit={requestSupervisors}
       />
     </div>
   );
@@ -976,6 +1060,95 @@ export function VoidEntryDialog({
 
 
 /**
+ * Ask somebody to supervise you.
+ *
+ * The way out of a blocked submission. It is a REQUEST, not self-service: the
+ * worker names who they want and a permission-holder still performs the
+ * assignment. Letting the subject pick their own approver would defeat the
+ * control the approval workflow exists to provide, so this sends a notification
+ * rather than writing the org chart.
+ *
+ * The candidate list is already narrowed server-side to people who hold
+ * TIME_APPROVE and are not the worker's own reports, so every name here is
+ * somebody the server would actually accept.
+ */
+export function RequestSupervisorDialog({
+  open,
+  candidates,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  candidates: EligibleSupervisor[];
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (employeeIds: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const toggle = (id: string) =>
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Ask someone to supervise you</DialogTitle>
+        </DialogHeader>
+
+        {candidates.length === 0 ? (
+          // Should be unreachable — the server exempts you from the block
+          // entirely when nobody could supervise you — but a modal that opens
+          // empty and says nothing is the worst version of this screen.
+          <p className="text-sm text-muted-foreground">
+            Nobody in this organisation can approve time yet. An owner or admin
+            needs to grant someone the Reviewer / Approver role first.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              You need a supervisor before you can submit a timesheet. Choose
+              who to ask — they will be notified, and they make the assignment.
+            </p>
+            <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+              {candidates.map((c) => (
+                <label
+                  key={c.employeeId}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+                >
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={selected.includes(c.employeeId)}
+                    onChange={() => toggle(c.employeeId)}
+                  />
+                  {c.displayName ?? "Unnamed"}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={selected.length === 0 || pending}
+            onClick={() => onSubmit(selected)}
+          >
+            Send request
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * What right-clicking a day in the week grid offers.
  *
  * Built per cell rather than per entry, because a cell can hold SEVERAL entries
@@ -1041,6 +1214,7 @@ function WeekView({
   actionPending,
   onTimesheetAction,
   myRoute,
+  onRequestSupervisor,
 }: {
   weekDates: Date[];
   groupedByRow: Map<string, Map<string, TimeEntry[]>>;
@@ -1062,6 +1236,8 @@ function WeekView({
   ) => void;
   /** Where the SIGNED-IN user's submissions go — drives the pre-submit hint. */
   myRoute: RoutedTo | null;
+  /** Opens the request-a-supervisor dialog from the standing banner. */
+  onRequestSupervisor: () => void;
 }) {
   const weekLabel = `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -1181,18 +1357,41 @@ function WeekView({
         </div>
       </div>
 
-      {/* Nobody can approve this person's time. Shown standing, not just as a
-          tooltip: a hover hint is invisible to someone who never hovers, and
-          the consequence here is hours that reach no approver at all. Limited
-          to your OWN week — it is your problem to escalate, not a note about a
-          colleague. */}
+      {/* Standing, not just a tooltip: a hover hint is invisible to someone who
+          never hovers, and the consequence is a week that cannot be handed in.
+          Limited to your OWN week — it is your problem to escalate, not a note
+          about a colleague.
+
+          TWO DIFFERENT SITUATIONS, and collapsing them is how the old copy came
+          to name a fix that would not have worked. Blocked means somebody COULD
+          supervise you and none does — actionable, so it carries the action.
+          `reason: "none"` means nobody in the org can approve at all, which you
+          cannot fix yourself and which the server exempts from the block. */}
       {isOwnTimesheet &&
+        myRoute?.canSubmit === false &&
+        timesheet?.status !== "APPROVED" && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            <span>
+              <span className="font-medium">You have no supervisor set.</span>{" "}
+              You cannot submit a timesheet until somebody supervises you.
+            </span>
+            <Button size="sm" variant="outline" onClick={onRequestSupervisor}>
+              Ask for a supervisor
+            </Button>
+          </div>
+        )}
+
+      {isOwnTimesheet &&
+        myRoute?.canSubmit !== false &&
         myRoute?.reason === "none" &&
         timesheet?.status !== "APPROVED" && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-            <span className="font-medium">You have no supervisor set.</span> Ask
-            your supervisor to add you under Accounting → Payroll. Until they
-            do, a submitted week reaches nobody and will sit unapproved.
+            <span className="font-medium">
+              Nobody in your organisation can approve time yet.
+            </span>{" "}
+            An owner or admin needs to grant someone the Reviewer / Approver
+            role. Until then a submitted week reaches nobody and will sit
+            unapproved.
           </div>
         )}
 
