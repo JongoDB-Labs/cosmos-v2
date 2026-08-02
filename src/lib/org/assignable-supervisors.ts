@@ -50,13 +50,28 @@ export interface SupervisorCandidate {
 export async function supervisorPickerOptions(
   orgId: string,
   employeeId: string,
-): Promise<{ options: SupervisorCandidate[]; addableIds: string[] }> {
-  const [candidates, current] = await Promise.all([
+): Promise<{
+  options: SupervisorCandidate[];
+  addableIds: string[];
+  /**
+   * People who CAN approve time but have no employee record, so they cannot be
+   * offered — supervision is modelled employee-to-employee.
+   *
+   * Named rather than merely counted, because without this the picker blamed
+   * the wrong thing: it said "nobody in this organisation can approve time yet"
+   * to someone who had just granted the Reviewer / Approver role, sending them
+   * to redo the step they had already done. The real fix is to add that person
+   * as an employee, and the message can only say so if it knows who they are.
+   */
+  approversMissingEmployeeRecord: string[];
+}> {
+  const [candidates, current, stranded] = await Promise.all([
     assignableSupervisors(orgId, employeeId),
     prisma.employeeSupervisor.findMany({
       where: { orgId, employeeId },
       select: { supervisorId: true },
     }),
+    approversMissingEmployeeRecord(orgId),
   ]);
 
   const addableIds = candidates.map((c) => c.employeeId);
@@ -64,7 +79,13 @@ export async function supervisorPickerOptions(
   const missing = current
     .map((r) => r.supervisorId)
     .filter((id) => !known.has(id));
-  if (missing.length === 0) return { options: candidates, addableIds };
+  if (missing.length === 0) {
+    return {
+      options: candidates,
+      addableIds,
+      approversMissingEmployeeRecord: stranded,
+    };
+  }
 
   const rows = await prisma.employee.findMany({
     where: { id: { in: missing }, orgId },
@@ -88,7 +109,37 @@ export async function supervisorPickerOptions(
       (a.displayName ?? "").localeCompare(b.displayName ?? ""),
     ),
     addableIds,
+    approversMissingEmployeeRecord: stranded,
   };
+}
+
+/**
+ * People who hold TIME_APPROVE but have no employee record.
+ *
+ * They are the reason a picker can be empty in an org that HAS approvers, and
+ * naming them is the difference between "grant somebody the role" (which the
+ * admin has already done) and "add Michael as an employee" (which is the
+ * actual fix).
+ */
+export async function approversMissingEmployeeRecord(
+  orgId: string,
+): Promise<string[]> {
+  const approverUserIds = await approversInOrg(orgId);
+  if (approverUserIds.length === 0) return [];
+
+  const employees = await prisma.employee.findMany({
+    where: { orgId, userId: { in: approverUserIds } },
+    select: { userId: true },
+  });
+  const haveRecord = new Set(employees.map((e) => e.userId));
+  const stranded = approverUserIds.filter((id) => !haveRecord.has(id));
+  if (stranded.length === 0) return [];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: stranded } },
+    select: { displayName: true },
+  });
+  return users.map((u) => u.displayName).filter(Boolean).sort();
 }
 
 export async function assignableSupervisors(

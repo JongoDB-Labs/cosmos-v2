@@ -490,6 +490,8 @@ function SupervisorCell({
       /** False for someone assigned before they lost the approve-time permission. */
       canApprove: boolean;
     }>;
+    /** Can approve time, but has no employee record — so cannot be offered. */
+    approversMissingEmployeeRecord: string[];
   }>({
     queryKey,
     queryFn: () =>
@@ -564,12 +566,26 @@ function SupervisorCell({
             {data === undefined ? (
               <p className="px-1 py-0.5 text-sm text-muted-foreground">Loading…</p>
             ) : data.candidates.length === 0 ? (
-              // The likeliest cause by far, and the one worth naming: nobody in
-              // the org has been given permission to approve time yet.
-              <p className="px-1 py-0.5 text-sm text-muted-foreground">
-                Nobody in this organisation can approve time yet. Grant someone
-                the Reviewer / Approver role first.
-              </p>
+              // Two DIFFERENT causes, and telling them apart is the whole
+              // point. Saying "nobody can approve time" to an admin who has
+              // just granted the Reviewer / Approver role sends them to redo
+              // the step they already did — the actual blocker is that the
+              // person they granted it to is not an employee.
+              data.approversMissingEmployeeRecord.length > 0 ? (
+                <p className="px-1 py-0.5 text-sm text-muted-foreground">
+                  {data.approversMissingEmployeeRecord.join(", ")}{" "}
+                  {data.approversMissingEmployeeRecord.length === 1
+                    ? "can approve time but has"
+                    : "can approve time but have"}{" "}
+                  no employee record, so they cannot be a supervisor yet. Add
+                  them under Employees above and they will appear here.
+                </p>
+              ) : (
+                <p className="px-1 py-0.5 text-sm text-muted-foreground">
+                  Nobody in this organisation can approve time yet. Grant
+                  someone the Reviewer / Approver role first.
+                </p>
+              )
             ) : (
               data.candidates.map((c) => (
                 <label

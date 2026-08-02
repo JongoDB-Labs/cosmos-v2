@@ -41,6 +41,10 @@ export const CHANGELOG: Release[] = [
         kind: "improvement",
         text: "Pay runs explain themselves: what a run actually does, what posting one means, and why to preview it first.",
       },
+      {
+        kind: "fix",
+        text: "The supervisor picker told you nobody in the organisation could approve time, even right after you had granted somebody the Reviewer / Approver role. The real obstacle was that they had no employee record — it now names the person and says to add them.",
+      },
     ],
   },
   {
