@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.265.1",
+    date: "2026-08-02",
+    title: "The assistant follows the same time-reading rules as the app",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking the assistant about time entries could return everyone's hours — and their pay rates — to anyone who could open the chat, even though the time-tracking screen has shown you only your own since an earlier release. The assistant now applies exactly the same rules: you see the hours you are allowed to see, and rates only for your own entries or with finance access.",
+      },
+    ],
+  },
+  {
     version: "2.265.0",
     date: "2026-08-02",
     title: "Timesheets waiting on you, in one place",

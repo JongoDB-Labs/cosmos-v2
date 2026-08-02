@@ -2,8 +2,10 @@ import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { BillableType, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
+import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { redactRates } from "@/lib/time/visibility";
 
 const logTimeSchema = z.object({
   date: z.string().min(1),
@@ -71,6 +73,14 @@ export async function listTimeEntries(
   const denied = await assertPermission(ctx, Permission.TIME_READ);
   if (denied) return denied;
 
+  // TIME_READ is held by MEMBER and VIEWER — by everyone — so it says the actor
+  // may read SOME time, never WHOSE. The scope is a second question, and the
+  // same helper answers it here as in GET /time-entries. Asking it separately
+  // is what let this tool return the whole org's hours, rates included.
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  const allowed = await readableTimeUserIds(auth);
+
   const parsed = listTimeEntriesSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
@@ -80,7 +90,18 @@ export async function listTimeEntries(
   // Voided entries must not reach the agent either — it answers questions
   // about hours, and a deleted entry is not an hour anyone worked.
   const where: Prisma.TimeEntryWhereInput = { orgId: ctx.orgId, ...NOT_VOIDED };
-  if (data.userId) where.userId = data.userId;
+  // "Whose hours?" is a legitimate question — a supervisor asking about a
+  // report. It is answered AGAINST the scope, never instead of it: naming
+  // somebody outside it is a denial, matching the HTTP route's contract rather
+  // than silently returning nothing, so the assistant can say why.
+  if (data.userId) {
+    if (allowed && !allowed.includes(data.userId)) {
+      return { error: "Access denied by policy" };
+    }
+    where.userId = data.userId;
+  } else {
+    where.userId = timeUserIdFilter(allowed);
+  }
   if (data.projectId) where.projectId = data.projectId;
   if (data.billableType) where.billableType = data.billableType;
   if (data.startDate || data.endDate) {
@@ -112,5 +133,8 @@ export async function listTimeEntries(
   });
 
   const totalHours = entries.reduce((sum, e) => sum + e.hours, 0);
-  return { count: entries.length, totalHours, entries };
+  // Same choke point as the HTTP routes: rate is own-row-or-FINANCE_READ.
+  // Confirming somebody's hours does not require seeing their pay, and an
+  // assistant that will read the number aloud is the last place to relax that.
+  return { count: entries.length, totalHours, entries: redactRates(auth, entries) };
 }
