@@ -3408,6 +3408,11 @@ model Employee {
   /// The people this person supervises.
   supervisees EmployeeSupervisor[] @relation("Supervises")
 
+  /// Open requests this person has made to be given a supervisor.
+  supervisionRequests  SupervisorRequest[] @relation("SupervisionRequestedBy")
+  /// Open requests asking THIS person to supervise someone.
+  supervisionRequested SupervisorRequest[] @relation("SupervisionRequestedOf")
+
   @@unique([orgId, userId])
   @@index([orgId, status])
   // Drives "who reports to me" on every scoped time read.
@@ -3446,6 +3451,40 @@ model EmployeeSupervisor {
   @@index([orgId, supervisorId])
   @@index([orgId, employeeId])
   @@map("employee_supervisors")
+}
+
+/// A worker asking to be given a supervisor.
+///
+/// Submission is refused without one, so this is the route out of that block —
+/// and it is a REQUEST rather than self-service on purpose. The worker names who
+/// they want; the permission-holder still performs the assignment. Letting the
+/// subject assign their own approver would defeat the control the whole approval
+/// workflow exists to provide.
+///
+/// A ROW IS AN OPEN REQUEST. There is no status column: honouring or declining
+/// one deletes it. That makes the unique constraint below the spam guard by
+/// construction — one open request per pair, no partial index needed — and keeps
+/// the table a work queue rather than a ledger. The permanent record of who
+/// asked for what lives in the audit log, which is where audit belongs.
+model SupervisorRequest {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  /// The employee who wants a supervisor.
+  employeeId    String   @map("employee_id") @db.Uuid
+  /// The employee they are asking for.
+  supervisorId  String   @map("supervisor_id") @db.Uuid
+  /// User id of whoever made the request — normally the subject themselves.
+  requestedById String   @map("requested_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  employee   Employee @relation("SupervisionRequestedBy", fields: [employeeId], references: [id], onDelete: Cascade)
+  supervisor Employee @relation("SupervisionRequestedOf", fields: [supervisorId], references: [id], onDelete: Cascade)
+
+  /// The spam guard: asking the same person twice is a no-op, not a second ping.
+  @@unique([employeeId, supervisorId])
+  /// Drives "who has asked ME to supervise them".
+  @@index([orgId, supervisorId])
+  @@map("supervisor_requests")
 }
 
 model PayRun {

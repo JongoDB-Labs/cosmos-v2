@@ -12,6 +12,9 @@ const { prisma } = vi.hoisted(() => {
       deleteMany: vi.fn(),
       createMany: vi.fn(),
     },
+    // Honouring a request closes it, in the SAME transaction as the assignment
+    // — see setSupervisors.
+    supervisorRequest: { deleteMany: vi.fn() },
   };
   return {
     prisma: {
@@ -237,6 +240,46 @@ describe("setSupervisors", () => {
       data: Array<{ createdById: string }>;
     };
     expect(call.data[0].createdById).toBe("actor-1");
+  });
+
+  it("CLOSES the request it just honoured, and only that one", async () => {
+    // A row IS an open request, so honouring one deletes it. Two consequences
+    // if this is skipped: the approver keeps seeing "please supervise me" for
+    // somebody they have already added, and — because the unique index is the
+    // spam guard — the worker could never ask them again after a later removal.
+    //
+    // Scoped to the people actually ADDED. Someone else who was asked and has
+    // not answered still has a legitimate pending request.
+    prisma.__tx.employeeSupervisor.findMany.mockResolvedValue([]);
+
+    await setSupervisors({
+      orgId: ORG,
+      employeeId: WORKER,
+      supervisorIds: [BOSS],
+      actorId: "actor-1",
+    });
+
+    expect(prisma.__tx.supervisorRequest.deleteMany).toHaveBeenCalledWith({
+      where: { orgId: ORG, employeeId: WORKER, supervisorId: { in: [BOSS] } },
+    });
+  });
+
+  it("touches no requests when the chart did not change", async () => {
+    // Re-saving an unchanged list adds nobody, so there is nothing to honour.
+    // Deleting anyway would silently close requests the worker is still waiting
+    // on.
+    prisma.__tx.employeeSupervisor.findMany.mockResolvedValue([
+      { supervisorId: BOSS },
+    ]);
+
+    await setSupervisors({
+      orgId: ORG,
+      employeeId: WORKER,
+      supervisorIds: [BOSS],
+      actorId: "actor-1",
+    });
+
+    expect(prisma.__tx.supervisorRequest.deleteMany).not.toHaveBeenCalled();
   });
 
   it("refuses the whole change if ANY proposed supervisor is not in this org", async () => {

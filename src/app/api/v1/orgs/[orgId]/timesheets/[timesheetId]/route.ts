@@ -17,6 +17,7 @@ import {
   hasManager,
 } from "@/lib/time/timesheet-actions";
 import { resolveApprovalRoute } from "@/lib/time/routing";
+import { resolveSubmitGate } from "@/lib/time/submit-gate";
 import {
   notifyTimesheetSubmitted,
   notifyTimesheetDecision,
@@ -73,6 +74,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       const t = submitTransition(sheet.status);
       if (!t.ok) return bad(t.reason, 409);
+
+      // A week from someone nobody supervises routes to the admin pool or to
+      // nobody at all, and then sits unapproved. Refuse it here rather than
+      // record it and hope — see lib/time/submit-gate.ts for the three
+      // exemptions, each of which stops the rule locking somebody out of
+      // recording their own time.
+      const gate = await resolveSubmitGate({
+        orgId,
+        subjectUserId: sheet.userId,
+        // The actor IS the subject (isOwner above), so their own effective
+        // permissions answer it — work-role grants already folded in.
+        canApproveOwnTime: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
+      });
+      if (!gate.allowed) {
+        return bad(
+          gate.reason ?? "You need a supervisor before you can submit",
+          409,
+          gate.code,
+        );
+      }
 
       // Resolved BEFORE the write and stamped with it, so the sheet records who
       // it was handed to at the moment it was handed over. Deriving it later
@@ -238,8 +259,15 @@ async function displayNamesOf(userIds: string[]): Promise<string[]> {
   }
 }
 
-function bad(message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), {
+/**
+ * An error the client can act on.
+ *
+ * `code` is optional and machine-readable: the supervisor block needs the client
+ * to OPEN something rather than just show text, and string-matching the prose to
+ * decide that breaks silently the first time the wording changes.
+ */
+function bad(message: string, status: number, code?: string): Response {
+  return new Response(JSON.stringify({ error: message, ...(code && { code }) }), {
     status,
     headers: { "Content-Type": "application/json" },
   });

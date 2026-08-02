@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.263.0",
+    date: "2026-08-02",
+    title: "A timesheet needs a supervisor before it can be submitted",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Submitting a week now requires a supervisor. Before this, a week from someone nobody supervised was accepted, routed to nobody in particular, and sat unapproved with no one aware of it.",
+      },
+      {
+        kind: "feature",
+        text: "If you have no supervisor, the Submit button opens a request instead of failing: choose one or more people who can approve time and they are notified. They still make the assignment — you cannot appoint your own approver.",
+      },
+      {
+        kind: "improvement",
+        text: "The time-tracking page now says plainly whether you can submit, and tells apart \"nobody supervises you\" (which you can fix by asking) from \"nobody in the organisation can approve time yet\" (which needs an owner or admin to grant the Reviewer / Approver role).",
+      },
+      {
+        kind: "improvement",
+        text: "Nobody is locked out by the new rule: it does not apply if you can approve your own time, if you have no employee record, or if your organisation has nobody who could supervise you.",
+      },
+    ],
+  },
+  {
     version: "2.262.1",
     date: "2026-08-02",
     title: "Notifications open the week they are about",
