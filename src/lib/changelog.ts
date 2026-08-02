@@ -45,6 +45,10 @@ export const CHANGELOG: Release[] = [
         kind: "fix",
         text: "The supervisor picker told you nobody in the organisation could approve time, even right after you had granted somebody the Reviewer / Approver role. The real obstacle was that they had no employee record — it now names the person and says to add them.",
       },
+      {
+        kind: "feature",
+        text: "Right-click any day in the week grid to edit or remove the hours on it, or to log more. Removing an entry previously existed only in List view, so fixing a day you had logged wrongly meant switching views to do it — the grid is where you spot the mistake, so it is now where you can fix it. Where a day holds several entries, each is named by its hours and description so you can tell them apart.",
+      },
     ],
   },
   {
