@@ -50,7 +50,12 @@ function isSameOrigin(request: NextRequest): boolean {
   if (!candidate) return false;
   try {
     const u = new URL(candidate);
-    return u.host === host;
+    if (u.host === host) return true;
+    // Proxies commonly forward X-Forwarded-Host WITHOUT a port (e.g. Caddy's
+    // {host} placeholder strips it), while a browser Origin on a nonstandard
+    // port includes one — so every mutating request 403'd on such deploys.
+    // Accept a hostname match when the forwarded host carries no port.
+    return !host.includes(":") && u.hostname === host;
   } catch {
     return false;
   }
