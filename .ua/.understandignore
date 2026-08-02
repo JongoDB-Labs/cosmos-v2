@@ -50,7 +50,6 @@
 # compose/minio/certs/
 # .deploy/backups/
 # ui-sweep.mjs
-# *.vitl.json
 # roadmap_nodes.json
 # poam_tasks.json
 # prisma/seed/real/
