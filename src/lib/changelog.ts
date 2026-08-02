@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.265.2",
+    date: "2026-08-02",
+    title: "Saving works on sites served through a proxy on a custom port",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Where the site is reached through a proxy on a port other than the usual one, every attempt to save was turned away as though it had come from a different site — creating, editing and deleting all failed, while merely reading a page looked fine. The check that guards against requests from other sites now takes the port into account, so these sites behave like any other.",
+      },
+    ],
+  },
+  {
     version: "2.265.1",
     date: "2026-08-02",
     title: "The assistant follows the same time-reading rules as the app",
