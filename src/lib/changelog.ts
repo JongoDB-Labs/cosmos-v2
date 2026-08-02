@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.264.0",
+    date: "2026-08-02",
+    title: "See who has asked you to supervise them",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When someone asks you to be their supervisor, Accounting → Payroll now marks their row so you can find it, and marks their name in the supervisor picker so you know you are acting on the right request. Previously the notification was the only record, so once it was dismissed there was nothing to go back to.",
+      },
+    ],
+  },
+  {
     version: "2.263.1",
     date: "2026-08-02",
     title: "Pay rates stay behind finance permissions in exports too",

@@ -28,8 +28,34 @@ export type EmployeeInput = {
   /** Supervisor, as an Employee id. Null clears it. */
 };
 
-export function listEmployees(orgId: string) {
-  return prisma.employee.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } });
+/**
+ * Employees for the payroll screen, each flagged if they have asked somebody to
+ * supervise them.
+ *
+ * The flag is the ONLY signpost for an outstanding request. A worker blocked
+ * from submitting asks for a supervisor; the person asked gets a notification
+ * and a deep link to this screen — but a notification is read once and then
+ * gone, and anyone arriving here any other way had no way to know a request was
+ * waiting at all. This makes the queue visible on the page that resolves it.
+ *
+ * ONE extra query, not one per row: this list is rendered on every payroll load.
+ */
+export async function listEmployees(orgId: string) {
+  const [employees, requested] = await Promise.all([
+    prisma.employee.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
+    prisma.supervisorRequest.findMany({
+      where: { orgId },
+      select: { employeeId: true },
+      distinct: ["employeeId"],
+    }),
+  ]);
+
+  const awaiting = new Set(requested.map((r) => r.employeeId));
+  return employees.map((e) => ({
+    ...e,
+    /** They have asked for a supervisor and nobody has accepted yet. */
+    awaitingSupervisor: awaiting.has(e.id),
+  }));
 }
 
 export async function createEmployee(

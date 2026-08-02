@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireEmployeeAdmin } from "@/lib/rbac/employee-admin";
 import { setSupervisors } from "@/lib/org/supervisors";
 import { supervisorPickerOptions } from "@/lib/org/assignable-supervisors";
+import { pendingRequestsFor } from "@/lib/org/supervisor-requests";
 import { createNotification } from "@/lib/notifications/create";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -42,12 +43,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     });
     if (!employee) return new Response("Not found", { status: 404 });
 
-    const [current, picker] = await Promise.all([
+    const [current, picker, requested] = await Promise.all([
       prisma.employeeSupervisor.findMany({
         where: { orgId, employeeId },
         select: { supervisorId: true },
       }),
       supervisorPickerOptions(orgId, employeeId),
+      pendingRequestsFor(orgId, employeeId),
     ]);
 
     return success({
@@ -58,6 +60,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       // Names, not a count: the picker used to blame "nobody can approve time"
       // when the real cause was an approver with no employee record.
       approversMissingEmployeeRecord: picker.approversMissingEmployeeRecord,
+      // Who this person has ASKED to supervise them. The notification tells an
+      // approver they were asked and deep-links here; without this the picker
+      // that opens looks identical to any other, and they have to trust their
+      // memory of the notification to know they are in the right place.
+      requestedIds: requested,
     });
   } catch (error) {
     return handleApiError(error);
