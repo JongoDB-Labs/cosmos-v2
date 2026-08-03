@@ -27,8 +27,13 @@ agenda. It is a good reference. It is not a cosmos design, so this is one.
 A **general-purpose whiteboard**, as its own plugin: a person opens their own
 board, starts from a curated or self-made template, and saves and shares it.
 
-It is *adjacent to* — not the same as — PI planning's board. Both render
-Excalidraw; they differ in what is authoritative:
+**Packaging: its own PRIVATE plugin repo** (`cosmos-plugin-whiteboard`), matching
+every other plugin — all `cosmos-plugin-*` repos are private; only `cosmos-v2` is
+public. It composes in at build time and appears in Settings → Plugins as its own
+toggle. Fail-closed, like every plugin: no `OrgPluginState` row means off.
+
+It is *adjacent to* — not the same as — PI planning's board, and depends on
+nothing from it. Both render Excalidraw; they differ in what is authoritative:
 
 | | PI Planning board | Whiteboard |
 |---|---|---|
@@ -39,7 +44,9 @@ Excalidraw; they differ in what is authoritative:
 Those are not in conflict. The PI baseline's option (c) already splits "structured
 objects stay in Postgres" from "freeform scene is durable, persisted by cosmos".
 **The whiteboard is the pure-freeform half of that same substrate**, which is why
-it should be built on the same pieces rather than beside them.
+the whiteboard should follow the same PATTERNS — not depend on the same running
+services. Borrow the shapes that are already proven here (ticket-derived rooms,
+audited persistence, object storage for scene bytes); share no process.
 
 ## Deployment: the backend is addressable per org
 
@@ -74,14 +81,35 @@ Splitting an org onto its own backend becomes configuration, not a code change.
 Hard-coding a single `NEXT_PUBLIC_WHITEBOARD_WS_URL` would foreclose that, and is
 also forbidden: `NEXT_PUBLIC_*` is inlined into the public bundle.
 
-**The sidecar keeps the PI-planning security properties, unchanged:** no database
-connection, no session cookies, one secret used only to verify tickets cosmos
-already authorised, refuses to boot without it, and the room name is **derived
-from the signed claims** so a client cannot name its own room. Reuse that sidecar
-— extended with a second room namespace — rather than standing up a second
-realtime path. A second path is a second place to get isolation wrong.
+### Its own sidecar, not PI planning's
 
-Room key: `whiteboard:${orgId}:${boardId}`.
+**Decided 2026-08-03: the whiteboard runs its own realtime service.** An earlier
+draft of this document argued for reusing the PI-planning sidecar under a second
+room namespace, on the grounds that a second realtime path is a second place to
+get isolation wrong. That is overruled, and for a good reason: the whiteboard is
+**independent functionality**, toggled on by itself, and a plugin that cannot be
+enabled without another plugin's service running is not independent. Coupling the
+two would also mean PI planning's sidecar becomes a hard dependency of a product
+that has nothing to do with PI planning.
+
+The isolation objection is answered by **sharing the pattern, not the process**.
+The whiteboard sidecar is built to the same contract, which is short enough to
+restate and verify in its own tests:
+
+- no database connection — a compromise there reads no board data;
+- no session cookies — it cannot act as a user against the app;
+- **its own secret**, used only to VERIFY tickets cosmos already authorised;
+- refuses to boot without that secret (down is obvious, open is not);
+- the room name is **DERIVED from the signed claims** and compared against the
+  room the client asked for, so a client cannot name its own room.
+
+That last line is the whole of multi-tenant isolation, and it is ~5 lines of
+code. Copying it deliberately, with its own tests, is cheaper than a shared
+service that welds two plugins together — and the parity is worth asserting: PI
+planning already keeps a `realtime-token-parity` test for exactly this reason.
+
+Room key: `whiteboard:${orgId}:${boardId}`. Separate secret, separate process,
+separate failure domain.
 
 ## Persistence
 
