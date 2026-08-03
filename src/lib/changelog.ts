@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.265.5",
+    date: "2026-08-02",
+    title: "Contracts follow project access, and Cosmo edits what the app allows",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Contracts attached to a project restricted to its team were listed to everyone who could read the CRM, along with their terms and value. Contracts now follow the project they belong to; contracts not tied to a project stay visible as before.",
+      },
+      {
+        kind: "fix",
+        text: "Asking Cosmo to create or change a KPI needed less permission than doing it in the app, so someone could make changes through the assistant that the screen would have refused. Every agent change now requires exactly what the equivalent screen requires.",
+      },
+      {
+        kind: "improvement",
+        text: "The reverse also held: a project manager without organisation-wide rights could edit their own project in the app but not through Cosmo. They can now do both.",
+      },
+    ],
+  },
+  {
     version: "2.265.4",
     date: "2026-08-02",
     title: "The meetings list respects project access",

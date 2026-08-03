@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { GoalStatus, GoalProgressMode, KpiDirection } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectManage, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * Goals + KPIs executors. Every query is org+project scoped. Mirrors the routes
@@ -79,8 +79,8 @@ export async function createGoal(input: Record<string, unknown>, ctx: ToolContex
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "OKR_CREATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.OKR_CREATE);
+  if (denied2) return denied2;
 
   const maxSort = await prisma.goal.aggregate({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -133,8 +133,8 @@ export async function updateGoal(input: Record<string, unknown>, ctx: ToolContex
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "OKR_UPDATE");
-  if (outOfScope) return { error: "Goal not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.OKR_UPDATE);
+  if (denied2) return denied2;
 
   const updated = await prisma.goal.update({
     where: { id: existing.id },
@@ -196,8 +196,8 @@ export async function createKpi(input: Record<string, unknown>, ctx: ToolContext
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "OKR_CREATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const maxSort = await prisma.kpi.aggregate({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -249,8 +249,8 @@ export async function updateKpi(input: Record<string, unknown>, ctx: ToolContext
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "OKR_UPDATE");
-  if (outOfScope) return { error: "KPI not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const updated = await prisma.kpi.update({
     where: { id: existing.id },

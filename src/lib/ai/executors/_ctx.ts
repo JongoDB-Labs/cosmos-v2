@@ -1,6 +1,7 @@
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import type { AuthContext } from "@/lib/rbac/check";
 import type { OrgRole } from "@prisma/client";
 
@@ -127,6 +128,48 @@ export async function assertProjectRead(
     return null;
   } catch {
     return { error: "Project not found" };
+  }
+}
+
+/**
+ * May this actor WRITE to this project?
+ *
+ * `assertProjectRead` is not the right question for a mutation. The HTTP write
+ * routes use `requireProjectManage(ctx, projectId, orgWideBit)` — the org-wide
+ * permission OR being a manager of that project — and the agent asked something
+ * different, which made it wrong in BOTH directions:
+ *
+ *   - STRICTER for a project manager without the org-wide bit: the app let them
+ *     edit their own project's risks; the agent refused.
+ *   - LOOSER wherever the agent picked a weaker bit than the route. `create_kpi`
+ *     gated on OKR_CREATE, which MEMBER holds, while the KPI routes require
+ *     PROJECT_UPDATE, which MEMBER does not — so a member could create KPIs
+ *     through the assistant that the app would have refused.
+ *
+ * FORWARDS to `requireProjectManage`, so it cannot drift from what the routes
+ * enforce. Pass the SAME `orgWideBit` the matching route passes; that pairing is
+ * the whole contract, and getting it wrong is how the KPI gap appeared.
+ */
+export async function assertProjectManage(
+  ctx: ToolContext,
+  projectId: string,
+  orgWideBit: bigint,
+): Promise<{ error: string } | null> {
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Project not found" };
+  // Visibility first: a project you cannot open must read as absent rather than
+  // as forbidden, which is `requireProjectRead`'s contract and the reason a
+  // refusal cannot be used to discover what exists.
+  try {
+    await requireProjectRead(auth, projectId, "PROJECT_READ");
+  } catch {
+    return { error: "Project not found" };
+  }
+  try {
+    await requireProjectManage(auth, projectId, orgWideBit);
+    return null;
+  } catch {
+    return { error: "You do not have permission to change this project" };
   }
 }
 
