@@ -691,6 +691,7 @@ model Team {
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   members TeamMember[]
   boards  Board[]
+  // @plugin-backrel:Team
 
   @@unique([projectId, name])
   @@index([orgId])
