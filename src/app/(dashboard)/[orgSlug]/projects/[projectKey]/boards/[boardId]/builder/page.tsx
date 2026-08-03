@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
+import { isBoardVisible } from "@/lib/rbac/board-access";
 import { BoardBuilder } from "@/components/boards/builder/board-builder";
 import type { Board } from "@/types/models";
 
@@ -31,10 +32,15 @@ export default async function BuilderPage({ params }: PageParams) {
 
   const board = await prisma.board.findFirst({
     where: { id: boardId, projectId: project.id },
-    select: { id: true, name: true, type: true, config: true },
+    select: { id: true, name: true, type: true, config: true, teamId: true },
   });
 
   if (!board) notFound();
+
+  // Team axis — the builder is a second URL onto the same board, and editing its
+  // structure is strictly more than reading it. `notFound()` rather than a
+  // refusal, so it cannot be used to confirm the board exists.
+  if (!(await isBoardVisible(ctx, project.id, board))) notFound();
 
   let sector: string | undefined;
   if (project.projectTemplateId) {

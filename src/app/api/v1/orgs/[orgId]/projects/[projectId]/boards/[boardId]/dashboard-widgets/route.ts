@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireBoardRead } from "@/lib/rbac/board-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -32,7 +33,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const board = await prisma.board.findFirst({
       where: { id: boardId, projectId, orgId },
     });
-    if (!board) return new Response("Not found", { status: 404 });
+    // Team axis: a board you may not open is a board you may not read or add
+    // widgets to. Same NotFound for hidden as for missing.
+    await requireBoardRead(ctx, projectId, board);
 
     const widgets = await prisma.dashboardWidget.findMany({
       where: { boardId },
@@ -64,7 +67,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const board = await prisma.board.findFirst({
       where: { id: boardId, projectId, orgId },
     });
-    if (!board) return new Response("Not found", { status: 404 });
+    // Team axis: a board you may not open is a board you may not read or add
+    // widgets to. Same NotFound for hidden as for missing.
+    await requireBoardRead(ctx, projectId, board);
 
     const body = await request.json();
     const data = createWidgetSchema.parse(body);

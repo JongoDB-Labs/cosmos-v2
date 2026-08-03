@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireBoardRead } from "@/lib/rbac/board-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -39,7 +40,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    if (!board) return new Response("Not found", { status: 404 });
+    // Throws NotFoundError for a board on another team as well as for one that
+    // does not exist — deliberately the same answer. This is the URL-browsing
+    // surface: a 403 here would confirm the board exists, which is the one fact
+    // team scoping is meant to withhold.
+    await requireBoardRead(ctx, projectId, board);
 
     return success(board);
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { narrowBoards } from "@/lib/rbac/board-access";
 
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -40,7 +41,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: { sortOrder: "asc" },
     });
 
-    return success(boards);
+    // The TEAM axis. `requireProjectRead` above answers "may they open this
+    // project"; this answers "which of its boards are theirs to see". Without
+    // it this route returned every board while the sidebar hid the ones
+    // assigned to another team — the same question, two different answers.
+    return success(await narrowBoards(ctx, projectId, boards));
   } catch (error) {
     return handleApiError(error);
   }
