@@ -46,11 +46,11 @@ it should be built on the same pieces rather than beside them.
 This is the part the recollection was reaching for, and it needs stating
 precisely, because "separate backends per org" can mean three different things.
 
-Today: cosmos ships as a **per-client composed image** (cosmos-assembly builds one
-per customer), and the PI-planning sidecar rides inside that composition. So
-*per-instance separation already exists* — DEFCON's sidecar is not Pontis's
-sidecar; they are different deployments entirely. Within one instance, orgs share
-a sidecar and are separated by room key.
+Today: cosmos ships as a **per-client composed image** (the private image builder
+composes one per customer), and the PI-planning sidecar rides inside that
+composition. So *per-instance separation already exists* — one customer's sidecar
+is not another's; they are different deployments entirely. Within one instance,
+orgs share a sidecar and are separated by room key.
 
 That is adequate for most tenants and inadequate for some: a customer with CUI or
 a contractual isolation requirement will want their org's realtime traffic in its
