@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
+import { isBoardVisible } from "@/lib/rbac/board-access";
 import { BoardRenderer } from "./board-renderer";
 
 type PageParams = {
@@ -39,10 +40,17 @@ export default async function BoardPage({ params }: PageParams) {
       projectId: project.id,
       OR: [{ slug: boardId }, ...(UUID_RE.test(boardId) ? [{ id: boardId }] : [])],
     },
-    select: { id: true, slug: true, type: true, name: true, config: true },
+    select: { id: true, slug: true, type: true, name: true, config: true, teamId: true },
   });
 
   if (!board) notFound();
+
+  // The TEAM axis. The sidebar already hides another team's board; without this
+  // the URL still rendered it, which is the gap that makes hiding it on screen
+  // meaningless. `notFound()` and not a 403, for the same reason the API returns
+  // NotFound: a refusal that distinguishes hidden from missing confirms the
+  // board exists.
+  if (!(await isBoardVisible(ctx, project.id, board))) notFound();
 
   // Canonicalize to the readable slug URL when reached via UUID (or a stale slug).
   if (board.slug && boardId !== board.slug) {

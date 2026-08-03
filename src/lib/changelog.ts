@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.266.1",
+    date: "2026-08-03",
+    title: "A board assigned to a team is hidden everywhere, not just in the sidebar",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Assigning a board to a team removed it from the project's board strip, but the board itself stayed readable to anyone who knew or guessed its address — through the API, a direct link, its columns and dashboard widgets, and by asking Cosmo to list the project's boards. All of those now apply the same rule the sidebar does, and answer \"not found\" rather than revealing that there is a board you are not on the team for.",
+      },
+      {
+        kind: "improvement",
+        text: "Project reporting is deliberately unaffected: completion figures still count every board, so two people looking at the same project read the same numbers whatever teams they belong to.",
+      },
+    ],
+  },
+  {
     version: "2.266.0",
     date: "2026-08-03",
     title: "Link a planning team to the organisation team it stands for",

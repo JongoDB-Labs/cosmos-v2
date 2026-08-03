@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
+import { requireBoardRead } from "@/lib/rbac/board-access";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -41,7 +42,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     const board = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
-    if (!board) return new Response("Not found", { status: 404 });
+    // Team axis: a board you may not open is a board whose columns you may not
+    // read or restructure. Same NotFound for hidden as for missing.
+    await requireBoardRead(ctx, projectId, board);
 
     const body = await request.json();
     const { columns } = reorderSchema.parse(body);
