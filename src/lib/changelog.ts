@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.265.4",
+    date: "2026-08-02",
+    title: "The meetings list respects project access",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Meetings attached to a project restricted to its team were listed to everyone who could read meetings at all — including their notes and transcripts. The list now shows meetings on projects you can open, plus any meeting not tied to a project. This matches what Cosmo was already doing, so the two no longer disagree.",
+      },
+    ],
+  },
+  {
     version: "2.265.3",
     date: "2026-08-02",
     title: "Cosmo sees exactly what you see, and nothing more",
