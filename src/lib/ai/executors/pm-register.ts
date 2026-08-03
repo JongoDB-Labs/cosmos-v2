@@ -11,7 +11,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
 import { logPmActivity, logPmFieldChanges } from "@/lib/pm/activity-log";
 import { resolvePmSubject, isPmSubjectType } from "@/lib/pm/subjects";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectManage, assertProjectRead, type ToolContext } from "./_ctx";
 
 // `projectInOrg` lived here and asked whether a project EXISTS in the org. That
 // is not the question these tools needed: a project with `teamScopedAccess` is
@@ -89,8 +89,8 @@ export async function createRisk(input: Record<string, unknown>, ctx: ToolContex
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const score = computeRiskScore(data.likelihood, data.impact);
   const created = await prisma.risk.create({
@@ -164,8 +164,8 @@ export async function updateRisk(input: Record<string, unknown>, ctx: ToolContex
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return { error: "Risk not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   // Recompute score + level when either driver changes (matches the route).
   const likelihood = data.likelihood ?? existing.likelihood;
@@ -425,8 +425,8 @@ export async function createBlocker(input: Record<string, unknown>, ctx: ToolCon
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const created = await prisma.blocker.create({
     data: {
@@ -476,8 +476,8 @@ export async function updateBlocker(input: Record<string, unknown>, ctx: ToolCon
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return { error: "Blocker not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const updated = await prisma.blocker.update({
     where: { id: existing.id },
@@ -535,8 +535,8 @@ export async function createDeliverable(input: Record<string, unknown>, ctx: Too
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const created = await prisma.deliverable.create({
     data: {
@@ -587,8 +587,8 @@ export async function updateDeliverable(input: Record<string, unknown>, ctx: Too
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return { error: "Deliverable not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const updated = await prisma.deliverable.update({
     where: { id: existing.id },
@@ -647,8 +647,8 @@ export async function createChangeRequest(input: Record<string, unknown>, ctx: T
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const created = await prisma.changeRequest.create({
     data: {
@@ -697,8 +697,8 @@ export async function updateChangeRequest(input: Record<string, unknown>, ctx: T
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return { error: "Change request not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const updated = await prisma.changeRequest.update({
     where: { id: existing.id },

@@ -192,19 +192,26 @@ export async function semanticSearch(
   }
 
   // ── Contracts ─────────────────────────────────────────────────────────
-  // RBAC preserved EXACTLY: org-scoped (orgId = ctx.orgId), no further gate.
+  // Scoped by PROJECT, matching GET /contracts. `contracts.project_id` is real
+  // and nullable: a contract on a team-scoped project is closed to non-members,
+  // while one with no project is org-level CRM data and stays searchable.
   if (enabledTypes.has("contract")) {
+    const contractAuth = await loadAuthContext(ctx);
+    if (!contractAuth) return { error: "Insufficient permissions" };
+    const readableForContracts = await getReadableProjectIds(contractAuth);
     const rows = await prisma.$queryRawUnsafe<VectorRow[]>(
       `SELECT "id", "title", "terms", "notes",
               1 - ("embedding" <=> $1::vector) AS similarity
          FROM "contracts"
         WHERE "org_id" = $2::uuid
           AND "embedding" IS NOT NULL
+          AND ("project_id" IS NULL OR "project_id" = ANY($4::uuid[]))
         ORDER BY "embedding" <=> $1::vector
         LIMIT $3`,
       qv,
       ctx.orgId,
-      cap
+      cap,
+      readableForContracts
     );
     for (const row of rows) {
       hits.push({

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { MilestoneStatus } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectManage, assertProjectRead, type ToolContext } from "./_ctx";
 
 /**
  * Milestone executors — project delivery milestones. Every query is org+project
@@ -68,8 +68,8 @@ export async function createMilestone(input: Record<string, unknown>, ctx: ToolC
   if (!parsed.success) return invalid(parsed.error);
   const data = parsed.data;
 
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return outOfScope;
+  const denied2 = await assertProjectManage(ctx, data.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const maxSort = await prisma.milestone.aggregate({
     where: { orgId: ctx.orgId, projectId: data.projectId },
@@ -120,8 +120,8 @@ export async function updateMilestone(input: Record<string, unknown>, ctx: ToolC
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return { error: "Milestone not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   const updated = await prisma.milestone.update({
     where: { id: existing.id },
@@ -161,8 +161,8 @@ export async function deleteMilestone(input: Record<string, unknown>, ctx: ToolC
   // The org check above only proves the row EXISTS. Its project may be
   // team-scoped and closed to this actor — see _ctx.ts. Same message either
   // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "PROJECT_UPDATE");
-  if (outOfScope) return { error: "Milestone not found" };
+  const denied2 = await assertProjectManage(ctx, existing.projectId, Permission.PROJECT_UPDATE);
+  if (denied2) return denied2;
 
   await prisma.milestone.delete({ where: { id: existing.id } });
   return { deleted: true, id: existing.id };

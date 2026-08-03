@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
+import { isProjectVisible } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -41,6 +42,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
 
     if (!contract) return new Response("Not found", { status: 404 });
+
+    // The org check above only proves the contract EXISTS. If it belongs to a
+    // project, that project decides — a team-scoped one is closed to
+    // non-members. Reported as 404, the same as a genuine miss, so a refusal
+    // never confirms the contract is real.
+    if (contract.projectId && !(await isProjectVisible(ctx, contract.projectId))) {
+      return new Response("Not found", { status: 404 });
+    }
 
     return success(contract);
   } catch (error) {

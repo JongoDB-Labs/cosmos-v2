@@ -127,11 +127,35 @@ describe("agent tools cannot read past project scoping", () => {
     return out;
   }
 
+  // CREATE and UPSERT included, and their absence was a real hole: the first
+  // version listed only reads, updates and deletes, so `createMilestone`,
+  // `createRisk` and `createKpi` were never checked at all — deleting their gate
+  // passed. Mutation testing found it. A write into a project you cannot open is
+  // as much a scope violation as a read out of one.
   const TOUCHES_SCOPED = new RegExp(
-    `prisma\\.(?:${PROJECT_SCOPED_MODELS.join("|")})\\.(?:findFirst|findUnique|findMany|update|delete)\\(`,
+    `prisma\\.(?:${PROJECT_SCOPED_MODELS.join("|")})\\.(?:findFirst|findUnique|findMany|create|createMany|upsert|update|updateMany|delete|deleteMany)\\(`,
   );
+  // `assertProjectManage` counts: it checks VISIBILITY first (via
+  // requireProjectRead) and only then authority, so a function using it is
+  // scoped as well as authorised. Writes use it instead of assertProjectRead
+  // because the HTTP write routes use requireProjectManage — see _ctx.ts.
   const HAS_GATE =
-    /assertProjectRead|getReadableProjectIds|visibleProjectIdsForActor|readableTimeUserIds/;
+    /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|readableTimeUserIds/;
+
+  /**
+   * Writes that touch a project-scoped MODEL but never a project.
+   *
+   * Spelled out per function, so exempting a new one is a decision somebody has
+   * to write down. Verify the claim before adding: the test is whether the
+   * created row can carry a projectId AT ALL, not whether this call happens to
+   * set one.
+   */
+  const ORG_LEVEL_WRITES = new Set([
+    // FeedbackItem HAS a nullable projectId, but `create_feedback`'s zod schema
+    // has no projectId field and its create() never sets one — every row it
+    // makes is org-level. If the schema gains the field, this entry must go.
+    "feedback.ts::createFeedback",
+  ]);
 
   it("no FUNCTION reaches project-scoped data without its own scope check", () => {
     const offenders: string[] = [];
@@ -140,8 +164,9 @@ describe("agent tools cannot read past project scoping", () => {
         // Private helpers are reached only through an exported tool that has
         // already gated — `nextRiskCode`, `recomputeObjectiveProgress`.
         if (!/^export /.test(body)) continue;
-        // Org-level creates that never touch a project (see createFeedback).
         if (!TOUCHES_SCOPED.test(body)) continue;
+        // Named exemptions, each with its reason — an allowlist, not a silence.
+        if (ORG_LEVEL_WRITES.has(`${f}::${name}`)) continue;
         if (!HAS_GATE.test(body)) offenders.push(`${f}::${name}`);
       }
     }
