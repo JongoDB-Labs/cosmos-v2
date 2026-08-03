@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.266.0",
+    date: "2026-08-03",
+    title: "Link a planning team to the organisation team it stands for",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A PI Planning team can now say which of your organisation's teams it stands for. Edit a team and pick it under \"Stands for\" — objectives and risks raised in planning can then be traced back to the people who actually own the work, instead of living in a second, parallel list of teams.",
+      },
+      {
+        kind: "improvement",
+        text: "The picker only offers teams from projects you can open, so it cannot be used to discover the teams on a project restricted to its members. Teams belonging to a different project than the planning team are hidden, with a note saying how many and why.",
+      },
+    ],
+  },
+  {
     version: "2.265.5",
     date: "2026-08-02",
     title: "Contracts follow project access, and Cosmo edits what the app allows",
