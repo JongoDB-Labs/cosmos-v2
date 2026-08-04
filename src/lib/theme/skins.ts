@@ -53,6 +53,12 @@ const ATELIER_LIGHT: Record<string, string> = {
   "--primary": "#214144", "--primary-hover": "#1a3134",
   "--primary-tint": "rgb(33 65 68 / 0.08)", "--primary-foreground": "#f9f7f4",
   "--laser": "#e9ff14",
+  // PLACEHOLDERS — invented, not from the frozen brand guide, which is on no repo
+  // on disk. Chosen to sit with the pearl/midnight palette and to clear contrast
+  // against --bg (3.5:1 and 7.4:1 here). Real values tracked as FND-9 on the
+  // private roadmap board; re-check contrast when they land, since these were
+  // picked partly for it.
+  "--clay": "#b0785f", "--clay-burnt": "#7a4433",
   "--radius-sm": "2px", "--radius": "2px", "--radius-md": "2px", "--radius-lg": "4px",
   "--sidebar-gradient": "linear-gradient(180deg, #f9f7f4 0%, #edeae2 100%)",
   "--atelier-grid": "rgb(33 65 68 / 0.10)",
@@ -63,6 +69,13 @@ const ATELIER_DARK: Record<string, string> = {
   "--border": "rgb(249 247 244 / 0.16)", "--text": "#f4f1ea", "--text-muted": "#9fb0ab",
   "--primary": "#f9f7f4", "--primary-hover": "#edeae2",
   "--primary-tint": "rgb(249 247 244 / 0.10)", "--primary-foreground": "#16282a",
+  // --laser was light-only, but the ::selection rule below references it in BOTH
+  // modes — so dark-mode selection resolved var(--laser) to nothing and fell back
+  // to the UA highlight while keeping the hardcoded midnight text, i.e. dark on
+  // dark. Same accent value: laser on midnight reads in either mode.
+  "--laser": "#e9ff14",
+  // Placeholders, lightened for the dark canvas (5.5:1 and 3.1:1). See light above.
+  "--clay": "#c98d70", "--clay-burnt": "#a35f45",
   "--sidebar-gradient": "linear-gradient(180deg, #1a3134 0%, #16282a 100%)",
   "--atelier-grid": "rgb(249 247 244 / 0.08)",
 };
@@ -77,7 +90,10 @@ const ATELIER: SkinPreset = {
   light: ATELIER_LIGHT,
   dark: ATELIER_DARK,
   extras: [
-    `:root.skin-atelier { font-feature-settings: "ss01", "cv11", "cv05", "ss03"; font-variant-ligatures: contextual common-ligatures; }`,
+    // The cv*/ss* sets below are Inter-specific and inert on other faces; they
+    // stay because --font-atelier is a var an org's theme can still override
+    // back to Inter, and they cost nothing when unrecognised.
+    `:root.skin-atelier { --font-sans: var(--font-atelier); font-feature-settings: "ss01", "cv11", "cv05", "ss03"; font-variant-ligatures: contextual common-ligatures; }`,
     `:root.skin-atelier.skin-atelier body::before { content: ""; position: fixed; inset: 0; z-index: -2; background-color: var(--bg); background-image: none; pointer-events: none; }`,
     `:root.skin-atelier.skin-atelier body::after { content: none; }`,
     `:root.skin-atelier [data-app-canvas] { background-color: transparent; background-image: ${GRID}; background-size: 48px 48px; }`,

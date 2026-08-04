@@ -26,6 +26,35 @@ describe("skin registry", () => {
     expect(a.extras).toContain("[data-app-canvas]");
     expect(a.extras).toContain("background-image: none");
   });
+  it("atelier carries all six brand-guide colour tokens in both modes", () => {
+    // The clay pair is a placeholder (FND-9 on the private roadmap board); this
+    // asserts the tokens EXIST in both modes, not their values, so swapping in
+    // the real hexes does not have to touch this test.
+    const a = getSkinPreset("atelier");
+    for (const mode of ["light", "dark"] as const) {
+      for (const token of ["--bg", "--surface", "--text", "--laser", "--clay", "--clay-burnt"]) {
+        expect(a[mode][token], `${mode} is missing ${token}`).toBeTruthy();
+      }
+    }
+  });
+  it("every var ::selection references is defined in both modes", () => {
+    // Regression: --laser was light-only while ::selection used it unconditionally,
+    // so dark-mode selection painted the hardcoded midnight text over an undefined
+    // background — dark on dark. Assert the general rule, not just that one token.
+    const a = getSkinPreset("atelier");
+    const selection = (a.extras ?? "").match(/::selection\s*\{[^}]*\}/)?.[0] ?? "";
+    const referenced = [...selection.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1]);
+    expect(referenced.length).toBeGreaterThan(0);
+    for (const token of referenced) {
+      expect(a.light[token], `light is missing ${token}`).toBeTruthy();
+      expect(a.dark[token], `dark is missing ${token}`).toBeTruthy();
+    }
+  });
+  it("atelier drives its own face rather than falling through to Inter", () => {
+    // Every other sector preset binds --font-sans to a dedicated face; atelier
+    // was the one that did not, so it silently inherited the default.
+    expect(getSkinPreset("atelier").extras).toContain("--font-sans: var(--font-atelier)");
+  });
   it("ships the Phase 4 sector presets, tagged + emitting both modes", () => {
     const css = allSkinsCss();
     for (const id of ["field", "ledger", "clinical", "studio"]) {

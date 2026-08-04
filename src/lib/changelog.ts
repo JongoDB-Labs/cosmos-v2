@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.267.0",
+    date: "2026-08-04",
+    title: "The Atelier skin gets its own typeface, and selection is readable in dark mode",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Atelier — the pearl-and-midnight drafting look — was the only sector theme without a typeface of its own, so it quietly borrowed the default one and leaned on typographic tricks to feel like a drawing office. It now sets its own face, and reads as its own thing rather than a tinted version of everything else.",
+      },
+      {
+        kind: "fix",
+        text: "Selecting text in Atelier's dark mode painted dark ink on an undefined highlight, so the selection was effectively invisible. Selected text is now legible in both light and dark.",
+      },
+      {
+        kind: "improvement",
+        text: "Atelier carries two further accent colours, so themed artefacts have a fuller palette to draw on.",
+      },
+    ],
+  },
+  {
     version: "2.266.1",
     date: "2026-08-03",
     title: "A board assigned to a team is hidden everywhere, not just in the sidebar",
