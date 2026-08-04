@@ -1,0 +1,55 @@
+# Closes the other half of the client-identity gap.
+#
+# The arch test scans tracked FILE content. The commit-msg hook scans messages,
+# but only for people who have run `npm install`, and `--no-verify` skips it.
+# Neither has ever looked at a PR title or body — text written in a browser that
+# never touches a git hook, and the exact surface the arch test names as leaking
+# before ("the customer's in commit messages and PR descriptions this gate does
+# not read").
+#
+# Deliberately `pull_request`, NOT `pull_request_target`: the latter runs with a
+# writable token against the base repo, and there is no reason to hand that to a
+# job whose whole input is attacker-controlled text.
+name: pr-identity
+
+on:
+  pull_request:
+    # `edited` matters as much as `opened` — a clean PR can have a vertical's
+    # name pasted into its body ten minutes later.
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history: the scan walks base..head to read every commit message
+          # in the PR, which a shallow clone cannot resolve.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+
+      # No `npm ci` — the script is plain node importing one local module. This
+      # job is seconds, so a leak is reported while the author is still looking
+      # at the page.
+      - name: Scan title, body and commit messages
+        env:
+          # Passed as environment, never interpolated into the shell line: a PR
+          # body is attacker-controlled, and `${{ … }}` substituted into `run:`
+          # would execute whatever `$(…)` or backticks it contains.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-pr-identity.mjs
