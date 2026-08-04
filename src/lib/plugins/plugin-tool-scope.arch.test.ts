@@ -44,6 +44,31 @@ const toolContributors = pluginFiles.filter((f) => {
   return /aiTools\s*:/.test(src) || /executeTool\s*[:(]/.test(src);
 });
 
+/**
+ * The module that actually IMPLEMENTS a plugin's executeTool.
+ *
+ * The hook is declared in a plugin's `server.ts`, but by convention that file is a
+ * manifest — `executeTool: <someExecutor>` and nothing else. Reading the gates off
+ * the declaring file therefore asks the wrong file entirely, and it fails in both
+ * directions: a plugin whose executor is wide open is reported against a
+ * `server.ts` that has nothing wrong in it, and a plugin whose `server.ts` merely
+ * happens to mention `assertPermission` passes no matter what its executor does.
+ * Either way the rule measures something unrelated to what the tool can reach.
+ *
+ * So follow the delegation: take the identifier bound to `executeTool:` and find
+ * the file that exports it. A hook defined inline resolves to itself, and an
+ * identifier that cannot be resolved falls back to the declaring file rather than
+ * silently dropping the plugin from the sweep — an unresolvable delegation must
+ * still be somebody's problem.
+ */
+function implementationOf(declaringFile: string): string {
+  const delegated = code(declaringFile).match(/executeTool\s*:\s*([A-Za-z_$][\w$]*)/);
+  if (!delegated) return declaringFile; // defined inline
+  const ident = delegated[1];
+  const defines = new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${ident}\\b`);
+  return pluginFiles.find((f) => defines.test(code(f))) ?? declaringFile;
+}
+
 describe("plugin-contributed agent tools enforce access themselves", () => {
   it("reports how much it actually scanned", () => {
     // Not an assertion about correctness — a statement of coverage, so a pass
@@ -61,20 +86,23 @@ describe("plugin-contributed agent tools enforce access themselves", () => {
     // hold authorises reading SOME of a thing and says nothing about WHICH — a
     // team-scoped project is closed to non-members, and "exists in the org" is
     // not the same question.
-    const offenders = toolContributors.filter((f) => {
-      const src = code(f);
-      if (!/executeTool/.test(src)) return false;
-      const hasPermission = /assertPermission|assertAllPermissions/.test(src);
-      const hasProjectScope =
-        /assertProjectRead|getReadableProjectIds|visibleProjectIdsForActor/.test(src);
-      // A tool that never touches a project needs only the permission gate.
-      const touchesProject = /projectId/.test(src);
-      return !hasPermission || (touchesProject && !hasProjectScope);
-    });
+    const offenders = toolContributors
+      .filter((f) => /executeTool/.test(code(f)))
+      // Judge the implementation, not the one-line hook declaration.
+      .map(implementationOf)
+      .filter((impl) => {
+        const src = code(impl);
+        const hasPermission = /assertPermission|assertAllPermissions/.test(src);
+        const hasProjectScope =
+          /assertProjectRead|getReadableProjectIds|visibleProjectIdsForActor/.test(src);
+        // A tool that never touches a project needs only the permission gate.
+        const touchesProject = /projectId/.test(src);
+        return !hasPermission || (touchesProject && !hasProjectScope);
+      });
 
     expect(
-      offenders.map((f) => f.replace(process.cwd(), ".")),
-      "a plugin tool bypasses _ctx.ts — it must call assertPermission, and assertProjectRead when it touches a project",
+      [...new Set(offenders)].map((f) => f.replace(process.cwd(), ".")),
+      "a plugin tool bypasses _ctx.ts — it must call assertPermission, and assertProjectRead when it touches a project. Paths below are the files that IMPLEMENT executeTool, not where the hook is declared",
     ).toEqual([]);
   });
 });
