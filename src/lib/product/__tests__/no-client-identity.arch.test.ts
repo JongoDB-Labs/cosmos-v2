@@ -13,35 +13,15 @@ import { join } from "node:path";
  * loudly on any regression, so a stray literal can't slip back into the public
  * core.
  *
+ * It covers file CONTENT only. Commit messages are guarded separately, at commit
+ * time, by scripts/check-commit-msg-identity.mjs via the commit-msg hook — both
+ * import the pattern below from scripts/client-identity.mjs so the two can never
+ * disagree.
+ *
  * If this test flags a legitimate use, neutralize the literal — do not add an
- * allowlist. (This file itself is excluded: it necessarily spells the tokens out
- * in order to search for them.)
+ * allowlist. (The pattern files are excluded: they carry the search machinery.)
  */
-// Forbidden identity tokens, stored base64-encoded so THIS gate file never
-// contains the literal identifiers. Otherwise a client-identity scrub or a
-// git-history rewrite of those very tokens would corrupt the gate's own
-// pattern. Decode the arrays below to audit the list; `word` entries are matched
-// whole-word (\b…\b), the rest as substrings. Case-insensitive.
-const B64_SUBSTR = [
-  "ZGVmY29u", "cG9udGlz", "xJJTTw==", "xJNzbw==",
-  "aW52aWN0dXM=", "Y29zbW9zLWFzc2VtYmx5", "ZmlnaHRpbmdzbWFydA==", "ZGVmY29uYWk=",
-  // A customer's name, and a real person's — both had reached the public repo
-  // (the person's in two test fixtures, the customer's in commit messages and
-  // PR descriptions this gate does not read). Substrings: a space or an unusual
-  // letter run makes a false positive inside base64 vanishingly unlikely.
-  "bWFyaW5lIGNvcnBz", "cmFubmFiYXJnYXI=",
-];
-// Whole-word ONLY. These are short enough to appear inside base64 by chance —
-// package-lock.json carries an integrity hash containing the letters of one of
-// them — so a substring match here would fail the build on a coincidence.
-const B64_WORD = ["RVNP", "VklUTA==", "bWNlbg==", "dXNtYw=="];
-const dec = (s: string): string => Buffer.from(s, "base64").toString("utf8");
-const FORBIDDEN = new RegExp(
-  [...B64_SUBSTR.map(dec), ...B64_WORD.map((w) => `\\b${dec(w)}\\b`)].join("|"),
-  "i",
-);
-
-const SELF = "src/lib/product/__tests__/no-client-identity.arch.test.ts";
+import { FORBIDDEN, PATTERN_FILES } from "../../../../scripts/client-identity.mjs";
 
 // Binary / non-text tracked files can't meaningfully be scanned as utf8.
 const BINARY = /\.(png|jpe?g|gif|ico|webp|avif|woff2?|ttf|otf|eot|pdf|mp4|webm|zip|gz)$/i;
@@ -55,7 +35,7 @@ describe("public-repo client-identity gate", () => {
     })
       .split("\n")
       .filter(Boolean)
-      .filter((f) => f !== SELF && !BINARY.test(f));
+      .filter((f) => !PATTERN_FILES.includes(f) && !BINARY.test(f));
 
     const offenders: string[] = [];
     for (const rel of tracked) {
