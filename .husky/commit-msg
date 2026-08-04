@@ -1,0 +1,1 @@
+node scripts/check-commit-msg-identity.mjs "$1"
