@@ -90,6 +90,27 @@ export async function reconcilePluginVersion(orgId: string, slug: string): Promi
   }
 }
 
+/**
+ * Fire onProjectCreate for every plugin enabled in the org, after a project is
+ * created. Call it POST-COMMIT so the hook sees a persisted project it can query.
+ *
+ * Best-effort per plugin, for the same reason reconcilePluginVersion is: a plugin
+ * hook must NEVER be able to fail core project creation. A throw is logged and
+ * the next plugin still runs. Callers therefore need no try/catch of their own —
+ * and must not skip creation on a plugin's behalf.
+ */
+export async function firePluginProjectCreate(orgId: string, projectId: string): Promise<void> {
+  const slugs = await getEnabledPluginSlugs(orgId);
+  for (const slug of slugs) {
+    try {
+      await PluginServerRegistry.get(slug)?.onProjectCreate?.(prisma, orgId, projectId);
+    } catch (e) {
+      // eslint-disable-next-line no-restricted-syntax -- best-effort plugin hook, must not fail project creation
+      console.error(`[plugins] onProjectCreate failed for ${slug} in org ${orgId} (project ${projectId}):`, e);
+    }
+  }
+}
+
 /** The org's per-plugin config blob ({} when unset/disabled). Callers own defaults. */
 export async function getPluginConfig(orgId: string, slug: string): Promise<Record<string, unknown>> {
   const row = await prisma.orgPluginState.findUnique({
