@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.272.0",
+    date: "2026-08-05",
+    title: "Choose a logo file in Settings",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The upload added in the last release had no way to reach it \u2014 Settings still only offered a URL box. There is now a file picker with a preview of the current logo, and the URL field stays for anyone who would rather point at an image they already host.",
+      },
+    ],
+  },
+  {
     version: "2.271.0",
     date: "2026-08-05",
     title: "Upload your organisation's logo instead of hosting it yourself",

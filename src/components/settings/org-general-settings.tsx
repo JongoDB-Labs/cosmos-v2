@@ -44,6 +44,41 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
   const [name, setName] = useState(initial.name);
   const [slug, setSlug] = useState(initial.slug);
   const [logoUrl, setLogoUrl] = useState(initial.logoUrl ?? "");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  
+  /**
+   * Upload the logo rather than requiring it to be hosted somewhere first.
+   *
+   * The POST both stores the file and sets `logoUrl` server-side, so the field
+   * below is refreshed from the response instead of being submitted again: a
+   * second save would only rewrite the same value, and a failed one would leave
+   * the record pointing at an image the org cannot see.
+   */
+  async function uploadLogo(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch(`/api/v1/orgs/${orgId}/logo`, { method: "POST", body });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(
+          detail?.error === "too_large" ? "That image is over the 2MB limit."
+          : detail?.error === "unsupported_mime" ? "Use a PNG, JPEG, WebP or SVG image."
+          : "Upload failed.",
+        );
+      }
+      const json = await res.json();
+      setLogoUrl(json?.data?.logoUrl ?? json?.logoUrl ?? "");
+      router.refresh();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  }
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -145,6 +180,33 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
         </div>
 
         <div className="space-y-1">
+          <Label htmlFor="org-logo-file">Logo</Label>
+          <div className="flex items-center gap-3">
+            {logoUrl ? (
+              <img src={logoUrl} alt="" className="h-10 w-10 rounded border border-[var(--border)] object-contain" />
+            ) : (
+              <div className="h-10 w-10 rounded border border-dashed border-[var(--border)]" />
+            )}
+            <input
+              id="org-logo-file"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              disabled={!canUpdate || uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                // Clear the input so choosing the SAME file again still fires change —
+                // otherwise retrying after a failure silently does nothing.
+                e.target.value = "";
+                if (f) void uploadLogo(f);
+              }}
+              className="text-xs file:mr-2 file:rounded-md file:border file:border-[var(--border)] file:bg-[var(--surface)] file:px-2 file:py-1 file:text-xs"
+            />
+            {uploading && <span className="text-xs text-[var(--text-muted)]">Uploading…</span>}
+          </div>
+          {uploadError && <p className="text-[11px] text-[var(--status-critical)]">{uploadError}</p>}
+          <p className="text-[11px] text-[var(--text-muted)]">
+            PNG, JPEG, WebP or SVG, up to 2MB — or paste a URL below.
+          </p>
           <Label htmlFor="org-logo">Logo URL</Label>
           <Input
             id="org-logo"
