@@ -196,6 +196,7 @@ model Organization {
   invitations            Invitation[]
   apiKeys                ApiKey[]
   projects               Project[]
+  clients                Client[]
   teams                  Team[]
   integrations           Integration[]
   webhooks               Webhook[]
@@ -641,6 +642,10 @@ model Project {
   // as before. Existing KeyResultLink rows point at Stories and are untouched:
   // this only changes which type a picker offers FIRST, so those links stay
   // valid and the auto-tracking progress they drive does not move.
+  /// The client this project is delivered for. Nullable: internal and
+  /// speculative work legitimately has no client, and a project must not be
+  /// blocked from existing before one is chosen.
+  clientId          String?  @map("client_id") @db.Uuid
   krLinkTypeId      String?  @map("kr_link_type_id") @db.Uuid
   // Objectives ladder to other objectives by default (Objective.parentId), so
   // NULL here means objective→objective. Set it to offer objective→work-item
@@ -650,6 +655,9 @@ model Project {
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// SetNull, not Cascade: removing a client must never delete the work done for
+  /// them.
+  client              Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
   members             ProjectMember[]
   teams               Team[]
   boards              Board[]
@@ -1033,6 +1041,36 @@ model PushSubscription {
 // ─────────────────────────────────────────────
 // Phase 2: OKRs, CRM, Notes, Notifications
 // ─────────────────────────────────────────────
+
+/// A client the practice DELIVERS for — the organisation a project is run and
+/// invoiced for. Deliberately separate from CrmContact, which is a sales
+/// PROSPECT carrying a pipeline stage and a deal value: conflating the two would
+/// put won work back on the pipeline board and let a lost lead appear as a
+/// project's client. Contacts (people) stay in CrmContact; this is the org.
+model Client {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  /// What the practice calls them day to day.
+  name      String
+  /// The name on the contract, when it differs from the one everyone uses.
+  legalName String?  @map("legal_name")
+  email     String?
+  phone     String?
+  website   String?
+  notes     String?
+  /// Past clients stay on file rather than being deleted — their projects and
+  /// history all still point here.
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@unique([orgId, name])
+  @@index([orgId, active])
+  @@map("clients")
+}
 
 model CrmContact {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
