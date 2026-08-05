@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.269.0",
+    date: "2026-08-04",
+    title: "Two Atelier accent colours corrected to their real values",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Atelier theme carried two accent colours that were stand-ins, picked to sit with the rest of the palette while the real specification wasn't available. Both are now the correct values. Nothing in the app draws on them yet, so no screen looks different today — but anything that uses them from here on will be right.",
+      },
+      {
+        kind: "improvement",
+        text: "In dark mode those two colours are lightened so they stay readable against the dark canvas. The specification defines a single value for each with no dark-mode variant, and one of them would have been too faint to read as given.",
+      },
+    ],
+  },
+  {
     version: "2.268.0",
     date: "2026-08-04",
     title: "Exported PDFs now look like they came from your organisation",

@@ -53,12 +53,13 @@ const ATELIER_LIGHT: Record<string, string> = {
   "--primary": "#214144", "--primary-hover": "#1a3134",
   "--primary-tint": "rgb(33 65 68 / 0.08)", "--primary-foreground": "#f9f7f4",
   "--laser": "#e9ff14",
-  // PLACEHOLDERS — invented, not from the frozen brand guide, which is on no repo
-  // on disk. Chosen to sit with the pearl/midnight palette and to clear contrast
-  // against --bg (3.5:1 and 7.4:1 here). Real values tracked as FND-9 on the
-  // private roadmap board; re-check contrast when they land, since these were
-  // picked partly for it.
-  "--clay": "#b0785f", "--clay-burnt": "#7a4433",
+  // Exact values from the frozen brand guide (PMS 404 C and PMS 2336 C). They
+  // are warm grey-greens, NOT the terracotta the earlier placeholders guessed
+  // at. Contrast against --bg is 3.6:1 and 5.6:1 — accent weights, not body
+  // copy. Note --text-muted above is already the second of these; the muted
+  // text role and this token are the same colour by coincidence, so changing
+  // one does not imply changing the other.
+  "--clay": "#828279", "--clay-burnt": "#61655f",
   "--radius-sm": "2px", "--radius": "2px", "--radius-md": "2px", "--radius-lg": "4px",
   "--sidebar-gradient": "linear-gradient(180deg, #f9f7f4 0%, #edeae2 100%)",
   "--atelier-grid": "rgb(33 65 68 / 0.10)",
@@ -74,8 +75,15 @@ const ATELIER_DARK: Record<string, string> = {
   // to the UA highlight while keeping the hardcoded midnight text, i.e. dark on
   // dark. Same accent value: laser on midnight reads in either mode.
   "--laser": "#e9ff14",
-  // Placeholders, lightened for the dark canvas (5.5:1 and 3.1:1). See light above.
-  "--clay": "#c98d70", "--clay-burnt": "#a35f45",
+  // DERIVED, not brand. The guide defines one flat value per colour with no
+  // dark-mode variant, and on this canvas BURNT CLAY lands at 2.6:1 — under
+  // even the 3:1 bar. Both are lifted toward the page by the SAME 26%, the
+  // factor BURNT CLAY needs to clear 4.5:1, so their relationship survives and
+  // CLAY stays the lighter of the two (6.0:1 and 4.6:1 here). Lifting each only
+  // as far as it individually needed collapsed the two onto the same colour.
+  // The guide states no dark-canvas values; its rule is that contrast stays
+  // high, which is what this follows.
+  "--clay": "#a3a39c", "--clay-burnt": "#8a8d89",
   "--sidebar-gradient": "linear-gradient(180deg, #1a3134 0%, #16282a 100%)",
   "--atelier-grid": "rgb(249 247 244 / 0.08)",
 };
