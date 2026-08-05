@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.271.0",
+    date: "2026-08-05",
+    title: "Upload your organisation's logo instead of hosting it yourself",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Setting an organisation logo meant pasting a URL, which only worked if the image was already hosted somewhere public. You can now upload the file directly \u2014 PNG, JPEG, WebP or SVG, up to 2MB. It is stored alongside your other documents rather than on the web server, so it survives every update; the previous logo is cleaned up when you replace it.",
+      },
+    ],
+  },
+  {
     version: "2.270.0",
     date: "2026-08-05",
     title: "Records are no longer marked CUI unless you are a government tenant",
