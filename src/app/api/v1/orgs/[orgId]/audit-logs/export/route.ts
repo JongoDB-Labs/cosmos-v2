@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { Prisma } from "@prisma/client";
 import { generateAuditLogPdf } from "@/lib/pdf/audit-log";
+import { pickOrgBrand } from "@/lib/brand/resolve";
 
 // Cap the rows RENDERED into the PDF — it's the presentable, signed report, not
 // the bulk dump (CSV/JSON carry the complete set). The digest/signature cover
@@ -175,6 +176,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           filters,
           fullCount,
           truncated: fullCount > rendered.length,
+          brand: pickOrgBrand(org),
           rows: rendered.map((l) => ({
             createdAt: l.createdAt,
             seq: l.seq,
