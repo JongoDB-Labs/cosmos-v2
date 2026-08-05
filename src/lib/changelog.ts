@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.268.0",
+    date: "2026-08-04",
+    title: "Exported PDFs now look like they came from your organisation",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Contract and audit-log exports were drawn in plain Helvetica and flat greys no matter how your workspace was themed, so a PDF you handed to a client looked unrelated to the product it came out of. They now take their colour and typography from your organisation's theme.",
+      },
+      {
+        kind: "feature",
+        text: "An organisation logo you have uploaded is now printed at the top of exported PDFs. A logo you have linked to by web address is not — an export never reaches out to another server to fetch one.",
+      },
+      {
+        kind: "improvement",
+        text: "A theme whose text would be unreadable on white paper falls back to the plain look for exports, so a document is never delivered in ink you cannot read.",
+      },
+    ],
+  },
+  {
     version: "2.267.0",
     date: "2026-08-04",
     title: "The Atelier skin gets its own typeface, and selection is readable in dark mode",

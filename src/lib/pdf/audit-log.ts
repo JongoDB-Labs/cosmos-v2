@@ -1,4 +1,6 @@
 import PDFDocument from "pdfkit";
+import type { OrgBrandOverrides } from "@/lib/brand/resolve";
+import { PDF_LOGO_FIT, resolvePdfLogo, resolvePdfPalette } from "./brand";
 
 export interface AuditLogPdfRow {
   createdAt: Date;
@@ -42,6 +44,15 @@ export interface AuditLogPdfInput {
   fullCount: number;
   rows: AuditLogPdfRow[];
   truncated: boolean;
+  /**
+   * The exporting org's brand. Optional: omitted (as in the neutral build) the
+   * export renders through the unbranded palette exactly as it always has.
+   *
+   * Presentation only — the integrity digest is computed over the canonical
+   * JSON of the rows, never over the rendered bytes, so branding a document
+   * cannot affect whether an auditor can verify it.
+   */
+  brand?: OrgBrandOverrides | null;
 }
 
 function filterSummary(f: AuditLogPdfFilters): string {
@@ -81,10 +92,25 @@ export function generateAuditLogPdf(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
+    const palette = resolvePdfPalette(input.brand);
+    const logo = resolvePdfLogo(input.brand?.logoUrl);
+
     // ---- Header ----
-    doc.fontSize(16).font("Helvetica-Bold").fillColor("black").text(`${input.orgName} — Audit Log Export`, { align: "left" });
+    if (logo) {
+      // Letterhead position. The fit box's full height is reserved so the
+      // heading sits consistently whatever the logo's aspect ratio, and a logo
+      // that will not draw is skipped rather than failing the export.
+      try {
+        const top = doc.y;
+        doc.image(logo, doc.page.margins.left, top, { fit: PDF_LOGO_FIT });
+        doc.y = top + PDF_LOGO_FIT[1] + 8;
+      } catch {
+        // fall through unbranded
+      }
+    }
+    doc.fontSize(16).font(palette.fontBold).fillColor(palette.strong).text(`${input.orgName} — Audit Log Export`, { align: "left" });
     doc.moveDown(0.3);
-    doc.fontSize(9).font("Helvetica").fillColor("#555");
+    doc.fontSize(9).font(palette.fontRegular).fillColor(palette.meta);
     doc.text(`Generated ${input.exportedAt.toISOString()} by ${input.exportedBy}`);
     doc.text(`Filters: ${filterSummary(input.filters)}`);
     doc.text(
@@ -94,20 +120,20 @@ export function generateAuditLogPdf(
           : ""),
     );
     doc.moveDown(0.6);
-    doc.moveTo(54, doc.y).lineTo(558, doc.y).strokeColor("#ccc").stroke();
+    doc.moveTo(54, doc.y).lineTo(558, doc.y).strokeColor(palette.rule).stroke();
     doc.moveDown(0.6);
 
     // ---- Entries ----
     if (input.rows.length === 0) {
-      doc.fontSize(10).font("Helvetica").fillColor("#777").text("No audit entries match the selected filters.");
+      doc.fontSize(10).font(palette.fontRegular).fillColor(palette.meta).text("No audit entries match the selected filters.");
     }
     for (const r of input.rows) {
       const seqStr = r.seq != null ? `#${r.seq.toString()}` : "—";
       const who = r.userLabel || r.userId || "system";
-      doc.fontSize(9).font("Helvetica-Bold").fillColor("black");
+      doc.fontSize(9).font(palette.fontBold).fillColor(palette.strong);
       doc.text(`${r.action}`, { continued: true });
-      doc.font("Helvetica").fillColor("#333").text(`  ·  ${r.entity}${r.entityId ? ` (${r.entityId})` : ""}`);
-      doc.fontSize(8).font("Helvetica").fillColor("#666");
+      doc.font(palette.fontRegular).fillColor(palette.body).text(`  ·  ${r.entity}${r.entityId ? ` (${r.entityId})` : ""}`);
+      doc.fontSize(8).font(palette.fontRegular).fillColor(palette.meta);
       doc.text(
         `${r.createdAt.toISOString()}   seq ${seqStr}   by ${who}` +
           (r.ipAddress ? `   ip ${r.ipAddress}` : ""),
@@ -121,16 +147,16 @@ export function generateAuditLogPdf(
       }
       if (metaStr && metaStr !== "{}") {
         if (metaStr.length > 240) metaStr = metaStr.slice(0, 240) + "…";
-        doc.fillColor("#999").text(metaStr);
+        doc.fillColor(palette.faint).text(metaStr);
       }
       doc.moveDown(0.4);
     }
 
     // ---- Integrity block (its own page so it's never split) ----
     doc.addPage();
-    doc.fontSize(13).font("Helvetica-Bold").fillColor("black").text("Integrity & Signature");
+    doc.fontSize(13).font(palette.fontBold).fillColor(palette.strong).text("Integrity & Signature");
     doc.moveDown(0.4);
-    doc.fontSize(9).font("Helvetica").fillColor("#333");
+    doc.fontSize(9).font(palette.fontRegular).fillColor(palette.body);
     const sig = integrity.signature;
     const lines: [string, string][] = [
       ["Rendered rows", String(input.rows.length)],
@@ -142,13 +168,13 @@ export function generateAuditLogPdf(
       ["Signature", sig ?? "unsigned — no signing key configured"],
     ];
     for (const [k, v] of lines) {
-      doc.font("Helvetica-Bold").fillColor("#000").text(`${k}:`);
-      doc.font("Courier").fontSize(8).fillColor("#222").text(v, { width: 504 });
+      doc.font(palette.fontBold).fillColor(palette.strong).text(`${k}:`);
+      doc.font(palette.fontMono).fontSize(8).fillColor(palette.body).text(v, { width: 504 });
       doc.fontSize(9);
       doc.moveDown(0.3);
     }
     doc.moveDown(0.6);
-    doc.fontSize(8).font("Helvetica").fillColor("#777").text(
+    doc.fontSize(8).font(palette.fontRegular).fillColor(palette.meta).text(
       "The content digest is a SHA-256 over the canonical JSON of the rendered rows " +
         "(id, seq, createdAt, userId, action, entity, entityId, ipAddress, metadata, row_hash, prev_hash). " +
         "The chain anchor is the tail row's AU-9 hash-chain row_hash, which cryptographically binds every prior row. " +
@@ -160,7 +186,7 @@ export function generateAuditLogPdf(
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
-      doc.fontSize(8).font("Helvetica").fillColor("#999").text(
+      doc.fontSize(8).font(palette.fontRegular).fillColor(palette.faint).text(
         `Page ${i - range.start + 1} of ${range.count}`,
         54,
         770,

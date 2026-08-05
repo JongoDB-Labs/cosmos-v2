@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { generateContractPdf } from "@/lib/pdf/contract";
+import { pickOrgBrand } from "@/lib/brand/resolve";
 
 type RouteParams = { params: Promise<{ orgId: string; contractId: string }> };
 
@@ -35,6 +36,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       endDate: contract.endDate ?? null,
       body: contract.terms ?? null,
       signedAt: contract.signedAt ?? null,
+      brand: pickOrgBrand(org),
     });
 
     const body = new Uint8Array(pdfBuffer);
