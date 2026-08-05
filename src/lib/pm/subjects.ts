@@ -6,6 +6,9 @@ import { prisma } from "@/lib/db/client";
  * and Activity attach to them polymorphically via (subjectType, subjectId).
  */
 export type PmSubjectType =
+  // The project itself, so notes and activity can hang off the container rather
+  // than only off the registers inside it.
+  | "project"
   | "risk"
   | "change"
   | "blocker"
@@ -16,6 +19,7 @@ export type PmSubjectType =
   | "clin";
 
 export const PM_SUBJECT_TYPES: PmSubjectType[] = [
+  "project",
   "risk",
   "change",
   "blocker",
@@ -50,6 +54,18 @@ export async function resolvePmSubject(
 ): Promise<PmSubject | null> {
   const where = { id, orgId, projectId };
   switch (type) {
+    case "project": {
+      // The project IS the container, so it is matched on its own id rather
+      // than on a projectId column it does not have. Requiring the two to agree
+      // keeps the same guarantee as every other case: a subject id from a
+      // different project can never be attached to this one.
+      if (id !== projectId) return null;
+      const r = await prisma.project.findFirst({
+        where: { id, orgId },
+        select: { name: true, key: true },
+      });
+      return r ? { title: r.name, code: r.key, urlSeg: "overview" } : null;
+    }
     case "risk": {
       const r = await prisma.risk.findFirst({ where, select: { title: true, code: true } });
       return r ? { title: r.title, code: r.code, urlSeg: "risks" } : null;

@@ -51,6 +51,11 @@ type LinkSubjectType = PmSubjectType | "work_item";
 // Display label + the register GET segment each linkable type is fetched from.
 // `seg` is the project sub-route whose list endpoint returns that type's rows.
 const LINK_TYPE_META: Record<LinkSubjectType, { label: string; seg: string }> = {
+  // A project is a comment/activity subject but NOT a link target — you do not
+  // reference the project from a risk that already lives inside it. It is absent
+  // from LINK_TYPE_ORDER below, which is what the picker actually offers; this
+  // entry exists only so the record stays exhaustive over the subject type.
+  project: { label: "Project", seg: "" },
   risk: { label: "Risk", seg: "risks" },
   change: { label: "Change", seg: "changes" },
   blocker: { label: "Blocker", seg: "blockers" },
