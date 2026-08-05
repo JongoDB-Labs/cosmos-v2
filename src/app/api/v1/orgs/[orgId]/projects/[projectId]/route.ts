@@ -9,7 +9,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { revalidateOrgProjects } from "@/lib/cache/queries";
 import { z } from "zod";
-import { Prisma, BoardType } from "@prisma/client";
+import { Prisma, BoardType, ProjectStatus } from "@prisma/client";
 import { isToggleableFeature } from "@/lib/project-features";
 
 // Project features that drive the optional board tabs (see board-tabs.tsx).
@@ -19,6 +19,18 @@ import { isToggleableFeature } from "@/lib/project-features";
 // hand-synced copies is what let "risk"/"decision"/"meeting_note" ship.
 export { TOGGLEABLE_FEATURES } from "@/lib/project-features";
 
+// `status` used to live in this JSON blob. The migration moved it to a column
+// and removed the key; a client still round-tripping an old settings object
+// would otherwise put it straight back, leaving a stale string sitting next to
+// the column that superseded it. Dropped on write rather than rejected, since
+// the caller is echoing what we once gave it, not asking for anything.
+function stripLegacyKeys(settings: Record<string, unknown>): Record<string, unknown> {
+  if (!("status" in settings)) return settings;
+  const rest = { ...settings };
+  delete rest.status;
+  return rest;
+}
+
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().nullish(),
@@ -26,6 +38,10 @@ const updateProjectSchema = z.object({
   // Null clears the client — internal and speculative work legitimately has
   // none, so "no client" has to be expressible, not just "some client".
   clientId: z.string().uuid().nullable().optional(),
+  // Lifecycle state. A real enum, so an unknown spelling is a 400 here rather
+  // than a value that persists and quietly fails to match any filter — which is
+  // what the old `settings.status` string did.
+  status: z.nativeEnum(ProjectStatus).optional(),
   archived: z.boolean().optional(),
   // Accept any string array but FILTER to the known toggleable set rather than
   // hard-rejecting. A project seeded/imported with a legacy flag (e.g. a RAID
@@ -145,15 +161,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         // MERGE settings (don't clobber): a partial patch like
         // `{ settings: { defaultBoardId } }` keeps every other setting intact.
         ...((data.settings !== undefined || data.disabledBoardTypes !== undefined) && {
-          settings: {
+          settings: stripLegacyKeys({
             ...((existing.settings as Record<string, unknown> | null) ?? {}),
             ...data.settings,
             ...(data.disabledBoardTypes !== undefined && {
               disabledBoardTypes: data.disabledBoardTypes,
             }),
-          } as Prisma.InputJsonValue,
+          }) as Prisma.InputJsonValue,
         }),
         ...(data.clientId !== undefined && { clientId: data.clientId }),
+        ...(data.status !== undefined && { status: data.status }),
         ...(data.archived !== undefined && { archived: data.archived }),
         ...(data.enabledFeatures !== undefined && { enabledFeatures: data.enabledFeatures }),
         ...(data.krLinkTypeId !== undefined && { krLinkTypeId: data.krLinkTypeId }),

@@ -611,6 +611,24 @@ model ApiKey {
 // Phase 1: Projects, Boards, Work Items, Sprints
 // ─────────────────────────────────────────────
 
+/// Where a project sits in its own lifecycle.
+///
+/// Deliberately does NOT include an archived member. Archival is already
+/// `Project.archived`, which drives list filtering across core; adding it here
+/// too would create two fields that can disagree ("status = ARCHIVED but
+/// archived = false") and nothing to say which one wins. A project can be
+/// archived in any of these states.
+enum ProjectStatus {
+  /// Not started — being scoped, proposed, or awaiting a signed agreement.
+  DRAFT
+  ACTIVE
+  /// Paused with the intent to resume. Distinct from COMPLETE, which is done.
+  ON_HOLD
+  COMPLETE
+
+  @@map("project_status")
+}
+
 model Project {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId             String   @map("org_id") @db.Uuid
@@ -618,6 +636,10 @@ model Project {
   key               String
   description       String?
   settings          Json     @default("{}")
+  /// Lifecycle state. A real column rather than a string in `settings` so it can
+  /// be filtered, grouped and constrained — the JSON form accepted any value the
+  /// caller sent, which is how "Active", "active" and "ACTIVE" end up coexisting.
+  status            ProjectStatus @default(ACTIVE)
   archived          Boolean  @default(false)
   projectTemplateId String?  @map("project_template_id") @db.Uuid
   enabledFeatures   String[] @default([]) @map("enabled_features")
@@ -679,6 +701,7 @@ model Project {
   // @plugin-backrel:Project
 
   @@unique([orgId, key])
+  @@index([orgId, status])
   @@map("projects")
 }
 
