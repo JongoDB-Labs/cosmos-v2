@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/ui/data-table";
+import { PluginSlot } from "@/components/plugins/plugin-slot";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadError } from "@/components/ui/load-error";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -704,6 +705,12 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
 
         {tab === "revenue" && (
           <div className="flex flex-col gap-3">
+            {/* Revenue a plugin tracks against its own delivery model — fees per
+                project, logged, billed, collected — which this ledger cannot
+                see. Fail-closed: renders nothing without an enabled
+                contributor, so public core shows the tab exactly as before. */}
+            <PluginSlot name="finance.revenuePanel" orgId={orgId} />
+
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Revenue Entries</h3>
               <Dialog open={revenueDialogOpen} onOpenChange={handleRevenueDialogChange}>

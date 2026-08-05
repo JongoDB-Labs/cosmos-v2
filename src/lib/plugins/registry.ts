@@ -94,6 +94,16 @@ export type PluginSlotProps = {
   "overview.card": { orgId: string };
   /** Inline badge inside the work-item detail sheet. */
   "workItem.detailBadge": { orgId: string; workItemId: string };
+  /**
+   * Full-width panel on the Finance page's revenue tab.
+   *
+   * For revenue a plugin already tracks against its own delivery model — fees
+   * committed per project, what has been logged, billed and collected — which
+   * core's revenue ledger has no view of. Core gates the TAB on
+   * ACCOUNTING_READ; a contributor still owes its own money check, since the
+   * figures it shows are not core's to clear.
+   */
+  "finance.revenuePanel": { orgId: string };
 };
 export type PluginSlotName = keyof PluginSlotProps;
 export type PluginSlots = {
