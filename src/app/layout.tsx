@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { Inter, JetBrains_Mono, Archivo_Narrow, Source_Serif_4, IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
+import { Inter, JetBrains_Mono, Archivo_Narrow, Source_Serif_4, IBM_Plex_Sans, Space_Grotesk, Plus_Jakarta_Sans } from "next/font/google";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
@@ -26,6 +26,10 @@ const archivoNarrow = Archivo_Narrow({ variable: "--font-field", subsets: ["lati
 const sourceSerif = Source_Serif_4({ variable: "--font-ledger", subsets: ["latin"], display: "swap" });
 const ibmPlexSans = IBM_Plex_Sans({ variable: "--font-clinical", subsets: ["latin"], weight: ["400", "500", "600"], display: "swap" });
 const spaceGrotesk = Space_Grotesk({ variable: "--font-studio", subsets: ["latin"], display: "swap" });
+// Atelier was the one sector skin with no face of its own, so it fell through to
+// Inter and leaned on stylistic sets to approximate a drafting-office grotesque.
+// A geometric humanist with a large x-height carries that look directly.
+const plusJakartaSans = Plus_Jakarta_Sans({ variable: "--font-atelier", subsets: ["latin"], display: "swap" });
 
 const brand = getBrand();
 const defaultSkin = getSkinPreset(brand.defaultSkinId).id;
@@ -94,7 +98,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetBrainsMono.variable} ${archivoNarrow.variable} ${sourceSerif.variable} ${ibmPlexSans.variable} ${spaceGrotesk.variable} skin-${defaultSkin} h-full`}
+      className={`${inter.variable} ${jetBrainsMono.variable} ${archivoNarrow.variable} ${sourceSerif.variable} ${ibmPlexSans.variable} ${spaceGrotesk.variable} ${plusJakartaSans.variable} skin-${defaultSkin} h-full`}
       suppressHydrationWarning
     >
       <head>
