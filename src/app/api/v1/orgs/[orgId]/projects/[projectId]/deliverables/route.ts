@@ -10,10 +10,15 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
 import { logPmActivity } from "@/lib/pm/activity-log";
+import { classificationOmit } from "@/lib/compliance/classification";
+import { assertOrgMember } from "@/lib/rbac/assert-org-member";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-const deliverableInclude = { programBranch: { select: { id: true, code: true, name: true } } };
+const deliverableInclude = {
+  programBranch: { select: { id: true, code: true, name: true } },
+  ownerUser: { select: { id: true, displayName: true, avatarUrl: true } },
+};
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -31,6 +36,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const deliverables = await prisma.deliverable.findMany({
       where: { orgId, projectId, ...branchScopeWhere(branchScope) },
       include: deliverableInclude,
+      omit: classificationOmit(org.tenantClass),
       orderBy: [{ baselineDue: "asc" }, { createdAt: "desc" }],
     });
     return success(deliverables);
@@ -46,6 +52,7 @@ const createSchema = z.object({
   clin: z.string().max(80).nullish(),
   branchId: z.string().uuid().nullish(),
   owner: z.string().max(120).nullish(),
+  ownerUserId: z.string().uuid().nullish(),
   baselineDue: z.string().nullish(),
   internalReview: z.string().nullish(),
   actualSubmission: z.string().nullish(),
@@ -83,6 +90,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!project) return new Response("Not found", { status: 404 });
 
     const data = createSchema.parse(await request.json());
+    // A client-supplied user id is not constrained to this org by anything
+    // else in the write path — check membership or leak a foreign user.
+    if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
 
     const created = await prisma.deliverable.create({
       data: {
@@ -95,6 +105,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         clin: data.clin ?? null,
         branchId: data.branchId ?? null,
         owner: data.owner ?? null,
+        ownerUserId: data.ownerUserId ?? null,
         baselineDue: data.baselineDue ? new Date(data.baselineDue) : null,
         internalReview: data.internalReview ? new Date(data.internalReview) : null,
         actualSubmission: data.actualSubmission ? new Date(data.actualSubmission) : null,
@@ -109,6 +120,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         notes: data.notes ?? null,
       },
       include: deliverableInclude,
+      omit: classificationOmit(org.tenantClass),
     });
 
     // Seed the activity log with a "created" event (best-effort).

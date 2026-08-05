@@ -314,6 +314,7 @@ model User {
   chatThreadFollows   ChatThreadFollower[]
   chatAlertKeywords   ChatAlertKeyword[]
   apiKeys             ApiKey[]             @relation("ApiKeyCreatedBy")
+  ownedDeliverables   Deliverable[]        @relation("DeliverableOwner")
   workItemAssignments WorkItemAssignee[]
   workItemWatches     WorkItemWatcher[]
   savedViews          SavedView[]
@@ -3865,7 +3866,9 @@ model Risk {
   trend          String?
   escalate       Boolean             @default(false)
   targetDate     DateTime?           @map("target_date")
-  classification ClassificationLevel @default(CUI)
+  /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
+  /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
+  classification ClassificationLevel?
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
 
@@ -3891,10 +3894,14 @@ model Deliverable {
   baselineDue      DateTime?           @map("baseline_due")
   actualSubmission DateTime?           @map("actual_submission")
   govAcceptance    DateTime?           @map("gov_acceptance")
+  /// @deprecated free-text owner, superseded by ownerUserId. Kept for one
+  /// release so existing rows keep their text; read ownerUser first.
   owner            String?
   revisionCycle    Int                 @default(0) @map("revision_cycle")
   escalate         Boolean             @default(false)
-  classification   ClassificationLevel @default(CUI)
+  /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
+  /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
+  classification   ClassificationLevel?
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
 
@@ -3908,6 +3915,8 @@ model Deliverable {
   revRequired     Boolean               @default(false) @map("rev_required")
   milestoneId     String?               @map("milestone_id") @db.Uuid
   milestone       Milestone?            @relation(fields: [milestoneId], references: [id])
+  ownerUserId     String?               @map("owner_user_id") @db.Uuid
+  ownerUser       User?                 @relation("DeliverableOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   revisions       DeliverableRevision[]
   branchOwner     String?               @map("branch_owner")
   workItemRef     String?               @map("work_item_ref")
@@ -3915,6 +3924,7 @@ model Deliverable {
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
+  @@index([orgId, ownerUserId])
   @@map("deliverables")
 }
 
@@ -3933,7 +3943,9 @@ model Blocker {
   escalate         Boolean             @default(false)
   identifiedAt     DateTime            @default(now()) @map("identified_at")
   resolvedAt       DateTime?           @map("resolved_at")
-  classification   ClassificationLevel @default(CUI)
+  /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
+  /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
+  classification   ClassificationLevel?
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
 
@@ -3968,7 +3980,9 @@ model ChangeRequest {
   scheduleDaysImpact Int?                @map("schedule_days_impact")
   modRequired        Boolean             @default(false) @map("mod_required")
   decidedAt          DateTime?           @map("decided_at")
-  classification     ClassificationLevel @default(CUI)
+  /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
+  /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
+  classification     ClassificationLevel?
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 

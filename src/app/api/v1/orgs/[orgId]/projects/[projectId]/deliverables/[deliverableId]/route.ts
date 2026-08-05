@@ -8,12 +8,17 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
+import { classificationOmit } from "@/lib/compliance/classification";
+import { assertOrgMember } from "@/lib/rbac/assert-org-member";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; deliverableId: string }>;
 };
 
-const deliverableInclude = { programBranch: { select: { id: true, code: true, name: true } } };
+const deliverableInclude = {
+  programBranch: { select: { id: true, code: true, name: true } },
+  ownerUser: { select: { id: true, displayName: true, avatarUrl: true } },
+};
 
 const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -22,6 +27,7 @@ const updateSchema = z.object({
   clin: z.string().max(80).nullish(),
   branchId: z.string().uuid().nullish(),
   owner: z.string().max(120).nullish(),
+  ownerUserId: z.string().uuid().nullish(),
   baselineDue: z.string().nullish(),
   internalReview: z.string().nullish(),
   actualSubmission: z.string().nullish(),
@@ -49,6 +55,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!existing) return new Response("Not found", { status: 404 });
 
     const data = updateSchema.parse(await request.json());
+    // Client-supplied user id: check org membership or leak a foreign user.
+    if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
 
     const updateData: Prisma.DeliverableUncheckedUpdateInput = {};
     if (data.title !== undefined) updateData.title = data.title;
@@ -57,6 +65,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.clin !== undefined) updateData.clin = data.clin;
     if (data.branchId !== undefined) updateData.branchId = data.branchId;
     if (data.owner !== undefined) updateData.owner = data.owner;
+    if (data.ownerUserId !== undefined) updateData.ownerUserId = data.ownerUserId;
     if (data.baselineDue !== undefined) updateData.baselineDue = data.baselineDue ? new Date(data.baselineDue) : null;
     if (data.internalReview !== undefined) updateData.internalReview = data.internalReview ? new Date(data.internalReview) : null;
     if (data.actualSubmission !== undefined) updateData.actualSubmission = data.actualSubmission ? new Date(data.actualSubmission) : null;
@@ -74,6 +83,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       where: { id: deliverableId },
       data: updateData,
       include: deliverableInclude,
+      omit: classificationOmit(org.tenantClass),
     });
 
     // Audit field changes (best-effort). Label-keyed maps so the Activity log
@@ -88,6 +98,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         clin: existing.clin,
         branchId: existing.branchId,
         owner: existing.owner,
+        ownerUserId: existing.ownerUserId,
         govReviewPeriod: existing.govReviewPeriod,
         revisionCycle: existing.revisionCycle,
         revRequired: existing.revRequired,
@@ -101,6 +112,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         clin: updated.clin,
         branchId: updated.branchId,
         owner: updated.owner,
+        ownerUserId: updated.ownerUserId,
         govReviewPeriod: updated.govReviewPeriod,
         revisionCycle: updated.revisionCycle,
         revRequired: updated.revRequired,
