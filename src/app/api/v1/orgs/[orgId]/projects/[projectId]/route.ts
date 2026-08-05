@@ -23,6 +23,9 @@ const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().nullish(),
   settings: z.record(z.string(), z.unknown()).optional(),
+  // Null clears the client — internal and speculative work legitimately has
+  // none, so "no client" has to be expressible, not just "some client".
+  clientId: z.string().uuid().nullable().optional(),
   archived: z.boolean().optional(),
   // Accept any string array but FILTER to the known toggleable set rather than
   // hard-rejecting. A project seeded/imported with a legacy flag (e.g. a RAID
@@ -150,6 +153,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             }),
           } as Prisma.InputJsonValue,
         }),
+        ...(data.clientId !== undefined && { clientId: data.clientId }),
         ...(data.archived !== undefined && { archived: data.archived }),
         ...(data.enabledFeatures !== undefined && { enabledFeatures: data.enabledFeatures }),
         ...(data.krLinkTypeId !== undefined && { krLinkTypeId: data.krLinkTypeId }),
