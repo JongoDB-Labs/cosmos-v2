@@ -1,2 +1,3 @@
 node scripts/check-conflict-markers.mjs
+node scripts/check-staged-identity.mjs
 npx lint-staged
