@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.275.0",
+    date: "2026-08-05",
+    title: "Project status is a real field, and Finance can show delivery revenue",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A project's status was free text, so “Active”, “active” and “in progress” could all sit in the same column and none of them could be filtered or grouped. Status is now a proper field with four values — Draft, Active, On hold and Complete — and existing projects were converted automatically, whatever spelling they were using.",
+      },
+      {
+        kind: "improvement",
+        text: "Archiving stays separate from status, so a project can be archived whatever stage it had reached. Previously “archived” competed with the other values and a project could only be one or the other.",
+      },
+      {
+        kind: "feature",
+        text: "The Finance page can now carry a revenue panel contributed by an installed add-on, showing fee, time logged, invoiced and paid per project alongside the ledger. It reads the same figures as the schedule, so the two can never disagree.",
+      },
+    ],
+  },
+  {
     version: "2.274.0",
     date: "2026-08-05",
     title: "Clients are records now, not text typed onto each project",
