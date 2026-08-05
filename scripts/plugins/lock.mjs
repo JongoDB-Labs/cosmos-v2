@@ -16,17 +16,26 @@
  * private repo's contents.
  *
  * Usage:
- *   node scripts/plugins/lock.mjs           # report drift, exit 1 if any
- *   node scripts/plugins/lock.mjs --write   # record current plugin HEADs
+ *   node scripts/plugins/lock.mjs             # report drift, exit 1 if any
+ *   node scripts/plugins/lock.mjs --write     # record current plugin HEADs
+ *   node scripts/plugins/lock.mjs --write --prune
+ *                                             # ...and DROP plugins with no checkout
+ *
+ * --write keeps the pin of any plugin that is not checked out locally. Each
+ * plugin is a separate private repo, so holding one of them is the normal state
+ * of a dev box; rebuilding the file from what happens to be present would
+ * silently unpin the rest. Removing a plugin is deliberate: --prune.
  */
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { mergeLock } from "./lock-merge.mjs";
 
 const ROOT = process.cwd();
 const LOCK = join(ROOT, "plugins.lock.json");
 const PLUGINS_DIR = join(ROOT, "plugins");
 const write = process.argv.includes("--write");
+const prune = process.argv.includes("--prune");
 
 /** A ref the assembly build will accept: a full SHA, or `main` for a plugin
  *  deliberately tracked at head. Anything else is a ref-injection risk. */
@@ -89,23 +98,37 @@ for (const slug of listDir(PLUGINS_DIR).sort()) {
 const locked = readJson(LOCK)?.plugins ?? {};
 
 if (write) {
+  // A plugin with no checkout keeps its pin — see lock-merge.mjs. Each plugin is
+  // its own private repo, so "not cloned here" is the normal state, not a signal
+  // that a release stopped composing with it.
+  const kept = [];
+  const plugins = mergeLock(current, locked, { prune, onKept: (slug) => kept.push(slug) });
+
   const next = {
     $comment:
       "Plugin commits this core release composes with. The assembly build reads this " +
       "so an image is reproducible and a release describes what actually ships. " +
       "Regenerate with: node scripts/plugins/lock.mjs --write",
-    plugins: Object.fromEntries(
-      Object.entries(current)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([slug, sha]) => [slug, { ref: sha }]),
-    ),
+    plugins,
   };
   writeFileSync(LOCK, `${JSON.stringify(next, null, 2)}\n`);
-  for (const [slug, { ref }] of Object.entries(next.plugins)) {
+
+  for (const [slug, { ref }] of Object.entries(plugins)) {
+    if (kept.includes(slug)) continue;
     const was = locked[slug]?.ref;
     console.log(`[plugin-lock] ${slug}: ${was && was !== ref ? `${was.slice(0, 9)} → ` : ""}${ref.slice(0, 9)}`);
   }
-  console.log(`[plugin-lock] wrote plugins.lock.json (${Object.keys(next.plugins).length} plugin(s))`);
+  // Say what was carried over rather than leaving it to be noticed in the diff:
+  // silence here is what made the old behaviour dangerous.
+  for (const slug of kept) {
+    console.log(`[plugin-lock] ${slug}: kept ${locked[slug].ref.slice(0, 9)} — no checkout under plugins/`);
+  }
+  const dropped = Object.keys(locked).filter((s) => !(s in plugins));
+  for (const slug of dropped) {
+    console.log(`[plugin-lock] ${slug}: DROPPED (--prune)`);
+  }
+
+  console.log(`[plugin-lock] wrote plugins.lock.json (${Object.keys(plugins).length} plugin(s))`);
   process.exit(0);
 }
 
