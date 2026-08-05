@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.273.0",
+    date: "2026-08-05",
+    title: "Notes on a project, not just on the things inside it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Risks, changes, blockers, milestones and deliverables could all carry notes and an activity trail; the project itself could not. You can now leave notes against a project directly, and they behave exactly like notes anywhere else \u2014 same history, same permissions.",
+      },
+    ],
+  },
+  {
     version: "2.272.0",
     date: "2026-08-05",
     title: "Choose a logo file in Settings",
