@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.270.0",
+    date: "2026-08-05",
+    title: "Records are no longer marked CUI unless you are a government tenant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Risks, deliverables, blockers and change requests were all being stamped 'CUI' (Controlled Unclassified Information) the moment they were created — in every organisation, including commercial ones that hold no such designation. Nothing in the app ever set that marking deliberately; it was simply the value new records started with, which made it easy to miss and wrong wherever it appeared. Classification is now something only government tenants carry. If that is not you, the field no longer applies and is not shown at all. Existing markings in government organisations are untouched, and any classification anyone deliberately chose is kept.",
+      },
+      {
+        kind: "improvement",
+        text: "A deliverable's owner is now a real person from your organisation rather than a typed-in name. That means an owner can be looked up, filtered on, and shown with their avatar, and it opens the door to notifying them. Owners recorded as free text are still readable and are left exactly as they were — nothing was guessed at or reassigned.",
+      },
+    ],
+  },
+  {
     version: "2.269.0",
     date: "2026-08-04",
     title: "Two Atelier accent colours corrected to their real values",
