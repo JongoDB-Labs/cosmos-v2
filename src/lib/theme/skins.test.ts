@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SKIN_PRESETS, DEFAULT_SKIN_ID, getSkinPreset, allSkinsCss } from "./skins";
+import { contrastRatio, passesAA } from "./contrast";
 
 describe("skin registry", () => {
   it("ships all presets with unique ids and both modes", () => {
@@ -27,14 +28,43 @@ describe("skin registry", () => {
     expect(a.extras).toContain("background-image: none");
   });
   it("atelier carries all six brand-guide colour tokens in both modes", () => {
-    // The clay pair is a placeholder (FND-9 on the private roadmap board); this
-    // asserts the tokens EXIST in both modes, not their values, so swapping in
-    // the real hexes does not have to touch this test.
+    // Presence only — the clay pair's values are asserted separately below.
     const a = getSkinPreset("atelier");
     for (const mode of ["light", "dark"] as const) {
       for (const token of ["--bg", "--surface", "--text", "--laser", "--clay", "--clay-burnt"]) {
         expect(a[mode][token], `${mode} is missing ${token}`).toBeTruthy();
       }
+    }
+  });
+  it("light carries the clay pair exactly as the frozen brand guide defines it", () => {
+    // PMS 404 C and PMS 2336 C. These are warm grey-greens; an earlier
+    // placeholder pair guessed terracotta and was wrong on both.
+    const a = getSkinPreset("atelier");
+    expect(a.light["--clay"]).toBe("#828279");
+    expect(a.light["--clay-burnt"]).toBe("#61655f");
+  });
+  it("both clay tokens stay legible on their own canvas", () => {
+    // Light carries the brand values verbatim; they are accent weights (3.6:1
+    // and 5.6:1), so the bar there is AA-large. Dark carries lifted derivatives
+    // held to full AA, because BURNT CLAY verbatim is 2.6:1 on that canvas —
+    // below even the large bar. The guide defines no dark-mode variant.
+    const a = getSkinPreset("atelier");
+    for (const t of ["--clay", "--clay-burnt"]) {
+      expect(passesAA(a.light[t], a.light["--bg"], "large"), `light ${t}`).toBe(true);
+      expect(passesAA(a.dark[t], a.dark["--bg"]), `dark ${t}`).toBe(true);
+    }
+  });
+  it("keeps clay lighter than burnt clay in both modes", () => {
+    // The dark pair is derived by lifting BOTH by the same factor precisely so
+    // this ordering survives. Lifting each only as far as it individually
+    // needed to clear AA collapsed them onto the same colour.
+    const a = getSkinPreset("atelier");
+    for (const mode of ["light", "dark"] as const) {
+      expect(a[mode]["--clay"]).not.toBe(a[mode]["--clay-burnt"]);
+      expect(
+        contrastRatio(a[mode]["--clay"], "#000000"),
+        `${mode}: clay should be the lighter of the pair`,
+      ).toBeGreaterThan(contrastRatio(a[mode]["--clay-burnt"], "#000000"));
     }
   });
   it("every var ::selection references is defined in both modes", () => {
