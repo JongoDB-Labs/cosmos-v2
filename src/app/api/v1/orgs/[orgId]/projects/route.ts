@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { firePluginProjectCreate } from "@/lib/plugins/enablement";
 import { requirePermission } from "@/lib/rbac/check";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
@@ -257,6 +258,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (template?.sector) {
       await seedSectorFields(orgId, template.sector).catch(() => {});
     }
+
+    // Let enabled plugins attach their per-project setup (e.g. a plugin applying
+    // a per-project template). Post-commit and best-effort inside — a plugin
+    // hook can never fail project creation.
+    await firePluginProjectCreate(orgId, project!.id);
 
     revalidateOrgProjects(orgId);
 

@@ -114,6 +114,14 @@ export type PluginServerHooks = {
   onFirstEnable?: (prisma: PrismaClient, orgId: string) => Promise<void>;
   /** Run when the stored enabledVersion !== manifest.version at enable time. */
   onUpgrade?: (prisma: PrismaClient, orgId: string, from: string | null) => Promise<void>;
+  /**
+   * Run after a project is created in an org where this plugin is enabled, so a
+   * plugin can attach its own per-project setup (e.g. instantiate a per-project
+   * template). Best-effort and fired POST-COMMIT: a throw here is logged and
+   * swallowed — a plugin must never be able to fail core project creation — and
+   * the project row is already committed, so the hook can query and mutate it.
+   */
+  onProjectCreate?: (prisma: PrismaClient, orgId: string, projectId: string) => Promise<void>;
   /** AI tools appended to the org's agent catalog while the plugin is enabled. */
   aiTools?: ToolDefinition[];
   /**

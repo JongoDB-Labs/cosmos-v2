@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { firePluginProjectCreate } from "@/lib/plugins/enablement";
 import { visibleProjectIdsForActor } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type ColumnCategory, type Prisma } from "@prisma/client";
@@ -261,6 +262,10 @@ export async function createProject(input: Record<string, unknown>, ctx: ToolCon
     }
     return proj;
   });
+
+  // Same plugin hook the HTTP create path fires — a project made by the agent
+  // must get the same per-plugin setup. Post-commit, best-effort inside.
+  await firePluginProjectCreate(ctx.orgId, project.id);
 
   return { created: true, id: project.id, project };
 }
