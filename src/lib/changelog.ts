@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.274.0",
+    date: "2026-08-05",
+    title: "Clients are records now, not text typed onto each project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A project's client was free text, so two spellings of the same firm were two different clients and nothing could be grouped or filtered by them. Clients are now records you pick from: rename one and every project follows, and a former client keeps its history rather than being deleted. Existing projects were matched to clients automatically, ignoring stray spacing and capitalisation.",
+      },
+      {
+        kind: "improvement",
+        text: "Projects without a client stay that way \u2014 internal and speculative work does not need one, and choosing a client is never forced before a project can exist.",
+      },
+    ],
+  },
+  {
     version: "2.273.0",
     date: "2026-08-05",
     title: "Notes on a project, not just on the things inside it",
