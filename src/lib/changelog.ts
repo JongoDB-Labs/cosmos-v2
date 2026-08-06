@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.275.1",
+    date: "2026-08-05",
+    title: "Exported documents follow the brand the app is already showing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "PDFs exported from a branded deployment came out in plain greyscale unless someone had explicitly re-picked the organisation's look in settings — even though every screen in the app was already showing the brand. Exports now inherit the same brand the app is running, so a document matches the page it came from. Deployments with no brand of their own are unchanged and still export neutral.",
+      },
+    ],
+  },
+  {
     version: "2.275.0",
     date: "2026-08-05",
     title: "Project status is a real field, and Finance can show delivery revenue",

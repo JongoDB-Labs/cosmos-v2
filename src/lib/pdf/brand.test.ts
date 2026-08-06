@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import PDFDocument from "pdfkit";
 import {
   NEUTRAL_PDF_PALETTE,
@@ -9,6 +9,8 @@ import {
 } from "./brand";
 import { generateContractPdf } from "./contract";
 import { generateAuditLogPdf } from "./audit-log";
+import { registerProductProfile, type ProductProfile } from "@/lib/product/profiles";
+import { getSkinPreset } from "@/lib/theme/skins";
 
 // A 1x1 transparent PNG — the smallest thing pdfkit will actually embed.
 const PNG_1X1 =
@@ -166,6 +168,91 @@ describe("resolvePdfPalette", () => {
         expect(pdfkitUnderstands(c), `${id}: ${c}`).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * A synthetic vertical brand, registered the way a composed plugin would, so the
+ * profile fallback can be asserted without naming any real client or vertical.
+ */
+const ACME_PROFILE: ProductProfile = {
+  key: "acme",
+  name: "Acme",
+  title: "Acme",
+  description: "An example vertical brand, used only in tests.",
+  tagline: "Example Vertical",
+  markSrc: "/acme-mark.png",
+  themeColor: "#f9f7f4",
+  backgroundColor: "#f9f7f4",
+  agentName: "Acme Agent",
+  wakePhrase: "hey acme",
+  wakeWord: "Hey Acme",
+  defaultTenantClass: "COMMERCIAL",
+  signingMode: "keyless",
+  defaultEnabledModules: null,
+  defaultEnabledSectors: ["aec"],
+  defaultSkinId: "atelier",
+  defaultEnabledPlugins: ["acme"],
+};
+
+describe("resolvePdfPalette falls back to the active product profile", () => {
+  const originalPublic = process.env.NEXT_PUBLIC_PRODUCT;
+  const originalServer = process.env.PRODUCT;
+
+  beforeAll(() => {
+    registerProductProfile(ACME_PROFILE);
+  });
+  beforeEach(() => {
+    // The runtime PRODUCT env wins in getBrand(); clear it so each case selects
+    // the product purely via NEXT_PUBLIC_PRODUCT.
+    delete process.env.PRODUCT;
+  });
+  afterEach(() => {
+    if (originalPublic === undefined) delete process.env.NEXT_PUBLIC_PRODUCT;
+    else process.env.NEXT_PUBLIC_PRODUCT = originalPublic;
+    if (originalServer === undefined) delete process.env.PRODUCT;
+    else process.env.PRODUCT = originalServer;
+  });
+
+  // The case this whole fallback exists for: a vertical deployment brands every
+  // org by profile, so no org ever sets defaultSkinId. Before this, the screen
+  // resolved to the profile skin (resolveBrand) while the PDF stayed neutral —
+  // the same org exported a document that disagreed with the app it came from.
+  it("adopts the profile's skin for an org that has chosen none", () => {
+    process.env.NEXT_PUBLIC_PRODUCT = "acme";
+    const p = resolvePdfPalette(null);
+    expect(p).not.toEqual(NEUTRAL_PDF_PALETTE);
+    expect(p).toEqual(derivePdfPalette(getSkinPreset("atelier").light));
+  });
+
+  it("applies that fallback to an org row whose skin is explicitly null", () => {
+    process.env.NEXT_PUBLIC_PRODUCT = "acme";
+    expect(resolvePdfPalette({ defaultSkinId: null })).toEqual(
+      derivePdfPalette(getSkinPreset("atelier").light),
+    );
+  });
+
+  it("still lets an org override the profile's skin", () => {
+    process.env.NEXT_PUBLIC_PRODUCT = "acme";
+    const p = resolvePdfPalette({ defaultSkinId: "ledger" });
+    expect(p).toEqual(derivePdfPalette(getSkinPreset("ledger").light));
+    expect(p).not.toEqual(derivePdfPalette(getSkinPreset("atelier").light));
+  });
+
+  // The invariant this module is built around: the zero-plugin public build has
+  // no brand to inherit and must keep rendering exactly as it always has.
+  it("stays neutral on the unbranded core build", () => {
+    delete process.env.NEXT_PUBLIC_PRODUCT;
+    expect(resolvePdfPalette(null)).toEqual(NEUTRAL_PDF_PALETTE);
+    expect(resolvePdfPalette({ defaultSkinId: null })).toEqual(NEUTRAL_PDF_PALETTE);
+    expect(resolvePdfPalette({ brandName: "Acme" })).toEqual(NEUTRAL_PDF_PALETTE);
+  });
+
+  // An unknown key resolves to the neutral profile in getBrand(), so a stale or
+  // typo'd PRODUCT must not brand documents off the back of it.
+  it("stays neutral for an unrecognised product key", () => {
+    process.env.NEXT_PUBLIC_PRODUCT = "no-such-product";
+    expect(resolvePdfPalette(null)).toEqual(NEUTRAL_PDF_PALETTE);
   });
 });
 

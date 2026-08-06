@@ -47,12 +47,20 @@ export type ProductProfile = {
 };
 
 /**
+ * The key of the neutral profile. A deployment running on it ships no brand of
+ * its own, which makes it the signal for surfaces that must stay unbranded in
+ * the public core — see `resolvePdfPalette` in src/lib/pdf/brand.ts, where the
+ * difference decides whether a generated document inherits a brand at all.
+ */
+export const NEUTRAL_PRODUCT_KEY = "cosmos";
+
+/**
  * The neutral, client-agnostic default brand. This is the ONLY profile the
  * public core ships. Vertical/client brands live in their own private plugin
  * and register themselves at build time through {@link registerProductProfile}.
  */
 const COSMOS_PROFILE: ProductProfile = {
-  key: "cosmos",
+  key: NEUTRAL_PRODUCT_KEY,
   name: "COSMOS",
   title: "COSMOS — Enterprise Project Management",
   description:
