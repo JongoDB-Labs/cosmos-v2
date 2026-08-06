@@ -16,6 +16,13 @@ export interface ContractPdfInput {
    * document renders through the unbranded palette exactly as it always has.
    */
   brand?: OrgBrandOverrides | null;
+  /**
+   * Pre-resolved logo bytes. An uploaded logo lives in object storage and
+   * `brand.logoUrl` only points at the route that serves it, so the caller
+   * resolves the bytes (see `loadPdfLogo`) and threads them in — this module
+   * does no IO of its own. Omitted, the inline data-URL path still applies.
+   */
+  logo?: Buffer | null;
 }
 
 export function generateContractPdf(input: ContractPdfInput): Promise<Buffer> {
@@ -28,7 +35,7 @@ export function generateContractPdf(input: ContractPdfInput): Promise<Buffer> {
     doc.on("error", reject);
 
     const palette = resolvePdfPalette(input.brand);
-    const logo = resolvePdfLogo(input.brand?.logoUrl);
+    const logo = input.logo ?? resolvePdfLogo(input.brand?.logoUrl);
 
     if (logo) {
       // Centred over the text column, above the title. The fit box's full

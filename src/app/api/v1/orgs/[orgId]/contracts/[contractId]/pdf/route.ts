@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { generateContractPdf } from "@/lib/pdf/contract";
+import { loadPdfLogo } from "@/lib/pdf/org-logo";
 import { pickOrgBrand } from "@/lib/brand/resolve";
 
 type RouteParams = { params: Promise<{ orgId: string; contractId: string }> };
@@ -37,6 +38,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       body: contract.terms ?? null,
       signedAt: contract.signedAt ?? null,
       brand: pickOrgBrand(org),
+      // An uploaded logo lives in object storage, and pickOrgBrand only carries
+      // the URL that points at it — so the bytes are resolved here.
+      logo: await loadPdfLogo(org),
     });
 
     const body = new Uint8Array(pdfBuffer);
