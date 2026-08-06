@@ -393,6 +393,52 @@ describe("generated documents reflect the org's brand", () => {
     expect(remote.equals(plain)).toBe(true);
   });
 
+  // The uploaded-logo shape: the bytes live in object storage and `logoUrl` is
+  // only a relative path to the route that serves them. On its own it draws
+  // nothing — which is the regression — so the caller threads the bytes in.
+  const UPLOADED_URL = "/api/v1/orgs/org_1/logo?v=3";
+
+  it("contract: an uploaded logo's URL alone draws nothing", async () => {
+    freeze();
+    const plain = await generateContractPdf(CONTRACT);
+    const urlOnly = await generateContractPdf({
+      ...CONTRACT,
+      brand: { logoUrl: UPLOADED_URL },
+    });
+    expect(urlOnly.equals(plain)).toBe(true);
+  });
+
+  it("contract: threaded-in bytes draw the same logo an inline data URL would", async () => {
+    freeze();
+    const plain = await generateContractPdf(CONTRACT);
+    const fromBytes = await generateContractPdf({
+      ...CONTRACT,
+      brand: { logoUrl: UPLOADED_URL },
+      logo: Buffer.from(PNG_1X1, "base64"),
+    });
+    const fromDataUrl = await generateContractPdf({
+      ...CONTRACT,
+      brand: { logoUrl: `data:image/png;base64,${PNG_1X1}` },
+    });
+    expect(fromBytes.equals(plain)).toBe(false);
+    expect(fromBytes.equals(fromDataUrl)).toBe(true);
+  });
+
+  it("audit log: threaded-in bytes draw a logo the URL alone could not", async () => {
+    freeze();
+    const plain = await generateAuditLogPdf(AUDIT_INPUT, AUDIT_INTEGRITY);
+    const urlOnly = await generateAuditLogPdf(
+      { ...AUDIT_INPUT, brand: { logoUrl: UPLOADED_URL } },
+      AUDIT_INTEGRITY,
+    );
+    const fromBytes = await generateAuditLogPdf(
+      { ...AUDIT_INPUT, brand: { logoUrl: UPLOADED_URL }, logo: Buffer.from(PNG_1X1, "base64") },
+      AUDIT_INTEGRITY,
+    );
+    expect(urlOnly.equals(plain)).toBe(true);
+    expect(fromBytes.equals(plain)).toBe(false);
+  });
+
   it("audit log: same input twice is byte-identical under a frozen clock", async () => {
     freeze();
     const a = await generateAuditLogPdf(AUDIT_INPUT, AUDIT_INTEGRITY);

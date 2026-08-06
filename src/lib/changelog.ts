@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.275.2",
+    date: "2026-08-05",
+    title: "An uploaded logo now reaches the documents you export",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A logo uploaded in organisation settings appeared everywhere in the app but was quietly missing from every PDF exported from it, with nothing to say it had been dropped. Exported documents now carry it. PNG and JPEG logos are drawn; a WebP or SVG logo still displays in the app but cannot be placed into a document, so those exports are unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.275.1",
     date: "2026-08-05",
     title: "Exported documents follow the brand the app is already showing",

@@ -7,6 +7,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import { Prisma } from "@prisma/client";
 import { generateAuditLogPdf } from "@/lib/pdf/audit-log";
+import { loadPdfLogo } from "@/lib/pdf/org-logo";
 import { pickOrgBrand } from "@/lib/brand/resolve";
 
 // Cap the rows RENDERED into the PDF — it's the presentable, signed report, not
@@ -177,6 +178,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           fullCount,
           truncated: fullCount > rendered.length,
           brand: pickOrgBrand(org),
+          // An uploaded logo lives in object storage, and pickOrgBrand only
+          // carries the URL that points at it — so the bytes are resolved here.
+          logo: await loadPdfLogo(org),
           rows: rendered.map((l) => ({
             createdAt: l.createdAt,
             seq: l.seq,
