@@ -1,4 +1,6 @@
+import { getBrand } from "@/lib/brand";
 import type { OrgBrandOverrides } from "@/lib/brand/resolve";
+import { NEUTRAL_PRODUCT_KEY } from "@/lib/product/profiles";
 import { getSkinPreset } from "@/lib/theme/skins";
 
 /**
@@ -198,17 +200,36 @@ export function derivePdfPalette(lightTokens: Record<string, string>): PdfPalett
 }
 
 /**
+ * The skin a document inherits when the org itself has chosen none.
+ *
+ * A product profile can supply a brand that no org ever overrides — that is the
+ * normal case for a vertical deployment, where the profile IS the brand and the
+ * org's override columns stay null. The screen already reflects it, because
+ * `resolveBrand` falls back to the profile the same way, so a document that
+ * ignored the profile would disagree with the app it was exported from.
+ *
+ * The neutral profile is deliberately exempt: the zero-plugin public build has
+ * no brand to inherit and must keep rendering through NEUTRAL_PDF_PALETTE. An
+ * unknown/stale PRODUCT resolves to that neutral profile in getBrand(), so it
+ * lands here as "unbranded" rather than branding documents off a typo.
+ */
+function productDocumentSkinId(): string | null {
+  const profile = getBrand();
+  return profile.key === NEUTRAL_PRODUCT_KEY ? null : profile.defaultSkinId;
+}
+
+/**
  * The palette for an org's generated documents.
  *
- * An org that has chosen no skin is unbranded and gets the neutral ramp — the
- * absence of `defaultSkinId` is the signal, so a deployment with no branding at
- * all renders exactly as it did before any of this existed. Once a skin IS
- * chosen, `getSkinPreset` owns resolution (including its own fallback for an
- * id we no longer ship) so there is one answer to "which skin is that".
+ * Precedence is the org's own skin, then the active product profile's, then
+ * neutral. Once a skin IS chosen, `getSkinPreset` owns resolution (including
+ * its own fallback for an id we no longer ship) so there is one answer to
+ * "which skin is that".
  */
 export function resolvePdfPalette(org?: OrgBrandOverrides | null): PdfPalette {
-  if (!org?.defaultSkinId) return NEUTRAL_PDF_PALETTE;
-  return derivePdfPalette(getSkinPreset(org.defaultSkinId).light);
+  const skinId = org?.defaultSkinId ?? productDocumentSkinId();
+  if (!skinId) return NEUTRAL_PDF_PALETTE;
+  return derivePdfPalette(getSkinPreset(skinId).light);
 }
 
 /**
