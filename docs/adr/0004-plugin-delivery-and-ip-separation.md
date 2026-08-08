@@ -132,12 +132,37 @@ we write ourselves.
 Split delivery by **whether the plugin is client IP**, not by whether it is a
 plugin.
 
-### Tier 1 — Generic plugins ship in the neutral core, gated by a signed licence
+### Tier 1 — Generic plugins ship in ONE IMAGE, gated by a signed licence
 
-Whiteboard, PI Planning, the delivery console, and anything else with no
-client specifics move
-into `cosmos-v2` itself. They stay fail-closed and per-org toggleable exactly as
-today.
+**Amended.** This tier originally said generic plugins move *into the public
+`cosmos-v2` repo*. Under AGPL that is self-defeating, and dual licensing does not
+rescue it: anything published in the public repo is published under AGPL to the
+world, so forking it and deleting the gate is lawful. The gate would protect
+nothing against the public.
+
+What survives — and it is the part that motivated the tier — is separating **one
+image** from **one repo**:
+
+| | Where it lives | Who receives it | Under what licence |
+|---|---|---|---|
+| Core | public repo | everyone | AGPL-3.0 |
+| Core | build output | customers | commercial |
+| Generic paid plugins | **private** repos | customers only | commercial |
+| Client-specific plugins | private repos | that client only | commercial |
+
+Whiteboard, PI Planning, the delivery console and anything else with no client
+specifics stay in private repos and are composed into **one image for every
+customer**, rather than one image per client. They stay fail-closed and per-org
+toggleable exactly as today. The build matrix still collapses; a plugin change
+still ships once.
+
+**Consequence that must be enforced: any PUBLIC artifact must be AGPL-clean.**
+The image is published to a registry and may be public. A public image carrying
+proprietary plugins combined with an AGPL core invites precisely the claim this
+tier exists to avoid — a recipient reads `LICENSE`, concludes AGPL, and asks for
+the plugin source. Anything carrying proprietary plugins is private and
+commercial-only. That is a registry and pipeline change, cheap now and expensive
+later.
 
 The enforcement path already exists (`OrgPluginState` + `isPluginEnabled`). What
 it lacks is an **unforgeable input**: today an operator can flip the row and
@@ -172,29 +197,56 @@ one dispatch endpoint, ships its own dependencies, and delivers UI by federation
 — with a signed bundle that can be **sideloaded**, because a registry pull
 cannot be the only path in an air-gapped install.
 
-## Relicensing — required before Tier 1 ships anything paid
+## Licensing — keep AGPL-3.0, and dual-license
 
-Recommendation: **move the core off AGPL-3.0 to a source-available licence that
-permits a licence gate**, and do it before the first paid plugin lands.
+**This supersedes an earlier recommendation in this document's history to
+relicense to ELv2.** That was the right answer to "which single licence should
+the core carry" and the wrong answer to the question actually being asked, which
+is "how do we keep AGPL and still ship closed plugins". Both are available.
+Nothing needs to be relicensed.
 
-- **Elastic License 2.0 (ELv2)** is the closest fit and the recommendation. It
-  permits use, modification and redistribution, and prohibits exactly two
-  things: providing the software to third parties as a managed service, and
-  **circumventing the licence-key functionality**. That second clause is the
-  legal half of the technical control built here — without it, the gate is a
-  speed bump; with it, removing the gate is a licence violation. Elastic, and
-  others since, use it for precisely this shape of product.
-- **BSL 1.1** is the alternative if an eventual open-source conversion matters:
-  source-available now, converting to Apache-2.0 on a fixed change date.
-- Staying AGPL and keeping every paid plugin in Tier 2 is coherent too — it just
-  means giving up the single-image benefit that motivated Tier 1.
+**AGPL binds licensees, not the licensor.** Copyright in the core sits with a
+small, known set of contributors, all of whom have now agreed in writing, with
+legal sign-off. A copyright owner may license the same work to different
+recipients under different terms, simultaneously — that is not a loophole, it is
+the oldest commercial open-source model there is (MySQL, Qt, Sidekiq, iText).
 
-Feasibility: copyright sits with a small, known set of contributors, so a
-relicence is practical, but it needs each of their agreement in writing before
-the change lands. Dependencies must also be re-checked — anything inbound under
-a copyleft licence constrains what the combined work may be distributed under.
-This is a legal step, not an engineering one; treat the above as the shape of
-the decision, not as advice.
+- **The public** receives the core under **AGPL-3.0**. Unchanged. §13 keeps its
+  teeth against a SaaS competitor, which is stronger deterrence than ELv2's
+  managed-service clause, because AGPL is the licence competitors' counsel
+  already refuse to go near.
+- **Paying customers** receive the same core under a **commercial licence**
+  carrying no copyleft, expressly permitting combination with proprietary
+  plugins and prohibiting circumvention of the licence-key check.
+
+A customer holding the commercial licence is not an AGPL recipient, so nothing
+obliges anyone to publish the plugins. Combining our own core with our own
+plugin is not a licensing event at all — we own both sides. This also disposes
+of the procurement objection rather than working around it: buyers who reject
+AGPL on policy sign the commercial licence, which is the artifact their
+procurement wanted anyway.
+
+**An AGPL §7 additional permission** (a plugin/linking exception) is the
+alternative shape, and composes with the above. It would let *anyone* write
+proprietary plugins against the documented interface — right for growing an
+ecosystem, wrong for protecting revenue, and it does nothing for the gate. It
+would also need careful drafting, because today's plugins share the generated
+Prisma client in-process, which is about as far from arm's-length as coupling
+gets.
+
+**Inbound dependencies: checked.** 781 production packages; no strong copyleft,
+so nothing blocks dual licensing. One finding, and it is real: `@nangohq/node`
+is **Elastic License 2.0** — the published package ships no LICENSE file, its
+`license` field says only "SEE LICENSE IN LICENSE FILE IN GIT REPOSITORY", and
+GitHub reports the source repo as NOASSERTION, which is why nothing had ever
+flagged it. ELv2 imposes usage restrictions and AGPL-3.0 §7 forbids imposing
+further restrictions on recipients, so it conflicts with conveying the combined
+work under AGPL. The public *repo* is fine; the exposure is the distributed
+*image*. Recorded as accepted risk pending legal review, and CI now gates
+dependency licences so the next one is caught on arrival rather than years later.
+
+This is a legal step, not an engineering one; treat the above as the shape of the
+decision, not as advice.
 
 ## Distribution of a paid plugin
 
@@ -222,9 +274,16 @@ someone else's compute is the one mistake that makes all of this decorative.
   **repo** (`cosmos-v2-<client>:2.275.0-<client>`) is redundant, and it is what
   caused a host's deploy scripts to silently target the wrong repository. Tier 2
   should drop it.
-- Generic plugin code becomes visible in the public core. That is a **business**
-  decision, not a technical one, and it is the single question this ADR needs
-  answered before Tier 1 proceeds.
+- ~~Generic plugin code becomes visible in the public core.~~ **Resolved, in the
+  opposite direction to how it was framed.** Generic plugin code stays private;
+  what becomes shared is the *image*, not the *repository*. Visibility was never
+  the thing worth trading — the build matrix was.
+- **A CLA or copyright assignment must be in place before the first outside
+  contribution.** This is what kills dual-licensed projects later: once an
+  external contributor holds copyright in part of the core and has not assigned
+  it, the whole work can no longer be licensed commercially. Costless today, when
+  the contributor set is two people who have both agreed; unfixable in
+  retrospect.
 - ADR 0003's isolation contract, fail-closed default, registry invariants and
   arch tests are unchanged and still apply in all three tiers.
 
