@@ -14,7 +14,11 @@ import { signingInput, ANY } from "./entitlement";
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
 const PUB = publicKey.export({ type: "spki", format: "pem" }).toString();
 
-function mint(over: Record<string, unknown> = {}): string {
+/** A second vendor keypair — the one a rotation moves TO. */
+const next = generateKeyPairSync("ed25519");
+const NEXT_PUB = next.publicKey.export({ type: "spki", format: "pem" }).toString();
+
+function mint(over: Record<string, unknown> = {}, key = privateKey): string {
   const now = Math.floor(Date.now() / 1000);
   const c = {
     v: 1,
@@ -27,7 +31,7 @@ function mint(over: Record<string, unknown> = {}): string {
     ...over,
   };
   const payload = Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
-  const sig = sign(null, signingInput(payload), privateKey).toString("base64url");
+  const sig = sign(null, signingInput(payload), key).toString("base64url");
   return `cosmos-lic.v1.${payload}.${sig}`;
 }
 
@@ -132,5 +136,54 @@ describe("a licensed deployment", () => {
     process.env.COSMOS_LICENSE = mint();
     resetLicenseCache();
     expect(isPluginEntitled("org-1", "whiteboard")).toBe(true);
+  });
+});
+
+describe("a deployment mid key-rotation", () => {
+  // How an operator actually performs a rotation: append the new key to the
+  // variable, reissue licences at whatever pace the customer allows, then delete
+  // the old key. Both must verify for the whole of that window.
+  const BUNDLE = `${NEXT_PUB}${PUB}`;
+
+  it("accepts licences signed by EITHER key while the bundle holds both", () => {
+    process.env.COSMOS_LICENSE_PUBLIC_KEY = BUNDLE;
+
+    process.env.COSMOS_LICENSE = mint();
+    resetLicenseCache();
+    expect(isPluginEntitled("org-1", "whiteboard")).toBe(true);
+
+    process.env.COSMOS_LICENSE = mint({}, next.privateKey);
+    resetLicenseCache();
+    expect(isPluginEntitled("org-1", "whiteboard")).toBe(true);
+  });
+
+  it("splits a bundle whose newlines were escaped, as env vars often do", () => {
+    // Without unescaping BEFORE the split, a bundle collapses to one line and
+    // parses as a single unusable key — a rotation that fails only in production.
+    process.env.COSMOS_LICENSE_PUBLIC_KEY = BUNDLE.replace(/\n/g, "\\n");
+    process.env.COSMOS_LICENSE = mint({}, next.privateKey);
+    resetLicenseCache();
+    expect(isPluginEntitled("org-1", "whiteboard")).toBe(true);
+  });
+
+  it("stops honouring the old key once it is removed from the bundle", () => {
+    process.env.COSMOS_LICENSE_PUBLIC_KEY = NEXT_PUB;
+    process.env.COSMOS_LICENSE = mint();
+    resetLicenseCache();
+    expect(isPluginEntitled("org-1", "whiteboard")).toBe(false);
+
+    const s = licenseStatus();
+    expect(s.result.ok).toBe(false);
+    if (!s.result.ok) expect(s.result.reason).toBe("bad_signature");
+  });
+
+  it("reports an unreadable key as a DEPLOYMENT fault", () => {
+    process.env.COSMOS_LICENSE_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\ntruncated\n-----END PUBLIC KEY-----";
+    process.env.COSMOS_LICENSE = mint();
+    resetLicenseCache();
+
+    const s = licenseStatus();
+    expect(s.result.ok).toBe(false);
+    if (!s.result.ok) expect(s.result.reason).toBe("unusable_public_key");
   });
 });

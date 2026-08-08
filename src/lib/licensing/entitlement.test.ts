@@ -92,6 +92,71 @@ describe("a licence this vendor did NOT issue", () => {
   });
 });
 
+describe("rotating the signing key", () => {
+  // The property under test is the OVERLAP: during a rotation both keys are
+  // trusted at once, which is the only way to reissue licences to air-gapped
+  // installs without coordinating a simultaneous swap that cannot be
+  // coordinated. Each assertion below is a step through one rotation.
+  const OLD = VENDOR;
+  const NEW = keypair();
+
+  it("accepts a licence signed by the OLD key while both are trusted", () => {
+    const r = verifyEntitlement(mint(claims(), OLD.priv), [NEW.pub, OLD.pub], NOW);
+    expect(r.ok).toBe(true);
+  });
+
+  it("accepts a licence signed by the NEW key while both are trusted", () => {
+    const r = verifyEntitlement(mint(claims(), NEW.priv), [NEW.pub, OLD.pub], NOW);
+    expect(r.ok).toBe(true);
+  });
+
+  it("does not care which position in the set the matching key is in", () => {
+    expect(verifyEntitlement(mint(claims(), OLD.priv), [OLD.pub, NEW.pub], NOW).ok).toBe(true);
+    expect(verifyEntitlement(mint(claims(), NEW.priv), [OLD.pub, NEW.pub], NOW).ok).toBe(true);
+  });
+
+  it("stops accepting the old key once it is REMOVED — retirement is real", () => {
+    // The half that matters after a compromise: dropping a key must actually
+    // revoke everything it signed.
+    const r = verifyEntitlement(mint(claims(), OLD.priv), [NEW.pub], NOW);
+    expect(r).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("still refuses a key that was never in the set", () => {
+    // Trusting several keys must not decay into trusting any key.
+    const r = verifyEntitlement(mint(claims(), ATTACKER.priv), [NEW.pub, OLD.pub], NOW);
+    expect(r).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("survives a mangled PEM sitting beside a good one", () => {
+    // The realistic rotation accident: the new key is pasted in badly. It must
+    // not take down every licence still signed by the good old one.
+    expect(verifyEntitlement(mint(claims(), OLD.priv), ["-----BEGIN PUBLIC KEY-----oops", OLD.pub], NOW).ok).toBe(true);
+    expect(verifyEntitlement(mint(claims(), OLD.priv), [OLD.pub, "not a pem at all"], NOW).ok).toBe(true);
+  });
+
+  it("blames the DEPLOYMENT, not the licence, when no key can be parsed", () => {
+    // "not issued by us" would send an admin to argue with their vendor about a
+    // licence that is perfectly good.
+    expect(verifyEntitlement(mint(claims()), ["not a pem"], NOW)).toEqual({
+      ok: false,
+      reason: "unusable_public_key",
+    });
+    expect(verifyEntitlement(mint(claims()), "not a pem", NOW)).toEqual({
+      ok: false,
+      reason: "unusable_public_key",
+    });
+  });
+
+  it("treats an empty or blank set as no key at all", () => {
+    expect(verifyEntitlement(mint(claims()), [], NOW)).toEqual({ ok: false, reason: "no_public_key" });
+    expect(verifyEntitlement(mint(claims()), ["", "   "], NOW)).toEqual({
+      ok: false,
+      reason: "no_public_key",
+    });
+  });
+});
+
 describe("time", () => {
   it("refuses an expired licence", () => {
     const r = verifyEntitlement(mint(claims({ exp: NOW - 3600 })), VENDOR.pub, NOW);

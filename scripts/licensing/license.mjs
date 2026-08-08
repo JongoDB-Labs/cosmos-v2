@@ -63,6 +63,11 @@ function keygen(o) {
   console.log("Set on every deployment that should verify licences:");
   console.log("");
   console.log("COSMOS_LICENSE_PUBLIC_KEY=" + JSON.stringify(pub.toString()));
+  console.log("");
+  console.log("Rotating? APPEND this key to the existing value rather than replacing it —");
+  console.log("deployments accept any key in the bundle, so both old and new licences keep");
+  console.log("working. Reissue at your own pace, then delete the old key to retire it.");
+  console.log("A key left in the bundle is a key still trusted.");
 }
 
 function issue(o) {

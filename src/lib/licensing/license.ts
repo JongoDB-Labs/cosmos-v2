@@ -24,8 +24,12 @@ import {
  *
  * ## Configuration
  *
- *   COSMOS_LICENSE_PUBLIC_KEY  PEM Ed25519 public key. The vendor's. Public by
+ *   COSMOS_LICENSE_PUBLIC_KEY  PEM Ed25519 public key(s). The vendor's. Public by
  *                              definition, so it is safe in an image layer.
+ *                              Concatenate two PEMs during a key rotation; any
+ *                              one of them may verify. Remove the old one to
+ *                              finish the rotation — a key left in the bundle is
+ *                              a key still trusted.
  *   COSMOS_LICENSE             the licence token itself, or
  *   COSMOS_LICENSE_FILE        a path to read it from (better: it can be a
  *                              mounted secret, and it survives a token longer
@@ -63,9 +67,26 @@ function readToken(): string | null {
   }
 }
 
-function publicKey(): string | null {
-  const pem = process.env.COSMOS_LICENSE_PUBLIC_KEY?.trim();
-  return pem ? pem.replace(/\\n/g, "\n") : null;
+/** One PEM block. Deliberately non-greedy so a bundle yields several. */
+const PEM_BLOCK = /-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g;
+
+/**
+ * The public keys this deployment will accept, newest-first by convention.
+ *
+ * `COSMOS_LICENSE_PUBLIC_KEY` holds ONE key normally and TWO during a rotation,
+ * concatenated exactly as a CA bundle is — no separator, no JSON, no second
+ * variable. An operator who has ever appended to a `fullchain.pem` already knows
+ * the format, and a scheme nobody has to learn is a scheme nobody gets wrong.
+ */
+function publicKeys(): string[] {
+  const raw = process.env.COSMOS_LICENSE_PUBLIC_KEY?.trim();
+  if (!raw) return [];
+  // Env vars routinely carry PEMs with their newlines escaped; unescape BEFORE
+  // splitting, or the bundle is one long line and the block regex finds nothing.
+  const pem = raw.replace(/\\n/g, "\n");
+  // Fall back to the whole value: an unrecognised shape is better handed to the
+  // key parser, which will say so, than silently dropped here.
+  return pem.match(PEM_BLOCK) ?? [pem];
 }
 
 /**
@@ -78,7 +99,7 @@ function publicKey(): string | null {
 export function licenseStatus(now: number = Date.now()): Snapshot {
   if (cache && now - cache.at < CACHE_TTL_MS) return cache;
 
-  const result = verifyEntitlement(readToken(), publicKey(), Math.floor(now / 1000));
+  const result = verifyEntitlement(readToken(), publicKeys(), Math.floor(now / 1000));
   cache = { at: now, result, claims: result.ok ? result.claims : null };
   return cache;
 }

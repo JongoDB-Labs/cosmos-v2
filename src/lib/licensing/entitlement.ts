@@ -22,6 +22,24 @@ import { createPublicKey, verify as cryptoVerify } from "node:crypto";
  * library — so this adds no dependency to a platform that ships to air-gapped
  * environments.
  *
+ * ## Why a SET of public keys, not one
+ *
+ * Verification accepts several keys and succeeds if any of them matches. That is
+ * the whole of the rotation story, and it has to exist before there are licences
+ * in the field rather than after.
+ *
+ * With a single key, rotating means every deployment must swap its key at the
+ * same instant every licence is reissued — impossible to coordinate across
+ * air-gapped installs, so in practice it means an outage. With a set, rotation is
+ * an overlap window: publish the new key ALONGSIDE the old, reissue licences at
+ * whatever pace the customers allow, then drop the old key once nothing is signed
+ * by it. This is the same shape as a CA bundle or a JWKS document, for the same
+ * reason.
+ *
+ * A retired key must be REMOVED to be retired. Leaving it in the set means
+ * anything it ever signed still verifies — which is exactly the point during an
+ * overlap, and exactly the danger after a compromise.
+ *
  * ## No phone-home, ever
  *
  * This platform runs air-gapped. A licence that needs the internet is a licence
@@ -61,7 +79,14 @@ export type VerifyFailure =
   | "bad_signature"
   | "expired"
   | "not_yet_valid"
-  | "no_public_key";
+  | "no_public_key"
+  /**
+   * Keys ARE configured, and not one of them could be parsed. Distinct from
+   * `bad_signature` on purpose: that reason accuses the customer's licence, and
+   * telling an admin their licence "was not issued by us" when the real fault is
+   * a PEM this deployment mangled sends them to the wrong place entirely.
+   */
+  | "unusable_public_key";
 
 export type VerifyResult =
   | { ok: true; claims: EntitlementClaims }
@@ -108,8 +133,15 @@ export function signingInput(payloadB64: string): Buffer {
   return Buffer.from(`${TOKEN_PREFIX}.${payloadB64}`, "utf8");
 }
 
+/** Every PEM the caller offered, blanks dropped. */
+function keyList(input: string | readonly string[] | null | undefined): string[] {
+  if (!input) return [];
+  const all = typeof input === "string" ? [input] : input;
+  return all.filter((k): k is string => typeof k === "string").map((k) => k.trim()).filter(Boolean);
+}
+
 /**
- * Verify a licence token against a PEM-encoded Ed25519 public key.
+ * Verify a licence token against one or more PEM-encoded Ed25519 public keys.
  *
  * Signature FIRST, claims after. Checking expiry before the signature would let
  * an attacker learn which forged payloads are well-formed by timing the
@@ -121,10 +153,11 @@ export function signingInput(payloadB64: string): Buffer {
  */
 export function verifyEntitlement(
   token: unknown,
-  publicKeyPem: string | null | undefined,
+  publicKeyPem: string | readonly string[] | null | undefined,
   now: number,
 ): VerifyResult {
-  if (!publicKeyPem) return { ok: false, reason: "no_public_key" };
+  const pems = keyList(publicKeyPem);
+  if (pems.length === 0) return { ok: false, reason: "no_public_key" };
   if (typeof token !== "string" || token.length === 0) {
     return { ok: false, reason: "malformed" };
   }
@@ -140,16 +173,28 @@ export function verifyEntitlement(
   const sig = fromB64Url(sigB64);
   if (!payloadBytes || !sig) return { ok: false, reason: "malformed" };
 
+  const signed = signingInput(payloadB64);
   let verified = false;
-  try {
-    const key = createPublicKey(publicKeyPem);
-    // `null` algorithm: Ed25519 signs the message directly, no pre-hash.
-    verified = cryptoVerify(null, signingInput(payloadB64), key, sig);
-  } catch {
-    // A malformed key or signature must not throw out of a gate — a licence
-    // that cannot be verified is simply not a licence.
-    return { ok: false, reason: "bad_signature" };
+  let usable = 0;
+  for (const pem of pems) {
+    try {
+      const key = createPublicKey(pem);
+      usable++;
+      // `null` algorithm: Ed25519 signs the message directly, no pre-hash.
+      if (cryptoVerify(null, signed, key, sig)) {
+        verified = true;
+        break;
+      }
+    } catch {
+      // One unparseable PEM must not disqualify the others sitting beside it in
+      // the bundle: during a rotation a typo in the new key would otherwise take
+      // down every licence still signed by the perfectly good old one.
+      continue;
+    }
   }
+  // Nothing threw out of the gate either way — a licence that cannot be verified
+  // is simply not a licence.
+  if (usable === 0) return { ok: false, reason: "unusable_public_key" };
   if (!verified) return { ok: false, reason: "bad_signature" };
 
   let parsed: unknown;
@@ -196,4 +241,6 @@ export const FAILURE_MESSAGE: Record<VerifyFailure, string> = {
   expired: "This licence has expired.",
   not_yet_valid: "This licence is not valid yet.",
   no_public_key: "This deployment has no licence public key configured.",
+  unusable_public_key:
+    "This deployment's licence public key could not be read. Check COSMOS_LICENSE_PUBLIC_KEY is a complete PEM.",
 };
