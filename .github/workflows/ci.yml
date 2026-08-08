@@ -56,6 +56,14 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
 
+      # Licence COMPATIBILITY, not vulnerabilities. The SCA jobs cover CVEs and
+      # would never notice a copyleft or source-available package arriving on a
+      # routine dependency bump — which, for a public AGPL-3.0 project, is the
+      # larger exposure. Runs here because this job already has the production
+      # tree installed, and on Linux, which is the platform that actually ships.
+      - name: Licence compliance (production dependencies)
+        run: npm run check:licenses
+
       - name: Prisma generate
         run: npx prisma generate
 

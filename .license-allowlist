@@ -1,0 +1,49 @@
+# .license-allowlist — accepted-risk register for the dependency licence gate.
+#
+# Enforced by `scripts/check-dependency-licenses.mjs`, which runs over the
+# PRODUCTION dependency tree only (devDependencies are never distributed, so
+# their licences cannot affect how the image is conveyed).
+#
+# The gate denies by default. A package listed here is an ACCEPTED RISK, not a
+# cleared one — same posture as `.trivyignore`. Every line must carry a reason
+# after `#`; the check refuses a bare package name, because an exception nobody
+# justified is indistinguishable from one nobody noticed.
+#
+# Reviewed 2026-08-07.
+#
+# ---------------------------------------------------------------------------
+# @nangohq/node, @nangohq/types — Elastic License 2.0
+#
+# THE ONE TO WATCH. The published packages contain no LICENSE file at all (only
+# `dist/` and `package.json`), and `package.json` says only "SEE LICENSE IN
+# LICENSE FILE IN GIT REPOSITORY". That repository — NangoHQ/nango — is licensed
+# Elastic License 2.0. GitHub classifies it as NOASSERTION / "Other", which is
+# why no scanner has ever flagged it.
+#
+# ELv2 imposes usage restrictions (no managed-service resale, no circumventing
+# licence-key functionality, no removing notices). AGPL-3.0 §7 forbids imposing
+# further restrictions on recipients. So conveying the combined work under
+# AGPL-3.0 while part of it is ELv2 is a conflict.
+#
+# Precisely scoped: the public REPO is fine — it ships our source plus a
+# dependency reference, not the library. The exposure is the distributed IMAGE,
+# which contains both. `@nangohq/node` is a direct production dependency
+# (package.json) imported by src/lib/integrations/nango.ts, so it is traced into
+# .next/standalone and does ship.
+#
+# Held open pending legal review of whether an in-process npm dependency forms a
+# "combined work" here. Until that lands, the operative mitigation is: no PUBLIC
+# artifact may contain it. Remove this entry if the dependency is dropped or
+# isolated behind an optional interface.
+@nangohq/node   # ELv2 inside an AGPL distribution — see block above; pending legal review, mitigate by keeping affected artifacts non-public
+@nangohq/types  # ELv2, same origin and same review as @nangohq/node; types-only but conveyed identically
+#
+# ---------------------------------------------------------------------------
+# buffers@0.1.1 — no licence declared anywhere
+#
+# Transitive: exceljs -> unzipper -> binary -> buffers. Declares no `license`
+# field and ships no LICENCE file, so strictly it grants no rights at all.
+# Ancient (2011), tiny, and ubiquitous; the practical risk is low, but a
+# customer's procurement scan will flag it, so it is recorded here rather than
+# discovered by them. Resolved by exceljs dropping unzipper, not by us.
+buffers  # no licence declared; transitive via exceljs->unzipper->binary, low practical risk, flagged for procurement awareness
