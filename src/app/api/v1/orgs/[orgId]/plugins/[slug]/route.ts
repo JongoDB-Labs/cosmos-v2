@@ -9,6 +9,8 @@ import { logAudit } from "@/lib/audit";
 import { getEntitlements, isSectorEnabled } from "@/lib/entitlements";
 import { PluginRegistry, PluginServerRegistry } from "@/lib/plugins/registry";
 import "@/lib/plugins/registry/server";
+import { isPluginEntitled, licenseStatus } from "@/lib/licensing/license";
+import { FAILURE_MESSAGE } from "@/lib/licensing/entitlement";
 
 // Enable/disable/configure one plugin for one org (ADR 0003).
 //   enabled:true  → sector-compat check (400), upsert, run onFirstEnable (first time)
@@ -81,6 +83,23 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             { status: 400 },
           );
         }
+      }
+      // Licence gate (ADR 0004, Tier 1) — enforced at enable time as well as on
+      // every read, and refused with a REASON. An admin who has paid and pasted
+      // a licence needs to know it expired or was issued for another org; "not
+      // entitled" would send them to support for something they can read.
+      if (manifest.requiresEntitlement && !isPluginEntitled(orgId, slug)) {
+        const status = licenseStatus();
+        return NextResponse.json(
+          {
+            error: `Plugin "${slug}" requires a licence. ${
+              status.result.ok
+                ? "This deployment's licence does not cover this plugin for this organization."
+                : FAILURE_MESSAGE[status.result.reason]
+            }`,
+          },
+          { status: 402 },
+        );
       }
       action = "plugin.enabled";
     } else if (data.enabled === false) {

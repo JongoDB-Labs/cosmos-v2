@@ -8,6 +8,7 @@ import { PluginRegistry, PluginServerRegistry } from "./registry";
 // eight new SAFe roles shipped to prod and never appeared.
 import "./registry/server";
 import { resolveDefaultPlugins } from "./default-env";
+import { isPluginEntitled } from "@/lib/licensing/license";
 
 /**
  * Plugin enablement reads/guards (ADR 0003). FAIL-CLOSED: the absence of an
@@ -29,7 +30,26 @@ export async function isPluginEnabled(orgId: string, slug: string): Promise<bool
     where: { orgId_pluginSlug: { orgId, pluginSlug: slug } },
     select: { enabled: true },
   });
-  return row?.enabled === true;
+  if (row?.enabled !== true) return false;
+  return isSlugLicensed(orgId, slug);
+}
+
+/**
+ * The LICENCE half of the gate (ADR 0004, Tier 1).
+ *
+ * Applied on the READ path, not only at enable time. Enable-time alone would
+ * mean a licence that later expires keeps working forever, because the row stays
+ * `enabled: true` and nothing would ever ask again. Reading it here closes a
+ * lapsed plugin cleanly at the next request — no sweep job, no migration.
+ *
+ * A plugin that does not declare `requiresEntitlement` returns true without
+ * consulting the licence at all, so this costs nothing for everything shipping
+ * today and cannot regress an install that has no licence because it needs none.
+ */
+function isSlugLicensed(orgId: string, slug: string): boolean {
+  const manifest = PluginRegistry.get(slug);
+  if (!manifest?.requiresEntitlement) return true;
+  return isPluginEntitled(orgId, slug);
 }
 
 /** Guard for plugin API handlers — 403s through handleApiError when disabled. */
