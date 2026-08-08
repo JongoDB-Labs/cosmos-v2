@@ -71,6 +71,16 @@ export type PluginManifest = {
   /** Org must have ≥1 of these sectors enabled to ENABLE the plugin (org
    *  enabledSectors === null passes). Omitted ⇒ sector-agnostic. */
   sectors?: SectorKey[];
+  /**
+   * This plugin is PAID: enabling it additionally requires a valid signed
+   * entitlement naming this slug (ADR 0004, Tier 1). See src/lib/licensing.
+   *
+   * Opt-in per plugin, and omitted ⇒ no licence needed, so adding the licensing
+   * mechanism changed nothing for plugins already in the field. Setting this is
+   * the single, reviewable edit that makes a plugin commercial — which is why it
+   * is a manifest flag and not a lookup somewhere less visible.
+   */
+  requiresEntitlement?: boolean;
   modules: PluginModule[];
   /** Rendered generically by the Plugins settings panel as a typed form. */
   configFields?: PluginConfigField[];

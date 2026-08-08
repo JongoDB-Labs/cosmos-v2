@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.0",
+    date: "2026-08-07",
+    title: "Paid plugins can be unlocked by a signed licence",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A plugin can now be marked as needing a licence, and switching it on requires a licence file issued by us — not a setting that anyone with database access could change. Licences are checked entirely on your own hardware: nothing is sent anywhere, and it works identically on a disconnected network. Nothing changes for the plugins you use today, because none of them require a licence yet.",
+      },
+    ],
+  },
+  {
     version: "2.275.2",
     date: "2026-08-05",
     title: "An uploaded logo now reaches the documents you export",
