@@ -18,9 +18,13 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_PRODUCT: process.env.PRODUCT ?? "cosmos",
   },
   cacheComponents: true,
-  experimental: {
-    viewTransition: true,
-  },
+  // `experimental.viewTransition` was REMOVED in Next 16.3.0 — not renamed, and
+  // not promoted to a top-level option. It is absent from ExperimentalConfig, its
+  // config doc page is deleted, and the surviving view-transitions guide
+  // documents no flag at all: React's <ViewTransition> works without one now.
+  // Leaving the key set fails the typecheck with
+  //   TS2353: 'viewTransition' does not exist in type 'ExperimentalConfig'
+  // so this must land in the SAME commit as the Next bump, never before it.
   // The Accounting section moved from /{org}/finance/* to /{org}/accounting/*
   // so the URLs match the sidebar labels and breadcrumbs. Keep the old paths
   // alive for bookmarks/links — the map lives (and is unit-tested) in
