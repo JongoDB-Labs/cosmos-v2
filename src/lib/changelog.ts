@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.1",
+    date: "2026-08-10",
+    title: "The New issue type list now fits the project you are in",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Creating an issue used to offer every work item type your organisation has ever defined — so a consulting project listed Permit, Safety Incident, Course and Production Order among dozens of options. The list now shows the types that belong to that project's kind of work, plus the general ones like Task and Risk that apply everywhere. Your own custom types are always shown, and nothing is narrowed when a project has no kind set, so you can never lose access to a type you need.",
+      },
+    ],
+  },
+  {
     version: "2.276.0",
     date: "2026-08-07",
     title: "Paid plugins can be unlocked by a signed licence",

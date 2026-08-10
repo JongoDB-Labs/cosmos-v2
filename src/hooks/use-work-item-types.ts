@@ -94,6 +94,60 @@ export function selectableTypes<T extends { id: string; key: string }>(
   );
 }
 
+/**
+ * The namespace whose types belong to EVERY sector — Task, Risk and friends.
+ * Not a sector itself: no project template has `sector = "cross"`.
+ */
+const UNIVERSAL_NAMESPACE = "cross";
+
+/**
+ * Narrow a CREATE picker to the types that make sense for one project.
+ *
+ * The org's catalogue is genuinely org-wide — 55 rows on production, spanning
+ * every sector we ship. That is correct for a type FILTER (a board must be able
+ * to filter on any type its items actually have) and wrong for a create picker,
+ * where a fresh Consulting project offered Permit, Safety Incident, Course and
+ * Production Order among 49 options.
+ *
+ * Scoping is by the key's namespace matched against the project template's
+ * `sector`. Those map 1:1 — `software` ↔ `software.*` (5 types), `aec` ↔
+ * `aec.*` (9), `event` ↔ `event.*` (8) — plus `cross.*`, which belongs
+ * everywhere.
+ *
+ * ON THE STANDING RULE. Resolving a type by CONSTRUCTING a sector-prefixed key
+ * — build `${sector}.feature`, look it up — is forbidden, and rightly: the type
+ * wanted may be custom, bare-keyed or namespaced differently, so a constructed
+ * key silently resolves to nothing. This is the opposite operation. It reads a
+ * namespace already present on a key that came from the database, and uses it
+ * only to shorten a list. No type is ever identified this way; every caller
+ * still resolves its choice by `workItemTypeId`.
+ *
+ * Three deliberate fail-OPEN paths, because hiding a type someone needs is
+ * worse than showing one they don't:
+ *
+ *   - no sector (template missing, or the field not loaded yet) → every type,
+ *     exactly as before
+ *   - a bare key with no namespace → always kept. That is what an org's own
+ *     custom types look like (`feature`), and they belong to no sector.
+ *   - the currently-selected type → always kept, so editing an item whose type
+ *     is out of sector cannot silently reassign it. Same escape hatch as
+ *     `selectableTypes`, for the same reason.
+ */
+export function typesForSector<T extends { id: string; key: string }>(
+  types: T[],
+  sector: string | null | undefined,
+  currentTypeId?: string | null,
+): T[] {
+  if (!sector) return types;
+  return types.filter((t) => {
+    if (t.id === currentTypeId) return true;
+    const dot = t.key.indexOf(".");
+    if (dot === -1) return true;
+    const namespace = t.key.slice(0, dot);
+    return namespace === sector || namespace === UNIVERSAL_NAMESPACE;
+  });
+}
+
 export function useWorkItemTypes(orgId: string) {
   const key = useOrgQueryKey("work-item-types");
   const query = useQuery({
