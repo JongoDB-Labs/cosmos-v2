@@ -15,9 +15,16 @@ const CSP_DIRECTIVES = [
   // remove it when we wire request-scoped nonces.
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://static.cloudflareinsights.com",
   // Tailwind v4 + base-ui inject style elements at runtime.
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  //
+  // fonts.googleapis.com and fonts.gstatic.com were removed here on 2026-08-10
+  // when the faces moved to next/font/local (src/app/fonts/). They were only
+  // ever present to permit Google's font CSS and woff2 files; with the fonts
+  // self-hosted, nothing requests either origin, so allowing them would grant
+  // reach the app no longer uses. A CSP that lists origins it does not need is
+  // a slow leak of exactly the property it exists to provide.
+  "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
+  "font-src 'self' data:",
   // Google APIs (OAuth, calendar, drive, gmail) + DocuSign + same-origin SSE.
   "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://docusign.net https://*.docusign.net https://cloudflareinsights.com",
   "frame-src 'self' https://accounts.google.com",
