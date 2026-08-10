@@ -99,8 +99,23 @@ jobs:
           COMPOSED_INSTANCES: ${{ vars.COMPOSED_INSTANCES }}
           CORE_REF: ${{ github.ref_name }}
         run: |
-          if [ -z "${GITLAB_TRIGGER_TOKEN:-}" ] || [ -z "${GITLAB_TRIGGER_URL:-}" ] || [ -z "${COMPOSED_INSTANCES:-}" ]; then
-            echo "::notice::GitLab assembly trigger not configured (needs GITLAB_TRIGGER_TOKEN + vars.GITLAB_ASSEMBLY_TRIGGER_URL + vars.COMPOSED_INSTANCES) — skipping"
+          # A WARNING, not a notice. This skip is deliberately non-fatal — a red
+          # release on every tag would be worse than a visible annotation — but it
+          # must not be quiet, and ::notice:: was.
+          #
+          # Proven on 2026-08-10: v2.276.1 released, this step reported SUCCESS,
+          # and no composed image was ever built, because GITLAB_TRIGGER_TOKEN did
+          # not exist. Only the assembly's scheduled image-freshness check caught
+          # it. That is the same green-signal-over-a-dead-path failure this step's
+          # own comment above describes — reproduced by the step meant to prevent
+          # it. auto-tag-release.yml already uses ::warning:: for exactly this
+          # case; these two now behave the same way.
+          missing=""
+          [ -z "${GITLAB_TRIGGER_TOKEN:-}" ] && missing="$missing secrets.GITLAB_TRIGGER_TOKEN"
+          [ -z "${GITLAB_TRIGGER_URL:-}" ]   && missing="$missing vars.GITLAB_ASSEMBLY_TRIGGER_URL"
+          [ -z "${COMPOSED_INSTANCES:-}" ]   && missing="$missing vars.COMPOSED_INSTANCES"
+          if [ -n "$missing" ]; then
+            echo "::warning::GitLab assembly NOT triggered — missing:${missing}. No composed image will be built for ${CORE_REF}, so every instance stays on its previous version. Configure the above, then re-run this job."
             exit 0
           fi
           # No default instance list. This workflow is PUBLIC, so naming an
