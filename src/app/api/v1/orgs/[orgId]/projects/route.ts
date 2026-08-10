@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { firePluginProjectCreate } from "@/lib/plugins/enablement";
 import { requirePermission } from "@/lib/rbac/check";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
@@ -46,6 +45,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { orgId, archived },
       include: {
         _count: { select: { boards: true, intervals: true, members: true } },
+        // The template's sector scopes the New-issue Type picker to the types
+        // belonging to this project, rather than every type in the org.
+        projectTemplate: { select: { sector: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -67,7 +69,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       projects.map((p) => p.id),
     );
 
-    return success(projects.filter((p) => visible.has(p.id)));
+    return success(
+      projects
+        .filter((p) => visible.has(p.id))
+        // Flatten the template relation to a bare `sector`, so the client reads
+        // one field rather than reaching through a join it has no other use for.
+        .map(({ projectTemplate, ...p }) => ({
+          ...p,
+          sector: projectTemplate?.sector ?? null,
+        })),
+    );
   } catch (error) {
     return handleApiError(error);
   }
@@ -258,11 +269,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (template?.sector) {
       await seedSectorFields(orgId, template.sector).catch(() => {});
     }
-
-    // Let enabled plugins attach their per-project setup (e.g. a plugin applying
-    // a per-project template). Post-commit and best-effort inside — a plugin
-    // hook can never fail project creation.
-    await firePluginProjectCreate(orgId, project!.id);
 
     revalidateOrgProjects(orgId);
 
