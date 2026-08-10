@@ -81,6 +81,41 @@ jobs:
               -F "client_payload[core_ref]=${CORE_REF}"
           done
 
+      # The assembly moved to a self-hosted GitLab; this is the ONE call that
+      # still crosses the GitHub/GitLab boundary. Everything downstream of it —
+      # plugin pushes rebuilding images, the assembly checking out plugins — is
+      # now native to that instance and needs no cross-repo credential at all.
+      #
+      # Same discipline as the step above: the instance URL is a repo VARIABLE,
+      # never committed to this public workflow, and the step skips cleanly until
+      # the token and variable are configured. `curl --fail` so a rejected
+      # trigger is a red release rather than a release whose images never got
+      # rebuilt — the failure mode that let instances sit on a stale image while
+      # every check was green.
+      - name: Trigger the GitLab assembly to rebuild composed images
+        env:
+          GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
+          GITLAB_TRIGGER_URL: ${{ vars.GITLAB_ASSEMBLY_TRIGGER_URL }}
+          COMPOSED_INSTANCES: ${{ vars.COMPOSED_INSTANCES }}
+          CORE_REF: ${{ github.ref_name }}
+        run: |
+          if [ -z "${GITLAB_TRIGGER_TOKEN:-}" ] || [ -z "${GITLAB_TRIGGER_URL:-}" ] || [ -z "${COMPOSED_INSTANCES:-}" ]; then
+            echo "::notice::GitLab assembly trigger not configured (needs GITLAB_TRIGGER_TOKEN + vars.GITLAB_ASSEMBLY_TRIGGER_URL + vars.COMPOSED_INSTANCES) — skipping"
+            exit 0
+          fi
+          # No default instance list. This workflow is PUBLIC, so naming an
+          # instance here would leak the client set; the list stays a repo
+          # variable and the step skips until it is configured.
+          for inst in ${COMPOSED_INSTANCES}; do
+            echo "trigger: GitLab assembly, instance=${inst} core_ref=${CORE_REF}"
+            curl --fail --silent --show-error -X POST "${GITLAB_TRIGGER_URL}" \
+              -F "token=${GITLAB_TRIGGER_TOKEN}" \
+              -F "ref=main" \
+              -F "variables[INSTANCE]=${inst}" \
+              -F "variables[CORE_REF]=${CORE_REF}" \
+              -o /dev/null -w "  -> HTTP %{http_code}\n"
+          done
+
   # ── Build one (product × arch) on its native runner, push BY DIGEST ──────────
   build:
     strategy:
