@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.277.1",
+    date: "2026-08-11",
+    title: "Automatic delivery of new versions works again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The service that installs new versions of Cosmos had been looking for them in a location they stopped being published to, so it reported that a release “was not built yet” indefinitely — for versions that had in fact already been built. Because that reads as a normal wait rather than a fault, nothing raised an alarm. It now looks wherever this installation is actually configured to get its images from.",
+      },
+    ],
+  },
+  {
     version: "2.277.0",
     date: "2026-08-11",
     title: "See at a glance whether a newer version of Cosmos is available",
