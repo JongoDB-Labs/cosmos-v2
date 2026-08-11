@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.278.1",
+    date: "2026-08-11",
+    title: "The Updates page now checks the live-collaboration services too",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Plugins that run their own live service \u2014 the whiteboard and PI planning collaboration servers \u2014 ship as separate pieces alongside the main application. The Updates page now confirms those were published for the same release, and refuses to present an update as safe if one is missing. Upgrading without them would leave live collaboration running old code while everything else looked fine.",
+      },
+    ],
+  },
+  {
     version: "2.278.0",
     date: "2026-08-11",
     title: "The Updates page now shows what is actually in a new version",

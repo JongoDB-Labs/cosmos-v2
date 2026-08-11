@@ -15,6 +15,7 @@ const CONFIG: UpdateConfig = {
   migrateRepo: "registry.example.com/cosmos/assembly/alpha-migrate",
   suffix: "alpha",
   notesRepo: "registry.example.com/cosmos/assembly/alpha",
+  sidecarRepos: [],
 };
 
 const DIGEST = `sha256:${"a".repeat(64)}`;
@@ -146,6 +147,23 @@ describe("checkForUpdates", () => {
       deps({ probeDb: vi.fn(async () => { throw new Error("boom"); }) }),
     );
     expect(out.preflights.find((p) => p.id === "db-reachable")?.status).toBe("unknown");
+  });
+
+  it("checks sidecars at the SAME tag the app and migrate agreed on", async () => {
+    const seen: string[] = [];
+    const resolveDigest = vi.fn(async (repo: string, tag: string) => { seen.push(`${repo}:${tag}`); return DIGEST; }) as unknown as CheckDeps["resolveDigest"];
+    const cfg = { ...CONFIG, sidecarRepos: ["registry.example.com/o/wb-sidecar"] };
+    const out = await checkForUpdates("2.275.0", cfg, deps({ resolveDigest }));
+    expect(seen).toContain("registry.example.com/o/wb-sidecar:2.276.8-alpha");
+    expect(out.preflights.find((p) => p.id === "sidecars-paired")?.status).toBe("pass");
+  });
+
+  it("BLOCKS the upgrade when a declared sidecar is missing at that tag", async () => {
+    const resolveDigest = vi.fn(async (repo: string) => (repo.includes("sidecar") ? null : DIGEST)) as unknown as CheckDeps["resolveDigest"];
+    const cfg = { ...CONFIG, sidecarRepos: ["registry.example.com/o/wb-sidecar"] };
+    const out = await checkForUpdates("2.275.0", cfg, deps({ resolveDigest }));
+    expect(out.preflights.find((p) => p.id === "sidecars-paired")?.status).toBe("fail");
+    expect(out.applyable).toBe(false);
   });
 
   it("stamps the check time from the injected clock", async () => {

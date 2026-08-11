@@ -51,6 +51,10 @@ export interface PreflightFacts {
   candidateDigest: string | null;
   /** Whether BOTH the app and its migrate image resolved at the same tag. */
   migrateImagePresent: boolean | null;
+  /** Sidecar repositories that did not resolve at the candidate tag. */
+  missingSidecars: string[];
+  /** Number of sidecars this deployment declares; 0 ⇒ check not applicable. */
+  sidecarCount: number;
   /** Registry host the candidate came from, for the expected-source check. */
   candidateRegistryHost: string | null;
   /** Registry host configured for this deployment. */
@@ -94,6 +98,22 @@ export function evaluatePreflights(f: PreflightFacts): PreflightResult[] {
           : "The migration image is missing at this tag. Deploying the app alone would run new code against an unmigrated schema.",
     blocking: true,
   });
+
+  // Only emitted when the deployment DECLARES sidecars. An instance that runs
+  // none is not silently skipping a check — it genuinely has nothing to pair,
+  // and a permanently-unknown blocking row would stop every such deployment.
+  if (f.sidecarCount > 0) {
+    const ok = f.missingSidecars.length === 0;
+    results.push({
+      id: "sidecars-paired",
+      title: "Plugin sidecar images",
+      status: ok ? "pass" : "fail",
+      detail: ok
+        ? `All ${f.sidecarCount} sidecar image(s) exist at this release's tag.`
+        : `Missing at this tag: ${f.missingSidecars.join(", ")}. Upgrading the app without its sidecar leaves the plugin's live service on the old build — collaboration silently stops working while everything else looks fine.`,
+      blocking: true,
+    });
+  }
 
   // An image from an unexpected host is the shape of a supply-chain substitution,
   // and also of a plain misconfiguration. Both are worth stopping for.

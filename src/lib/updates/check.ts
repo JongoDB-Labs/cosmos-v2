@@ -35,6 +35,13 @@ export interface UpdateConfig {
    * release notes describe the core version, not the composition.
    */
   notesRepo: string;
+  /**
+   * Plugin sidecar repositories that ship WITH a release (the realtime
+   * services). Empty when a deployment runs none — plugin UI and API code is
+   * composed INTO the core image, so most plugins need nothing here; only a
+   * plugin with its own long-running service does.
+   */
+  sidecarRepos: string[];
   username?: string;
   password?: string;
 }
@@ -68,6 +75,10 @@ export function updateConfigFromEnv(
     migrateRepo: env.COSMOS_UPDATE_MIGRATE_REPO?.trim() || `${repo}-migrate`,
     suffix: env.COSMOS_UPDATE_TAG_SUFFIX?.trim() ?? derived,
     notesRepo: env.COSMOS_UPDATE_NOTES_REPO?.trim() || repo,
+    sidecarRepos: (env.COSMOS_UPDATE_SIDECAR_REPOS ?? "")
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean),
     username: env.COSMOS_UPDATE_REGISTRY_USERNAME?.trim() || undefined,
     password: env.COSMOS_UPDATE_REGISTRY_PASSWORD?.trim() || undefined,
   };
@@ -163,6 +174,7 @@ export async function checkForUpdates(
   let candidateDigest: string | null = null;
   let candidateTag: string | null = null;
   let migrateImagePresent: boolean | null = null;
+  let missingSidecars: string[] = [];
 
   if (status.updateAvailable && status.latest) {
     migrateImagePresent = false;
@@ -177,6 +189,13 @@ export async function checkForUpdates(
         candidateDigest = app;
         candidateTag = tag;
         migrateImagePresent = true;
+        // Sidecars are tagged with the SAME core version + suffix, so they are
+        // checked at the tag the app and migrate images agreed on — never a
+        // tag of their own, which could pair a new app with an old service.
+        const found = await Promise.all(
+          config.sidecarRepos.map((r) => deps.resolveDigest(r, tag, auth).then((d) => ({ r, ok: !!d }))),
+        );
+        missingSidecars = found.filter((f) => !f.ok).map((f) => f.r);
         break;
       }
       if (app && !migrate) migrateImagePresent = false;
@@ -194,6 +213,8 @@ export async function checkForUpdates(
     ahead: status.ahead,
     candidateDigest,
     migrateImagePresent,
+    missingSidecars,
+    sidecarCount: config.sidecarRepos.length,
     candidateRegistryHost: parseImageRef(config.repo).host,
     expectedRegistryHost: parseImageRef(config.repo).host,
     dbReachable,
