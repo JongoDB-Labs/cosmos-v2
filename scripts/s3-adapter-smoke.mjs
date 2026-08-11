@@ -2,9 +2,19 @@
 // s3-adapter-smoke.mjs — acceptance smoke test for the S3 storage layer against a LIVE
 // MinIO. Exercises the SAME @aws-sdk/client-s3 put/stream/delete the adapter uses
 // (path-style, env-configured) so a successful round-trip proves uploads land in
-// cosmos-uploads through the storage layer. Run in the migrate image (has the SDK):
-//   docker compose run --rm -T --entrypoint "node scripts/s3-adapter-smoke.mjs" \
-//     -e S3_ENDPOINT=... -e S3_BUCKET=cosmos-uploads -e S3_ACCESS_KEY=... ... cosmos-migrate
+// cosmos-uploads through the storage layer.
+//
+// Run it from a CHECKOUT with node_modules installed (dev machine or CI):
+//   S3_ENDPOINT=... S3_BUCKET=cosmos-uploads S3_ACCESS_KEY=... S3_SECRET_KEY=... \
+//     node scripts/s3-adapter-smoke.mjs
+//
+// It used to say "run in the migrate image", which worked only because that image
+// was the ENTIRE build stage and therefore happened to contain both this script and
+// @aws-sdk/client-s3. The migrate image is now just the prisma CLI closure, so it
+// carries neither — and the app runtime image ships `.next/standalone`, not
+// `scripts/`. No shipped image can run this, by design: it is an acceptance tool,
+// not a runtime capability, and giving a database-migration image an S3 client and a
+// scripts directory to keep one smoke test convenient is the wrong trade.
 import {
   S3Client,
   PutObjectCommand,

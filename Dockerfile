@@ -91,9 +91,25 @@ RUN npx prisma generate && npm run build
 # — but the app trace HAS placed it, so there is nothing to fill. cpSync (recursive) then
 # copies a genuinely-missing entry whether it is a file or a dir.
 RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', dd='.next/standalone/.next/server'; const cp=(rel,strict)=>{const s=p.join(sd,rel),d=p.join(dd,rel); if(!fs.existsSync(s)){console.error('[instr-copy]'+(strict?' FATAL':'')+' missing source',s); if(strict)process.exit(1); return;} if(fs.existsSync(d))return; fs.mkdirSync(p.dirname(d),{recursive:true}); fs.cpSync(s,d,{recursive:true}); console.log('[instr-copy]',rel);}; cp('instrumentation.js',true); const nft=p.join(sd,'instrumentation.js.nft.json'); if(fs.existsSync(nft)){for(const f of JSON.parse(fs.readFileSync(nft,'utf8')).files){cp(f.replace(/^\.\//,''),false);}} else {console.error('[instr-copy] FATAL no nft manifest — instrumentation hook would not run'); process.exit(1);}"
-# --- migrate: one-shot job image with the FULL prisma toolchain ---
-# The slim standalone runtime omits the `prisma` CLI and its hoisted deps (effect, etc.),
-# so migrations run from the build stage (complete node_modules).
+# --- migrate-deps: the prisma CLI closure, pruned out of the LOCKFILE tree ---
+# Derived from `deps` (node_modules only — no .next, no app source) and then pruned
+# to the declared dependency closure of `prisma` + `dotenv`. See
+# scripts/docker/migrate-closure.mjs for why the tree is pruned rather than
+# reinstalled: every surviving package stays bit-identical to what `npm ci`
+# produced from package-lock.json, so the image that touches the production schema
+# runs the exact tree CI tested. A fresh `npm install` in a clean stage would
+# resolve transitively OUTSIDE the lockfile.
+FROM deps AS migrate-deps
+WORKDIR /app
+COPY scripts/docker/migrate-closure.mjs ./scripts/docker/
+RUN node scripts/docker/migrate-closure.mjs
+
+# --- migrate: one-shot job image with the prisma toolchain ---
+# Was `FROM build`, i.e. the ENTIRE build stage: full node_modules (2.7 GB), the
+# whole .next output (~1.7 GB) and the app source — ~3.2 GB of image to run one
+# command, and ~134s of every build spent pushing it. `migrate deploy` needs the
+# prisma CLI, the migrations and the config; it never loads the app or @prisma/client.
+#
 # Defined BEFORE runtime so that `docker build` (no --target) defaults to the app runtime.
 # Run as a non-root user (mirrors the runtime stage) so the image is non-root BY
 # CONSTRUCTION. `prisma migrate deploy` only reads node_modules/prisma (world-readable
@@ -101,10 +117,37 @@ RUN node -e "const fs=require('fs'),p=require('path'); const sd='.next/server', 
 # + ENV HOME is all it needs; no chown of the large /app tree required. The chart's
 # runAsUser/HOME override (charts/cosmos/templates/migrate-job.yaml) is then
 # belt-and-suspenders, not the only thing forcing non-root at deploy time.
-FROM build AS migrate
+FROM node:24-bookworm-slim AS migrate
+WORKDIR /app
+# NOTE: no `apt-get install openssl` here, for the same reason the runtime stage
+# documents below — installing openssl 3.0.x flips Prisma to require an engine the
+# client is not generated for (the v2.95.0 outage). The slim base omits it and
+# Prisma falls back to its bundled openssl-1.1.x engine.
+COPY --from=migrate-deps /app/node_modules ./node_modules
+# prisma.config.ts is TypeScript and is loaded by the Prisma 7 CLI; package.json
+# must be present too or npm/node treats /app as a bare directory.
+COPY package.json prisma.config.ts ./
+COPY prisma ./prisma
 RUN groupadd -r cosmos && useradd -r -g cosmos -m -d /home/cosmos cosmos
 ENV HOME=/home/cosmos
 USER cosmos
+# ACCEPTANCE GATE — this is what makes the pruning safe to ship.
+#
+# migrate-closure.mjs only proves node_modules/.bin/prisma still resolves, which is
+# far too weak: `dotenv` is a devDependency that prisma.config.ts imports at module
+# scope, so dropping it leaves .bin/prisma perfectly intact while the CLI can no
+# longer load its config — no schema, no datasource. That failure would surface for
+# the first time against a PRODUCTION database.
+#
+# `prisma validate` exercises the whole chain offline and with no DATABASE_URL (the
+# config carries a placeholder URL for exactly this): CLI starts, prisma.config.ts
+# loads (proving dotenv survived), the schema is found and parsed. It runs as the
+# non-root user, so it also proves HOME is writable for the engine cache.
+#
+# Deliberately AFTER `USER cosmos` so it validates the shipped configuration, not a
+# root-only one. The "failed to detect libssl" warning it prints is the documented
+# benign fallback to the bundled openssl-1.1.x engine — see the runtime stage note.
+RUN node_modules/.bin/prisma validate
 CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
 # --- runtime (standalone) — the default build target ---
