@@ -1,4 +1,4 @@
-import { BoardType } from "@prisma/client";
+import { BoardType, type ColumnCategory } from "@prisma/client";
 
 export interface BoardTypeDef {
   /** What a person reads. e2e specs locate boards by this, so it is a contract. */
@@ -11,6 +11,20 @@ export interface BoardTypeDef {
    * chart cannot be built out of a filter.
    */
   savableFromView: boolean;
+  /**
+   * Columns to create with the board.
+   *
+   * Only for types whose columns ARE the board's structure rather than a team's
+   * workflow — a retro needs its prompts to exist or there is nowhere to put a
+   * note. Delivery boards are left alone: seeding opinionated columns onto a
+   * Kanban board would fight whatever the project template already set up.
+   */
+  defaultColumns?: {
+    name: string;
+    key: string;
+    color: string;
+    category: ColumnCategory;
+  }[];
 }
 
 /**
@@ -96,12 +110,26 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
     label: "Sprint Planning",
     description: "Capacity, commitment & the goal for the sprint ahead.",
     savableFromView: false,
+    // Planning captures a different conversation from a retro: what could stop
+    // us, what we do not know yet, and what we settled.
+    defaultColumns: [
+      { name: "Risks", key: "risks", color: "#A32C2C", category: "TODO" },
+      { name: "Questions", key: "questions", color: "#C9A227", category: "TODO" },
+      { name: "Decisions", key: "decisions", color: "#2E7D52", category: "TODO" },
+    ],
   },
   SPRINT_REVIEW: {
     label: "Sprint Review / Retro",
     description:
       "What shipped, what carried, Start/Stop/Continue & action items.",
     savableFromView: false,
+    // Start / Stop / Continue by default. These are ordinary BoardColumn rows,
+    // so a team that prefers Went well / Didn't / Try next just renames them.
+    defaultColumns: [
+      { name: "Start", key: "start", color: "#2E7D52", category: "TODO" },
+      { name: "Stop", key: "stop", color: "#A32C2C", category: "TODO" },
+      { name: "Continue", key: "continue", color: "#C9A227", category: "TODO" },
+    ],
   },
 };
 

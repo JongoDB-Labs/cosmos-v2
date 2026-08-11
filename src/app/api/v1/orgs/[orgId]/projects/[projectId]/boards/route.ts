@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { uniqueBoardSlug } from "@/lib/templates/slugify";
 import { z } from "zod";
 import { BoardType, Prisma } from "@prisma/client";
+import { BOARD_TYPE_REGISTRY } from "@/lib/boards/board-types";
 
 const createBoardSchema = z.object({
   name: z.string().min(1).max(100),
@@ -93,6 +94,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         type: data.type,
         config: (data.config ?? {}) as Prisma.InputJsonValue,
         sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+        // Types whose columns ARE their structure get them at creation. A retro
+        // board with no columns opens with nowhere to put a note, which reads
+        // as a broken feature rather than an unconfigured one.
+        columns: {
+          create: (BOARD_TYPE_REGISTRY[data.type].defaultColumns ?? []).map(
+            (c, i) => ({ ...c, sortOrder: i })
+          ),
+        },
       },
       include: { columns: true },
     });
