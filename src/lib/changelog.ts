@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.277.2",
+    date: "2026-08-11",
+    title: "The Updates page now tells you when it is still working, or could not finish",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Updates page showed its heading and then an empty space while it was contacting the registry, and stayed empty if that contact failed — so “still checking”, “couldn’t check” and “nothing to report” all looked identical. It now says which of those is happening, and offers a retry when a check fails.",
+      },
+    ],
+  },
+  {
     version: "2.277.1",
     date: "2026-08-11",
     title: "Automatic delivery of new versions works again",

@@ -1,0 +1,120 @@
+// @vitest-environment jsdom
+//
+// The Updates panel, rendered for real.
+//
+// WHY THIS EXISTS: the first prod deploy of this page showed the PageShell
+// heading and nothing else, and the browser never issued a request to
+// /api/v1/admin/updates. The API was verified working from that same page (200,
+// correct payload, 488ms), so the failure was in the component. These tests pin
+// the three states the panel must have — and the reason the bug was invisible is
+// that the original code was `if (!data) return null`, which renders NOTHING
+// while loading and NOTHING forever if the query rejects. A panel that is blank
+// on error is indistinguishable from one that is blank because it never ran.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { UpdatesManager } from "./updates-manager";
+
+const OK = {
+  configured: true,
+  checkedAt: "2026-08-11T15:31:10.297Z",
+  status: { current: "2.276.8", latest: "2.277.1", newer: ["2.277.0", "2.277.1"], updateAvailable: true, ahead: false },
+  candidateDigest: `sha256:${"a".repeat(64)}`,
+  candidateTag: "2.277.1-alpha",
+  preflights: [
+    { id: "candidate-resolves", title: "Candidate image exists", status: "pass", detail: "resolves", blocking: true },
+    { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true },
+  ],
+  applyable: false,
+  error: null,
+};
+
+let renderPanelResult: ReturnType<typeof render> | null = null;
+
+function renderPanel() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (renderPanelResult = render(
+    <QueryClientProvider client={qc}>
+      <UpdatesManager />
+    </QueryClientProvider>,
+  ));
+}
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("UpdatesManager", () => {
+  it("renders the version comparison once the check returns", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
+    renderPanel();
+    const { container } = renderPanelResult!;
+    expect(await screen.findByText("2.277.1")).toBeTruthy();
+    expect(await screen.findByText("2.277.1-alpha")).toBeTruthy(); // candidate tag surfaced
+    // The count sits in its own <span>, so assert on combined text rather than
+    // a single text node.
+    await waitFor(() => expect(container.textContent).toMatch(/2\s*releases available/i));
+  });
+
+  it("shows something while the check is in flight — never a blank panel", async () => {
+    // A registry round-trip takes seconds. Rendering null for that whole time
+    // is how this shipped looking broken.
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {}))); // never resolves
+    renderPanel();
+    expect(await screen.findByText(/checking for updates/i)).toBeTruthy();
+  });
+
+  it("shows an ERROR state when the request itself fails, and offers a retry", async () => {
+    // The original returned null here, so a failed fetch was indistinguishable
+    // from a component that never mounted — which is exactly how long the real
+    // diagnosis took.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })));
+    renderPanel();
+    expect(await screen.findByText(/could not check for updates/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
+  });
+
+  it("distinguishes 'registry unreachable' from 'up to date'", async () => {
+    const unreachable = { ...OK, status: null, preflights: [], error: "registry listing failed: HTTP 401" };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(unreachable), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/could not reach the registry/i)).toBeTruthy();
+    expect(screen.queryByText(/up to date/i)).toBeNull();
+  });
+
+  it("says up to date when there is genuinely nothing newer", async () => {
+    const current = {
+      ...OK,
+      status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
+      preflights: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(current), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/up to date/i)).toBeTruthy();
+  });
+
+  it("warns rather than offers when the instance is AHEAD of the registry", async () => {
+    const ahead = {
+      ...OK,
+      status: { current: "2.278.0", latest: "2.277.1", newer: [], updateAvailable: false, ahead: true },
+      preflights: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(ahead), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/newer than anything the registry offers/i)).toBeTruthy();
+  });
+
+  it("tells the operator when update checking is not configured at all", async () => {
+    const off = { ...OK, configured: false, status: null, preflights: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(off), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/not configured/i)).toBeTruthy();
+  });
+
+  it("marks a blocking preflight that could not be run, rather than hiding it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("Disk headroom")).toBeTruthy());
+    expect(screen.getAllByText(/blocks upgrade/i).length).toBeGreaterThan(0);
+  });
+});

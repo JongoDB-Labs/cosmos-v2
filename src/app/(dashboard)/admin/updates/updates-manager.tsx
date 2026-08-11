@@ -74,7 +74,7 @@ function PreflightRow({ check }: { check: Preflight }) {
 }
 
 export function UpdatesManager() {
-  const { data, isFetching, refetch } = useQuery({
+  const { data, isPending, isError, error, isFetching, refetch } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: () => jsonFetch<UpdateCheck>("/api/v1/admin/updates"),
     // A registry round-trip is not free and the answer changes on release
@@ -83,7 +83,45 @@ export function UpdatesManager() {
     staleTime: 5 * 60_000,
   });
 
-  if (!data) return null;
+  // WHY THESE TWO STATES EXIST AT ALL: this shipped as `if (!data) return null`,
+  // which renders NOTHING while the registry call is in flight and NOTHING
+  // forever if it fails. On the first production deploy the page showed its
+  // heading and an empty space, and a blank panel gives an operator — and the
+  // person debugging it — no way to tell "still working" from "failed" from
+  // "never ran". A surface whose whole purpose is to distinguish *unknown* from
+  // *up to date* must not have an unknown state of its own that looks like
+  // nothing at all.
+  if (isPending) {
+    return (
+      <SectionCard
+        icon={Package}
+        title="Application version"
+        description="This instance, compared against the container registry it is configured for."
+      >
+        <p className="text-sm text-muted-foreground">Checking for updates…</p>
+      </SectionCard>
+    );
+  }
+
+  if (isError) {
+    return (
+      <SectionCard
+        icon={AlertTriangle}
+        title="Application version"
+        description="This instance, compared against the container registry it is configured for."
+      >
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+          Could not check for updates.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {error instanceof Error ? error.message : "The request failed."}
+        </p>
+        <Button variant="outline" className="mt-4" onClick={() => void refetch()}>
+          <RefreshCw className="mr-2 size-4" aria-hidden /> Try again
+        </Button>
+      </SectionCard>
+    );
+  }
 
   const { status } = data;
 
