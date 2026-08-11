@@ -14,6 +14,7 @@ import { SprintBoard } from "@/components/boards/scrum/sprint-board";
 import { BacklogView } from "@/components/boards/backlog/backlog-view";
 import { RaidView } from "@/components/boards/raid/raid-view";
 import { OkrBoard } from "@/components/okrs/okr-board";
+import { CeremonyBoard } from "@/components/boards/ceremony/ceremony-board";
 
 export interface BoardViewProps {
   orgId: string;
@@ -72,6 +73,8 @@ export const BOARD_VIEWS: Record<
   PORTFOLIO: (p) => <DashboardView {...core(p)} />,
   PROGRAM: (p) => <DashboardView {...core(p)} />,
   OKR: (p) => <OkrBoard orgId={p.orgId} projectId={p.projectId} />,
+  SPRINT_PLANNING: (p) => <CeremonyBoard {...core(p)} kind="PLANNING" />,
+  SPRINT_REVIEW: (p) => <CeremonyBoard {...core(p)} kind="REVIEW" />,
 };
 
 interface BoardRendererProps extends BoardViewProps {

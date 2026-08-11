@@ -92,6 +92,17 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
     description: "Cumulative-flow diagram of work over time.",
     savableFromView: false,
   },
+  SPRINT_PLANNING: {
+    label: "Sprint Planning",
+    description: "Capacity, commitment & the goal for the sprint ahead.",
+    savableFromView: false,
+  },
+  SPRINT_REVIEW: {
+    label: "Sprint Review / Retro",
+    description:
+      "What shipped, what carried, Start/Stop/Continue & action items.",
+    savableFromView: false,
+  },
 };
 
 /**
@@ -102,6 +113,8 @@ export const BOARD_TYPE_REGISTRY: Record<BoardType, BoardTypeDef> = {
 export const BOARD_TYPE_ORDER: BoardType[] = [
   BoardType.KANBAN,
   BoardType.SCRUM,
+  BoardType.SPRINT_PLANNING,
+  BoardType.SPRINT_REVIEW,
   BoardType.BACKLOG,
   BoardType.TABLE,
   BoardType.CALENDAR,

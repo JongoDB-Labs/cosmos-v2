@@ -53,6 +53,11 @@ enum BoardType {
   ROADMAP
   CFD
   PROGRAM
+  /// Sprint ceremonies. Both derive their figures from work items and intervals
+  /// rather than storing them, so a ceremony reopened later still reconciles
+  /// with the board it describes.
+  SPRINT_PLANNING
+  SPRINT_REVIEW
 }
 
 /// Which ceremony a board runs. The board is the surface; a SprintCeremony row
