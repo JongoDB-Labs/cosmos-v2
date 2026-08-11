@@ -16,6 +16,8 @@ const GOOD: PreflightFacts = {
   ahead: false,
   candidateDigest: `sha256:${"a".repeat(64)}`,
   migrateImagePresent: true,
+  missingSidecars: [],
+  sidecarCount: 0,
   candidateRegistryHost: "registry.example.com",
   expectedRegistryHost: "registry.example.com",
   dbReachable: true,
@@ -69,6 +71,32 @@ describe("the in-app check cannot see the host, and says so", () => {
     const r = find({ ...GOOD, hostDiskFreeBytes: 1_000, estimatedRequiredBytes: 4_000_000_000 }, "disk-headroom");
     expect(r.status).toBe("fail");
     expect(r.detail).toMatch(/rollback/i);
+  });
+});
+
+describe("plugin sidecars — the images that ship WITH a release", () => {
+  it("emits NO row when the deployment declares no sidecars", () => {
+    // Not a silent skip: an instance with no sidecars has nothing to pair, and
+    // a permanently-unknown blocking row would stop every such deployment.
+    expect(evaluatePreflights(GOOD).find((r) => r.id === "sidecars-paired")).toBeUndefined();
+    expect(canApply(evaluatePreflights(GOOD))).toBe(true);
+  });
+
+  it("passes when every declared sidecar exists at the release tag", () => {
+    const f = { ...GOOD, sidecarCount: 2, missingSidecars: [] };
+    expect(find(f, "sidecars-paired").status).toBe("pass");
+    expect(canApply(evaluatePreflights(f))).toBe(true);
+  });
+
+  it("BLOCKS when a sidecar is missing, and says what breaks", () => {
+    // Upgrading the app without its sidecar leaves the plugin's live service on
+    // the old build: collaboration stops while everything else looks healthy.
+    const f = { ...GOOD, sidecarCount: 2, missingSidecars: ["registry.example.com/o/whiteboard-sidecar"] };
+    const r = find(f, "sidecars-paired");
+    expect(r.status).toBe("fail");
+    expect(r.blocking).toBe(true);
+    expect(r.detail).toContain("whiteboard-sidecar");
+    expect(canApply(evaluatePreflights(f))).toBe(false);
   });
 });
 
