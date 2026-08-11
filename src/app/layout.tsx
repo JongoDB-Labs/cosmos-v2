@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { Inter, JetBrains_Mono, Archivo_Narrow, Source_Serif_4, IBM_Plex_Sans, Space_Grotesk, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { CosmosMotionConfig } from "@/components/ui/motion-config";
 import { WebVitalsReporter } from "@/components/telemetry/web-vitals";
 import { ChunkReloadGuard } from "@/components/telemetry/chunk-reload-guard";
@@ -10,26 +10,84 @@ import { allSkinsCss, getSkinPreset } from "@/lib/theme/skins";
 import { RootBrandProvider } from "@/components/providers/root-brand-provider";
 import "./globals.css";
 
-const inter = Inter({
+// SELF-HOSTED, not next/font/google (changed 2026-08-10).
+//
+// next/font/google downloads every face AT BUILD TIME, which put Google in the
+// critical path of shipping. On 2026-08-10 fonts.gstatic.com started returning
+// 404 for IBM Plex Sans v23 files — same version, rotated hashes — and three
+// separate CI runs died with "Module not found: can't resolve
+// @vercel/turbopack-next/internal/font/google/font", blocking a merge each time.
+// Verified externally: the exact URL CI requested 404s from a laptop too, while
+// the css2 API still serves the family. Nothing was wrong with our code.
+//
+// Two things that buys, beyond not being flaky:
+//   - builds are REPRODUCIBLE — the same commit cannot build today and fail
+//     tomorrow because a CDN rotated a filename
+//   - builds work AIR-GAPPED, which the sideload path in ADR 0004 depends on;
+//     previously `docker build` needed egress to Google or it failed outright
+//
+// The files are latin-only subsets pulled from Google's own CDN: 288 KB for all
+// eleven. All seven families are OFL-1.1 or Apache-2.0, so redistribution here
+// is permitted. To refresh one, re-fetch the latin @font-face from
+// fonts.googleapis.com/css2 and replace the file — the API shape below does not
+// change.
+const inter = localFont({
+  src: "./fonts/inter-variable.woff2",
   variable: "--font-sans",
-  subsets: ["latin"],
+  weight: "100 900",
   display: "swap",
 });
 
-const jetBrainsMono = JetBrains_Mono({
+const jetBrainsMono = localFont({
+  src: "./fonts/jetbrains-mono-variable.woff2",
   variable: "--font-mono",
-  subsets: ["latin"],
+  weight: "100 800",
   display: "swap",
 });
 
-const archivoNarrow = Archivo_Narrow({ variable: "--font-field", subsets: ["latin"], weight: ["400", "500", "600"], display: "swap" });
-const sourceSerif = Source_Serif_4({ variable: "--font-ledger", subsets: ["latin"], display: "swap" });
-const ibmPlexSans = IBM_Plex_Sans({ variable: "--font-clinical", subsets: ["latin"], weight: ["400", "500", "600"], display: "swap" });
-const spaceGrotesk = Space_Grotesk({ variable: "--font-studio", subsets: ["latin"], display: "swap" });
+const archivoNarrow = localFont({
+  src: [
+    { path: "./fonts/archivo-narrow-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/archivo-narrow-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/archivo-narrow-600.woff2", weight: "600", style: "normal" },
+  ],
+  variable: "--font-field",
+  display: "swap",
+});
+
+const sourceSerif = localFont({
+  src: "./fonts/source-serif-4-variable.woff2",
+  variable: "--font-ledger",
+  weight: "200 900",
+  display: "swap",
+});
+
+const ibmPlexSans = localFont({
+  src: [
+    { path: "./fonts/ibm-plex-sans-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-600.woff2", weight: "600", style: "normal" },
+  ],
+  variable: "--font-clinical",
+  display: "swap",
+});
+
+const spaceGrotesk = localFont({
+  src: "./fonts/space-grotesk-variable.woff2",
+  variable: "--font-studio",
+  weight: "300 700",
+  display: "swap",
+});
+
 // Atelier was the one sector skin with no face of its own, so it fell through to
 // Inter and leaned on stylistic sets to approximate a drafting-office grotesque.
 // A geometric humanist with a large x-height carries that look directly.
-const plusJakartaSans = Plus_Jakarta_Sans({ variable: "--font-atelier", subsets: ["latin"], display: "swap" });
+const plusJakartaSans = localFont({
+  src: "./fonts/plus-jakarta-sans-variable.woff2",
+  variable: "--font-atelier",
+  weight: "200 800",
+  display: "swap",
+});
 
 const brand = getBrand();
 const defaultSkin = getSkinPreset(brand.defaultSkinId).id;

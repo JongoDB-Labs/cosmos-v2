@@ -21,13 +21,24 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.3",
+    date: "2026-08-10",
+    title: "Typefaces now ship with Cosmos instead of being fetched from Google",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The seven typefaces Cosmos uses are now included in the product itself rather than collected from Google while each update is prepared. Nothing looks different — the same fonts render exactly as before. What changes is that preparing an update no longer depends on Google serving the right file at the right moment, which had failed three times in one day and stopped updates from being built at all. Cosmos also no longer needs permission to contact Google's servers, so there is one less outside connection in the product.",
+      },
+    ],
+  },
+  {
     version: "2.276.2",
     date: "2026-08-10",
     title: "Updates build more reliably, and the download is smaller",
     highlights: [
       {
         kind: "improvement",
-        text: "Preparing a new version used to download a 300 MB graphics-card component that Cosmos never uses, from a third-party site outside our control. When that site was slow or unreachable, the update simply could not be built. It is no longer fetched at all, so releases are quicker, noticeably smaller, and no longer depend on someone else's server being up. This also means a full offline install can be built without any internet access, which matters for disconnected networks.",
+        text: "Preparing a new version used to download a 300 MB graphics-card component that Cosmos never uses, from a third-party site outside our control. When that site was slow or unreachable, the update simply could not be built. It is no longer fetched at all, so releases are quicker, noticeably smaller, and no longer depend on that server being up.",
       },
     ],
   },
