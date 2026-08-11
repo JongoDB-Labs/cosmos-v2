@@ -45,6 +45,10 @@ permissions:
 
 env:
   MAX_TICKETS_PER_RUN: "3"
+  # See ci.yml: skips onnxruntime-node's 301MB CUDA/TensorRT download from api.nuget.org,
+  # which is linux/x64-only, unused (we run CPU inference), and fails `npm ci` outright
+  # when that CDN is unreachable.
+  ONNXRUNTIME_NODE_INSTALL: skip
 
 jobs:
   # ── Build the list of tickets to draft fixes for ─────────────────────────────

@@ -26,6 +26,12 @@ concurrency:
 permissions:
   contents: read
 
+# See ci.yml for the full rationale: onnxruntime-node's postinstall pulls 301MB of
+# CUDA/TensorRT execution providers from api.nuget.org on linux/x64 only, we run CPU-only
+# inference, and an api.nuget.org outage otherwise fails `npm ci` outright.
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   # Gate 1 — SAST. 800-171 3.11.2 / 3.14.1
   codeql:

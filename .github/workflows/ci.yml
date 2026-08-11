@@ -10,6 +10,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Workflow-level so EVERY job's `npm ci` inherits it — check, build-alt-product, both
+# e2e shards, and anything added later without remembering to opt in.
+#
+# onnxruntime-node's postinstall downloads the CUDA/TensorRT execution providers from
+# api.nuget.org, but ONLY on linux/x64 (its requirement table is `[]` for darwin and
+# linux/arm64). Every GitHub runner is linux/x64, so every job pulled 301MB it never
+# uses, and on 2026-08-10 api.nuget.org became unreachable from the runners: `npm ci`
+# died with ETIMEDOUT and failed the e2e shard twice in a row, blocking a merge. We run
+# CPU-only inference — verified bit-identical 384-dim embeddings without these binaries.
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   check:
     runs-on: ubuntu-latest
