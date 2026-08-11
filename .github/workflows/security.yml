@@ -234,7 +234,7 @@ jobs:
           output-file: evidence/${{ github.sha }}/hadolint.sarif
           no-fail: true
       - name: Checkov (compose + manifests)
-        uses: bridgecrewio/checkov-action@fa9edf8f0a491c59a924ea6accd5bdcf07752cff # v12.3107.0
+        uses: bridgecrewio/checkov-action@9b70310bcd306d11740313070b940167d6b23085 # v12.3115.0
         continue-on-error: true # Info
         with:
           directory: .
