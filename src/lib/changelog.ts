@@ -29,6 +29,10 @@ export const CHANGELOG: Release[] = [
         kind: "fix",
         text: "On installations where the live-collaboration service runs on a separate address, the browser silently refused to connect to it. Boards still opened and saved, so nothing looked wrong \u2014 people simply never saw each other's cursors or edits, with no message explaining why. The connection is now permitted for the address each installation is actually configured to use.",
       },
+      {
+        kind: "fix",
+        text: "A whiteboard left open on screen kept re-saving itself even when nobody was drawing, which made boards look as though they had just been edited when they had not. Boards now save when something actually changes.",
+      },
     ],
   },
   {
