@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.5",
+    date: "2026-08-10",
+    title: "The New issue window no longer follows you to another board",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If you opened New issue on a board and then switched to a different board of the same kind without closing it, the window stayed on screen — still filling in an issue for the board you had just left, with the page behind it still locked from scrolling. Anything you submitted went to the old board's workflow rather than the one you were looking at. The window now closes when you move to another board or project, so what you see is always the board you are actually on.",
+      },
+    ],
+  },
+  {
     version: "2.276.4",
     date: "2026-08-10",
     title: "Database updates apply from a much smaller, faster package",
