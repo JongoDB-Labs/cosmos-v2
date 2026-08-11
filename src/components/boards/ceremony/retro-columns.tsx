@@ -15,7 +15,7 @@ interface RetroColumnsProps {
   columns: CeremonyColumn[];
   notes: CeremonyNote[];
   closed: boolean;
-  invalidateKey: unknown[];
+  invalidateParts: unknown[];
 }
 
 /**
@@ -29,7 +29,7 @@ export function RetroColumns({
   columns,
   notes,
   closed,
-  invalidateKey,
+  invalidateParts,
 }: RetroColumnsProps) {
   if (columns.length === 0) {
     return (
@@ -50,7 +50,7 @@ export function RetroColumns({
           column={column}
           notes={notes.filter((n) => n.columnKey === column.key)}
           closed={closed}
-          invalidateKey={invalidateKey}
+          invalidateParts={invalidateParts}
         />
       ))}
     </div>
@@ -63,14 +63,14 @@ function RetroColumn({
   column,
   notes,
   closed,
-  invalidateKey,
+  invalidateParts,
 }: {
   basePath: string;
   ceremonyId: string | null;
   column: CeremonyColumn;
   notes: CeremonyNote[];
   closed: boolean;
-  invalidateKey: unknown[];
+  invalidateParts: unknown[];
 }) {
   const [draft, setDraft] = useState("");
 
@@ -80,14 +80,14 @@ function RetroColumn({
         method: "POST",
         body: JSON.stringify({ ceremonyId, columnKey: column.key, text }),
       }),
-    invalidate: [invalidateKey],
+    invalidate: [invalidateParts],
     onSuccess: () => setDraft(""),
   });
 
   const deleteNote = useOrgMutation<unknown, Error, string>({
     mutationFn: (noteId) =>
       jsonFetch(`${basePath}/ceremony/notes/${noteId}`, { method: "DELETE" }),
-    invalidate: [invalidateKey],
+    invalidate: [invalidateParts],
   });
 
   const canAdd = Boolean(ceremonyId) && !closed && draft.trim().length > 0;

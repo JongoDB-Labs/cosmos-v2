@@ -16,7 +16,7 @@ interface ActionItemsProps {
   actions: CeremonyAction[];
   members: { userId: string; displayName: string }[];
   closed: boolean;
-  invalidateKey: unknown[];
+  invalidateParts: unknown[];
 }
 
 interface PromoteResult {
@@ -40,7 +40,7 @@ export function ActionItems({
   actions,
   members,
   closed,
-  invalidateKey,
+  invalidateParts,
 }: ActionItemsProps) {
   const [text, setText] = useState("");
   const [ownerId, setOwnerId] = useState("");
@@ -57,7 +57,7 @@ export function ActionItems({
           dueDate: dueDate || null,
         }),
       }),
-    invalidate: [invalidateKey],
+    invalidate: [invalidateParts],
     onSuccess: () => {
       setText("");
       setOwnerId("");
@@ -68,7 +68,7 @@ export function ActionItems({
   const removeAction = useOrgMutation<unknown, Error, string>({
     mutationFn: (id) =>
       jsonFetch(`${basePath}/ceremony/actions/${id}`, { method: "DELETE" }),
-    invalidate: [invalidateKey],
+    invalidate: [invalidateParts],
   });
 
   const promote = useOrgMutation<PromoteResult, Error, string>({
@@ -77,7 +77,7 @@ export function ActionItems({
         `${basePath}/ceremony/actions/${id}/promote`,
         { method: "POST" }
       ),
-    invalidate: [invalidateKey],
+    invalidate: [invalidateParts],
   });
 
   const canAdd = Boolean(ceremonyId) && !closed && text.trim().length > 0;

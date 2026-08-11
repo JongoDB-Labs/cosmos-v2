@@ -4,6 +4,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
+import { BoardType } from "@prisma/client";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -76,14 +77,35 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (existing) return success({ workItem: existing, created: false });
     }
 
-    // Land it in the board's first To-Do column. Falling back to the first
-    // column of any kind, because a board with no TODO column still has to
-    // accept the work rather than reject the promotion.
-    const columns = await prisma.boardColumn.findMany({
-      where: { boardId: action.ceremony.boardId },
+    // Land it on a DELIVERY board, never on the ceremony board that produced it.
+    // A retro board's columns are Start / Stop / Continue, so taking "the first
+    // TODO column of this board" would file real tracked work under "Start",
+    // where no one tracking work would ever look for it.
+    const deliveryBoard = await prisma.board.findFirst({
+      where: {
+        projectId,
+        type: { notIn: [BoardType.SPRINT_REVIEW, BoardType.SPRINT_PLANNING] },
+        columns: { some: {} },
+      },
       orderBy: { sortOrder: "asc" },
-      select: { key: true, category: true },
+      select: {
+        columns: {
+          orderBy: { sortOrder: "asc" },
+          select: { key: true, category: true },
+        },
+      },
     });
+
+    // Fall back to the ceremony board only when the project has no delivery
+    // board at all — a home that reads oddly still beats refusing the promotion
+    // and losing the team's decision.
+    const columns =
+      deliveryBoard?.columns ??
+      (await prisma.boardColumn.findMany({
+        where: { boardId: action.ceremony.boardId },
+        orderBy: { sortOrder: "asc" },
+        select: { key: true, category: true },
+      }));
     const target =
       columns.find((c) => c.category === "TODO") ?? columns[0] ?? null;
     if (!target) {

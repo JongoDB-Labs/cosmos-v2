@@ -94,7 +94,14 @@ export function CeremonyBoard({
     intervalId: selectedId,
     boardId,
   });
-  const ceremonyKey = useOrgQueryKey("ceremony", boardId, selectedId ?? "none");
+  // useOrgMutation expects the same PARTS you'd give useOrgQueryKey — it adds
+  // the org prefix itself. Passing an already-prefixed key double-prefixes it,
+  // which matches no query, so nothing invalidates and the board only recovers
+  // on the realtime round-trip.
+  const ceremonyParts = useMemo(
+    () => ["ceremony", boardId, selectedId ?? "none"],
+    [boardId, selectedId]
+  );
   const basePath = `${basePathProject}/intervals/${selectedId}`;
 
   const openCeremony = useOrgMutation<unknown, Error, void>({
@@ -103,7 +110,7 @@ export function CeremonyBoard({
         method: "POST",
         body: JSON.stringify({ boardId, kind }),
       }),
-    invalidate: [ceremonyKey],
+    invalidate: [ceremonyParts],
   });
 
   const closeCeremony = useOrgMutation<unknown, Error, string>({
@@ -112,7 +119,7 @@ export function CeremonyBoard({
         method: "POST",
         body: JSON.stringify({ ceremonyId }),
       }),
-    invalidate: [ceremonyKey],
+    invalidate: [ceremonyParts],
   });
 
   if (intervalsQ.isLoading || ceremonyQ.isLoading) {
@@ -313,7 +320,7 @@ export function CeremonyBoard({
             columns={data.columns}
             notes={ceremony?.notes ?? []}
             closed={closed}
-            invalidateKey={ceremonyKey}
+            invalidateParts={ceremonyParts}
           />
         ) : null}
 
@@ -326,7 +333,7 @@ export function CeremonyBoard({
             actions={ceremony?.actionItems ?? []}
             members={membersQ.data ?? []}
             closed={closed}
-            invalidateKey={ceremonyKey}
+            invalidateParts={ceremonyParts}
           />
         ) : null}
 
