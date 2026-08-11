@@ -342,8 +342,15 @@ jobs:
 
           # Files that end up in the running product. package.json/-lock count:
           # a dependency change ships even when no source line moves.
+          #
+          # plugins.lock.json is here for the same reason and was MISSED on the
+          # first pass: it pins the plugin commits the assembly composes, so
+          # changing it changes what the image contains — adding a whole plugin,
+          # in the case that caught this — while touching no file under `plugins`
+          # (the composed directory, which is gitignored in the public core and
+          # does not match this path anyway).
           CHANGED="$(git diff --name-only "$BASE" HEAD -- \
-            src prisma public plugins Dockerfile next.config.ts \
+            src prisma public plugins plugins.lock.json Dockerfile next.config.ts \
             package.json package-lock.json \
             | grep -vE '(\.test\.[tj]sx?|\.spec\.[tj]sx?|__tests__/)' || true)"
 
