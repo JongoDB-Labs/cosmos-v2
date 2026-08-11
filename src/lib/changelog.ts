@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.4",
+    date: "2026-08-10",
+    title: "Database updates apply from a much smaller, faster package",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The component that applies database updates during an upgrade was shipping the entire application build alongside it — roughly 3 GB to run a single command. It now carries only the database tooling it actually uses, about seventeen times smaller. Upgrades transfer far less and start sooner, and there is less software sitting on the machine that touches your database. The update steps themselves are unchanged: all 134 of them were applied to a clean database and checked against their expected result before this shipped.",
+      },
+    ],
+  },
+  {
     version: "2.276.3",
     date: "2026-08-10",
     title: "Typefaces now ship with Cosmos instead of being fetched from Google",
