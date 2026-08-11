@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.6",
+    date: "2026-08-11",
+    title: "Routine dependency updates",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Ten of the third-party libraries Cosmos is built on were updated to their latest minor and patch releases, including the icon set and the accessibility checker used in testing. Nothing works differently — these are the routine updates that keep the product current with upstream fixes rather than letting them pile up into a risky jump later.",
+      },
+    ],
+  },
+  {
     version: "2.276.5",
     date: "2026-08-10",
     title: "The New issue window no longer follows you to another board",
