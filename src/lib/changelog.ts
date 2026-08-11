@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.277.0",
+    date: "2026-08-11",
+    title: "See at a glance whether a newer version of Cosmos is available",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Administrators get a new Updates page under System administration. It shows the version this installation is running, whether a newer one has been published, and how many releases you are behind — so finding out no longer means asking someone or reading a release feed.",
+      },
+      {
+        kind: "improvement",
+        text: "The Updates page also runs a set of safety checks against any newer version it finds, and shows what each one concluded: whether the matching database-migration image was published alongside it, whether the image came from the registry this installation is configured for, and whether the database is reachable. Checks that could not be run are shown as unknown rather than quietly counted as passed.",
+      },
+      {
+        kind: "improvement",
+        text: "If the registry cannot be reached, the page says so plainly instead of reporting that you are up to date — not knowing and being current are different answers, and only one of them is safe to act on.",
+      },
+    ],
+  },
+  {
     version: "2.276.8",
     date: "2026-08-11",
     title: "Live collaboration keeps working when the realtime service is on its own address",

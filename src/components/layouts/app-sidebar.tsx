@@ -17,6 +17,7 @@ import {
   MessageSquarePlus,
   KeyRound,
   MailCheck,
+  Package,
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { useBrand } from "@/components/providers/brand-provider";
@@ -516,6 +517,9 @@ function UserCard({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => router.push("/admin/allowlist")}>
               <MailCheck className="mr-2 h-4 w-4" /> Email allowlist
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/admin/updates")}>
+              <Package className="mr-2 h-4 w-4" /> Updates
             </DropdownMenuItem>
           </>
         )}

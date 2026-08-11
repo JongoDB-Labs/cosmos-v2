@@ -69,9 +69,13 @@ The image is signed and published to `ghcr.io/jongodb-labs/cosmos-v2` and may be
 - **Pages that `await params` at the top break instant validation.** Pass `params` as a Promise into a Suspense child; await inside the child. See `(dashboard)/[orgSlug]/page.tsx` for the pattern.
 - **No `runtime = "nodejs"` or `dynamic = "force-dynamic"`** as route-segment exports — Cache Components disallows them. Routes pick up the right behavior automatically.
 
-## `unstable_instant` requires explicit `samples` for dynamic routes
+## `unstable_instant` is DISABLED project-wide — do not add one
 
-When adding instant-navigation validation to a route that reads dynamic params or cookies, the bare `{ prefetch: "static" }` fails the build with `E1109` / `E1115` even though TypeScript accepts it. You must declare `samples` so the validator can simulate a navigation:
+Instant-nav is currently off across the whole app: every `unstable_instant` export has been removed while a Turbopack build-validation bug is investigated. **Adding one back makes your route the only one that has it.** `grep -rn "unstable_instant" src/` returns only comments recording the removal; `(dashboard)/[orgSlug]/page.tsx` carries the canonical note.
+
+This section used to point at that file and `.../projects/page.tsx` as "working examples", which stopped being true when the exports came out — a doc that survived the code it described, and then told people to add the one thing the codebase had deliberately removed.
+
+Keep the knowledge for when it is re-enabled: a route reading dynamic params or cookies needs explicit `samples`, or the build fails with `E1109` / `E1115` even though TypeScript accepts the bare `{ prefetch: "static" }`. The Next.js docs (`instant.md`) don't mention it — only the build error catches it.
 
 ```ts
 export const unstable_instant = {
@@ -79,10 +83,9 @@ export const unstable_instant = {
   samples: [
     { params: { orgSlug: "_" }, cookies: [{ name: "session", value: null }] },
   ],
+  unstable_disableBuildValidation: true,
 };
 ```
-
-See `(dashboard)/[orgSlug]/page.tsx` and `.../projects/page.tsx` for working examples. The Next.js docs (`instant.md`) don't mention this — only the build error catches it.
 
 ## Multi-tenant client cache (React Query)
 
@@ -94,6 +97,8 @@ const queryKey = useOrgQueryKey("themes");
 ```
 
 Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — same prefix, automatic invalidation.
+
+**Exception — instance-level `/admin/*` routes.** `useOrgSlug()` returns `null` for `admin`, `internal`, `onboarding` and `login`, so `useOrgQueryKey("x")` there produces `["org", null, "x"]`: a shared namespace that looks org-scoped and is not. These surfaces are instance-wide, so there is no cross-tenant bleed to prevent. Use a flat literal key instead, and match it in any server-side prefetch — `admin/allowlist` uses `["admin", "allowed-emails"]`, `admin/updates` uses `["admin", "updates"]`.
 
 ## Server-side response patterns
 
