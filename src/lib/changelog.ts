@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.2",
+    date: "2026-08-10",
+    title: "Updates build more reliably, and the download is smaller",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Preparing a new version used to download a 300 MB graphics-card component that Cosmos never uses, from a third-party site outside our control. When that site was slow or unreachable, the update simply could not be built. It is no longer fetched at all, so releases are quicker, noticeably smaller, and no longer depend on someone else's server being up. This also means a full offline install can be built without any internet access, which matters for disconnected networks.",
+      },
+    ],
+  },
+  {
     version: "2.276.1",
     date: "2026-08-10",
     title: "The New issue type list now fits the project you are in",

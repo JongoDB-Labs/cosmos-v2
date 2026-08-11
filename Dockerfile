@@ -3,7 +3,34 @@
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# onnxruntime-node (via @huggingface/transformers) has a postinstall that DOWNLOADS the
+# GPU execution providers from api.nuget.org. Its per-platform requirement table is
+# `linux/x64: ["cuda12"]` and `[]` for everything else — so a macOS/arm64 dev machine
+# never sees it and every linux/x64 CI job and `docker build` does. That is 301MB of
+# libonnxruntime_providers_cuda.so (+ tensorrt) fetched on every cache-busting build,
+# only for the runtime stage to `rm` it again below. It also put a third-party CDN in
+# the critical path of shipping: on 2026-08-10 api.nuget.org became unreachable from
+# GitHub's runners and `npm ci` failed with ETIMEDOUT, blocking a merge twice.
+#
+# `skip` is the documented flag (script/install.js exits 0 on it). Do NOT set this via
+# .npmrc instead: it works today, but npm warns "Unknown project config ... will stop
+# working in the next major version of npm" — i.e. it would fail OPEN, silently
+# resuming the 301MB download with every check still green. The env var is the
+# supported mechanism.
+#
+# Verified on real linux/x64: CPU feature-extraction produces a BIT-IDENTICAL 384-dim
+# embedding with these binaries absent (they are GPU-only; the CPU runtime
+# libonnxruntime.so.1 is bundled in the npm tarball, not downloaded).
+ENV ONNXRUNTIME_NODE_INSTALL=skip
+# The assert is the point: if a dependency bump, an npm change, or a dropped ENV ever
+# revives the download, the build FAILS here instead of quietly regaining a 301MB layer
+# and a CDN dependency that nothing would surface.
+RUN npm ci --no-audit --no-fund \
+ && if [ -e node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime_providers_cuda.so ]; then \
+      echo "FATAL: ONNXRUNTIME_NODE_INSTALL=skip is no longer suppressing the CUDA EP download."; \
+      echo "       The build just pulled ~301MB from api.nuget.org. Fix the flag, do not delete this check."; \
+      exit 1; \
+    fi
 
 # --- build ---
 FROM node:24-bookworm-slim AS build
@@ -125,10 +152,17 @@ COPY --from=build --chown=cosmos:cosmos /app/node_modules/onnxruntime-common ./n
 COPY --from=build --chown=cosmos:cosmos /app/node_modules/onnxruntime-web ./node_modules/onnxruntime-web
 COPY --from=build --chown=cosmos:cosmos /app/node_modules/sharp ./node_modules/sharp
 COPY --from=build --chown=cosmos:cosmos /app/node_modules/@img ./node_modules/@img
-# Slim onnxruntime-node for a CPU-only, linux/x64 runtime: drop the GPU execution
-# providers (CUDA ~315MB + TensorRT) we never load, and the macOS/Windows native
-# binaries we never run. CPU inference (linux/x64) is unaffected — verified by the
-# in-container EMBED OK acceptance. Saves ~475MB.
+# Slim onnxruntime-node for a CPU-only, linux/x64 runtime. CPU inference (linux/x64) is
+# unaffected — verified by the in-container EMBED OK acceptance.
+#
+# The two GPU provider rm's are now BELT-AND-BRACES: ONNXRUNTIME_NODE_INSTALL=skip in the
+# deps stage means they were never downloaded, and the deps stage asserts as much. They
+# stay so that if that flag is ever defeated, the *runtime* image still cannot ship GPU
+# libraries — the assert fails the build loudly, this keeps the artifact clean quietly.
+#
+# The darwin/win32 rm -rf is NOT redundant: those binaries are bundled in the npm tarball
+# itself (not downloaded), so they survive `skip` and are ~176MB of macOS/Windows native
+# code in a linux image. This is the line actually earning its keep now.
 RUN rm -f node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime_providers_cuda.so \
           node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime_providers_tensorrt.so \
  && rm -rf node_modules/onnxruntime-node/bin/napi-v6/darwin \
