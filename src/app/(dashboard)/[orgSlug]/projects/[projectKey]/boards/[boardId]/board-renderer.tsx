@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+import type { BoardType } from "@prisma/client";
 import { KanbanBoard } from "@/components/boards/kanban/kanban-board";
 import { TableView } from "@/components/boards/table/table-view";
 import { CalendarView } from "@/components/boards/calendar/calendar-view";
@@ -13,15 +15,19 @@ import { BacklogView } from "@/components/boards/backlog/backlog-view";
 import { RaidView } from "@/components/boards/raid/raid-view";
 import { OkrBoard } from "@/components/okrs/okr-board";
 
-interface BoardRendererProps {
+export interface BoardViewProps {
   orgId: string;
   projectId: string;
   projectKey: string;
   boardId: string;
-  boardType: string;
   /** Optional view variant from the board's config (e.g. TIMELINE →
    *  "release-timeline" static snapshot vs the interactive Gantt default). */
   viewMode?: string | null;
+}
+
+/** The props every view takes, without the variant most of them ignore. */
+function core({ orgId, projectId, projectKey, boardId }: BoardViewProps) {
+  return { orgId, projectId, projectKey, boardId };
 }
 
 /**
@@ -36,58 +42,42 @@ interface BoardRendererProps {
  *              when config.mode === "release-timeline"
  *   PORTFOLIO/PROGRAM → Dashboard (rollup widgets)
  *   OKR      → the dedicated objectives/key-results board
+ *
+ * Typed as a total Record rather than a `switch` with a `default:`. The old
+ * default returned the Kanban board, so a type added to the enum and forgotten
+ * here rendered the WRONG board with no error — it looked like it worked. Now
+ * omitting one fails the build.
  */
-export function BoardRenderer({
-  orgId,
-  projectId,
-  projectKey,
-  boardId,
-  boardType,
-  viewMode,
-}: BoardRendererProps) {
-  const viewProps = { orgId, projectId, projectKey, boardId };
+export const BOARD_VIEWS: Record<
+  BoardType,
+  (props: BoardViewProps) => ReactNode
+> = {
+  KANBAN: (p) => <KanbanBoard {...core(p)} />,
+  TABLE: (p) => <TableView {...core(p)} />,
+  BACKLOG: (p) => <BacklogView {...core(p)} />,
+  RAID: (p) => <RaidView {...core(p)} />,
+  CALENDAR: (p) => <CalendarView {...core(p)} />,
+  ROADMAP: (p) => <RoadmapView {...core(p)} />,
+  CFD: (p) => <CfdView {...core(p)} />,
+  SCRUM: (p) => <SprintBoard {...core(p)} />,
+  // Same board type, two variants: the static, read-only Release Timeline
+  // snapshot (config.mode) vs the interactive Gantt (default).
+  TIMELINE: (p) =>
+    p.viewMode === "release-timeline" ? (
+      <ReleaseTimelineView {...core(p)} />
+    ) : (
+      <TimelineView {...core(p)} />
+    ),
+  DASHBOARD: (p) => <DashboardView {...core(p)} />,
+  PORTFOLIO: (p) => <DashboardView {...core(p)} />,
+  PROGRAM: (p) => <DashboardView {...core(p)} />,
+  OKR: (p) => <OkrBoard orgId={p.orgId} projectId={p.projectId} />,
+};
 
-  switch (boardType) {
-    case "TABLE":
-      return <TableView {...viewProps} />;
+interface BoardRendererProps extends BoardViewProps {
+  boardType: BoardType;
+}
 
-    case "BACKLOG":
-      return <BacklogView {...viewProps} />;
-
-    case "RAID":
-      return <RaidView {...viewProps} />;
-
-    case "CALENDAR":
-      return <CalendarView {...viewProps} />;
-
-    case "ROADMAP":
-      return <RoadmapView {...viewProps} />;
-
-    case "TIMELINE":
-      // Same board type, two variants: the static, read-only Release Timeline
-      // snapshot (config.mode) vs the interactive Gantt (default).
-      return viewMode === "release-timeline" ? (
-        <ReleaseTimelineView {...viewProps} />
-      ) : (
-        <TimelineView {...viewProps} />
-      );
-
-    case "DASHBOARD":
-    case "PORTFOLIO":
-    case "PROGRAM":
-      return <DashboardView {...viewProps} />;
-
-    case "CFD":
-      return <CfdView {...viewProps} />;
-
-    case "OKR":
-      return <OkrBoard orgId={orgId} projectId={projectId} />;
-
-    case "SCRUM":
-      return <SprintBoard {...viewProps} />;
-
-    case "KANBAN":
-    default:
-      return <KanbanBoard {...viewProps} />;
-  }
+export function BoardRenderer({ boardType, ...viewProps }: BoardRendererProps) {
+  return <>{BOARD_VIEWS[boardType](viewProps)}</>;
 }

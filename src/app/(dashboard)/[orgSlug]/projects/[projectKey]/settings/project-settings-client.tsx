@@ -10,6 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
+  BOARD_TYPE_ORDER,
+  BOARD_TYPE_REGISTRY,
+  boardTypeLabel,
+} from "@/lib/boards/board-types";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -43,23 +48,15 @@ interface ProjectSettingsClientProps {
   teamScopedAccess: boolean;
 }
 
-// The 13 board VIEW types. A project starts with all enabled; toggling one OFF
-// records it in settings.disabledBoardTypes, which hides it from "New board".
-const BOARD_TYPE_OPTIONS: { key: string; label: string; description: string }[] = [
-  { key: "KANBAN", label: "Kanban", description: "Drag-drop columns with WIP limits & swimlanes." },
-  { key: "SCRUM", label: "Scrum / Sprint", description: "Active-sprint board with the Kanban scoped to it." },
-  { key: "BACKLOG", label: "Backlog", description: "Ranked product backlog with sprint assignment." },
-  { key: "TABLE", label: "Table", description: "Sortable, filterable spreadsheet-style grid." },
-  { key: "CALENDAR", label: "Calendar", description: "Due dates & ceremonies on a month/week view." },
-  { key: "TIMELINE", label: "Timeline / Gantt", description: "Interactive schedule with dependencies (or a static Release Timeline)." },
-  { key: "ROADMAP", label: "Roadmap", description: "Strategic epic swimlanes across increments." },
-  { key: "OKR", label: "OKRs", description: "Objectives & key results." },
-  { key: "DASHBOARD", label: "Dashboard", description: "Rollup widgets & metrics." },
-  { key: "PORTFOLIO", label: "Portfolio", description: "Cross-project rollup dashboard." },
-  { key: "PROGRAM", label: "Program", description: "Program-level rollup dashboard." },
-  { key: "RAID", label: "RAID Log", description: "Risks, assumptions, issues & dependencies." },
-  { key: "CFD", label: "Cumulative Flow", description: "Cumulative-flow diagram of work over time." },
-];
+// Every board VIEW type, derived from the one registry so this list cannot
+// drift from the Prisma enum. A project starts with all enabled; turning one off
+// records it in settings.disabledBoardTypes, which hides it from board creation.
+const BOARD_TYPE_OPTIONS: { key: string; label: string; description: string }[] =
+  BOARD_TYPE_ORDER.map((key) => ({
+    key,
+    label: BOARD_TYPE_REGISTRY[key].label,
+    description: BOARD_TYPE_REGISTRY[key].description,
+  }));
 
 export function ProjectSettingsClient({
   orgId,
@@ -535,7 +532,7 @@ export function ProjectSettingsClient({
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{b.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {BOARD_TYPE_OPTIONS.find((o) => o.key === b.type)?.label ?? b.type}
+                      {boardTypeLabel(b.type)}
                     </div>
                   </div>
                   <ToggleSwitch
