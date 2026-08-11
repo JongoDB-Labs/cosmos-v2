@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.278.0",
+    date: "2026-08-11",
+    title: "The Updates page now shows what is actually in a new version",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When a newer version of Cosmos is available, the Updates page now lists what changed in it \u2014 read straight from the release, without downloading anything. Previously it could tell you a new version existed but not what was in it, which is most of what you need to decide whether to take it.",
+      },
+      {
+        kind: "improvement",
+        text: "If notes have not been published for a release, the page says so plainly rather than showing an empty space that could be mistaken for \u201cnothing changed\u201d. When an instance is many versions behind, it also says how many older releases it did not list.",
+      },
+    ],
+  },
+  {
     version: "2.277.2",
     date: "2026-08-11",
     title: "The Updates page now tells you when it is still working, or could not finish",

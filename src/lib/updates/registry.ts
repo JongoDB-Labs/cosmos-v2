@@ -224,6 +224,61 @@ export async function resolveDigest(
   return digest && /^sha256:[0-9a-f]{64}$/.test(digest) ? digest : null;
 }
 
+/** Media types an artifact-manifest lookup must accept. */
+const ARTIFACT_ACCEPT = [
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json",
+].join(", ");
+
+/** A manifest's layer descriptors — enough to find an artifact's payload blob. */
+export interface ManifestLayers {
+  artifactType?: string;
+  layers: { mediaType?: string; digest: string; size?: number }[];
+}
+
+/**
+ * Fetch a manifest by tag, for reading a small ARTIFACT rather than running an
+ * image. Returns null when absent, which is an ordinary answer here.
+ */
+export async function getManifest(
+  ref: string | ImageRef,
+  tag: string,
+  opts: RegistryOptions = {},
+): Promise<ManifestLayers | null> {
+  const parsed = typeof ref === "string" ? parseImageRef(ref) : ref;
+  const res = await registryGet(parsed, `/manifests/${encodeURIComponent(tag)}`, opts, ARTIFACT_ACCEPT);
+  if (!res.ok) return null;
+  const body = (await res.json().catch(() => null)) as ManifestLayers | null;
+  return body && Array.isArray(body.layers) ? body : null;
+}
+
+/** Cap on an artifact payload we will read into memory. Release notes are
+ *  kilobytes; a descriptor is a number someone else wrote, and without a cap a
+ *  malformed or hostile one streams an image layer into the server. */
+const MAX_BLOB_BYTES = 512 * 1024;
+
+/**
+ * Fetch a blob by digest as text, capped. Returns null on any failure.
+ *
+ * Checked twice on purpose: `content-length` may be absent or simply wrong, so
+ * the length is re-checked after reading rather than trusted up front.
+ */
+export async function getBlobText(
+  ref: string | ImageRef,
+  digest: string,
+  opts: RegistryOptions = {},
+): Promise<string | null> {
+  const parsed = typeof ref === "string" ? parseImageRef(ref) : ref;
+  const res = await registryGet(parsed, `/blobs/${encodeURIComponent(digest)}`, opts);
+  if (!res.ok) return null;
+
+  const declared = Number(res.headers.get("content-length") ?? "0");
+  if (declared > MAX_BLOB_BYTES) return null;
+
+  const text = await res.text().catch(() => null);
+  return text !== null && text.length <= MAX_BLOB_BYTES ? text : null;
+}
+
 /** One artifact attached to an image by digest (OCI 1.1 Referrers). */
 export interface Referrer {
   artifactType?: string;

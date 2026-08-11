@@ -18,6 +18,7 @@
 import { listTags, resolveDigest, parseImageRef } from "./registry";
 import { versionsFromTags, updateStatus, type UpdateStatus } from "./versions";
 import { evaluatePreflights, canApply, type PreflightFacts, type PreflightResult } from "./preflight";
+import { fetchReleaseNotes, type ReleaseNote } from "./notes";
 
 export interface UpdateConfig {
   /** Repository of the app image, e.g. `registry.example.com/cosmos/assembly/alpha`. */
@@ -26,6 +27,14 @@ export interface UpdateConfig {
   migrateRepo: string;
   /** Tag suffix for a composed instance (e.g. `alpha`), or "" for the neutral core. */
   suffix: string;
+  /**
+   * Repository carrying `<version>-notes` artifacts. Defaults to the image
+   * repository, so a disconnected site that mirrors its images gets notes from
+   * the same mirror and needs no second network path. Point it at the neutral
+   * core repository when a per-instance composed repository carries no notes —
+   * release notes describe the core version, not the composition.
+   */
+  notesRepo: string;
   username?: string;
   password?: string;
 }
@@ -58,6 +67,7 @@ export function updateConfigFromEnv(
     repo,
     migrateRepo: env.COSMOS_UPDATE_MIGRATE_REPO?.trim() || `${repo}-migrate`,
     suffix: env.COSMOS_UPDATE_TAG_SUFFIX?.trim() ?? derived,
+    notesRepo: env.COSMOS_UPDATE_NOTES_REPO?.trim() || repo,
     username: env.COSMOS_UPDATE_REGISTRY_USERNAME?.trim() || undefined,
     password: env.COSMOS_UPDATE_REGISTRY_PASSWORD?.trim() || undefined,
   };
@@ -77,6 +87,10 @@ export interface UpdateCheck {
   /** Tag the candidate resolved at, for display and for the actuator to reuse. */
   candidateTag: string | null;
   preflights: PreflightResult[];
+  /** Notes for the newer releases, newest first. Empty when none are published. */
+  notes: ReleaseNote[];
+  /** Newer releases whose notes were not looked up, so the UI can say so. */
+  notesOmitted: number;
   applyable: boolean;
   /** Populated when the check itself failed; never contains a response body. */
   error: string | null;
@@ -85,6 +99,7 @@ export interface UpdateCheck {
 export interface CheckDeps {
   listTags: typeof listTags;
   resolveDigest: typeof resolveDigest;
+  fetchReleaseNotes: typeof fetchReleaseNotes;
   /** Whether the database answers — supplied by the caller, which owns the client. */
   probeDb: () => Promise<boolean>;
   /** Health of the running instance before anything is touched. */
@@ -99,6 +114,8 @@ const unconfigured = (now: Date): UpdateCheck => ({
   candidateDigest: null,
   candidateTag: null,
   preflights: [],
+  notes: [],
+  notesOmitted: 0,
   applyable: false,
   error: null,
 });
@@ -133,6 +150,8 @@ export async function checkForUpdates(
       ...base,
       status: null,
       preflights: [],
+      notes: [],
+      notesOmitted: 0,
       applyable: false,
       error: e instanceof Error ? e.message : "registry check failed",
     };
@@ -188,12 +207,22 @@ export async function checkForUpdates(
   };
 
   const preflights = status.updateAvailable ? evaluatePreflights(facts) : [];
+
+  // Notes are best-effort and MUST NOT be able to fail the check. Knowing an
+  // upgrade exists is the useful part; knowing what is in it is a bonus that
+  // most registries will not carry until the publishing side has run.
+  const { notes, omitted } = status.updateAvailable
+    ? await deps.fetchReleaseNotes(status.newer, config.notesRepo, auth).catch(() => ({ notes: [], omitted: 0 }))
+    : { notes: [], omitted: 0 };
+
   return {
     ...base,
     status,
     candidateDigest,
     candidateTag,
     preflights,
+    notes,
+    notesOmitted: omitted,
     applyable: preflights.length > 0 && canApply(preflights),
     error: null,
   };
