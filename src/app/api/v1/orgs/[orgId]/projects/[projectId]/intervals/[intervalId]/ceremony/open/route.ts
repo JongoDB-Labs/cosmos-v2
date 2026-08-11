@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { CeremonyKind } from "@prisma/client";
+import { requireBoardRead } from "@/lib/rbac/board-access";
 import { z } from "zod";
 import {
   requireFacilitator,
@@ -42,14 +43,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const [board, interval] = await Promise.all([
       prisma.board.findFirst({
         where: { id: data.boardId, projectId },
-        select: { id: true },
+        select: { id: true, teamId: true },
       }),
       prisma.interval.findFirst({
         where: { id: intervalId, orgId, projectId },
         select: { id: true },
       }),
     ]);
-    if (!board) return new Response("Board not found", { status: 404 });
+    // Same team gate as the read path: opening a ceremony on a board narrowed
+    // away from you would create the row the read path then refuses to show.
+    await requireBoardRead(ctx, projectId, board);
     if (!interval) return new Response("Interval not found", { status: 404 });
 
     const ceremony = await prisma.sprintCeremony.upsert({

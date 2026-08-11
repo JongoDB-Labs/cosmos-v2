@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireBoardRead } from "@/lib/rbac/board-access";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { computeSprintReview } from "@/lib/intervals/sprint-review";
 import { resolveCarriedItems } from "@/lib/intervals/ceremony-carried";
@@ -85,6 +86,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }),
     ]);
     if (!interval) return new Response("Interval not found", { status: 404 });
+    // Boards can be scoped to a team. Without this gate a ceremony could be read
+    // through its board id by someone the board was deliberately narrowed away
+    // from. Throws NotFoundError rather than 403 so it cannot be used to
+    // enumerate a project's team structure.
+    await requireBoardRead(ctx, projectId, board);
     if (!board) return new Response("Board not found", { status: 404 });
 
     const ceremony = board.ceremonies[0] ?? null;

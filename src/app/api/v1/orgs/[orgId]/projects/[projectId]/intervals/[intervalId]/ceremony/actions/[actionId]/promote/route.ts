@@ -5,6 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { BoardType } from "@prisma/client";
+import { narrowBoards } from "@/lib/rbac/board-access";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -81,7 +82,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // A retro board's columns are Start / Stop / Continue, so taking "the first
     // TODO column of this board" would file real tracked work under "Start",
     // where no one tracking work would ever look for it.
-    const deliveryBoard = await prisma.board.findFirst({
+    // Narrowed by the team gate before we pick one: filing work onto a board
+    // this actor cannot see would put it somewhere they can never open.
+    const candidateBoards = await prisma.board.findMany({
       where: {
         projectId,
         type: { notIn: [BoardType.SPRINT_REVIEW, BoardType.SPRINT_PLANNING] },
@@ -89,12 +92,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
       orderBy: { sortOrder: "asc" },
       select: {
+        id: true,
+        teamId: true,
         columns: {
           orderBy: { sortOrder: "asc" },
           select: { key: true, category: true },
         },
       },
     });
+    const deliveryBoard = (
+      await narrowBoards(ctx, projectId, candidateBoards)
+    )[0];
 
     // Fall back to the ceremony board only when the project has no delivery
     // board at all — a home that reads oddly still beats refusing the promotion
