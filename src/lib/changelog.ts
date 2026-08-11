@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.279.0",
+    date: "2026-08-11",
+    title: "Run sprint planning and sprint review from Cosmos, not a slide deck",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Two new board types, Sprint Planning and Sprint Review / Retro, replace the deck most teams rebuild before every ceremony. The numbers are already yours: points delivered, how much of the sprint completed, what shipped ranked heaviest first, what is carrying forward, and the next sprint's dates all come straight from your work items. Nobody retypes them, and they cannot go stale mid-meeting.",
+      },
+      {
+        kind: "feature",
+        text: "The retrospective is part of the board. Start / Stop / Continue are ordinary board columns, so you can rename or recolour them — to Went well / Didn't / Try next, or whatever your team uses — without asking for a change. Notes appear for everyone in the room as they are added, and are shown without names by default, because a retro is only honest when nobody has to sign their complaint.",
+      },
+      {
+        kind: "feature",
+        text: "Action items can be promoted into real, tracked work in one click, landing on the next sprint with their owner and due date. That is the difference between a decision the team acts on and a list nobody opens again. Press Present for a full-screen view to run the meeting from.",
+      },
+      {
+        kind: "improvement",
+        text: "Completing a sprint now records which items rolled into the next one. Previously that was worked out on the fly, so once a sprint closed the list read as empty — a finished sprint could look as though it had carried nothing. Sprints completed before this change say plainly that the list was not recorded, rather than showing a clean slate that never existed.",
+      },
+    ],
+  },
+  {
     version: "2.278.2",
     date: "2026-08-11",
     title: "Release notes now load, and registry sign-in details stay with their own registry",
