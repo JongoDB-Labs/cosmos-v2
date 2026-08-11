@@ -166,6 +166,25 @@ describe("checkForUpdates", () => {
     expect(out.applyable).toBe(false);
   });
 
+  it("NEVER sends the image registry's credentials to a different notes host", async () => {
+    // The token belongs to the image registry. The notes repo is separately
+    // configurable and is usually PUBLIC and elsewhere; passing credentials
+    // through disclosed a private deploy token to an unrelated third party.
+    const fetchReleaseNotes = vi.fn(async () => ({ notes: [], omitted: 0 })) as unknown as CheckDeps["fetchReleaseNotes"];
+    const cfg = { ...CONFIG, notesRepo: "ghcr.io/acme/cosmos-v2", username: "u", password: "hunter2" };
+    await checkForUpdates("2.275.0", cfg, deps({ fetchReleaseNotes }));
+    const passedAuth = vi.mocked(fetchReleaseNotes).mock.calls[0][2];
+    expect(passedAuth).toEqual({});
+    expect(JSON.stringify(passedAuth)).not.toContain("hunter2");
+  });
+
+  it("DOES send credentials when the notes repo is on the same host", async () => {
+    const fetchReleaseNotes = vi.fn(async () => ({ notes: [], omitted: 0 })) as unknown as CheckDeps["fetchReleaseNotes"];
+    const cfg = { ...CONFIG, notesRepo: CONFIG.repo, username: "u", password: "p" };
+    await checkForUpdates("2.275.0", cfg, deps({ fetchReleaseNotes }));
+    expect(vi.mocked(fetchReleaseNotes).mock.calls[0][2]).toEqual({ username: "u", password: "p" });
+  });
+
   it("stamps the check time from the injected clock", async () => {
     const out = await checkForUpdates("2.275.0", CONFIG, deps());
     expect(out.checkedAt).toBe(NOW.toISOString());
