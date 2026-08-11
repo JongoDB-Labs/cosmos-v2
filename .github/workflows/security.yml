@@ -306,6 +306,72 @@ jobs:
           fi
           echo "PASS: CHANGELOG top matches $PKG" | tee -a evidence/${{ github.sha }}/config-asserts.txt
 
+      # Assert: a PR that changes SHIPPABLE code also bumps the version.
+      #
+      # WHY. auto-tag-release tags main only when package.json's version has no
+      # tag yet. A PR that changes src/ but leaves the version alone therefore
+      # merges green, creates no tag, runs no release, publishes no image — and
+      # the hourly image-freshness check stays green too, because the latest core
+      # tag never moved. The fix sits on main looking merged while every deployed
+      # instance keeps the old build. That is not hypothetical: #638 (self-hosted
+      # fonts) and #637 (ten dependency updates) both arrived this way on
+      # 2026-08-10, and dependabot produces it BY DEFAULT since it never touches
+      # `version`.
+      #
+      # Scoped to paths that actually reach the image. Docs, CI config, tests and
+      # e2e specs are excluded — they change nothing a user runs, and failing
+      # those would train people to ignore this gate.
+      - name: Assert a shippable change also bumps the version
+        if: github.event_name == 'pull_request'
+        # Via env rather than inlined into the script. `base_ref` is our own target
+        # branch and not attacker-controlled (unlike `head_ref`, which a fork PR
+        # names freely), but the env form is the documented-safe shape for any
+        # `github.*` value reaching a shell and costs nothing.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # This job checks out at the default fetch-depth of 1, so there is NO
+          # merge base here: a three-dot `base...HEAD` diff cannot work. Fetch the
+          # base tip shallowly and use a TWO-dot diff, which compares the two trees
+          # directly and needs no common ancestor. On a pull_request event
+          # actions/checkout gives refs/pull/N/merge — base already merged into
+          # head — so `base HEAD` is exactly this PR's effective change.
+          git fetch --quiet --depth=1 origin "$BASE_REF"
+          BASE=FETCH_HEAD
+
+          # Files that end up in the running product. package.json/-lock count:
+          # a dependency change ships even when no source line moves.
+          CHANGED="$(git diff --name-only "$BASE" HEAD -- \
+            src prisma public plugins Dockerfile next.config.ts \
+            package.json package-lock.json \
+            | grep -vE '(\.test\.[tj]sx?|\.spec\.[tj]sx?|__tests__/)' || true)"
+
+          if [ -z "$CHANGED" ]; then
+            echo "PASS: no shippable paths changed - version bump not required" \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            exit 0
+          fi
+
+          HEAD_V="$(grep -m1 -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' package.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          BASE_V="$(git show "$BASE:package.json" | grep -m1 -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+
+          if [ "$HEAD_V" = "$BASE_V" ]; then
+            echo "FAIL: shippable files changed but package.json is still $BASE_V." \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            echo "      Merging this would create no tag, so no release and no image would be built," \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            echo "      and nothing would report it. Run: npm run release:bump <next-version>" \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            echo "      and add the matching src/lib/changelog.ts entry." \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            echo "      Changed: $(echo "$CHANGED" | tr '\n' ' ')" \
+              | tee -a evidence/${{ github.sha }}/config-asserts.txt
+            exit 1
+          fi
+          echo "PASS: version bumped $BASE_V -> $HEAD_V for a shippable change" \
+            | tee -a evidence/${{ github.sha }}/config-asserts.txt
+
       - name: Assert E2E_TEST_AUTH != 1 in release path
         run: |
           set -euo pipefail
