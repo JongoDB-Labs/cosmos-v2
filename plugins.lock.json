@@ -5,7 +5,10 @@
       "ref": "60a9dac797a7b575948c8eaf6e524502ee236645"
     },
     "pi-planning": {
-      "ref": "04a711bcc9013a674ed2ff2df90644af30addea7"
+      "ref": "c6b63f8cfa4cd474f5ba45469e68531e5c6e3457"
+    },
+    "whiteboard": {
+      "ref": "edf664053817fdfc505db7329846aee81eceea10"
     }
   }
 }

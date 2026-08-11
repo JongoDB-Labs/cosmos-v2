@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.276.7",
+    date: "2026-08-11",
+    title: "Whiteboards are now part of the build",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Whiteboard — freehand drawing and diagramming boards you can work on alone or together, with a library of ready-made templates — is now included in Cosmos. It stays switched off until an administrator turns it on for your organisation, so nothing changes until you ask for it. Once enabled, Whiteboard appears in the sidebar and boards are private to their creator until explicitly shared.",
+      },
+    ],
+  },
+  {
     version: "2.276.6",
     date: "2026-08-11",
     title: "Routine dependency updates",

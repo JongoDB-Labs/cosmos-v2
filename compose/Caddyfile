@@ -9,6 +9,25 @@
 #   • Leave it UNSET (default ":80") → Caddy serves plaintext :80, for a deploy where
 #     TLS terminates UPSTREAM (a reverse proxy / tunnel / cloud LB in front of Caddy).
 {$COSMOS_SITE_ADDRESS::80} {
+	# ── Realtime sidecars ───────────────────────────────────────────────────
+	# Matched BEFORE the catch-all below, which would otherwise send these
+	# WebSocket upgrades to the app. Each plugin has its OWN sidecar process,
+	# own signing key and own port — a ticket for one cannot open the other's
+	# rooms.
+	#
+	# Both routes are no-ops when the sidecar is not running: Caddy answers 502
+	# for that path and nothing else is affected, so this file is safe on an
+	# instance with neither plugin enabled.
+	#
+	# NOTE: the pi-planning route existed only as a hand edit on the prod box
+	# (compose/Caddyfile showed as modified, with a .bak-presidecar beside it).
+	# It is written down here so the repo stops disagreeing with what is running.
+	@pi-realtime path /pi-planning/realtime*
+	reverse_proxy @pi-realtime pi-planning-sidecar:1234
+
+	@wb-realtime path /whiteboard/realtime*
+	reverse_proxy @wb-realtime whiteboard-sidecar:1235
+
 	reverse_proxy cosmos:3000 {
 		header_up X-Forwarded-Host {host}
 		# The public scheme is ALWAYS https for real traffic — whether Caddy
