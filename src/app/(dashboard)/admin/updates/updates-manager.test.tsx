@@ -25,6 +25,15 @@ const OK = {
     { id: "candidate-resolves", title: "Candidate image exists", status: "pass", detail: "resolves", blocking: true },
     { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true },
   ],
+  notes: [
+    {
+      version: "2.277.1",
+      date: "2026-08-11",
+      title: "Something shipped",
+      highlights: [{ kind: "feature", text: "A brand new thing." }],
+    },
+  ],
+  notesOmitted: 2,
   applyable: false,
   error: null,
 };
@@ -49,8 +58,14 @@ describe("UpdatesManager", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
     renderPanel();
     const { container } = renderPanelResult!;
-    expect(await screen.findByText("2.277.1")).toBeTruthy();
     expect(await screen.findByText("2.277.1-alpha")).toBeTruthy(); // candidate tag surfaced
+    // The version now appears in BOTH the comparison row and the notes block,
+    // so scope this to the definition list that IS the comparison.
+    await waitFor(() => {
+      const dds = [...container.querySelectorAll("dd")].map((d) => d.textContent);
+      expect(dds).toContain("2.276.8"); // running
+      expect(dds).toContain("2.277.1"); // newest available
+    });
     // The count sits in its own <span>, so assert on combined text rather than
     // a single text node.
     await waitFor(() => expect(container.textContent).toMatch(/2\s*releases available/i));
@@ -109,6 +124,27 @@ describe("UpdatesManager", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(off), { status: 200 })));
     renderPanel();
     expect(await screen.findByText(/not configured/i)).toBeTruthy();
+  });
+
+  it("renders the release notes for the newer versions", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText("A brand new thing.")).toBeTruthy();
+    expect(screen.getByText("Something shipped")).toBeTruthy();
+    expect(screen.getByText("New")).toBeTruthy();
+  });
+
+  it("says how many releases notes were NOT shown for, rather than implying completeness", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/2 older releases are not shown/i)).toBeTruthy();
+  });
+
+  it("distinguishes 'no notes published' from 'nothing changed'", async () => {
+    const noNotes = { ...OK, notes: [], notesOmitted: 0 };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(noNotes), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/No release notes are published/i)).toBeTruthy();
   });
 
   it("marks a blocking preflight that could not be run, rather than hiding it", async () => {

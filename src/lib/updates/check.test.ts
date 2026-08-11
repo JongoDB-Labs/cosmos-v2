@@ -14,6 +14,7 @@ const CONFIG: UpdateConfig = {
   repo: "registry.example.com/cosmos/assembly/alpha",
   migrateRepo: "registry.example.com/cosmos/assembly/alpha-migrate",
   suffix: "alpha",
+  notesRepo: "registry.example.com/cosmos/assembly/alpha",
 };
 
 const DIGEST = `sha256:${"a".repeat(64)}`;
@@ -22,6 +23,7 @@ const NOW = new Date("2026-08-11T12:00:00.000Z");
 const deps = (over: Partial<CheckDeps> = {}): CheckDeps => ({
   listTags: vi.fn(async () => ["2.275.0-alpha", "2.276.8-alpha", "latest"]),
   resolveDigest: vi.fn(async () => DIGEST),
+  fetchReleaseNotes: vi.fn(async () => ({ notes: [], omitted: 0 })),
   probeDb: vi.fn(async () => true),
   probeHealth: vi.fn(async () => true),
   now: () => NOW,

@@ -4,6 +4,7 @@ import { handleApiError } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { checkForUpdates, updateConfigFromEnv } from "@/lib/updates/check";
 import { listTags, resolveDigest } from "@/lib/updates/registry";
+import { fetchReleaseNotes } from "@/lib/updates/notes";
 import { CURRENT_VERSION } from "@/lib/changelog";
 
 /**
@@ -37,6 +38,7 @@ export async function GET() {
     const result = await checkForUpdates(CURRENT_VERSION, updateConfigFromEnv(), {
       listTags,
       resolveDigest,
+      fetchReleaseNotes,
       probeDb: async () => {
         await prisma.$queryRaw`SELECT 1`;
         return true;

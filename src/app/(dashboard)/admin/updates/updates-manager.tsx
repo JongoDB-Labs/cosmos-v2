@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw } from "lucide-react";
+import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -17,6 +17,15 @@ type Preflight = {
   blocking: boolean;
 };
 
+type NoteHighlight = { kind: "feature" | "improvement" | "fix"; text: string };
+
+type ReleaseNote = {
+  version: string;
+  date: string | null;
+  title: string | null;
+  highlights: NoteHighlight[];
+};
+
 type UpdateCheck = {
   configured: boolean;
   checkedAt: string;
@@ -30,6 +39,8 @@ type UpdateCheck = {
   candidateDigest: string | null;
   candidateTag: string | null;
   preflights: Preflight[];
+  notes: ReleaseNote[];
+  notesOmitted: number;
   applyable: boolean;
   error: string | null;
 };
@@ -52,6 +63,34 @@ const STATUS_CLASS: Record<PreflightStatus, string> = {
   fail: "text-red-600 dark:text-red-500",
   unknown: "text-muted-foreground",
 };
+
+const KIND_LABEL: Record<NoteHighlight["kind"], string> = {
+  feature: "New",
+  improvement: "Improved",
+  fix: "Fixed",
+};
+
+function ReleaseNoteBlock({ note }: { note: ReleaseNote }) {
+  return (
+    <div className="border-b pb-3 last:border-b-0 last:pb-0">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-mono text-sm font-medium">{note.version}</span>
+        {note.date && <span className="text-xs text-muted-foreground">{note.date}</span>}
+      </div>
+      {note.title && <p className="mt-0.5 text-sm">{note.title}</p>}
+      <ul className="mt-2 space-y-1.5">
+        {note.highlights.map((h, i) => (
+          <li key={i} className="flex gap-2 text-xs">
+            <span className="mt-px shrink-0 rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">
+              {KIND_LABEL[h.kind]}
+            </span>
+            <span className="text-muted-foreground">{h.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function PreflightRow({ check }: { check: Preflight }) {
   const Icon = STATUS_ICON[check.status];
@@ -194,6 +233,37 @@ export function UpdatesManager() {
           </span>
         </div>
       </SectionCard>
+
+      {status?.updateAvailable && (
+        <SectionCard
+          icon={FileText}
+          title="What is in this update"
+          description="Published alongside each release, read without downloading the image."
+        >
+          {data.notes.length > 0 ? (
+            <>
+              <div className="space-y-3">
+                {data.notes.map((n) => (
+                  <ReleaseNoteBlock key={n.version} note={n} />
+                ))}
+              </div>
+              {data.notesOmitted > 0 && (
+                // Never imply the list is complete when it is not.
+                <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                  {data.notesOmitted} older {data.notesOmitted === 1 ? "release is" : "releases are"} not shown.
+                </p>
+              )}
+            </>
+          ) : (
+            // Distinct from "no changes": nothing was published, which is not
+            // the same as nothing having changed.
+            <p className="text-sm text-muted-foreground">
+              No release notes are published for{" "}
+              {status.newer.length === 1 ? "this release" : "these releases"} in this registry.
+            </p>
+          )}
+        </SectionCard>
+      )}
 
       {data.preflights.length > 0 && (
         <SectionCard
