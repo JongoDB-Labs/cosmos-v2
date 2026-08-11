@@ -232,8 +232,24 @@ export async function checkForUpdates(
   // Notes are best-effort and MUST NOT be able to fail the check. Knowing an
   // upgrade exists is the useful part; knowing what is in it is a bonus that
   // most registries will not carry until the publishing side has run.
+  // CREDENTIALS GO ONLY TO THE HOST THEY BELONG TO.
+  //
+  // `auth` is for the IMAGE registry. The notes repository is separately
+  // configurable and is frequently on a DIFFERENT host — the common setup is a
+  // private per-instance image registry plus the public neutral-core repository
+  // for notes. Passing `auth` through sent that private registry's deploy token
+  // to an unrelated third party as HTTP Basic auth. It was rejected there (403
+  // against ghcr.io, versus 200 anonymous), which is also why notes silently
+  // read as "not published" — but a rejected credential is still a disclosed
+  // one, and the disclosure is the serious half.
+  //
+  // Same host ⇒ same credentials. Different host ⇒ anonymous, which is what a
+  // public notes repository wants anyway.
+  const sameHost = parseImageRef(config.notesRepo).host === parseImageRef(config.repo).host;
+  const notesAuth = sameHost ? auth : {};
+
   const { notes, omitted } = status.updateAvailable
-    ? await deps.fetchReleaseNotes(status.newer, config.notesRepo, auth).catch(() => ({ notes: [], omitted: 0 }))
+    ? await deps.fetchReleaseNotes(status.newer, config.notesRepo, notesAuth).catch(() => ({ notes: [], omitted: 0 }))
     : { notes: [], omitted: 0 };
 
   return {

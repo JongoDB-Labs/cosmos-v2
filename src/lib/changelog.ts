@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.278.2",
+    date: "2026-08-11",
+    title: "Release notes now load, and registry sign-in details stay with their own registry",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Updates page reported that no release notes had been published even when they had. Notes are now read correctly.",
+      },
+      {
+        kind: "fix",
+        text: "Where release notes are hosted somewhere other than your image registry, the sign-in details for the image registry were being sent to that other host as well. They now go only to the registry they belong to. The other host rejected them, but if your installation reads notes from a different registry than it pulls images from, rotating that registry credential is the cautious step.",
+      },
+    ],
+  },
+  {
     version: "2.278.1",
     date: "2026-08-11",
     title: "The Updates page now checks the live-collaboration services too",
