@@ -53,6 +53,31 @@ enum BoardType {
   ROADMAP
   CFD
   PROGRAM
+  /// Sprint ceremonies. Both derive their figures from work items and intervals
+  /// rather than storing them, so a ceremony reopened later still reconciles
+  /// with the board it describes.
+  SPRINT_PLANNING
+  SPRINT_REVIEW
+}
+
+/// Which ceremony a board runs. The board is the surface; a SprintCeremony row
+/// is one running of it against one sprint.
+enum CeremonyKind {
+  PLANNING
+  REVIEW
+
+  @@map("ceremony_kind")
+}
+
+/// DRAFT until someone opens it, RUNNING while the team is in the room, CLOSED
+/// once the facilitator ends it. CLOSED is a real event, not a view: it is what
+/// distinguishes "we held this retro" from "nobody ever opened the board".
+enum CeremonyStatus {
+  DRAFT
+  RUNNING
+  CLOSED
+
+  @@map("ceremony_status")
 }
 
 enum Priority {
@@ -247,47 +272,47 @@ model Organization {
 }
 
 model User {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  auth0UserId       String?   @unique @map("auth0_user_id")
-  googleId          String?   @unique @map("google_id")
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  auth0UserId        String?   @unique @map("auth0_user_id")
+  googleId           String?   @unique @map("google_id")
   // The legacy plaintext google_refresh_token column has been swept into the sealed
   // ConnectorCredential store (scripts/dsop/seal-google-tokens.mjs) and DROPPED
   // (migration 20260606120000_drop_google_refresh_token). The sealed connector
   // credential vault is the SOLE source of truth for Google OAuth refresh tokens —
   // no plaintext secret column remains on User.
-  email             String
-  displayName       String    @map("display_name")
-  avatarUrl         String?   @map("avatar_url")
-  lastActiveAt      DateTime? @map("last_active_at")
+  email              String
+  displayName        String    @map("display_name")
+  avatarUrl          String?   @map("avatar_url")
+  lastActiveAt       DateTime? @map("last_active_at")
   // ── Presence / availability (prod-parity; cosmetic, mostly NULL) ─────────────
   // Free-text custom status, an optional emoji, and a do-not-disturb expiry.
-  customStatus      String?   @map("custom_status")
-  customStatusEmoji String?   @map("custom_status_emoji")
-  dndUntilAt        DateTime? @map("dnd_until_at")
+  customStatus       String?   @map("custom_status")
+  customStatusEmoji  String?   @map("custom_status_emoji")
+  dndUntilAt         DateTime? @map("dnd_until_at")
   // Synthetic AI-bot accounts (chat bots) carry isBot=true so their messages are
   // authored by the bot rather than the invoking human and they appear in the
   // mention picker. Added for prod-parity (chat_bots feature + cutover round-trip
   // of prod's 12 bot users); additive, default false for all real users.
-  isBot             Boolean   @default(false) @map("is_bot")
+  isBot              Boolean   @default(false) @map("is_bot")
   // Local username/password auth (additive; null for Google/SSO-only users).
   // passwordHash is scrypt "salt:hash" hex; mfaSecret is the TOTP secret SEALED
   // via the vault; mfaRecoveryCodes are stored HASHED. None are ever returned
   // to the client.
-  passwordHash      String?   @map("password_hash")
-  passwordSetAt     DateTime? @map("password_set_at")
-  mfaEnabled        Boolean   @default(false) @map("mfa_enabled")
-  mfaSecret         String?   @map("mfa_secret")
-  mfaRecoveryCodes  String[]  @default([]) @map("mfa_recovery_codes")
-  mfaEnrolledAt     DateTime? @map("mfa_enrolled_at")
+  passwordHash       String?   @map("password_hash")
+  passwordSetAt      DateTime? @map("password_set_at")
+  mfaEnabled         Boolean   @default(false) @map("mfa_enabled")
+  mfaSecret          String?   @map("mfa_secret")
+  mfaRecoveryCodes   String[]  @default([]) @map("mfa_recovery_codes")
+  mfaEnrolledAt      DateTime? @map("mfa_enrolled_at")
   // Email/password invite onboarding (additive; default false for every existing
   // user + all OAuth/SSO users). `mustChangePassword` forces a rotation of the
   // admin-generated temporary password at first sign-in BEFORE any session is
   // minted. `mfaRequired` is the per-user MFA floor set at invite time — enforced
   // at the password-login boundary (forced TOTP enrollment) so it never depends
   // on a page-level gate.
-  mustChangePassword Boolean  @default(false) @map("must_change_password")
-  mfaRequired        Boolean  @default(false) @map("mfa_required")
-  createdAt         DateTime  @default(now()) @map("created_at")
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  mfaRequired        Boolean   @default(false) @map("mfa_required")
+  createdAt          DateTime  @default(now()) @map("created_at")
   // Platform-admin account deletion (member-lifecycle). A hard `user.delete` is
   // NOT safe: chat_bot_runs.triggered_by_user_id is ON DELETE RESTRICT and the
   // authored-content columns (work_items.created_by_id, comments.author_id,
@@ -319,6 +344,8 @@ model User {
   workItemAssignments WorkItemAssignee[]
   workItemWatches     WorkItemWatcher[]
   savedViews          SavedView[]
+  retroNotes          RetroNote[]
+  retroActionItems    RetroActionItem[]
 
   @@map("users")
 }
@@ -433,24 +460,24 @@ model OrgMember {
 }
 
 model Invitation {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  email       String
-  role        OrgRole  @default(MEMBER)
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  email        String
+  role         OrgRole  @default(MEMBER)
   // Work-roles to assign when the invite is accepted (extra permission grants +
   // ABAC policies on top of the base org role). Validated against the actor's
   // ceiling at invite time; applied on consumption.
-  workRoleIds String[] @default([]) @map("work_role_ids")
+  workRoleIds  String[] @default([]) @map("work_role_ids")
   // How the invitee will sign in: "oauth" (existing Google/Microsoft/SSO flow —
   // the default, so every prior invite is unchanged) or "email_password" (the
   // admin provisions a local credential + temporary password emailed with the
   // invite). `mfaRequired` mirrors User.mfaRequired for audit/history of what the
   // invite asked for.
-  signInMethod String  @default("oauth") @map("sign_in_method")
-  mfaRequired  Boolean @default(false) @map("mfa_required")
-  token       String   @unique @default(dbgenerated("gen_random_uuid()"))
-  expiresAt   DateTime @map("expires_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  signInMethod String   @default("oauth") @map("sign_in_method")
+  mfaRequired  Boolean  @default(false) @map("mfa_required")
+  token        String   @unique @default(dbgenerated("gen_random_uuid()"))
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -630,19 +657,19 @@ enum ProjectStatus {
 }
 
 model Project {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId             String   @map("org_id") @db.Uuid
-  name              String
-  key               String
-  description       String?
-  settings          Json     @default("{}")
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String        @map("org_id") @db.Uuid
+  name                String
+  key                 String
+  description         String?
+  settings            Json          @default("{}")
   /// Lifecycle state. A real column rather than a string in `settings` so it can
   /// be filtered, grouped and constrained — the JSON form accepted any value the
   /// caller sent, which is how "Active", "active" and "ACTIVE" end up coexisting.
-  status            ProjectStatus @default(ACTIVE)
-  archived          Boolean  @default(false)
-  projectTemplateId String?  @map("project_template_id") @db.Uuid
-  enabledFeatures   String[] @default([]) @map("enabled_features")
+  status              ProjectStatus @default(ACTIVE)
+  archived            Boolean       @default(false)
+  projectTemplateId   String?       @map("project_template_id") @db.Uuid
+  enabledFeatures     String[]      @default([]) @map("enabled_features")
   // OPT-IN read narrowing. False (the default, and every existing row) keeps
   // the historical posture: any org member holding the read bit sees this
   // project. True means membership is required to read it — which is what makes
@@ -651,7 +678,7 @@ model Project {
   // Defaulting to false is deliberate and load-bearing: flipping every existing
   // org to members-only would silently hide live projects from people who use
   // them daily. See src/lib/rbac/project-access.ts.
-  teamScopedAccess  Boolean  @default(false) @map("team_scoped_access")
+  teamScopedAccess    Boolean       @default(false) @map("team_scoped_access")
   // Which work-item TYPE a link picker offers first — the org/project's answer
   // to "what does a KR (or an objective) deliver?". Resolved by
   // `workItemTypeId`, never by building a sector-prefixed key: "Feature" is a
@@ -667,14 +694,14 @@ model Project {
   /// The client this project is delivered for. Nullable: internal and
   /// speculative work legitimately has no client, and a project must not be
   /// blocked from existing before one is chosen.
-  clientId          String?  @map("client_id") @db.Uuid
-  krLinkTypeId      String?  @map("kr_link_type_id") @db.Uuid
+  clientId            String?       @map("client_id") @db.Uuid
+  krLinkTypeId        String?       @map("kr_link_type_id") @db.Uuid
   // Objectives ladder to other objectives by default (Objective.parentId), so
   // NULL here means objective→objective. Set it to offer objective→work-item
   // links of that type instead.
-  objectiveLinkTypeId String? @map("objective_link_type_id") @db.Uuid
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  objectiveLinkTypeId String?       @map("objective_link_type_id") @db.Uuid
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
 
   org                 Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: removing a client must never delete the work done for
@@ -750,18 +777,18 @@ model TeamMember {
 }
 
 model ProjectMember {
-  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId   String      @map("project_id") @db.Uuid
-  orgMemberId String      @map("org_member_id") @db.Uuid
-  role        ProjectRole @default(MEMBER)
-  allocationPercent Int? @map("allocation_percent") // % of time on this project
-  onContract      Boolean   @default(true) @map("on_contract")
-  cacStatus       String?   @map("cac_status")
-  cacExpiry       DateTime? @map("cac_expiry")
-  trainingStatus  String?   @map("training_status")
-  accessStatus    String?   @map("access_status")
-  ndaStatus       String?   @map("nda_status")
-  complianceNotes String?   @map("compliance_notes")
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String      @map("project_id") @db.Uuid
+  orgMemberId       String      @map("org_member_id") @db.Uuid
+  role              ProjectRole @default(MEMBER)
+  allocationPercent Int?        @map("allocation_percent") // % of time on this project
+  onContract        Boolean     @default(true) @map("on_contract")
+  cacStatus         String?     @map("cac_status")
+  cacExpiry         DateTime?   @map("cac_expiry")
+  trainingStatus    String?     @map("training_status")
+  accessStatus      String?     @map("access_status")
+  ndaStatus         String?     @map("nda_status")
+  complianceNotes   String?     @map("compliance_notes")
 
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   orgMember   OrgMember    @relation(fields: [orgMemberId], references: [id], onDelete: Cascade)
@@ -794,6 +821,7 @@ model Board {
   team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
   columns          BoardColumn[]
   dashboardWidgets DashboardWidget[]
+  ceremonies       SprintCeremony[]
 
   @@unique([projectId, slug])
   // Filtering is always "team is null OR team is one of mine", never a bare
@@ -876,21 +904,22 @@ model WorkItem {
   remainingEstimate Int?    @map("remaining_estimate")
   timeSpent         Int?    @map("time_spent")
 
-  parent        WorkItem?            @relation("WorkItemHierarchy", fields: [parentId], references: [id])
-  children      WorkItem[]           @relation("WorkItemHierarchy")
-  workItemType  WorkItemType         @relation(fields: [workItemTypeId], references: [id])
-  interval      Interval?            @relation(fields: [intervalId], references: [id])
-  activities    Activity[]
-  comments      Comment[]
+  parent           WorkItem?            @relation("WorkItemHierarchy", fields: [parentId], references: [id])
+  children         WorkItem[]           @relation("WorkItemHierarchy")
+  workItemType     WorkItemType         @relation(fields: [workItemTypeId], references: [id])
+  interval         Interval?            @relation(fields: [intervalId], references: [id])
+  activities       Activity[]
+  comments         Comment[]
   // Prod-parity back-relations (dependency links + attachments).
-  outgoingLinks WorkItemLink[]       @relation("WorkItemLinkSource")
-  incomingLinks WorkItemLink[]       @relation("WorkItemLinkTarget")
-  attachments    WorkItemAttachment[]
-  assignees      WorkItemAssignee[]
-  watchers       WorkItemWatcher[]
-  labels         WorkItemLabel[]
-  keyResultLinks KeyResultLink[]
-  objectiveLinks ObjectiveLink[]
+  outgoingLinks    WorkItemLink[]       @relation("WorkItemLinkSource")
+  incomingLinks    WorkItemLink[]       @relation("WorkItemLinkTarget")
+  attachments      WorkItemAttachment[]
+  assignees        WorkItemAssignee[]
+  watchers         WorkItemWatcher[]
+  labels           WorkItemLabel[]
+  keyResultLinks   KeyResultLink[]
+  objectiveLinks   ObjectiveLink[]
+  retroActionItems RetroActionItem[]
 
   @@unique([orgId, projectId, ticketNumber])
   // Idempotent re-import key (prod-parity): one imported record per source per org.
@@ -1009,17 +1038,17 @@ model SavedView {
 }
 
 model Activity {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  workItemId String?  @map("work_item_id") @db.Uuid
-  subjectType String? @map("subject_type")
-  subjectId   String? @map("subject_id") @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
-  action     String
-  field      String?
-  oldValue   String?  @map("old_value")
-  newValue   String?  @map("new_value")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  workItemId  String?  @map("work_item_id") @db.Uuid
+  subjectType String?  @map("subject_type")
+  subjectId   String?  @map("subject_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  action      String
+  field       String?
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
@@ -1029,15 +1058,15 @@ model Activity {
 }
 
 model Comment {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  workItemId String?  @map("work_item_id") @db.Uuid
-  subjectType String? @map("subject_type")
-  subjectId   String? @map("subject_id") @db.Uuid
-  authorId   String   @map("author_id") @db.Uuid
-  content    String
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  workItemId  String?  @map("work_item_id") @db.Uuid
+  subjectType String?  @map("subject_type")
+  subjectId   String?  @map("subject_id") @db.Uuid
+  authorId    String   @map("author_id") @db.Uuid
+  content     String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   workItem WorkItem? @relation(fields: [workItemId], references: [id], onDelete: Cascade)
 
@@ -1165,25 +1194,25 @@ model Notification {
 }
 
 model Partner {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String   @map("org_id") @db.Uuid
-  name         String
-  type         String   @default("vendor")
-  status       String   @default("active")
-  website      String?
-  contactName  String?  @map("contact_name")
-  contactEmail String?  @map("contact_email")
-  contactPhone String?  @map("contact_phone")
-  socioEconomic String? @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
-  cageCode      String? @map("cage_code")
-  perfRating    Int?    @map("perf_rating") // 1-5
-  ndaOnFile     Boolean @default(false) @map("nda_on_file")
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String    @map("org_id") @db.Uuid
+  name          String
+  type          String    @default("vendor")
+  status        String    @default("active")
+  website       String?
+  contactName   String?   @map("contact_name")
+  contactEmail  String?   @map("contact_email")
+  contactPhone  String?   @map("contact_phone")
+  socioEconomic String?   @map("socio_economic") // SDVOSB / WOSB / 8(a) / HUBZone / SB / LB
+  cageCode      String?   @map("cage_code")
+  perfRating    Int?      @map("perf_rating") // 1-5
+  ndaOnFile     Boolean   @default(false) @map("nda_on_file")
   ndaExpiry     DateTime? @map("nda_expiry")
-  pocName       String? @map("poc_name")
-  pocEmail      String? @map("poc_email")
-  notes        String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  pocName       String?   @map("poc_name")
+  pocEmail      String?   @map("poc_email")
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   contracts Contract[]
 
@@ -1393,32 +1422,33 @@ model WorkItemTypeField {
 }
 
 model Interval {
-  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String       @map("org_id") @db.Uuid
-  projectId   String       @map("project_id") @db.Uuid
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  projectId    String       @map("project_id") @db.Uuid
   intervalKind IntervalKind @default(SPRINT) @map("interval_kind")
-  number      Int
-  name        String
-  sectorLabel String?      @map("sector_label")
-  goal        String       @default("")
-  startDate   DateTime     @map("start_date")
-  endDate     DateTime     @map("end_date")
-  status      SprintStatus @default(PLANNED)
-  report      Json?
-  createdAt   DateTime     @default(now()) @map("created_at")
+  number       Int
+  name         String
+  sectorLabel  String?      @map("sector_label")
+  goal         String       @default("")
+  startDate    DateTime     @map("start_date")
+  endDate      DateTime     @map("end_date")
+  status       SprintStatus @default(PLANNED)
+  report       Json?
+  createdAt    DateTime     @default(now()) @map("created_at")
   // Program Increment hierarchy (SAFe): a sprint's `parentId` points at the PI
   // interval that contains it. Null for a top-level interval (a PI itself, or a
   // standalone sprint). SetNull on PI delete so removing a PI orphans — never
   // deletes — its sprints.
-  parentId    String?      @map("parent_id") @db.Uuid
+  parentId     String?      @map("parent_id") @db.Uuid
 
-  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org        Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workItems  WorkItem[]
   capacities IntervalCapacity[]
-  parent     Interval?       @relation("IntervalProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Interval[]      @relation("IntervalProgramIncrement")
+  parent     Interval?          @relation("IntervalProgramIncrement", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Interval[]         @relation("IntervalProgramIncrement")
   objectives Objective[]
+  ceremonies SprintCeremony[]
 
   @@unique([projectId, number])
   @@index([parentId])
@@ -1426,19 +1456,110 @@ model Interval {
 }
 
 model IntervalCapacity {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  intervalId String  @map("interval_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  capacity  Float    @default(0)
-  notes     String   @default("")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  intervalId String   @map("interval_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  capacity   Float    @default(0)
+  notes      String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   interval Interval @relation(fields: [intervalId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([intervalId, userId])
   @@map("interval_capacities")
+}
+
+/// One running of one ceremony board against one sprint — "Retro — sprint 14".
+///
+/// The board is a reusable surface; this row is the occurrence. That split is
+/// why the same board can run every sprint without duplicating, and why notes
+/// and action items have a parent that cascades.
+///
+/// It deliberately stores NO metrics. Everything on the review — points, item
+/// counts, what shipped — derives from the work items on read, so a ceremony
+/// reopened a year later still reconciles with the board it describes. The one
+/// exception lives on `intervals.report`, which records WHICH items carried
+/// forward, because completing a sprint reassigns them and that fact is
+/// otherwise unrecoverable.
+model SprintCeremony {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String         @map("org_id") @db.Uuid
+  boardId    String         @map("board_id") @db.Uuid
+  intervalId String         @map("interval_id") @db.Uuid
+  kind       CeremonyKind
+  status     CeremonyStatus @default(DRAFT)
+  closedAt   DateTime?      @map("closed_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  board       Board             @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  interval    Interval          @relation(fields: [intervalId], references: [id], onDelete: Cascade)
+  notes       RetroNote[]
+  actionItems RetroActionItem[]
+
+  // One ceremony per board per sprint: re-opening the board for sprint 15 is a
+  // new row, not a second retro for sprint 14.
+  @@unique([boardId, intervalId])
+  @@index([intervalId])
+  @@map("sprint_ceremonies")
+}
+
+/// A single sticky note in one retro column.
+///
+/// `columnKey` points at a BoardColumn, the same mechanism work items use, so
+/// the Start/Stop/Continue vs Went-well/Didn't/Try-next choice is an ordinary
+/// column set a user can edit — colour included — rather than a hardcoded trio.
+///
+/// The author is stored but not necessarily shown: `authorId` exists so a person
+/// can delete their own note, while the DTO omits it unless the board opts in.
+/// A retro is honest only when nobody has to sign their complaint. SetNull
+/// rather than Cascade because losing a person must not silently delete what
+/// the team said.
+model RetroNote {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ceremonyId String   @map("ceremony_id") @db.Uuid
+  columnKey  String   @map("column_key")
+  text       String
+  authorId   String?  @map("author_id") @db.Uuid
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  ceremony SprintCeremony @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  author   User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([ceremonyId, columnKey])
+  @@map("retro_notes")
+}
+
+/// An action agreed in the ceremony, with the owner and date that make it real.
+///
+/// `workItemId` is set when someone promotes the action into tracked work. It is
+/// nullable because an action is typed mid-conversation, when demanding a
+/// project, type and column would stop the conversation — but retro actions that
+/// never enter the backlog are the ones that quietly die, so promoting is one
+/// click and re-promoting is a no-op rather than a duplicate.
+model RetroActionItem {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ceremonyId String    @map("ceremony_id") @db.Uuid
+  text       String
+  ownerId    String?   @map("owner_id") @db.Uuid
+  dueDate    DateTime? @map("due_date")
+  workItemId String?   @map("work_item_id") @db.Uuid
+  sortOrder  Int       @default(0) @map("sort_order")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  ceremony SprintCeremony @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  owner    User?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  // SetNull, not Cascade: deleting the promoted work item must not erase the
+  // record that the team agreed to do it.
+  workItem WorkItem?      @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+
+  @@index([ceremonyId])
+  @@map("retro_action_items")
 }
 
 model CustomField {
@@ -1571,23 +1692,23 @@ enum TimesheetStatus {
 /// was considered and rejected: approval state needs somewhere concrete to
 /// live, and a computed row cannot carry `submittedAt` or an approver.
 model Timesheet {
-  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId       String          @map("org_id") @db.Uuid
-  userId      String          @map("user_id") @db.Uuid
-  periodStart DateTime        @map("period_start") @db.Date
-  periodEnd   DateTime        @map("period_end") @db.Date
-  status      TimesheetStatus @default(OPEN)
-  submittedAt DateTime?       @map("submitted_at")
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String          @map("org_id") @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+  periodStart       DateTime        @map("period_start") @db.Date
+  periodEnd         DateTime        @map("period_end") @db.Date
+  status            TimesheetStatus @default(OPEN)
+  submittedAt       DateTime?       @map("submitted_at")
   // Two lanes, because approval answers two different questions held by
   // different people: "were these hours worked" (people manager) and "are they
   // chargeable to my project" (project/CLIN owner). A policy may require one.
-  laborApprovedById String?   @map("labor_approved_by_id") @db.Uuid
-  laborApprovedAt   DateTime? @map("labor_approved_at")
-  costApprovedById  String?   @map("cost_approved_by_id") @db.Uuid
-  costApprovedAt    DateTime? @map("cost_approved_at")
-  rejectedReason    String?   @map("rejected_reason")
+  laborApprovedById String?         @map("labor_approved_by_id") @db.Uuid
+  laborApprovedAt   DateTime?       @map("labor_approved_at")
+  costApprovedById  String?         @map("cost_approved_by_id") @db.Uuid
+  costApprovedAt    DateTime?       @map("cost_approved_at")
+  rejectedReason    String?         @map("rejected_reason")
   /// The worker's own attestation, where policy requires one.
-  attestedAt        DateTime? @map("attested_at")
+  attestedAt        DateTime?       @map("attested_at")
   /// Everyone the submission was routed TO, fixed at submit time.
   ///
   /// A SET, not one person, because both real cases are plural: a worker may
@@ -1604,9 +1725,9 @@ model Timesheet {
   /// Empty means nobody could approve it — the top of an org chart, or an org
   /// that has not set anyone up yet. `laborApprovedById` records who actually
   /// SIGNED; an auditor needs both, and they are not always the same person.
-  approverIds       String[]  @map("approver_ids") @db.Uuid
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
+  approverIds       String[]        @map("approver_ids") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
 
   entries TimeEntry[]
 
@@ -1924,7 +2045,7 @@ model UserPreferences {
   density         Density         @default(COMFORTABLE)
   defaultBoardId  String?         @map("default_board_id") @db.Uuid
   methodology     String?
-  skinId          String?          @map("skin_id")
+  skinId          String?         @map("skin_id")
   bgDarkUrl       String?         @map("bg_dark_url")
   bgLightUrl      String?         @map("bg_light_url")
   dndEnabled      Boolean         @default(false) @map("dnd_enabled")
@@ -2621,12 +2742,12 @@ model Objective {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   keyResults KeyResult[]
-  parent     Objective?   @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Objective[]  @relation("ObjectiveAlignment")
-  interval   Interval?    @relation(fields: [intervalId], references: [id], onDelete: SetNull)
+  parent     Objective?      @relation("ObjectiveAlignment", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Objective[]     @relation("ObjectiveAlignment")
+  interval   Interval?       @relation(fields: [intervalId], references: [id], onDelete: SetNull)
   links      ObjectiveLink[]
 
   @@index([orgId, projectId])
@@ -2636,26 +2757,26 @@ model Objective {
 }
 
 model KeyResult {
-  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  objectiveId  String          @map("objective_id") @db.Uuid
-  title        String
-  description  String?
-  startValue   Float           @default(0) @map("start_value")
-  currentValue Float           @default(0) @map("current_value")
-  targetValue  Float           @default(100) @map("target_value")
-  unit         String          @default("")
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectiveId   String          @map("objective_id") @db.Uuid
+  title         String
+  description   String?
+  startValue    Float           @default(0) @map("start_value")
+  currentValue  Float           @default(0) @map("current_value")
+  targetValue   Float           @default(100) @map("target_value")
+  unit          String          @default("")
   // When true the metric improves as it goes DOWN (latency, cost, defects), so
   // progress is measured start→target descending. Default false = higher is better.
-  lowerIsBetter Boolean        @default(false) @map("lower_is_better")
-  status       KeyResultStatus @default(NOT_STARTED)
-  ownerId      String?         @map("owner_id") @db.Uuid
-  sortOrder    Int             @default(0) @map("sort_order")
+  lowerIsBetter Boolean         @default(false) @map("lower_is_better")
+  status        KeyResultStatus @default(NOT_STARTED)
+  ownerId       String?         @map("owner_id") @db.Uuid
+  sortOrder     Int             @default(0) @map("sort_order")
   // Latest check-in snapshot, denormalized so a board load needs no subquery.
   // Null until the first check-in. The full history lives in KeyResultCheckin.
-  confidence   Int?            // 0-100, from the latest check-in
-  rag          RagStatus?      // stoplight, from the latest check-in
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
+  confidence    Int? // 0-100, from the latest check-in
+  rag           RagStatus? // stoplight, from the latest check-in
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
 
   objective Objective          @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
   checkins  KeyResultCheckin[]
@@ -2818,22 +2939,22 @@ model Milestone {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  org     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId      String?       @map("branch_id") @db.Uuid
-  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
-  actualDate       DateTime?     @map("actual_date")
-  rootCause        String?       @map("root_cause")
-  recoveryPlan     String?       @map("recovery_plan")
-  recoveryTarget   DateTime?     @map("recovery_target")
+  org              Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId         String?         @map("branch_id") @db.Uuid
+  programBranch    ProgramBranch?  @relation(fields: [branchId], references: [id])
+  actualDate       DateTime?       @map("actual_date")
+  rootCause        String?         @map("root_cause")
+  recoveryPlan     String?         @map("recovery_plan")
+  recoveryTarget   DateTime?       @map("recovery_target")
   phase            String?
-  scheduleEscalate Boolean       @default(false) @map("schedule_escalate")
-  milestoneType    String?       @map("milestone_type")
-  downstreamImpact String?       @map("downstream_impact")
-  relatedRef       String?       @map("related_ref")
+  scheduleEscalate Boolean         @default(false) @map("schedule_escalate")
+  milestoneType    String?         @map("milestone_type")
+  downstreamImpact String?         @map("downstream_impact")
+  relatedRef       String?         @map("related_ref")
   notes            String?
   deliverables     Deliverable[]
-  links   MilestoneLink[]
+  links            MilestoneLink[]
 
   @@index([orgId, projectId])
   @@map("milestones")
@@ -2860,28 +2981,28 @@ enum KpiDirection {
 // execution (work items + cycles) — see lib/pm/kpi-derive.
 enum KpiAutoSource {
   MANUAL
-  VELOCITY        // avg story points delivered per completed cycle
-  COMPLETION_PCT  // % of work items done
-  THROUGHPUT      // items completed within the rolling window
-  OPEN_ITEMS      // count of not-done work items
-  AVG_CYCLE_TIME  // avg days from start to done
+  VELOCITY // avg story points delivered per completed cycle
+  COMPLETION_PCT // % of work items done
+  THROUGHPUT // items completed within the rolling window
+  OPEN_ITEMS // count of not-done work items
+  AVG_CYCLE_TIME // avg days from start to done
 }
 
 model Kpi {
-  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId        String       @map("org_id") @db.Uuid
-  projectId    String       @map("project_id") @db.Uuid
-  name         String
-  description  String?
-  unit         String       @default("")
-  targetValue  Float        @default(0) @map("target_value")
-  currentValue Float        @default(0) @map("current_value")
-  direction    KpiDirection @default(UP_GOOD)
-  autoSource   KpiAutoSource @default(MANUAL) @map("auto_source")
-  autoWindowDays Int?        @map("auto_window_days") // rolling window for THROUGHPUT (default 30)
-  sortOrder    Int          @default(0) @map("sort_order")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String        @map("org_id") @db.Uuid
+  projectId      String        @map("project_id") @db.Uuid
+  name           String
+  description    String?
+  unit           String        @default("")
+  targetValue    Float         @default(0) @map("target_value")
+  currentValue   Float         @default(0) @map("current_value")
+  direction      KpiDirection  @default(UP_GOOD)
+  autoSource     KpiAutoSource @default(MANUAL) @map("auto_source")
+  autoWindowDays Int?          @map("auto_window_days") // rolling window for THROUGHPUT (default 30)
+  sortOrder      Int           @default(0) @map("sort_order")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
   org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -3907,35 +4028,35 @@ enum ChangeRequestStatus {
 }
 
 model Risk {
-  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId          String              @map("org_id") @db.Uuid
-  projectId      String              @map("project_id") @db.Uuid
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String               @map("org_id") @db.Uuid
+  projectId      String               @map("project_id") @db.Uuid
   code           String
   title          String
   description    String?
   category       String?
   branch         String?
-  likelihood     Int                 @default(1)
-  impact         Int                 @default(1)
-  score          Int                 @default(1)
-  level          RiskLevel           @default(LOW)
+  likelihood     Int                  @default(1)
+  impact         Int                  @default(1)
+  score          Int                  @default(1)
+  level          RiskLevel            @default(LOW)
   owner          String?
   mitigation     String?
   contingency    String?
   dateIdentified DateTime?            @map("date_identified")
-  status         RiskStatus          @default(OPEN)
+  status         RiskStatus           @default(OPEN)
   trend          String?
-  escalate       Boolean             @default(false)
-  targetDate     DateTime?           @map("target_date")
+  escalate       Boolean              @default(false)
+  targetDate     DateTime?            @map("target_date")
   /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
   /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
   classification ClassificationLevel?
-  createdAt      DateTime            @default(now()) @map("created_at")
-  updatedAt      DateTime            @updatedAt @map("updated_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId      String?       @map("branch_id") @db.Uuid
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String?        @map("branch_id") @db.Uuid
   programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
 
   @@unique([orgId, code])
@@ -3944,32 +4065,32 @@ model Risk {
 }
 
 model Deliverable {
-  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId            String              @map("org_id") @db.Uuid
-  projectId        String              @map("project_id") @db.Uuid
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String               @map("org_id") @db.Uuid
+  projectId        String               @map("project_id") @db.Uuid
   code             String
   title            String
   description      String?
   clin             String?
-  status           DeliverableStatus   @default(NOT_STARTED)
-  baselineDue      DateTime?           @map("baseline_due")
-  actualSubmission DateTime?           @map("actual_submission")
-  govAcceptance    DateTime?           @map("gov_acceptance")
+  status           DeliverableStatus    @default(NOT_STARTED)
+  baselineDue      DateTime?            @map("baseline_due")
+  actualSubmission DateTime?            @map("actual_submission")
+  govAcceptance    DateTime?            @map("gov_acceptance")
   /// @deprecated free-text owner, superseded by ownerUserId. Kept for one
   /// release so existing rows keep their text; read ownerUser first.
   owner            String?
-  revisionCycle    Int                 @default(0) @map("revision_cycle")
-  escalate         Boolean             @default(false)
+  revisionCycle    Int                  @default(0) @map("revision_cycle")
+  escalate         Boolean              @default(false)
   /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
   /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
   classification   ClassificationLevel?
-  createdAt        DateTime            @default(now()) @map("created_at")
-  updatedAt        DateTime            @updatedAt @map("updated_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId      String?       @map("branch_id") @db.Uuid
-  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  org             Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project         Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId        String?               @map("branch_id") @db.Uuid
+  programBranch   ProgramBranch?        @relation(fields: [branchId], references: [id])
   deliverableType String?               @map("deliverable_type")
   internalReview  DateTime?             @map("internal_review")
   govReviewPeriod Int?                  @map("gov_review_period")
@@ -3990,37 +4111,37 @@ model Deliverable {
 }
 
 model Blocker {
-  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId            String              @map("org_id") @db.Uuid
-  projectId        String              @map("project_id") @db.Uuid
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String               @map("org_id") @db.Uuid
+  projectId        String               @map("project_id") @db.Uuid
   code             String
   title            String
   description      String?
-  type             BlockerType         @default(INTERNAL)
-  status           BlockerStatus       @default(OPEN)
-  whatUnblocks     String?             @map("what_unblocks")
+  type             BlockerType          @default(INTERNAL)
+  status           BlockerStatus        @default(OPEN)
+  whatUnblocks     String?              @map("what_unblocks")
   owner            String?
-  customerNotified Boolean             @default(false) @map("customer_notified")
-  escalate         Boolean             @default(false)
-  identifiedAt     DateTime            @default(now()) @map("identified_at")
-  resolvedAt       DateTime?           @map("resolved_at")
+  customerNotified Boolean              @default(false) @map("customer_notified")
+  escalate         Boolean              @default(false)
+  identifiedAt     DateTime             @default(now()) @map("identified_at")
+  resolvedAt       DateTime?            @map("resolved_at")
   /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
   /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
   classification   ClassificationLevel?
-  createdAt        DateTime            @default(now()) @map("created_at")
-  updatedAt        DateTime            @updatedAt @map("updated_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId      String?       @map("branch_id") @db.Uuid
-  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
+  org                  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project              Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId             String?        @map("branch_id") @db.Uuid
+  programBranch        ProgramBranch? @relation(fields: [branchId], references: [id])
   source               String?
-  identifiedBy         String?            @map("identified_by")
-  decisionAuthority    String?            @map("decision_authority")
-  relatedRiskCode      String?            @map("related_risk_code")
-  targetDate           DateTime?          @map("target_date")
-  customerNotifiedDate DateTime?          @map("customer_notified_date")
-  relatedRef           String?            @map("related_ref")
+  identifiedBy         String?        @map("identified_by")
+  decisionAuthority    String?        @map("decision_authority")
+  relatedRiskCode      String?        @map("related_risk_code")
+  targetDate           DateTime?      @map("target_date")
+  customerNotifiedDate DateTime?      @map("customer_notified_date")
+  relatedRef           String?        @map("related_ref")
   notes                String?
 
   @@unique([orgId, code])
@@ -4029,36 +4150,36 @@ model Blocker {
 }
 
 model ChangeRequest {
-  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId              String              @map("org_id") @db.Uuid
-  projectId          String              @map("project_id") @db.Uuid
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String               @map("org_id") @db.Uuid
+  projectId          String               @map("project_id") @db.Uuid
   code               String
   title              String
   description        String?
   type               String?
-  status             ChangeRequestStatus @default(SUBMITTED)
-  costImpact         Decimal?            @map("cost_impact") @db.Decimal(14, 2)
-  scheduleDaysImpact Int?                @map("schedule_days_impact")
-  modRequired        Boolean             @default(false) @map("mod_required")
-  decidedAt          DateTime?           @map("decided_at")
+  status             ChangeRequestStatus  @default(SUBMITTED)
+  costImpact         Decimal?             @map("cost_impact") @db.Decimal(14, 2)
+  scheduleDaysImpact Int?                 @map("schedule_days_impact")
+  modRequired        Boolean              @default(false) @map("mod_required")
+  decidedAt          DateTime?            @map("decided_at")
   /// Null unless the org is a GOV tenant - see lib/compliance/classification.ts.
   /// Undefaulted on purpose: `@default(CUI)` stamped every tenant's rows CUI.
   classification     ClassificationLevel?
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId      String?       @map("branch_id") @db.Uuid
-  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
-  initiatedBy       String?               @map("initiated_by")
-  decisionAuthority String?               @map("decision_authority")
-  approvedBy        String?               @map("approved_by")
-  modNumber         String?               @map("mod_number")
-  implDate          DateTime?             @map("impl_date")
-  relatedRiskCode   String?               @map("related_risk_code")
-  submittedDate     DateTime?             @map("submitted_date")
-  scopeImpact       String?               @map("scope_impact")
+  org               Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId          String?        @map("branch_id") @db.Uuid
+  programBranch     ProgramBranch? @relation(fields: [branchId], references: [id])
+  initiatedBy       String?        @map("initiated_by")
+  decisionAuthority String?        @map("decision_authority")
+  approvedBy        String?        @map("approved_by")
+  modNumber         String?        @map("mod_number")
+  implDate          DateTime?      @map("impl_date")
+  relatedRiskCode   String?        @map("related_risk_code")
+  submittedDate     DateTime?      @map("submitted_date")
+  scopeImpact       String?        @map("scope_impact")
   notes             String?
 
   @@unique([orgId, code])

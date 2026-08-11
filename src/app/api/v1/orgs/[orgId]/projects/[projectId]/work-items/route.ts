@@ -9,6 +9,10 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import {
+  allocateTicketNumber,
+  allocateSortOrder,
+} from "@/lib/work-items/allocate";
 import { z } from "zod";
 import { Priority, Prisma } from "@prisma/client";
 
@@ -168,17 +172,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const item = await prisma.$transaction(async (tx) => {
-      const maxTicket = await tx.workItem.aggregate({
-        where: { orgId, projectId },
-        _max: { ticketNumber: true },
+      const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
+      const sortOrder = await allocateSortOrder(tx, {
+        orgId,
+        projectId,
+        columnKey: data.columnKey,
       });
-      const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
-
-      const maxSort = await tx.workItem.aggregate({
-        where: { orgId, projectId, columnKey: data.columnKey },
-        _max: { sortOrder: true },
-      });
-      const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
       // Full assignee set: explicit list wins; a legacy single assigneeId
       // becomes a one-member set. First member is the primary.
