@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.279.4",
+    date: "2026-08-11",
+    title: "Today is your today, not UTC's",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Later in the day, anything that defaulted to \u201ctoday\u201d jumped to tomorrow. Time tracking opened on the wrong day and highlighted the wrong column, and a new journal entry or finance record would have been dated a day ahead \u2014 posting into the wrong day. These now read your computer's clock.",
+      },
+      {
+        kind: "improvement",
+        text: "Dates that are a whole day rather than a moment \u2014 a due date, a sprint's start and end, the day a time entry belongs to \u2014 deliberately do NOT shift with your time zone, so a sprint that ends on the 20th shows the 20th everywhere. Only genuine timestamps follow your local time.",
+      },
+    ],
+  },
+  {
     version: "2.279.3",
     date: "2026-08-11",
     title: "The Type dropdown shows the type you just picked",
