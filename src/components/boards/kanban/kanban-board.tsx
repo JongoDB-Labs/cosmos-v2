@@ -100,6 +100,13 @@ interface KanbanBoardProps {
    * actually showing, instead of highlighting a sprint the board has moved off.
    */
   onIntervalChange?: (intervalId: string | null) => void;
+  /**
+   * Whether to offer the Milestone filter. A milestone spans months and cuts
+   * across sprints, so on a board already scoped to ONE sprint it filters a set
+   * that is nearly always all-or-nothing — noise in a row of controls that
+   * should earn their space. Cross-sprint boards keep it.
+   */
+  showMilestoneFilter?: boolean;
 }
 
 // Separator for composite swimlane droppable ids: `${laneId}::${columnKey}`.
@@ -142,6 +149,7 @@ function KanbanBoardInner({
   boardId,
   initialIntervalId,
   onIntervalChange,
+  showMilestoneFilter = true,
 }: KanbanBoardProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -336,16 +344,20 @@ function KanbanBoardInner({
               staleTime,
             })
             .catch(() => null),
-          qc
-            .fetchQuery({
-              queryKey: milestonesKey,
-              queryFn: () =>
-                jsonFetch<{ id: string; title: string; links?: { workItemId: string }[] }[]>(
-                  `${basePath}/milestones`,
-                ),
-              staleTime,
-            })
-            .catch(() => null),
+          // Skipped entirely when the filter is hidden — a request whose only
+          // consumer is a control that will not render.
+          showMilestoneFilter
+            ? qc
+                .fetchQuery({
+                  queryKey: milestonesKey,
+                  queryFn: () =>
+                    jsonFetch<{ id: string; title: string; links?: { workItemId: string }[] }[]>(
+                      `${basePath}/milestones`,
+                    ),
+                  staleTime,
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
           qc
             .fetchQuery({
               queryKey: teamsKey,
@@ -975,7 +987,7 @@ function KanbanBoardInner({
         teams={teams}
         presentLabelNames={presentLabelNames}
         boardColumns={columns}
-        milestoneOptions={milestones}
+        milestoneOptions={showMilestoneFilter ? milestones : []}
         presentPointValues={presentPointValues}
         showEstimate={showEstimate}
         orgId={orgId}

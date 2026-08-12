@@ -195,6 +195,10 @@ export function SprintBoard({
             boardId={boardId}
             initialIntervalId={shown?.id}
             onIntervalChange={handleIntervalChange}
+            // This board is already scoped to one sprint; a milestone spans
+            // months and cuts across sprints, so the control filters an
+            // all-or-nothing set here.
+            showMilestoneFilter={false}
           />
         )}
       </div>
