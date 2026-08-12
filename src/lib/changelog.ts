@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.285.0",
+    date: "2026-08-12",
+    title: "See what is blocked on the Timeline, and hide what is finished",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Two new lenses on the Timeline / Gantt board. Blocked turns impeded work red and draws a line to whatever is holding it up, with everything else faded back, so a large plan answers \u201cwhat is stuck?\u201d at a glance. Hide done drops finished work from the chart so what is still in play has room.",
+      },
+      {
+        kind: "fix",
+        text: "Progress shading on Timeline bars always showed zero. The board worked out which statuses count as done from its own columns, and a Timeline board has none \u2014 so nothing ever counted as finished. It now reads the project's workflow, the same place the Status filter takes its options from.",
+      },
+    ],
+  },
+  {
     version: "2.284.1",
     date: "2026-08-12",
     title: "The Updates page now confirms an install that worked",
