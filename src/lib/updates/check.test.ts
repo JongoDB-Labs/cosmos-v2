@@ -130,14 +130,21 @@ describe("checkForUpdates", () => {
     expect(out.applyable).toBe(false);
   });
 
-  it("is NOT applyable from inside the app, because disk is unobservable there", async () => {
-    // This is the honest outcome, not a bug: the app container has no host
-    // mount, the disk preflight is `unknown`, and unknown does not pass. It is
-    // also the structural reason actuation belongs to the host-side runner.
-    const out = await checkForUpdates("2.275.0", CONFIG, deps());
-    expect(out.status?.updateAvailable).toBe(true);
-    expect(out.applyable).toBe(false);
-    expect(out.preflights.find((p) => p.id === "disk-headroom")?.status).toBe("unknown");
+  it("IS applyable from inside the app — disk is DEFERRED to the host runner, not failed", () => {
+    // Changed deliberately (2026-08-11, at Jon's request). Disk headroom can
+    // never be answered from a container with no host mount, so treating it as
+    // a blocking unknown meant the deploy button could never enable — a dead
+    // control, not caution. It is now deferred to the host runner, which CAN
+    // see the disk and re-evaluates the same predicate with real facts
+    // immediately before it acts, refusing there if the space is not available.
+    return (async () => {
+      const out = await checkForUpdates("2.275.0", CONFIG, deps());
+      expect(out.status?.updateAvailable).toBe(true);
+      const disk = out.preflights.find((p) => p.id === "disk-headroom");
+      expect(disk?.status).toBe("unknown");
+      expect(disk?.deferredTo).toBe("host-runner");
+      expect(out.applyable).toBe(true);
+    })();
   });
 
   it("degrades to unknown — not fail — when a probe throws", async () => {

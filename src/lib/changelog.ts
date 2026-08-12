@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.280.0",
+    date: "2026-08-11",
+    title: "Safety checks are now run by whichever part of the system can actually see the answer",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "One of the pre-update safety checks \u2014 whether there is enough disk space for the new version and the database backup taken before it \u2014 cannot be answered by Cosmos itself, because the application has no visibility of the server\u2019s disk. It was previously shown as an unanswered check that would block any update indefinitely. It is now clearly marked as checked on the server immediately before an update starts, where the answer is actually available, and the update is refused there if the space is not free.",
+      },
+    ],
+  },
+  {
     version: "2.279.4",
     date: "2026-08-11",
     title: "Today is your today, not UTC's",

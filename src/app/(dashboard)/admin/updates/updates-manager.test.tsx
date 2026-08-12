@@ -23,7 +23,7 @@ const OK = {
   candidateTag: "2.277.1-alpha",
   preflights: [
     { id: "candidate-resolves", title: "Candidate image exists", status: "pass", detail: "resolves", blocking: true },
-    { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true },
+    { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true, deferredTo: "host-runner" },
   ],
   notes: [
     {
@@ -147,10 +147,23 @@ describe("UpdatesManager", () => {
     expect(await screen.findByText(/No release notes are published/i)).toBeTruthy();
   });
 
-  it("marks a blocking preflight that could not be run, rather than hiding it", async () => {
+  it("labels a DEFERRED check as host-checked, never as 'blocks upgrade'", async () => {
+    // Labelling a check that can never be answered on this side as blocking is
+    // how a page trains its operator to ignore the badge.
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
     renderPanel();
     await waitFor(() => expect(screen.getByText("Disk headroom")).toBeTruthy());
-    expect(screen.getAllByText(/blocks upgrade/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/checked on the host/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/blocks upgrade/i)).toBeNull();
+  });
+
+  it("still says 'blocks upgrade' for a real blocking failure", async () => {
+    const blocked = {
+      ...OK,
+      preflights: [{ id: "sidecars-paired", title: "Plugin sidecar images", status: "fail", detail: "missing", blocking: true }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(blocked), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/blocks upgrade/i)).toBeTruthy();
   });
 });
