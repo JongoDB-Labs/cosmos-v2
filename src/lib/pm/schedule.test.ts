@@ -22,12 +22,11 @@ function ms(
     sortOrder: 0,
     createdAt: NOW,
     updatedAt: NOW,
-    branchId: null,
+    intervalId: null,
     actualDate: null,
     rootCause: null,
     recoveryPlan: null,
     recoveryTarget: null,
-    phase: null,
     scheduleEscalate: false,
     ...o,
     links: o.itemIds.map((workItemId, i) => ({

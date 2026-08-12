@@ -33,7 +33,6 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
-import { branchOptions } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type ChangeRequestStatus =
@@ -44,20 +43,12 @@ type ChangeRequestStatus =
   | "IMPLEMENTED"
   | "WITHDRAWN";
 
-interface BranchLite {
-  id: string;
-  code: string;
-  name: string;
-}
-
 interface ChangeRequest {
   id: string;
   code: string;
   title: string;
   description: string | null;
   type: string | null;
-  branchId: string | null;
-  programBranch: BranchLite | null;
   initiatedBy: string | null;
   decisionAuthority: string | null;
   approvedBy: string | null;
@@ -76,7 +67,6 @@ interface ChangeRequest {
 interface ChangeTrackerProps {
   orgId: string;
   projectId: string;
-  branches: BranchLite[];
 }
 
 const STATUS_OPTIONS: ChangeRequestStatus[] = [
@@ -145,12 +135,6 @@ const CHANGE_COLUMNS: ColumnDef<ChangeRequest>[] = [
     cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
   },
   {
-    id: "branch",
-    header: "Branch",
-    accessorFn: (c) => c.programBranch?.code ?? "",
-    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
-  },
-  {
     id: "type",
     header: "Type",
     accessorFn: (c) => c.type ?? "",
@@ -190,7 +174,6 @@ interface ChangeForm {
   title: string;
   description: string;
   type: string;
-  branchId: string;
   initiatedBy: string;
   decisionAuthority: string;
   approvedBy: string;
@@ -210,7 +193,6 @@ const emptyForm: ChangeForm = {
   title: "",
   description: "",
   type: "Scope",
-  branchId: "",
   initiatedBy: "",
   decisionAuthority: "",
   approvedBy: "",
@@ -231,7 +213,6 @@ function formToBody(f: ChangeForm) {
     title: f.title.trim(),
     description: f.description.trim() || null,
     type: f.type || null,
-    branchId: f.branchId || null,
     initiatedBy: f.initiatedBy.trim() || null,
     decisionAuthority: f.decisionAuthority.trim() || null,
     approvedBy: f.approvedBy.trim() || null,
@@ -248,7 +229,7 @@ function formToBody(f: ChangeForm) {
   };
 }
 
-export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps) {
+export function ChangeTracker({ orgId, projectId }: ChangeTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/changes`;
   const queryKey = useOrgQueryKey("changes", projectId);
   const { data: changes = [], isLoading, isError, refetch } = useQuery({
@@ -315,7 +296,7 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
   );
 
   function openCreate() {
-    setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setForm(emptyForm);
     setCreateOpen(true);
   }
   // Row click → open the detail drawer (the primary row-detail view).
@@ -344,15 +325,6 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
         value: c.type,
         editable: canEdit,
         options: TYPE_OPTIONS.map((o) => ({ value: o, label: o })),
-      },
-      {
-        key: "branchId",
-        label: "Branch",
-        type: "select",
-        value: c.branchId,
-        editable: canEdit && branches.length > 0,
-        options: branchOptions(branches),
-        placeholder: "Select branch",
       },
       {
         key: "status",
@@ -436,8 +408,8 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
         columns={CHANGE_COLUMNS}
         search={filter}
         onSearchChange={setFilter}
-        searchText={(c) => [c.code, c.title, c.initiatedBy ?? "", c.programBranch?.name ?? ""].join(" ")}
-        searchPlaceholder="Filter by title, ID, initiator, branch…"
+        searchText={(c) => [c.code, c.title, c.initiatedBy ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, initiator…"
         onRowClick={openDetail}
         rowActions={rowActions}
         onNew={canEdit ? openCreate : undefined}
@@ -492,7 +464,6 @@ export function ChangeTracker({ orgId, projectId, branches }: ChangeTrackerProps
         title="New Change Request"
         form={form}
         setForm={setForm}
-        branches={branches}
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
@@ -552,7 +523,6 @@ function ChangeDialog({
   title,
   form,
   setForm,
-  branches,
   pending,
   onSubmit,
   submitLabel,
@@ -562,7 +532,6 @@ function ChangeDialog({
   title: string;
   form: ChangeForm;
   setForm: React.Dispatch<React.SetStateAction<ChangeForm>>;
-  branches: BranchLite[];
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
@@ -607,24 +576,6 @@ function ChangeDialog({
               onChange={(v) => setForm((f) => ({ ...f, type: v }))}
               options={TYPE_OPTIONS}
             />
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Branch</label>
-              <Select
-                value={form.branchId}
-                onValueChange={(v) => setForm((f) => ({ ...f, branchId: v ?? "" }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select branch" />
-                </SelectTrigger>
-                <SelectContent>
-                  {branchOptions(branches).map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <PickField
               label="Status"
               value={form.status}

@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.283.0",
+    date: "2026-08-12",
+    title: "Milestones belong to a Program Increment; Branches retired",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A schedule milestone can now be assigned to a Program Increment, from the Schedule tab of the PM Dashboard or from the milestone\u2019s own panel. The picker offers the Program Increments belonging to that project, so a milestone can be grouped under the increment that actually contains it, and the Schedule register gains a PI column you can sort by. Existing milestones start unassigned \u2014 nothing is guessed on your behalf \u2014 and you can set them as you go.",
+      },
+      {
+        kind: "improvement",
+        text: "Branches have been removed. They could only ever be created by seeding \u2014 there was no way to add, rename or delete one in the product \u2014 so the Branch column, filter and picker have gone from the Schedule, Deliverables, Blocked Items and Change Log registers, along with the Deliverable \u201cBranch owner\u201d field. Any branch labels previously recorded against milestones or risks are permanently removed. Exported workbooks keep their column layout, with the Branch cells now blank.",
+      },
+      {
+        kind: "improvement",
+        text: "The milestone \u201cPhase\u201d, \u201cMilestone type\u201d and \u201cRelated reference\u201d fields have been retired. They were unused, and dropping them shortens the milestone form. \u201cPhase\u201d is also no longer recognised when importing a spreadsheet; other columns import as before, and an unrecognised column is skipped rather than failing the import.",
+      },
+    ],
+  },
+  {
     version: "2.282.1",
     date: "2026-08-12",
     title: "Unfinished work rolls into the next sprint, and the ceremony boards read better",
