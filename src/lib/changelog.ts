@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.283.2",
+    date: "2026-08-12",
+    title: "The Install button on the Updates page now works",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Starting an update from the Updates page always failed. One safety check — whether the server has enough free disk for the download and the pre-update backup — cannot be answered from inside the application, so it is handed to the server to answer at the moment it starts. The page understood that, showed the check as “checked on the host”, and offered the button; the request behind the button did not, and treated the handed-off check as a failure. Every install was refused with “Blocked by 1 check(s): Disk headroom”, on the same screen that said all blocking checks had passed. Both sides now read it the same way, and the disk check still runs on the server before anything is downloaded.",
+      },
+    ],
+  },
+  {
     version: "2.283.1",
     date: "2026-08-12",
     title: "Filters on the Calendar and RAID boards",

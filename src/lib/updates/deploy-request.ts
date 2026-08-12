@@ -22,6 +22,7 @@
  * module's job is to turn that into an honest 409, not to pre-empt it.
  */
 import type { UpdateCheck } from "./check";
+import { blockers } from "./preflight";
 
 /** Postgres unique-violation code, surfaced by Prisma as `code`. */
 export const UNIQUE_VIOLATION = "P2002";
@@ -69,9 +70,17 @@ export function decideDeploy(requestedVersion: string, check: UpdateCheck): Depl
   }
 
   // The preflights ARE the gate — including the sidecar pairing, which is
-  // exactly "all four images exist at the same tag". `applyable` already
-  // encodes "no blocking check failed or went unanswered".
-  const blocking = check.preflights.filter((p) => p.blocking && p.status !== "pass");
+  // exactly "all four images exist at the same tag".
+  //
+  // This MUST go through `blockers()` rather than re-filtering here. A deferred
+  // check is not a failed one: it is a question this tier cannot answer, handed
+  // to the host runner that re-evaluates it — with `deferredTo` unset, as an
+  // ordinary blocking check — immediately before it acts. `disk-headroom` is
+  // always deferred, because a container with no host mount can never see the
+  // disk. So a local `p.blocking && p.status !== "pass"` refuses EVERY deploy on
+  // EVERY host, while the page that offered the button says it is applyable.
+  // One predicate, one call site: the rule lives in preflight.ts.
+  const blocking = blockers(check.preflights);
   if (blocking.length > 0) {
     return {
       ok: false,
