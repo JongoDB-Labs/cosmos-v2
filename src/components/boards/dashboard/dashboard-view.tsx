@@ -20,6 +20,8 @@ import { PriorityChart } from "./widgets/priority-chart";
 import { BurndownChart } from "./widgets/burndown-chart";
 import { WorkloadChart } from "./widgets/workload-chart";
 import { ActivityFeed } from "./widgets/activity-feed";
+import { SprintTrendView, PiRollupView } from "./sprint-history";
+import { cn } from "@/lib/utils";
 import { assigneeLabel, workloadBuckets } from "./workload";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
@@ -77,6 +79,11 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
   const boardKey = useOrgQueryKey("board", boardId);
+  // Sprint Health answered only "how is the sprint in flight?". These add the
+  // two questions a team asks between ceremonies. Current stays the default so
+  // the board opens exactly as it did.
+  const [healthView, setHealthView] = useState<"current" | "trend" | "pi">("current");
+
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
@@ -358,8 +365,47 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     },
   ];
 
+  const HEALTH_VIEWS = [
+    { key: "current" as const, label: "Current sprint" },
+    { key: "trend" as const, label: "Trend across sprints" },
+    { key: "pi" as const, label: "PI rollup" },
+  ];
+
   return (
     <>
+      <div
+        role="tablist"
+        aria-label="Sprint health view"
+        className="flex flex-wrap gap-0.5 border-b border-[var(--border)] px-3 py-2"
+      >
+        {HEALTH_VIEWS.map((v) => (
+          <button
+            key={v.key}
+            role="tab"
+            aria-selected={healthView === v.key}
+            onClick={() => setHealthView(v.key)}
+            className={cn(
+              "rounded-[calc(var(--radius)-2px)] px-3 py-1.5 text-sm font-medium transition-colors",
+              healthView === v.key
+                ? "bg-[var(--primary)] text-[var(--primary-foreground,#fff)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]",
+            )}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {healthView !== "current" ? (
+        <div className="flex-1 overflow-auto p-4">
+          {healthView === "trend" ? (
+            <SprintTrendView intervals={intervals} />
+          ) : (
+            <PiRollupView intervals={intervals} />
+          )}
+        </div>
+      ) : (
+      <>
       {/* Mobile: vertical stack of widget cards. Drag/resize is mouse-only,
           so at <md we render a read-only stack via CSS — no hydration flash. */}
       <div className="md:hidden flex-1 overflow-auto p-3">
@@ -409,6 +455,8 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           ))}
         </GridLayout>
       </div>
+      </>
+      )}
 
       {/* Drill-down: the tickets behind a clicked metric / chart segment. */}
       <Dialog open={drill !== null} onOpenChange={(o) => !o && setDrill(null)}>

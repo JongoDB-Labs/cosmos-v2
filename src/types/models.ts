@@ -123,6 +123,10 @@ export interface Interval {
   startDate: string;
   endDate: string;
   status: "PLANNED" | "ACTIVE" | "COMPLETED";
+  /** The Program Increment containing this interval, or null for a top-level
+   *  one. The API has always returned it; intervals-workspace declared its own
+   *  local copy of this type to get at it. */
+  parentId: string | null;
   report: Record<string, unknown> | null;
 }
 
