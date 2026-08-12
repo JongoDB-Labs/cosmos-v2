@@ -3,6 +3,11 @@
 import { AlertTriangle } from "lucide-react";
 import type { CeremonyItem, CeremonyPayload } from "./use-ceremony";
 
+/** "1 item" / "2 items". Read aloud in a ceremony, so it has to be grammatical. */
+function itemCount(n: number): string {
+  return `${n} ${n === 1 ? "item" : "items"}`;
+}
+
 /** What shipped — heaviest first, the order an outbrief reads in. */
 export function ShippedList({
   items,
@@ -23,7 +28,7 @@ export function ShippedList({
   return (
     <div className="space-y-3">
       <p className="text-sm text-[var(--text-muted)]">
-        <span className="font-semibold text-[var(--text)]">{items.length} items</span>{" "}
+        <span className="font-semibold text-[var(--text)]">{itemCount(items.length)}</span>{" "}
         · {totalPoints} story points
       </p>
       <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -94,9 +99,9 @@ export function CarriedList({
     <div className="space-y-3">
       <p className="text-sm text-[var(--text-muted)]">
         <span className="font-semibold text-[var(--text)]">
-          {carried.items.length} items
+          {itemCount(carried.items.length)}
         </span>{" "}
-        roll into the next sprint
+        {carried.items.length === 1 ? "rolls" : "roll"} into the next sprint
         {carried.kind === "live" ? " if the sprint closed now" : ""}
       </p>
       <ul className="grid gap-2 md:grid-cols-2">

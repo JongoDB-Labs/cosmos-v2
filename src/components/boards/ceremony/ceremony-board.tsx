@@ -39,6 +39,18 @@ interface OrgMemberLite {
   displayName: string;
 }
 
+/** Matches the Summary tab's formatting. These are calendar days (YYYY-MM-DD),
+ *  so they are read in UTC — parsing them locally would show the previous day
+ *  west of UTC. */
+function fmtDay(d: string): string {
+  return new Date(`${d}T00:00:00.000Z`).toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 type TabKey = "summary" | "shipped" | "carried" | "retro" | "actions" | "next";
 
 /**
@@ -181,8 +193,14 @@ export function CeremonyBoard({
     <div
       className={cn(
         "flex flex-col gap-4",
+        // Present mode is for a ROOM, not a desk. Going full-bleed was not
+        // enough: it rendered at the same type sizes as the normal view, so the
+        // headline figures a team is meant to read from across a room were
+        // ~20px. `text-[1.35rem]` on the container scales every rem-based size
+        // inside it at once — including the stat figures — rather than needing a
+        // presentation variant threaded through each panel.
         presenting &&
-          "fixed inset-0 z-50 overflow-auto bg-[var(--bg,var(--surface))] p-8"
+          "fixed inset-0 z-50 overflow-auto bg-[var(--bg,var(--surface))] p-10 text-[1.35rem] [&_h2]:text-[1.6em] [&_h3]:text-[1.2em]"
       )}
     >
       {/* A classification banner is a legal marking, not decoration: if the
@@ -347,7 +365,7 @@ export function CeremonyBoard({
                 {data.nextSprint.name}
               </p>
               <p className="text-sm text-[var(--text-muted)]">
-                {data.nextSprint.startDate} – {data.nextSprint.endDate}
+                {fmtDay(data.nextSprint.startDate)} – {fmtDay(data.nextSprint.endDate)}
               </p>
             </div>
             <div>

@@ -46,6 +46,7 @@ import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { computeSprintReview, type SprintReview } from "@/lib/intervals/sprint-review";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
+import { defaultCarryForwardTarget } from "@/lib/intervals/carry-forward-target";
 import { userMaySetStatus } from "@/lib/intervals/pi-lifecycle";
 
 interface IntervalReport {
@@ -180,7 +181,13 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     onStart: () =>
       interval.intervalKind === "SPRINT" ? setStartTarget(interval) : activateInterval(interval.id),
     onComplete: () => {
-      setMoveToIntervalId(BACKLOG_OPTION);
+      // Default to the NEXT planned sprint, the way Jira does. Defaulting to the
+      // backlog meant that unless someone noticed the dropdown, completing a
+      // sprint quietly emptied its unfinished work out of every sprint. The full
+      // choice, backlog included, is still in the dialog.
+      setMoveToIntervalId(
+        defaultCarryForwardTarget(interval, intervals) ?? BACKLOG_OPTION,
+      );
       setCompleteStep("review");
       setCompleteTarget(interval);
       loadReview(interval);

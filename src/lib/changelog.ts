@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.282.1",
+    date: "2026-08-12",
+    title: "Unfinished work rolls into the next sprint, and the ceremony boards read better",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Completing a sprint now offers to move unfinished work to the NEXT sprint by default, the way you would expect. It previously defaulted to the backlog, so unless you noticed the dropdown, finishing a sprint quietly took the remaining work off every sprint. You can still choose the backlog \u2014 or any planned sprint \u2014 in the dialog.",
+      },
+      {
+        kind: "improvement",
+        text: "Present mode on the ceremony boards is now actually readable from across a room; it previously used the same text sizes as the normal view. The Next sprint tab also shows its dates in the same format as the rest of the board instead of raw 2026-08-17 form, and counts read \u201c1 item\u201d rather than \u201c1 items\u201d.",
+      },
+    ],
+  },
+  {
     version: "2.282.0",
     date: "2026-08-12",
     title: "Filter by status on the Timeline / Gantt board",
