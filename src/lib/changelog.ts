@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.281.1",
+    date: "2026-08-12",
+    title: "The Sprint board no longer offers a Milestone filter",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A milestone spans months and cuts across sprints, so on a board already showing a single sprint the Milestone filter almost always matched everything or nothing. It has been removed there \u2014 boards that span sprints, like Kanban and Timeline, still have it. The sprint board also stops loading milestone data it was not going to show.",
+      },
+    ],
+  },
+  {
     version: "2.281.0",
     date: "2026-08-11",
     title: "Groundwork for starting an update from the Updates page",
