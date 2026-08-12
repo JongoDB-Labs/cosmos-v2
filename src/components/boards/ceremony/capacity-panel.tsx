@@ -53,28 +53,47 @@ export function CapacityPanel({
   const capacity = Object.values(data.current).reduce((s, n) => s + n, 0);
   const over = isOverCommitted(data.committed.total, capacity);
   const abbrev = unitAbbrev(data.unit);
+  // Three states, not two. `isOverCommitted` is false when no capacity has been
+  // recorded — correctly, since you cannot exceed a capacity nobody set — but
+  // rendering that as "Within capacity" told a room its plan was safe on the
+  // strength of no data at all. Unknown is its own answer.
+  const unrecorded = capacity === 0;
 
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-3">
-        <Figure label="Team capacity" value={`${capacity} ${abbrev}`} />
+        <Figure
+          label="Team capacity"
+          value={unrecorded ? "Not set" : `${capacity} ${abbrev}`}
+          detail={unrecorded ? "No per-member capacity recorded" : undefined}
+          tone={unrecorded ? "warn" : undefined}
+        />
         <Figure
           label="Committed"
           value={`${data.committed.total} ${abbrev}`}
-          detail={`${data.committed.itemCount} items`}
+          detail={`${data.committed.itemCount} ${
+            data.committed.itemCount === 1 ? "item" : "items"
+          }`}
         />
         <Figure
           label="Headroom"
-          value={`${capacity - data.committed.total} ${abbrev}`}
-          detail={over ? "Over-committed" : "Within capacity"}
-          tone={over ? "warn" : "ok"}
+          value={unrecorded ? "—" : `${capacity - data.committed.total} ${abbrev}`}
+          detail={
+            unrecorded
+              ? "Unknown until capacity is set"
+              : over
+                ? "Over-committed"
+                : "Within capacity"
+          }
+          tone={unrecorded || over ? "warn" : "ok"}
         />
       </div>
 
-      {capacity === 0 ? (
+      {unrecorded ? (
         <p className="text-sm text-[var(--text-muted)]">
-          No per-member capacity has been recorded for this sprint, so headroom
-          reads as negative. Set it from the sprint&apos;s capacity dialog.
+          No per-member capacity has been recorded for this sprint, so there is
+          nothing to measure the commitment against. Set it from the sprint&apos;s
+          capacity dialog.
         </p>
       ) : null}
 

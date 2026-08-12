@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { formatDateMediumStable } from "@/lib/format/stable-date";
 import type { CeremonyAction } from "./use-ceremony";
 
 interface ActionItemsProps {
@@ -106,15 +107,25 @@ export function ActionItems({
                     {owner?.displayName ?? "—"}
                   </td>
                   <td className="px-4 py-2 tabular-nums text-[var(--text-muted)]">
-                    {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—"}
+                    {/* A due date is a calendar day stored at midnight UTC.
+                        Formatted in the reader's zone it showed the day BEFORE
+                        the one that was picked — enter the 15th, see the 14th. */}
+                    {a.dueDate ? formatDateMediumStable(a.dueDate) : "—"}
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex items-center justify-end gap-2">
                       {a.workItemId ? (
                         // Already tracked: link to the work item rather than
                         // offering a second promotion.
+                        //
+                        // `/projects/<key>/items/<id>` is NOT a route — this was
+                        // the only place in the app using it, and it 404'd, so
+                        // the one control that makes a retro consequential led
+                        // nowhere. `/<org>/issues?item=<id>` is the app's real
+                        // deep link; it opens the detail sheet even when the item
+                        // is outside the current filter (see issues-view).
                         <a
-                          href={`/${orgSlug}/projects/${projectKey}/items/${a.workItemId}`}
+                          href={`/${orgSlug}/issues?item=${a.workItemId}`}
                           className="inline-flex items-center gap-1 text-xs text-[var(--status-done-text,var(--status-done))]"
                         >
                           <Check className="h-3.5 w-3.5" />

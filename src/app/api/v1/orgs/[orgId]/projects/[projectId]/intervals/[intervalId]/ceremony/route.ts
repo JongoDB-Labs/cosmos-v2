@@ -8,6 +8,7 @@ import { computeSprintReview } from "@/lib/intervals/sprint-review";
 import { resolveCarriedItems } from "@/lib/intervals/ceremony-carried";
 import { shippedItems, statusLabelFor } from "@/lib/intervals/ceremony-payload";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
+import { nextPlannedSprint } from "@/lib/intervals/carry-forward-target";
 import { z } from "zod";
 
 type RouteParams = {
@@ -124,11 +125,45 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             },
           });
 
-    const nextSprint = computeNextSprintDefaults({
-      name: interval.name,
-      startDate: interval.startDate,
-      endDate: interval.endDate,
+    // The sprint that FOLLOWS this one. Prefer the real one the team has already
+    // planned; fall back to a computed suggestion only when none exists.
+    //
+    // This tab used to render the suggestion unconditionally, so a team who had
+    // planned Sprint 2 was shown a fabricated sprint — with invented dates — in
+    // the same voice as fact. `planned` lets the UI say which one it is looking at.
+    const siblings = await prisma.interval.findMany({
+      where: { orgId, projectId },
+      select: {
+        id: true,
+        number: true,
+        name: true,
+        status: true,
+        intervalKind: true,
+        startDate: true,
+        endDate: true,
+      },
     });
+
+    const alreadyPlanned = nextPlannedSprint(interval, siblings);
+    const nextSprint = alreadyPlanned
+      ? {
+          name: alreadyPlanned.name,
+          startDate: alreadyPlanned.startDate.toISOString(),
+          endDate: alreadyPlanned.endDate.toISOString(),
+          planned: true,
+        }
+      : {
+          ...computeNextSprintDefaults(
+            {
+              name: interval.name,
+              startDate: interval.startDate,
+              endDate: interval.endDate,
+            },
+            // Skip names already in use so a suggestion cannot duplicate one.
+            siblings.map((s) => s.name),
+          ),
+          planned: false,
+        };
 
     return success({
       sprint: {

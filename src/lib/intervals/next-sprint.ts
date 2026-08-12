@@ -15,7 +15,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *   "Sprint 09"             → "Sprint 10"
  * When the name has no digits at all, append " 2".
  */
-export function nextSprintName(name: string): string {
+function bumpName(name: string): string {
   const trimmed = name.trim();
   // Last run of digits: a \d+ with no further digits anywhere after it.
   const match = trimmed.match(/\d+(?!.*\d)/);
@@ -24,6 +24,36 @@ export function nextSprintName(name: string): string {
   const next = String(Number(digits) + 1).padStart(digits.length, "0");
   const at = match.index ?? 0;
   return trimmed.slice(0, at) + next + trimmed.slice(at + digits.length);
+}
+
+/** Names compare the way a human reads them: trimmed and case-insensitive. */
+const normalizeName = (s: string) => s.trim().toLowerCase();
+
+/**
+ * The name to pre-fill for the sprint after `name`, skipping any already in use.
+ *
+ * Teams routinely plan a sprint or two AHEAD, so by the time "Sprint 1" is
+ * completed "Sprint 2" usually exists already. Nothing checked, so accepting the
+ * pre-filled suggestion created a SECOND "Sprint 2" — and because the interval
+ * `number` is `max + 1` and stays unique, that read as a rendering bug rather
+ * than two real rows, which is what made it hard to report.
+ *
+ * `taken` is optional so existing callers keep their behaviour; pass the
+ * project's interval names to get collision-free suggestions.
+ */
+export function nextSprintName(
+  name: string,
+  taken: Iterable<string> = [],
+): string {
+  const used = new Set([...taken].map(normalizeName));
+  let candidate = bumpName(name);
+
+  // Bounded: a project where every candidate is taken must still terminate and
+  // hand back something editable rather than hang the dialog.
+  for (let i = 0; i < 1000 && used.has(normalizeName(candidate)); i++) {
+    candidate = bumpName(candidate);
+  }
+  return candidate;
 }
 
 /** Parse a YYYY-MM-DD (or ISO datetime) value to a UTC date-only Date, TZ-safe. */
@@ -51,12 +81,19 @@ export interface NextSprintDefaults {
  * Compute the pre-filled defaults for the sprint that follows `prev`: same
  * duration (day span), starting the day after `prev` ended, with an incremented
  * title. Dates come back as YYYY-MM-DD so they drop straight into the create form.
+ *
+ * Pass `takenNames` — the project's existing interval names — so the suggested
+ * title skips one that already exists. Without it a team that plans ahead ends
+ * up with two sprints of the same name.
  */
-export function computeNextSprintDefaults(prev: {
-  name: string;
-  startDate: string | Date;
-  endDate: string | Date;
-}): NextSprintDefaults {
+export function computeNextSprintDefaults(
+  prev: {
+    name: string;
+    startDate: string | Date;
+    endDate: string | Date;
+  },
+  takenNames: Iterable<string> = [],
+): NextSprintDefaults {
   const start = toDateOnly(prev.startDate);
   const end = toDateOnly(prev.endDate);
   // Guard against an inverted range; a negative span would shrink the sprint.
@@ -64,7 +101,7 @@ export function computeNextSprintDefaults(prev: {
   const newStart = new Date(end.getTime() + DAY_MS);
   const newEnd = new Date(newStart.getTime() + spanMs);
   return {
-    name: nextSprintName(prev.name),
+    name: nextSprintName(prev.name, takenNames),
     startDate: toDateInput(newStart),
     endDate: toDateInput(newEnd),
   };

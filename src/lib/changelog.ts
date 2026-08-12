@@ -21,6 +21,37 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.4",
+    date: "2026-08-12",
+    title: "Sprint ceremony boards: the retro's follow-through now works end to end",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Promoting a retro action into a work item produced a link that went nowhere — a 404. Promote is the control that decides whether a retro changes anything, so the single action a team agreed on was also the one they could not open. Tracked items now link straight to the work item.",
+      },
+      {
+        kind: "fix",
+        text: "The Owner picker on action items listed a blank row for every member, and the Owner column showed a dash even for actions that had an owner. Owners now show by name, falling back to their email address.",
+      },
+      {
+        kind: "fix",
+        text: "An action item's due date showed the day before the one you picked, for anyone in a time zone behind UTC — enter the 15th, see the 14th.",
+      },
+      {
+        kind: "fix",
+        text: "Completing a sprint suggested a name for the next one by counting up, without checking whether it already existed. A team who plans a sprint ahead — which is most of them — ended up with two sprints of the same name. The suggestion now skips names already in use.",
+      },
+      {
+        kind: "improvement",
+        text: "The review's Next sprint tab showed a suggested sprint even when the team had already planned the real one, so invented dates were presented in the same voice as fact. It now shows the actual sprint when one exists, and labels a suggestion as “Suggested — not created yet”.",
+      },
+      {
+        kind: "improvement",
+        text: "Sprint planning's Capacity panel announced “Within capacity” when no per-member capacity had been recorded at all — reassurance drawn from no data, sitting next to a note saying headroom would read as negative. Capacity now reads “Not set” and headroom stays unknown until you set one.",
+      },
+    ],
+  },
+  {
     version: "2.286.3",
     date: "2026-08-12",
     title: "“No active sprint data” while a sprint was plainly running",
