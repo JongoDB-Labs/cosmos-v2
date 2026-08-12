@@ -8,12 +8,10 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
 import { logPmActivity } from "@/lib/pm/activity-log";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-const changeInclude = { programBranch: { select: { id: true, code: true, name: true } } };
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -27,10 +25,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const branchScope = await resolveBranchScope(orgId, ctx.userId);
     const changes = await prisma.changeRequest.findMany({
-      where: { orgId, projectId, ...branchScopeWhere(branchScope) },
-      include: changeInclude,
+      where: { orgId, projectId },
       orderBy: { createdAt: "desc" },
     });
     return success(changes);
@@ -43,7 +39,6 @@ const createSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().nullish(),
   type: z.string().max(80).nullish(),
-  branchId: z.string().uuid().nullish(),
   initiatedBy: z.string().max(120).nullish(),
   decisionAuthority: z.string().max(120).nullish(),
   approvedBy: z.string().max(120).nullish(),
@@ -91,7 +86,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: data.title,
         description: data.description ?? null,
         type: data.type ?? null,
-        branchId: data.branchId ?? null,
         initiatedBy: data.initiatedBy ?? null,
         decisionAuthority: data.decisionAuthority ?? null,
         approvedBy: data.approvedBy ?? null,
@@ -106,7 +100,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         scopeImpact: data.scopeImpact ?? null,
         notes: data.notes ?? null,
       },
-      include: changeInclude,
     });
 
     // Seed the activity log with a "created" event (best-effort).

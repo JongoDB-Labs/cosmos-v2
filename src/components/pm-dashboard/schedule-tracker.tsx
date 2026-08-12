@@ -36,16 +36,9 @@ import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { healthOf, slipDays } from "@/lib/schedule/health";
-import { branchOptions } from "@/lib/pm/branch-label";
 import { formatDateStable } from "@/lib/format/stable-date";
 
 type MilestoneStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "MISSED";
-
-interface BranchLite {
-  id: string;
-  code: string;
-  name: string;
-}
 
 interface WorkItemLite {
   id: string;
@@ -53,13 +46,18 @@ interface WorkItemLite {
   columnKey: string;
 }
 
+interface ProgramIncrementLite {
+  id: string;
+  number: number;
+  name: string;
+}
+
 interface Milestone {
   id: string;
   title: string;
+  intervalId: string | null;
+  interval: { id: string; number: number; name: string } | null;
   description: string | null;
-  phase: string | null;
-  branchId: string | null;
-  programBranch: BranchLite | null;
   dueDate: string; // required, labelled "Projected end"
   actualDate: string | null;
   status: MilestoneStatus;
@@ -70,9 +68,7 @@ interface Milestone {
   // Derived from linked work items (see lib/pm/schedule). status is already the
   // derived value when autoStatus is on and links resolve.
   autoStatus: boolean;
-  milestoneType: string | null;
   downstreamImpact: string | null;
-  relatedRef: string | null;
   notes: string | null;
   linkedTotal: number;
   linkedDone: number;
@@ -83,7 +79,13 @@ interface Milestone {
 export interface ScheduleTrackerProps {
   orgId: string;
   projectId: string;
-  branches: BranchLite[];
+  /** Only this project's PROGRAM_INCREMENT intervals — a milestone cannot sit in a sprint. */
+  programIncrements: ProgramIncrementLite[];
+}
+
+/** Label a PI the way the Intervals workspace does: "PI-3 · Hardening". */
+function piLabel(pi: ProgramIncrementLite): string {
+  return `PI-${pi.number} · ${pi.name}`;
 }
 
 const STATUS_OPTIONS: MilestoneStatus[] = ["UPCOMING", "IN_PROGRESS", "COMPLETED", "MISSED"];
@@ -105,8 +107,7 @@ const STATUS_RANK: Record<MilestoneStatus, number> = {
 interface MilestoneForm {
   title: string;
   description: string;
-  phase: string;
-  branchId: string;
+  intervalId: string;
   dueDate: string;
   actualDate: string;
   status: MilestoneStatus;
@@ -115,17 +116,14 @@ interface MilestoneForm {
   recoveryTarget: string;
   scheduleEscalate: boolean;
   autoStatus: boolean;
-  milestoneType: string;
   downstreamImpact: string;
-  relatedRef: string;
   notes: string;
 }
 
 const emptyForm: MilestoneForm = {
   title: "",
   description: "",
-  phase: "",
-  branchId: "",
+  intervalId: "",
   dueDate: "",
   actualDate: "",
   status: "UPCOMING",
@@ -134,9 +132,7 @@ const emptyForm: MilestoneForm = {
   recoveryTarget: "",
   scheduleEscalate: false,
   autoStatus: true,
-  milestoneType: "",
   downstreamImpact: "",
-  relatedRef: "",
   notes: "",
 };
 
@@ -148,8 +144,7 @@ function milestoneToForm(m: Milestone): MilestoneForm {
   return {
     title: m.title,
     description: m.description ?? "",
-    phase: m.phase ?? "",
-    branchId: m.branchId ?? "",
+    intervalId: m.intervalId ?? "",
     dueDate: toDateInput(m.dueDate),
     actualDate: toDateInput(m.actualDate),
     status: m.status,
@@ -158,9 +153,7 @@ function milestoneToForm(m: Milestone): MilestoneForm {
     recoveryTarget: toDateInput(m.recoveryTarget),
     scheduleEscalate: m.scheduleEscalate,
     autoStatus: m.autoStatus,
-    milestoneType: m.milestoneType ?? "",
     downstreamImpact: m.downstreamImpact ?? "",
-    relatedRef: m.relatedRef ?? "",
     notes: m.notes ?? "",
   };
 }
@@ -169,8 +162,7 @@ function formToBody(f: MilestoneForm) {
   return {
     title: f.title.trim(),
     description: f.description.trim() || null,
-    phase: f.phase.trim() || null,
-    branchId: f.branchId || null,
+    intervalId: f.intervalId || null,
     dueDate: new Date(f.dueDate).toISOString(),
     actualDate: f.actualDate ? new Date(f.actualDate).toISOString() : null,
     status: f.status,
@@ -179,9 +171,7 @@ function formToBody(f: MilestoneForm) {
     recoveryTarget: f.recoveryTarget ? new Date(f.recoveryTarget).toISOString() : null,
     scheduleEscalate: f.scheduleEscalate,
     autoStatus: f.autoStatus,
-    milestoneType: f.milestoneType.trim() || null,
     downstreamImpact: f.downstreamImpact.trim() || null,
-    relatedRef: f.relatedRef.trim() || null,
     notes: f.notes.trim() || null,
   };
 }
@@ -204,18 +194,20 @@ function dateMs(iso: string | null | undefined): number {
 // hoisted function declarations referenced from the cell closures.
 const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
   {
+    id: "interval",
+    header: "PI",
+    accessorFn: (m) => m.interval?.number ?? "",
+    cell: ({ row }) => (
+      <span className="text-xs text-[var(--text-muted)]">
+        {row.original.interval ? `PI-${row.original.interval.number}` : "—"}
+      </span>
+    ),
+  },
+  {
     accessorKey: "title",
     header: "Title",
     cell: ({ row }) => (
       <span className="block max-w-xs truncate font-medium text-[var(--text)]">{row.original.title}</span>
-    ),
-  },
-  {
-    id: "branch",
-    header: "Branch",
-    accessorFn: (m) => m.programBranch?.code ?? "",
-    cell: ({ row }) => (
-      <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>
     ),
   },
   {
@@ -304,7 +296,7 @@ const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
   },
 ];
 
-export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerProps) {
+export function ScheduleTracker({ orgId, projectId, programIncrements }: ScheduleTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/schedule`;
   const queryKey = useOrgQueryKey("schedule", projectId);
   const canEdit = usePermissions().can(Permission.PROJECT_UPDATE);
@@ -426,7 +418,7 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   );
 
   function openCreate() {
-    setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setForm(emptyForm);
     setCreateOpen(true);
   }
 
@@ -444,16 +436,6 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
   function milestoneFields(m: Milestone): PmField[] {
     return [
       { key: "title", label: "Title", type: "text", value: m.title, editable: canEdit },
-      { key: "phase", label: "Phase", type: "text", value: m.phase, editable: canEdit },
-      {
-        key: "branchId",
-        label: "Branch",
-        type: "select",
-        value: m.branchId,
-        editable: canEdit && branches.length > 0,
-        options: branchOptions(branches),
-        placeholder: "Select branch",
-      },
       {
         key: "dueDate",
         label: "Projected end",
@@ -467,6 +449,15 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         type: "date",
         value: m.actualDate,
         editable: canEdit,
+      },
+      {
+        key: "intervalId",
+        label: "Program Increment",
+        type: "select",
+        value: m.intervalId,
+        editable: canEdit && programIncrements.length > 0,
+        options: programIncrements.map((pi) => ({ value: pi.id, label: piLabel(pi) })),
+        placeholder: "Select a Program Increment",
       },
       {
         key: "status",
@@ -499,20 +490,6 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
           { value: "true", label: "Yes" },
         ],
         coerce: (v) => v === "true",
-      },
-      {
-        key: "milestoneType",
-        label: "Milestone type",
-        type: "text",
-        value: m.milestoneType,
-        editable: canEdit,
-      },
-      {
-        key: "relatedRef",
-        label: "Related reference",
-        type: "text",
-        value: m.relatedRef,
-        editable: canEdit,
       },
       // Derived (read-only) — the trickle-up signal from linked work items.
       {
@@ -596,8 +573,8 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         columns={MILESTONE_COLUMNS}
         search={filter}
         onSearchChange={setFilter}
-        searchText={(m) => [m.title, m.phase ?? "", m.programBranch?.code ?? ""].join(" ")}
-        searchPlaceholder="Filter by title, phase, branch…"
+        searchText={(m) => [m.title, m.interval?.name ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, Program Increment…"
         onRowClick={(m) => setOpenMilestoneId(m.id)}
         rowActions={rowActions}
         onNew={canEdit ? openCreate : undefined}
@@ -652,10 +629,10 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         title="New Milestone"
         form={form}
         setForm={setForm}
-        branches={branches}
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
+        programIncrements={programIncrements}
       />
 
       {/* Edit */}
@@ -665,10 +642,10 @@ export function ScheduleTracker({ orgId, projectId, branches }: ScheduleTrackerP
         title={editing ? `Edit: ${editing.title}` : "Edit Milestone"}
         form={form}
         setForm={setForm}
-        branches={branches}
         pending={updateMutation.isPending}
         onSubmit={() => editing && updateMutation.mutate({ id: editing.id, f: form })}
         submitLabel="Save"
+        programIncrements={programIncrements}
         milestone={editingFresh}
         workItems={workItems}
         onLink={(workItemId) =>
@@ -741,7 +718,6 @@ function MilestoneDialog({
   title,
   form,
   setForm,
-  branches,
   pending,
   onSubmit,
   submitLabel,
@@ -750,13 +726,13 @@ function MilestoneDialog({
   onLink,
   onUnlink,
   linkBusy,
+  programIncrements,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
   form: MilestoneForm;
   setForm: React.Dispatch<React.SetStateAction<MilestoneForm>>;
-  branches: BranchLite[];
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
@@ -765,6 +741,7 @@ function MilestoneDialog({
   onLink?: (workItemId: string) => void;
   onUnlink?: (linkId: string) => void;
   linkBusy?: boolean;
+  programIncrements: ProgramIncrementLite[];
 }) {
   const isValid = form.title.trim().length > 0 && form.dueDate.length > 0;
 
@@ -778,7 +755,7 @@ function MilestoneDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
-          {/* Title + Phase */}
+          {/* Title */}
           <FormField label="Milestone title" required>
             {(p) => (
               <Input
@@ -792,29 +769,26 @@ function MilestoneDialog({
           </FormField>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Phase">
-              {(p) => (
-                <Input
-                  {...p}
-                  value={form.phase}
-                  onChange={(e) => setForm((f) => ({ ...f, phase: e.target.value }))}
-                  placeholder="e.g. Phase 1"
-                />
-              )}
-            </FormField>
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Branch</label>
+              <label className="text-sm font-medium">Program Increment</label>
               <Select
-                value={form.branchId}
-                onValueChange={(v) => setForm((f) => ({ ...f, branchId: v ?? "" }))}
+                value={form.intervalId}
+                onValueChange={(v) => setForm((f) => ({ ...f, intervalId: v ?? "" }))}
+                disabled={programIncrements.length === 0}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select branch" />
+                  <SelectValue
+                    placeholder={
+                      programIncrements.length === 0
+                        ? "No Program Increments yet"
+                        : "Select a Program Increment"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {branchOptions(branches).map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
+                  {programIncrements.map((pi) => (
+                    <SelectItem key={pi.id} value={pi.id}>
+                      {piLabel(pi)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -947,26 +921,6 @@ function MilestoneDialog({
           </label>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Milestone type">
-              {(p) => (
-                <Input
-                  {...p}
-                  value={form.milestoneType}
-                  onChange={(e) => setForm((f) => ({ ...f, milestoneType: e.target.value }))}
-                  placeholder="e.g. CDR, PDR, delivery"
-                />
-              )}
-            </FormField>
-            <FormField label="Related reference">
-              {(p) => (
-                <Input
-                  {...p}
-                  value={form.relatedRef}
-                  onChange={(e) => setForm((f) => ({ ...f, relatedRef: e.target.value }))}
-                  placeholder="e.g. CR-001, R-003"
-                />
-              )}
-            </FormField>
           </div>
           <FormField label="Downstream impact">
             {(p) => (

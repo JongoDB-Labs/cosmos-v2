@@ -8,13 +8,11 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
 import { computeRiskScore, riskLevelFromScore } from "@/lib/pm/risk";
 import { logPmActivity } from "@/lib/pm/activity-log";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-const riskInclude = { programBranch: { select: { id: true, code: true, name: true } } };
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -28,10 +26,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const branchScope = await resolveBranchScope(orgId, ctx.userId);
     const risks = await prisma.risk.findMany({
-      where: { orgId, projectId, ...branchScopeWhere(branchScope) },
-      include: riskInclude,
+      where: { orgId, projectId },
       orderBy: [{ score: "desc" }, { createdAt: "desc" }],
     });
     return success(risks);
@@ -44,7 +40,6 @@ const createSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().nullish(),
   category: z.string().max(80).nullish(),
-  branchId: z.string().uuid().nullish(),
   likelihood: z.number().int().min(1).max(5).default(1),
   impact: z.number().int().min(1).max(5).default(1),
   owner: z.string().max(120).nullish(),
@@ -90,7 +85,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: data.title,
         description: data.description ?? null,
         category: data.category ?? null,
-        branchId: data.branchId ?? null,
         likelihood: data.likelihood,
         impact: data.impact,
         score,
@@ -104,7 +98,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         targetDate: data.targetDate ? new Date(data.targetDate) : null,
         dateIdentified: data.dateIdentified ? new Date(data.dateIdentified) : new Date(),
       },
-      include: riskInclude,
     });
 
     // Seed the activity log with a "created" event (best-effort).

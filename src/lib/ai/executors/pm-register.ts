@@ -393,7 +393,7 @@ export async function listChanges(input: Record<string, unknown>, ctx: ToolConte
 // ── create_blocker / update_blocker ────────────────────────────────────────
 const BLOCKER_SELECT = {
   id: true, code: true, title: true, type: true, status: true, owner: true, projectId: true,
-  branchId: true, customerNotified: true, escalate: true, identifiedAt: true, resolvedAt: true,
+  customerNotified: true, escalate: true, identifiedAt: true, resolvedAt: true,
   targetDate: true, classification: true, createdAt: true, updatedAt: true,
 } as const;
 
@@ -504,7 +504,7 @@ export async function updateBlocker(input: Record<string, unknown>, ctx: ToolCon
 const DELIVERABLE_SELECT = {
   id: true, code: true, title: true, clin: true, status: true, owner: true, projectId: true,
   baselineDue: true, actualSubmission: true, govAcceptance: true, escalate: true,
-  revisionCycle: true, milestoneId: true, branchId: true, classification: true, createdAt: true, updatedAt: true,
+  revisionCycle: true, milestoneId: true, classification: true, createdAt: true, updatedAt: true,
 } as const;
 
 /** Next CDRL-ANNN code for the org (mirrors the deliverables route). */
@@ -616,7 +616,7 @@ export async function updateDeliverable(input: Record<string, unknown>, ctx: Too
 const CHANGE_SELECT = {
   id: true, code: true, title: true, type: true, status: true, costImpact: true,
   scheduleDaysImpact: true, projectId: true, modRequired: true, decidedAt: true,
-  implDate: true, submittedDate: true, branchId: true, classification: true, createdAt: true, updatedAt: true,
+  implDate: true, submittedDate: true, classification: true, createdAt: true, updatedAt: true,
 } as const;
 
 /** Next CR-NNN code for the org (mirrors the changes route). */

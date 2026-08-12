@@ -259,7 +259,6 @@ model Organization {
   deliverables           Deliverable[]
   blockers               Blocker[]
   changeRequests         ChangeRequest[]
-  programBranches        ProgramBranch[]
   deliverableRevisions   DeliverableRevision[]
   chatBots               ChatBot[]
   aiSettings             OrgAiSettings?
@@ -1449,6 +1448,7 @@ model Interval {
   children   Interval[]         @relation("IntervalProgramIncrement")
   objectives Objective[]
   ceremonies SprintCeremony[]
+  milestones Milestone[]
 
   @@unique([projectId, number])
   @@index([parentId])
@@ -2941,22 +2941,26 @@ model Milestone {
 
   org              Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId         String?         @map("branch_id") @db.Uuid
-  programBranch    ProgramBranch?  @relation(fields: [branchId], references: [id])
+  // The Program Increment this milestone belongs to. Null = not tied to a timebox.
+  // Only intervals of kind PROGRAM_INCREMENT are accepted, and only from this
+  // milestone's own project — neither constraint is expressible as a foreign key,
+  // so both are enforced in the API layer (see lib/pm/milestone-interval.ts).
+  // SetNull mirrors Interval.parent and Objective.intervalId: deleting a PI
+  // orphans its milestones, it never deletes them.
+  intervalId       String?         @map("interval_id") @db.Uuid
+  interval         Interval?       @relation(fields: [intervalId], references: [id], onDelete: SetNull)
   actualDate       DateTime?       @map("actual_date")
   rootCause        String?         @map("root_cause")
   recoveryPlan     String?         @map("recovery_plan")
   recoveryTarget   DateTime?       @map("recovery_target")
-  phase            String?
   scheduleEscalate Boolean         @default(false) @map("schedule_escalate")
-  milestoneType    String?         @map("milestone_type")
   downstreamImpact String?         @map("downstream_impact")
-  relatedRef       String?         @map("related_ref")
   notes            String?
   deliverables     Deliverable[]
   links            MilestoneLink[]
 
   @@index([orgId, projectId])
+  @@index([intervalId])
   @@map("milestones")
 }
 
@@ -4056,8 +4060,6 @@ model Risk {
 
   org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId      String?        @map("branch_id") @db.Uuid
-  programBranch ProgramBranch? @relation(fields: [branchId], references: [id])
 
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
@@ -4089,8 +4091,6 @@ model Deliverable {
 
   org             Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project         Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId        String?               @map("branch_id") @db.Uuid
-  programBranch   ProgramBranch?        @relation(fields: [branchId], references: [id])
   deliverableType String?               @map("deliverable_type")
   internalReview  DateTime?             @map("internal_review")
   govReviewPeriod Int?                  @map("gov_review_period")
@@ -4100,7 +4100,6 @@ model Deliverable {
   ownerUserId     String?               @map("owner_user_id") @db.Uuid
   ownerUser       User?                 @relation("DeliverableOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   revisions       DeliverableRevision[]
-  branchOwner     String?               @map("branch_owner")
   workItemRef     String?               @map("work_item_ref")
   notes           String?
 
@@ -4133,8 +4132,6 @@ model Blocker {
 
   org                  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project              Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId             String?        @map("branch_id") @db.Uuid
-  programBranch        ProgramBranch? @relation(fields: [branchId], references: [id])
   source               String?
   identifiedBy         String?        @map("identified_by")
   decisionAuthority    String?        @map("decision_authority")
@@ -4170,8 +4167,6 @@ model ChangeRequest {
 
   org               Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  branchId          String?        @map("branch_id") @db.Uuid
-  programBranch     ProgramBranch? @relation(fields: [branchId], references: [id])
   initiatedBy       String?        @map("initiated_by")
   decisionAuthority String?        @map("decision_authority")
   approvedBy        String?        @map("approved_by")
@@ -4185,29 +4180,6 @@ model ChangeRequest {
   @@unique([orgId, code])
   @@index([orgId, projectId, status])
   @@map("change_requests")
-}
-
-// Org-configurable program branch (1.0 Program Mgmt … 6.0 Fielding & Transition).
-// First-class dimension referenced by every govcon tracker — powers the
-// Domain-Lead persona and all "by branch" rollups.
-model ProgramBranch {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
-  code      String
-  name      String
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  risks          Risk[]
-  changeRequests ChangeRequest[]
-  blockers       Blocker[]
-  deliverables   Deliverable[]
-  milestones     Milestone[]
-
-  @@unique([orgId, code])
-  @@map("program_branches")
 }
 
 // Deliverable revision cycle (gov returns a CDRL with comments → a new cycle opens).
