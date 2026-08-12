@@ -225,7 +225,10 @@ export function CeremonyBoard({
                       : ""
                   }`
                 : "In progress"
-              : "Not started"}
+              : // Sat as a footnote below the panels, which on a short tab left it
+                // stranded in whitespace. It explains the state, so it belongs with
+                // the state.
+                "Not started — start the ceremony to capture notes and actions. The figures are live either way."}
           </p>
         </div>
 
@@ -308,7 +311,7 @@ export function CeremonyBoard({
         })}
       </div>
 
-      <div className="min-h-[300px]">
+      <div className="min-h-[300px] w-full max-w-[1600px]">
         {tab === "summary" ? <CeremonySummary data={data} /> : null}
 
         {tab === "shipped" ? (
@@ -356,34 +359,52 @@ export function CeremonyBoard({
         ) : null}
 
         {tab === "next" ? (
-          <div className="space-y-4">
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                Next sprint window
-              </p>
-              <p className="mt-1 text-lg font-semibold">
-                {data.nextSprint.name}
-              </p>
-              <p className="text-sm text-[var(--text-muted)]">
-                {fmtDay(data.nextSprint.startDate)} – {fmtDay(data.nextSprint.endDate)}
-              </p>
-            </div>
-            <div>
-              <h3 className="mb-2 text-sm font-semibold">
+          // Two columns, like the outbrief slide this replaces: the increment's
+          // facts on the left, what actually rolls into it on the right. As one
+          // stacked column the window card stretched the full viewport to hold
+          // three short lines, and the list sat under it unframed.
+          <div className="grid gap-4 lg:grid-cols-[minmax(260px,340px)_1fr]">
+            <dl className="h-fit space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-5">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+                  Next sprint
+                </dt>
+                <dd className="mt-1 text-xl font-semibold">{data.nextSprint.name}</dd>
+                <dd className="mt-0.5 text-sm text-[var(--text-muted)]">
+                  {fmtDay(data.nextSprint.startDate)} – {fmtDay(data.nextSprint.endDate)}
+                </dd>
+              </div>
+              {data.increment ? (
+                <div className="border-t border-[var(--border)] pt-4">
+                  <dt className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+                    Increment
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium">{data.increment.name}</dd>
+                </div>
+              ) : null}
+              <div className="border-t border-[var(--border)] pt-4">
+                <dt className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
+                  Carry-in
+                </dt>
+                <dd className="mt-1 text-sm font-medium">
+                  {data.carried.kind === "unrecorded"
+                    ? "Not recorded"
+                    : `${data.carried.items.length} from ${data.sprint.name}`}
+                </dd>
+              </div>
+            </dl>
+
+            <section className="rounded-[var(--radius)] border border-[var(--border)] p-5">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
                 Starting backlog — carried from {data.sprint.name}
               </h3>
               <CarriedList carried={data.carried} projectKey={projectKey} />
-            </div>
+            </section>
           </div>
         ) : null}
       </div>
 
-      {ceremony ? null : (
-        <p className="text-xs text-[var(--text-muted)]">
-          Start the ceremony to capture notes and action items. The figures above
-          are live either way.
-        </p>
-      )}
+
     </div>
   );
 }
