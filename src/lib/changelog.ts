@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.284.1",
+    date: "2026-08-12",
+    title: "The Updates page now confirms an install that worked",
+    highlights: [
+      {
+        kind: "fix",
+        text: "After starting an update from the Updates page, the result vanished the moment it succeeded. The outcome and the server log lived inside the “Install this version” panel, and finishing an install means there is nothing left to install — so that panel disappeared and took the confirmation with it, leaving you to infer success from the version number with the log no longer readable. An install that FAILED stayed on screen, so the one result you most want to see was the only one being hidden. The last install and its full log now appear in their own section whether or not another update is waiting.",
+      },
+    ],
+  },
+  {
     version: "2.284.0",
     date: "2026-08-12",
     title: "Every board that lists work can now be filtered",

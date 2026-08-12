@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket } from "lucide-react";
+import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -155,11 +155,17 @@ function PreflightRow({ check }: { check: Preflight }) {
   );
 }
 
-function DeployPanel({ version, applyable }: { version: string; applyable: boolean }) {
-  const qc = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
-
-  const { data } = useQuery({
+/**
+ * The last deploy request, shared by the install control and the outcome card.
+ *
+ * ONE definition, two consumers. These cards render under different conditions —
+ * the install control only when an upgrade is offered, the outcome whenever a
+ * record exists — so they are mounted and unmounted independently. Two copies of
+ * this query would drift in exactly the way that lets one of them stop polling a
+ * deploy the other is still showing as running.
+ */
+function useDeployStatus() {
+  return useQuery({
     queryKey: DEPLOY_KEY,
     queryFn: () => jsonFetch<{ latest: DeployRequest | null }>("/api/v1/admin/updates/deploy"),
     // Poll only while something is actually in flight; a finished deploy does
@@ -171,6 +177,13 @@ function DeployPanel({ version, applyable }: { version: string; applyable: boole
     },
     refetchOnWindowFocus: false,
   });
+}
+
+function DeployPanel({ version, applyable }: { version: string; applyable: boolean }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const { data } = useDeployStatus();
 
   const latest = data?.latest ?? null;
   const active = latest && !DONE.includes(latest.status) ? latest : null;
@@ -224,30 +237,59 @@ function DeployPanel({ version, applyable }: { version: string; applyable: boole
       )}
 
       {error && <p className="mt-3 text-sm text-amber-600 dark:text-amber-500">{error}</p>}
+    </SectionCard>
+  );
+}
 
-      {latest && (
-        <div className="mt-4 border-t pt-3">
-          <p className="text-xs text-muted-foreground">
-            Last: <span className="font-mono">{latest.version}</span> — {latest.status.toLowerCase()}
-            {latest.exitCode !== null && latest.status !== "SUCCEEDED" && ` (exit ${latest.exitCode})`}
-            {" · requested by "}
-            {latest.requestedByEmail}
-          </p>
-          {latest.status === "ABANDONED" && (
-            // ABANDONED is UNKNOWN. Presenting it as a failure would read as
-            // "nothing happened", which may be false.
-            <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">
-              The runner stopped reporting, so the outcome of this install is unknown — it may have
-              completed, partly run, or never started. Check the running version above before starting
-              another.
-            </p>
-          )}
-          {latest.log && (
-            <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-xs leading-relaxed">
-              {latest.log}
-            </pre>
-          )}
-        </div>
+/**
+ * What the last install did — rendered whenever a record exists, NOT only while
+ * an upgrade is on offer.
+ *
+ * WHY THIS IS ITS OWN CARD. This lived inside the install panel, which renders
+ * only when `updateAvailable`. A SUCCESSFUL install makes that false — you are
+ * now on the newest version — so the panel unmounted the moment it worked and
+ * took the outcome and the log with it. The asymmetry was the tell: a FAILED
+ * install left the version unchanged, kept the upgrade on offer, and stayed
+ * visible. The one outcome an operator most needs confirmed was the only one
+ * the screen erased, leaving them to infer success from the version number.
+ *
+ * The deploy also restarts the app underneath the page, so the reload that
+ * follows is exactly when this has to survive.
+ */
+function LastDeployCard() {
+  const { data } = useDeployStatus();
+  const latest = data?.latest ?? null;
+  if (!latest) return null;
+
+  const succeeded = latest.status === "SUCCEEDED";
+  return (
+    <SectionCard
+      icon={succeeded ? CheckCircle2 : History}
+      title="Last install"
+      description="The most recent install started from this page, and what the server reported."
+    >
+      <p className="text-sm">
+        <span className="font-mono">{latest.version}</span> — {latest.status.toLowerCase()}
+        {latest.exitCode !== null && !succeeded && ` (exit ${latest.exitCode})`}
+        <span className="text-muted-foreground">
+          {" · requested by "}
+          {latest.requestedByEmail}
+          {latest.claimedBy && ` · ran on ${latest.claimedBy}`}
+        </span>
+      </p>
+      {latest.status === "ABANDONED" && (
+        // ABANDONED is UNKNOWN. Presenting it as a failure would read as
+        // "nothing happened", which may be false.
+        <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">
+          The runner stopped reporting, so the outcome of this install is unknown — it may have
+          completed, partly run, or never started. Check the running version above before starting
+          another.
+        </p>
+      )}
+      {latest.log && (
+        <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-xs leading-relaxed">
+          {latest.log}
+        </pre>
       )}
     </SectionCard>
   );
@@ -409,6 +451,9 @@ export function UpdatesManager() {
       {status?.updateAvailable && status.latest && (
         <DeployPanel version={status.latest} applyable={data.applyable} />
       )}
+
+      {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
+      <LastDeployCard />
 
       {data.preflights.length > 0 && (
         <SectionCard
