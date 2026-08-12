@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.283.3",
+    date: "2026-08-12",
+    title: "The Next sprint tab on ceremony boards is laid out properly",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Next sprint tab put a full-width panel holding three short lines above an unframed list, leaving most of the screen empty. It now reads as two columns \u2014 the increment's dates and carry-in on the left, the work rolling into it on the right \u2014 and content no longer stretches across a wide monitor.",
+      },
+    ],
+  },
+  {
     version: "2.283.2",
     date: "2026-08-12",
     title: "The Install button on the Updates page now works",
