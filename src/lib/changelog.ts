@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.279.2",
+    date: "2026-08-11",
+    title: "Search finds work items by their ticket number",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching for a ticket number found nothing. Both the search bar and \u2318K matched only the title, even though every result displays the number \u2014 so the one identifier people actually quote to each other was the one thing you could not search for. \u201c3\u201d, \u201cFAL-3\u201d and \u201c#3\u201d now all find the item, and searching by words works exactly as before.",
+      },
+    ],
+  },
+  {
     version: "2.279.1",
     date: "2026-08-11",
     title: "Sprints inside a Program Increment can be started again",
