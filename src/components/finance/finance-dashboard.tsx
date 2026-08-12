@@ -69,6 +69,7 @@ import {
 } from "@/components/charts/lazy-recharts";
 import type { PieLabelRenderProps } from "@/components/charts/lazy-recharts";
 import type { Revenue, Expense } from "@/types/models";
+import { localDateString } from "@/lib/time/local-date";
 
 interface FinanceDashboardProps {
   orgId: string;
@@ -153,7 +154,7 @@ interface ExpenseFormData {
 const emptyRevenueForm: RevenueFormData = {
   amount: "",
   currency: "USD",
-  date: new Date().toISOString().split("T")[0],
+  date: localDateString(),
   client: "",
   product: "",
   type: "ONE_TIME",
@@ -163,7 +164,7 @@ const emptyRevenueForm: RevenueFormData = {
 const emptyExpenseForm: ExpenseFormData = {
   amount: "",
   currency: "USD",
-  date: new Date().toISOString().split("T")[0],
+  date: localDateString(),
   category: "",
   vendor: "",
   description: "",
