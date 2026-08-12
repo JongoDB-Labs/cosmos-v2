@@ -152,7 +152,10 @@ vi.mock("@/lib/query/json-fetcher", () => ({
   }),
 }));
 
-import { TimelineView, matchesFilters } from "./timeline-view";
+import { TimelineView } from "./timeline-view";
+// Extracted from timeline-view into a lib so every board can share ONE
+// predicate; these tests are the parity proof for that move.
+import { matchesFilters } from "@/lib/work-items/board-filters";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import type { CustomField, WorkItem } from "@/types/models";

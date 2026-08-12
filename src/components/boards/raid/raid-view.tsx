@@ -23,6 +23,9 @@ import {
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
@@ -181,6 +184,16 @@ export function RaidView({
 
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
 
+  // One filter model, one predicate — the same `matchesFilters` the Timeline
+  // uses. A board that filters differently from its neighbours is worse than a
+  // board that does not filter at all.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  const visibleItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
+  );
+
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const fatalError = itemsQ.error;
   const error = fatalError
@@ -244,13 +257,13 @@ export function RaidView({
     const map = new Map<RaidKey | "__none__", WorkItem[]>();
     for (const cat of RAID_CATEGORIES) map.set(cat.key, []);
     map.set("__none__", []);
-    for (const item of items) {
+    for (const item of visibleItems) {
       if (hideDone && item.columnKey === "done") continue;
       const cat = categorize(item);
       map.get(cat ?? "__none__")!.push(item);
     }
     return map;
-  }, [items, hideDone]);
+  }, [visibleItems, hideDone]);
 
   const totalShown = useMemo(
     () =>
@@ -287,6 +300,17 @@ export function RaidView({
 
   return (
     <div className="flex flex-col h-full">
+      <div className="border-b border-[var(--border)] px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={membersQ.data ?? []}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border)]">
         <span className="text-sm font-semibold text-[var(--text)]">

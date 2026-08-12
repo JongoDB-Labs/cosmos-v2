@@ -42,6 +42,7 @@ import {
 } from "@/lib/teams/item-teams";
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
+import { matchesFilters } from "@/lib/work-items/board-filters";
 import {
   blockedItemIds,
   matchesBlocked,
@@ -216,57 +217,6 @@ type DragMode = "move" | "start" | "end";
  *  identically, including filtering by admin-defined custom fields. `defs` is the
  *  project's custom-field definitions (needed to interpret each active
  *  constraint's kind); an empty list makes the custom-field check inert. */
-export function matchesFilters(
-  item: WorkItem,
-  f: BoardFilters,
-  defs: CustomField[] = [],
-  /**
-   * userId → their teams. Optional so existing callers are unaffected; without
-   * it the team filter is inert rather than silently hiding everything.
-   */
-  teamsByUserId: Map<string, TeamLike[]> = new Map(),
-  /** One instant for the whole pass — see the Kanban note. */
-  now: Date = new Date(),
-  /**
-   * Relation-derived lookups, pre-resolved by the caller. An options bag rather
-   * than a seventh positional parameter, which is where argument-order bugs live.
-   */
-  rel: {
-    blocked?: Set<string>;
-    milestones?: Map<string, Set<string>>;
-  } = {},
-): boolean {
-  if (
-    f.search &&
-    !item.title.toLowerCase().includes(f.search.toLowerCase()) &&
-    !String(item.ticketNumber).includes(f.search)
-  )
-    return false;
-  if (f.types.length > 0 && !f.types.includes(bareTypeKey(item.workItemType?.key)))
-    return false;
-  if (f.priorities.length > 0 && !f.priorities.includes(item.priority)) return false;
-  // Multi-assign: match the primary OR any member of the assignee set.
-  if (
-    f.assigneeId &&
-    item.assigneeId !== f.assigneeId &&
-    !item.assignees?.some((a) => a.userId === f.assigneeId)
-  )
-    return false;
-  if (f.intervalId && item.intervalId !== f.intervalId) return false;
-  // A team's work is what its members are assigned; an item can match several.
-  if (!itemMatchesTeam(item.assigneeId, f.teamId, teamsByUserId)) return false;
-  if (!matchesLabelFilter(item.tags, f.labels)) return false;
-  if (!matchesOneOf(item.columnKey, f.columnKeys)) return false;
-  if (!matchesOneOf(item.workCategory, f.workCategories)) return false;
-  if (f.createdById && item.createdById !== f.createdById) return false;
-  if (!matchesDuePreset(item.dueDate, f.due, now)) return false;
-  if (!matchesMilestone(item.id, f.milestoneId, rel.milestones ?? new Map())) return false;
-  if (!matchesBlocked(item.id, f.blocked, rel.blocked ?? new Set())) return false;
-  if (!matchesStoryPoints(item.storyPoints, f.storyPoints)) return false;
-  if (!matchesEstimateBand(item.originalEstimate, f.estimate)) return false;
-  if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
-  return true;
-}
 
 /** 0..1 completion for a bar's progress fill. A parent rolls up its children's
  *  done ratio; a leaf is complete (1) if it's completed or sits in a DONE column. */
