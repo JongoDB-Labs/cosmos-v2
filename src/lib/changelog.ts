@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.284.0",
+    date: "2026-08-12",
+    title: "Every board that lists work can now be filtered",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Roadmap, Backlog and Table boards now have the same filter bar as the rest \u2014 search, assignee, type, priority, status, labels, due date and more. With Calendar and RAID last release, every board that lists work items now filters the same way, so narrowing by the same thing gives the same answer wherever you do it.",
+      },
+      {
+        kind: "improvement",
+        text: "The Backlog had its own \u201cAssigned to me\u201d button that now duplicated the one in the filter bar; the bar's version does exactly the same thing, so the duplicate is gone. The filter bar also stays on screen when a filter leaves a board empty \u2014 previously it could disappear along with the results, leaving no way to undo the filter.",
+      },
+    ],
+  },
+  {
     version: "2.283.3",
     date: "2026-08-12",
     title: "The Next sprint tab on ceremony boards is laid out properly",
