@@ -707,7 +707,23 @@ async function generateIntervalBrief(input: Record<string, unknown>, ctx: ToolCo
   if (input.intervalId) {
     interval = await prisma.interval.findFirst({ where: { id: input.intervalId as string, orgId: ctx.orgId } });
   } else {
-    interval = await prisma.interval.findFirst({ where: { orgId: ctx.orgId, projectId, status: "ACTIVE" } });
+    // A Program Increment is ACTIVE for as long as any sprint inside it runs,
+    // and holds no work items of its own — so an unqualified findFirst here
+    // returns the container and the brief reports 0 points / 0 items while a
+    // sprint is plainly in flight. Same rule the ceremony boards apply: EXCLUDE
+    // the container rather than allowlist SPRINT, because only one of
+    // IntervalKind's members is a container and a project running PHASEs or
+    // ITERATIONs still has a real iteration to brief on. Ordered, because a
+    // findFirst without one returns whatever the planner happens to pick.
+    interval = await prisma.interval.findFirst({
+      where: {
+        orgId: ctx.orgId,
+        projectId,
+        status: "ACTIVE",
+        intervalKind: { not: "PROGRAM_INCREMENT" },
+      },
+      orderBy: { number: "desc" },
+    });
   }
   if (!interval) return { error: "No active interval found" };
 

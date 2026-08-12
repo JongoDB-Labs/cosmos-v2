@@ -172,9 +172,19 @@ export async function getActiveProjectsForOrg(
         },
         _min: { dueDate: true },
       }),
-      // Active interval name per project (at most one ACTIVE interval is expected).
+      // Active ITERATION name per project.
+      //
+      // The comment here used to say "at most one ACTIVE interval is expected",
+      // and that assumption is false: a Program Increment is ACTIVE for exactly
+      // as long as any sprint inside it runs, so a healthy project has TWO — and
+      // the container holds no work of its own. Excluding it is what makes the
+      // "at most one" claim true.
       prisma.interval.findMany({
-        where: { projectId: { in: projectIds }, status: "ACTIVE" },
+        where: {
+          projectId: { in: projectIds },
+          status: "ACTIVE",
+          intervalKind: { not: "PROGRAM_INCREMENT" },
+        },
         select: { projectId: true, name: true },
         orderBy: { startDate: "desc" },
       }),

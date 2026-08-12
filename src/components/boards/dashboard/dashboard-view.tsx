@@ -25,6 +25,7 @@ import { BurndownView } from "./burndown-view";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
+import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
 import { cn } from "@/lib/utils";
 import { assigneeLabel, workloadBuckets } from "./workload";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
@@ -241,7 +242,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // `completedAt` alone, so an item reopened after completion stayed burned
   // down. One implementation, tested once — see lib/intervals/burndown.ts.
   const burndownData = useMemo(() => {
-    const activeInterval = intervals.find((s) => s.status === "ACTIVE");
+    // NOT `.find(s => s.status === "ACTIVE")`. A Program Increment is ACTIVE for
+    // as long as any sprint inside it runs, and the API orders by number DESC
+    // with a PI numbered above its sprints — so that find returns the PI, which
+    // holds no work items of its own, and the widget renders "no active sprint
+    // data" while a sprint is plainly running. Same picker as the ceremony
+    // boards, which already solved this.
+    const activeInterval = defaultCeremonyInterval(intervals);
     if (!activeInterval) return [];
 
     const series = burndown({
