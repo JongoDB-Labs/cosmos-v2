@@ -27,10 +27,12 @@ import {
   ListChecks,
   MoveRight,
   Inbox,
-  UserCheck,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import {
   resolveDrag,
@@ -41,7 +43,6 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -134,7 +135,6 @@ export function BacklogView({
   const [hideDone, setHideDone] = useState(false);
   // FR "Assigned to me": one-click filter to the current user, combinable with
   // "Hide done" (both fold into `visibleItems` below).
-  const [assignedToMe, setAssignedToMe] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -176,6 +176,21 @@ export function BacklogView({
     [board],
   );
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
+
+  // The shared filter bar and the ONE shared predicate, same as every other
+  // board. Layered on top of whatever the board itself already narrows.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  // Derived from the shared bar rather than a second piece of state that could
+  // disagree with it. Only drives empty-state copy now.
+  const assignedToMe = Boolean(
+    currentUserId && filters.assigneeId === currentUserId,
+  );
+
+  const barFiltered = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
+  );
   const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
   const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
@@ -276,12 +291,12 @@ export function BacklogView({
   );
 
   const visibleItems = useMemo(() => {
-    let list = hideDone ? items.filter((i) => !isDone(i)) : items;
+    let list = hideDone ? barFiltered.filter((i) => !isDone(i)) : barFiltered;
     if (assignedToMe && currentUserId) {
       list = list.filter((i) => isAssignedTo(i, currentUserId));
     }
     return list;
-  }, [items, hideDone, isDone, assignedToMe, currentUserId]);
+  }, [barFiltered, hideDone, isDone, assignedToMe, currentUserId]);
 
   // Top "Backlog" section = items with no interval, ranked.
   const backlogItems = useMemo(
@@ -418,23 +433,26 @@ export function BacklogView({
 
   return (
     <div className="flex h-full flex-col">
+      <div className="border-b border-[var(--border)] px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={membersQ.data ?? []}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)]/50 px-4 py-2">
         <span className="text-xs text-[var(--text-muted)]">
           {totalVisible} item{totalVisible === 1 ? "" : "s"}
         </span>
-        {currentUserId && (
-          <Button
-            size="sm"
-            variant={assignedToMe ? "default" : "outline"}
-            aria-pressed={assignedToMe}
-            className="h-7 gap-1.5"
-            onClick={() => setAssignedToMe((v) => !v)}
-          >
-            <UserCheck className="h-3.5 w-3.5" />
-            Assigned to me
-          </Button>
-        )}
+        {/* "Assigned to me" now comes from the shared FilterBar above — this
+            board carried its own identical copy, so the toolbar showed the
+            control twice. The bar's version has the same semantics, co-assignees
+            included. */}
         <div className="ml-auto flex items-center gap-3">
           <NewIssueButton
             orgId={orgId}

@@ -4,6 +4,9 @@ import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -187,6 +190,16 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         ? allItems
         : allItems.filter((i) => i.workItemType?.key && typeKeys.includes(i.workItemType.key)),
     [allItems, typeKeys],
+  );
+
+  // Layered ON TOP of the board's own typeKeys, which is a saved board
+  // CONFIGURATION (what this board is about) rather than a transient view
+  // filter (what I am looking at right now). The two compose.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  const visibleItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
   );
 
   // Persist a change to the board's type filter (optimistic: patch the board
@@ -982,6 +995,18 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         </div>
       </div>
 
+      <div className="border-b border-[var(--border)] px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
+
       {/* Table */}
       <div
         className={cn(
@@ -993,7 +1018,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       >
         <DataTable<WorkItem>
           columns={tableColumns}
-          data={items}
+          data={visibleItems}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
           grouping={grouping}
