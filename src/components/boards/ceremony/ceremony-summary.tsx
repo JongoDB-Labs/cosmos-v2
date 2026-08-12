@@ -1,14 +1,8 @@
 "use client";
 
 import { StatCard } from "@/components/ui/stat-card";
+import { formatDateMediumStable as fmt } from "@/lib/format/stable-date";
 import type { CeremonyPayload } from "./use-ceremony";
-
-const fmt = (d: string) =>
-  new Date(d).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 
 /**
  * Sprint by the numbers.

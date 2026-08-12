@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.1",
+    date: "2026-08-12",
+    title: "Sprint ceremony boards open on the right sprint, with the right dates",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The Sprint Review / Retro and Sprint Planning boards listed the Program Increment in their sprint picker and opened on it. An increment holds no work of its own, so the board greeted you with a review reading 0 points and 0 of 0 items — which reads as a statement about the team rather than the wrong thing being selected. The picker now lists only sprints, and opens on the one you are in.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint and increment dates on the Summary tab read one day early for everyone in a time zone behind UTC — a sprint starting the 28th showed as the 27th. The Next sprint tab had it right, so the same sprint window disagreed with itself across two tabs of one screen.",
+      },
+      {
+        kind: "improvement",
+        text: "Both ceremony boards now line up with the rest of the page. Their content sat flush against the sidebar, out of step with every other element, and pressed right up against the board tabs above it, while the header stretched out past the cards below. The section tabs no longer span the full width either, so they read as a set of choices rather than an empty toolbar.",
+      },
+    ],
+  },
+  {
     version: "2.286.0",
     date: "2026-08-12",
     title: "Sprint Health can now look across sprints and across a Program Increment",
