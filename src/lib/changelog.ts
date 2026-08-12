@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.283.1",
+    date: "2026-08-12",
+    title: "Filters on the Calendar and RAID boards",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Calendar and RAID boards now have the same filter bar as the other boards \u2014 search, assignee, type, priority, status, labels, due date and the rest. They previously had no filtering at all, so on a busy project the only way to narrow them was to look harder.",
+      },
+      {
+        kind: "improvement",
+        text: "All boards that filter now share one definition of what a filter means, so narrowing by the same thing gives the same answer wherever you do it.",
+      },
+    ],
+  },
+  {
     version: "2.283.0",
     date: "2026-08-12",
     title: "Milestones belong to a Program Increment; Branches retired",

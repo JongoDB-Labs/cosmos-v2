@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -79,6 +82,16 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   });
 
   const items: WorkItem[] = itemsQ.data ?? [];
+
+  // One filter model, one predicate — the same `matchesFilters` the Timeline
+  // uses. A board that filters differently from its neighbours is worse than a
+  // board that does not filter at all.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  const visibleItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
+  );
   const members: OrgMember[] = membersQ.data ?? [];
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const error = itemsQ.error
@@ -96,7 +109,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
   // Map items to dates by dueDate or startDate
   const dateItemsMap = useMemo(() => {
     const map = new Map<string, WorkItem[]>();
-    for (const item of items) {
+    for (const item of visibleItems) {
       const dateStr = item.dueDate ?? item.startDate;
       if (!dateStr) continue;
       const d = new Date(dateStr);
@@ -106,7 +119,7 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
       map.set(key, existing);
     }
     return map;
-  }, [items]);
+  }, [visibleItems]);
 
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -155,6 +168,17 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
 
   return (
     <div className="flex flex-col h-full">
+      <div className="border-b px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b bg-background/50">
         <div className="flex items-center gap-2">
