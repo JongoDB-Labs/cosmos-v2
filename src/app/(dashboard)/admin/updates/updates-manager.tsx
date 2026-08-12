@@ -15,6 +15,8 @@ type Preflight = {
   status: PreflightStatus;
   detail: string;
   blocking: boolean;
+  /** Set when another tier owns this check — see src/lib/updates/preflight.ts. */
+  deferredTo?: "host-runner";
 };
 
 type NoteHighlight = { kind: "feature" | "improvement" | "fix"; text: string };
@@ -100,10 +102,22 @@ function PreflightRow({ check }: { check: Preflight }) {
       <div className="min-w-0">
         <p className="text-sm font-medium">
           {check.title}
-          {check.blocking && check.status !== "pass" && (
+          {/* A deferred check is not blocking HERE and must not be labelled as
+              though it were — it is answered on the host, immediately before
+              the deploy starts. Saying "blocks upgrade" for something that
+              never can be answered on this side is how a page trains its
+              operator to ignore the badge. */}
+          {check.deferredTo ? (
             <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-              blocks upgrade
+              checked on the host
             </span>
+          ) : (
+            check.blocking &&
+            check.status !== "pass" && (
+              <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
+                blocks upgrade
+              </span>
+            )
           )}
         </p>
         <p className="text-xs text-muted-foreground">{check.detail}</p>
