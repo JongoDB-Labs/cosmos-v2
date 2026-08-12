@@ -4299,3 +4299,55 @@ model Reference {
 }
 
 // @plugin-schema-fragments — composed plugin models/enums are appended below this line by scripts/plugins/sync.mjs
+
+/// Lifecycle of an operator-requested deploy.
+///
+/// The app CANNOT deploy itself: its container has no docker socket and no host
+/// mount (verified on production — the only mount is the MinIO CA volume). So a
+/// request is an INTENT recorded here, and a host-side runner is what actually
+/// executes `.deploy/deploy-migrate.sh`. These states are the handshake between
+/// the two.
+enum DeployRequestStatus {
+  /// Recorded by an operator. No runner has claimed it. Nothing has happened yet.
+  PENDING
+  /// A runner claimed it and is executing the deploy script.
+  RUNNING
+  SUCCEEDED
+  FAILED
+  /// Claimed, then the runner stopped heartbeating — the outcome is UNKNOWN, and
+  /// must never be shown as either success or failure.
+  ABANDONED
+
+  @@map("deploy_request_status")
+}
+
+/// An operator's request to deploy a specific version, and its outcome.
+///
+/// This row IS the audit record. AuditLog is org-scoped (`orgId` is required) and
+/// a deploy is instance-wide, so it does not fit there.
+///
+/// `requestedByEmail` is denormalised on purpose: the audit trail for "who
+/// deployed production" must survive the user record being removed, so it does
+/// not depend on a join or a foreign key.
+model DeployRequest {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// The version to deploy, e.g. "2.279.0" — passed verbatim to the deploy script.
+  version          String
+  status           DeployRequestStatus @default(PENDING)
+  requestedById    String?             @map("requested_by_id") @db.Uuid
+  requestedByEmail String              @map("requested_by_email")
+  requestedAt      DateTime            @default(now()) @map("requested_at")
+  /// When a runner claimed it, and which host claimed it.
+  claimedAt        DateTime?           @map("claimed_at")
+  claimedBy        String?             @map("claimed_by")
+  /// Refreshed while the script runs, so a dead runner is distinguishable from a
+  /// slow one. A pg_dump plus image pulls legitimately takes minutes.
+  heartbeatAt      DateTime?           @map("heartbeat_at")
+  finishedAt       DateTime?           @map("finished_at")
+  exitCode         Int?                @map("exit_code")
+  /// Streamed stdout/stderr from the deploy script, appended as it runs.
+  log              String              @default("")
+
+  @@index([status, requestedAt])
+  @@map("deploy_requests")
+}

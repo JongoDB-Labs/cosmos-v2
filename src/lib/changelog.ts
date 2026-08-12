@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.281.0",
+    date: "2026-08-11",
+    title: "Groundwork for starting an update from the Updates page",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Preparation only \u2014 nothing looks different yet. Cosmos can now record an administrator\u2019s request to install a specific version, with the safety checks applied at the moment the request is made rather than when the page was last loaded, and with a guarantee that two installations can never run at once. The control that uses this arrives with the piece that performs the installation, so that a button never appears before there is something behind it.",
+      },
+    ],
+  },
+  {
     version: "2.280.0",
     date: "2026-08-11",
     title: "Safety checks are now run by whichever part of the system can actually see the answer",
