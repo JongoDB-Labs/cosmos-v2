@@ -31,29 +31,20 @@ import {
   serializeFilters,
   bareTypeKey,
   customFieldHasValue,
-  matchesCustomFieldFilters,
   type BoardFilters,
 } from "@/components/boards/shared/filter-bar";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
-import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
-  matchesBlocked,
   milestoneItemIds,
-  matchesMilestone,
   presentStoryPoints,
-  matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
-import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
-import {
-  teamsByUser,
-  teamLaneFor,
-  itemMatchesTeam,
-  type TeamLike,
-} from "@/lib/teams/item-teams";
+import { hasAnyEstimate } from "@/lib/work-items/estimate-filter";
+import { teamsByUser, teamLaneFor, type TeamLike } from "@/lib/teams/item-teams";
 import { selectRange } from "@/lib/boards/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -475,67 +466,19 @@ function KanbanBoardInner({
   const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
   const showEstimate = useMemo(() => hasAnyEstimate(items), [items]);
 
-  const filteredItems = items.filter((item) => {
-    if (
-      filters.search &&
-      !item.title.toLowerCase().includes(filters.search.toLowerCase()) &&
-      !String(item.ticketNumber).includes(filters.search)
-    ) {
-      return false;
-    }
-    if (
-      filters.types.length > 0 &&
-      !filters.types.includes(bareTypeKey(item.workItemType?.key))
-    ) {
-      return false;
-    }
-    if (
-      filters.priorities.length > 0 &&
-      !filters.priorities.includes(item.priority)
-    ) {
-      return false;
-    }
-    // Multi-assign: match the primary OR any member of the assignee set.
-    if (
-      filters.assigneeId &&
-      item.assigneeId !== filters.assigneeId &&
-      !item.assignees?.some((a) => a.userId === filters.assigneeId)
-    ) {
-      return false;
-    }
-    if (filters.intervalId && item.intervalId !== filters.intervalId) {
-      return false;
-    }
-    // A team's work is what its members are assigned. Unlike the swimlane, this
-    // is a membership test, so an item owned by someone on two teams matches
-    // both — filtering to one team must not hide work whose owner also helps
-    // out elsewhere.
-    if (!itemMatchesTeam(item.assigneeId, filters.teamId, teamsByUserId)) {
-      return false;
-    }
-    if (!matchesLabelFilter(item.tags, filters.labels)) {
-      return false;
-    }
-    if (!matchesOneOf(item.columnKey, filters.columnKeys)) return false;
-    if (!matchesOneOf(item.workCategory, filters.workCategories)) return false;
-    if (filters.createdById && item.createdById !== filters.createdById) return false;
-    if (!matchesDuePreset(item.dueDate, filters.due, filterNow)) return false;
-    if (!matchesMilestone(item.id, filters.milestoneId, milestoneMap)) return false;
-    if (!matchesBlocked(item.id, filters.blocked, blockedIds)) return false;
-    if (!matchesStoryPoints(item.storyPoints, filters.storyPoints)) return false;
-    if (!matchesEstimateBand(item.originalEstimate, filters.estimate)) return false;
-
-    if (
-      !matchesCustomFieldFilters(
-        item.customFields,
-        filters.customFields,
-        projectCustomFields,
-      )
-    ) {
-      return false;
-    }
-    return true;
-  });
+  // ONE predicate, shared with every other board — see lib/work-items/board-filters.
+  //
+  // This was a 61-line copy of it, clause for clause and in the same order. A
+  // second copy is how the two drift apart, and a filter that quietly means
+  // something different depending on which board you are looking at is worse
+  // than no filter at all. A team's work is still a membership test, so an item
+  // owned by someone on two teams matches both.
+  const filteredItems = items.filter((item) =>
+    matchesFilters(item, filters, projectCustomFields, teamsByUserId, filterNow, {
+      blocked: blockedIds,
+      milestones: milestoneMap,
+    }),
+  );
 
   // Selection narrowed to what's actually on screen under the current filters.
   // Drives the "N selected" counter, the Delete confirm label, and the bulk
