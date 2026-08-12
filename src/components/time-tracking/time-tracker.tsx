@@ -44,6 +44,7 @@ import {
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
+import { localDateString } from "@/lib/time/local-date";
 import { ApprovalsQueue } from "./approvals-queue";
 import { toast } from "sonner";
 
@@ -225,7 +226,11 @@ function getWeekDates(baseDate: Date): Date[] {
 }
 
 function toDateString(d: Date): string {
-  return d.toISOString().split("T")[0];
+  // LOCAL day. toISOString() is UTC, so after 20:00 Eastern this returned
+  // tomorrow — the default entry date and every isToday highlight were a day
+  // ahead. Stored dates are still read back in UTC (formatDateStable); this is
+  // the "what day is it for this person" case.
+  return localDateString(d);
 }
 
 function formatCurrency(amount: number): string {
