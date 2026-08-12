@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.0",
+    date: "2026-08-12",
+    title: "Sprint Health can now look across sprints and across a Program Increment",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Sprint Health board has three views. Current sprint is unchanged and still the default. Trend across sprints charts velocity and completion for every finished sprint, with your average and most recent called out. PI rollup totals points, items and sprints for each Program Increment.",
+      },
+      {
+        kind: "improvement",
+        text: "Sprints that finished before velocity was being recorded are left out of the charts rather than drawn as zero \u2014 \u201cnot recorded\u201d and \u201cdelivered nothing\u201d are different things. A sprint still in flight is also left out, so a half-finished sprint does not appear next to complete ones as a sudden drop.",
+      },
+    ],
+  },
+  {
     version: "2.285.0",
     date: "2026-08-12",
     title: "See what is blocked on the Timeline, and hide what is finished",
