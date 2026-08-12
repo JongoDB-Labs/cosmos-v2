@@ -31,6 +31,13 @@ const DATE_MED_FMT = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
+const DATE_MEDIUM_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
 const DATE_LONG_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
   month: "long",
@@ -54,6 +61,22 @@ export function formatDateShortStable(
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return "";
   return DATE_MED_FMT.format(d);
+}
+
+/**
+ * `Jul 30, 2026` — identical on server and client. Empty string for no date.
+ *
+ * The sprint-window format. Sprint and increment boundaries are calendar days
+ * stored at midnight UTC, so formatting them in the reader's zone showed every
+ * user west of UTC the day BEFORE the sprint actually started.
+ */
+export function formatDateMediumStable(
+  value: string | Date | null | undefined,
+): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return DATE_MEDIUM_FMT.format(d);
 }
 
 /** `July 30, 2026` — identical on server and client. Empty string for no date. */

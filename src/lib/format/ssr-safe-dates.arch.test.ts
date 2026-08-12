@@ -43,6 +43,11 @@ const CONVERTED = [
   "src/components/pm-dashboard/deliverable-tracker.tsx",
   "src/components/pm-dashboard/pm-entity-drawer.tsx",
   "src/components/pm-dashboard/schedule-tracker.tsx",
+  // The ceremony board had BOTH halves of this bug in one feature: the header
+  // pinned UTC inline while the Summary panel beside it did not, so the same
+  // sprint window rendered a day apart on two tabs of the same screen.
+  "src/components/boards/ceremony/ceremony-board.tsx",
+  "src/components/boards/ceremony/ceremony-summary.tsx",
 ];
 
 /**
@@ -88,7 +93,7 @@ describe("converted surfaces format dates SSR-safely", () => {
       });
 
       it("uses a stable formatter", () => {
-        expect(src).toMatch(/formatDate(Short|Long)?Stable/);
+        expect(src).toMatch(/formatDate(Short|Medium|Long)?Stable/);
       });
 
       it("has no ambient-locale date formatting left", () => {

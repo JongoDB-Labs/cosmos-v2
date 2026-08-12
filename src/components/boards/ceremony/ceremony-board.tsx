@@ -12,6 +12,11 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { cn } from "@/lib/utils";
+import { formatDateMediumStable as fmtDay } from "@/lib/format/stable-date";
+import {
+  ceremonySelectableIntervals,
+  defaultCeremonyInterval,
+} from "@/lib/intervals/ceremony-intervals";
 import { useCeremony } from "./use-ceremony";
 import { CeremonySummary } from "./ceremony-summary";
 import { ShippedList, CarriedList } from "./item-lists";
@@ -32,23 +37,13 @@ interface IntervalOption {
   name: string;
   number: number;
   status: "PLANNED" | "ACTIVE" | "COMPLETED";
+  /** Needed to keep Program Increments out of a SPRINT ceremony's picker. */
+  intervalKind: string;
 }
 
 interface OrgMemberLite {
   userId: string;
   displayName: string;
-}
-
-/** Matches the Summary tab's formatting. These are calendar days (YYYY-MM-DD),
- *  so they are read in UTC — parsing them locally would show the previous day
- *  west of UTC. */
-function fmtDay(d: string): string {
-  return new Date(`${d}T00:00:00.000Z`).toLocaleDateString(undefined, {
-    timeZone: "UTC",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 type TabKey = "summary" | "shipped" | "carried" | "retro" | "actions" | "next";
@@ -86,19 +81,17 @@ export function CeremonyBoard({
     queryFn: () => jsonFetch<OrgMemberLite[]>(`/api/v1/orgs/${orgId}/members`),
   });
 
-  // Default to the sprint the team is actually in: the active one, else the most
-  // recently completed, else the newest planned.
-  const intervals = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
-  const selectedId = useMemo(() => {
-    if (intervalId) return intervalId;
-    const active = intervals.find((i) => i.status === "ACTIVE");
-    if (active) return active.id;
-    const completed = [...intervals]
-      .filter((i) => i.status === "COMPLETED")
-      .sort((a, b) => b.number - a.number)[0];
-    if (completed) return completed.id;
-    return [...intervals].sort((a, b) => b.number - a.number)[0]?.id ?? null;
-  }, [intervalId, intervals]);
+  // A ceremony reports on an ITERATION, so Program Increments are filtered out
+  // of both the picker and the default — see ceremony-intervals for why the old
+  // "first ACTIVE" rule landed on the PI nearly every time.
+  const intervals = useMemo(
+    () => ceremonySelectableIntervals(intervalsQ.data ?? []),
+    [intervalsQ.data]
+  );
+  const selectedId = useMemo(
+    () => intervalId ?? defaultCeremonyInterval(intervals)?.id ?? null,
+    [intervalId, intervals]
+  );
 
   const ceremonyQ = useCeremony({
     orgId,
@@ -147,21 +140,28 @@ export function CeremonyBoard({
     );
   }
 
+  // Both of these used to render flush into the top-left corner. `EmptyState` and
+  // `LoadError` expect the caller to place them — every other board centres them
+  // in the remaining height.
   if (intervals.length === 0) {
     return (
-      <EmptyState
-        title="No sprints yet"
-        description="A ceremony board reports on a sprint. Create one to run planning or a review."
-      />
+      <div className="flex h-full items-center justify-center p-4">
+        <EmptyState
+          title="No sprints yet"
+          description="A ceremony board reports on a sprint. Create one to run planning or a review."
+        />
+      </div>
     );
   }
 
   if (ceremonyQ.isError) {
     return (
-      <LoadError
-        description="Could not load this ceremony."
-        onRetry={() => void ceremonyQ.refetch()}
-      />
+      <div className="flex h-full items-center justify-center p-4">
+        <LoadError
+          description="Could not load this ceremony."
+          onRetry={() => void ceremonyQ.refetch()}
+        />
+      </div>
     );
   }
 
@@ -189,10 +189,20 @@ export function CeremonyBoard({
           { key: "actions", label: "Action items" },
         ];
 
+  // Every other surface on this page — the project header, the board tab strip —
+  // is inset by `px-4`, and the board area itself is handed to us with no padding
+  // at all. This board used to render at x=0, so its title sat 16px left of the
+  // tabs directly above it and its cards ran flush into the sidebar.
+  const gutter = presenting ? "px-10" : "px-4";
+  // ONE reading width, for the chrome as well as the content. Capping only the
+  // content left the sprint selector and Start button stretched to the full
+  // viewport while the cards below them stopped ~700px short on a wide monitor.
+  const measure = presenting ? "" : "max-w-[1600px]";
+
   return (
     <div
       className={cn(
-        "flex flex-col gap-4",
+        "flex h-full flex-col",
         // Present mode is for a ROOM, not a desk. Going full-bleed was not
         // enough: it rendered at the same type sizes as the normal view, so the
         // headline figures a team is meant to read from across a room were
@@ -200,18 +210,34 @@ export function CeremonyBoard({
         // inside it at once — including the stat figures — rather than needing a
         // presentation variant threaded through each panel.
         presenting &&
-          "fixed inset-0 z-50 overflow-auto bg-[var(--bg,var(--surface))] p-10 text-[1.35rem] [&_h2]:text-[1.6em] [&_h3]:text-[1.2em]"
+          "fixed inset-0 z-50 bg-[var(--bg,var(--surface))] text-[1.35rem] [&_h2]:text-[1.6em] [&_h3]:text-[1.2em]"
       )}
     >
       {/* A classification banner is a legal marking, not decoration: if the
           board carries one it must be visible in presentation too. */}
       {classification ? (
-        <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+        <p
+          className={cn(
+            "shrink-0 border-b border-[var(--border)] py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]",
+            gutter
+          )}
+        >
           {classification}
         </p>
       ) : null}
 
-      <header className="flex flex-wrap items-center gap-3">
+      {/* Title, controls and section tabs are one block of chrome — together they
+          answer "which ceremony am I looking at". A rule under them separates the
+          controls from the report, the way every other board here does it, and
+          keeps them in place while the report scrolls under a facilitator. */}
+      <div
+        className={cn(
+          "shrink-0 space-y-3 border-b border-[var(--border)] py-3",
+          gutter
+        )}
+      >
+        <div className={cn("space-y-3", measure)}>
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0">
           <h2 className="truncate text-lg font-semibold">
             {data.board.name} — {data.sprint.name}
@@ -285,10 +311,13 @@ export function CeremonyBoard({
         </div>
       </header>
 
+      {/* `w-fit` so the segmented control hugs its six short tabs. Stretched to
+          the full width it read as an empty toolbar with buttons crammed at one
+          end, rather than as a set of choices. */}
       <div
         role="tablist"
         aria-label="Ceremony section"
-        className="flex flex-wrap gap-0.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-0.5"
+        className="flex w-fit max-w-full flex-wrap gap-0.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-0.5"
       >
         {tabs.map((t) => {
           const active = t.key === tab;
@@ -309,9 +338,16 @@ export function CeremonyBoard({
             </button>
           );
         })}
+        </div>
+        </div>
       </div>
 
-      <div className="min-h-[300px] w-full max-w-[1600px]">
+      {/* The report scrolls, the chrome above it does not. `py-6` rather than the
+          `gap-4` this used to inherit: the tab strip and the first row of cards
+          were 16px apart, which read as one block instead of a control and the
+          thing it controls. */}
+      <div className={cn("flex-1 overflow-y-auto py-6", gutter)}>
+        <div className={cn("w-full", measure)}>
         {tab === "summary" ? <CeremonySummary data={data} /> : null}
 
         {tab === "shipped" ? (
@@ -402,9 +438,8 @@ export function CeremonyBoard({
             </section>
           </div>
         ) : null}
+        </div>
       </div>
-
-
     </div>
   );
 }
