@@ -14,6 +14,8 @@ import {
   ChevronsUpDown,
   Loader2,
   GitCompareArrows,
+  Ban,
+  EyeOff,
   Wrench,
   Waypoints,
   Undo2,
@@ -43,6 +45,7 @@ import {
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import { matchesFilters } from "@/lib/work-items/board-filters";
+import { blockersByItem, isBlockingLink } from "@/lib/work-items/blocking";
 import {
   blockedItemIds,
   matchesBlocked,
@@ -388,6 +391,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const presentLabelNames = useMemo(() => presentLabels(items), [items]);
   const filterNow = useMemo(() => new Date(), [items]);
   const blockedIds = useMemo(() => blockedItemIds(links), [links]);
+  const blockers = useMemo(() => blockersByItem(links), [links]);
   const milestoneRows = useMemo(
     () => (milestonesQ.data as { id: string; title: string; links?: { workItemId: string }[] }[] | undefined) ?? [],
     [milestonesQ.data],
@@ -424,14 +428,43 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // in this component, so entering and leaving changes nothing but the layout.
   const [fullscreen, setFullscreen] = useState(false);
   const [showDeps, setShowDeps] = useState(false);
+  // Blocked lens: red bars for impeded work, with arrows to whatever is holding
+  // it up. Every dependency renders the same grey otherwise, so "what is stuck,
+  // and behind what" is invisible on a board of any size.
+  const [showBlocked, setShowBlocked] = useState(false);
+  // Finished work still occupies rows. On a long-running plan it crowds out what
+  // is actually in play.
+  const [hideDone, setHideDone] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // From the PROJECT's workflow, not this board's own columns. A Timeline board
+  // owns no BoardColumn rows, so `columns` is empty here and doneKeys was always
+  // empty with it — which silently made progressOf() report 0% for every bar and
+  // gave the Hide-done lens nothing to hide. Same root cause as the Status
+  // filter having no options on this board.
+  const doneKeys = useMemo(
+    () =>
+      new Set(
+        (projectStatuses.length > 0 ? projectStatuses : columns)
+          .filter((c) => c.category === "DONE")
+          .map((c) => c.key),
+      ),
+    [projectStatuses, columns],
+  );
+
   const filteredItems = useMemo(
-    () => items.filter((it) => matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
-        blocked: blockedIds,
-        milestones: milestoneMap,
-      })),
-    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap],
+    () =>
+      items.filter(
+        (it) =>
+          matchesFilters(it, filters, projectCustomFields, teamsByUserId, filterNow, {
+            blocked: blockedIds,
+            milestones: milestoneMap,
+          }) &&
+          // Hide-done lens. Finished work still occupies rows, and on a
+          // long-running plan it crowds out what is actually in play.
+          !(hideDone && it.columnKey != null && doneKeys.has(it.columnKey)),
+      ),
+    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, hideDone, doneKeys],
   );
   const hasEnablers = useMemo(
     () => filteredItems.some((it) => it.workCategory === "ENABLER"),
@@ -521,10 +554,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       commitCollapsed(next);
     },
     [collapsedIds, commitCollapsed],
-  );
-  const doneKeys = useMemo(
-    () => new Set(columns.filter((c) => c.category === "DONE").map((c) => c.key)),
-    [columns],
   );
 
   // Click a bar → open the shared work-item detail (same as other board views).
@@ -1318,6 +1347,22 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </DropdownMenuContent>
             </DropdownMenu>
             <LensToggle
+              active={showBlocked}
+              onClick={() => setShowBlocked((v) => !v)}
+              icon={<Ban className="size-3.5" />}
+              label="Blocked"
+              title="Show impeded work in red, with arrows to whatever is blocking it"
+              accent="var(--status-critical)"
+            />
+            <LensToggle
+              active={hideDone}
+              onClick={() => setHideDone((v) => !v)}
+              icon={<EyeOff className="size-3.5" />}
+              label="Hide done"
+              title="Drop finished work from the chart so what is still in play has room"
+              accent="var(--status-done)"
+            />
+            <LensToggle
               active={showPlanDrift}
               onClick={() => setShowPlanDrift((v) => !v)}
               icon={<GitCompareArrows className="size-3.5" />}
@@ -1906,7 +1951,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 source bar's right edge to the target bar's left edge, with an
                 arrowhead at the target. Rendered UNDER the bars. Endpoints whose
                 bar isn't currently on a visible row are skipped. */}
-            {(showDeps || showCritical) &&
+            {(showDeps || showCritical || showBlocked) &&
               links.map((link) => {
                 const from = barPositions.get(link.sourceItemId);
                 const to = barPositions.get(link.targetItemId);
@@ -1922,13 +1967,25 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   criticalSet.has(link.targetItemId);
                 const downstream = !!depFocus && link.sourceItemId === depFocus.id;
                 const upstream = !!depFocus && link.targetItemId === depFocus.id;
-                // deps off: only the critical chain shows (when that lens is on).
-                if (!crit && !showDeps) return null;
+                // The Blocked lens draws its edges persistently, not just on
+                // hover — the point is to SEE what is holding work up without
+                // having to go looking for it.
+                const isBlockEdge = showBlocked && isBlockingLink(link.type);
+                // deps off: only the critical chain (and blocking edges, when
+                // that lens is on) shows.
+                if (!crit && !showDeps && !isBlockEdge) return null;
                 let stroke = "#94a3b8";
                 let sw = 1.25;
                 let opacity = 0.34;
                 let marker = "url(#timeline-dep-arrow)";
-                if (crit) {
+                if (isBlockEdge) {
+                  // Red, and heavier than a plain dependency: an impediment is
+                  // not the same class of fact as an ordering constraint.
+                  stroke = "var(--status-critical)";
+                  sw = 2.5;
+                  opacity = 1;
+                  marker = "url(#timeline-dep-arrow-crit)";
+                } else if (crit) {
                   stroke = "var(--status-critical)";
                   sw = 2.5;
                   opacity = 1;
@@ -2001,6 +2058,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const isSelected = selectedIds.has(item.id);
               const isCrit = showCritical && criticalSet.has(item.id);
               const isEnabler = item.workCategory === "ENABLER";
+              // Blocked lens: impeded work turns red and everything else recedes,
+              // so a board of any size answers "what is stuck" at a glance.
+              // Dimmed rather than hidden — a blocker is usually NOT itself
+              // blocked, and hiding it would remove the thing the arrow points at.
+              const isBlocked = showBlocked && blockedIds.has(item.id);
+              const dimForBlockedLens = showBlocked && !isBlocked ? 0.35 : 1;
               // Business items dim slightly while the Enabler lens is on so the
               // hatched enablers pop; enablers keep full opacity.
               const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
@@ -2127,15 +2190,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       rx={4}
                       fill={colors.fill}
                       stroke={
-                        isCrit
+                        isBlocked
+                          ? "var(--status-critical)"
+                          : isCrit
                           ? "var(--status-critical)"
                           : isEnabler && showEnablers
                             ? "var(--type-enabler, #0891b2)"
                             : colors.stroke
                       }
-                      strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
+                      strokeWidth={isBlocked || isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * depDim * critDim}
+                      opacity={(preview ? 1 : 0.85) * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                       onPointerDown={(e) => beginDrag(item, "move", e)}
                       onPointerMove={onDragMove}
                       onPointerUp={onDragEnd}
@@ -2163,7 +2228,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       stroke={isCrit ? "var(--status-critical)" : "transparent"}
                       strokeWidth={isCrit ? 2.5 : 1}
                       strokeDasharray="3 3"
-                      opacity={0.3 * dimForEnablerLens * depDim * critDim}
+                      opacity={0.3 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                       style={{ pointerEvents: "none" }}
                     />
                   ) : null}
@@ -2186,7 +2251,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       }
                       strokeWidth={isCrit ? 2.5 : isEnabler ? 1.5 : 1}
                       strokeDasharray={isEnabler ? "5 3" : undefined}
-                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * depDim * critDim}
+                      opacity={(preview ? 1 : 0.9) * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                       onClick={(e) => onBarClick(item, e)}
                       onDoubleClick={() => setDetailId(item.id)}
                       onContextMenu={(e) => {
