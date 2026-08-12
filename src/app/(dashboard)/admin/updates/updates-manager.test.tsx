@@ -53,6 +53,77 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Route both endpoints the panel now uses off one stub. */
+function stubFetch(check: unknown, deploy: unknown = { latest: null }, onPost?: () => Response) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/deploy")) {
+        if (init?.method === "POST") return onPost ? onPost() : new Response(JSON.stringify({ id: "r1" }), { status: 202 });
+        return new Response(JSON.stringify(deploy), { status: 200 });
+      }
+      return new Response(JSON.stringify(check), { status: 200 });
+    }),
+  );
+}
+
+describe("UpdatesManager — the install control", () => {
+  it("offers to install when every blocking check passed", async () => {
+    stubFetch({ ...OK, applyable: true });
+    renderPanel();
+    expect(await screen.findByRole("button", { name: /install 2\.277\.1/i })).toBeTruthy();
+  });
+
+  it("REFUSES to offer it while a blocking check has not passed", async () => {
+    stubFetch({ ...OK, applyable: false });
+    renderPanel();
+    const btn = await screen.findByRole("button", { name: /install 2\.277\.1/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/until every blocking check above passes/i)).toBeTruthy();
+  });
+
+  it("says a queued request is UNCLAIMED rather than implying progress", async () => {
+    // A request nobody picks up means no runner is running. Showing "installing"
+    // forever is the exact lie this surface exists to avoid.
+    const stale = {
+      latest: {
+        id: "r1", version: "2.277.1", status: "PENDING",
+        requestedAt: new Date().toISOString(), unclaimedMs: 5 * 60_000,
+        requestedByEmail: "jon@example.com", claimedAt: null, claimedBy: null,
+        finishedAt: null, exitCode: null, log: "",
+      },
+    };
+    stubFetch({ ...OK, applyable: true }, stale);
+    renderPanel();
+    expect(await screen.findByText(/deploy runner may not be installed/i)).toBeTruthy();
+  });
+
+  it("presents ABANDONED as UNKNOWN, never as a failure", async () => {
+    const abandoned = {
+      latest: {
+        id: "r1", version: "2.277.1", status: "ABANDONED",
+        requestedAt: new Date().toISOString(), requestedByEmail: "jon@example.com",
+        claimedAt: new Date().toISOString(), claimedBy: "host-1",
+        finishedAt: new Date().toISOString(), exitCode: null, log: "swept", unclaimedMs: 0,
+      },
+    };
+    stubFetch({ ...OK, applyable: true }, abandoned);
+    renderPanel();
+    expect(await screen.findByText(/outcome of this install is unknown/i)).toBeTruthy();
+  });
+
+  it("surfaces a refusal from the server instead of failing silently", async () => {
+    stubFetch({ ...OK, applyable: true }, { latest: null }, () =>
+      new Response(JSON.stringify({ error: "A deploy is already in progress on this instance." }), { status: 409 }),
+    );
+    renderPanel();
+    const btn = await screen.findByRole("button", { name: /install/i });
+    btn.click();
+    expect(await screen.findByText(/already in progress/i)).toBeTruthy();
+  });
+});
+
 describe("UpdatesManager", () => {
   it("renders the version comparison once the check returns", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));

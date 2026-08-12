@@ -1,7 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText } from "lucide-react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -51,6 +52,34 @@ type UpdateCheck = {
 // an org-prefixed key would namespace under `null`. There is no cross-tenant
 // bleed to guard against on an instance-wide surface. Matches admin/allowlist.
 const QUERY_KEY = ["admin", "updates"] as const;
+const DEPLOY_KEY = ["admin", "updates", "deploy"] as const;
+
+type DeployStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "ABANDONED";
+
+type DeployRequest = {
+  id: string;
+  version: string;
+  status: DeployStatus;
+  requestedAt: string;
+  requestedByEmail: string;
+  claimedAt: string | null;
+  claimedBy: string | null;
+  finishedAt: string | null;
+  exitCode: number | null;
+  log: string;
+  /** How long this has sat unclaimed, computed server-side (see the route). */
+  unclaimedMs: number;
+};
+
+/** Terminal states — nothing further will change on its own. */
+const DONE: DeployStatus[] = ["SUCCEEDED", "FAILED", "ABANDONED"];
+
+/**
+ * A request nobody has claimed after this long almost certainly means no host
+ * runner is installed or running. Saying "queued" forever would be the exact
+ * lie this surface exists to avoid, so past this point the panel says so.
+ */
+const UNCLAIMED_WARN_MS = 60_000;
 
 const STATUS_ICON: Record<PreflightStatus, typeof CheckCircle2> = {
   pass: CheckCircle2,
@@ -123,6 +152,104 @@ function PreflightRow({ check }: { check: Preflight }) {
         <p className="text-xs text-muted-foreground">{check.detail}</p>
       </div>
     </li>
+  );
+}
+
+function DeployPanel({ version, applyable }: { version: string; applyable: boolean }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const { data } = useQuery({
+    queryKey: DEPLOY_KEY,
+    queryFn: () => jsonFetch<{ latest: DeployRequest | null }>("/api/v1/admin/updates/deploy"),
+    // Poll only while something is actually in flight; a finished deploy does
+    // not change again, and an idle admin page should not talk to the server
+    // every second forever.
+    refetchInterval: (q) => {
+      const s = q.state.data?.latest?.status;
+      return s && !DONE.includes(s) ? 2000 : false;
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const latest = data?.latest ?? null;
+  const active = latest && !DONE.includes(latest.status) ? latest : null;
+
+  const start = useMutation({
+    mutationFn: () =>
+      jsonFetch<DeployRequest>("/api/v1/admin/updates/deploy", {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }),
+    onSuccess: () => {
+      setError(null);
+      void qc.invalidateQueries({ queryKey: DEPLOY_KEY });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "The request was refused."),
+  });
+
+  return (
+    <SectionCard
+      icon={Rocket}
+      title="Install this version"
+      description="Runs the same deploy the operator would run by hand, on the server."
+    >
+      {active ? (
+        <div className="space-y-2">
+          <p className="text-sm">
+            <span className="font-medium">{active.version}</span> —{" "}
+            {active.status === "PENDING" ? "queued" : "installing"}
+            {active.claimedBy && <span className="text-muted-foreground"> on {active.claimedBy}</span>}
+          </p>
+          {active.status === "PENDING" && active.unclaimedMs > UNCLAIMED_WARN_MS && (
+            // Never imply progress that is not happening.
+            <p className="text-sm text-amber-600 dark:text-amber-500">
+              Nothing has picked this up. The server-side deploy runner may not be installed or running —
+              this request will stay queued until it is.
+            </p>
+          )}
+        </div>
+      ) : (
+        <>
+          <Button onClick={() => start.mutate()} disabled={!applyable || start.isPending}>
+            <Rocket className="mr-2 size-4" aria-hidden />
+            {start.isPending ? "Requesting…" : `Install ${version}`}
+          </Button>
+          {!applyable && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Unavailable until every blocking check above passes.
+            </p>
+          )}
+        </>
+      )}
+
+      {error && <p className="mt-3 text-sm text-amber-600 dark:text-amber-500">{error}</p>}
+
+      {latest && (
+        <div className="mt-4 border-t pt-3">
+          <p className="text-xs text-muted-foreground">
+            Last: <span className="font-mono">{latest.version}</span> — {latest.status.toLowerCase()}
+            {latest.exitCode !== null && latest.status !== "SUCCEEDED" && ` (exit ${latest.exitCode})`}
+            {" · requested by "}
+            {latest.requestedByEmail}
+          </p>
+          {latest.status === "ABANDONED" && (
+            // ABANDONED is UNKNOWN. Presenting it as a failure would read as
+            // "nothing happened", which may be false.
+            <p className="mt-1 text-sm text-amber-600 dark:text-amber-500">
+              The runner stopped reporting, so the outcome of this install is unknown — it may have
+              completed, partly run, or never started. Check the running version above before starting
+              another.
+            </p>
+          )}
+          {latest.log && (
+            <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-xs leading-relaxed">
+              {latest.log}
+            </pre>
+          )}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 
@@ -277,6 +404,10 @@ export function UpdatesManager() {
             </p>
           )}
         </SectionCard>
+      )}
+
+      {status?.updateAvailable && status.latest && (
+        <DeployPanel version={status.latest} applyable={data.applyable} />
       )}
 
       {data.preflights.length > 0 && (

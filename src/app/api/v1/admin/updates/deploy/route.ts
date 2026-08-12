@@ -130,7 +130,14 @@ export async function GET() {
         log: true,
       },
     });
-    return NextResponse.json({ latest });
+    // Computed HERE, not in the component: reading a clock during render is an
+    // impure call React forbids, and doing it server-side also removes the
+    // client's clock skew from a judgement about whether anything picked this
+    // up. 0 unless it is still waiting to be claimed.
+    const unclaimedMs =
+      latest && latest.status === "PENDING" ? Date.now() - latest.requestedAt.getTime() : 0;
+
+    return NextResponse.json({ latest: latest ? { ...latest, unclaimedMs } : null });
   } catch (error) {
     return handleApiError(error);
   }
