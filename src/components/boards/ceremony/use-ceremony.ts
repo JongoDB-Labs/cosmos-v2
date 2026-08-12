@@ -71,7 +71,17 @@ export interface CeremonyPayload {
    * clean sprint.
    */
   carried: { kind: "live" | "recorded" | "unrecorded"; items: CeremonyItem[] };
-  nextSprint: { name: string; startDate: string; endDate: string };
+  /**
+   * `planned: true` means this sprint EXISTS — real name, real dates. `false`
+   * means nothing follows this sprint yet and these are suggested defaults, so
+   * the UI must not present them as fact.
+   */
+  nextSprint: {
+    name: string;
+    startDate: string;
+    endDate: string;
+    planned: boolean;
+  };
   ceremony: {
     id: string;
     kind: "PLANNING" | "REVIEW";

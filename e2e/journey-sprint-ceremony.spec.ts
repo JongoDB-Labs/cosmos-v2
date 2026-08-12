@@ -1,36 +1,47 @@
 import { test, expect } from "./fixtures/auth";
+// The auth fixture re-exports only `test` and `expect`; the Page type comes from
+// Playwright itself. Playwright transpiles specs without typechecking, so this
+// only surfaces under `tsc`.
+import type { Page } from "@playwright/test";
 
 /**
- * E2E journey — sprint ceremony boards.
+ * E2E journey — sprint ceremony boards, every CRUD operation.
  *
- * Drives the whole scrum-master path: plan a sprint, create the Sprint Review /
- * Retro board from the template gallery, point it at that sprint, start the
- * ceremony, and capture a retro note. Then checks that Sprint Planning — the
- * same component with `kind="PLANNING"` — renders its own tab set.
+ * The first version of this spec drove a happy path only: create a board, start
+ * a ceremony, add one note. Everything it touched worked, so it reported the
+ * boards as healthy while five user-visible defects sat in the surfaces it never
+ * exercised — a promote link that 404'd, an Owner picker of blank options, an
+ * Owner column that printed "—" for owned actions, a due date rendered a day
+ * early, and a "next sprint" that invented a sprint the team had already
+ * planned. Each assertion below that names a bug is there because of one.
  *
- * The seeded "TEST" project (prisma/seed/test-fixtures.ts) has NO intervals and
- * no ceremony boards, and a ceremony board reports on a sprint, so the journey
- * has to create both. That is also what makes this worth running: it exercises
- * board creation seeding `defaultColumns` (a retro board whose columns never got
- * created opens with nowhere to put a note), the ceremony GET, the open
- * mutation, and the note round-trip.
+ * Serial by design: the sprints and the boards are created once by the first
+ * test and reused, because creating them per-test triples an already slow run.
+ * `workers: 1` in playwright.config makes that safe.
  *
  * Mutating — runs in the CI e2e job (Postgres + test-fixtures seed). Alice is
- * ADMIN (org) + MANAGER (project), so she has SPRINT_CREATE and BOARD_CREATE.
- * Unique names per run so retries on the shared CI DB do not clash; the board
- * slug therefore tolerates the `-2`, `-3`, … suffix `uniqueBoardSlug` adds.
+ * ADMIN (org) + MANAGER (project). Unique names per run so retries on the shared
+ * CI DB do not clash; board slugs tolerate the `-2`, `-3`, … suffix
+ * `uniqueBoardSlug` adds.
  *
  * No "What's new" handling needed: that modal skips its auto-open when
- * `navigator.webdriver` is true, precisely so its backdrop cannot swallow clicks
- * here.
+ * `navigator.webdriver` is true, precisely so its backdrop cannot swallow clicks.
  */
 
 const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
 const EMAIL = process.env.E2E_EMAIL ?? "alice@test.local";
 const KEY = process.env.E2E_PROJECT_KEY ?? "test";
 
-/** Plan a sprint from the Intervals page and return its name. */
-async function planSprint(page: import("@playwright/test").Page, name: string) {
+const STAMP = Date.now().toString().slice(-6);
+/** The sprint the ceremony reports on. */
+const SPRINT = `E2E Ceremony Sprint ${STAMP}`;
+/** A LATER planned sprint, so "Next sprint" has a real one to find. */
+const NEXT_SPRINT = `E2E Ceremony Next ${STAMP}`;
+
+let reviewUrl = "";
+let planningUrl = "";
+
+async function planSprint(page: Page, name: string, start: string, end: string) {
   await page.goto(`/${ORG}/projects/${KEY}/intervals`, {
     waitUntil: "domcontentloaded",
   });
@@ -42,30 +53,26 @@ async function planSprint(page: import("@playwright/test").Page, name: string) {
   ).toBeVisible({ timeout: 10_000 });
 
   await page.getByLabel(/^Name$/).fill(name);
-  await page.getByLabel(/start date/i).fill("2026-07-01");
-  await page.getByLabel(/end date/i).fill("2026-07-14");
+  await page.getByLabel(/start date/i).fill(start);
+  await page.getByLabel(/end date/i).fill(end);
   await page.getByRole("button", { name: /create interval/i }).click();
 
   await expect(page.getByText(name).first()).toBeVisible({ timeout: 20_000 });
 }
 
 /**
- * Create a board from its built-in template card and land on it.
+ * Create a board from its built-in template card.
  *
- * The card is found by the h3 it CONTAINS, not by its own accessible name.
- * Two reasons, both learned the hard way:
- *
- *   - a card's accessible name is its category chips + title + description
- *     concatenated ("scrum agile Sprint Review / Retro What shipped, …"), so
- *     an anchored /^sprint planning/ never matches;
- *   - once a board of that name exists, the board tab strip above the gallery
- *     contributes `button "Tab actions for Sprint Review / Retro"`, which sorts
- *     EARLIER in the DOM. A name-regex + `.first()` picked that instead and
- *     opened a dropdown menu. This spec would have passed on a virgin database
- *     and failed on every run after — the worst possible shape for a flake.
+ * Located by the h3 the card CONTAINS, not by the card's own accessible name.
+ * That name is category chips + title + description concatenated ("scrum agile
+ * Sprint Review / Retro What shipped, …"), so an anchored regex never matches —
+ * and worse, once a board of that name exists the board tab strip contributes
+ * `button "Tab actions for <name>"` EARLIER in the DOM, which a name regex plus
+ * `.first()` picked instead, opening a dropdown. That version passed on a virgin
+ * database and failed on every run after.
  */
 async function createBoardFromTemplate(
-  page: import("@playwright/test").Page,
+  page: Page,
   templateTitle: string,
   slug: RegExp,
 ) {
@@ -75,51 +82,67 @@ async function createBoardFromTemplate(
   await page.waitForSelector("main", { timeout: 20_000 });
 
   const card = page.getByRole("button").filter({
-    has: page.getByRole("heading", {
-      level: 3,
-      name: templateTitle,
-      exact: true,
-    }),
+    has: page.getByRole("heading", { level: 3, name: templateTitle, exact: true }),
   });
   await expect(card).toBeVisible({ timeout: 20_000 });
   await card.click();
-
   await expect(page).toHaveURL(slug, { timeout: 25_000 });
 }
 
+/** Point the board at our sprint. Selection is component state, so every fresh load needs it. */
+async function selectSprint(page: Page, name = SPRINT) {
+  const picker = page.locator("#ceremony-sprint");
+  await expect(picker).toBeVisible({ timeout: 25_000 });
+  await picker.selectOption({ label: name });
+  await expect(
+    page.getByRole("heading", { name: new RegExp(name) }),
+  ).toBeVisible({ timeout: 20_000 });
+}
+
+const tab = (page: Page, name: string) =>
+  page.getByRole("tab", { name, exact: true });
+
+test.describe.configure({ mode: "serial" });
+
 test.describe("journey — sprint ceremony boards", () => {
-  test("run a retro: plan a sprint, create the board, start, capture a note", async ({
+  test("set up: two sprints and both ceremony boards", async ({
     page,
     signInAs,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(150_000);
     await signInAs(EMAIL);
 
-    const stamp = Date.now().toString().slice(-6);
-    const sprintName = `E2E Ceremony Sprint ${stamp}`;
-    const note = `E2E retro note ${stamp}`;
+    await planSprint(page, SPRINT, "2026-07-01", "2026-07-14");
+    // Strictly later, and PLANNED — this is what "Next sprint" must find.
+    await planSprint(page, NEXT_SPRINT, "2026-07-15", "2026-07-28");
 
-    await planSprint(page, sprintName);
     await createBoardFromTemplate(
       page,
       "Sprint Review / Retro",
       /\/boards\/sprint-review-retro(-\d+)?$/i,
     );
+    reviewUrl = page.url();
 
-    // The board opens on whichever sprint the project is in; this journey is
-    // about the one it just planned, so pick it explicitly rather than assuming
-    // a shared CI database contains only ours.
-    const sprintPicker = page.locator("#ceremony-sprint");
-    await expect(sprintPicker).toBeVisible({ timeout: 25_000 });
-    await sprintPicker.selectOption({ label: sprintName });
+    await createBoardFromTemplate(
+      page,
+      "Sprint Planning",
+      /\/boards\/sprint-planning(-\d+)?$/i,
+    );
+    planningUrl = page.url();
 
-    // Title is "<board> — <sprint>", so this asserts the board followed the pick.
-    await expect(
-      page.getByRole("heading", { name: new RegExp(sprintName) }),
-    ).toBeVisible({ timeout: 20_000 });
+    expect(reviewUrl).not.toBe("");
+    expect(planningUrl).not.toBe("");
+  });
 
-    // A review's six sections. `Carrying forward` and `Next sprint` are the two
-    // that only exist for kind="REVIEW" — see the planning test below.
+  test("review board shows the six sections and excludes Program Increments", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(90_000);
+    await signInAs(EMAIL);
+    await page.goto(reviewUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+
     for (const label of [
       "Summary",
       "What shipped",
@@ -128,88 +151,226 @@ test.describe("journey — sprint ceremony boards", () => {
       "Action items",
       "Next sprint",
     ]) {
-      await expect(page.getByRole("tab", { name: label })).toBeVisible();
+      await expect(tab(page, label)).toBeVisible();
     }
 
-    // Notes cannot be captured until the ceremony is open — the textarea is
-    // rendered but its Add button stays disabled without a ceremony id.
+    // A ceremony reports on an ITERATION. A PI holds no work items, so opening
+    // on one showed 0 points / 0 of 0 items — a claim about the team that the
+    // data does not support.
+    const options = await page.locator("#ceremony-sprint option").allTextContents();
+    expect(options.some((o) => /^PI-/i.test(o.trim()))).toBe(false);
+  });
+
+  test("retro notes: add to every column, delete one, survive a reload", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(120_000);
+    await signInAs(EMAIL);
+    await page.goto(reviewUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+
+    // Notes need an open ceremony; the Add button stays disabled without one.
     await page.getByRole("button", { name: /start ceremony/i }).click();
     await expect(page.getByRole("button", { name: /^close$/i })).toBeVisible({
       timeout: 20_000,
     });
 
-    await page.getByRole("tab", { name: "Retrospective" }).click();
+    await tab(page, "Retrospective").click();
 
-    // Start / Stop / Continue come from the board's own BoardColumn rows, seeded
-    // at creation from the type's defaultColumns. If that seeding regressed this
-    // region would not exist, which is the point of asserting on it.
-    const startColumn = page.getByRole("region", { name: "Start" });
-    await expect(startColumn).toBeVisible({ timeout: 20_000 });
+    // Start / Stop / Continue are BoardColumn rows seeded at creation from the
+    // type's defaultColumns. Without that seeding there is nowhere to put a note.
+    for (const column of ["Start", "Stop", "Continue"]) {
+      const region = page.getByRole("region", { name: column });
+      await expect(region).toBeVisible({ timeout: 20_000 });
 
-    await startColumn.getByLabel(`Add a note to Start`).fill(note);
-    const add = startColumn.getByRole("button", { name: /^add$/i });
-    await expect(add).toBeEnabled({ timeout: 10_000 });
-    await add.click();
+      await region.getByLabel(`Add a note to ${column}`).fill(`note in ${column}`);
+      const add = region.getByRole("button", { name: /^add$/i });
+      await expect(add).toBeEnabled({ timeout: 10_000 });
+      await add.click();
 
-    // Assert on the note LIST, never `getByText` over the column.
-    //
-    // The column contains the textarea you just typed into as well as the notes,
-    // so a bare text match is satisfied by the draft sitting in the input — it
-    // passes whether or not anything was saved. The first draft of this spec did
-    // exactly that and went green against a database with zero rows in it.
-    const notes = startColumn.getByRole("listitem");
-    await expect(notes.filter({ hasText: note })).toBeVisible({ timeout: 20_000 });
+      // Assert on the LIST, never `getByText` over the region: the column holds
+      // the textarea you just typed into as well as the notes, so a bare text
+      // match is satisfied by the draft and goes green against an empty table.
+      await expect(
+        region.getByRole("listitem").filter({ hasText: `note in ${column}` }),
+      ).toBeVisible({ timeout: 20_000 });
+      // Cleared on success is the other half of "the server took it".
+      await expect(region.getByLabel(`Add a note to ${column}`)).toHaveValue("");
+    }
 
-    // The list renders from the ceremony QUERY, so the note coming back means
-    // the server accepted it. (Failing to invalidate was a real bug here: the
-    // mutation took unprefixed key parts, and a prefixed key matched nothing.)
-    // The textarea should also have been cleared on success.
-    await expect(startColumn.getByLabel("Add a note to Start")).toHaveValue("");
-
-    // Stronger still: prove it survives a fresh page. Selection is component
-    // state, so the sprint has to be picked again.
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(sprintPicker).toBeVisible({ timeout: 25_000 });
-    await sprintPicker.selectOption({ label: sprintName });
-    await page.getByRole("tab", { name: "Retrospective" }).click();
+    // Delete removes exactly the one note, leaving the siblings alone.
+    const stop = page.getByRole("region", { name: "Stop" });
+    await stop.getByRole("button", { name: "Delete note" }).first().click();
     await expect(
-      page
-        .getByRole("region", { name: "Start" })
+      stop.getByRole("listitem").filter({ hasText: "note in Stop" }),
+    ).toHaveCount(0, { timeout: 20_000 });
+    await expect(
+      page.getByRole("region", { name: "Start" })
         .getByRole("listitem")
-        .filter({ hasText: note }),
+        .filter({ hasText: "note in Start" }),
+    ).toBeVisible();
+
+    // Persistence, not just a refetch.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+    await tab(page, "Retrospective").click();
+    await expect(
+      page.getByRole("region", { name: "Start" })
+        .getByRole("listitem")
+        .filter({ hasText: "note in Start" }),
     ).toBeVisible({ timeout: 25_000 });
   });
 
-  test("sprint planning renders the planning sections, not the review's", async ({
+  test("action items: owner and due date render, promote links somewhere real, delete", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(120_000);
+    await signInAs(EMAIL);
+    await page.goto(reviewUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+    await tab(page, "Action items").click();
+
+    // BUG GUARD: the picker listed one blank option per member, because the
+    // members endpoint nests the name on `user` and the component read it flat.
+    const ownerOptions = await page.locator("#action-owner option").allTextContents();
+    expect(ownerOptions.every((o) => o.trim().length > 0)).toBe(true);
+    expect(ownerOptions.length).toBeGreaterThan(1);
+
+    await page.locator("#action-text").fill("Automate the release checklist");
+    await page.locator("#action-owner").selectOption({ index: 1 });
+    await page.locator("#action-due").fill("2026-09-15");
+    await page.getByRole("button", { name: /add action/i }).click();
+
+    const row = page.getByRole("row").filter({ hasText: "Automate the release checklist" });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+
+    // BUG GUARD: the Owner column printed "—" for owned actions.
+    const ownerName = (ownerOptions[1] ?? "").trim();
+    await expect(row.getByRole("cell", { name: ownerName, exact: true })).toBeVisible();
+
+    // BUG GUARD: a due date entered as the 15th rendered as the 14th for any
+    // reader behind UTC — it is a calendar day stored at midnight UTC.
+    await expect(row.getByText("Sep 15, 2026")).toBeVisible();
+
+    // Promote is what makes a retro consequential.
+    await row.getByRole("button", { name: /promote/i }).click();
+    const tracked = row.getByRole("link", { name: /tracked/i });
+    await expect(tracked).toBeVisible({ timeout: 25_000 });
+
+    // BUG GUARD: it pointed at /projects/<key>/items/<id>, which is not a route
+    // in this app — the link 404'd. Assert the shape AND that it resolves.
+    const href = await tracked.getAttribute("href");
+    expect(href).toMatch(/\/issues\?item=[0-9a-f-]{36}$/i);
+    const resolved = await page.request.get(href!);
+    expect(resolved.status()).toBe(200);
+
+    // Delete removes the row.
+    await page.locator("#action-text").fill("Throwaway action");
+    await page.getByRole("button", { name: /add action/i }).click();
+    const throwaway = page.getByRole("row").filter({ hasText: "Throwaway action" });
+    await expect(throwaway).toBeVisible({ timeout: 20_000 });
+    await throwaway.getByRole("button", { name: /^delete action/i }).click();
+    await expect(throwaway).toHaveCount(0, { timeout: 20_000 });
+  });
+
+  test("next sprint names the one already planned, not an invented one", async ({
     page,
     signInAs,
   }) => {
     test.setTimeout(90_000);
     await signInAs(EMAIL);
+    await page.goto(reviewUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+    await tab(page, "Next sprint").click();
 
-    await createBoardFromTemplate(
-      page,
-      "Sprint Planning",
-      /\/boards\/sprint-planning(-\d+)?$/i,
-    );
-
-    await expect(page.locator("#ceremony-sprint")).toBeVisible({
+    // BUG GUARD: this tab rendered a COMPUTED suggestion unconditionally, so a
+    // team who had planned the next sprint saw a fabricated one — invented name,
+    // invented dates — stated in the same voice as fact.
+    //
+    // Scoped to the panel's <dd>s. A bare `getByText(NEXT_SPRINT)` matches the
+    // sprint PICKER's hidden <option> for the same sprint first, which is both a
+    // false negative here and would be a false positive if the panel were empty.
+    const panel = page.getByRole("definition");
+    await expect(panel.filter({ hasText: NEXT_SPRINT })).toBeVisible({
       timeout: 25_000,
     });
+    await expect(panel.filter({ hasText: "Already planned" })).toBeVisible();
+  });
+
+  test("closing makes the ceremony read-only; reopening restores it", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(120_000);
+    await signInAs(EMAIL);
+    await page.goto(reviewUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+
+    await page.getByRole("button", { name: /^close$/i }).click();
+    await expect(page.getByRole("button", { name: /reopen/i })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // Read-only: no compose form, no destructive controls — but the record of
+    // what was said stays readable, which is the point of closing rather than
+    // deleting.
+    await tab(page, "Retrospective").click();
+    const start = page.getByRole("region", { name: "Start" });
+    await expect(
+      start.getByRole("listitem").filter({ hasText: "note in Start" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(start.getByLabel("Add a note to Start")).toHaveCount(0);
+    await expect(start.getByRole("button", { name: "Delete note" })).toHaveCount(0);
+
+    await tab(page, "Action items").click();
+    await expect(page.locator("#action-text")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /reopen/i }).click();
+    await expect(page.getByRole("button", { name: /^close$/i })).toBeVisible({
+      timeout: 20_000,
+    });
+    await tab(page, "Retrospective").click();
+    await expect(
+      page.getByRole("region", { name: "Start" }).getByLabel("Add a note to Start"),
+    ).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("planning board: its own sections, and capacity that does not oversell", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(90_000);
+    await signInAs(EMAIL);
+    await page.goto(planningUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
 
     for (const label of ["Summary", "Capacity", "Notes", "Action items"]) {
-      await expect(page.getByRole("tab", { name: label })).toBeVisible();
+      await expect(tab(page, label)).toBeVisible();
     }
+    // Planning is not a review. Checked AFTER the four above, so an absence
+    // assertion cannot pass on a board that rendered no tabs at all.
+    await expect(tab(page, "What shipped")).toHaveCount(0);
+    await expect(tab(page, "Next sprint")).toHaveCount(0);
 
-    // Planning is not a review: asserting the absence alone would pass on a
-    // board that rendered no tabs at all, so it sits after the four above.
-    await expect(page.getByRole("tab", { name: "What shipped" })).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: "Next sprint" })).toHaveCount(0);
-
-    // Capacity is the planning-only panel, and it is a separate fetch.
-    await page.getByRole("tab", { name: "Capacity" }).click();
+    await tab(page, "Capacity").click();
     await expect(page.getByText(/team capacity/i).first()).toBeVisible({
       timeout: 25_000,
     });
+
+    // BUG GUARD: with no per-member capacity recorded, headroom computed to 0
+    // and the panel announced "Within capacity" — a reassurance drawn from no
+    // data at all, next to copy claiming headroom "reads as negative".
+    await expect(page.getByText("Within capacity")).toHaveCount(0);
+    await expect(page.getByText(/unknown until capacity is set/i)).toBeVisible();
+
+    // The planning board's own columns, seeded from its type's defaultColumns.
+    await tab(page, "Notes").click();
+    for (const column of ["Risks", "Questions", "Decisions"]) {
+      await expect(page.getByRole("region", { name: column })).toBeVisible({
+        timeout: 20_000,
+      });
+    }
   });
 });

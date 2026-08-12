@@ -41,7 +41,22 @@ interface IntervalOption {
   intervalKind: string;
 }
 
-interface OrgMemberLite {
+/**
+ * The shape `/orgs/:id/members` ACTUALLY returns — the display name is nested on
+ * `user`, not flat.
+ *
+ * This was declared flat, so `m.displayName` was `undefined` everywhere: the
+ * action-item Owner picker rendered a list of blank options, and the Owner
+ * column printed "—" through `?? "—"` even for actions that had one. TypeScript
+ * could not catch it because the interface described what the component wanted
+ * rather than what the endpoint sends.
+ */
+interface OrgMemberRow {
+  userId: string;
+  user?: { displayName?: string | null; email?: string | null } | null;
+}
+
+export interface CeremonyMember {
   userId: string;
   displayName: string;
 }
@@ -78,8 +93,18 @@ export function CeremonyBoard({
   const membersKey = useOrgQueryKey("members");
   const membersQ = useQuery({
     queryKey: membersKey,
-    queryFn: () => jsonFetch<OrgMemberLite[]>(`/api/v1/orgs/${orgId}/members`),
+    queryFn: () => jsonFetch<OrgMemberRow[]>(`/api/v1/orgs/${orgId}/members`),
   });
+  // Flatten once, here, so a blank name shows the email rather than an empty
+  // option a facilitator cannot pick from.
+  const members: CeremonyMember[] = useMemo(
+    () =>
+      (membersQ.data ?? []).map((m) => ({
+        userId: m.userId,
+        displayName: m.user?.displayName || m.user?.email || "Unknown member",
+      })),
+    [membersQ.data]
+  );
 
   // A ceremony reports on an ITERATION, so Program Increments are filtered out
   // of both the picker and the default — see ceremony-intervals for why the old
@@ -388,7 +413,7 @@ export function CeremonyBoard({
             orgSlug={orgSlug}
             ceremonyId={ceremony?.id ?? null}
             actions={ceremony?.actionItems ?? []}
-            members={membersQ.data ?? []}
+            members={members}
             closed={closed}
             invalidateParts={ceremonyParts}
           />
@@ -408,6 +433,23 @@ export function CeremonyBoard({
                 <dd className="mt-1 text-xl font-semibold">{data.nextSprint.name}</dd>
                 <dd className="mt-0.5 text-sm text-[var(--text-muted)]">
                   {fmtDay(data.nextSprint.startDate)} – {fmtDay(data.nextSprint.endDate)}
+                </dd>
+                {/* Say which of the two this is. Read to a room, a suggested
+                    sprint and a planned one are indistinguishable otherwise —
+                    and the team commits to dates nobody has agreed. */}
+                <dd className="mt-2">
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                      data.nextSprint.planned
+                        ? "border-[var(--border)] text-[var(--text-muted)]"
+                        : "border-[var(--status-blocked,#b45309)] text-[var(--status-blocked-text,var(--status-blocked,#b45309))]"
+                    )}
+                  >
+                    {data.nextSprint.planned
+                      ? "Already planned"
+                      : "Suggested — not created yet"}
+                  </span>
                 </dd>
               </div>
               {data.increment ? (

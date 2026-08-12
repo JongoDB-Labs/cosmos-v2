@@ -438,7 +438,15 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
       await fetchIntervals();
       // Only SPRINTs roll over — phases / PIs / releases don't prompt a "next".
       if (finished && finished.intervalKind === "SPRINT") {
-        const d = computeNextSprintDefaults(finished);
+        // Pass the names already in this project so the suggestion skips them.
+        // Teams plan ahead, so "Sprint 2" usually exists by the time "Sprint 1"
+        // is completed — without this, accepting the pre-fill made a second one.
+        // The closure's `intervals` predates the refetch above, which is fine:
+        // completing a sprint changes its status, never the set of names.
+        const d = computeNextSprintDefaults(
+          finished,
+          intervals.map((i) => i.name),
+        );
         setNextName(d.name);
         setNextStart(d.startDate);
         setNextEnd(d.endDate);
