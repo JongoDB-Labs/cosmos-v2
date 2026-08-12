@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.279.1",
+    date: "2026-08-11",
+    title: "Sprints inside a Program Increment can be started again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A sprint could not be started while its own Program Increment was running \u2014 it asked you to finish the previous interval first, and the previous interval WAS the increment the sprint belongs to. Since an increment only finishes when its sprints do, that could never be satisfied. Sprints inside an increment now start normally.",
+      },
+      {
+        kind: "improvement",
+        text: "A Program Increment is now treated as what it is: a container for sprints, not an iteration of its own. It starts by itself when its first sprint starts, so there is no Start button on it any more, and it can only be completed once every sprint inside it is finished \u2014 and if any are still open, the message names them.",
+      },
+      {
+        kind: "fix",
+        text: "When starting an interval is refused, the screen now shows the real reason instead of a fixed message. Previously every refusal read \u201cAnother interval is already active\u201d, which after this change would often have been wrong.",
+      },
+    ],
+  },
+  {
     version: "2.279.0",
     date: "2026-08-11",
     title: "Run sprint planning and sprint review from Cosmos, not a slide deck",

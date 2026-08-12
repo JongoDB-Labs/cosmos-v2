@@ -163,9 +163,17 @@ export function StartSprintDialog({
           ...(goalChanged && { goal: goal.trim() || null }),
         }),
       });
-      if (res.status === 409)
-        throw new Error("Another interval is already active — complete it first.");
-      if (!res.ok) throw new Error("Failed to start sprint");
+      // Surface the server's own reason. It names WHAT is blocking — a specific
+      // sprint, or the fact that a Program Increment is never started by hand —
+      // and a fixed string here would replace that with something less useful
+      // and, since the PI rule changed, sometimes simply wrong.
+      if (!res.ok) {
+        const reason = await res
+          .json()
+          .then((b: { error?: string }) => b?.error)
+          .catch(() => undefined);
+        throw new Error(reason ?? "Failed to start sprint");
+      }
 
       onStarted();
     } catch (err) {

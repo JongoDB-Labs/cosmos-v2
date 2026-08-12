@@ -46,6 +46,7 @@ import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { computeSprintReview, type SprintReview } from "@/lib/intervals/sprint-review";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
+import { userMaySetStatus } from "@/lib/intervals/pi-lifecycle";
 
 interface IntervalReport {
   velocity?: number;
@@ -337,9 +338,15 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ACTIVE" }),
       });
-      if (res.status === 409)
-        throw new Error("Another interval is already active — complete it first.");
-      if (!res.ok) throw new Error("Failed to start interval");
+      // The server names what is actually blocking; do not replace it with a
+      // fixed string that outlived the rule it described.
+      if (!res.ok) {
+        const reason = await res
+          .json()
+          .then((b: { error?: string }) => b?.error)
+          .catch(() => undefined);
+        throw new Error(reason ?? "Failed to start interval");
+      }
       await fetchIntervals();
     } catch (err) {
       notifyError(
@@ -1113,17 +1120,28 @@ function IntervalCard({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {interval.status === "PLANNED" && canUpdate && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={onStart}
-            >
-              <Play className="h-3.5 w-3.5 mr-1" />
-              Start
-            </Button>
-          )}
+          {/* Gated on the SAME rule the server enforces, so the button cannot
+              offer something the API will refuse. A Program Increment has no
+              start of its own — it begins when its first sprint does. */}
+          {interval.status === "PLANNED" &&
+            canUpdate &&
+            userMaySetStatus(interval.intervalKind, "ACTIVE") && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={onStart}
+              >
+                <Play className="h-3.5 w-3.5 mr-1" />
+                Start
+              </Button>
+            )}
+          {interval.status === "PLANNED" &&
+            !userMaySetStatus(interval.intervalKind, "ACTIVE") && (
+              <span className="text-xs text-[var(--text-muted)]">
+                Starts with its first sprint
+              </span>
+            )}
           {interval.status === "ACTIVE" && canComplete && (
             <Button size="sm" disabled={busy} onClick={onComplete}>
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
