@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.282.0",
+    date: "2026-08-12",
+    title: "Filter by status on the Timeline / Gantt board",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Status filter is now available on the Timeline / Gantt board, under \u201cMore filters\u201d. It was missing because the filter offered only the statuses belonging to the board you were on, and a Timeline board has none of its own \u2014 so the control never appeared. Status belongs to the project's workflow, so the options now come from there and are the same wherever you filter.",
+      },
+    ],
+  },
+  {
     version: "2.281.1",
     date: "2026-08-12",
     title: "The Sprint board no longer offers a Milestone filter",
