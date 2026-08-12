@@ -56,6 +56,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { healthOf, slipDays } from "@/lib/schedule/health";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn, CustomField } from "@/types/models";
 import {
@@ -418,6 +419,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const members = useMemo<OrgMember[]>(() => membersQ.data ?? [], [membersQ.data]);
   const links = useMemo<WorkItemLink[]>(() => linksQ.data ?? [], [linksQ.data]);
   const columns = useMemo<BoardColumn[]>(() => boardQ.data?.columns ?? [], [boardQ.data]);
+  // Status options come from the PROJECT's workflow, not this board's own
+  // columns. A Timeline board owns none, so sourcing them here meant the Status
+  // control never rendered — the reported "can't filter on status on Gantt".
+  const projectStatuses = useProjectStatuses(orgId, projectId);
   const intervals = useMemo<Interval[]>(() => intervalsQ.data ?? [], [intervalsQ.data]);
   // Custom-field defs for this project (org-wide + project-scoped) — drives the
   // FilterBar's per-field controls and the client-side filter match below, so a
@@ -1283,7 +1288,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           intervals={intervals}
           teams={teams}
           presentLabelNames={presentLabelNames}
-          boardColumns={columns}
+          boardColumns={projectStatuses}
           milestoneOptions={milestoneRows}
           presentPointValues={presentPointValues}
           showEstimate={showEstimate}
