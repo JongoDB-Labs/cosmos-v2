@@ -519,9 +519,11 @@ export function CardDetailSheet({
             setPriority(item.priority);
             break;
           case "workItemTypeId":
-        setWorkItemTypeId(value as string);
-        break;
-      case "workCategory":
+            // Revert to the SERVER's value, like every case around it. This set
+            // `value` — the type that had just failed to save.
+            setWorkItemTypeId(item.workItemTypeId);
+            break;
+          case "workCategory":
             setWorkCategory(item.workCategory ?? "BUSINESS");
             break;
           case "assigneeId":
@@ -614,6 +616,13 @@ export function CardDetailSheet({
   ) {
     // Update local state immediately for responsive UI
     switch (field) {
+      // Was missing here and sitting in the REVERT switch instead, so the
+      // control the user clicked never moved while the header — which renders
+      // from the refreshed `item` prop — did. The seeding effect cannot cover
+      // for it: it is keyed on item.id, so a same-item save never re-seeds.
+      case "workItemTypeId":
+        setWorkItemTypeId(value as string);
+        break;
       case "priority":
         setPriority(value as WorkItem["priority"]);
         break;
