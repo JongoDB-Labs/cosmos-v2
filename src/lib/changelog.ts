@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.279.3",
+    date: "2026-08-11",
+    title: "The Type dropdown shows the type you just picked",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Changing an item's Type in the side panel updated the type shown next to the ticket number but left the dropdown you had just clicked showing the old one. It now updates immediately \u2014 and if the change fails to save, the dropdown goes back to the type that is actually stored instead of keeping the one that was rejected.",
+      },
+    ],
+  },
+  {
     version: "2.279.2",
     date: "2026-08-11",
     title: "Search finds work items by their ticket number",
