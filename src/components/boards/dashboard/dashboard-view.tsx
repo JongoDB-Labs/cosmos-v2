@@ -21,6 +21,10 @@ import { BurndownChart } from "./widgets/burndown-chart";
 import { WorkloadChart } from "./widgets/workload-chart";
 import { ActivityFeed } from "./widgets/activity-feed";
 import { SprintTrendView, PiRollupView } from "./sprint-history";
+import { BurndownView } from "./burndown-view";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { burndown } from "@/lib/intervals/burndown";
 import { cn } from "@/lib/utils";
 import { assigneeLabel, workloadBuckets } from "./workload";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
@@ -82,7 +86,15 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // Sprint Health answered only "how is the sprint in flight?". These add the
   // two questions a team asks between ceremonies. Current stays the default so
   // the board opens exactly as it did.
-  const [healthView, setHealthView] = useState<"current" | "trend" | "pi">("current");
+  const [healthView, setHealthView] = useState<"current" | "burndown" | "trend" | "pi">("current");
+
+  // Sprint Health was the only board family with no filtering at all — every
+  // number on it described the whole project, so a lead could not ask "how is MY
+  // team doing?" without leaving the page. This uses the SHARED predicate and
+  // the SHARED control (see lib/work-items/board-filters.ts); a dashboard that
+  // filtered differently from the boards it summarises would be worse than one
+  // that does not filter.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
 
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const membersKey = useOrgQueryKey("members");
@@ -114,9 +126,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     () => (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [board],
   );
-  const items: WorkItem[] = itemsQ.data ?? [];
-  const members: OrgMember[] = membersQ.data ?? [];
-  const intervals: Interval[] = intervalsQ.data ?? [];
+  // Memoised because `?? []` mints a NEW array on every render, which would make
+  // every downstream useMemo — filtering, metrics, burndown — recompute each
+  // time regardless of whether the data changed.
+  const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
+  const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
   const loading =
     boardQ.isLoading ||
@@ -130,6 +145,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       ? fatalError.message
       : "Unknown error"
     : null;
+
+  // One instant for the whole pass, so a due-date filter cannot classify two
+  // items differently because the clock ticked between them.
+  const filteredItems = useMemo(() => {
+    const now = new Date();
+    return items.filter((i) => matchesFilters(i, filters, [], new Map(), now));
+  }, [items, filters]);
 
   const columnCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -149,27 +171,27 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
 
   // Compute metrics
   const metrics = useMemo(() => {
-    const total = items.length;
-    const completed = items.filter((i) => {
+    const total = filteredItems.length;
+    const completed = filteredItems.filter((i) => {
       const cat = columnCategoryMap.get(i.columnKey);
       return cat === "DONE";
     }).length;
-    const inProgress = items.filter((i) => {
+    const inProgress = filteredItems.filter((i) => {
       const cat = columnCategoryMap.get(i.columnKey);
       return cat === "IN_PROGRESS";
     }).length;
-    const overdue = items.filter((i) => {
+    const overdue = filteredItems.filter((i) => {
       if (!i.dueDate || i.completedAt) return false;
       return new Date(i.dueDate) < new Date();
     }).length;
 
     return { total, completed, inProgress, overdue };
-  }, [items, columnCategoryMap]);
+  }, [filteredItems, columnCategoryMap]);
 
   // Status distribution
   const statusData = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const item of items) {
+    for (const item of filteredItems) {
       const cat = columnCategoryMap.get(item.columnKey) ?? "TODO";
       counts[cat] = (counts[cat] ?? 0) + 1;
     }
@@ -178,12 +200,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       value,
       color: categoryColorMap[name] ?? "#6b7280",
     }));
-  }, [items, columnCategoryMap]);
+  }, [filteredItems, columnCategoryMap]);
 
   // Priority distribution
   const priorityData = useMemo(() => {
     const counts: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    for (const item of items) {
+    for (const item of filteredItems) {
       counts[item.priority] = (counts[item.priority] ?? 0) + 1;
     }
     return Object.entries(counts).map(([name, value]) => ({
@@ -191,7 +213,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       value,
       color: priorityColorMap[name] ?? "#6b7280",
     }));
-  }, [items]);
+  }, [filteredItems]);
 
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
   // of the matching tickets, each deep-linking to its detail on the Issues page.
@@ -199,65 +221,61 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
   const [drill, setDrill] = useState<{ title: string; rows: WorkItem[] } | null>(null);
   const openDrill = (title: string, filter: (i: WorkItem) => boolean) =>
-    setDrill({ title, rows: items.filter(filter) });
+    setDrill({ title, rows: filteredItems.filter(filter) });
   const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
 
   // Workload data (shares `assigneeLabel` with the drill-down below so the bar
   // a user clicks and the tickets it lists always describe the same bucket).
   const workloadData = useMemo(
-    () => workloadBuckets(items, memberMap),
-    [items, memberMap],
+    () => workloadBuckets(filteredItems, memberMap),
+    [filteredItems, memberMap],
   );
 
-  // Burndown data for active interval
+  // Burndown for the active interval, via the SHARED computation.
+  //
+  // This was computed inline here, and got four things wrong that the module
+  // fixes: it summed `storyPoints ?? 1`, mixing points and item counts into a
+  // unit that is neither; it burned the ideal line down across weekends; it
+  // compared completion timestamps against a date still carrying the sprint
+  // start's time-of-day, so a day boundary landed mid-afternoon; and it trusted
+  // `completedAt` alone, so an item reopened after completion stayed burned
+  // down. One implementation, tested once — see lib/intervals/burndown.ts.
   const burndownData = useMemo(() => {
     const activeInterval = intervals.find((s) => s.status === "ACTIVE");
     if (!activeInterval) return [];
 
-    const intervalItems = items.filter((i) => i.intervalId === activeInterval.id);
-    const totalPoints = intervalItems.reduce((sum, i) => sum + (i.storyPoints ?? 1), 0);
-    // An active interval with no items has no burndown to draw — return empty so the
-    // chart shows its "no data" state instead of a misleading flat zero line.
-    if (totalPoints === 0) return [];
+    const series = burndown({
+      start: new Date(activeInterval.startDate),
+      end: new Date(activeInterval.endDate),
+      today: new Date(),
+      unit: "count",
+      items: filteredItems
+        .filter((i) => i.intervalId === activeInterval.id)
+        .map((i) => ({
+          id: i.id,
+          storyPoints: i.storyPoints ?? null,
+          completedAt: i.completedAt ?? null,
+          done: columnCategoryMap.get(i.columnKey) === "DONE",
+        })),
+    });
 
-    const start = new Date(activeInterval.startDate);
-    const end = new Date(activeInterval.endDate);
-    const totalDays = Math.max(
-      Math.ceil((end.getTime() - start.getTime()) / 86400000),
-      1
-    );
+    // An interval with nothing in it has no burndown to draw — empty so the
+    // widget shows its "no data" state rather than a misleading flat zero line.
+    if (series.scope === 0) return [];
 
-    const data: Array<{ date: string; ideal: number; actual: number }> = [];
-    const today = new Date();
-
-    for (let d = 0; d <= totalDays; d++) {
-      const currentDate = new Date(start);
-      currentDate.setDate(currentDate.getDate() + d);
-
-      if (currentDate > today) break;
-
-      const ideal = Math.round(totalPoints * (1 - d / totalDays));
-      const completedByDate = intervalItems.filter(
-        (i) => i.completedAt && new Date(i.completedAt) <= currentDate
-      );
-      const completedPoints = completedByDate.reduce(
-        (sum, i) => sum + (i.storyPoints ?? 1),
-        0
-      );
-      const actual = totalPoints - completedPoints;
-
-      data.push({
-        date: currentDate.toLocaleDateString("default", {
+    // The widget draws only observed days; the module returns nulls past today
+    // precisely so no caller can accidentally chart the future.
+    return series.points
+      .filter((p) => !p.isFuture)
+      .map((p) => ({
+        date: new Date(`${p.date}T00:00:00`).toLocaleDateString("default", {
           month: "short",
           day: "numeric",
         }),
-        ideal,
-        actual,
-      });
-    }
-
-    return data;
-  }, [items, intervals]);
+        ideal: Math.round(p.ideal),
+        actual: p.remaining ?? 0,
+      }));
+  }, [filteredItems, intervals, columnCategoryMap]);
 
   if (loading) return <DashboardSkeleton />;
 
@@ -361,12 +379,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     {
       key: "activity",
       title: "Recent Activity",
-      body: <ActivityFeed items={items} projectKey={projectKey} />,
+      body: <ActivityFeed items={filteredItems} projectKey={projectKey} />,
     },
   ];
 
   const HEALTH_VIEWS = [
     { key: "current" as const, label: "Current sprint" },
+    { key: "burndown" as const, label: "Burndown" },
     { key: "trend" as const, label: "Trend across sprints" },
     { key: "pi" as const, label: "PI rollup" },
   ];
@@ -396,9 +415,25 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         ))}
       </div>
 
+      {/* Filters apply to EVERY view, including the ones that read intervals —
+          the burndown charts filtered items, so "my team's burndown" is the same
+          question asked once. */}
+      <div className="border-b border-[var(--border)] px-3 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          orgId={orgId}
+          boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
+        />
+      </div>
+
       {healthView !== "current" ? (
         <div className="flex-1 overflow-auto p-4">
-          {healthView === "trend" ? (
+          {healthView === "burndown" ? (
+            <BurndownView intervals={intervals} items={filteredItems} columns={columns} />
+          ) : healthView === "trend" ? (
             <SprintTrendView intervals={intervals} />
           ) : (
             <PiRollupView intervals={intervals} />

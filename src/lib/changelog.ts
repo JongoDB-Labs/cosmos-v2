@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.2",
+    date: "2026-08-12",
+    title: "Sprint Health can be filtered, and has a real burndown",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Sprint Health now has the same filter bar as every other board. Until now every number on it described the whole project, so there was no way to ask “how is my team doing?” or “how are the critical items going?” without leaving the page. The filter applies to every tab, including the charts.",
+      },
+      {
+        kind: "feature",
+        text: "A new Burndown tab charts any sprint — not only the one in flight — with remaining work, work completed and an ideal line, in items or story points. It says plainly when it cannot be trusted: if completed work has no recorded completion date it is counted today rather than back-dated, and if most items have no estimate the points view tells you so instead of quietly showing a smaller sprint.",
+      },
+      {
+        kind: "fix",
+        text: "The existing burndown widget was measuring the wrong things. It added story points to a count of un-estimated items, producing a total that was neither; it drew the ideal line burning down across weekends, so every team looked behind on a Monday; it compared completion times against a boundary set at the sprint's start time rather than midnight; and an item reopened after being finished stayed counted as delivered. All four are corrected.",
+      },
+    ],
+  },
+  {
     version: "2.286.1",
     date: "2026-08-12",
     title: "Sprint ceremony boards open on the right sprint, with the right dates",
