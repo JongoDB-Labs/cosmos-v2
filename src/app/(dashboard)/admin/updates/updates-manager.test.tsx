@@ -179,6 +179,75 @@ describe("UpdatesManager", () => {
     expect(await screen.findByText(/up to date/i)).toBeTruthy();
   });
 
+  it("STILL reports the last install after it succeeded and left nothing to upgrade", async () => {
+    // The defect this pins, found by installing a release on production: the
+    // outcome and log lived inside the install panel, which renders only when
+    // `updateAvailable`. Succeeding makes that false — you are now newest — so
+    // the panel unmounted at the exact moment it worked and erased its own
+    // result. The operator was left inferring success from a version number,
+    // with the log unreachable. A FAILED install kept the upgrade on offer and
+    // so stayed visible; only success disappeared.
+    const upToDate = {
+      ...OK,
+      status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
+      preflights: [],
+    };
+    stubFetch(upToDate, {
+      latest: {
+        id: "r1",
+        version: "2.277.1",
+        status: "SUCCEEDED",
+        requestedAt: "2026-08-11T15:00:00.000Z",
+        requestedByEmail: "admin@example.com",
+        claimedAt: "2026-08-11T15:00:10.000Z",
+        claimedBy: "host-01",
+        finishedAt: "2026-08-11T15:02:00.000Z",
+        exitCode: 0,
+        log: "DEPLOY OK - app serving 2.277.1",
+        unclaimedMs: 0,
+      },
+    });
+    renderPanel();
+
+    // Guard the premise: if an upgrade were still on offer this would prove
+    // nothing, because the old install panel would have rendered the record.
+    expect(await screen.findByText(/up to date/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Install/ })).toBeNull();
+
+    // Assert on things only this card renders — the version string alone also
+    // appears as Running / Newest available / Candidate tag.
+    expect(await screen.findByText(/Last install/i)).toBeTruthy();
+    expect(await screen.findByText(/succeeded/i)).toBeTruthy();
+    expect(await screen.findByText(/DEPLOY OK - app serving 2\.277\.1/)).toBeTruthy();
+  });
+
+  it("reports an ABANDONED install as UNKNOWN, not as a failure, once nothing is on offer", async () => {
+    // Same unmount path, and the case where silence is most dangerous: the
+    // outcome genuinely is not known, so the warning has to survive too.
+    const upToDate = {
+      ...OK,
+      status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
+      preflights: [],
+    };
+    stubFetch(upToDate, {
+      latest: {
+        id: "r2",
+        version: "2.277.1",
+        status: "ABANDONED",
+        requestedAt: "2026-08-11T15:00:00.000Z",
+        requestedByEmail: "admin@example.com",
+        claimedAt: "2026-08-11T15:00:10.000Z",
+        claimedBy: "host-01",
+        finishedAt: "2026-08-11T15:20:00.000Z",
+        exitCode: null,
+        log: "SWEPT",
+        unclaimedMs: 0,
+      },
+    });
+    renderPanel();
+    expect(await screen.findByText(/outcome of this install is unknown/i)).toBeTruthy();
+  });
+
   it("warns rather than offers when the instance is AHEAD of the registry", async () => {
     const ahead = {
       ...OK,
