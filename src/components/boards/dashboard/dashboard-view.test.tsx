@@ -59,11 +59,50 @@ const mkItem = (over: Record<string, unknown>) => ({
 // Two CRITICAL items and three LOW ones — so a priority filter must change the
 // visible total from 5 to 2.
 const ITEMS = [
-  mkItem({ id: "1", ticketNumber: 1, title: "Payment retries", priority: "CRITICAL" }),
-  mkItem({ id: "2", ticketNumber: 2, title: "Payment webhooks", priority: "CRITICAL" }),
+  mkItem({ id: "1", ticketNumber: 1, title: "Payment retries", priority: "CRITICAL", intervalId: "s1" }),
+  mkItem({ id: "2", ticketNumber: 2, title: "Payment webhooks", priority: "CRITICAL", intervalId: "s1" }),
   mkItem({ id: "3", ticketNumber: 3, title: "Nav polish", priority: "LOW" }),
   mkItem({ id: "4", ticketNumber: 4, title: "Nav icons", priority: "LOW" }),
   mkItem({ id: "5", ticketNumber: 5, title: "Nav spacing", priority: "LOW" }),
+];
+
+/**
+ * The shape that broke the burndown: a Program Increment numbered ABOVE its
+ * sprints, ACTIVE for as long as any sprint inside it runs, holding no work
+ * items of its own. The intervals API orders by number DESC, so a plain
+ * `.find(i => i.status === "ACTIVE")` returns the PI and the widget reports
+ * "No active sprint data" while a sprint is plainly running.
+ */
+const NOW = new Date();
+const iso = (offsetDays: number) => {
+  const d = new Date(NOW);
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString();
+};
+
+const INTERVALS = [
+  {
+    id: "pi1",
+    number: 100,
+    name: "PI-002",
+    status: "ACTIVE",
+    intervalKind: "PROGRAM_INCREMENT",
+    parentId: null,
+    startDate: iso(-30),
+    endDate: iso(60),
+    report: null,
+  },
+  {
+    id: "s1",
+    number: 6,
+    name: "Sprint 6",
+    status: "ACTIVE",
+    intervalKind: "SPRINT",
+    parentId: "pi1",
+    startDate: iso(-5),
+    endDate: iso(5),
+    report: null,
+  },
 ];
 
 function stubFetch() {
@@ -79,6 +118,8 @@ function stubFetch() {
         ? BOARD
         : u.includes("/work-items") && !u.includes("work-item-types")
           ? ITEMS
+          : u.includes("/intervals")
+          ? INTERVALS
           : [];
       return new Response(JSON.stringify(body), { status: 200 });
     }),
@@ -130,5 +171,27 @@ describe("Sprint Health — filtering", () => {
     await waitFor(() =>
       screen.getAllByTestId("metric-total-items").forEach((t) => expect(t).toHaveTextContent("2")),
     );
+  });
+});
+
+describe("Sprint Health — which interval the burndown picks", () => {
+  it("charts the running SPRINT, not the Program Increment that contains it", async () => {
+    // The reported symptom was "No active sprint data" with a live active
+    // sprint. The cause is not the chart: `.find(i => i.status === "ACTIVE")`
+    // over every interval returns the PI, because a PI stays ACTIVE for as long
+    // as any sprint inside it runs AND is numbered above them while the API
+    // sorts number DESC. The PI owns no work items, so scope is 0 and the
+    // widget renders its empty state.
+    //
+    // Both intervals here are ACTIVE and the PI sorts first — exactly the state
+    // of a healthy project, which is why this was the normal case rather than
+    // an edge one.
+    renderBoard();
+
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    // Two items sit in Sprint 6 and none in the PI, so picking the PI yields an
+    // empty chart and this message.
+    await waitFor(() => expect(screen.queryAllByText(/No active sprint data/i)).toHaveLength(0));
   });
 });

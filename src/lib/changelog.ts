@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.3",
+    date: "2026-08-12",
+    title: "“No active sprint data” while a sprint was plainly running",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The burndown on Sprint Health reported no data whenever a project used Program Increments. A PI stays active for as long as any sprint inside it is running, and is numbered above its sprints — so the code asking for “the active interval” got the increment, which holds no work items of its own, and every chart built from it read zero. The same mistake was reporting the increment's name as the current sprint on the portfolio view and on project cards, and was making Cosmo's sprint brief summarise an empty container. All of them now ask for the iteration the team is actually in.",
+      },
+    ],
+  },
+  {
     version: "2.286.2",
     date: "2026-08-12",
     title: "Sprint Health can be filtered, and has a real burndown",

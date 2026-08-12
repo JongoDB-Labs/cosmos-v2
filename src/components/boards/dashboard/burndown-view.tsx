@@ -15,6 +15,10 @@ import {
   ReferenceLine,
 } from "@/components/charts/lazy-recharts";
 import { burndown, type BurndownUnit } from "@/lib/intervals/burndown";
+import {
+  ceremonySelectableIntervals,
+  defaultCeremonyInterval,
+} from "@/lib/intervals/ceremony-intervals";
 import type { WorkItem, Interval, BoardColumn } from "@/types/models";
 
 /**
@@ -30,8 +34,6 @@ import type { WorkItem, Interval, BoardColumn } from "@/types/models";
  * estimate coverage when charting points).
  */
 
-const NUMERIC_INTERVAL_KINDS = new Set(["SPRINT"]);
-
 export function BurndownView({
   intervals,
   items,
@@ -41,24 +43,21 @@ export function BurndownView({
   items: WorkItem[];
   columns: BoardColumn[];
 }) {
-  // Sprints only: a Program Increment spans months and its burndown is the PI
-  // rollup's job, not this chart's.
+  // Iterations only. This EXCLUDES Program Increments rather than allowlisting
+  // SPRINT: `IntervalKind` has eight members and only one is a container, so a
+  // project running PHASEs or ITERATIONs must still get its work charted. A PI
+  // holds no work items of its own, so charting one reads 0/0 — a claim about
+  // the team the data does not support.
   const sprints = useMemo(
-    () =>
-      intervals
-        .filter((i) => NUMERIC_INTERVAL_KINDS.has(i.intervalKind ?? "SPRINT"))
-        .slice()
-        .sort((a, b) => b.number - a.number),
+    () => ceremonySelectableIntervals(intervals).slice().sort((a, b) => b.number - a.number),
     [intervals],
   );
 
-  // Default to the sprint in flight, because that is the question being asked.
-  // Falling back to the newest keeps the chart useful between sprints instead of
-  // showing an empty state that looks like a bug.
-  const defaultId = useMemo(() => {
-    const active = sprints.find((s) => s.status === "ACTIVE");
-    return active?.id ?? sprints[0]?.id ?? null;
-  }, [sprints]);
+  // Same picker the ceremony boards use. Emphatically NOT
+  // `.find(s => s.status === "ACTIVE")` over all intervals: a PI stays ACTIVE
+  // for as long as any sprint inside it runs and sorts first by number, so that
+  // find returns the empty container almost every time.
+  const defaultId = useMemo(() => defaultCeremonyInterval(intervals)?.id ?? null, [intervals]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [unit, setUnit] = useState<BurndownUnit>("count");
