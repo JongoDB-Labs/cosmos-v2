@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.3",
+    date: "2026-08-13",
+    title: "Plan a sprint for your own team, not for the whole project",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Capacity planning can now be scoped to one team, and opens on the team you lead. A lead sizing their own sprint no longer has to mentally subtract every other squad — the equivalent of putting all of them in the room for each other's planning. Switch to another team, or to All teams, from the picker at the top; projects with no teams are unchanged.",
+      },
+      {
+        kind: "improvement",
+        text: "The capacity total now reports the team you are looking at rather than the whole project, so the number a team commits to is that team's number. Capacity recorded for other teams is left untouched when you save.",
+      },
+    ],
+  },
+  {
     version: "2.287.2",
     date: "2026-08-13",
     title: "A retro running in front of the team now updates for everyone watching",

@@ -13,7 +13,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useProjectMembers } from "./use-project-members";
+import { useProjectTeams } from "@/hooks/use-project-teams";
 import { allocatableMembers } from "@/lib/intervals/allocatable-members";
+import { teamsByUser } from "@/lib/teams/item-teams";
+import {
+  ALL_TEAMS,
+  resolveCeremonyTeam,
+  scopeMembersToTeam,
+} from "@/lib/teams/ceremony-team-scope";
 import { notifyError } from "@/lib/errors/notify";
 
 interface CapacityEntry {
@@ -28,6 +35,8 @@ interface CapacityDialogProps {
   intervalId: string;
   intervalName: string;
   canEdit: boolean;
+  /** Who is looking — used to default the team filter to the one they lead. */
+  viewerUserId?: string;
   onClose: () => void;
 }
 
@@ -44,15 +53,43 @@ export function CapacityDialog({
   intervalId,
   intervalName,
   canEdit,
+  viewerUserId = "",
   onClose,
 }: CapacityDialogProps) {
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}`;
   // Project members, humans only — not the org-wide @-mention roster, which
   // offered everyone in the org plus bots like the Foreman agent.
   const { data: projectMembers } = useProjectMembers(orgId, projectId);
-  const members = useMemo(
+  const allMembers = useMemo(
     () => allocatableMembers(projectMembers ?? []),
     [projectMembers],
+  );
+
+  // A ceremony belongs to a TEAM. Listing every member of the project made a
+  // lead sizing their own sprint mentally subtract the other squads — the
+  // equivalent of every scrum team sitting in each other's planning.
+  const { data: teams } = useProjectTeams(orgId, projectId);
+  const [teamChoice, setTeamChoice] = useState<string | null>(null);
+  const roster = useMemo(() => teamsByUser(teams ?? []), [teams]);
+  const viewerTeams = useMemo(
+    () =>
+      (teams ?? [])
+        .filter((t) => t.members.some((m) => m.userId === viewerUserId))
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          isLead: t.members.some((m) => m.userId === viewerUserId && m.isLead),
+        })),
+    [teams, viewerUserId],
+  );
+  const { teamId } = resolveCeremonyTeam({
+    boardTeamId: null,
+    selectedTeamId: teamChoice,
+    viewerTeams,
+  });
+  const members = useMemo(
+    () => scopeMembersToTeam(allMembers, teamId, roster),
+    [allMembers, teamId, roster],
   );
 
   // userId -> hours, as a string for the controlled input.
@@ -102,8 +139,14 @@ export function CapacityDialog({
     }
   }
 
-  const total = Object.values(hours).reduce((sum, h) => {
-    const n = Number(h);
+  // Totals the VISIBLE members, so a team's number is that team's number.
+  //
+  // `hours` itself deliberately stays whole: `save()` sends every entry in it
+  // and the route REMOVES anyone omitted, so narrowing the state to the current
+  // team would silently delete every other team's capacity the moment a lead
+  // pressed Save. Filter what is rendered and summed, never what is stored.
+  const total = members.reduce((sum, m) => {
+    const n = Number(hours[m.userId]);
     return sum + (Number.isFinite(n) && n > 0 ? n : 0);
   }, 0);
 
@@ -118,6 +161,30 @@ export function CapacityDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Scope to one squad. A ceremony belongs to a team; planning against
+            the whole project asks a lead to size work for people they do not
+            run. Only offered when the project HAS teams. */}
+        {(teams ?? []).length > 0 ? (
+          <div className="flex items-center gap-2 border-b border-[var(--border)] pb-3">
+            <label htmlFor="capacity-team" className="text-sm text-muted-foreground">
+              Team
+            </label>
+            <select
+              id="capacity-team"
+              value={teamId ?? ALL_TEAMS}
+              onChange={(e) => setTeamChoice(e.target.value)}
+              className="h-9 rounded-[calc(var(--radius)-2px)] border border-[var(--border)] bg-[var(--surface)] px-2 text-sm"
+            >
+              <option value={ALL_TEAMS}>All teams</option>
+              {(teams ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         {loading || !projectMembers ? (
           <div className="space-y-2 py-2">
             <Skeleton className="h-9 w-full" />
@@ -126,7 +193,9 @@ export function CapacityDialog({
           </div>
         ) : members.length === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">
-            No members to plan capacity for.
+            {teamId
+              ? "Nobody is on this team yet."
+              : "No members to plan capacity for."}
           </p>
         ) : (
           <div className="max-h-80 space-y-2 overflow-y-auto py-1">
