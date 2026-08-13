@@ -32,6 +32,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
+import { formatDateStable } from "@/lib/format/stable-date";
 
 interface ApiKeyRow {
   id: string;
@@ -253,7 +254,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
                 </span>
                 <span>
                   {key.expiresAt
-                    ? `Expires ${new Date(key.expiresAt).toLocaleDateString()}`
+                    ? `Expires ${formatDateStable(key.expiresAt)}`
                     : "No expiry"}
                 </span>
               </div>
