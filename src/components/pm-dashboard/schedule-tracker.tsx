@@ -46,7 +46,7 @@ interface WorkItemLite {
   columnKey: string;
 }
 
-interface ProgramIncrementLite {
+export interface ProgramIncrementLite {
   id: string;
   number: number;
   name: string;
@@ -83,9 +83,18 @@ export interface ScheduleTrackerProps {
   programIncrements: ProgramIncrementLite[];
 }
 
-/** Label a PI the way the Intervals workspace does: "PI-3 · Hardening". */
-function piLabel(pi: ProgramIncrementLite): string {
-  return `PI-${pi.number} · ${pi.name}`;
+/**
+ * A Program Increment is identified by the name its team gave it ("PI-001").
+ *
+ * Deliberately NOT prefixed with `number`: that column is a per-project sequence
+ * across EVERY interval, sprints included (`@@unique([projectId, number])`), so a
+ * project's first PI is routinely #7. Rendering it as "PI-7" invents an ordinal
+ * that does not exist and contradicts the name beside it. `number` is only a
+ * fallback for an unnamed interval, and is shown as "#7" — the same way the
+ * Intervals workspace writes it.
+ */
+export function piLabel(pi: ProgramIncrementLite): string {
+  return pi.name.trim() || `Program Increment #${pi.number}`;
 }
 
 const STATUS_OPTIONS: MilestoneStatus[] = ["UPCOMING", "IN_PROGRESS", "COMPLETED", "MISSED"];
@@ -196,10 +205,11 @@ const MILESTONE_COLUMNS: ColumnDef<Milestone>[] = [
   {
     id: "interval",
     header: "PI",
-    accessorFn: (m) => m.interval?.number ?? "",
+    // Sort by the displayed name so the column orders the way it reads.
+    accessorFn: (m) => m.interval?.name ?? "",
     cell: ({ row }) => (
       <span className="text-xs text-[var(--text-muted)]">
-        {row.original.interval ? `PI-${row.original.interval.number}` : "—"}
+        {row.original.interval ? piLabel(row.original.interval) : "—"}
       </span>
     ),
   },
