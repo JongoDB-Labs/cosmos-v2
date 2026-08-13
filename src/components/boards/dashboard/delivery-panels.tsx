@@ -20,6 +20,11 @@ import {
   type DeliveryItemLike,
   type ThroughputInterval,
 } from "@/lib/dashboard/delivery-metrics";
+import {
+  scopeChange,
+  type IntervalChange,
+  type ScopeItemLike,
+} from "@/lib/dashboard/scope-change";
 import { ceremonySelectableIntervals } from "@/lib/intervals/ceremony-intervals";
 import type { WorkItem, Interval, BoardColumn } from "@/types/models";
 
@@ -392,5 +397,120 @@ function Stat({
       <div className="text-lg font-semibold text-[var(--text)] tabular-nums">{value}</div>
       {hint ? <div className="text-[10px] text-[var(--text-muted)]">{hint}</div> : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Scope change and commitment — the two numbers a stakeholder asks for and the
+ * board has never shown. A team that finished 90% of a sprint it doubled halfway
+ * through is in a completely different position from one that finished 90% of
+ * what it committed to, and until now those rendered identically.
+ */
+export function ScopeChangePanel({
+  items,
+  intervals,
+  changes,
+  loading,
+  truncated,
+}: {
+  items: DeliveryItemLike[];
+  intervals: Interval[];
+  changes: IntervalChange[];
+  loading?: boolean;
+  truncated?: boolean;
+}) {
+  const sprints = useMemo(
+    () =>
+      ceremonySelectableIntervals(intervals).map((i) => ({
+        id: i.id,
+        name: i.name,
+        startDate: i.startDate,
+        endDate: i.endDate,
+        status: i.status,
+      })),
+    [intervals],
+  );
+
+  const scopeItems: ScopeItemLike[] = useMemo(
+    () => items.map((i) => ({ id: i.id, intervalId: i.intervalId, done: i.done })),
+    [items],
+  );
+
+  const rows = useMemo(
+    () => scopeChange(changes, sprints, scopeItems),
+    [changes, sprints, scopeItems],
+  );
+
+  const question = "Did we finish what we said we would, and what changed after we said it?";
+
+  if (loading) {
+    return (
+      <PanelShell title="Commitment and scope change" question={question}>
+        <NotEnoughData what="Reading the interval history…" />
+      </PanelShell>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <PanelShell title="Commitment and scope change" question={question}>
+        <NotEnoughData what="This project has no sprints yet, so there is no commitment to measure against." />
+      </PanelShell>
+    );
+  }
+
+  const churned = rows.filter((r) => r.added + r.removed > 0).length;
+
+  return (
+    <PanelShell
+      title="Commitment and scope change"
+      question={question}
+      footnote={
+        <>
+          &ldquo;Committed&rdquo; is reconstructed from the interval history: what is in the
+          sprint now, minus what arrived after it started, plus what left. Moves made
+          BEFORE a sprint starts are planning and are not counted as change.
+          {churned === 0 ? " No sprint here changed after it started." : null}
+          {truncated ? (
+            <span className="text-[var(--warning,#f97316)]">
+              {" "}
+              History was truncated, so older churn is under-reported.
+            </span>
+          ) : null}
+        </>
+      }
+    >
+      <ul className="space-y-2.5">
+        {rows.map((r) => {
+          const kept = r.commitmentKept;
+          return (
+            <li key={r.intervalId} data-testid={`scope-${r.intervalId}`}>
+              <div className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="text-[var(--text)] truncate">{r.name}</span>
+                <span className="text-[var(--text-muted)] tabular-nums shrink-0">
+                  {kept === null ? (
+                    // Finishing 3 of 0 is not 300% delivery — it is a sprint
+                    // that was empty at planning, which `+N` already says.
+                    <span title="nothing was committed at planning">no commitment</span>
+                  ) : (
+                    <>{Math.round(kept)}% of {r.committed} kept</>
+                  )}
+                  {r.added > 0 ? <span className="text-[var(--warning,#f97316)]"> +{r.added}</span> : null}
+                  {r.removed > 0 ? <span className="text-[var(--text-muted)]"> −{r.removed}</span> : null}
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[var(--primary)]"
+                  style={{ width: `${Math.min(100, kept ?? 0)}%` }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </PanelShell>
   );
 }

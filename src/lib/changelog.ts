@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.288.0",
+    date: "2026-08-13",
+    title: "Sprint Health now shows what you committed to, and what changed after",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Commitment and scope change, per sprint: how much of the plan you kept, plus what was pulled in or pushed out after the sprint started. Every other number on this board describes the sprint as it stands now — a team that finished 90% of a sprint it doubled halfway through looked identical to one that finished 90% of what it committed to. Now they don't.",
+      },
+      {
+        kind: "improvement",
+        text: "Moves made BEFORE a sprint starts are treated as planning, not churn. Grooming the backlog into next sprint is the process working, and counting it would make every well-planned sprint look chaotic while burying the mid-sprint injections that actually cost the team something.",
+      },
+      {
+        kind: "improvement",
+        text: "An item that bounces in and out of a sprint counts once, not once per move — “committed” is reconstructed from the interval history rather than guessed, and the panel says so underneath. Where nothing was committed at planning it says “no commitment” rather than reporting 300% delivery.",
+      },
+    ],
+  },
+  {
     version: "2.287.6",
     date: "2026-08-13",
     title: "Dates on the organisation overview stop depending on the server",
