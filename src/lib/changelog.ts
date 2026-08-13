@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.6",
+    date: "2026-08-13",
+    title: "Present mode now actually makes the ceremony readable from a room",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Present mode on the ceremony boards went full-screen but changed almost nothing else: only the board title grew. The story-point figure, the completion percentage, the labels and the section tabs all stayed at their desk sizes, which is the one thing a presentation view exists to prevent. Everything now scales together — the headline figures are half again as large.",
+      },
+    ],
+  },
+  {
     version: "2.286.5",
     date: "2026-08-13",
     title: "Rolling into the next sprint now starts the one you already planned",
