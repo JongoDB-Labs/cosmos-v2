@@ -46,6 +46,8 @@ import { AddIssuesDialog } from "./add-issues-dialog";
 import { StartSprintDialog } from "./start-sprint-dialog";
 import { computeSprintReview, type SprintReview } from "@/lib/intervals/sprint-review";
 import { computeNextSprintDefaults } from "@/lib/intervals/next-sprint";
+import { nextPlannedSprint } from "@/lib/intervals/carry-forward-target";
+import { formatDateMediumStable } from "@/lib/format/stable-date";
 import { defaultCarryForwardTarget } from "@/lib/intervals/carry-forward-target";
 import { userMaySetStatus } from "@/lib/intervals/pi-lifecycle";
 
@@ -218,6 +220,17 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
   const [nextStart, setNextStart] = useState("");
   const [nextEnd, setNextEnd] = useState("");
   const [startingNext, setStartingNext] = useState(false);
+  /**
+   * Set when the sprint that follows already EXISTS, in which case rolling over
+   * activates it instead of creating anything.
+   *
+   * This flow only ever POSTed a new interval. A team who had planned Sprint 2
+   * ahead of time, then completed Sprint 1 and accepted the pre-filled "Sprint
+   * 2", got a SECOND Sprint 2 — and their real one was left untouched.
+   */
+  const [nextSprintExistingId, setNextSprintExistingId] = useState<string | null>(
+    null,
+  );
 
   // Load the interval's items and derive its retrospective metrics for the review
   // step. Metrics are computed on read (never persisted before finalization).
@@ -390,27 +403,37 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     if (!nextName.trim() || !nextStart || !nextEnd) return;
     setStartingNext(true);
     try {
-      const createRes = await fetch(`${basePath}/intervals`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: nextName.trim(),
-          startDate: new Date(nextStart).toISOString(),
-          endDate: new Date(nextEnd).toISOString(),
-          intervalKind: "SPRINT",
-          parentId: nextSprintParentId,
-        }),
-      });
-      if (!createRes.ok) throw new Error("Failed to create the next sprint");
-      const createdInterval = await createRes.json();
-      const actRes = await fetch(`${basePath}/intervals/${createdInterval.id}`, {
+      // Already planned → activate it in place. Creating a second sprint of the
+      // same name was the bug; skipping over it to invent a third would be no
+      // better, so there is no create step on this path at all.
+      let targetId = nextSprintExistingId;
+
+      if (!targetId) {
+        const createRes = await fetch(`${basePath}/intervals`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: nextName.trim(),
+            startDate: new Date(nextStart).toISOString(),
+            endDate: new Date(nextEnd).toISOString(),
+            intervalKind: "SPRINT",
+            parentId: nextSprintParentId,
+          }),
+        });
+        if (!createRes.ok) throw new Error("Failed to create the next sprint");
+        targetId = (await createRes.json()).id as string;
+      }
+
+      const actRes = await fetch(`${basePath}/intervals/${targetId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "ACTIVE" }),
       });
       if (!actRes.ok)
         throw new Error(
-          "Created the sprint, but couldn't start it — activate it manually.",
+          nextSprintExistingId
+            ? "Couldn't start that sprint — activate it manually."
+            : "Created the sprint, but couldn't start it — activate it manually.",
         );
       setNextSprintOpen(false);
       await fetchIntervals();
@@ -438,19 +461,30 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
       await fetchIntervals();
       // Only SPRINTs roll over — phases / PIs / releases don't prompt a "next".
       if (finished && finished.intervalKind === "SPRINT") {
-        // Pass the names already in this project so the suggestion skips them.
-        // Teams plan ahead, so "Sprint 2" usually exists by the time "Sprint 1"
-        // is completed — without this, accepting the pre-fill made a second one.
-        // The closure's `intervals` predates the refetch above, which is fine:
-        // completing a sprint changes its status, never the set of names.
-        const d = computeNextSprintDefaults(
-          finished,
-          intervals.map((i) => i.name),
-        );
-        setNextName(d.name);
-        setNextStart(d.startDate);
-        setNextEnd(d.endDate);
-        setNextSprintParentId(finished.parentId);
+        // Prefer the sprint the team has ALREADY planned. Rolling over should
+        // start that one, not invent another beside it. The closure's
+        // `intervals` predates the refetch above, which is fine here: completing
+        // a sprint changes its status, never the set of sprints that follow it.
+        const existing = nextPlannedSprint(finished, intervals);
+        if (existing) {
+          setNextSprintExistingId(existing.id);
+          setNextName(existing.name);
+          setNextStart(existing.startDate.slice(0, 10));
+          setNextEnd(existing.endDate.slice(0, 10));
+          setNextSprintParentId(existing.parentId);
+        } else {
+          // Nothing planned yet — suggest one, skipping any name already in use
+          // so the suggestion itself cannot create a duplicate.
+          const d = computeNextSprintDefaults(
+            finished,
+            intervals.map((i) => i.name),
+          );
+          setNextSprintExistingId(null);
+          setNextName(d.name);
+          setNextStart(d.startDate);
+          setNextEnd(d.endDate);
+          setNextSprintParentId(finished.parentId);
+        }
         setNextSprintOpen(true);
       }
     } catch (err) {
@@ -948,41 +982,61 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Start the next sprint?</DialogTitle>
+            <DialogTitle>
+              {nextSprintExistingId
+                ? `Start ${nextName}?`
+                : "Start the next sprint?"}
+            </DialogTitle>
             <DialogDescription>
-              Roll straight into the next sprint. We&apos;ve pre-filled the same
-              duration and the next name — edit anything, or skip for now.
+              {nextSprintExistingId
+                ? "This sprint is already planned, so starting it changes nothing but its status. Edit its dates from the list if they need to move."
+                : "Roll straight into the next sprint. We've pre-filled the same duration and the next name — edit anything, or skip for now."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="next-name">Name</Label>
-              <Input
-                id="next-name"
-                value={nextName}
-                onChange={(e) => setNextName(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="next-start">Start</Label>
-                <Input
-                  id="next-start"
-                  type="date"
-                  value={nextStart}
-                  onChange={(e) => setNextStart(e.target.value)}
-                />
+            {/* An already-planned sprint is shown, not offered for editing. The
+                fields used to be writable here and every keystroke fed a CREATE,
+                which is how a second sprint of the same name got made. */}
+            {nextSprintExistingId ? (
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4">
+                <p className="text-sm font-semibold">{nextName}</p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                  {formatDateMediumStable(nextStart)} –{" "}
+                  {formatDateMediumStable(nextEnd)}
+                </p>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="next-end">End</Label>
-                <Input
-                  id="next-end"
-                  type="date"
-                  value={nextEnd}
-                  onChange={(e) => setNextEnd(e.target.value)}
-                />
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="next-name">Name</Label>
+                  <Input
+                    id="next-name"
+                    value={nextName}
+                    onChange={(e) => setNextName(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="next-start">Start</Label>
+                    <Input
+                      id="next-start"
+                      type="date"
+                      value={nextStart}
+                      onChange={(e) => setNextStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="next-end">End</Label>
+                    <Input
+                      id="next-end"
+                      type="date"
+                      value={nextEnd}
+                      onChange={(e) => setNextEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button
