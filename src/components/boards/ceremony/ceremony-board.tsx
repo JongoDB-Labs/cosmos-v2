@@ -228,15 +228,26 @@ export function CeremonyBoard({
     <div
       className={cn(
         "flex h-full flex-col",
-        // Present mode is for a ROOM, not a desk. Going full-bleed was not
-        // enough: it rendered at the same type sizes as the normal view, so the
-        // headline figures a team is meant to read from across a room were
-        // ~20px. `text-[1.35rem]` on the container scales every rem-based size
-        // inside it at once — including the stat figures — rather than needing a
-        // presentation variant threaded through each panel.
-        presenting &&
-          "fixed inset-0 z-50 bg-[var(--bg,var(--surface))] text-[1.35rem] [&_h2]:text-[1.6em] [&_h3]:text-[1.2em]"
+        // Present mode is for a ROOM, not a desk: full-bleed AND legibly bigger.
+        presenting && "fixed inset-0 z-50 bg-[var(--bg,var(--surface))]"
       )}
+      // Scaled with `zoom`, deliberately.
+      //
+      // This used to put `text-[1.35rem]` on the container, on the theory that it
+      // would scale every rem-based size inside it. It does not, and measuring
+      // said so: ONLY the <h2> grew, because its override happened to use `em`.
+      // Tailwind's `text-3xl` / `text-sm` / `text-xs` are all `rem`, and `rem`
+      // resolves against <html> — never against an ancestor — so a container
+      // font-size reaches only text that INHERITS, and every panel here sets its
+      // own size. The headline figures a team is meant to read from across a
+      // room stayed at 30px, which is the one thing this mode exists to prevent.
+      //
+      // `zoom` scales the rendered result, rem included, without threading a
+      // presentation variant through every shared panel. It does NOT change
+      // computed font-size, so verify it with getBoundingClientRect rather than
+      // getComputedStyle. Where zoom is unsupported the mode degrades to
+      // full-bleed at normal size — which is exactly what it did before.
+      style={presenting ? { zoom: 1.5 } : undefined}
     >
       {/* A classification banner is a legal marking, not decoration: if the
           board carries one it must be visible in presentation too. */}

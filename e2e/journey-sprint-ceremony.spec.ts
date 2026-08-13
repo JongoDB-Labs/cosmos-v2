@@ -337,6 +337,51 @@ test.describe("journey — sprint ceremony boards", () => {
     ).toBeVisible({ timeout: 20_000 });
   });
 
+  test("present mode actually enlarges the figures, not just the title", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(90_000);
+    await signInAs(EMAIL);
+    await page.goto(reviewUrl, { waitUntil: "domcontentloaded" });
+    await selectSprint(page);
+
+    // Measure RENDERED height, never computed font-size: present mode scales
+    // with `zoom`, which does not change computed font-size at all. A test
+    // reading getComputedStyle would report "30px" in both states and pass over
+    // a mode that scaled nothing.
+    const figure = page.getByText("Story points completed").locator("..");
+    const heightOf = async () =>
+      (await figure.boundingBox())?.height ?? 0;
+
+    const before = await heightOf();
+    expect(before).toBeGreaterThan(0);
+
+    await page.getByRole("button", { name: "Present" }).click();
+    await expect(
+      page.getByRole("button", { name: "Exit presentation" }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // BUG GUARD: this used to set a container font-size and expect rem-based
+    // Tailwind sizes to follow. They do not — rem resolves against <html> — so
+    // only the <h2> grew and the headline figures a room is meant to read stayed
+    // at 30px. Anything at or below 1.2x means the scaling regressed.
+    const after = await heightOf();
+    expect(after / before).toBeGreaterThan(1.2);
+
+    // Full-bleed, and it must not push the page sideways.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      await page.evaluate(() => window.innerWidth),
+    );
+
+    // Exiting restores the in-page board rather than stranding the facilitator.
+    await page.getByRole("button", { name: "Exit presentation" }).click();
+    await expect(page.getByRole("button", { name: "Present" })).toBeVisible({
+      timeout: 10_000,
+    });
+    expect(await heightOf()).toBeCloseTo(before, 0);
+  });
+
   test("planning board: its own sections, and capacity that does not oversell", async ({
     page,
     signInAs,
