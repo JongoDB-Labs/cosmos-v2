@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.6",
+    date: "2026-08-13",
+    title: "Dates on the organisation overview stop depending on the server",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The \"Updated\" date on the organisation overview's project cards was formatted using the server's own locale rather than a fixed one, so the page could be built with different text than your browser expected and fail to load with a \"Something went wrong\" message. It now formats consistently, the same way the projects list was fixed earlier. The \"Expires\" date on API keys and the created date in the classification list are corrected the same way.",
+      },
+    ],
+  },
+  {
     version: "2.287.5",
     date: "2026-08-13",
     title: "A Program Increment is shown by its name",
