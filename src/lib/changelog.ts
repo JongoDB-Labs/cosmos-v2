@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.288.2",
+    date: "2026-08-13",
+    title: "One “Across time” tab, with a sprint / increment toggle",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "“Trend across sprints” and “PI rollup” were two tabs asking the same question at two altitudes, so anyone wanting both had to remember which tab held which. They are now one tab — Across time — with a By sprint / By increment toggle. The scope is the variable, not the destination, and sprint stays the default because that is the cadence teams actually run on.",
+      },
+      {
+        kind: "improvement",
+        text: "Switching to By increment shows the increment rollup rather than re-pointing the sprint panels at Program Increments. A PI holds no work items of its own, so a throughput bar for one reads zero and a cycle time over one is empty — those panels would render perfectly and tell you something untrue.",
+      },
+    ],
+  },
+  {
     version: "2.288.1",
     date: "2026-08-13",
     title: "Times shown on screen follow your own clock",
