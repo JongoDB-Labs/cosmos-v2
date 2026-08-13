@@ -193,6 +193,18 @@ describe("Sprint Health — the delivery panels are actually reachable", () => {
     });
   });
 
+  it("does not draw the work-type heading twice inside the grid cell", async () => {
+    // The grid cell supplies its own border and <h3>. A self-titling panel
+    // dropped into it renders the heading and the card outline twice — obvious
+    // on screen, and completely invisible to a typecheck. `bare` suppresses the
+    // panel's own chrome; the grid's title is the one that must survive.
+    renderBoard();
+
+    await waitFor(() => expect(screen.getAllByText("Work Type Mix").length).toBeGreaterThan(0));
+    // The panel's own heading text, which differs only in capitalisation.
+    expect(screen.queryAllByText("Work type mix")).toHaveLength(0);
+  });
+
   it("narrows the work type mix when a filter is applied", async () => {
     // The mix is computed from the FILTERED set, like every other number here.
     // Reading the whole project on a board showing a filter bar is the exact

@@ -408,7 +408,8 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       // opposite conversations.
       key: "worktype",
       title: "Work Type Mix",
-      body: <WorkTypeMixPanel items={deliveryItems} />,
+      // `bare`: the grid cell already draws the border and the heading.
+      body: <WorkTypeMixPanel items={deliveryItems} bare />,
     },
   ];
 
