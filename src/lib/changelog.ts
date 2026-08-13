@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.286.5",
+    date: "2026-08-13",
+    title: "Rolling into the next sprint now starts the one you already planned",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Completing a sprint and accepting the offer to start the next one always CREATED a sprint, even when the next one was already planned — so a team who plans ahead ended up with two sprints of the same name, and their real one was left sitting untouched. When the next sprint already exists, that sprint is now started in place; nothing new is created and its dates are left alone.",
+      },
+      {
+        kind: "improvement",
+        text: "The roll-over dialog says which of the two it is about to do. For a sprint that already exists it names it — “Start Sprint 2?” — and shows its dates as a record rather than as editable fields, because editing them there was what quietly built a second sprint.",
+      },
+    ],
+  },
+  {
     version: "2.286.4",
     date: "2026-08-12",
     title: "Sprint ceremony boards: the retro's follow-through now works end to end",
