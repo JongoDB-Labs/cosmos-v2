@@ -48,6 +48,18 @@ const CONVERTED = [
   // sprint window rendered a day apart on two tabs of the same screen.
   "src/components/boards/ceremony/ceremony-board.tsx",
   "src/components/boards/ceremony/ceremony-summary.tsx",
+  // Converted earlier but never listed, so a regression in them was unguarded.
+  "src/components/boards/ceremony/action-items.tsx",
+  "src/components/time-tracking/approvals-queue.tsx",
+  "src/components/time-tracking/time-tracker.tsx",
+  // Batch 3. The org overview was a SERVER component rendering
+  // `new Date(p.updatedAt).toLocaleDateString()` — a second, un-migrated copy of
+  // the projects-list bug fixed in #535, and the only true SSR site left.
+  "src/app/(dashboard)/[orgSlug]/page.tsx",
+  // Client components, but their pages prefetch into a HydrationBoundary, so
+  // real data — and therefore a real date — renders on the server.
+  "src/components/settings/api-keys-manager.tsx",
+  "src/components/security/classification-manager.tsx",
 ];
 
 /**
@@ -59,6 +71,10 @@ const CONVERTED = [
 const ALREADY_PINNED = [
   "src/components/work-items/issues-view.tsx",
   "src/components/pm-dashboard/pm-dashboard.tsx",
+  // Server-rendered client component (rows arrive as props from team/page.tsx).
+  // Its own comment records the hydration mismatch that pinned it; it was just
+  // never added here, so nothing stopped the timeZone being dropped again.
+  "src/app/(dashboard)/[orgSlug]/team/team-table.tsx",
 ];
 
 /**
