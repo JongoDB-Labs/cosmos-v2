@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { useBroadcastChannelLeader } from "./use-broadcast-channel-leader";
+import { ALL_SERVER_EVENT_TYPES } from "@/lib/realtime/event-types";
 
 type Handlers = Record<string, (data: unknown) => void>;
 
@@ -30,40 +31,10 @@ export function useRealtimeEvents(orgId: string, handlers: Handlers) {
       const es = new EventSource(`/api/v1/orgs/${orgId}/events`);
 
       // Rebroadcast ALL named events so follower tabs (which may handle
-      // different event types) can receive them. We listen on the raw
-      // EventSource 'message' fallback for unnamed events and on a typed
-      // listener for every known server-side event type. The server only
-      // sends named events (event: <type>), so the typed listeners are the
-      // effective path; the message fallback handles any future unnamed events.
-      const ALL_SERVER_EVENT_TYPES = [
-        "chat.message.created",
-        "chat.message.updated",
-        "chat.message.deleted",
-        "chat.message.streaming",
-        "chat.reaction.added",
-        "chat.reaction.removed",
-        "chat.typing",
-        "chat.presence.changed",
-        "chat.read.receipt",
-        "chat.unread.bumped",
-        "chat.read.updated",
-        "chat.pin.added",
-        "chat.pin.removed",
-        "chat.channel.joined",
-        "chat.channel.left",
-        "notification.created",
-        "work-item.created",
-        "work-item.updated",
-        "work-item.deleted",
-        "feedback.throttled",
-        "feedback.gated",
-        "feedback.flagged",
-        "feedback.duplicate",
-        "feedback.delivered",
-        "settings.updated",
-        "member.updated",
-        "hello",
-      ] as const;
+      // different event types) can receive them. The list lives in
+      // lib/realtime/event-types so an arch test can diff it against what the
+      // server actually publishes — it drifted, and four events (including
+      // ceremony.changed) were never bound on any tab as a result.
 
       const bound: Array<[string, EventListener]> = [];
 
