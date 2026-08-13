@@ -174,6 +174,49 @@ describe("Sprint Health — filtering", () => {
   });
 });
 
+describe("Sprint Health — the delivery panels are actually reachable", () => {
+  it("puts throughput and cycle time on the Trend tab", async () => {
+    // A panel that renders correctly in isolation and is wired to no tab is the
+    // same defect as no panel at all. This asserts the route from the tab the
+    // user clicks to the analysis they came for.
+    renderBoard();
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    // "Trend across sprints" previously held a velocity bar list and nothing else.
+    expect(screen.queryByText(/Once we start something/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Trend across sprints/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/How many items are we finishing per sprint\?/)).toBeInTheDocument();
+      expect(screen.getByText(/Once we start something, how long until it is done\?/)).toBeInTheDocument();
+    });
+  });
+
+  it("narrows the work type mix when a filter is applied", async () => {
+    // The mix is computed from the FILTERED set, like every other number here.
+    // Reading the whole project on a board showing a filter bar is the exact
+    // bug #683 fixed for the metrics; it must not come back one panel at a time.
+    renderBoard();
+
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("work-type-unknown");
+      expect(rows.length).toBeGreaterThan(0);
+      rows.forEach((el) => expect(el).toHaveTextContent("5 · 100%"));
+    });
+
+    fireEvent.change(screen.getAllByPlaceholderText(/search/i)[0], {
+      target: { value: "Payment" },
+    });
+
+    await waitFor(() =>
+      screen
+        .getAllByTestId("work-type-unknown")
+        .forEach((el) => expect(el).toHaveTextContent("2 · 100%")),
+    );
+  });
+});
+
 describe("Sprint Health — which interval the burndown picks", () => {
   it("charts the running SPRINT, not the Program Increment that contains it", async () => {
     // The reported symptom was "No active sprint data" with a live active
