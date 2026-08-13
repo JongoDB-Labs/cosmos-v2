@@ -116,9 +116,11 @@ interface IntervalsWorkspaceProps {
   /** Pre-selected kind for the create form — the project sector's default
    *  (Sprint for software, Phase for AEC, …). Falls back to SPRINT. */
   defaultKind?: string;
+  /** Who is looking — so capacity can default to the team they lead. */
+  viewerUserId?: string;
 }
 
-export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind = "SPRINT" }: IntervalsWorkspaceProps) {
+export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind = "SPRINT", viewerUserId = "" }: IntervalsWorkspaceProps) {
   const { can } = usePermissions();
   const canCreate = can(Permission.SPRINT_CREATE);
   const canUpdate = can(Permission.SPRINT_UPDATE);
@@ -783,6 +785,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
           intervalId={capacityTarget.id}
           intervalName={capacityTarget.name}
           canEdit={canUpdate}
+          viewerUserId={viewerUserId}
           onClose={() => setCapacityTarget(null)}
         />
       )}
