@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.5",
+    date: "2026-08-13",
+    title: "A Program Increment is shown by its name",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When assigning a milestone to a Program Increment, the picker and the Schedule register's PI column showed something like \"PI-7 \u00b7 PI-001\". The \"PI-7\" part was not real: intervals are numbered in one sequence per project that counts sprints too, so a project's first Program Increment is often the seventh interval created. A Program Increment is now shown simply by the name you gave it, and the column sorts the way it reads. An interval with no name still falls back to its sequence number.",
+      },
+    ],
+  },
+  {
     version: "2.287.4",
     date: "2026-08-13",
     title: "Throughput no longer claims a team never varies",
