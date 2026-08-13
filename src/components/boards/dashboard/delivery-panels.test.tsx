@@ -126,6 +126,26 @@ describe("throughput does not present a partial sprint as a result", () => {
     expect(screen.getByText(/Average 8\.0 items across 2 closed sprints/)).toBeInTheDocument();
   });
 
+  it("does not print a spread from one closed sprint", () => {
+    // The exact string production showed: "Average 34.0 items across 1 closed
+    // sprint (±0% variation)". Arithmetically right, and it reads as a team that
+    // never varies. Only one closed sprint here.
+    render(
+      <ThroughputPanel
+        intervals={[intervals[0], intervals[2]]}
+        items={[
+          ...Array.from({ length: 34 }, () => item({ intervalId: "s1", done: true })),
+          item({ intervalId: "s3", done: true }),
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText(/±\s*0\s*%/)).not.toBeInTheDocument();
+    expect(screen.getByText(/too few to show variation yet, which needs 3/)).toBeInTheDocument();
+    // The mean is still a fact about that sprint and must survive.
+    expect(screen.getByText(/Average 34\.0 items across 1 closed sprint/)).toBeInTheDocument();
+  });
+
   it("omits the average rather than computing one from a single partial sprint", () => {
     render(
       <ThroughputPanel

@@ -16,6 +16,7 @@ import {
   throughput,
   throughputSummary,
   workTypeMix,
+  MIN_SPREAD_SAMPLES,
   type DeliveryItemLike,
   type ThroughputInterval,
 } from "@/lib/dashboard/delivery-metrics";
@@ -251,11 +252,17 @@ export function ThroughputPanel({
             Average {summary.mean!.toFixed(1)} items across {summary.closed} closed{" "}
             {summary.closed === 1 ? "sprint" : "sprints"}
             {summary.variability !== null ? (
+              <> (±{Math.round(summary.variability * 100)}% variation)</>
+            ) : (
+              // Say what is missing rather than printing a spread of one sample.
+              // "±0% variation" is arithmetically correct and reads as "this team
+              // never varies" — seen on production with a single closed sprint.
               <>
                 {" "}
-                (±{Math.round(summary.variability * 100)}% variation)
+                — too few to show variation yet, which needs{" "}
+                {MIN_SPREAD_SAMPLES}
               </>
-            ) : null}
+            )}
             . A sprint still running is drawn faded — it is partway through, not down.
           </>
         )
