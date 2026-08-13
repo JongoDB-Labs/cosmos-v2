@@ -184,17 +184,17 @@ describe("Sprint Health — filtering", () => {
 });
 
 describe("Sprint Health — the delivery panels are actually reachable", () => {
-  it("puts throughput and cycle time on the Trend tab", async () => {
+  it("puts throughput and cycle time on the Across time tab", async () => {
     // A panel that renders correctly in isolation and is wired to no tab is the
     // same defect as no panel at all. This asserts the route from the tab the
     // user clicks to the analysis they came for.
     renderBoard();
     await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
 
-    // "Trend across sprints" previously held a velocity bar list and nothing else.
+    // "Across time" replaces the old Trend / PI rollup pair.
     expect(screen.queryByText(/Once we start something/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: /Trend across sprints/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /Across time/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/How many items are we finishing per sprint\?/)).toBeInTheDocument();
@@ -210,13 +210,46 @@ describe("Sprint Health — the delivery panels are actually reachable", () => {
     renderBoard();
     await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
 
-    fireEvent.click(screen.getByRole("tab", { name: /Trend across sprints/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /Across time/i }));
 
     await waitFor(() => {
       const row = screen.getByTestId("scope-s1");
       // Two items sit in Sprint 6; one arrived mid-sprint, so planning had one.
       expect(row).toHaveTextContent("+1");
       expect(row).toHaveTextContent("of 1 kept");
+    });
+  });
+
+  it("collapses Trend and PI rollup into one tab with a scope toggle", async () => {
+    // Two tabs asking the same question at two altitudes meant a reader had to
+    // remember which tab held which. The SCOPE is the variable now.
+    renderBoard();
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    const tabNames = screen.getAllByRole("tab").map((t) => t.textContent);
+    expect(tabNames).toContain("Across time");
+    expect(tabNames).not.toContain("Trend across sprints");
+    expect(tabNames).not.toContain("PI rollup");
+  });
+
+  it("does not render sprint-scoped panels against increments", async () => {
+    // A Program Increment holds no work items of its own, so a throughput bar
+    // for one reads zero and a cycle time over one is empty. Those panels would
+    // render happily and lie, which is why the increment side shows the rollup
+    // instead of the same panels re-pointed.
+    renderBoard();
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("tab", { name: /Across time/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/How many items are we finishing per sprint\?/)).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /By increment/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/How many items are we finishing per sprint\?/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Once we start something, how long until it is done\?/)).not.toBeInTheDocument();
     });
   });
 

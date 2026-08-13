@@ -95,7 +95,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // Sprint Health answered only "how is the sprint in flight?". These add the
   // two questions a team asks between ceremonies. Current stays the default so
   // the board opens exactly as it did.
-  const [healthView, setHealthView] = useState<"current" | "burndown" | "trend" | "pi">("current");
+  const [healthView, setHealthView] = useState<"current" | "burndown" | "across">("current");
+  // "Trend across sprints" and "PI rollup" were two tabs asking the same
+  // question at two altitudes, so a reader wanting both had to remember which
+  // tab held which. One tab, one toggle: the SCOPE is the variable, not the
+  // destination. Sprint is the default because that is the cadence a team
+  // actually runs on; the increment view is the one you go looking for.
+  const [timeScope, setTimeScope] = useState<"sprint" | "pi">("sprint");
 
   // Sprint Health was the only board family with no filtering at all — every
   // number on it described the whole project, so a lead could not ask "how is MY
@@ -429,8 +435,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const HEALTH_VIEWS = [
     { key: "current" as const, label: "Current sprint" },
     { key: "burndown" as const, label: "Burndown" },
-    { key: "trend" as const, label: "Trend across sprints" },
-    { key: "pi" as const, label: "PI rollup" },
+    { key: "across" as const, label: "Across time" },
+  ];
+
+  const TIME_SCOPES = [
+    { key: "sprint" as const, label: "By sprint" },
+    { key: "pi" as const, label: "By increment" },
   ];
 
   return (
@@ -476,28 +486,57 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         <div className="flex-1 overflow-auto p-4">
           {healthView === "burndown" ? (
             <BurndownView intervals={intervals} items={filteredItems} columns={columns} />
-          ) : healthView === "trend" ? (
-            /* "Trend across sprints" used to hold one velocity bar list, which
-               is a record of what happened rather than an analysis of it.
-               Throughput answers whether the rate is moving, cycle time answers
-               how long the work takes once started — the two numbers a retro
-               actually argues about, and neither needed a new table. */
-            <div className="space-y-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <ThroughputPanel items={deliveryItems} intervals={intervals} />
-                <CycleTimePanel items={deliveryItems} />
-                <ScopeChangePanel
-                  items={deliveryItems}
-                  intervals={intervals}
-                  changes={changesQ.data?.changes ?? []}
-                  truncated={changesQ.data?.truncated}
-                  loading={changesQ.isLoading}
-                />
-              </div>
-              <SprintTrendView intervals={intervals} />
-            </div>
           ) : (
-            <PiRollupView intervals={intervals} />
+            <div className="space-y-4">
+              {/* The scope toggle. Rendered as a real tablist rather than a
+                  select: it is two options a reader flips between constantly,
+                  and burying that in a dropdown costs a click every time. */}
+              <div
+                role="tablist"
+                aria-label="Time scope"
+                className="inline-flex gap-0.5 rounded-[var(--radius)] border border-[var(--border)] p-0.5"
+              >
+                {TIME_SCOPES.map((s) => (
+                  <button
+                    key={s.key}
+                    role="tab"
+                    aria-selected={timeScope === s.key}
+                    onClick={() => setTimeScope(s.key)}
+                    className={cn(
+                      "rounded-[calc(var(--radius)-3px)] px-3 py-1 text-xs font-medium transition-colors",
+                      timeScope === s.key
+                        ? "bg-[var(--primary)] text-[var(--primary-foreground,#fff)]"
+                        : "text-[var(--text-muted)] hover:text-[var(--text)]",
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              {timeScope === "sprint" ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <ThroughputPanel items={deliveryItems} intervals={intervals} />
+                    <CycleTimePanel items={deliveryItems} />
+                    <ScopeChangePanel
+                      items={deliveryItems}
+                      intervals={intervals}
+                      changes={changesQ.data?.changes ?? []}
+                      truncated={changesQ.data?.truncated}
+                      loading={changesQ.isLoading}
+                    />
+                  </div>
+                  <SprintTrendView intervals={intervals} />
+                </div>
+              ) : (
+                /* Increment scope deliberately does NOT re-render the sprint
+                   panels against PIs. A Program Increment holds no work items of
+                   its own, so a throughput bar for one reads zero and a cycle
+                   time over one is empty — the panels would render, and lie. */
+                <PiRollupView intervals={intervals} />
+              )}
+            </div>
           )}
         </div>
       ) : (
