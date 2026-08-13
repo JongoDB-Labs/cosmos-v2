@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.2",
+    date: "2026-08-13",
+    title: "A retro running in front of the team now updates for everyone watching",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Notes and action items added during a ceremony never appeared for anyone else — a second person with the board open had to reload to see anything, which is the opposite of what a live retro needs. They now appear as they are added.",
+      },
+      {
+        kind: "fix",
+        text: "The same gap silently affected work-item link changes and new organisations, which also never reached other open tabs.",
+      },
+    ],
+  },
+  {
     version: "2.287.1",
     date: "2026-08-13",
     title: "Self-hosted updates no longer need a copy of the source repo",
