@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadError } from "@/components/ui/load-error";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
 
 interface SavedReport {
   id: string;
@@ -212,16 +213,6 @@ export function ReportsManager({ orgId }: ReportsManagerProps) {
     setDeleteOpen(true);
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "-";
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
 
   const getTypeLabel = (type: string) =>
     REPORT_TYPES.find((t) => t.value === type)?.label ?? type;
@@ -338,7 +329,7 @@ export function ReportsManager({ orgId }: ReportsManagerProps) {
                       {report.lastRunAt ? (
                         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <Calendar className="size-3" />
-                          {formatDate(report.lastRunAt)}
+                          <LocalTimestamp value={report.lastRunAt} />
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">Never</span>

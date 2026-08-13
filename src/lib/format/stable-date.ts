@@ -38,6 +38,28 @@ const DATE_MEDIUM_FMT = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
+// Date AND time, still pinned to UTC. This is NOT for display on its own — a
+// timestamp shown in UTC tells a New York reader 10 PM for a 6 PM event. It is
+// the pre-mount half of <LocalTimestamp>: the server and the first client render
+// emit this identical string, then the component swaps in the viewer's own zone
+// after mount. Same shape as the local form, so the swap does not reflow.
+const DATE_TIME_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+// Time only, pinned to UTC — the pre-mount half of <LocalTime>. Same caveat as
+// DATE_TIME_FMT: never show this to a reader on its own.
+const TIME_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 const DATE_LONG_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
   month: "long",
@@ -87,4 +109,29 @@ export function formatDateLongStable(
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return "";
   return DATE_LONG_FMT.format(d);
+}
+
+/**
+ * `Jul 30, 2026, 2:15 PM` in UTC — identical on server and client.
+ *
+ * Only for the pre-mount render inside `<LocalTimestamp>`; see DATE_TIME_FMT.
+ * Reach for the component, not this, when showing a timestamp to a reader.
+ */
+export function formatDateTimeStable(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return DATE_TIME_FMT.format(d);
+}
+
+/**
+ * `2:15 PM` in UTC — identical on server and client.
+ *
+ * Only for the pre-mount render inside `<LocalTime>`; see TIME_FMT.
+ */
+export function formatTimeStable(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return TIME_FMT.format(d);
 }

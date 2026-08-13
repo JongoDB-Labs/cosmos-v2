@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.288.1",
+    date: "2026-08-13",
+    title: "Times shown on screen follow your own clock",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Timestamps such as an API key's \"last used\", when an allow-list entry was added, when a report last ran and when a ceremony was closed are shown in your own time zone. Previously they were formatted using whatever locale and zone the server happened to run in, which could disagree with your browser and make a page fail to load. They now appear briefly in a fixed form and settle to your local time a moment later, without the page breaking.",
+      },
+    ],
+  },
+  {
     version: "2.288.0",
     date: "2026-08-13",
     title: "Sprint Health now shows what you committed to, and what changed after",
