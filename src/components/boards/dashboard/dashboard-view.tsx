@@ -26,8 +26,10 @@ import {
   CycleTimePanel,
   ThroughputPanel,
   WorkTypeMixPanel,
+  ScopeChangePanel,
   toDeliveryItems,
 } from "./delivery-panels";
+import type { IntervalChange } from "@/lib/dashboard/scope-change";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
@@ -104,10 +106,11 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
 
   const itemsKey = useOrgQueryKey("work-items", projectId);
+  const changesKey = useOrgQueryKey("interval-changes", projectId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -124,6 +127,16 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       {
         queryKey: intervalsKey,
         queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
+      },
+      {
+        // Scope churn is the one panel that cannot be derived from the items
+        // themselves — an item that LEFT a sprint is not in that sprint any
+        // more, so only the activity history remembers it happened.
+        queryKey: changesKey,
+        queryFn: () =>
+          jsonFetch<{ changes: IntervalChange[]; truncated: boolean }>(
+            `${basePath}/interval-changes`,
+          ),
       },
     ],
   });
@@ -473,6 +486,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
               <div className="grid gap-4 lg:grid-cols-2">
                 <ThroughputPanel items={deliveryItems} intervals={intervals} />
                 <CycleTimePanel items={deliveryItems} />
+                <ScopeChangePanel
+                  items={deliveryItems}
+                  intervals={intervals}
+                  changes={changesQ.data?.changes ?? []}
+                  truncated={changesQ.data?.truncated}
+                  loading={changesQ.isLoading}
+                />
               </div>
               <SprintTrendView intervals={intervals} />
             </div>

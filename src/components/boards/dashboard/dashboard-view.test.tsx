@@ -105,6 +105,13 @@ const INTERVALS = [
   },
 ];
 
+// Item 1 was pulled into Sprint 6 two days AFTER it started — mid-sprint scope
+// injection, which is exactly what the panel exists to surface. Item 2 was there
+// from planning.
+const INTERVAL_CHANGES = [
+  { workItemId: "1", from: null, to: "s1", at: iso(-2) },
+];
+
 function stubFetch() {
   vi.stubGlobal(
     "fetch",
@@ -114,7 +121,9 @@ function stubFetch() {
       // endpoints (work-item types, labels, teams) and iterates them, so an
       // object default throws "types is not iterable" from inside a hook and
       // takes the whole render down with it.
-      const body = u.includes("/boards/")
+      const body = u.includes("/interval-changes")
+        ? { changes: INTERVAL_CHANGES, truncated: false }
+        : u.includes("/boards/")
         ? BOARD
         : u.includes("/work-items") && !u.includes("work-item-types")
           ? ITEMS
@@ -190,6 +199,24 @@ describe("Sprint Health — the delivery panels are actually reachable", () => {
     await waitFor(() => {
       expect(screen.getByText(/How many items are we finishing per sprint\?/)).toBeInTheDocument();
       expect(screen.getByText(/Once we start something, how long until it is done\?/)).toBeInTheDocument();
+    });
+  });
+
+  it("reads the interval history to show mid-sprint scope change", async () => {
+    // Scope churn is the ONE panel that cannot be derived from the work items:
+    // an item that LEFT a sprint is no longer in it, so only the activity
+    // history remembers. This asserts the fetched history actually reaches the
+    // panel rather than the panel rendering a plausible zero.
+    renderBoard();
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("tab", { name: /Trend across sprints/i }));
+
+    await waitFor(() => {
+      const row = screen.getByTestId("scope-s1");
+      // Two items sit in Sprint 6; one arrived mid-sprint, so planning had one.
+      expect(row).toHaveTextContent("+1");
+      expect(row).toHaveTextContent("of 1 kept");
     });
   });
 
