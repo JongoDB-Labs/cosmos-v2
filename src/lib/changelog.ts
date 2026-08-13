@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.1",
+    date: "2026-08-13",
+    title: "Self-hosted updates no longer need a copy of the source repo",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The delivery daemon worked out “what is the newest release?” by reading git tags from a checkout of the source, which only works when the daemon and the instance it updates sit on the same machine. On any other instance it found no tags and reported nothing to update — indistinguishable from being up to date. It now asks the image registry, which is the same place the Updates page already asks and the same place the deploy pulls from.",
+      },
+      {
+        kind: "fix",
+        text: "A registry it cannot reach now refuses the pass and says so, rather than reading as “no new version”. An unreachable registry and an up-to-date instance used to look identical in the log.",
+      },
+    ],
+  },
+  {
     version: "2.287.0",
     date: "2026-08-13",
     title: "Sprint Health answers the questions a retro actually opens with",
