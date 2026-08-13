@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.0",
+    date: "2026-08-13",
+    title: "Sprint Health answers the questions a retro actually opens with",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cycle time: once work starts, how long until it is done. Median, 85th percentile and a distribution, so you can say “most things land inside nine days” rather than guessing. It reports how much of your finished work it could actually measure — only items with a recorded start can be timed — and shows no figure at all when nothing can be, instead of a “0 days” that reads as instant delivery.",
+      },
+      {
+        kind: "feature",
+        text: "Throughput: how many items you finish per sprint, with the rolling average and how much it varies. The sprint you are in is drawn faded and left out of the average, because a sprint three days old has delivered three days of work and averaging that in makes every team look like it is slowing down. A sprint that finished nothing still gets its bar — closing the gap would quietly redraw the trend as though it never happened.",
+      },
+      {
+        kind: "feature",
+        text: "Work type mix: where capacity is going, cut by work item type and by business-versus-enabler. Status and priority say where work stands, neither says what kind of work it is — and a sprint that is 60% defects and one that is 60% features call for opposite conversations.",
+      },
+      {
+        kind: "improvement",
+        text: "Every one of these reads the filtered set, so narrowing to a team, an assignee or a label re-answers all of them for that slice. Where a number is built on partial data the panel says so underneath it, including items excluded for finishing before they started.",
+      },
+    ],
+  },
+  {
     version: "2.286.6",
     date: "2026-08-13",
     title: "Present mode now actually makes the ceremony readable from a room",

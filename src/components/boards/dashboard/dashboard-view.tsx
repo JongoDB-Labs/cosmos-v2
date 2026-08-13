@@ -22,6 +22,12 @@ import { WorkloadChart } from "./widgets/workload-chart";
 import { ActivityFeed } from "./widgets/activity-feed";
 import { SprintTrendView, PiRollupView } from "./sprint-history";
 import { BurndownView } from "./burndown-view";
+import {
+  CycleTimePanel,
+  ThroughputPanel,
+  WorkTypeMixPanel,
+  toDeliveryItems,
+} from "./delivery-panels";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
@@ -284,6 +290,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       }));
   }, [filteredItems, intervals, columnCategoryMap]);
 
+  // One adaptation of the filtered set, shared by all three delivery panels, so
+  // "done" and "type" cannot come to mean different things on the same screen.
+  const deliveryItems = useMemo(
+    () => toDeliveryItems(filteredItems, columns),
+    [filteredItems, columns],
+  );
+
   if (loading) return <DashboardSkeleton />;
 
   if (error) {
@@ -388,6 +401,16 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       title: "Recent Activity",
       body: <ActivityFeed items={filteredItems} projectKey={projectKey} />,
     },
+    {
+      // Status and priority say where the work STANDS; neither says what kind of
+      // work it is. A sprint that is 60% defects and one that is 60% features
+      // are indistinguishable on this board without it, and they call for
+      // opposite conversations.
+      key: "worktype",
+      title: "Work Type Mix",
+      // `bare`: the grid cell already draws the border and the heading.
+      body: <WorkTypeMixPanel items={deliveryItems} bare />,
+    },
   ];
 
   const HEALTH_VIEWS = [
@@ -441,7 +464,18 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           {healthView === "burndown" ? (
             <BurndownView intervals={intervals} items={filteredItems} columns={columns} />
           ) : healthView === "trend" ? (
-            <SprintTrendView intervals={intervals} />
+            /* "Trend across sprints" used to hold one velocity bar list, which
+               is a record of what happened rather than an analysis of it.
+               Throughput answers whether the rate is moving, cycle time answers
+               how long the work takes once started — the two numbers a retro
+               actually argues about, and neither needed a new table. */
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ThroughputPanel items={deliveryItems} intervals={intervals} />
+                <CycleTimePanel items={deliveryItems} />
+              </div>
+              <SprintTrendView intervals={intervals} />
+            </div>
           ) : (
             <PiRollupView intervals={intervals} />
           )}
