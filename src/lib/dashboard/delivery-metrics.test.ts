@@ -10,6 +10,7 @@ import {
   throughput,
   throughputSummary,
   workTypeMix,
+  MIN_SPREAD_SAMPLES,
   type DeliveryItemLike,
   type ThroughputInterval,
 } from "./delivery-metrics";
@@ -35,6 +36,20 @@ function tookDays(days: number, over: Partial<DeliveryItemLike> = {}): DeliveryI
   const end = new Date("2026-03-10T12:00:00Z");
   const start = new Date(end.getTime() - days * 86_400_000);
   return item({ done: true, actualStart: start, completedAt: end, ...over });
+}
+
+
+/** N closed sprints with the given finished-item counts. */
+function closedSprints(counts: number[]) {
+  return counts.map((count, i) => ({
+    intervalId: `s${i}`,
+    name: `S${i}`,
+    count,
+    points: 0,
+    estimated: 0,
+    total: count,
+    isPartial: false,
+  }));
 }
 
 describe("cycle time reports what it could not measure", () => {
@@ -196,18 +211,33 @@ describe("throughput does not redraw the trend", () => {
   });
 
   it("reports variability so a flat mean cannot hide a wild spread", () => {
-    const steady = throughputSummary([
-      { intervalId: "a", name: "A", count: 10, points: 0, estimated: 0, total: 10, isPartial: false },
-      { intervalId: "b", name: "B", count: 10, points: 0, estimated: 0, total: 10, isPartial: false },
-    ]);
-    const wild = throughputSummary([
-      { intervalId: "a", name: "A", count: 2, points: 0, estimated: 0, total: 2, isPartial: false },
-      { intervalId: "b", name: "B", count: 18, points: 0, estimated: 0, total: 18, isPartial: false },
-    ]);
+    const steady = throughputSummary(closedSprints([10, 10, 10]));
+    const wild = throughputSummary(closedSprints([2, 18, 10]));
 
     expect(steady.mean).toBe(wild.mean);
     expect(steady.variability).toBe(0);
     expect(wild.variability!).toBeGreaterThan(0.5);
+  });
+
+  it("refuses a spread figure until there are enough closed sprints", () => {
+    // FOUND ON PRODUCTION: a project with one closed sprint rendered
+    // "±0% variation". That is arithmetically correct — the spread of a single
+    // sample IS zero — and it reads as "this team never varies", which is a
+    // claim about people the data cannot support.
+    const one = throughputSummary(closedSprints([34]));
+    expect(one.variability).toBeNull();
+    expect(one.stdDev).toBeNull();
+    // The MEAN still stands: "we finished 34 items" is a fact about that sprint.
+    expect(one.mean).toBe(34);
+    expect(one.closed).toBe(1);
+
+    expect(throughputSummary(closedSprints([34, 30])).variability).toBeNull();
+  });
+
+  it("starts reporting spread exactly at the floor, not one short of it", () => {
+    expect(throughputSummary(closedSprints([10, 10])).variability).toBeNull();
+    expect(throughputSummary(closedSprints([10, 10, 10])).variability).toBe(0);
+    expect(MIN_SPREAD_SAMPLES).toBe(3);
   });
 
   it("returns nulls, not zeros, when no sprint has closed", () => {

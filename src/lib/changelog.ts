@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.287.4",
+    date: "2026-08-13",
+    title: "Throughput no longer claims a team never varies",
+    highlights: [
+      {
+        kind: "fix",
+        text: "With a single closed sprint, Throughput reported “±0% variation”. That is arithmetically true — the spread of one number is zero — and it reads as “this team is perfectly predictable”, which is a claim about people that one sprint cannot support. Variation now appears only once three sprints have closed, and until then the panel says so instead. The average is unchanged: finishing 34 items in a sprint is a fact about that sprint and still shows from the first one.",
+      },
+    ],
+  },
+  {
     version: "2.287.3",
     date: "2026-08-13",
     title: "Plan a sprint for your own team, not for the whole project",

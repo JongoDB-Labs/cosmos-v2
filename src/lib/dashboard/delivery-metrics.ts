@@ -243,17 +243,33 @@ export function throughput(
 }
 
 /**
+ * Closed sprints required before a spread figure means anything.
+ *
+ * The spread of ONE sample is exactly zero, and of two it is whatever those two
+ * happened to differ by. Found on production: a project with a single closed
+ * sprint rendered "±0% variation", which reads as "this team is perfectly
+ * predictable" when it means "we have one data point". Three is the same floor
+ * `velocity-trend` uses in the panel registry, and for the same reason — two
+ * points make a line, not a trend.
+ */
+export const MIN_SPREAD_SAMPLES = 3;
+
+/**
  * Mean and spread of the CLOSED points only.
  *
  * A rolling average that includes the sprint in flight drags the line toward
  * however far into it we are, which is the single easiest way to make a healthy
  * team look like it is decelerating every second Tuesday.
+ *
+ * The MEAN is reported from the first closed sprint — "we finished 34 items" is
+ * a fact about one sprint and stays true. The SPREAD is withheld until there are
+ * enough sprints for it to describe anything; see MIN_SPREAD_SAMPLES.
  */
 export function throughputSummary(pointsSeries: readonly ThroughputPoint[]): {
   mean: number | null;
-  /** Population standard deviation of the closed sprints' item counts. */
+  /** Population standard deviation of the closed sprints' item counts. Null below MIN_SPREAD_SAMPLES. */
   stdDev: number | null;
-  /** stdDev / mean — lower is more predictable. Null when mean is 0. */
+  /** stdDev / mean — lower is more predictable. Null when mean is 0 or samples are too few. */
   variability: number | null;
   closed: number;
 } {
@@ -262,6 +278,14 @@ export function throughputSummary(pointsSeries: readonly ThroughputPoint[]): {
 
   const counts = closed.map((p) => p.count);
   const mean = counts.reduce((s, c) => s + c, 0) / counts.length;
+
+  // Below the floor: report the mean, refuse the spread. Returning 0 here is
+  // the failure this guard exists for — it is arithmetically right and reads as
+  // a claim about the team that the data cannot support.
+  if (closed.length < MIN_SPREAD_SAMPLES) {
+    return { mean, stdDev: null, variability: null, closed: closed.length };
+  }
+
   const variance = counts.reduce((s, c) => s + (c - mean) ** 2, 0) / counts.length;
   const stdDev = Math.sqrt(variance);
 
