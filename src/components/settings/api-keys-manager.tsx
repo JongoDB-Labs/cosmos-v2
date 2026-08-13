@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
 import { formatDateStable } from "@/lib/format/stable-date";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
 
 interface ApiKeyRow {
   id: string;
@@ -248,9 +249,7 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
               <div className="flex flex-col items-end gap-0.5 text-xs text-[var(--text-muted)]">
                 <span>
                   Last used:{" "}
-                  {key.lastUsed
-                    ? new Date(key.lastUsed).toLocaleString()
-                    : "never"}
+                  <LocalTimestamp value={key.lastUsed} fallback="never" />
                 </span>
                 <span>
                   {key.expiresAt

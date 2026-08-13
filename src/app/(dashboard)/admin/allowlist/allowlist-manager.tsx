@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
 
 type Entry = {
   id: string;
@@ -130,7 +131,7 @@ export function AllowlistManager() {
                   <p className="font-mono text-sm">{entry.email}</p>
                   <p className="text-xs text-muted-foreground">
                     {(entry.addedByName || entry.addedBy) ? `Added by ${entry.addedByName || entry.addedBy} · ` : ""}
-                    {new Date(entry.createdAt).toLocaleString()}
+                    <LocalTimestamp value={entry.createdAt} />
                   </p>
                 </div>
                 <Button

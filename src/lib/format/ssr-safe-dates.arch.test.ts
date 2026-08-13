@@ -60,6 +60,11 @@ const CONVERTED = [
   // real data — and therefore a real date — renders on the server.
   "src/components/settings/api-keys-manager.tsx",
   "src/components/security/classification-manager.tsx",
+  // Batch 4 — timestamps. These could not take a pinned formatter: an instant
+  // shown in UTC tells a New York reader 10 PM for a 6 PM event. They use the
+  // mount-gated <LocalTimestamp>/<LocalTime> instead.
+  "src/app/(dashboard)/admin/allowlist/allowlist-manager.tsx",
+  "src/components/analytics/reports-manager.tsx",
 ];
 
 /**
@@ -78,10 +83,25 @@ const ALREADY_PINNED = [
 ];
 
 /**
- * A locale-dependent date format: no arguments, an explicit `undefined`, or
- * `"default"` — all three read the ambient locale.
+ * A locale-dependent date/time format.
+ *
+ * Covers all three methods, not just `toLocaleDateString`: the earlier version of
+ * this regex named that one method only, so `ceremony-board.tsx` sat in CONVERTED
+ * for weeks while still calling `.toLocaleString()` on a timestamp, and
+ * `updates-feed.tsx` kept a live `.toLocaleTimeString([], …)`. A guard that names
+ * one spelling of a bug is a guard you have to remember to re-read.
+ *
+ * The ambient-locale spellings are `()`, `undefined`, `"default"` — and `[]`,
+ * which is an EMPTY LIST of preferred locales and therefore means "use the
+ * runtime's" exactly like `undefined` does. It is the easiest one to miss.
+ *
+ * `.toLocaleString()` on a NUMBER is matched too. That is deliberate: it is
+ * locale-dependent (`1,000` vs `1.000`) and `pm-dashboard.tsx` pins its money
+ * formatter for precisely that reason. A number site inside a guarded file must
+ * therefore pass an explicit locale — which is what we want it to do anyway.
  */
-const AMBIENT_DATE_FORMAT = /\.toLocaleDateString\(\s*(\)|undefined|"default"|'default')/;
+const AMBIENT_DATE_FORMAT =
+  /\.toLocale(Date|Time)?String\(\s*(\)|undefined|"default"|'default'|\[\s*\])/;
 
 /**
  * Comments must be stripped before scanning. The converted files explain the
@@ -109,7 +129,12 @@ describe("converted surfaces format dates SSR-safely", () => {
       });
 
       it("uses a stable formatter", () => {
-        expect(src).toMatch(/formatDate(Short|Medium|Long)?Stable/);
+        // Either landing point counts: a pinned formatter for a calendar date,
+        // or the mount-gated component for a timestamp that must stay in the
+        // reader's own zone.
+        expect(src).toMatch(
+          /formatDate(Short|Medium|Long|Time)?Stable|<LocalTimestamp|<LocalTime/,
+        );
       });
 
       it("has no ambient-locale date formatting left", () => {

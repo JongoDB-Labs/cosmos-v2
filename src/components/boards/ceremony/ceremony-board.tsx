@@ -23,6 +23,7 @@ import { ShippedList, CarriedList } from "./item-lists";
 import { RetroColumns } from "./retro-columns";
 import { ActionItems } from "./action-items";
 import { CapacityPanel } from "./capacity-panel";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
 
 interface CeremonyBoardProps {
   orgId: string;
@@ -281,11 +282,7 @@ export function CeremonyBoard({
           <p className="text-xs text-[var(--text-muted)]">
             {ceremony
               ? closed
-                ? `Closed ${
-                    ceremony.closedAt
-                      ? new Date(ceremony.closedAt).toLocaleString()
-                      : ""
-                  }`
+                ? <>Closed <LocalTimestamp value={ceremony.closedAt} fallback="" /></>
                 : "In progress"
               : // Sat as a footnote below the panels, which on a short tab left it
                 // stranded in whitespace. It explains the state, so it belongs with

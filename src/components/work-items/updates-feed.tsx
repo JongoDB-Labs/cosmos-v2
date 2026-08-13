@@ -22,6 +22,7 @@ import {
   activityValueLabel,
   type ActivityValueResolvers,
 } from "@/lib/work-items/activity-label";
+import { LocalTime } from "@/components/ui/local-timestamp";
 import { formatDateLongStable } from "@/lib/format/stable-date";
 
 interface FeedItem {
@@ -102,10 +103,6 @@ function dayLabel(iso: string): string {
   if (sameDay(d, today)) return "Today";
   if (sameDay(d, y)) return "Yesterday";
   return formatDateLongStable(d);
-}
-
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 /**
@@ -271,7 +268,7 @@ export function UpdatesFeed({ orgId, orgSlug }: { orgId: string; orgSlug: string
                       )}
                     </div>
                     <time className="shrink-0 text-xs text-[var(--text-muted)]" dateTime={a.createdAt}>
-                      {timeLabel(a.createdAt)}
+                      <LocalTime value={a.createdAt} />
                     </time>
                   </li>
                 ))}
