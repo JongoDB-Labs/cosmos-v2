@@ -24,6 +24,12 @@ import { RetroColumns } from "./retro-columns";
 import { ActionItems } from "./action-items";
 import { CapacityPanel } from "./capacity-panel";
 import { LocalTimestamp } from "@/components/ui/local-timestamp";
+import { useProjectTeams } from "@/hooks/use-project-teams";
+import { ALL_TEAMS, resolveCeremonyTeam } from "@/lib/teams/ceremony-team-scope";
+import {
+  usePermissions,
+  Permission,
+} from "@/components/providers/permissions-provider";
 
 interface CeremonyBoardProps {
   orgId: string;
@@ -31,6 +37,12 @@ interface CeremonyBoardProps {
   projectKey: string;
   boardId: string;
   kind: "PLANNING" | "REVIEW";
+  /** The team this board belongs to. When set, the ceremony IS that team's and
+   *  the picker is not offered — retargeting someone else's board is not a view
+   *  option. */
+  boardTeamId?: string | null;
+  /** Who is looking, so an unscoped board can open on the team they lead. */
+  viewerUserId?: string;
 }
 
 interface IntervalOption {
@@ -77,12 +89,45 @@ export function CeremonyBoard({
   projectKey,
   boardId,
   kind,
+  boardTeamId = null,
+  viewerUserId = "",
 }: CeremonyBoardProps) {
   const basePathProject = `/api/v1/orgs/${orgId}/projects/${projectId}`;
   const orgSlug = (useParams().orgSlug as string) ?? "";
   const [intervalId, setIntervalId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("summary");
   const [presenting, setPresenting] = useState(false);
+
+  // Opening and closing a ceremony is the FACILITATOR's job — the routes gate it
+  // on SPRINT_COMPLETE (requireFacilitator). The button was rendered for
+  // everyone, so a team member clicked Close in front of the room and got a 403
+  // toast. Contributing notes and actions stays open to every member, which is
+  // the point of a retro; only the lifecycle is gated. Same permission and hook
+  // the Complete Sprint control uses in the intervals workspace.
+  const { can } = usePermissions();
+  const canFacilitate = can(Permission.SPRINT_COMPLETE);
+
+  // Which squad this ceremony is for. A board with a team IS that team's
+  // ceremony; otherwise the viewer chooses, opening on the team they lead.
+  const { data: teams } = useProjectTeams(orgId, projectId);
+  const [teamChoice, setTeamChoice] = useState<string | null>(null);
+  const viewerTeams = useMemo(
+    () =>
+      (teams ?? [])
+        .filter((t) => t.members.some((m) => m.userId === viewerUserId))
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          isLead: t.members.some((m) => m.userId === viewerUserId && m.isLead),
+        })),
+    [teams, viewerUserId]
+  );
+  const { teamId, locked: teamLocked } = resolveCeremonyTeam({
+    boardTeamId,
+    selectedTeamId: teamChoice,
+    viewerTeams,
+  });
+  const teamName = (teams ?? []).find((t) => t.id === teamId)?.name ?? null;
 
   const intervalsKey = useOrgQueryKey("intervals", projectId);
   const intervalsQ = useQuery({
@@ -292,6 +337,33 @@ export function CeremonyBoard({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Whose ceremony this is. A board that belongs to a team states it
+              and offers no picker; an unscoped board lets the viewer choose. */}
+          {teamLocked ? (
+            <span className="inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--text-muted)]">
+              {teamName ?? "Team"}
+            </span>
+          ) : (teams ?? []).length > 0 ? (
+            <>
+              <label htmlFor="ceremony-team" className="sr-only">
+                Team
+              </label>
+              <select
+                id="ceremony-team"
+                value={teamId ?? ALL_TEAMS}
+                onChange={(e) => setTeamChoice(e.target.value)}
+                className="h-9 rounded-[calc(var(--radius)-2px)] border border-[var(--border)] bg-[var(--surface)] px-2 text-sm"
+              >
+                <option value={ALL_TEAMS}>All teams</option>
+                {(teams ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
+
           <label htmlFor="ceremony-sprint" className="sr-only">
             Sprint
           </label>
@@ -308,7 +380,11 @@ export function CeremonyBoard({
             ))}
           </select>
 
-          {!ceremony || closed ? (
+          {/* Facilitator-only. Everyone else still reads the state from the
+              subtitle ("Not started" / "In progress" / "Closed") and can still
+              contribute notes and actions — a control nobody can use is worse
+              than absent, because it fails in front of the room. */}
+          {!canFacilitate ? null : !ceremony || closed ? (
             <Button
               size="sm"
               onClick={() => openCeremony.mutate()}
@@ -400,6 +476,7 @@ export function CeremonyBoard({
             orgId={orgId}
             projectId={projectId}
             intervalId={selectedId!}
+            teamId={teamId}
           />
         ) : null}
 

@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.288.3",
+    date: "2026-08-14",
+    title: "Sprint ceremony boards can belong to a team",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Sprint Planning and Sprint Review / Retro boards now run a ceremony for one team. Give a board a team and it becomes that team's ceremony — it names whose it is and offers no picker, so nobody retargets another squad's board by accident. A board with no team lets you choose, opening on the team you lead.",
+      },
+      {
+        kind: "improvement",
+        text: "Capacity on a team's board counts that team's people and that team's committed work together, so headroom never measures one squad's hours against the whole project's commitment.",
+      },
+      {
+        kind: "fix",
+        text: "Starting and closing a ceremony is the facilitator's job, but the button was shown to everyone — a team member who pressed it got a permission error in front of the room. It now appears only for people who can run a sprint. Everyone else still reads the ceremony's state and still adds notes and action items, which is the point of a retro.",
+      },
+      {
+        kind: "fix",
+        text: "The control to delete your own retro note was invisible until you happened to move the pointer over the note. It is now visible, and still quiet enough not to compete with the note itself.",
+      },
+    ],
+  },
+  {
     version: "2.288.2",
     date: "2026-08-13",
     title: "One “Across time” tab, with a sprint / increment toggle",

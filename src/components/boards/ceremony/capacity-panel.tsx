@@ -27,17 +27,25 @@ export function CapacityPanel({
   orgId,
   projectId,
   intervalId,
+  teamId = null,
 }: {
   orgId: string;
   projectId: string;
   intervalId: string;
+  /** Scope to one squad. The endpoint narrows capacity AND committed together,
+   *  so headroom never measures a team's hours against the project's commitment. */
+  teamId?: string | null;
 }) {
-  const key = useOrgQueryKey("interval-planning", intervalId);
+  // The team is part of the cache key: two squads' plans for the same sprint are
+  // different answers, and sharing one entry would serve one team the other's.
+  const key = useOrgQueryKey("interval-planning", intervalId, teamId ?? "all");
   const { data, isLoading, isError } = useQuery({
     queryKey: key,
     queryFn: () =>
       jsonFetch<PlanningPayload>(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}/planning`
+        `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}/planning${
+          teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""
+        }`
       ),
   });
 

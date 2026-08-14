@@ -24,6 +24,11 @@ export interface BoardViewProps {
   /** Optional view variant from the board's config (e.g. TIMELINE →
    *  "release-timeline" static snapshot vs the interactive Gantt default). */
   viewMode?: string | null;
+  /** The team this board belongs to, if any. A ceremony board scoped to a team
+   *  IS that team's ceremony, so it plans against that team alone. */
+  boardTeamId?: string | null;
+  /** Who is looking — lets an unscoped ceremony default to the team they lead. */
+  viewerUserId?: string;
 }
 
 /** The props every view takes, without the variant most of them ignore. */
@@ -73,8 +78,24 @@ export const BOARD_VIEWS: Record<
   PORTFOLIO: (p) => <DashboardView {...core(p)} />,
   PROGRAM: (p) => <DashboardView {...core(p)} />,
   OKR: (p) => <OkrBoard orgId={p.orgId} projectId={p.projectId} />,
-  SPRINT_PLANNING: (p) => <CeremonyBoard {...core(p)} kind="PLANNING" />,
-  SPRINT_REVIEW: (p) => <CeremonyBoard {...core(p)} kind="REVIEW" />,
+  // Ceremony boards additionally take the board's team and the viewer, so a
+  // team's own board plans against that team rather than the whole project.
+  SPRINT_PLANNING: (p) => (
+    <CeremonyBoard
+      {...core(p)}
+      kind="PLANNING"
+      boardTeamId={p.boardTeamId ?? null}
+      viewerUserId={p.viewerUserId ?? ""}
+    />
+  ),
+  SPRINT_REVIEW: (p) => (
+    <CeremonyBoard
+      {...core(p)}
+      kind="REVIEW"
+      boardTeamId={p.boardTeamId ?? null}
+      viewerUserId={p.viewerUserId ?? ""}
+    />
+  ),
 };
 
 interface BoardRendererProps extends BoardViewProps {

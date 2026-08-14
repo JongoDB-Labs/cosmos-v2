@@ -124,7 +124,12 @@ function RetroColumn({
                 type="button"
                 aria-label="Delete note"
                 onClick={() => deleteNote.mutate(note.id)}
-                className="absolute right-2 top-2 rounded p-1 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--status-critical-text,var(--status-critical))] focus-visible:opacity-100 group-hover:opacity-100"
+                // Visible-but-quiet rather than invisible-until-hover. At
+                // `opacity-0` the only way to discover you could delete your own
+                // note was to happen to pass the pointer over it — a control
+                // that exists but cannot be found is not a control. It still
+                // strengthens on hover and focus.
+                className="absolute right-2 top-2 rounded p-1 text-[var(--text-muted)] opacity-60 transition-opacity hover:text-[var(--status-critical-text,var(--status-critical))] hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
