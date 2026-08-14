@@ -80,9 +80,15 @@ const SOFTWARE_BOARD_TEMPLATES = [
     columns: [],
   },
   {
-    // A ROADMAP board was missing entirely. Its filters are keyed to roadmap
-    // nodes rather than work items, which is the whole point of the board type —
-    // a template without it leaves new projects unable to plan above the sprint.
+    // A ROADMAP board was missing entirely, leaving new projects unable to plan
+    // above the sprint.
+    //
+    // NB an earlier version of this comment claimed the board's filters are
+    // "keyed to roadmap nodes rather than work items". They are not — RoadmapView
+    // renders an Epics x Increments grid of WORK ITEMS and never reads a
+    // RoadmapNode. That misreading is why this template also switched on the
+    // "roadmap" feature flag, giving every Software project two tabs named
+    // "Roadmap" that show entirely different things.
     slug: "software.roadmap",
     name: "Roadmap",
     category: "planning",
@@ -107,7 +113,13 @@ const SOFTWARE_PROJECT_TEMPLATE = {
       "goal",
       "milestone",
       "interval",
-      "roadmap",
+      // NOT "roadmap": that flag adds a SECOND project tab also labelled
+      // "Roadmap", for the RoadmapNode workspace — a different surface from the
+      // ROADMAP board below. This template turned on both, so every Software
+      // project got two identical tabs, and the module one is empty: nothing in
+      // the product UI creates a RoadmapNode (only the import API, which has no
+      // caller, and the Files block conversion). Projects that want it can turn
+      // it on in project settings.
       "pm-dashboard",
       "risk-register",
       "change-log",
