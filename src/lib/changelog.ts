@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.289.0",
+    date: "2026-08-14",
+    title: "Carryover and predictability on Sprint Health",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Carryover: what rolled from one sprint into the next, shown on both sides of the move — what a sprint inherited and what it failed to finish. Work sent back to the backlog is NOT counted: that is descoping, which the scope-change panel already reports, and conflating the two would flatter a team that keeps dropping work while punishing one that keeps honouring it.",
+      },
+      {
+        kind: "feature",
+        text: "The tickets that slipped more than once are called out separately. One slip is a sprint that ran long; the same ticket slipping three sprints running is something nobody is actually working on, and that is the conversation worth having.",
+      },
+      {
+        kind: "feature",
+        text: "Predictability: how much of its commitment the team keeps on average, and how much that varies. It is built from commitment rather than velocity, because hitting the same point total every sprint while finishing a different half of what was promised is consistency, not predictability. It stays silent until five sprints have closed with something committed, and says how many it has — this is a number that gets quoted at people.",
+      },
+    ],
+  },
+  {
     version: "2.288.4",
     date: "2026-08-14",
     title: "A team's sprint review reports that team's sprint",
