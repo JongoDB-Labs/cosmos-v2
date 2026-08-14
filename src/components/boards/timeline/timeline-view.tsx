@@ -2497,6 +2497,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       {/* Shared work-item detail — same sheet the Kanban/Table views use, so a
           ticket opened from the Timeline shows + edits identical data (FR). */}
       <CardDetailSheet
+        statusColumns={projectStatuses}
         item={detailItem}
         open={detailItem !== null}
         onOpenChange={(o) => !o && setDetailId(null)}

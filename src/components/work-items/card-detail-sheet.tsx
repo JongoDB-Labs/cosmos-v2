@@ -97,6 +97,11 @@ interface CardDetailSheetProps {
   members: OrgMember[];
   intervals: Interval[];
   columns: BoardColumn[];
+  /**
+   * The project's workflow statuses, unioned across its boards. Optional: a board
+   * that owns real columns (Kanban) can leave it out and get the same list.
+   */
+  statusColumns?: { key: string; name: string }[];
   onUpdate: (updated: WorkItem) => void;
   /** Remove the item from the parent's local state after a successful delete. */
   onDelete?: (id: string) => void;
@@ -125,6 +130,7 @@ export function CardDetailSheet({
   members,
   intervals,
   columns,
+  statusColumns,
   onUpdate,
   onDelete,
   onDuplicate,
@@ -213,15 +219,27 @@ export function CardDetailSheet({
   // Resolve id-valued activity fields (assignee/interval/type/status) to names so
   // the Activity tab never shows a raw GUID (FR 545f81b1). `allTypes`, not the
   // `workItemTypes` picker list — that one hides shadow types, so a retype to or
+  // A work item's status is a PROJECT-level value, but this sheet is handed the
+  // CURRENT board's columns — and board creation seeds none, so on Timeline/Gantt,
+  // Roadmap and Calendar the Status control opened onto an empty list. Same
+  // modelling error the Status FILTER had (#670); this is the surface it missed.
+  //
+  // The options arrive as a PROP rather than from useProjectStatuses here on
+  // purpose: this sheet is presentational — members, intervals and columns all
+  // come from its parent — and giving it a query of its own would put every
+  // caller, and every test that renders it, inside a QueryClient and a router.
+  // The board views that need it already hold the hook's result.
+  const statusOptions = statusColumns ?? columns;
+
   // from one would otherwise have no name to show.
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
       interval: (id: string) => intervals.find((c) => c.id === id)?.name,
       type: (id: string) => allTypes.find((t) => t.id === id)?.name,
-      column: (key: string) => columns.find((c) => c.key === key)?.name,
+      column: (key: string) => statusOptions.find((c) => c.key === key)?.name,
     }),
-    [members, intervals, allTypes, columns],
+    [members, intervals, allTypes, statusOptions],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -1038,7 +1056,7 @@ export function CardDetailSheet({
 
             <MetadataField icon={Layers} label="Status">
               <Select
-                items={Object.fromEntries(columns.map((c) => [c.key, c.name]))}
+                items={Object.fromEntries(statusOptions.map((c) => [c.key, c.name]))}
                 value={columnKey}
                 onValueChange={(v) => handleFieldChange("columnKey", v ?? "")}
               >
@@ -1046,7 +1064,7 @@ export function CardDetailSheet({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {columns.map((c) => (
+                  {statusOptions.map((c) => (
                     <SelectItem key={c.key} value={c.key}>
                       {c.name}
                     </SelectItem>
