@@ -103,17 +103,28 @@ export function useCeremony(args: {
   projectId: string;
   intervalId: string | null;
   boardId: string;
+  /** Scope the whole review to one squad — metrics, what shipped, what carries. */
+  teamId?: string | null;
 }) {
-  const { orgId, projectId, intervalId, boardId } = args;
+  const { orgId, projectId, intervalId, boardId, teamId = null } = args;
   const qc = useQueryClient();
-  const key = useOrgQueryKey("ceremony", boardId, intervalId ?? "none");
+  // The team belongs in the key: two squads' reviews of one sprint are
+  // different answers, and sharing an entry would show one team the other's.
+  const key = useOrgQueryKey(
+    "ceremony",
+    boardId,
+    intervalId ?? "none",
+    teamId ?? "all"
+  );
 
   const query = useQuery({
     queryKey: key,
     enabled: Boolean(intervalId),
     queryFn: () =>
       jsonFetch<CeremonyPayload>(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}/ceremony?boardId=${boardId}`
+        `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}/ceremony?boardId=${boardId}${
+          teamId ? `&teamId=${encodeURIComponent(teamId)}` : ""
+        }`
       ),
   });
 

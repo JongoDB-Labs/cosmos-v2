@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.288.4",
+    date: "2026-08-14",
+    title: "A team's sprint review reports that team's sprint",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Choosing a team on a Sprint Review / Retro board now scopes the whole review, not just capacity: story points, completion, items delivered, what shipped and what carries forward all count that team's work. A lead can read their own numbers to their own team without subtracting the rest of the project in their head.",
+      },
+      {
+        kind: "improvement",
+        text: "A team's work is what its members are assigned, the same rule the board filters and capacity planning already use — so every panel on the board counts the same people.",
+      },
+    ],
+  },
+  {
     version: "2.288.3",
     date: "2026-08-14",
     title: "Sprint ceremony boards can belong to a team",
