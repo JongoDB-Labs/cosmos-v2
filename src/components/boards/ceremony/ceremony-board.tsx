@@ -169,11 +169,18 @@ export function CeremonyBoard({
     projectId,
     intervalId: selectedId,
     boardId,
+    teamId,
   });
   // useOrgMutation expects the same PARTS you'd give useOrgQueryKey — it adds
   // the org prefix itself. Passing an already-prefixed key double-prefixes it,
   // which matches no query, so nothing invalidates and the board only recovers
   // on the realtime round-trip.
+  // Deliberately WITHOUT the team. The query key now ends with a team segment,
+  // and invalidation matches by PREFIX — so these parts invalidate every team's
+  // variant of this ceremony at once, which is what we want: notes and action
+  // items are not team-scoped, so a note added while filtered to one squad must
+  // still refresh the unfiltered view. Adding teamId here would leave the other
+  // variants stale.
   const ceremonyParts = useMemo(
     () => ["ceremony", boardId, selectedId ?? "none"],
     [boardId, selectedId]

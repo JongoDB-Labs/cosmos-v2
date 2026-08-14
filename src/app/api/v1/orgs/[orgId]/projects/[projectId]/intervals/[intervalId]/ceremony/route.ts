@@ -51,6 +51,33 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
     const { boardId } = parsed.data;
 
+    // Optional team scope. A review belongs to the squad that did the work, so a
+    // lead running their own retro should not be reading another team's numbers
+    // back to the room.
+    //
+    // A team's WORK is whatever its members are assigned — items carry no team
+    // of their own. Narrowed by `assigneeId`, the same key the planning endpoint
+    // and the velocity suggestions use, so every panel counts the same people.
+    const teamId = request.nextUrl.searchParams.get("teamId");
+    let teamUserIds: string[] | null = null;
+    if (teamId) {
+      const team = await prisma.team.findFirst({
+        where: { id: teamId, projectId },
+        select: {
+          members: {
+            select: {
+              projectMember: { select: { orgMember: { select: { userId: true } } } },
+            },
+          },
+        },
+      });
+      // Unknown team → NOBODY, never a silent fall back to the whole project.
+      teamUserIds = (team?.members ?? []).map(
+        (m) => m.projectMember.orgMember.userId,
+      );
+    }
+    const teamItemFilter = teamUserIds ? { assigneeId: { in: teamUserIds } } : {};
+
     const [interval, board] = await Promise.all([
       prisma.interval.findFirst({
         where: { id: intervalId, orgId, projectId },
@@ -59,6 +86,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             select: { id: true, name: true, startDate: true, endDate: true },
           },
           workItems: {
+            // Everything downstream — metrics, what shipped, what carries —
+            // derives from this list, so scoping it here scopes the whole
+            // review at once rather than in four places that could disagree.
+            where: teamItemFilter,
             select: {
               id: true,
               ticketNumber: true,
@@ -115,7 +146,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       carried.kind === "unrecorded" || carried.itemIds.length === 0
         ? []
         : await prisma.workItem.findMany({
-            where: { id: { in: carried.itemIds }, orgId },
+            // Scoped too. For a COMPLETED sprint these ids come from the
+            // recorded report, which spans the whole sprint — so without this a
+            // team's review would list other squads' carry-forward beside its
+            // own metrics.
+            where: { id: { in: carried.itemIds }, orgId, ...teamItemFilter },
             select: {
               id: true,
               ticketNumber: true,
