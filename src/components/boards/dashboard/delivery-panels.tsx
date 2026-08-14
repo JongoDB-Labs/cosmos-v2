@@ -22,6 +22,9 @@ import {
 } from "@/lib/dashboard/delivery-metrics";
 import {
   scopeChange,
+  carryover,
+  predictability,
+  MIN_PREDICTABILITY_SAMPLES,
   type IntervalChange,
   type ScopeItemLike,
 } from "@/lib/dashboard/scope-change";
@@ -511,6 +514,123 @@ export function ScopeChangePanel({
           );
         })}
       </ul>
+    </PanelShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Carryover and predictability — the two retro questions that need history
+ * rather than a snapshot.
+ *
+ * They share a panel because they share a cause: work that keeps rolling is
+ * exactly what makes a team unpredictable, and seeing the two side by side is
+ * what turns "we are at 60%" into "we are at 60% because these four tickets
+ * have slipped three sprints running".
+ */
+export function CarryoverPanel({
+  items,
+  intervals,
+  changes,
+  loading,
+}: {
+  items: DeliveryItemLike[];
+  intervals: Interval[];
+  changes: IntervalChange[];
+  loading?: boolean;
+}) {
+  const sprints = useMemo(
+    () =>
+      ceremonySelectableIntervals(intervals).map((i) => ({
+        id: i.id,
+        name: i.name,
+        startDate: i.startDate,
+        endDate: i.endDate,
+        status: i.status,
+      })),
+    [intervals],
+  );
+
+  const flow = useMemo(() => carryover(changes, sprints), [changes, sprints]);
+
+  const closedIds = useMemo(
+    () => new Set(sprints.filter((s) => s.status === "COMPLETED").map((s) => s.id)),
+    [sprints],
+  );
+  const scopeItems: ScopeItemLike[] = useMemo(
+    () => items.map((i) => ({ id: i.id, intervalId: i.intervalId, done: i.done })),
+    [items],
+  );
+  const reliability = useMemo(
+    () => predictability(scopeChange(changes, sprints, scopeItems), closedIds),
+    [changes, sprints, scopeItems, closedIds],
+  );
+
+  const question = "What keeps rolling into the next sprint, and can we be relied on?";
+
+  if (loading) {
+    return (
+      <PanelShell title="Carryover and predictability" question={question}>
+        <NotEnoughData what="Reading the interval history…" />
+      </PanelShell>
+    );
+  }
+
+  const moved = flow.rows.filter((r) => r.carriedIn + r.carriedOut > 0);
+
+  return (
+    <PanelShell
+      title="Carryover and predictability"
+      question={question}
+      footnote={
+        reliability.shortfall ? (
+          // States the shortfall rather than computing a spread nobody should
+          // act on. This number gets quoted at people.
+          <>
+            Predictability needs {MIN_PREDICTABILITY_SAMPLES} closed sprints with
+            something committed; there {reliability.shortfall.has === 1 ? "is" : "are"}{" "}
+            {reliability.shortfall.has}.
+          </>
+        ) : (
+          <>
+            Keeps {Math.round(reliability.mean!)}% of its commitment on average
+            across {reliability.samples} closed sprints, varying by ±
+            {Math.round(reliability.stdDev!)} points. Carryover counts sprint-to-sprint
+            moves only — work sent back to the backlog is descoping, not a slip.
+          </>
+        )
+      }
+    >
+      {moved.length === 0 ? (
+        <NotEnoughData what="Nothing has moved between sprints yet, so no work has been carried." />
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {moved.map((r) => (
+              <li key={r.intervalId} data-testid={`carryover-${r.intervalId}`}>
+                <div className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="text-[var(--text)] truncate">{r.name}</span>
+                  <span className="text-[var(--text-muted)] tabular-nums shrink-0">
+                    {r.carriedIn > 0 ? <>inherited {r.carriedIn}</> : null}
+                    {r.carriedIn > 0 && r.carriedOut > 0 ? " · " : null}
+                    {r.carriedOut > 0 ? (
+                      <span className="text-[var(--warning,#f97316)]">slipped {r.carriedOut}</span>
+                    ) : null}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {flow.repeatOffenders.length > 0 ? (
+            <p className="mt-3 text-[11px] text-[var(--warning,#f97316)]" data-testid="repeat-offenders">
+              {flow.repeatOffenders.length}{" "}
+              {flow.repeatOffenders.length === 1 ? "item has" : "items have"} slipped more
+              than once — the most, {flow.repeatOffenders[0].hops} times.
+            </p>
+          ) : null}
+        </>
+      )}
     </PanelShell>
   );
 }

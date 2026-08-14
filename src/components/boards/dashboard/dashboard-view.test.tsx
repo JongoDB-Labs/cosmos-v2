@@ -93,6 +93,17 @@ const INTERVALS = [
     report: null,
   },
   {
+    id: "s0",
+    number: 5,
+    name: "Sprint 5",
+    status: "COMPLETED",
+    intervalKind: "SPRINT",
+    parentId: "pi1",
+    startDate: iso(-19),
+    endDate: iso(-6),
+    report: null,
+  },
+  {
     id: "s1",
     number: 6,
     name: "Sprint 6",
@@ -110,6 +121,8 @@ const INTERVALS = [
 // from planning.
 const INTERVAL_CHANGES = [
   { workItemId: "1", from: null, to: "s1", at: iso(-2) },
+  // A genuine slip: item 3 did not finish in Sprint 5 and rolled into Sprint 6.
+  { workItemId: "3", from: "s0", to: "s1", at: iso(-6) },
 ];
 
 function stubFetch() {
@@ -250,6 +263,20 @@ describe("Sprint Health — the delivery panels are actually reachable", () => {
     await waitFor(() => {
       expect(screen.queryByText(/How many items are we finishing per sprint\?/)).not.toBeInTheDocument();
       expect(screen.queryByText(/Once we start something, how long until it is done\?/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows work that slipped from one sprint into the next", async () => {
+    // Carryover needs the interval history: an item that LEFT Sprint 5 is not in
+    // Sprint 5 any more, so nothing about the current items says it slipped.
+    renderBoard();
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("tab", { name: /Across time/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("carryover-s0")).toHaveTextContent("slipped 1");
+      expect(screen.getByTestId("carryover-s1")).toHaveTextContent("inherited 1");
     });
   });
 

@@ -5,7 +5,15 @@
 // backlog grooming as chaos, whether one indecisive ticket can dominate the
 // chart, and what it claims when a sprint was empty at planning.
 import { describe, it, expect } from "vitest";
-import { scopeChange, type IntervalChange, type ScopeIntervalLike, type ScopeItemLike } from "./scope-change";
+import {
+  scopeChange,
+  carryover,
+  predictability,
+  type IntervalChange,
+  type ScopeIntervalLike,
+  type ScopeItemLike,
+  type ScopeChangeRow,
+} from "./scope-change";
 
 const SPRINT: ScopeIntervalLike = {
   id: "s1",
@@ -178,5 +186,108 @@ describe("the series stays readable", () => {
     );
     expect(rows.find((r) => r.intervalId === "s1")!.added).toBe(1);
     expect(rows.find((r) => r.intervalId === "s2")!.removed).toBe(1);
+  });
+});
+
+describe("carryover is sprint-to-sprint, not descoping", () => {
+  const s1: ScopeIntervalLike = { ...SPRINT, id: "s1", name: "Sprint 1", startDate: "2026-03-02T00:00:00Z" };
+  const s2: ScopeIntervalLike = { ...SPRINT, id: "s2", name: "Sprint 2", startDate: "2026-03-16T00:00:00Z" };
+  const s3: ScopeIntervalLike = { ...SPRINT, id: "s3", name: "Sprint 3", startDate: "2026-03-30T00:00:00Z" };
+
+  it("does not count a move back to the backlog as carryover", () => {
+    // Dropping work is descoping — scopeChange already reports it as `removed`.
+    // Counting it here would flatter a team that keeps dropping work and punish
+    // one that keeps honouring it.
+    const { rows } = carryover([move("a", "s1", null, "2026-03-10T00:00:00Z")], [s1, s2]);
+    expect(rows.find((r) => r.intervalId === "s1")!.carriedOut).toBe(0);
+  });
+
+  it("counts a slip forward on both sides of the move", () => {
+    const { rows } = carryover([move("a", "s1", "s2", "2026-03-14T00:00:00Z")], [s1, s2]);
+    expect(rows.find((r) => r.intervalId === "s1")!.carriedOut).toBe(1);
+    expect(rows.find((r) => r.intervalId === "s2")!.carriedIn).toBe(1);
+  });
+
+  it("ignores a move into an EARLIER sprint", () => {
+    // Pulling work forward into a sprint that already started is a correction,
+    // not a slip, and scoring it as carryover would invent a failure.
+    const { rows } = carryover([move("a", "s2", "s1", "2026-03-20T00:00:00Z")], [s1, s2]);
+    expect(rows.find((r) => r.intervalId === "s2")!.carriedOut).toBe(0);
+    expect(rows.find((r) => r.intervalId === "s1")!.carriedIn).toBe(0);
+  });
+
+  it("surfaces the tickets that slipped more than once", () => {
+    // One slip is a sprint that ran long. The same ticket slipping repeatedly is
+    // something nobody is actually working on, and that is the conversation.
+    const { repeatOffenders } = carryover(
+      [
+        move("a", "s1", "s2", "2026-03-14T00:00:00Z"),
+        move("a", "s2", "s3", "2026-03-28T00:00:00Z"),
+        move("b", "s1", "s2", "2026-03-14T00:00:00Z"),
+      ],
+      [s1, s2, s3],
+    );
+    expect(repeatOffenders).toEqual([{ workItemId: "a", hops: 2 }]);
+  });
+
+  it("skips a move involving an interval it does not know", () => {
+    const { rows } = carryover([move("a", "s1", "unknown", "2026-03-14T00:00:00Z")], [s1, s2]);
+    expect(rows.every((r) => r.carriedIn === 0 && r.carriedOut === 0)).toBe(true);
+  });
+});
+
+describe("predictability refuses to speak too early", () => {
+  const closed = (ids: string[]) => new Set(ids);
+  const row = (id: string, kept: number | null): ScopeChangeRow => ({
+    intervalId: id,
+    name: id,
+    added: 0,
+    removed: 0,
+    committed: kept === null ? 0 : 10,
+    current: 10,
+    completed: kept === null ? 0 : kept / 10,
+    commitmentKept: kept,
+    churnRate: 0,
+  });
+
+  it("reports a shortfall rather than a number below the floor", () => {
+    const p = predictability(
+      [row("a", 90), row("b", 80), row("c", 100)],
+      closed(["a", "b", "c"]),
+    );
+    expect(p.mean).toBeNull();
+    expect(p.stdDev).toBeNull();
+    expect(p.shortfall).toEqual({ needs: 5, has: 3 });
+  });
+
+  it("reports once there are enough closed intervals", () => {
+    const p = predictability(
+      [row("a", 90), row("b", 90), row("c", 90), row("d", 90), row("e", 90)],
+      closed(["a", "b", "c", "d", "e"]),
+    );
+    expect(p.mean).toBe(90);
+    expect(p.stdDev).toBe(0);
+    expect(p.shortfall).toBeNull();
+  });
+
+  it("excludes intervals that committed to nothing rather than scoring them zero", () => {
+    // A sprint empty at planning and filled later says nothing about whether
+    // this team keeps its word; a 0% would drag the mean down as though it did.
+    const p = predictability(
+      [row("a", 90), row("b", 90), row("c", 90), row("d", 90), row("e", 90), row("f", null)],
+      closed(["a", "b", "c", "d", "e", "f"]),
+    );
+    expect(p.samples).toBe(5);
+    expect(p.mean).toBe(90);
+  });
+
+  it("ignores intervals that have not closed", () => {
+    // A sprint still running has not had its chance to deliver.
+    const p = predictability(
+      [row("a", 90), row("b", 90), row("c", 90), row("d", 90), row("e", 90), row("live", 10)],
+      closed(["a", "b", "c", "d", "e"]),
+    );
+    expect(p.samples).toBe(5);
+    expect(p.mean).toBe(90);
   });
 });

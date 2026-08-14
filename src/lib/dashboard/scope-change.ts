@@ -153,3 +153,139 @@ export function scopeChange(
       };
     });
 }
+
+// ---------------------------------------------------------------------------
+// Carryover
+// ---------------------------------------------------------------------------
+
+export interface CarryoverRow {
+  intervalId: string;
+  name: string;
+  /** Items that arrived here from an EARLIER interval — work the team inherited. */
+  carriedIn: number;
+  /** Items that left here for a LATER one — work this sprint did not finish. */
+  carriedOut: number;
+}
+
+export interface CarryoverResult {
+  rows: CarryoverRow[];
+  /**
+   * Items that have been carried more than once. These are the ones worth a
+   * conversation: a single slip is a sprint that ran long, the same ticket
+   * slipping four times is something nobody is actually working on.
+   */
+  repeatOffenders: Array<{ workItemId: string; hops: number }>;
+}
+
+/**
+ * What rolls from one interval into the next.
+ *
+ * A move BACK to the backlog is not carryover — it is descoping, which
+ * `scopeChange` already reports as `removed`. Carryover is specifically
+ * sprint-to-sprint: work that stayed committed but did not get done, and became
+ * the next sprint's problem. Conflating the two would flatter a team that keeps
+ * dropping work and punish one that keeps honouring it.
+ *
+ * Direction is decided by the intervals' start dates rather than by which is
+ * "next", so a move into an EARLIER sprint (a correction) is not counted as
+ * carryover in either direction.
+ */
+export function carryover(
+  changes: readonly IntervalChange[],
+  intervals: readonly ScopeIntervalLike[],
+): CarryoverResult {
+  const startOf = new Map(intervals.map((i) => [i.id, new Date(i.startDate).getTime()]));
+
+  const rows = new Map<string, CarryoverRow>(
+    intervals
+      .slice()
+      .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+      .map((i) => [i.id, { intervalId: i.id, name: i.name, carriedIn: 0, carriedOut: 0 }]),
+  );
+
+  const hops = new Map<string, number>();
+
+  for (const c of changes) {
+    // Both ends must be intervals we know about: backlog moves are descoping,
+    // and an unknown interval cannot be placed in time.
+    if (!c.from || !c.to) continue;
+    const fromStart = startOf.get(c.from);
+    const toStart = startOf.get(c.to);
+    if (fromStart === undefined || toStart === undefined) continue;
+    // Forwards only. A move into an earlier sprint is a correction, not a slip.
+    if (toStart <= fromStart) continue;
+
+    rows.get(c.from)!.carriedOut += 1;
+    rows.get(c.to)!.carriedIn += 1;
+    hops.set(c.workItemId, (hops.get(c.workItemId) ?? 0) + 1);
+  }
+
+  return {
+    rows: [...rows.values()],
+    repeatOffenders: [...hops.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([workItemId, n]) => ({ workItemId, hops: n }))
+      .sort((a, b) => b.hops - a.hops),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Predictability
+// ---------------------------------------------------------------------------
+
+/**
+ * Closed intervals required before predictability means anything.
+ *
+ * Predictability is a claim about SPREAD, and spread is dominated by whichever
+ * sprint had a holiday in it until there are enough samples to drown that out.
+ * Five is the figure the panel registry already carries, and the same reasoning
+ * that put a 3-sprint floor on throughput variation applies harder here: this
+ * number gets quoted at people.
+ */
+export const MIN_PREDICTABILITY_SAMPLES = 5;
+
+export interface Predictability {
+  /** Mean commitment kept, as a percentage, across closed intervals. */
+  mean: number | null;
+  /** Spread of commitment kept. Null below the sample floor. */
+  stdDev: number | null;
+  /** Closed intervals that had something committed to measure against. */
+  samples: number;
+  /** What it still needs, when it cannot yet report. Null once it can. */
+  shortfall: { needs: number; has: number } | null;
+}
+
+/**
+ * How reliably the team delivers what it forecast.
+ *
+ * Built from `scopeChange` rather than from velocity: hitting the same point
+ * total every sprint while finishing a different half of what was promised is
+ * consistency, not predictability, and only the commitment figure can tell
+ * those apart.
+ *
+ * Intervals where nothing was committed are EXCLUDED rather than scored zero.
+ * A sprint that was empty at planning and filled later says nothing about
+ * whether this team keeps its word.
+ */
+export function predictability(
+  rows: readonly ScopeChangeRow[],
+  closedIntervalIds: ReadonlySet<string>,
+): Predictability {
+  const kept = rows
+    .filter((r) => closedIntervalIds.has(r.intervalId) && r.commitmentKept !== null)
+    .map((r) => r.commitmentKept as number);
+
+  if (kept.length < MIN_PREDICTABILITY_SAMPLES) {
+    return {
+      mean: null,
+      stdDev: null,
+      samples: kept.length,
+      shortfall: { needs: MIN_PREDICTABILITY_SAMPLES, has: kept.length },
+    };
+  }
+
+  const mean = kept.reduce((s, k) => s + k, 0) / kept.length;
+  const variance = kept.reduce((s, k) => s + (k - mean) ** 2, 0) / kept.length;
+
+  return { mean, stdDev: Math.sqrt(variance), samples: kept.length, shortfall: null };
+}

@@ -27,6 +27,7 @@ import {
   ThroughputPanel,
   WorkTypeMixPanel,
   ScopeChangePanel,
+  CarryoverPanel,
   toDeliveryItems,
 } from "./delivery-panels";
 import type { IntervalChange } from "@/lib/dashboard/scope-change";
@@ -524,6 +525,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
                       intervals={intervals}
                       changes={changesQ.data?.changes ?? []}
                       truncated={changesQ.data?.truncated}
+                      loading={changesQ.isLoading}
+                    />
+                    <CarryoverPanel
+                      items={deliveryItems}
+                      intervals={intervals}
+                      changes={changesQ.data?.changes ?? []}
                       loading={changesQ.isLoading}
                     />
                   </div>
