@@ -74,6 +74,7 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { planDriftPhantoms, type DriftColor } from "@/lib/boards/plan-drift";
 
 interface TimelineViewProps {
   orgId: string;
@@ -212,6 +213,13 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
   const end = item.dueDate ? startOfDay(new Date(item.dueDate)) : addDays(start, 7);
   return { start, end };
 }
+
+/** Phantom fills. Amber has no token; the other two reuse the health palette. */
+const DRIFT_FILL: Record<DriftColor, string> = {
+  amber: "#f59e0b",
+  green: "var(--status-done)",
+  red: "var(--status-critical)",
+};
 
 type DragMode = "move" | "start" | "end";
 
@@ -2074,11 +2082,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // the plan visible to be critical relative to anything.
               const critDim = showCritical && criticalIsolate && !isCrit ? 0.15 : 1;
 
-              // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
-              // (startDate -> dueDate) renders behind it as a faded, health-colored
-              // TRAIL — red when slipped, amber when it started late, green when
-              // on/ahead. No red outline; the trail carries the signal. With no actuals
-              // yet, the planned span IS the solid bar (future/planning items).
+              // PRIMARY (solid) = the ACTUAL span at real dates. The plan shows up
+              // as drift PHANTOMS around it — amber/green for the start, red for an
+              // end slip — rather than as one ghost of the whole planned span tinted
+              // by health, which could say "late" but never "late by this much, and
+              // here". With no actuals yet the planned span IS the solid bar
+              // (future/planning items) and no phantom is drawn.
               const health = barHealth(item, today);
               const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
               const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
@@ -2091,13 +2100,21 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               }
               const primaryX = actualBar ? actualBar.x : x;
               const primaryW = actualBar ? actualBar.w : w;
-              const lateStart = !!(plannedStartD && actualStartD && diffDays(plannedStartD, actualStartD) > 0);
-              const trailColor =
-                health === "red"
-                  ? "var(--status-critical)"
-                  : lateStart
-                    ? "#f59e0b"
-                    : "var(--status-done)";
+              // Where the PLAN disagreed with the actuals. Each phantom answers one
+              // question and its side falls out of the sign, so the colours read
+              // positionally — amber only ever left of a block, green only ever
+              // right of its left edge, red only ever the end slip. See
+              // lib/boards/plan-drift.ts. Returned in paint order, red last.
+              const driftPhantoms = planDriftPhantoms({
+                plannedStart: plannedStartD,
+                plannedEnd: item.dueDate ? startOfDay(new Date(item.dueDate)) : null,
+                actualStart: actualStartD,
+                actualEnd: actualStartD ? actualEndD : null,
+              }).map((ph) => ({
+                color: ph.color,
+                x: diffDays(timelineStart, ph.from) * dayWidth,
+                w: Math.max(diffDays(ph.from, ph.to) * dayWidth, 2),
+              }));
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -2217,21 +2234,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ touchAction: canEdit ? "none" : undefined }}
                       className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                     />
-                  ) : showPlanDrift ? (
-                    <rect
-                      x={x}
-                      y={y}
-                      width={w}
-                      height={h}
-                      rx={4}
-                      fill={trailColor}
-                      stroke={isCrit ? "var(--status-critical)" : "transparent"}
-                      strokeWidth={isCrit ? 2.5 : 1}
-                      strokeDasharray="3 3"
-                      opacity={0.3 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
-                      style={{ pointerEvents: "none" }}
-                    />
                   ) : null}
+                  {/* Start-drift phantom, BEHIND the actual bar: an early start
+                      overlays the block's head, and the solid bar must win there. */}
+                  {showPlanDrift &&
+                    driftPhantoms
+                      .filter((ph) => ph.color !== "red")
+                      .map((ph) => (
+                        <rect
+                          key={`${item.id}-drift-${ph.color}`}
+                          data-testid={`gantt-drift-${ph.color}-${item.id}`}
+                          x={ph.x}
+                          y={y}
+                          width={ph.w}
+                          height={h}
+                          rx={4}
+                          fill={DRIFT_FILL[ph.color]}
+                          strokeDasharray="3 3"
+                          opacity={0.45 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
+                          style={{ pointerEvents: "none" }}
+                        />
+                      ))}
                   {/* Actual bar — the SOLID primary (real dates). Click opens the
                       detail panel; started/done items reschedule there, not by drag. */}
                   {actualBar && (
@@ -2290,6 +2313,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
+                  {/* End-drift phantom LAST: it must overlay the actual bar, its
+                      progress fill and the enabler hatch, or a slip disappears
+                      under whichever of them happens to be painted. */}
+                  {showPlanDrift &&
+                    driftPhantoms
+                      .filter((ph) => ph.color === "red")
+                      .map((ph) => (
+                        <rect
+                          key={`${item.id}-drift-red`}
+                          data-testid={`gantt-drift-red-${item.id}`}
+                          x={ph.x}
+                          y={y}
+                          width={ph.w}
+                          height={h}
+                          rx={4}
+                          fill={DRIFT_FILL.red}
+                          strokeDasharray="3 3"
+                          opacity={0.55 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
+                          style={{ pointerEvents: "none" }}
+                        />
+                      ))}
                   {canEdit && !actualBar && (
                     <>
                       {/* Left edge → move start date */}
