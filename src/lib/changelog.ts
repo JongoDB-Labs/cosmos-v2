@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.290.0",
+    date: "2026-08-14",
+    title: "Blocked work and increment objectives on Sprint Health",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Blocked work: what is stuck, what it is waiting on, and how long it has stood — longest first, because the oldest block has cost the most and is least likely to resolve itself. Both link directions count: “A is blocked by B” and “B blocks A” state the same fact, and which one exists just depends on which issue you were looking at when you made the link.",
+      },
+      {
+        kind: "improvement",
+        text: "The age is measured from when the block was RECORDED, and the panel says so rather than implying it knows when work actually stopped. Blocking links pointing at work that is already finished are not counted as impediments, but the number of them is shown — invisible clutter is what makes the real blocks hard to see.",
+      },
+      {
+        kind: "feature",
+        text: "Increment objectives, under Across time → By increment: how many committed objectives are met and the average progress, with stretch objectives listed but held OUT of that figure. Stretch objectives are deliberately not part of the commitment — averaging them in punishes the teams who surface upside, and is the most common way a PI report reads worse than the increment actually went.",
+      },
+    ],
+  },
+  {
     version: "2.289.0",
     date: "2026-08-14",
     title: "Carryover and predictability on Sprint Health",

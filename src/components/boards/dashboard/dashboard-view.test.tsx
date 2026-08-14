@@ -125,6 +125,27 @@ const INTERVAL_CHANGES = [
   { workItemId: "3", from: "s0", to: "s1", at: iso(-6) },
 ];
 
+// Item 2 is blocked by item 4, recorded three days ago. Item 1's block points
+// at work already finished — a stale link, not an impediment.
+const LINKS = [
+  {
+    id: "l1",
+    type: "BLOCKED_BY",
+    sourceItemId: "2",
+    targetItemId: "4",
+    sourceTicketNumber: 2,
+    sourceTitle: "Payment webhooks",
+    targetTicketNumber: 4,
+    targetTitle: "Nav icons",
+    createdAt: iso(-3),
+  },
+];
+
+const OBJECTIVES = [
+  { id: "o1", title: "Ship payments", status: "ACTIVE", progress: 100, intervalId: "pi1", committed: true },
+  { id: "o2", title: "Explore ML ranking", status: "ACTIVE", progress: 0, intervalId: "pi1", committed: false },
+];
+
 function stubFetch() {
   vi.stubGlobal(
     "fetch",
@@ -134,7 +155,11 @@ function stubFetch() {
       // endpoints (work-item types, labels, teams) and iterates them, so an
       // object default throws "types is not iterable" from inside a hook and
       // takes the whole render down with it.
-      const body = u.includes("/interval-changes")
+      const body = u.includes("/work-item-links")
+        ? LINKS
+        : u.includes("/objectives")
+        ? OBJECTIVES
+        : u.includes("/interval-changes")
         ? { changes: INTERVAL_CHANGES, truncated: false }
         : u.includes("/boards/")
         ? BOARD
@@ -277,6 +302,38 @@ describe("Sprint Health — the delivery panels are actually reachable", () => {
     await waitFor(() => {
       expect(screen.getByTestId("carryover-s0")).toHaveTextContent("slipped 1");
       expect(screen.getByTestId("carryover-s1")).toHaveTextContent("inherited 1");
+    });
+  });
+
+  it("shows blocked work from the links table", async () => {
+    // Nothing on a work item says it is stuck — blocking is a relationship, so
+    // this panel is only correct if the links query actually reaches it.
+    renderBoard();
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("blocked-2");
+      expect(rows.length).toBeGreaterThan(0);
+      rows.forEach((r) => {
+        expect(r).toHaveTextContent("Payment webhooks");
+        expect(r).toHaveTextContent("waiting on #4");
+        expect(r).toHaveTextContent("3 days");
+      });
+    });
+  });
+
+  it("keeps stretch objectives out of the committed figure", async () => {
+    // One committed objective at 100% and one stretch at 0%. Folding them
+    // together would report 50% and read as a half-delivered increment.
+    renderBoard();
+    await waitFor(() => expect(screen.getAllByTestId("metric-total-items").length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("tab", { name: /Across time/i }));
+    fireEvent.click(await screen.findByRole("tab", { name: /By increment/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/1 of 1 committed objective met, 100% average progress/),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/1 stretch objective is excluded/)).toBeInTheDocument();
     });
   });
 

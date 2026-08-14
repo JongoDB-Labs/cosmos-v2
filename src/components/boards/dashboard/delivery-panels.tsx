@@ -28,6 +28,12 @@ import {
   type IntervalChange,
   type ScopeItemLike,
 } from "@/lib/dashboard/scope-change";
+import {
+  impediments,
+  objectiveRollup,
+  type WorkItemLinkLike,
+  type ObjectiveLike,
+} from "@/lib/dashboard/impediments";
 import { ceremonySelectableIntervals } from "@/lib/intervals/ceremony-intervals";
 import type { WorkItem, Interval, BoardColumn } from "@/types/models";
 
@@ -632,5 +638,217 @@ export function CarryoverPanel({
         </>
       )}
     </PanelShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** Days rendered for a block: whole days, because "3.4 days blocked" is noise. */
+function blockedFor(days: number): string {
+  if (days < 1) return "today";
+  const d = Math.floor(days);
+  return d === 1 ? "1 day" : `${d} days`;
+}
+
+/**
+ * What is stuck, and for how long.
+ *
+ * The age is measured from when the BLOCK WAS RECORDED, not from when work
+ * actually stopped — nobody records the latter. The panel says which it is
+ * rather than implying the stronger claim.
+ */
+export function ImpedimentsPanel({
+  items,
+  links,
+  now,
+  loading,
+  bare,
+}: {
+  items: DeliveryItemLike[];
+  links: WorkItemLinkLike[];
+  /** Injected so the panel is testable and every row ages off one instant. */
+  now?: Date;
+  loading?: boolean;
+  bare?: boolean;
+}) {
+  const doneIds = useMemo(
+    () => new Set(items.filter((i) => i.done).map((i) => i.id)),
+    [items],
+  );
+  const visibleIds = useMemo(() => new Set(items.map((i) => i.id)), [items]);
+
+  const result = useMemo(
+    () => impediments(links, doneIds, now ?? new Date()),
+    [links, doneIds, now],
+  );
+
+  // Honour the board filters: a blocked item outside the current filter is not
+  // this reader's problem right now, and showing it would make the filter a lie.
+  const blocked = useMemo(
+    () => result.blocked.filter((b) => visibleIds.has(b.workItemId)),
+    [result.blocked, visibleIds],
+  );
+
+  const question = "What is stuck, and for how long?";
+
+  if (loading) {
+    return (
+      <PanelShell title="Blocked work" question={question} bare={bare}>
+        <NotEnoughData what="Reading the dependency links…" />
+      </PanelShell>
+    );
+  }
+
+  return (
+    <PanelShell
+      title="Blocked work"
+      question={question}
+      bare={bare}
+      footnote={
+        <>
+          Measured from when the block was recorded, not from when work stopped —
+          nothing records that.
+          {result.staleLinks > 0 ? (
+            <> {result.staleLinks} blocking {result.staleLinks === 1 ? "link points" : "links point"} at
+            finished work and {result.staleLinks === 1 ? "is" : "are"} not counted.</>
+          ) : null}
+        </>
+      }
+    >
+      {blocked.length === 0 ? (
+        <NotEnoughData what="Nothing here is blocked. Dependencies are recorded as BLOCKS / BLOCKED BY links on an issue." />
+      ) : (
+        <ul className="space-y-2">
+          {blocked.map((b) => (
+            <li key={b.workItemId} data-testid={`blocked-${b.workItemId}`} className="text-xs">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[var(--text)] truncate">
+                  #{b.ticketNumber} {b.title}
+                </span>
+                <span className="shrink-0 tabular-nums text-[var(--warning,#f97316)]">
+                  {blockedFor(b.daysBlocked)}
+                </span>
+              </div>
+              <div className="text-[var(--text-muted)] truncate">
+                waiting on #{b.blockedByTicketNumber} {b.blockedByTitle}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </PanelShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Increment objectives, split by commitment.
+ *
+ * The split is the point: SAFe stretch objectives are deliberately outside the
+ * commitment so a team can surface upside without being judged on it. Folding
+ * them into one percentage is how a PI report ends up reading worse than the
+ * increment actually went.
+ */
+export function PiObjectivesPanel({
+  intervals,
+  objectives,
+  loading,
+}: {
+  intervals: Interval[];
+  objectives: ObjectiveLike[];
+  loading?: boolean;
+}) {
+  // A Program Increment is an interval that CONTAINS other intervals.
+  const pis = useMemo(
+    () => intervals.filter((i) => intervals.some((c) => c.parentId === i.id)),
+    [intervals],
+  );
+
+  const question = "Which increment objectives are met, at risk, or missed?";
+
+  if (loading) {
+    return (
+      <PanelShell title="Increment objectives" question={question}>
+        <NotEnoughData what="Reading objectives…" />
+      </PanelShell>
+    );
+  }
+
+  if (pis.length === 0) {
+    return (
+      <PanelShell title="Increment objectives" question={question}>
+        <NotEnoughData what="No Program Increments yet. Nest sprints under one and its objectives roll up here." />
+      </PanelShell>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {pis.map((pi) => {
+        const roll = objectiveRollup(objectives, pi.id);
+        const total = roll.committed.length + roll.stretch.length;
+        return (
+          <PanelShell
+            key={pi.id}
+            title={`${pi.name} objectives`}
+            question={question}
+            footnote={
+              roll.committedProgress === null ? (
+                // 0% would read as total failure rather than as an empty plan.
+                <>Nothing is committed for this increment{roll.stretch.length > 0 ? ", though there are stretch objectives" : ""}.</>
+              ) : (
+                <>
+                  {roll.met} of {roll.committed.length} committed{" "}
+                  {roll.committed.length === 1 ? "objective" : "objectives"} met,{" "}
+                  {Math.round(roll.committedProgress)}% average progress.
+                  {roll.stretch.length > 0 ? (
+                    <> {roll.stretch.length} stretch{" "}
+                    {roll.stretch.length === 1 ? "objective is" : "objectives are"} excluded from
+                    that figure — they are upside, not a promise.</>
+                  ) : null}
+                </>
+              )
+            }
+          >
+            {total === 0 ? (
+              <NotEnoughData what="No objectives recorded for this increment." />
+            ) : (
+              <ul className="space-y-2" data-testid={`pi-objectives-${pi.id}`}>
+                {[...roll.committed, ...roll.stretch].map((o) => {
+                  const isStretch = o.committed === false;
+                  return (
+                    <li key={o.id}>
+                      <div className="flex items-baseline justify-between gap-2 text-xs">
+                        <span className="text-[var(--text)] truncate">
+                          {o.title}
+                          {isStretch ? (
+                            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                              stretch
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-[var(--text-muted)]">
+                          {Math.round(o.progress)}%
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, o.progress))}%`,
+                            backgroundColor: isStretch ? "var(--text-muted)" : "var(--primary)",
+                          }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </PanelShell>
+        );
+      })}
+    </div>
   );
 }

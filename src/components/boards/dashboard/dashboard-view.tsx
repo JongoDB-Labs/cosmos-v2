@@ -28,9 +28,12 @@ import {
   WorkTypeMixPanel,
   ScopeChangePanel,
   CarryoverPanel,
+  ImpedimentsPanel,
+  PiObjectivesPanel,
   toDeliveryItems,
 } from "./delivery-panels";
 import type { IntervalChange } from "@/lib/dashboard/scope-change";
+import type { WorkItemLinkLike, ObjectiveLike } from "@/lib/dashboard/impediments";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
@@ -114,10 +117,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
 
   const itemsKey = useOrgQueryKey("work-items", projectId);
   const changesKey = useOrgQueryKey("interval-changes", projectId);
+  const linksKey = useOrgQueryKey("work-item-links", projectId);
+  const objectivesKey = useOrgQueryKey("objectives", projectId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -144,6 +149,17 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           jsonFetch<{ changes: IntervalChange[]; truncated: boolean }>(
             `${basePath}/interval-changes`,
           ),
+      },
+      {
+        // Blocking is a RELATIONSHIP, not a field, so it lives in the links
+        // table rather than on the item — nothing on a work item says it is
+        // stuck.
+        queryKey: linksKey,
+        queryFn: () => jsonFetch<WorkItemLinkLike[]>(`${basePath}/work-item-links`),
+      },
+      {
+        queryKey: objectivesKey,
+        queryFn: () => jsonFetch<ObjectiveLike[]>(`${basePath}/objectives`),
       },
     ],
   });
@@ -422,6 +438,18 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       body: <ActivityFeed items={filteredItems} projectKey={projectKey} />,
     },
     {
+      key: "impediments",
+      title: "Blocked Work",
+      body: (
+        <ImpedimentsPanel
+          items={deliveryItems}
+          links={linksQ.data ?? []}
+          loading={linksQ.isLoading}
+          bare
+        />
+      ),
+    },
+    {
       // Status and priority say where the work STANDS; neither says what kind of
       // work it is. A sprint that is 60% defects and one that is 60% features
       // are indistinguishable on this board without it, and they call for
@@ -541,7 +569,14 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
                    panels against PIs. A Program Increment holds no work items of
                    its own, so a throughput bar for one reads zero and a cycle
                    time over one is empty — the panels would render, and lie. */
-                <PiRollupView intervals={intervals} />
+                <div className="space-y-4">
+                  <PiRollupView intervals={intervals} />
+                  <PiObjectivesPanel
+                    intervals={intervals}
+                    objectives={objectivesQ.data ?? []}
+                    loading={objectivesQ.isLoading}
+                  />
+                </div>
               )}
             </div>
           )}
