@@ -68,6 +68,11 @@ import {
   ActualDateDialog,
   type ActualDateCapture,
 } from "@/components/boards/shared/actual-date-dialog";
+import {
+  ParentCascadeDialog,
+  type ParentCascade,
+} from "@/components/boards/shared/parent-cascade-dialog";
+import { shouldOfferParentCascade, type Phase } from "@/lib/boards/parent-cascade";
 import type {
   Board,
   BoardColumn,
@@ -209,6 +214,7 @@ function KanbanBoardInner({
   // can correct it. Detected from the PUT response rather than re-deriving the
   // rule client-side — the server owns which columns mean started/finished.
   const [dateCapture, setDateCapture] = useState<ActualDateCapture | null>(null);
+  const [parentCascade, setParentCascade] = useState<ParentCascade | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   // Selection anchor for shift-click range selection: the last card the user
@@ -803,6 +809,36 @@ function KanbanBoardInner({
           // item against the pre-drag snapshot: a field that was empty and now
           // holds a value was auto-captured, and "now" is only right if the board
           // is being updated the same day the work happened.
+          // A child that has overtaken its parent leaves the parent misreporting
+          // the state of the work. Nothing blocks the move (and nothing should),
+          // so offer to bring the parent along rather than enforce an order.
+          const childItem = beforeDragItemsRef.current.find((i) => i.id === activeId);
+          if (childItem?.parentId) {
+            const parent = beforeDragItemsRef.current.find((i) => i.id === childItem.parentId);
+            const childCat = columns.find((c) => c.key === targetColumnKey)?.category;
+            const parentCat = columns.find((c) => c.key === parent?.columnKey)?.category;
+            if (
+              parent &&
+              childCat &&
+              parentCat &&
+              shouldOfferParentCascade({
+                childCategory: childCat as Phase,
+                parentCategory: parentCat as Phase,
+              })
+            ) {
+              setParentCascade({
+                parentId: parent.id,
+                parentTitle: parent.title,
+                parentColumnName:
+                  columns.find((c) => c.key === parent.columnKey)?.name ?? parent.columnKey,
+                childTitle: childItem.title,
+                targetColumnKey,
+                targetColumnName:
+                  columns.find((c) => c.key === targetColumnKey)?.name ?? targetColumnKey,
+              });
+            }
+          }
+
           const moved = await results[0].json().catch(() => null);
           const savedItem = (moved?.data ?? moved) as WorkItem | null;
           const before = beforeDragItemsRef.current.find((i) => i.id === activeId);
@@ -1223,6 +1259,28 @@ function KanbanBoardInner({
           )}
         </DragOverlay>
       </DndContext>
+
+      <ParentCascadeDialog
+        cascade={parentCascade}
+        onClose={() => setParentCascade(null)}
+        onConfirm={(parentId, columnKey) => {
+          applyItems((prev) =>
+            prev.map((i) => (i.id === parentId ? { ...i, columnKey } : i)),
+          );
+          void (async () => {
+            try {
+              const res = await fetch(`${basePath}/work-items/${parentId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ columnKey }),
+              });
+              if (!res.ok) throw new Error("Failed to move the parent");
+            } catch (err) {
+              notifyError(err, "Couldn't move the parent — it's been left where it was.");
+            }
+          })();
+        }}
+      />
 
       <ActualDateDialog
         capture={dateCapture}
