@@ -331,6 +331,7 @@ export function RoadmapView({ orgId, projectId, boardId }: RoadmapViewProps) {
       </div>
 
       <CardDetailSheet
+        statusColumns={projectStatuses}
         item={detailItem}
         open={detailItem !== null}
         onOpenChange={(o) => !o && setDetailId(null)}

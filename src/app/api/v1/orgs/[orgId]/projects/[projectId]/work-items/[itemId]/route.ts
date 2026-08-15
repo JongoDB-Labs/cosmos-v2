@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -174,9 +175,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         } as Prisma.InputJsonValue;
       }
 
-      const doneColumn = data.columnKey && ["done", "completed", "closed"].some(
-        (k) => data.columnKey!.toLowerCase().includes(k)
-      );
+      // The destination column's CATEGORY decides whether this move means
+      // "started" or "finished". Both checks used to guess from the key string
+      // ("not backlog/todo" = started, "contains done" = finished), which stamped
+      // an actual START on any team-named column such as Review — the cause of a
+      // user's Gantt bars all jumping to today after a batch of Sprint-board moves.
+      const destColumn = data.columnKey
+        ? await tx.boardColumn.findFirst({
+            where: { board: { projectId }, key: data.columnKey },
+            select: { category: true },
+          })
+        : null;
+      const doneColumn = destColumn ? isDonePhase(destColumn.category) : false;
       // Actual End auto-capture (skipped when the request sets completedAt manually).
       if (data.completedAt === undefined) {
         if (doneColumn && !existing.completedAt) {
@@ -188,9 +198,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // Actual Start auto-capture: first time the item enters a started (in-progress
       // or done) column. Mirrors the completedAt capture; never overwritten once set;
       // a manual actualStart in this request wins.
-      const startedColumn =
-        data.columnKey != null &&
-        !["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase());
+      const startedColumn = destColumn ? isStartedPhase(destColumn.category) : false;
       if (data.actualStart === undefined && startedColumn && !existing.actualStart) {
         updateData.actualStart = new Date();
       }
@@ -221,6 +229,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             create: { workItemId: itemId, userId: data.assigneeId, sortOrder: -1 },
             update: { sortOrder: -1 },
           });
+        }
+      }
+
+      // DATE AUDIT. Every date on the item, diffed from the FINAL updateData
+      // rather than from the request body — the 2026-08-14 incident was caused by
+      // an AUTO-CAPTURED actualStart that the client never sent, so tracking only
+      // what the caller asked for would have recorded nothing and left no trail of
+      // the very change that caused the report. Recording the derived value is the
+      // whole point.
+      const DATE_FIELDS = ["startDate", "dueDate", "actualStart", "completedAt"] as const;
+      for (const field of DATE_FIELDS) {
+        if (!(field in updateData)) continue;
+        const before = existing[field] as Date | null;
+        const after = updateData[field] as Date | null;
+        const beforeIso = before ? new Date(before).toISOString() : null;
+        const afterIso = after ? new Date(after).toISOString() : null;
+        if (beforeIso !== afterIso) {
+          trackFields.push({ field, oldVal: beforeIso, newVal: afterIso });
         }
       }
 

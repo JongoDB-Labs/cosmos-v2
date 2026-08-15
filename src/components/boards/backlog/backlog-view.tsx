@@ -587,6 +587,7 @@ export function BacklogView({
       )}
 
       <CardDetailSheet
+        statusColumns={projectStatuses}
         item={detailItem}
         open={detailOpen}
         onOpenChange={setDetailOpen}

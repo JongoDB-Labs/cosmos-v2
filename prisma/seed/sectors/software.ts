@@ -80,9 +80,15 @@ const SOFTWARE_BOARD_TEMPLATES = [
     columns: [],
   },
   {
-    // A ROADMAP board was missing entirely. Its filters are keyed to roadmap
-    // nodes rather than work items, which is the whole point of the board type —
-    // a template without it leaves new projects unable to plan above the sprint.
+    // A ROADMAP board was missing entirely, leaving new projects unable to plan
+    // above the sprint.
+    //
+    // NB an earlier version of this comment claimed the board's filters are
+    // "keyed to roadmap nodes rather than work items". They are not — RoadmapView
+    // renders an Epics x Increments grid of WORK ITEMS and never reads a
+    // RoadmapNode. That misreading is why this template also switched on the
+    // "roadmap" feature flag, giving every Software project two tabs named
+    // "Roadmap" that show entirely different things.
     slug: "software.roadmap",
     name: "Roadmap",
     category: "planning",
@@ -103,11 +109,20 @@ const SOFTWARE_PROJECT_TEMPLATE = {
     // it did nothing, and "interval" was missing entirely, which is why a new
     // software project had no Intervals button in its header. The PM-dashboard
     // registers match what a real software delivery project turns on.
+    //
+    // Deliberately absent: "roadmap". That flag adds a SECOND project tab also
+    // labelled "Roadmap", for the RoadmapNode workspace — a different surface
+    // from the ROADMAP board above. This template turned on both, so every
+    // Software project opened with two identical tabs, and the module one is
+    // always empty: nothing in the product UI creates a RoadmapNode. Projects
+    // that want it can enable it in settings.
+    //
+    // Keep commentary OUT of the array literal below — sector-features.arch.test
+    // scrapes it from source and reads comment text as feature keys.
     enabledFeatures: [
       "goal",
       "milestone",
       "interval",
-      "roadmap",
       "pm-dashboard",
       "risk-register",
       "change-log",

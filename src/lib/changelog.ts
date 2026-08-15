@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.290.1",
+    date: "2026-08-15",
+    title: "Board dates you can trust, and correct",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Moving a ticket on a board no longer records a start date it should not. The rule that decided whether a move meant \u201cstarted\u201d or \u201cfinished\u201d was guessing from the column\u2019s name, so a board with a column called Review recorded work as starting the moment a ticket reached review, and a Done column named something else \u2014 Shipped, say \u2014 never recorded a finish at all. Both now use the column\u2019s configured category.",
+      },
+      {
+        kind: "feature",
+        text: "When a move does record an actual start or finish, you are now asked whether that date is right. Catching a board up days after the work happened used to stamp everything with today\u2019s date and leave no way to correct it; you can now set the real date there and then, or keep today and move on.",
+      },
+      {
+        kind: "feature",
+        text: "If a ticket moves ahead of its parent \u2014 a sub-task reaching In Progress while its parent sits in Backlog \u2014 you are offered the chance to bring the parent forward too. Nothing is moved without asking, and a ticket moving backwards never drags its parent with it.",
+      },
+      {
+        kind: "improvement",
+        text: "Every date change on a ticket is now recorded in its history, including dates the system fills in for you. Previously the history tracked status, sprint, assignee and type but no dates at all, so a date that changed unexpectedly left no trail to follow.",
+      },
+    ],
+  },
+  {
     version: "2.290.0",
     date: "2026-08-14",
     title: "Blocked work and increment objectives on Sprint Health",

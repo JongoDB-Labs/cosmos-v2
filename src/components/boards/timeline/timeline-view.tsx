@@ -74,6 +74,7 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
+import { planDriftPhantoms, type DriftColor } from "@/lib/boards/plan-drift";
 
 interface TimelineViewProps {
   orgId: string;
@@ -212,6 +213,16 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
   const end = item.dueDate ? startOfDay(new Date(item.dueDate)) : addDays(start, 7);
   return { start, end };
 }
+
+/** Phantom fills. Amber has no token; the other two reuse the health palette. */
+const DRIFT_FILL: Record<DriftColor, string> = {
+  amber: "#f59e0b",
+  // NOT var(--status-done): the bar underneath is already that green, so the
+  // phantom vanished into it. A distinctly lighter, cooler green reads as its
+  // own mark over a completed bar.
+  green: "#6ee7b7",
+  red: "var(--status-critical)",
+};
 
 type DragMode = "move" | "start" | "end";
 
@@ -1902,6 +1913,32 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 <rect width="6" height="6" fill="transparent" />
                 <line x1="0" y1="0" x2="0" y2="6" stroke="white" strokeWidth="2" opacity="0.55" />
               </pattern>
+              {/* Drift hatches. Green and red mark PLANNED boundaries that fall
+                  INSIDE the actual span — an early start, a slipped end — so a
+                  solid fill there would paint over real work and read as though
+                  the actual bar stopped short. Hatching keeps the solid bar
+                  visible between the stripes: you see both the work and the
+                  plan it diverged from. */}
+              <pattern
+                id="timeline-drift-green"
+                width="7"
+                height="7"
+                patternTransform="rotate(45)"
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width="7" height="7" fill="transparent" />
+                <line x1="0" y1="0" x2="0" y2="7" stroke="#6ee7b7" strokeWidth="2.5" />
+              </pattern>
+              <pattern
+                id="timeline-drift-red"
+                width="7"
+                height="7"
+                patternTransform="rotate(45)"
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width="7" height="7" fill="transparent" />
+                <line x1="0" y1="0" x2="0" y2="7" stroke="var(--status-critical)" strokeWidth="2.5" />
+              </pattern>
             </defs>
 
             {/* Weekend shading + week gridlines */}
@@ -2074,11 +2111,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // the plan visible to be critical relative to anything.
               const critDim = showCritical && criticalIsolate && !isCrit ? 0.15 : 1;
 
-              // PRIMARY (solid) = the ACTUAL span at real dates; the planned span
-              // (startDate -> dueDate) renders behind it as a faded, health-colored
-              // TRAIL — red when slipped, amber when it started late, green when
-              // on/ahead. No red outline; the trail carries the signal. With no actuals
-              // yet, the planned span IS the solid bar (future/planning items).
+              // PRIMARY (solid) = the ACTUAL span at real dates. The plan shows up
+              // as drift PHANTOMS around it — amber/green for the start, red for an
+              // end slip — rather than as one ghost of the whole planned span tinted
+              // by health, which could say "late" but never "late by this much, and
+              // here". With no actuals yet the planned span IS the solid bar
+              // (future/planning items) and no phantom is drawn.
               const health = barHealth(item, today);
               const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
               const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
@@ -2089,15 +2127,27 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 const aw = Math.max(diffDays(actualStartD, actualEndD) * dayWidth, 3);
                 actualBar = { x: ax, w: aw };
               }
+              // Nothing has been actioned: no actual start, and the work has not
+              // been moved into a started column. Such a bar is a PLAN, not progress,
+              // and is drawn as a phantom so the two are not confused at a glance.
+              const notStarted = !actualStartD && !item.completedAt;
               const primaryX = actualBar ? actualBar.x : x;
               const primaryW = actualBar ? actualBar.w : w;
-              const lateStart = !!(plannedStartD && actualStartD && diffDays(plannedStartD, actualStartD) > 0);
-              const trailColor =
-                health === "red"
-                  ? "var(--status-critical)"
-                  : lateStart
-                    ? "#f59e0b"
-                    : "var(--status-done)";
+              // Where the PLAN disagreed with the actuals. Each phantom answers one
+              // question and its side falls out of the sign, so the colours read
+              // positionally — amber only ever left of a block, green only ever
+              // right of its left edge, red only ever the end slip. See
+              // lib/boards/plan-drift.ts. Returned in paint order, red last.
+              const driftPhantoms = planDriftPhantoms({
+                plannedStart: plannedStartD,
+                plannedEnd: item.dueDate ? startOfDay(new Date(item.dueDate)) : null,
+                actualStart: actualStartD,
+                actualEnd: actualStartD ? actualEndD : null,
+              }).map((ph) => ({
+                color: ph.color,
+                x: diffDays(timelineStart, ph.from) * dayWidth,
+                w: Math.max(diffDays(ph.from, ph.to) * dayWidth, 2),
+              }));
 
               // Check if this is a milestone (same start and due date or type hint)
               const isMilestone =
@@ -2177,10 +2227,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Planned bar. No actuals → it IS the item: solid + draggable.
-                      Actuals exist → it becomes a faded, NON-interactive "Plan drift"
-                      ghost, shown only when that lens is on (so you see how the plan
-                      shifted). */}
+                  {/* Planned bar. No actuals → it IS the item: draggable, and drawn
+                      as a PHANTOM (dashed, translucent) because nothing has happened
+                      to it yet — a solid bar for un-started work is indistinguishable
+                      from work in flight. Actuals exist → the drift phantoms below
+                      carry the plan instead. */}
                   {!actualBar ? (
                     <rect
                       x={x}
@@ -2189,6 +2240,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       height={h}
                       rx={4}
                       fill={colors.fill}
+                      fillOpacity={notStarted ? 0.25 : 1}
                       stroke={
                         isBlocked
                           ? "var(--status-critical)"
@@ -2199,7 +2251,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                             : colors.stroke
                       }
                       strokeWidth={isBlocked || isCrit ? 2.5 : isEnabler ? 1.5 : 1}
-                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      strokeDasharray={isEnabler ? "5 3" : notStarted ? "4 3" : undefined}
                       opacity={(preview ? 1 : 0.85) * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                       onPointerDown={(e) => beginDrag(item, "move", e)}
                       onPointerMove={onDragMove}
@@ -2217,21 +2269,29 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ touchAction: canEdit ? "none" : undefined }}
                       className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                     />
-                  ) : showPlanDrift ? (
-                    <rect
-                      x={x}
-                      y={y}
-                      width={w}
-                      height={h}
-                      rx={4}
-                      fill={trailColor}
-                      stroke={isCrit ? "var(--status-critical)" : "transparent"}
-                      strokeWidth={isCrit ? 2.5 : 1}
-                      strokeDasharray="3 3"
-                      opacity={0.3 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
-                      style={{ pointerEvents: "none" }}
-                    />
                   ) : null}
+                  {/* Amber only, BEHIND the bar. It lands on empty canvas to the
+                      left, so nothing covers it and the bar keeps its own edge. */}
+                  {showPlanDrift &&
+                    driftPhantoms
+                      .filter((ph) => ph.color === "amber")
+                      .map((ph) => (
+                        <rect
+                          key={`${item.id}-drift-${ph.color}`}
+                          data-testid={`gantt-drift-${ph.color}-${item.id}`}
+                          x={ph.x}
+                          y={y}
+                          width={ph.w}
+                          height={h}
+                          rx={4}
+                          fill={DRIFT_FILL[ph.color]}
+                          stroke={DRIFT_FILL[ph.color]}
+                          strokeWidth={1}
+                          strokeDasharray="3 3"
+                          opacity={0.92 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
+                          style={{ pointerEvents: "none" }}
+                        />
+                      ))}
                   {/* Actual bar — the SOLID primary (real dates). Click opens the
                       detail panel; started/done items reschedule there, not by drag. */}
                   {actualBar && (
@@ -2290,6 +2350,39 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
+                  {/* Green and red LAST. Both sit ON the bar by construction — green
+                      over its head (started early), red over its tail (slipped) — so
+                      painted behind it they are invisible at ANY opacity. This is the
+                      "red takes priority and overlays the blocks" rule, and green
+                      needs exactly the same treatment for the same reason. */}
+                  {showPlanDrift &&
+                    driftPhantoms
+                      .filter((ph) => ph.color !== "amber")
+                      .map((ph) => (
+                        <rect
+                          key={`${item.id}-drift-${ph.color}`}
+                          data-testid={`gantt-drift-${ph.color}-${item.id}`}
+                          x={ph.x}
+                          y={y}
+                          width={ph.w}
+                          height={h}
+                          rx={4}
+                          // HATCH, not a fill: this phantom lies ON the actual bar,
+                          // so a solid fill would paint over real work and read as if
+                          // the bar stopped there. Striping keeps the solid actual
+                          // span visible between the stripes — both are legible at
+                          // once, which is what the overlap has to show.
+                          fill={`url(#timeline-drift-${ph.color})`}
+                          stroke={DRIFT_FILL[ph.color]}
+                          strokeWidth={1.5}
+                          strokeDasharray="3 3"
+                          // Near-opaque so the STRIPES read at full strength; the
+                          // transparency that lets the bar through comes from the
+                          // pattern's gaps, not from fading the whole rect.
+                          opacity={0.92 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
+                          style={{ pointerEvents: "none" }}
+                        />
+                      ))}
                   {canEdit && !actualBar && (
                     <>
                       {/* Left edge → move start date */}
@@ -2497,6 +2590,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       {/* Shared work-item detail — same sheet the Kanban/Table views use, so a
           ticket opened from the Timeline shows + edits identical data (FR). */}
       <CardDetailSheet
+        statusColumns={projectStatuses}
         item={detailItem}
         open={detailItem !== null}
         onOpenChange={(o) => !o && setDetailId(null)}
