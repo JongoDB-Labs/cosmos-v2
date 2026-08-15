@@ -64,6 +64,10 @@ import { useOrgSlug } from "@/lib/query/keys";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import {
+  ActualDateDialog,
+  type ActualDateCapture,
+} from "@/components/boards/shared/actual-date-dialog";
 import type {
   Board,
   BoardColumn,
@@ -201,6 +205,10 @@ function KanbanBoardInner({
   const canBulkEdit = can(Permission.ITEM_BULK_EDIT);
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const [selectMode, setSelectMode] = useState(false);
+  // Set when a move causes the SERVER to stamp an actual start/end, so the user
+  // can correct it. Detected from the PUT response rather than re-deriving the
+  // rule client-side — the server owns which columns mean started/finished.
+  const [dateCapture, setDateCapture] = useState<ActualDateCapture | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   // Selection anchor for shift-click range selection: the last card the user
@@ -791,6 +799,30 @@ function KanbanBoardInner({
           if (results.some((r) => !r.ok)) {
             throw new Error("Failed to persist the new order");
           }
+          // Did the server stamp an actual date on this move? Compare the echoed
+          // item against the pre-drag snapshot: a field that was empty and now
+          // holds a value was auto-captured, and "now" is only right if the board
+          // is being updated the same day the work happened.
+          const moved = await results[0].json().catch(() => null);
+          const savedItem = (moved?.data ?? moved) as WorkItem | null;
+          const before = beforeDragItemsRef.current.find((i) => i.id === activeId);
+          if (savedItem && before) {
+            const field = !before.actualStart && savedItem.actualStart
+              ? ("actualStart" as const)
+              : !before.completedAt && savedItem.completedAt
+                ? ("completedAt" as const)
+                : null;
+            if (field) {
+              setDateCapture({
+                itemId: activeId,
+                itemTitle: savedItem.title,
+                field,
+                capturedIso: String(savedItem[field]),
+                columnName:
+                  columns.find((c) => c.key === targetColumnKey)?.name ?? targetColumnKey,
+              });
+            }
+          }
         } catch (err) {
           console.error("Failed to update work item position:", err);
           applyItems(beforeDragItemsRef.current);
@@ -1191,6 +1223,30 @@ function KanbanBoardInner({
           )}
         </DragOverlay>
       </DndContext>
+
+      <ActualDateDialog
+        capture={dateCapture}
+        onClose={() => setDateCapture(null)}
+        onConfirm={(itemId, field, iso) => {
+          // Optimistic: the board already shows the card in its new column, and
+          // the date it displays comes from this field.
+          applyItems((prev) =>
+            prev.map((i) => (i.id === itemId ? { ...i, [field]: iso } : i)),
+          );
+          void (async () => {
+            try {
+              const res = await fetch(`${basePath}/work-items/${itemId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ [field]: iso }),
+              });
+              if (!res.ok) throw new Error("Failed to set the actual date");
+            } catch (err) {
+              notifyError(err, "Couldn't update the date — the card kept today's.");
+            }
+          })();
+        }}
+      />
 
       <CardDetailSheet
         item={detailItem}
