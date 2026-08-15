@@ -2367,13 +2367,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           width={ph.w}
                           height={h}
                           rx={4}
-                          fill={DRIFT_FILL[ph.color]}
+                          // HATCH, not a fill: this phantom lies ON the actual bar,
+                          // so a solid fill would paint over real work and read as if
+                          // the bar stopped there. Striping keeps the solid actual
+                          // span visible between the stripes — both are legible at
+                          // once, which is what the overlap has to show.
+                          fill={`url(#timeline-drift-${ph.color})`}
                           stroke={DRIFT_FILL[ph.color]}
-                          strokeWidth={1}
+                          strokeWidth={1.5}
                           strokeDasharray="3 3"
-                          // The slip ALWAYS overlays the bar's tail, so anything
-                          // translucent blends to brown over a green bar. Near-opaque
-                          // is what makes "slipped" read as slipped.
+                          // Near-opaque so the STRIPES read at full strength; the
+                          // transparency that lets the bar through comes from the
+                          // pattern's gaps, not from fading the whole rect.
                           opacity={0.92 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                           style={{ pointerEvents: "none" }}
                         />

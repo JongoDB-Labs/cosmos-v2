@@ -232,6 +232,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
       }
 
+      // DATE AUDIT. Every date on the item, diffed from the FINAL updateData
+      // rather than from the request body — the 2026-08-14 incident was caused by
+      // an AUTO-CAPTURED actualStart that the client never sent, so tracking only
+      // what the caller asked for would have recorded nothing and left no trail of
+      // the very change that caused the report. Recording the derived value is the
+      // whole point.
+      const DATE_FIELDS = ["startDate", "dueDate", "actualStart", "completedAt"] as const;
+      for (const field of DATE_FIELDS) {
+        if (!(field in updateData)) continue;
+        const before = existing[field] as Date | null;
+        const after = updateData[field] as Date | null;
+        const beforeIso = before ? new Date(before).toISOString() : null;
+        const afterIso = after ? new Date(after).toISOString() : null;
+        if (beforeIso !== afterIso) {
+          trackFields.push({ field, oldVal: beforeIso, newVal: afterIso });
+        }
+      }
+
       const updated = await tx.workItem.update({
         where: { id: itemId },
         data: updateData,

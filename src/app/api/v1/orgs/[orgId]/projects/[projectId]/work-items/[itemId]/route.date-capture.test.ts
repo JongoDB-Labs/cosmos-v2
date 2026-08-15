@@ -185,6 +185,73 @@ describe("PUT /work-items/[itemId] — actualStart/completedAt auto-capture + ov
     expect(updateData.actualStart.toISOString()).toBe("2026-02-02T00:00:00.000Z");
   });
 
+  // --- date audit ------------------------------------------------------------
+  // The incident left NO trail: activities recorded columnKey/intervalId/
+  // assigneeId/workItemTypeId/title/priority and no dates at all, so the only way
+  // to prove what had happened was to restore a dump and diff it.
+
+  it("A. an AUTO-CAPTURED actualStart is written to the activity trail", async () => {
+    // The exact shape of the incident: the client sent only columnKey.
+    prisma.workItem.findFirst.mockResolvedValue(
+      existingFixture({ columnKey: "todo", actualStart: null }),
+    );
+    await PUT(putRequest({ columnKey: "in_progress" }), { params });
+
+    const rows = prisma.activity.createMany.mock.calls[0][0].data as {
+      field: string;
+      oldValue: string | null;
+      newValue: string | null;
+    }[];
+    const audit = rows.find((r) => r.field === "actualStart");
+    expect(audit).toBeDefined();
+    expect(audit!.oldValue).toBeNull();
+    expect(audit!.newValue).toEqual(expect.any(String));
+  });
+
+  it("B. an explicit startDate change is audited with both values", async () => {
+    prisma.workItem.findFirst.mockResolvedValue(
+      existingFixture({ startDate: new Date("2026-07-27T00:00:00Z") }),
+    );
+    await PUT(putRequest({ startDate: "2026-09-01T00:00:00.000Z" }), { params });
+
+    const rows = prisma.activity.createMany.mock.calls[0][0].data as {
+      field: string;
+      oldValue: string | null;
+      newValue: string | null;
+    }[];
+    const audit = rows.find((r) => r.field === "startDate");
+    expect(audit).toBeDefined();
+    expect(audit!.oldValue).toBe("2026-07-27T00:00:00.000Z");
+    expect(audit!.newValue).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("C. a date set to the SAME value writes no audit row", async () => {
+    const same = new Date("2026-07-27T00:00:00Z");
+    prisma.workItem.findFirst.mockResolvedValue(existingFixture({ startDate: same }));
+    await PUT(putRequest({ startDate: same.toISOString() }), { params });
+
+    const calls = prisma.activity.createMany.mock.calls;
+    const rows = (calls[0]?.[0]?.data ?? []) as { field: string }[];
+    expect(rows.find((r) => r.field === "startDate")).toBeUndefined();
+  });
+
+  it("D. clearing a date records the old value, so it can be restored", async () => {
+    prisma.workItem.findFirst.mockResolvedValue(
+      existingFixture({ dueDate: new Date("2026-08-30T00:00:00Z") }),
+    );
+    await PUT(putRequest({ dueDate: null }), { params });
+
+    const rows = prisma.activity.createMany.mock.calls[0][0].data as {
+      field: string;
+      oldValue: string | null;
+      newValue: string | null;
+    }[];
+    const audit = rows.find((r) => r.field === "dueDate");
+    expect(audit).toBeDefined();
+    expect(audit!.oldValue).toBe("2026-08-30T00:00:00.000Z");
+    expect(audit!.newValue).toBeNull();
+  });
+
   // --- the 2026-08-14 incident -----------------------------------------------
   // A user moved a batch of tickets on the Sprint board and every Gantt bar
   // jumped to that day, which read as "all my start dates were reset".
