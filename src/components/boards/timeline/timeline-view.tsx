@@ -217,7 +217,10 @@ function itemSpan(item: WorkItem): { start: Date; end: Date } {
 /** Phantom fills. Amber has no token; the other two reuse the health palette. */
 const DRIFT_FILL: Record<DriftColor, string> = {
   amber: "#f59e0b",
-  green: "var(--status-done)",
+  // NOT var(--status-done): the bar underneath is already that green, so the
+  // phantom vanished into it. A distinctly lighter, cooler green reads as its
+  // own mark over a completed bar.
+  green: "#6ee7b7",
   red: "var(--status-critical)",
 };
 
@@ -1910,6 +1913,32 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 <rect width="6" height="6" fill="transparent" />
                 <line x1="0" y1="0" x2="0" y2="6" stroke="white" strokeWidth="2" opacity="0.55" />
               </pattern>
+              {/* Drift hatches. Green and red mark PLANNED boundaries that fall
+                  INSIDE the actual span — an early start, a slipped end — so a
+                  solid fill there would paint over real work and read as though
+                  the actual bar stopped short. Hatching keeps the solid bar
+                  visible between the stripes: you see both the work and the
+                  plan it diverged from. */}
+              <pattern
+                id="timeline-drift-green"
+                width="7"
+                height="7"
+                patternTransform="rotate(45)"
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width="7" height="7" fill="transparent" />
+                <line x1="0" y1="0" x2="0" y2="7" stroke="#6ee7b7" strokeWidth="2.5" />
+              </pattern>
+              <pattern
+                id="timeline-drift-red"
+                width="7"
+                height="7"
+                patternTransform="rotate(45)"
+                patternUnits="userSpaceOnUse"
+              >
+                <rect width="7" height="7" fill="transparent" />
+                <line x1="0" y1="0" x2="0" y2="7" stroke="var(--status-critical)" strokeWidth="2.5" />
+              </pattern>
             </defs>
 
             {/* Weekend shading + week gridlines */}
@@ -2098,6 +2127,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 const aw = Math.max(diffDays(actualStartD, actualEndD) * dayWidth, 3);
                 actualBar = { x: ax, w: aw };
               }
+              // Nothing has been actioned: no actual start, and the work has not
+              // been moved into a started column. Such a bar is a PLAN, not progress,
+              // and is drawn as a phantom so the two are not confused at a glance.
+              const notStarted = !actualStartD && !item.completedAt;
               const primaryX = actualBar ? actualBar.x : x;
               const primaryW = actualBar ? actualBar.w : w;
               // Where the PLAN disagreed with the actuals. Each phantom answers one
@@ -2194,10 +2227,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                   }}
                   onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {/* Planned bar. No actuals → it IS the item: solid + draggable.
-                      Actuals exist → it becomes a faded, NON-interactive "Plan drift"
-                      ghost, shown only when that lens is on (so you see how the plan
-                      shifted). */}
+                  {/* Planned bar. No actuals → it IS the item: draggable, and drawn
+                      as a PHANTOM (dashed, translucent) because nothing has happened
+                      to it yet — a solid bar for un-started work is indistinguishable
+                      from work in flight. Actuals exist → the drift phantoms below
+                      carry the plan instead. */}
                   {!actualBar ? (
                     <rect
                       x={x}
@@ -2206,6 +2240,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       height={h}
                       rx={4}
                       fill={colors.fill}
+                      fillOpacity={notStarted ? 0.25 : 1}
                       stroke={
                         isBlocked
                           ? "var(--status-critical)"
@@ -2216,7 +2251,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                             : colors.stroke
                       }
                       strokeWidth={isBlocked || isCrit ? 2.5 : isEnabler ? 1.5 : 1}
-                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      strokeDasharray={isEnabler ? "5 3" : notStarted ? "4 3" : undefined}
                       opacity={(preview ? 1 : 0.85) * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                       onPointerDown={(e) => beginDrag(item, "move", e)}
                       onPointerMove={onDragMove}
@@ -2235,11 +2270,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                     />
                   ) : null}
-                  {/* Start-drift phantom, BEHIND the actual bar: an early start
-                      overlays the block's head, and the solid bar must win there. */}
+                  {/* Amber only, BEHIND the bar. It lands on empty canvas to the
+                      left, so nothing covers it and the bar keeps its own edge. */}
                   {showPlanDrift &&
                     driftPhantoms
-                      .filter((ph) => ph.color !== "red")
+                      .filter((ph) => ph.color === "amber")
                       .map((ph) => (
                         <rect
                           key={`${item.id}-drift-${ph.color}`}
@@ -2250,8 +2285,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           height={h}
                           rx={4}
                           fill={DRIFT_FILL[ph.color]}
+                          stroke={DRIFT_FILL[ph.color]}
+                          strokeWidth={1}
                           strokeDasharray="3 3"
-                          opacity={0.45 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
+                          opacity={0.92 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                           style={{ pointerEvents: "none" }}
                         />
                       ))}
@@ -2313,24 +2350,31 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {/* End-drift phantom LAST: it must overlay the actual bar, its
-                      progress fill and the enabler hatch, or a slip disappears
-                      under whichever of them happens to be painted. */}
+                  {/* Green and red LAST. Both sit ON the bar by construction — green
+                      over its head (started early), red over its tail (slipped) — so
+                      painted behind it they are invisible at ANY opacity. This is the
+                      "red takes priority and overlays the blocks" rule, and green
+                      needs exactly the same treatment for the same reason. */}
                   {showPlanDrift &&
                     driftPhantoms
-                      .filter((ph) => ph.color === "red")
+                      .filter((ph) => ph.color !== "amber")
                       .map((ph) => (
                         <rect
-                          key={`${item.id}-drift-red`}
-                          data-testid={`gantt-drift-red-${item.id}`}
+                          key={`${item.id}-drift-${ph.color}`}
+                          data-testid={`gantt-drift-${ph.color}-${item.id}`}
                           x={ph.x}
                           y={y}
                           width={ph.w}
                           height={h}
                           rx={4}
-                          fill={DRIFT_FILL.red}
+                          fill={DRIFT_FILL[ph.color]}
+                          stroke={DRIFT_FILL[ph.color]}
+                          strokeWidth={1}
                           strokeDasharray="3 3"
-                          opacity={0.55 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
+                          // The slip ALWAYS overlays the bar's tail, so anything
+                          // translucent blends to brown over a green bar. Near-opaque
+                          // is what makes "slipped" read as slipped.
+                          opacity={0.92 * dimForEnablerLens * dimForBlockedLens * depDim * critDim}
                           style={{ pointerEvents: "none" }}
                         />
                       ))}

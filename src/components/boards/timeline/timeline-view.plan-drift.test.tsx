@@ -227,11 +227,21 @@ describe("TimelineView — plan-drift phantoms", () => {
     expect(bar.compareDocumentPosition(red) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("start drift paints BEFORE the solid bar, so the bar wins where they overlap", async () => {
+  it("GREEN paints after the bar — behind it, an early start is invisible", async () => {
+    // Green covers the bar's HEAD by construction, so painting it first hid it
+    // completely under a completed (green) bar at any opacity. Amber is the only
+    // phantom that lands on empty canvas, so it is the only one drawn behind.
     await renderWithPlanDrift();
     const green = screen.getByTestId("gantt-drift-green-early");
     const bar = screen.getByTestId("gantt-bar-early");
-    expect(green.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar.compareDocumentPosition(green) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("AMBER paints before the bar, so the bar keeps its own left edge", async () => {
+    await renderWithPlanDrift();
+    const amber = screen.getByTestId("gantt-drift-amber-late");
+    const bar = screen.getByTestId("gantt-bar-late");
+    expect(amber.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("an item that finished on plan gets no red phantom", async () => {

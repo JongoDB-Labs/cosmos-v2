@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -174,9 +175,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         } as Prisma.InputJsonValue;
       }
 
-      const doneColumn = data.columnKey && ["done", "completed", "closed"].some(
-        (k) => data.columnKey!.toLowerCase().includes(k)
-      );
+      // The destination column's CATEGORY decides whether this move means
+      // "started" or "finished". Both checks used to guess from the key string
+      // ("not backlog/todo" = started, "contains done" = finished), which stamped
+      // an actual START on any team-named column such as Review — the cause of a
+      // user's Gantt bars all jumping to today after a batch of Sprint-board moves.
+      const destColumn = data.columnKey
+        ? await tx.boardColumn.findFirst({
+            where: { board: { projectId }, key: data.columnKey },
+            select: { category: true },
+          })
+        : null;
+      const doneColumn = destColumn ? isDonePhase(destColumn.category) : false;
       // Actual End auto-capture (skipped when the request sets completedAt manually).
       if (data.completedAt === undefined) {
         if (doneColumn && !existing.completedAt) {
@@ -188,9 +198,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // Actual Start auto-capture: first time the item enters a started (in-progress
       // or done) column. Mirrors the completedAt capture; never overwritten once set;
       // a manual actualStart in this request wins.
-      const startedColumn =
-        data.columnKey != null &&
-        !["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase());
+      const startedColumn = destColumn ? isStartedPhase(destColumn.category) : false;
       if (data.actualStart === undefined && startedColumn && !existing.actualStart) {
         updateData.actualStart = new Date();
       }
