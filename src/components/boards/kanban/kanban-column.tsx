@@ -95,6 +95,8 @@ export function KanbanColumn({
       {/* Items */}
       <div
         ref={setNodeRef}
+        // The DROPPABLE body, not the header — a drag has to land here.
+        data-testid={`kanban-column-${column.key}`}
         className="flex-1 overflow-y-auto px-2 pb-2 space-y-2 min-h-[60px]"
       >
         <SortableContext

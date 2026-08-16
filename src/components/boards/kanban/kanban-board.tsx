@@ -1283,7 +1283,11 @@ function KanbanBoardInner({
       />
 
       <ActualDateDialog
-        capture={dateCapture}
+        // QUEUED behind the cascade prompt: one move can trigger both, and two
+        // stacked modals leave the second invisible until the first is dismissed
+        // — it looked like the date prompt had been lost. Ask one question at a
+        // time, parent first.
+        capture={parentCascade ? null : dateCapture}
         onClose={() => setDateCapture(null)}
         onConfirm={(itemId, field, iso) => {
           // Optimistic: the board already shows the card in its new column, and

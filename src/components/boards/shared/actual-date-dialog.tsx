@@ -53,18 +53,26 @@ export function ActualDateDialog({
   /** Called only when the user picks a DIFFERENT date. */
   onConfirm: (itemId: string, field: CapturedDateField, iso: string) => void;
 }) {
-  if (!capture) return null;
+  // Mounted always, `open` toggled — the pattern every other dialog here uses.
+  // Mounting it already-open never rendered: base-ui's Root wants the
+  // false -> true transition, so the popup stayed closed and the prompt was
+  // silently lost even though the state behind it was correct.
+  //
   // Keyed so a new capture REMOUNTS the body and its state initialises from that
   // card's date. Re-seeding through an effect instead would schedule a cascading
   // render, which `react-hooks/set-state-in-effect` rejects — and would briefly
   // show the previous card's date.
   return (
-    <Body
-      key={`${capture.itemId}-${capture.field}`}
-      capture={capture}
-      onClose={onClose}
-      onConfirm={onConfirm}
-    />
+    <Dialog open={capture != null} onOpenChange={(o) => !o && onClose()}>
+      {capture && (
+        <Body
+          key={`${capture.itemId}-${capture.field}`}
+          capture={capture}
+          onClose={onClose}
+          onConfirm={onConfirm}
+        />
+      )}
+    </Dialog>
   );
 }
 
@@ -96,8 +104,7 @@ function Body({
   }
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+    <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             {isStart ? "When did this work start?" : "When was this finished?"}
@@ -131,7 +138,6 @@ function Body({
             {changed ? `Set ${noun} date` : "Done"}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogContent>
   );
 }

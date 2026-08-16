@@ -176,6 +176,10 @@ export function KanbanCard({
       <ActionMenu groups={menuGroups}>
       <div
         ref={setNodeRef}
+        // Stable hook for driving a real drag in e2e. dnd-kit needs a genuine
+        // pointer gesture, so there is no way to cover a drop without one.
+        data-testid={`kanban-card-${item.id}`}
+        data-column={item.columnKey}
         style={style}
         {...attributes}
         // In select mode the card is a checkbox toggle, NOT a draggable — omit
