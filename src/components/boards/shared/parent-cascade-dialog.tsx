@@ -40,10 +40,11 @@ export function ParentCascadeDialog({
   onClose: () => void;
   onConfirm: (parentId: string, targetColumnKey: string) => void;
 }) {
-  if (!cascade) return null;
-
+  // Mounted always, `open` toggled — see actual-date-dialog: base-ui's Root
+  // wants the false -> true transition, and mounting already-open renders nothing.
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={cascade != null} onOpenChange={(o) => !o && onClose()}>
+      {cascade && (
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Move the parent too?</DialogTitle>
@@ -69,6 +70,7 @@ export function ParentCascadeDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      )}
     </Dialog>
   );
 }

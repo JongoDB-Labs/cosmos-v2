@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.290.2",
+    date: "2026-08-13",
+    title: "Board move prompts now appear",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a board move recorded an actual start or finish date, the prompt offering to correct it never appeared \u2014 the move saved correctly, but the question was silently lost. It now opens as intended. If one move raises two questions \u2014 bringing a parent forward as well as confirming a date \u2014 they are asked one at a time rather than stacking on top of each other.",
+      },
+    ],
+  },
+  {
     version: "2.290.1",
     date: "2026-08-15",
     title: "Board dates you can trust, and correct",
