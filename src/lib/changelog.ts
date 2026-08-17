@@ -21,6 +21,28 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.290.4",
+    date: "2026-08-17",
+    title: "Internal test coverage",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "No user-visible change. Adds automated coverage for moving cards into the To Do column on both the Kanban and Sprint boards, including moves backwards out of In Progress, Review and Done, so a regression is caught before anyone runs into it.",
+      },
+    ],
+  },
+  {
+    version: "2.290.3",
+    date: "2026-08-17",
+    title: "Blocked Work and Work Type Mix were squashed into unreadable slivers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a desktop screen the two newest Sprint Health widgets rendered as tiny overlapping boxes in the bottom corner instead of full cards — the panels worked, but nobody could read them. They had never been given a position in the board's grid layout, so they were dropped into a default one-cell slot on top of each other. Both now sit in a full-width row of their own at every screen size.",
+      },
+    ],
+  },
+  {
     version: "2.290.2",
     date: "2026-08-13",
     title: "Board move prompts now appear",
