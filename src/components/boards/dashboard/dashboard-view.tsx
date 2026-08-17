@@ -65,6 +65,18 @@ const priorityColorMap: Record<string, string> = {
   LOW: "#6b7280",
 };
 
+/**
+ * Grid positions for the desktop layout.
+ *
+ * EVERY widget key must appear in EVERY breakpoint. react-grid-layout gives a
+ * child with no matching entry a default 1x1 cell at the origin, so the widget
+ * still renders — collapsed to an unreadable sliver, stacked under whatever else
+ * landed there. That is exactly how "Blocked Work" and "Work Type Mix" reached
+ * production looking broken: the component tests mock react-grid-layout and
+ * assert against the mobile stack, so nothing exercised this array at all.
+ *
+ * `dashboard-layout.test.ts` now fails if a widget is missing an entry.
+ */
 const DEFAULT_LAYOUTS = {
   lg: [
     { i: "metrics", x: 0, y: 0, w: 12, h: 3 },
@@ -73,6 +85,8 @@ const DEFAULT_LAYOUTS = {
     { i: "workload", x: 8, y: 3, w: 4, h: 7 },
     { i: "burndown", x: 0, y: 10, w: 6, h: 7 },
     { i: "activity", x: 6, y: 10, w: 6, h: 7 },
+    { i: "impediments", x: 0, y: 17, w: 6, h: 7 },
+    { i: "worktype", x: 6, y: 17, w: 6, h: 7 },
   ],
   md: [
     { i: "metrics", x: 0, y: 0, w: 10, h: 3 },
@@ -81,6 +95,8 @@ const DEFAULT_LAYOUTS = {
     { i: "workload", x: 0, y: 10, w: 5, h: 7 },
     { i: "burndown", x: 5, y: 10, w: 5, h: 7 },
     { i: "activity", x: 0, y: 17, w: 10, h: 7 },
+    { i: "impediments", x: 0, y: 24, w: 5, h: 7 },
+    { i: "worktype", x: 5, y: 24, w: 5, h: 7 },
   ],
   sm: [
     { i: "metrics", x: 0, y: 0, w: 6, h: 4 },
@@ -89,6 +105,8 @@ const DEFAULT_LAYOUTS = {
     { i: "workload", x: 0, y: 18, w: 6, h: 7 },
     { i: "burndown", x: 0, y: 25, w: 6, h: 7 },
     { i: "activity", x: 0, y: 32, w: 6, h: 7 },
+    { i: "impediments", x: 0, y: 39, w: 6, h: 7 },
+    { i: "worktype", x: 0, y: 46, w: 6, h: 7 },
   ],
 };
 
