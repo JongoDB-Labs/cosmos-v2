@@ -21,6 +21,45 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.291.0",
+    date: "2026-08-18",
+    title: "The timeline says ahead or behind, and says it once",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Plan drift on the Timeline now uses one colour scale: green means ahead of plan, red means behind it. Amber is gone \u2014 it used to mean \u201cstarted late\u201d while red meant \u201cfinished late\u201d, so the colour of a mark answered two different questions and could not be read at a glance. A mark is striped where it lies over the solid bar and a soft shadow where it sits beside it, so you can always tell the plan from the work that actually happened.",
+      },
+      {
+        kind: "improvement",
+        text: "Bars are now coloured by the kind of work rather than by individual type: purple for epics and features, blue for stories, tasks, sub-tasks and bugs, orange for milestones. Previously only five types had a colour and everything else fell through to green \u2014 the same green that means ahead of plan.",
+      },
+      {
+        kind: "feature",
+        text: "Milestones show their drift. A milestone is a date, not a span, so it drifts by moving: you see a faded diamond where it was planned, a solid one where it actually landed, and a line between them coloured by which way it went. Milestones that landed on their date show nothing extra.",
+      },
+      {
+        kind: "fix",
+        text: "The Blocked lens now outlines blocked work that has already started \u2014 which is most blocked work. It only ever outlined tickets that had not begun, so the highlight was missing exactly where it was needed and the only clue was that everything else dimmed.",
+      },
+      {
+        kind: "fix",
+        text: "Turning on several Timeline lenses at once no longer fades bars almost to nothing. Each lens used to multiply the last, so four together left work at well under one percent opacity \u2014 still on the chart, impossible to see.",
+      },
+      {
+        kind: "feature",
+        text: "Moving a ticket into In Progress or Done now asks about all four of its dates at once \u2014 planned start, planned end, actual start and actual end \u2014 instead of only the one the move happened to record. Moves into any other column no longer interrupt you at all.",
+      },
+      {
+        kind: "feature",
+        text: "A parent can no longer be marked Done while its children are still open. The move is refused and names the work that has to finish first, so a parent can never report itself complete over unfinished children. The old prompt offering to drag a parent forward when a child overtook it has been removed.",
+      },
+      {
+        kind: "improvement",
+        text: "New tickets now require a planned start and end date. Without them a ticket can never appear on the Timeline, and there is nothing for its actual dates to be measured against. Tickets created before this change keep their empty dates until you set them.",
+      },
+    ],
+  },
+  {
     version: "2.290.3",
     date: "2026-08-17",
     title: "Blocked Work and Work Type Mix were squashed into unreadable slivers",
