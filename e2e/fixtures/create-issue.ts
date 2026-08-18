@@ -49,6 +49,13 @@ export async function createIssueFromBoard(
   // wipe a half-typed title.
   await dialog.getByLabel("Title").fill(title);
 
+  // Planned start and end are REQUIRED — an item without them can never appear
+  // on the timeline, so the create form refuses to submit. Filled here, in the
+  // shared helper, so every spec that seeds an issue gets them for free rather
+  // than each one growing its own copy.
+  await dialog.getByLabel(/planned start/i).fill("2026-07-01");
+  await dialog.getByLabel(/planned end/i).fill("2026-07-15");
+
   const submit = dialog.getByRole("button", { name: "Create issue" });
   await expect(submit).toBeEnabled({ timeout: 10_000 });
   await submit.click();

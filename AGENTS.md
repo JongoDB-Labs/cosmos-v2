@@ -26,7 +26,7 @@ When several changes are in flight, pick the version against `origin/main` **at 
 
 # Before you push: check `e2e/`
 
-`tsc`, `eslint` and `vitest` never load `e2e/`, so a renamed or removed UI affordance breaks Playwright silently and CI fails 15+ minutes later. The specs locate elements by accessible name — button text, tab labels, placeholders, `aria-label`s, headings.
+`eslint` and `vitest` never load `e2e/`. `tsc` **does** typecheck it (`tsconfig.json` includes `**/*.ts` and excludes only `node_modules` and `plugins`) — verified by planting a type error there and watching it fail — but that buys you almost nothing here, because the specs locate elements by accessible NAME: button text, tab labels, placeholders, `aria-label`s, headings. Those are strings. Rename one and every type still checks out, Playwright breaks silently, and CI fails 15+ minutes later.
 
 For every label you rename or remove, `grep -rn "<old label>" e2e/`. If a *seeding* affordance goes away, replace it with a shared helper in `e2e/fixtures/` rather than patching each spec. Do this **before** implementing where you can: an existing spec's selector is a constraint on your design, not just a thing to fix afterwards.
 
