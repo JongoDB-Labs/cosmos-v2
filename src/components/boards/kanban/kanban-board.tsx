@@ -65,14 +65,10 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import {
-  ActualDateDialog,
-  type ActualDateCapture,
-} from "@/components/boards/shared/actual-date-dialog";
-import {
-  ParentCascadeDialog,
-  type ParentCascade,
-} from "@/components/boards/shared/parent-cascade-dialog";
-import { shouldOfferParentCascade, type Phase } from "@/lib/boards/parent-cascade";
+  MoveDatesDialog,
+  type MoveDatesPrompt,
+} from "@/components/boards/shared/move-dates-dialog";
+import { blockingChildren, describeBlockers } from "@/lib/boards/parent-done-guard";
 import type {
   Board,
   BoardColumn,
@@ -213,8 +209,8 @@ function KanbanBoardInner({
   // Set when a move causes the SERVER to stamp an actual start/end, so the user
   // can correct it. Detected from the PUT response rather than re-deriving the
   // rule client-side — the server owns which columns mean started/finished.
-  const [dateCapture, setDateCapture] = useState<ActualDateCapture | null>(null);
-  const [parentCascade, setParentCascade] = useState<ParentCascade | null>(null);
+  const [datePrompt, setDatePrompt] = useState<MoveDatesPrompt | null>(null);
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
   // Selection anchor for shift-click range selection: the last card the user
@@ -737,6 +733,33 @@ function KanbanBoardInner({
         toast.warning(`"${label}" is at its limit (${wipLimit})`);
       }
 
+      // A parent finishes when its children do. Letting one into a Done column
+      // over open children makes every rollup lie — the board says finished, the
+      // children say otherwise, and the timeline stamps a completion on a span
+      // that has not closed. This BLOCKS, unlike the old "move the parent too?"
+      // prompt, which pushed the opposite way and asked on every ordinary move.
+      //
+      // Children come from the item's own relation, not from the board's visible
+      // list: a filter that hides a child must not quietly unlock the parent.
+      if (isEnteringNewColumn && targetColumn?.category === "DONE") {
+        const kids = (movedItem.children ?? []).map((c) => ({
+          id: c.id,
+          title: c.title,
+          columnKey: c.columnKey ?? null,
+        }));
+        const settled = (cat: string) =>
+          new Set(columns.filter((c) => c.category === cat).map((c) => c.key));
+        const blockers = blockingChildren(kids, settled("DONE"), settled("CANCELLED"));
+        if (blockers.length > 0) {
+          applyItems(beforeDragItemsRef.current);
+          notifyError(
+            new Error("children-open"),
+            `Finish ${describeBlockers(blockers)} first — "${movedItem.title}" still has open children.`,
+          );
+          return;
+        }
+      }
+
       // Build the target column's new order (moved card inserted at newOrder)
       // and re-sequence EVERY card in it to a unique 0..n sortOrder. The server
       // stores sortOrder verbatim (no sibling shift), so assigning the moved
@@ -809,55 +832,27 @@ function KanbanBoardInner({
           // item against the pre-drag snapshot: a field that was empty and now
           // holds a value was auto-captured, and "now" is only right if the board
           // is being updated the same day the work happened.
-          // A child that has overtaken its parent leaves the parent misreporting
-          // the state of the work. Nothing blocks the move (and nothing should),
-          // so offer to bring the parent along rather than enforce an order.
-          const childItem = beforeDragItemsRef.current.find((i) => i.id === activeId);
-          if (childItem?.parentId) {
-            const parent = beforeDragItemsRef.current.find((i) => i.id === childItem.parentId);
-            const childCat = columns.find((c) => c.key === targetColumnKey)?.category;
-            const parentCat = columns.find((c) => c.key === parent?.columnKey)?.category;
-            if (
-              parent &&
-              childCat &&
-              parentCat &&
-              shouldOfferParentCascade({
-                childCategory: childCat as Phase,
-                parentCategory: parentCat as Phase,
-              })
-            ) {
-              setParentCascade({
-                parentId: parent.id,
-                parentTitle: parent.title,
-                parentColumnName:
-                  columns.find((c) => c.key === parent.columnKey)?.name ?? parent.columnKey,
-                childTitle: childItem.title,
-                targetColumnKey,
-                targetColumnName:
-                  columns.find((c) => c.key === targetColumnKey)?.name ?? targetColumnKey,
-              });
-            }
-          }
-
           const moved = await results[0].json().catch(() => null);
           const savedItem = (moved?.data ?? moved) as WorkItem | null;
-          const before = beforeDragItemsRef.current.find((i) => i.id === activeId);
-          if (savedItem && before) {
-            const field = !before.actualStart && savedItem.actualStart
-              ? ("actualStart" as const)
-              : !before.completedAt && savedItem.completedAt
-                ? ("completedAt" as const)
-                : null;
-            if (field) {
-              setDateCapture({
-                itemId: activeId,
-                itemTitle: savedItem.title,
-                field,
-                capturedIso: String(savedItem[field]),
-                columnName:
-                  columns.find((c) => c.key === targetColumnKey)?.name ?? targetColumnKey,
-              });
-            }
+          // Ask about dates whenever a move STARTS or FINISHES work, and never
+          // otherwise. Shuffling within the backlog says nothing about when
+          // anything happened, so a prompt there is pure friction; those two
+          // moves are the only ones that stamp an actual.
+          const targetCat = columns.find((c) => c.key === targetColumnKey)?.category;
+          if (savedItem && (targetCat === "IN_PROGRESS" || targetCat === "DONE")) {
+            setDatePrompt({
+              itemId: activeId,
+              itemTitle: savedItem.title,
+              columnName:
+                columns.find((c) => c.key === targetColumnKey)?.name ?? targetColumnKey,
+              phase: targetCat === "DONE" ? "finished" : "started",
+              current: {
+                startDate: savedItem.startDate ?? null,
+                dueDate: savedItem.dueDate ?? null,
+                actualStart: savedItem.actualStart ?? null,
+                completedAt: savedItem.completedAt ?? null,
+              },
+            });
           }
         } catch (err) {
           console.error("Failed to update work item position:", err);
@@ -1260,51 +1255,25 @@ function KanbanBoardInner({
         </DragOverlay>
       </DndContext>
 
-      <ParentCascadeDialog
-        cascade={parentCascade}
-        onClose={() => setParentCascade(null)}
-        onConfirm={(parentId, columnKey) => {
-          applyItems((prev) =>
-            prev.map((i) => (i.id === parentId ? { ...i, columnKey } : i)),
-          );
-          void (async () => {
-            try {
-              const res = await fetch(`${basePath}/work-items/${parentId}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ columnKey }),
-              });
-              if (!res.ok) throw new Error("Failed to move the parent");
-            } catch (err) {
-              notifyError(err, "Couldn't move the parent — it's been left where it was.");
-            }
-          })();
-        }}
-      />
-
-      <ActualDateDialog
-        // QUEUED behind the cascade prompt: one move can trigger both, and two
-        // stacked modals leave the second invisible until the first is dismissed
-        // — it looked like the date prompt had been lost. Ask one question at a
-        // time, parent first.
-        capture={parentCascade ? null : dateCapture}
-        onClose={() => setDateCapture(null)}
-        onConfirm={(itemId, field, iso) => {
+      <MoveDatesDialog
+        prompt={datePrompt}
+        onClose={() => setDatePrompt(null)}
+        onConfirm={(itemId, changes) => {
           // Optimistic: the board already shows the card in its new column, and
-          // the date it displays comes from this field.
+          // the dates it displays come from these fields.
           applyItems((prev) =>
-            prev.map((i) => (i.id === itemId ? { ...i, [field]: iso } : i)),
+            prev.map((i) => (i.id === itemId ? { ...i, ...changes } : i)),
           );
           void (async () => {
             try {
               const res = await fetch(`${basePath}/work-items/${itemId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ [field]: iso }),
+                body: JSON.stringify(changes),
               });
-              if (!res.ok) throw new Error("Failed to set the actual date");
+              if (!res.ok) throw new Error("Failed to save the dates");
             } catch (err) {
-              notifyError(err, "Couldn't update the date — the card kept today's.");
+              notifyError(err, "Couldn't save the dates — the card kept what it had.");
             }
           })();
         }}

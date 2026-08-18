@@ -1,156 +1,165 @@
 import { describe, it, expect } from "vitest";
-import { planDriftPhantoms, type DriftPhantom } from "./plan-drift";
+import { planDriftPhantoms, type DriftMark } from "./plan-drift";
 
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
-/** Compact shape for assertions: colour + the span it covers. */
-function shape(p: DriftPhantom) {
-  return [p.color, p.from.toISOString().slice(0, 10), p.to.toISOString().slice(0, 10)];
+/** Compact shape for assertions: colour + style + edge + the span it covers. */
+function shape(m: DriftMark) {
+  return [m.color, m.style, m.edge, m.from.toISOString().slice(0, 10), m.to.toISOString().slice(0, 10)];
 }
 
-describe("planDriftPhantoms", () => {
-  it("draws nothing without an actual start — the plan IS the bar then", () => {
-    expect(
-      planDriftPhantoms({
-        plannedStart: d("2026-03-01"),
-        plannedEnd: d("2026-03-10"),
-        actualStart: null,
-        actualEnd: null,
-      }),
-    ).toEqual([]);
+const PLAN = { plannedStart: d("2026-03-10"), plannedEnd: d("2026-03-20") };
+
+describe("planDriftPhantoms — colour is ahead-vs-behind", () => {
+  it("a start AHEAD of plan is GREEN", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-05"), actualEnd: d("2026-03-20") });
+    expect(out.map((m) => m.color)).toEqual(["green"]);
   });
 
-  it("a late start is AMBER and covers planned start -> actual start", () => {
-    // Sits to the LEFT of the block: the block begins at the actual start.
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-20"),
-      actualStart: d("2026-03-05"),
-      actualEnd: d("2026-03-18"),
-    });
-    expect(out.map(shape)).toEqual([["amber", "2026-03-01", "2026-03-05"]]);
+  it("a start BEHIND plan is RED", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-15"), actualEnd: d("2026-03-20") });
+    expect(out.map((m) => m.color)).toEqual(["red"]);
   });
 
-  it("an early start is GREEN and covers actual start -> planned start", () => {
-    // Same phantom, flipped: it sits to the RIGHT of the block's left edge.
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-05"),
-      plannedEnd: d("2026-03-20"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-18"),
-    });
-    expect(out.map(shape)).toEqual([["green", "2026-03-01", "2026-03-05"]]);
+  it("an end AHEAD of plan is GREEN", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-15") });
+    expect(out.map((m) => m.color)).toEqual(["green"]);
   });
 
-  it("starting exactly on plan draws no start phantom, not a zero-width one", () => {
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-20"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-10"),
-    });
+  it("an end BEHIND plan is RED", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-25") });
+    expect(out.map((m) => m.color)).toEqual(["red"]);
+  });
+});
+
+describe("planDriftPhantoms — style is overlay-vs-bare-canvas", () => {
+  // The bar spans the ACTUALS, so which side of it a mark lands on is decided
+  // entirely by the sign. Striped means it covers real work.
+  it("an early start STRIPES, because it lies over the bar's head", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-05"), actualEnd: d("2026-03-20") });
+    expect(out.map(shape)).toEqual([["green", "striped", "start", "2026-03-05", "2026-03-10"]]);
+  });
+
+  it("a late start is a PHANTOM, because the bar has not begun yet", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-15"), actualEnd: d("2026-03-20") });
+    expect(out.map(shape)).toEqual([["red", "phantom", "start", "2026-03-10", "2026-03-15"]]);
+  });
+
+  it("an early finish is a PHANTOM, because the bar already stopped", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-15") });
+    expect(out.map(shape)).toEqual([["green", "phantom", "end", "2026-03-15", "2026-03-20"]]);
+  });
+
+  it("a late finish STRIPES, because it lies over the bar's tail", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-25") });
+    expect(out.map(shape)).toEqual([["red", "striped", "end", "2026-03-20", "2026-03-25"]]);
+  });
+});
+
+describe("planDriftPhantoms — nothing to say", () => {
+  it("draws nothing at all without any actuals", () => {
+    expect(planDriftPhantoms({ ...PLAN, actualStart: null, actualEnd: null })).toEqual([]);
+  });
+
+  it("starting exactly on plan draws no start mark, not a zero-width sliver", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-20") });
     expect(out).toEqual([]);
   });
 
-  it("a slipped end is RED and covers planned end -> actual end only", () => {
-    // The whole point: red marks the SLIP, not the entire planned span.
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-10"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-14"),
-    });
-    expect(out.map(shape)).toEqual([["red", "2026-03-10", "2026-03-14"]]);
+  it("finishing exactly on plan draws no end mark", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-05"), actualEnd: d("2026-03-20") });
+    expect(out.filter((m) => m.edge === "end")).toEqual([]);
   });
 
-  it("finishing early draws NO end phantom", () => {
+  it("invents nothing when the plan has no start", () => {
     const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-20"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-12"),
+      plannedStart: null, plannedEnd: d("2026-03-20"),
+      actualStart: d("2026-03-05"), actualEnd: d("2026-03-25"),
     });
-    expect(out).toEqual([]);
+    expect(out.map((m) => m.edge)).toEqual(["end"]);
   });
 
-  it("finishing exactly on plan draws no end phantom", () => {
+  it("invents nothing when the plan has no end", () => {
     const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-10"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-10"),
+      plannedStart: d("2026-03-10"), plannedEnd: null,
+      actualStart: d("2026-03-05"), actualEnd: d("2026-03-25"),
     });
-    expect(out).toEqual([]);
+    expect(out.map((m) => m.edge)).toEqual(["start"]);
   });
 
-  it("started late AND slipped shows both, with RED LAST so it paints on top", () => {
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-10"),
-      actualStart: d("2026-03-04"),
-      actualEnd: d("2026-03-15"),
-    });
-    expect(out.map(shape)).toEqual([
-      ["amber", "2026-03-01", "2026-03-04"],
-      ["red", "2026-03-10", "2026-03-15"],
-    ]);
-    expect(out[out.length - 1].color).toBe("red");
-  });
-
-  it("started early AND slipped shows green then red, red last", () => {
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-05"),
-      plannedEnd: d("2026-03-10"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-16"),
-    });
-    expect(out.map(shape)).toEqual([
-      ["green", "2026-03-01", "2026-03-05"],
-      ["red", "2026-03-10", "2026-03-16"],
-    ]);
-    expect(out[out.length - 1].color).toBe("red");
-  });
-
-  it("never emits a phantom whose end precedes its start", () => {
-    const cases: Parameters<typeof planDriftPhantoms>[0][] = [
-      { plannedStart: d("2026-03-01"), plannedEnd: d("2026-03-10"), actualStart: d("2026-03-09"), actualEnd: d("2026-03-20") },
-      { plannedStart: d("2026-03-09"), plannedEnd: d("2026-03-10"), actualStart: d("2026-03-01"), actualEnd: d("2026-03-02") },
+  it("never emits a mark whose end precedes its start", () => {
+    const cases: Array<[string, string]> = [
+      ["2026-03-05", "2026-03-25"], ["2026-03-15", "2026-03-15"], ["2026-03-10", "2026-03-12"],
     ];
-    for (const c of cases) {
-      for (const p of planDriftPhantoms(c)) {
-        expect(p.to.getTime()).toBeGreaterThan(p.from.getTime());
+    for (const [as, ae] of cases) {
+      for (const m of planDriftPhantoms({ ...PLAN, actualStart: d(as), actualEnd: d(ae) })) {
+        expect(m.to.getTime()).toBeGreaterThan(m.from.getTime());
       }
     }
   });
+});
 
-  it("a running item slips against today, not only on completion", () => {
-    // actualEnd is `completedAt ?? today` at the call site, so an overdue item
-    // in flight still shows its slip growing.
-    const out = planDriftPhantoms({
-      plannedStart: d("2026-03-01"),
-      plannedEnd: d("2026-03-10"),
-      actualStart: d("2026-03-01"),
-      actualEnd: d("2026-03-13"), // "today"
-    });
-    expect(out.map(shape)).toEqual([["red", "2026-03-10", "2026-03-13"]]);
+describe("planDriftPhantoms — both ends at once, and paint order", () => {
+  it("early start AND late finish: green stripe then red stripe, red last", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-05"), actualEnd: d("2026-03-25") });
+    expect(out.map(shape)).toEqual([
+      ["green", "striped", "start", "2026-03-05", "2026-03-10"],
+      ["red", "striped", "end", "2026-03-20", "2026-03-25"],
+    ]);
   });
 
-  it("tolerates a missing planned start or end without inventing a phantom", () => {
-    expect(
-      planDriftPhantoms({
-        plannedStart: null,
-        plannedEnd: d("2026-03-10"),
-        actualStart: d("2026-03-04"),
-        actualEnd: d("2026-03-08"),
-      }),
-    ).toEqual([]);
-    expect(
-      planDriftPhantoms({
-        plannedStart: d("2026-03-01"),
-        plannedEnd: null,
-        actualStart: d("2026-03-01"),
-        actualEnd: d("2026-03-20"),
-      }),
-    ).toEqual([]);
+  it("late start AND early finish: both phantoms, red last", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-12"), actualEnd: d("2026-03-18") });
+    expect(out.map(shape)).toEqual([
+      ["green", "phantom", "end", "2026-03-18", "2026-03-20"],
+      ["red", "phantom", "start", "2026-03-10", "2026-03-12"],
+    ]);
+  });
+
+  it("PHANTOMS always precede STRIPES — they belong behind the bar", () => {
+    // Late start (phantom) + late finish (stripe).
+    const out = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-15"), actualEnd: d("2026-03-25") });
+    expect(out.map((m) => m.style)).toEqual(["phantom", "striped"]);
+  });
+});
+
+describe("planDriftPhantoms — a finish with no recorded start", () => {
+  // Imported work, and tickets whose actual_start was cleared in bulk. The slip
+  // is real; gating the whole function on actualStart used to hide it.
+  it("still draws the end mark — as a shadow, since the bar sits on the plan", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: null, actualEnd: d("2026-03-25") });
+    expect(out.map(shape)).toEqual([["red", "phantom", "end", "2026-03-20", "2026-03-25"]]);
+  });
+
+  it("draws no START mark, because there is no date to draw to", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: null, actualEnd: d("2026-03-25") });
+    expect(out.every((m) => m.edge === "end")).toBe(true);
+  });
+
+  it("a known finish that beat the plan is GREEN, striped over the planned bar", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: null, actualEnd: d("2026-03-16") });
+    expect(out.map(shape)).toEqual([["green", "striped", "end", "2026-03-16", "2026-03-20"]]);
+  });
+});
+
+// A ticket with a known finish and no recorded start draws its bar on the
+// PLANNED dates, so "which side of the bar" inverts: the slip lands beyond it
+// and the early finish lands inside it.
+describe("planDriftPhantoms — style follows the BAR, not the edge", () => {
+  it("a slip with no recorded start is a SHADOW, not stripes on bare canvas", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: null, actualEnd: d("2026-03-25") });
+    expect(out.map(shape)).toEqual([["red", "phantom", "end", "2026-03-20", "2026-03-25"]]);
+  });
+
+  it("an early finish with no recorded start STRIPES — it lies over the planned bar", () => {
+    const out = planDriftPhantoms({ ...PLAN, actualStart: null, actualEnd: d("2026-03-16") });
+    expect(out.map(shape)).toEqual([["green", "striped", "end", "2026-03-16", "2026-03-20"]]);
+  });
+
+  it("with actuals present the same two cases swap style", () => {
+    const late = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-25") });
+    const early = planDriftPhantoms({ ...PLAN, actualStart: d("2026-03-10"), actualEnd: d("2026-03-16") });
+    expect(late.map((m) => m.style)).toEqual(["striped"]);
+    expect(early.map((m) => m.style)).toEqual(["phantom"]);
   });
 });

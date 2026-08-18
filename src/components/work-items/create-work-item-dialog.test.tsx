@@ -76,6 +76,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+
+/** Planned start + end are required to create, so every submit path fills them.
+ *  Kept as one helper rather than inline at each call site: the requirement is a
+ *  property of the FORM, not of any individual test. */
+async function fillPlannedDates(user: ReturnType<typeof userEvent.setup>) {
+  await user.clear(screen.getByLabelText(/planned start/i));
+  await user.type(screen.getByLabelText(/planned start/i), "2026-07-01");
+  await user.clear(screen.getByLabelText(/planned end/i));
+  await user.type(screen.getByLabelText(/planned end/i), "2026-07-15");
+}
+
 describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)", () => {
   beforeEach(() => {
     vi.mocked(useCustomFields).mockReturnValue({ fields: [] } as never);
@@ -109,8 +120,11 @@ describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)
 
     await screen.findByRole("dialog");
     await user.type(screen.getByLabelText("Title"), "  Event day setup  ");
+    await fillPlannedDates(user);
 
-    // Regression: the button must NOT be gated on a resolved type.
+    // Regression: the button must NOT be gated on a resolved TYPE. Title,
+    // project and the planned dates DO gate it — that is the deliberate
+    // contract, and all of them are satisfied above.
     const createBtn = screen.getByRole("button", { name: "Create issue" });
     expect(createBtn).not.toBeDisabled();
 
@@ -153,6 +167,7 @@ describe("CreateWorkItemDialog — New issue button creates the item (COSMOS-86)
 
     await screen.findByRole("dialog");
     await user.type(screen.getByLabelText("Title"), "User story: sign-in");
+    await fillPlannedDates(user);
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -210,6 +225,7 @@ describe("CreateWorkItemDialog — interval is settable at creation (COSMOS-64)"
     const intervalSelect = await screen.findByLabelText("Interval");
     await user.type(screen.getByLabelText("Title"), "Scoped to a sprint");
     await user.selectOptions(intervalSelect, "c2");
+    await fillPlannedDates(user);
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -232,6 +248,7 @@ describe("CreateWorkItemDialog — interval is settable at creation (COSMOS-64)"
     await screen.findByRole("dialog");
     await screen.findByLabelText("Interval"); // picker present but left untouched
     await user.type(screen.getByLabelText("Title"), "No sprint yet");
+    await fillPlannedDates(user);
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -252,6 +269,7 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     assignees: [{ userId: "u1" }],
     intervalId: null,
     storyPoints: 5,
+    startDate: "2026-07-20T00:00:00.000Z",
     dueDate: "2026-08-01T00:00:00.000Z",
     tags: ["security", "review"],
     customFields: null,
@@ -313,6 +331,9 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     await user.clear(title);
     await user.type(title, "Review vendor B codebase");
 
+    // Deliberately NOT calling fillPlannedDates: the draft arrives pre-filled
+    // from the source, and overwriting its dates would destroy the carry-over
+    // this test exists to prove.
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -325,6 +346,9 @@ describe("CreateWorkItemDialog — Duplicate issue draft (COSMOS-13)", () => {
     expect(body.tags).toEqual(["security", "review"]);
     expect(body.assigneeIds).toEqual(["u1"]);
     expect(body.storyPoints).toBe(5);
+    // BOTH planned dates carry over. Without a start the draft would not even
+    // be submittable now, so this also pins that the duplicate arrives complete.
+    expect(String(body.startDate)).toContain("2026-07-20");
     expect(String(body.dueDate)).toContain("2026-08-01");
     // AC: instance-specific data is never part of the create payload.
     expect(body).not.toHaveProperty("comments");
@@ -400,6 +424,7 @@ describe("CreateWorkItemDialog — Status picker", () => {
 
     await user.type(screen.getByLabelText("Title"), "Wire the importer");
     await user.selectOptions(status, "doing");
+    await fillPlannedDates(user);
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -435,6 +460,7 @@ describe("CreateWorkItemDialog — Status picker", () => {
 
     await screen.findByRole("dialog");
     await user.type(screen.getByLabelText("Title"), "Created anyway");
+    await fillPlannedDates(user);
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -449,6 +475,7 @@ describe("CreateWorkItemDialog — Status picker", () => {
     await waitFor(() => expect((labels as HTMLInputElement).value).toBe("risk"));
 
     await user.type(screen.getByLabelText("Title"), "A new risk");
+    await fillPlannedDates(user);
     await user.click(screen.getByRole("button", { name: "Create issue" }));
 
     await waitFor(() => expect(postBody()).not.toBeNull());
@@ -498,6 +525,7 @@ describe("CreateWorkItemDialog — a late-arriving project list must not wipe th
 
     await screen.findByRole("dialog");
     await user.type(screen.getByLabelText("Title"), "Half-typed title");
+    await fillPlannedDates(user);
 
     rerender(
       <CreateWorkItemDialog
@@ -515,6 +543,36 @@ describe("CreateWorkItemDialog — a late-arriving project list must not wipe th
       "Half-typed title",
     );
     expect(screen.getByRole("button", { name: "Create issue" })).not.toBeDisabled();
+  });
+
+  // Planned start and end are REQUIRED. Without them an item can never be placed
+  // on the timeline, and the plan is what every drift mark is measured against.
+  it("refuses to create until BOTH planned dates are set", async () => {
+    const user = userEvent.setup();
+    render(
+      <CreateWorkItemDialog
+        orgId="o1"
+        open
+        onOpenChange={vi.fn()}
+        projects={[{ id: "p1", key: "ENG", name: "Engineering" }]}
+        prefilledProjectId="p1"
+      />,
+    );
+    await screen.findByRole("dialog");
+    const create = () => screen.getByRole("button", { name: "Create issue" });
+
+    await user.type(screen.getByLabelText("Title"), "Needs dates");
+    // A title and a project used to be enough.
+    expect(create()).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/planned start/i), "2026-07-01");
+    // One date is still not enough — a span needs both ends.
+    expect(create()).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/planned end/i), "2026-07-15");
+    // Positive control: the same probe SEES the button enabled once both land,
+    // so the two assertions above are about the dates and nothing else.
+    expect(create()).not.toBeDisabled();
   });
 
   it("still resets the form on a genuine reopen", async () => {

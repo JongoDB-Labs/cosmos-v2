@@ -82,41 +82,39 @@ test("a plain card moves Backlog -> To Do and STAYS there", async ({ page, signI
   );
 });
 
-test("a child moved to In Progress prompts for the actual date AND the parent", async ({
+test("moving a child to In Progress offers ALL of its dates, and nothing else", async ({
   page,
   signInAs,
 }) => {
   test.setTimeout(120_000);
-  page.on("console", (m) => {
-    if (m.text().includes("DRIFTDBG")) console.log(m.text());
-  });
   await signInAs("alice@test.local");
   await openBoard(page);
 
   await dragCardTo(page, CHILD, "in-progress");
 
   // In Progress is IN_PROGRESS, so the server stamps an actual start and the
-  // board offers to correct it. This is the drop-handler -> dialog seam.
-  // BOTH fire for this move: the child overtook its parent AND the server
-  // stamped an actual start. Assert each rather than "one of them" — that is
-  // the whole seam.
-  await expect(page.getByRole("heading", { name: /move the parent too\?/i })).toBeVisible({
-    timeout: 15_000,
-  });
-  await page.screenshot({ path: "/tmp/kanban-cascade-dialog.png" });
+  // board opens the date prompt. This is the drop-handler -> dialog seam.
+  await expect(
+    page.getByRole("heading", { name: /check the dates for this work/i }),
+  ).toBeVisible({ timeout: 15_000 });
 
-  // Bring the parent along, which closes the cascade prompt and reveals the
-  // date prompt behind it.
-  await page.getByRole("button", { name: /move parent to in progress/i }).click();
-  await expect(page.getByRole("heading", { name: /when did this work start\?/i })).toBeVisible({
-    timeout: 15_000,
-  });
+  // All four, not just the one the server happened to stamp: the plan and the
+  // actuals are read together on the timeline, so they are edited together here.
+  for (const label of [/planned start/i, /planned end/i, /actual start/i, /actual end/i]) {
+    await expect(page.getByLabel(label)).toBeVisible();
+  }
+
+  // Nothing asks about the parent any more — a child is free to overtake it, and
+  // the safeguard that replaced that prompt runs the other way (see below).
+  await expect(page.getByRole("heading", { name: /move the parent too\?/i })).toBeHidden();
   await page.screenshot({ path: "/tmp/kanban-date-dialog.png" });
 
-  // Correcting the date must persist, not just close the dialog.
-  await page.getByLabel(/actual start date/i).fill("2026-07-31");
-  await page.getByRole("button", { name: /set start date/i }).click();
-  await expect(page.getByRole("heading", { name: /when did this work start\?/i })).toBeHidden();
+  // Correcting a date must persist, not just close the dialog.
+  await page.getByLabel(/actual start/i).fill("2026-07-31");
+  await page.getByRole("button", { name: /save dates/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /check the dates for this work/i }),
+  ).toBeHidden();
 });
 
 test("a CHILD moves Backlog -> To Do even though its parent stays behind", async ({
@@ -137,9 +135,10 @@ test("a CHILD moves Backlog -> To Do even though its parent stays behind", async
     "todo",
     { timeout: 15_000 },
   );
-  // To Do is a TODO column, so nothing should have been stamped and no dialog
-  // should interrupt.
-  await expect(page.getByRole("heading", { name: /when did this work start\?/i })).toBeHidden();
+  // To Do is a TODO column: nothing is stamped, so no date prompt may interrupt.
+  // A prompt on every move is pure friction — only starting and finishing work
+  // says anything about when it happened.
+  await expect(page.getByRole("heading", { name: /check the dates/i })).toBeHidden();
   await expect(page.getByRole("heading", { name: /move the parent too\?/i })).toBeHidden();
 
   await page.reload({ waitUntil: "domcontentloaded" });
