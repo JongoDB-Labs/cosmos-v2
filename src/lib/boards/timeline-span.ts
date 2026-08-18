@@ -67,19 +67,32 @@ export function solidSpan(item: TimelineSpanItem, today: Date): Span {
 }
 
 /**
- * Everything the row paints — the union of the plan and the actuals. This is
- * what the axis must span.
+ * Everything the row paints. This is what the axis must span.
  *
- * The union covers every drift phantom for free: amber runs planned start ->
- * actual start and green runs actual start -> planned start, so both sit
- * between the two starts; red ends at the actual end. Nothing a row draws falls
- * outside `[min(starts), max(ends)]`.
+ * The union is taken over EVERY real date, not just the two spans, because a
+ * recorded date can fall outside both of them. `solidSpan` reports the PLANNED
+ * span for an item with a completion and no recorded start — correct, because
+ * that is where its bar is drawn — but the drift mark still reaches the real
+ * completion, and a milestone's solid diamond sits on it.
+ *
+ * That gap is what made milestones look as though they only drifted LATE: a
+ * milestone carries a completion and usually no actual start, so one pulled IN
+ * landed left of the axis origin and was clipped away by the <svg>, while a
+ * slipped one was quietly absorbed by the axis padding. Both directions now
+ * survive on their own merits rather than by luck.
  */
 export function paintedSpan(item: TimelineSpanItem, today: Date): Span {
   const planned = plannedSpan(item);
   const solid = solidSpan(item, today);
-  return {
-    start: planned.start < solid.start ? planned.start : solid.start,
-    end: planned.end > solid.end ? planned.end : solid.end,
-  };
+  const dates: Date[] = [planned.start, planned.end, solid.start, solid.end];
+  if (item.actualStart) dates.push(asDate(item.actualStart));
+  if (item.completedAt) dates.push(asDate(item.completedAt));
+
+  let start = dates[0];
+  let end = dates[0];
+  for (const d of dates) {
+    if (d < start) start = d;
+    if (d > end) end = d;
+  }
+  return { start, end };
 }

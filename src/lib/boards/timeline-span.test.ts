@@ -85,3 +85,42 @@ describe("paintedSpan", () => {
     expect(iso(s.end)).toBe("2026-02-01");
   });
 });
+
+// A milestone carries a completion and usually NO actual start, and it can land
+// EITHER side of its planned date. The axis has to reach a finish that beat the
+// plan, or the diamond is laid out left of the origin and clipped away — which
+// looked like "milestones only show drift when they are late".
+describe("paintedSpan — a recorded finish with no recorded start", () => {
+  const noStart: TimelineSpanItem = {
+    startDate: "2026-02-10T00:00:00Z",
+    dueDate: "2026-02-10T00:00:00Z",
+    actualStart: null,
+    completedAt: null,
+    createdAt: "2026-01-01T00:00:00Z",
+  };
+
+  it("reaches back to a completion EARLIER than the plan", () => {
+    const s = paintedSpan({ ...noStart, completedAt: "2026-02-03" }, TODAY);
+    expect(iso(s.start)).toBe("2026-02-03");
+  });
+
+  it("reaches forward to a completion LATER than the plan", () => {
+    const s = paintedSpan({ ...noStart, completedAt: "2026-02-17" }, TODAY);
+    expect(iso(s.end)).toBe("2026-02-17");
+  });
+
+  it("covers a completion outside the plan for a SPAN too, not just a point", () => {
+    const s = paintedSpan(
+      { ...noStart, dueDate: "2026-02-20T00:00:00Z", completedAt: "2026-02-01" },
+      TODAY,
+    );
+    expect(iso(s.start)).toBe("2026-02-01");
+    expect(iso(s.end)).toBe("2026-02-20");
+  });
+
+  it("still leaves an untouched item on its plan alone", () => {
+    const s = paintedSpan(noStart, TODAY);
+    expect(iso(s.start)).toBe("2026-02-10");
+    expect(iso(s.end)).toBe("2026-02-10");
+  });
+});
