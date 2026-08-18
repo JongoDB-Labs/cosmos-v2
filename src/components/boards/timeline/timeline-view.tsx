@@ -2287,7 +2287,8 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           fill={colors.fill}
                           stroke="none"
                           opacity={PHANTOM_OPACITY * lensDim}
-                          style={{ pointerEvents: "none" }}
+                          onClick={(e) => onBarClick(item, e)}
+                          className="cursor-pointer"
                           data-testid={`gantt-milestone-planned-${item.id}`}
                         />
                         <line
@@ -2300,6 +2301,24 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           opacity={lensDim}
                           style={{ pointerEvents: "none" }}
                           data-testid={`gantt-milestone-drift-${driftDir}-${item.id}`}
+                        />
+                        {/* An invisible, much thicker copy carrying the pointer.
+                            The visible connector is 2px, which is a miserable
+                            hover target; widening the MARK to fix that would
+                            shout far louder than a milestone that moved three
+                            days deserves. So the hit area is widened instead and
+                            the drawing left alone. */}
+                        <line
+                          x1={cx}
+                          y1={cy}
+                          x2={solidCx}
+                          y2={cy}
+                          stroke="transparent"
+                          strokeWidth={h}
+                          onClick={(e) => onBarClick(item, e)}
+                          onDoubleClick={() => setDetailId(item.id)}
+                          className="cursor-pointer"
+                          data-testid={`gantt-milestone-drift-hit-${item.id}`}
                         />
                       </>
                     )}
@@ -2417,7 +2436,15 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           fill={DRIFT_COLOR[ph.color]}
                           stroke="none"
                           opacity={PHANTOM_OPACITY * lensDim}
-                          style={{ pointerEvents: "none" }}
+                          // HOVERABLE, unlike the striped marks. A shadow is the
+                          // only part of a row that sits on bare canvas, so it is
+                          // the only part the pointer can reach without passing
+                          // through the bar — and it is exactly the part a user
+                          // points at to ask "how far off was this?". It cannot
+                          // steal the bar's clicks because it never overlaps it.
+                          onClick={(e) => onBarClick(item, e)}
+                          onDoubleClick={() => setDetailId(item.id)}
+                          className="cursor-pointer"
                         />
                       ))}
                   {/* Actual bar — the SOLID primary (real dates). Click opens the
@@ -2639,6 +2666,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           {/* Hover tooltip */}
           {hoveredItem && (
             <div
+              data-testid="gantt-hover-card"
               className="fixed z-50 rounded-lg bg-popover border shadow-lg p-3 pointer-events-none max-w-xs"
               style={{
                 left: tooltipPos.x + 12,

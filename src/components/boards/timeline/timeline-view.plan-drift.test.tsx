@@ -566,3 +566,94 @@ describe("TimelineView — lens dimming does not compound", () => {
     expect(dimmed).not.toBeCloseTo(base * 0.35 * 0.4, 5);
   });
 });
+
+// With the lens on, the plan is part of the thing you are pointing at. A shadow
+// sits on bare canvas BESIDE the bar, so the pointer reaches it without passing
+// through the bar — and it is exactly the part a user aims at to ask "how far
+// off was this?". It used to be inert, so hovering it showed nothing.
+describe("TimelineView — the shadow is part of the bar's hit area", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  // NOTE on what each assertion buys: jsdom does no hit-testing, so a dispatched
+  // mouseOver fires even on a `pointer-events: none` element. The event proves the
+  // handler is WIRED; the pointer-events assertion proves the pointer can reach
+  // it at all. A test with only the former passes on a mark nobody can hover —
+  // confirmed by mutation.
+  it("hovering a bare-canvas shadow opens the same overlay as the bar", async () => {
+    await renderWithPlanDrift();
+    const shadow = await screen.findByTestId("gantt-drift-red-start-behind");
+    // Scoped to the overlay, NOT to the text: the row-label column renders
+    // "FSC-901" too, so a bare text probe passes before anything is hovered.
+    expect(screen.queryByTestId("gantt-hover-card")).toBeNull();
+
+    fireEvent.mouseOver(shadow);
+    const card = screen.getByTestId("gantt-hover-card");
+    expect(card).toHaveTextContent("FSC-901");
+  });
+
+  it("hovering the solid bar opens it too — the shadow did not steal the bar", async () => {
+    await renderWithPlanDrift();
+    const bar = await screen.findByTestId("gantt-bar-behind");
+    fireEvent.mouseOver(bar);
+    expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-901");
+  });
+
+  it("shadows take the pointer; STRIPES do not", async () => {
+    await renderWithPlanDrift();
+    const shadow = await screen.findByTestId("gantt-drift-red-start-behind");
+    const stripe = screen.getByTestId("gantt-drift-red-end-behind");
+    // The stripe lies ON the bar, which already handles hover AND click. Letting
+    // it take the pointer would swallow the click that opens the ticket.
+    expect(shadow.style.pointerEvents).not.toBe("none");
+    expect(stripe.style.pointerEvents).toBe("none");
+  });
+});
+
+describe("TimelineView — a milestone's drift is hoverable too", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const MOVED = [
+    { ...item(1, "2026-01-20", "2026-01-20"), id: "moved", ticketNumber: 960, actualStart: null, completedAt: "2026-01-27" },
+  ];
+
+  async function renderMoved() {
+    activeItems = MOVED;
+    renderTimeline();
+    await screen.findByText("Work Items");
+    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
+  }
+
+  it("opens the overlay from the diamond where it was PLANNED", async () => {
+    await renderMoved();
+    const planned = await screen.findByTestId("gantt-milestone-planned-moved");
+    // The pointer has to be able to REACH it — see the note above on why the
+    // event alone proves nothing here.
+    expect(planned.style.pointerEvents).not.toBe("none");
+    expect(screen.queryByTestId("gantt-hover-card")).toBeNull();
+    fireEvent.mouseOver(planned);
+    expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-960");
+  });
+
+  it("gives the 2px connector a hit area as tall as the row", async () => {
+    await renderMoved();
+    const hit = await screen.findByTestId("gantt-milestone-drift-hit-moved");
+    const visible = screen.getByTestId("gantt-milestone-drift-red-moved");
+    // Widening the MARK to make it hoverable would shout louder than a milestone
+    // that moved a few days deserves, so only the hit area grows.
+    expect(num(hit, "stroke-width")).toBeGreaterThan(num(visible, "stroke-width"));
+    expect(hit.getAttribute("stroke")).toBe("transparent");
+    expect(hit.style.pointerEvents).not.toBe("none");
+    fireEvent.mouseOver(hit);
+    expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-960");
+  });
+});

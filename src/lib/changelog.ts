@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.291.1",
+    date: "2026-08-18",
+    title: "Milestones that finished early now show it, and the plan is hoverable",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Milestones only showed their drift when they were LATE. One that finished ahead of its planned date was drawn off the left edge of the chart and clipped away, so it looked as though early milestones simply did not drift. Both directions now appear \u2014 green when a milestone was pulled in, red when it slipped.",
+      },
+      {
+        kind: "improvement",
+        text: "With Plan drift switched on, you can now hover the faded plan itself \u2014 the shadow beside a bar, or a milestone\u2019s planned diamond and the line showing how far it moved \u2014 and get the same date card you get from the bar. Previously only the solid bar responded, which meant the part you point at to ask \u201chow far off was this?\u201d was the one part that ignored you.",
+      },
+    ],
+  },
+  {
     version: "2.291.0",
     date: "2026-08-18",
     title: "The timeline says ahead or behind, and says it once",
