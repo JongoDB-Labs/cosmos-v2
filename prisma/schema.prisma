@@ -3278,6 +3278,8 @@ enum JournalSource {
   INVOICE
   PAYMENT
   PAYROLL
+  /// An adjusting entry produced by importing an external trial balance.
+  GL_IMPORT
 }
 
 enum JournalStatus {

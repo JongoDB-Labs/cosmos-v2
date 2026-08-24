@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.293.0",
+    date: "2026-08-24",
+    title: "Bring your bookkeeping figures into the ledger",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Import a trial balance from your accounting package — paste the CSV export or type the figures in — and Cosmos posts the one adjusting entry that brings its ledger into line. Profit & Loss, Balance Sheet and Trial Balance then reflect it immediately.",
+      },
+      {
+        kind: "feature",
+        text: "Every import previews first: what each account moves from and to, and what the balancing figure would be, before anything reaches the books.",
+      },
+      {
+        kind: "improvement",
+        text: "Re-importing a corrected file for the same period posts only the difference, so fixing a figure does not double it.",
+      },
+    ],
+  },
+  {
     version: "2.292.0",
     date: "2026-08-23",
     title: "Pay rates remember when they changed",

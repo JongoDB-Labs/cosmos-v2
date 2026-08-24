@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type $Enums } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { sumMoney } from "@/lib/money";
 
@@ -33,7 +33,9 @@ export type PostEntryInput = {
   createdById: string;
   date: Date;
   memo?: string;
-  source?: "MANUAL" | "REVENUE" | "EXPENSE" | "INVOICE" | "PAYMENT" | "PAYROLL";
+  // Taken from the schema rather than restated, so a new JournalSource value is
+  // usable the moment it is added instead of silently failing to typecheck here.
+  source?: $Enums.JournalSource;
   sourceId?: string | null;
   lines: PostingLine[];
 };
