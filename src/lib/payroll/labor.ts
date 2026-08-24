@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { multiplyMoney, roundMoney, sumMoney } from "@/lib/money";
+import { resolveCostRate, type CostRateHistory } from "./cost-rates";
 
 /** Labor cost = hours × hourly cost rate, half-even to cents. */
 export function laborCostFor(hours: number, costRate: Prisma.Decimal): Prisma.Decimal {
@@ -10,6 +11,8 @@ export type LaborEntry = {
   userId: string;
   projectId: string | null;
   hours: number;
+  /** The day the hour was worked — what decides which cost rate prices it. */
+  date: Date;
 };
 
 export type LaborProjectGroup = {
@@ -33,20 +36,23 @@ export type LaborSummary = {
 };
 
 /**
- * PURE. Cost each entry at its employee's hourly cost rate and group by project.
- * Entries whose `userId` is absent from `costRateByUser` are skipped and counted in
- * `unpriced` (so the caller can surface "N entries have no pay rate"). The `null`
- * project bucket carries unassigned labor.
+ * PURE. Cost each entry at the rate its employee was on THE DAY IT WAS WORKED,
+ * and group by project. Entries with no rate in force on that date are skipped
+ * and counted in `unpriced` (so the caller can surface "N entries have no pay
+ * rate"). The `null` project bucket carries unassigned labor.
+ *
+ * The rate is resolved per entry, not per person: a period that straddles a raise
+ * costs its earlier days at the old rate and its later ones at the new.
  */
 export function summarizeLabor(
   entries: LaborEntry[],
-  costRateByUser: Map<string, Prisma.Decimal>,
+  rateHistory: CostRateHistory,
 ): LaborSummary {
   const byProject = new Map<string, Prisma.Decimal>(); // "" = no project
   let priced = 0;
   let unpriced = 0;
   for (const e of entries) {
-    const rate = costRateByUser.get(e.userId);
+    const rate = resolveCostRate(rateHistory, e.userId, e.date);
     if (!rate) {
       unpriced++;
       continue;

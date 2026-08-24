@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.292.0",
+    date: "2026-08-23",
+    title: "Pay rates remember when they changed",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A change to someone's pay rate now applies from the day you make it. Until now it applied to everything they had ever logged, so entering a raise quietly restated labour costs and margins on work that was already finished and reported.",
+      },
+      {
+        kind: "improvement",
+        text: "Pay run previews and project margins cost each hour at the rate that was in force the day it was worked, so a period that straddles a raise splits correctly instead of being priced entirely at the new rate.",
+      },
+    ],
+  },
+  {
     version: "2.291.1",
     date: "2026-08-18",
     title: "Milestones that finished early now show it, and the plan is hoverable",
