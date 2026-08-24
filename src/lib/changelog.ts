@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.294.0",
+    date: "2026-08-24",
+    title: "Account-level figures behind the statements",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Reports and plugins can now read what sat in each individual account over a date range, drawn from the same postings the Profit & Loss and Balance Sheet use — so a ratio built on two accounts always agrees with the statements it came from.",
+      },
+    ],
+  },
+  {
     version: "2.293.0",
     date: "2026-08-24",
     title: "Bring your bookkeeping figures into the ledger",
