@@ -12,6 +12,7 @@ import { ConflictError, NotFoundError } from "@/lib/rbac/check";
 import { postEntry, type PostingLine } from "@/lib/ledger/posting";
 import { ACCOUNT_CODES, resolveAccount } from "@/lib/ledger/chart-of-accounts";
 import { laborCostFor, summarizeLabor, type LaborSummary } from "./labor";
+import { loadCostRateHistory, resolveCostRate, RATE_FLOOR, utcToday } from "./cost-rates";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 
 // ── Employees ────────────────────────────────────────────────────────────────
@@ -68,6 +69,9 @@ export async function createEmployee(
     select: { id: true },
   });
   if (!member) throw new NotFoundError("User is not a member of this org");
+  // The scalar and the first history row are written together: a person with a
+  // rate on `employees` and nothing in `employee_cost_rates` would cost every
+  // hour at nothing, silently.
   return prisma.employee.create({
     data: {
       orgId,
@@ -80,6 +84,14 @@ export async function createEmployee(
       status: input.status ?? "active",
       startDate: input.startDate ?? null,
       endDate: input.endDate ?? null,
+      costRates: {
+        create: {
+          orgId,
+          createdById,
+          costRate: new Prisma.Decimal(input.costRate),
+          effectiveFrom: RATE_FLOOR,
+        },
+      },
     },
   });
 }
@@ -159,8 +171,25 @@ export async function createEmployeesForMembers(
       costRate: UNSET_COST_RATE,
     })),
     skipDuplicates: true,
-    select: { userId: true },
+    select: { id: true, userId: true },
   });
+
+  // Open each new person's rate history at the same unset zero. Skipping this
+  // because the rate is zero would be a trap: the row is what makes them
+  // resolvable at all, and without it they are not "priced at nothing" but
+  // "unpriced", which reads as a data error rather than a rate nobody set yet.
+  if (created.length > 0) {
+    await prisma.employeeCostRate.createMany({
+      data: created.map((e) => ({
+        orgId,
+        employeeId: e.id,
+        createdById,
+        costRate: UNSET_COST_RATE,
+        effectiveFrom: RATE_FLOOR,
+      })),
+      skipDuplicates: true,
+    });
+  }
 
   const createdUserIds = created.map((e) => e.userId);
   const madeNew = new Set(createdUserIds);
@@ -174,6 +203,7 @@ export async function updateEmployee(
   orgId: string,
   employeeId: string,
   input: Partial<Omit<EmployeeInput, "userId">>,
+  updatedById: string,
 ) {
   // Supervisors are NOT settable here. They live in `employee_supervisors`,
   // written through lib/org/supervisors — ONE write path, so the org chart and
@@ -192,6 +222,20 @@ export async function updateEmployee(
     data,
   });
   if (updated.count === 0) throw new NotFoundError("Employee not found");
+
+  // A rate change takes effect TODAY and leaves everything already reported
+  // alone — that is the whole point of the history. Upsert, not create: changing
+  // it twice in one day is a correction, and the last word wins rather than
+  // colliding with the one-rate-per-day constraint.
+  if (input.costRate !== undefined) {
+    const effectiveFrom = utcToday();
+    const costRate = new Prisma.Decimal(input.costRate);
+    await prisma.employeeCostRate.upsert({
+      where: { employeeId_effectiveFrom: { employeeId, effectiveFrom } },
+      create: { orgId, employeeId, costRate, effectiveFrom, createdById: updatedById },
+      update: { costRate },
+    });
+  }
   return prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
 }
 
@@ -230,23 +274,17 @@ async function gatherUndistributed(orgId: string, periodStart: Date, periodEnd: 
       date: { gte: periodStart, lte: periodEnd },
       ...NOT_VOIDED,
     },
-    select: { id: true, userId: true, projectId: true, hours: true },
+    select: { id: true, userId: true, projectId: true, hours: true, date: true },
   });
 }
 
-async function costRateByUser(orgId: string, userIds: string[]) {
-  const emps = await prisma.employee.findMany({
-    where: { orgId, userId: { in: userIds }, status: "active" },
-    select: { userId: true, costRate: true },
-  });
-  return new Map(emps.map((e) => [e.userId, e.costRate]));
-}
+
 
 export async function previewPayRun(orgId: string, payRunId: string): Promise<LaborSummary> {
   const run = await prisma.payRun.findFirst({ where: { id: payRunId, orgId } });
   if (!run) throw new NotFoundError("Pay run not found");
   const entries = await gatherUndistributed(orgId, run.periodStart, run.periodEnd);
-  const rates = await costRateByUser(orgId, [...new Set(entries.map((e) => e.userId))]);
+  const rates = await loadCostRateHistory(orgId, [...new Set(entries.map((e) => e.userId))]);
   const summary = summarizeLabor(entries, rates);
 
   // Backfill project names so the preview UI never renders a raw UUID.
@@ -307,8 +345,13 @@ export async function postPayRun(
 
   // Candidates: approved + un-distributed labor in the period.
   const candidates = await gatherUndistributed(orgId, run.periodStart, run.periodEnd);
-  const rates = await costRateByUser(orgId, [...new Set(candidates.map((e) => e.userId))]);
-  const pricedIds = candidates.filter((e) => rates.has(e.userId)).map((e) => e.id);
+  const rates = await loadCostRateHistory(orgId, [...new Set(candidates.map((e) => e.userId))]);
+  // Priced is now a question about the ENTRY, not the person: someone hired
+  // mid-period has hours before their first rate took effect, and those are as
+  // unpriced as a person with no rate at all.
+  const pricedIds = candidates
+    .filter((e) => resolveCostRate(rates, e.userId, e.date) !== undefined)
+    .map((e) => e.id);
   const unpricedSkipped = candidates.length - pricedIds.length;
   if (pricedIds.length === 0) {
     throw new ConflictError("No priced, approved labor to distribute in this period");
@@ -324,7 +367,7 @@ export async function postPayRun(
     });
     return tx.timeEntry.findMany({
       where: { id: { in: pricedIds }, orgId, payRunId },
-      select: { id: true, userId: true, projectId: true, hours: true },
+      select: { id: true, userId: true, projectId: true, hours: true, date: true },
     });
   });
   if (claimed.length === 0) {
@@ -336,7 +379,9 @@ export async function postPayRun(
     // fail assertBalanced); the credit total is the sum of the surviving debits.
     const byProject = new Map<string, Prisma.Decimal>();
     for (const e of claimed) {
-      const cost = laborCostFor(e.hours, rates.get(e.userId)!);
+      // Non-null is safe: pricedIds was filtered by this same resolve, and the
+      // claim only narrows that set.
+      const cost = laborCostFor(e.hours, resolveCostRate(rates, e.userId, e.date)!);
       byProject.set(e.projectId ?? "", (byProject.get(e.projectId ?? "") ?? new Prisma.Decimal(0)).plus(cost));
     }
     const debits = [...byProject.entries()].filter(([, cost]) => cost.greaterThan(0));

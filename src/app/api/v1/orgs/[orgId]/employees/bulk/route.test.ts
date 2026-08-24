@@ -29,6 +29,8 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
       findFirst: vi.fn(),
       create: vi.fn(),
     },
+    // Every new employee also gets their rate history opened, in the same call.
+    employeeCostRate: { createMany: vi.fn() },
   },
   logAudit: vi.fn(),
 }));
@@ -113,7 +115,7 @@ beforeEach(() => {
       data: CreateRow[];
       skipDuplicates?: boolean;
     }) => {
-      const out: Array<{ userId: string }> = [];
+      const out: Array<{ id: string; userId: string }> = [];
       for (const row of data) {
         inserted.push(row);
         const have = employeesByOrg.get(row.orgId) ?? new Set<string>();
@@ -124,7 +126,7 @@ beforeEach(() => {
         }
         have.add(row.userId);
         employeesByOrg.set(row.orgId, have);
-        out.push({ userId: row.userId });
+        out.push({ id: `emp-${row.userId}`, userId: row.userId });
       }
       return out;
     },
@@ -189,6 +191,32 @@ describe("POST /employees/bulk — idempotency", () => {
     const body = await res.json();
 
     expect(body).toEqual({ created: 2, skipped: 1, createdUserIds: [BOB, CARA] });
+  });
+
+  it("opens a rate history for everyone it creates", async () => {
+    // An employee row with no rate row resolves to no rate at all, so every hour
+    // they log drops out of costing silently. The two writes belong together.
+    await POST(req({ userIds: [ALICE, BOB] }), { params });
+
+    expect(prisma.employeeCostRate.createMany).toHaveBeenCalledTimes(1);
+    const { data } = prisma.employeeCostRate.createMany.mock.calls[0][0];
+    expect(data).toHaveLength(2);
+    expect(data.map((r: { employeeId: string }) => r.employeeId).sort()).toEqual(
+      [`emp-${ALICE}`, `emp-${BOB}`].sort(),
+    );
+    // Floored, so an hour backdated before onboarding still resolves.
+    for (const row of data) {
+      expect(row.effectiveFrom.toISOString()).toBe("1970-01-01T00:00:00.000Z");
+      expect(row.costRate.toString()).toBe("0");
+    }
+  });
+
+  it("opens no rate history when everyone was already an employee", async () => {
+    await POST(req({ userIds: [ALICE] }), { params });
+    prisma.employeeCostRate.createMany.mockClear();
+
+    await POST(req({ userIds: [ALICE] }), { params });
+    expect(prisma.employeeCostRate.createMany).not.toHaveBeenCalled();
   });
 
   it("leans on the unique constraint — never reads existing employees first", async () => {

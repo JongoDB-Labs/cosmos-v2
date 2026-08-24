@@ -36,7 +36,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     requirePermission(ctx, Permission.FINANCE_MANAGE);
 
     const input = employeeUpdateSchema.parse(await request.json());
-    return success(await updateEmployee(orgId, employeeId, input));
+    return success(await updateEmployee(orgId, employeeId, input, ctx.userId));
   } catch (error) {
     return handleApiError(error);
   }

@@ -3570,6 +3570,12 @@ model Employee {
   orgId          String         @map("org_id") @db.Uuid
   userId         String         @map("user_id") @db.Uuid
   employmentType EmploymentType @default(HOURLY) @map("employment_type")
+  /// The CURRENT cost rate. Superseded for anything historical by the
+  /// `costRates` history below — cost a past hour with `resolveCostRate`, not
+  /// this column, or a raise silently rewrites every margin already reported.
+  /// Still written on every create/update and still read by the "what does this
+  /// person cost today" surfaces; kept a release rather than dropped in the same
+  /// migration, so a rollback to the previous image still finds its column.
   costRate       Decimal        @map("cost_rate") @db.Decimal(19, 4)
   laborCategory  String?        @map("labor_category")
   classification String?
@@ -3596,6 +3602,9 @@ model Employee {
   /// The people this person supervises.
   supervisees EmployeeSupervisor[] @relation("Supervises")
 
+  /// Every cost rate this person has ever been on, oldest to newest.
+  costRates EmployeeCostRate[]
+
   /// Open requests this person has made to be given a supervisor.
   supervisionRequests  SupervisorRequest[] @relation("SupervisionRequestedBy")
   /// Open requests asking THIS person to supervise someone.
@@ -3606,6 +3615,38 @@ model Employee {
   // Drives "who reports to me" on every scoped time read.
   @@index([orgId, managerId])
   @@map("employees")
+}
+
+/// What an employee's hour COST the firm, over time.
+///
+/// The rate for a date is the row with the greatest `effectiveFrom` on or before
+/// it. There is deliberately no `effectiveTo`: a closed interval has to be kept
+/// consistent on every write, and the two ways it goes wrong — a gap that prices
+/// an hour at nothing, an overlap that prices it twice — are both silent and both
+/// land in money. An open-ended "from" cannot express either.
+///
+/// Every employee gets one row at the epoch floor when this table is created, so
+/// the history reproduces the single-column behaviour exactly and the migration
+/// itself moves no number. History only begins once a second row is added.
+model EmployeeCostRate {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  employeeId    String   @map("employee_id") @db.Uuid
+  costRate      Decimal  @map("cost_rate") @db.Decimal(19, 4)
+  /// First date this rate applies. Date, not timestamp: rates change on a day,
+  /// and TimeEntry.date is the thing being priced.
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  createdById   String   @map("created_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  // One rate per person per day — a second row for the same day is ambiguous
+  // rather than additive.
+  @@unique([employeeId, effectiveFrom])
+  // Drives the resolver: every lookup is (employee, date) ordered by date desc.
+  @@index([orgId, employeeId, effectiveFrom])
+  @@map("employee_cost_rates")
 }
 
 /// One supervisor of one employee. The org chart, as a graph rather than a tree.
