@@ -52,16 +52,28 @@ export function resolveCostRate(
 }
 
 /**
- * Load rate history for these users. Keeps the `status: "active"` filter the
- * single-column lookup used, so who is priced does not change with this — only
- * WHEN each rate applies.
+ * Load rate history for these users.
+ *
+ * By default only ACTIVE employees, which is what payroll wants: a pay run pays
+ * the people currently employed. Historical reporting wants the opposite — a
+ * project finished last year was costed by whoever worked on it, and dropping
+ * someone because they have since left makes that work retrospectively free and
+ * the margin on it wrong. Those callers pass `includeFormerEmployees`.
+ *
+ * The default preserves the behaviour of the single-column lookup this replaced,
+ * so no existing caller changes by upgrading.
  */
 export async function loadCostRateHistory(
   orgId: string,
   userIds: string[],
+  opts?: { includeFormerEmployees?: boolean },
 ): Promise<CostRateHistory> {
   const employees = await prisma.employee.findMany({
-    where: { orgId, userId: { in: userIds }, status: "active" },
+    where: {
+      orgId,
+      userId: { in: userIds },
+      ...(opts?.includeFormerEmployees ? {} : { status: "active" }),
+    },
     select: {
       userId: true,
       costRates: {
