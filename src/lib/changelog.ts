@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.295.0",
+    date: "2026-08-24",
+    title: "Past work keeps its cost when people move on",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Historical reports can now include the pay rates of people who have since left. Without it, a finished project's labour cost would shrink as its team moved on, quietly improving the margin on work nobody was still doing.",
+      },
+    ],
+  },
+  {
     version: "2.294.0",
     date: "2026-08-24",
     title: "Account-level figures behind the statements",
