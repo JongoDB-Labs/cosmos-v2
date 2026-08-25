@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.296.1",
+    date: "2026-08-25",
+    title: "The Timeline no longer invents dates for tickets that have none",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A ticket with no start date, no due date and nothing actually started was still drawn on the Timeline as an ordinary week-long bar \u2014 built from its creation date plus seven days, neither of which anyone entered. It looked exactly like a real plan. Those tickets now show a small hollow marker labelled \u201cNo dates\u201d instead, so an invented week can never be mistaken for a schedule. Tickets that have any real date keep their bar.",
+      },
+    ],
+  },
+  {
     version: "2.296.0",
     date: "2026-08-25",
     title: "Updates that ship without a new version number",

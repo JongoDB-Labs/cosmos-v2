@@ -124,6 +124,27 @@ const TYPE_BAND: Record<string, keyof typeof BAND_COLORS> = {
   MILESTONE: "milestone",
 };
 
+/**
+ * An item the chart knows NOTHING about in time: no plan, and nothing actually
+ * started or finished.
+ *
+ * Bar geometry falls back to `createdAt -> createdAt + 7 days` when dates are
+ * missing, which draws a perfectly ordinary week-long bar out of two values
+ * nobody entered. On a board of imported work that is a wall of confident,
+ * invented plans — and now that the create form REQUIRES planned dates, the
+ * chart implies a plan exists for exactly the items that have none.
+ *
+ * `completedAt` alone still counts as knowing something, so it is not undated.
+ */
+function isUndatedItem(item: {
+  startDate: string | null;
+  dueDate: string | null;
+  actualStart: string | null;
+  completedAt: string | null;
+}): boolean {
+  return !item.startDate && !item.dueDate && !item.actualStart && !item.completedAt;
+}
+
 /** A dated point, not a span — either typed as a milestone or collapsed to one
  *  day. Both render as an orange diamond. */
 function isMilestoneItem(item: {
@@ -2355,6 +2376,56 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         style={{ pointerEvents: "none" }}
                       />
                     )}
+                  </g>
+                );
+              }
+
+              // Nothing is known about WHEN this is. Draw the one real date it
+              // has — when it was created — as a hollow dot with no width, and
+              // say so in words. A point cannot be misread as a span, and the
+              // label removes any doubt. Deliberately NOT a diamond: that shape
+              // now means milestone.
+              if (isUndatedItem(item)) {
+                const cy = y + h / 2;
+                return (
+                  <g
+                    key={item.id}
+                    onMouseEnter={enter}
+                    onMouseMove={(e) => {
+                      if (dragRef.current) return;
+                      setTooltipPos({ x: e.clientX, y: e.clientY });
+                    }}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    onClick={(e) => onBarClick(item, e)}
+                    onDoubleClick={() => setDetailId(item.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setHoveredItem(null);
+                      setDetailId(item.id);
+                    }}
+                    data-testid={`gantt-bar-${item.id}`}
+                    data-undated="true"
+                    data-selected={isSelected || undefined}
+                    className="cursor-pointer"
+                  >
+                    <circle
+                      cx={x + 5}
+                      cy={cy}
+                      r={4.5}
+                      fill="none"
+                      stroke={colors.stroke}
+                      strokeWidth={1.5}
+                      opacity={PHANTOM_OPACITY * lensDim}
+                    />
+                    <text
+                      x={x + 15}
+                      y={cy + 3.5}
+                      className="fill-muted-foreground"
+                      style={{ fontSize: 10, fontStyle: "italic" }}
+                      opacity={lensDim}
+                    >
+                      No dates
+                    </text>
                   </g>
                 );
               }
