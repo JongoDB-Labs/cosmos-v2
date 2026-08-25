@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.297.0",
+    date: "2026-08-25",
+    title: "Work in progress no longer claims to have finished early",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A ticket that had started but not finished showed GREEN to the right of its bar \u2014 the Timeline was reading the gap between today and the due date as \u201cfinished ahead of plan\u201d for work that had not finished at all. Green and red are now only ever drawn from dates that actually happened: a real start, and a real completion. Until a ticket completes, the time it still has left is drawn plainly, in the bar\u2019s own colour.",
+      },
+      {
+        kind: "improvement",
+        text: "A ticket that is overdue and still running now simply shows its bar growing past the end of its planned span, rather than being coloured. Nothing is claimed about how late it finished until it finishes.",
+      },
+      {
+        kind: "improvement",
+        text: "The Enablers lens has been removed from the Timeline, along with the hatching and dashed outline it controlled \u2014 it took up space in the lens row without earning it. Enabler work is unaffected everywhere else: you can still filter a board by category, the delivery dashboard still reports on it, and hovering a bar still shows its Enabler tag.",
+      },
+    ],
+  },
+  {
     version: "2.296.2",
     date: "2026-08-25",
     title: "The Timeline always shows planned against actual",
