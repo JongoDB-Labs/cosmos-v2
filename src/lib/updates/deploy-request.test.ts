@@ -17,6 +17,7 @@ const READY: UpdateCheck = {
   checkedAt: "2026-08-11T20:00:00.000Z",
   status: { current: "2.278.2", latest: "2.279.0", newer: ["2.279.0"], updateAvailable: true, ahead: false },
   candidateDigest: `sha256:${"a".repeat(64)}`,
+  rebuildAvailable: null,
   candidateTag: "2.279.0-alpha",
   preflights: [pass("candidate-resolves", "Candidate image exists"), pass("sidecars-paired", "Plugin sidecar images")],
   notes: [],

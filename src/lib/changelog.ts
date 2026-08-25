@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.296.0",
+    date: "2026-08-25",
+    title: "Updates that ship without a new version number",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Update checking can now tell you when your current version has been rebuilt — a plugin release ships under the same version number as the core it runs on, so those updates were previously invisible and had to be applied by hand.",
+      },
+    ],
+  },
+  {
     version: "2.295.0",
     date: "2026-08-24",
     title: "Past work keeps its cost when people move on",
