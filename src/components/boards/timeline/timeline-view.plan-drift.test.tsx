@@ -186,8 +186,8 @@ const DRIFT_ITEMS = [
   },
 ];
 
-/** The lens is ON by default, so this only has to render. Clicking the toggle
- *  here would switch it OFF — the opposite of what every test below wants. */
+/** There is no toggle any more — the plan is always drawn — so this only has to
+ *  render and wait for the rows to arrive. */
 async function renderWithPlanDrift() {
   activeItems = DRIFT_ITEMS;
   const utils = renderTimeline();
@@ -211,18 +211,19 @@ describe("TimelineView — drift colour is ahead-vs-behind", () => {
     activeItems = DRIFT_ITEMS;
     renderTimeline();
     await screen.findByText("Work Items");
-    // No click. A Gantt whose plan is hidden by default answers none of the
-    // questions it exists for, and it was reported as broken three times.
+    // No click, and no control to click. A Gantt whose plan is hidden answers
+    // none of the questions it exists for, and it was reported as broken three
+    // times before the toggle was removed.
     expect(await screen.findByTestId("gantt-drift-red-start-behind")).toBeInTheDocument();
     expect(screen.getByTestId("gantt-drift-red-end-behind")).toBeInTheDocument();
   });
 
-  it("still hides them when the lens is switched OFF", async () => {
+  it("offers no way to turn the plan off — it is part of the chart", async () => {
     await renderWithPlanDrift();
-    expect(screen.getByTestId("gantt-drift-red-start-behind")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
-    expect(screen.queryByTestId("gantt-drift-red-start-behind")).toBeNull();
-    expect(screen.queryByTestId("gantt-drift-red-end-behind")).toBeNull();
+    // The lens row survives; only this control is gone. Guard the premise so
+    // this cannot pass simply because the lenses failed to render at all.
+    expect(screen.getByRole("button", { name: /^enablers$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /plan drift/i })).toBeNull();
   });
 
   it("a late start is RED, and ends exactly where the solid bar begins", async () => {
