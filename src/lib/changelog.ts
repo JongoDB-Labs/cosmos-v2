@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.296.2",
+    date: "2026-08-25",
+    title: "The Timeline shows the plan without being asked",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Plan drift is now on by default on the Timeline. A ticket planned for 28 Jul to 25 Sep that actually began on 11 Aug used to draw a single solid bar from 11 Aug to today and nothing else \u2014 no planned span, no late start, no remaining work \u2014 unless you knew to switch a lens on. It now shows the late start in red to the left of the bar and the remaining planned time in green to the right, straight away. Boards with no drift look exactly as they did, and the lens can still be switched off.",
+      },
+    ],
+  },
+  {
     version: "2.296.1",
     date: "2026-08-25",
     title: "The Timeline no longer invents dates for tickets that have none",
