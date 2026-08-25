@@ -197,3 +197,55 @@ describe("checkForUpdates", () => {
     expect(out.checkedAt).toBe(NOW.toISOString());
   });
 });
+
+describe("checkForUpdates — the same version, rebuilt", () => {
+  // A composed image carries the CORE version in its tag, so a plugin-only
+  // release republishes the same tag with different contents. updateAvailable
+  // stays false — correctly, no version moved — and for a client on a composed
+  // instance that is most of what actually ships to them.
+  const RUNNING = `sha256:${"b".repeat(64)}`;
+  const REBUILT = `sha256:${"c".repeat(64)}`;
+  const sameVersionOnly = { listTags: vi.fn(async () => ["2.276.8-alpha", "latest"]) };
+
+  it("reports a rebuild when the running tag now resolves elsewhere", async () => {
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ ...sameVersionOnly, resolveDigest: vi.fn(async () => REBUILT) }),
+    );
+    expect(out.status!.updateAvailable).toBe(false);
+    expect(out.rebuildAvailable).toBe(true);
+    expect(out.candidateDigest).toBe(REBUILT);
+  });
+
+  it("reports no rebuild when the digest still matches", async () => {
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ ...sameVersionOnly, resolveDigest: vi.fn(async () => RUNNING) }),
+    );
+    expect(out.rebuildAvailable).toBe(false);
+  });
+
+  it("is null, not false, when nothing told us our own digest", async () => {
+    // Unknown and "no rebuild" are different answers, and a UI that renders
+    // them the same way tells somebody they are current when nobody checked.
+    const out = await checkForUpdates("2.276.8", CONFIG, deps(sameVersionOnly));
+    expect(out.rebuildAvailable).toBeNull();
+  });
+
+  it("needs the migrate image at the same tag before calling it a rebuild", async () => {
+    // Same rule the upgrade path uses: an app paired with a migration image
+    // from another build is how a schema gets corrupted.
+    const resolveDigest = vi.fn(async (repo: string) =>
+      repo.includes("-migrate") ? null : REBUILT,
+    ) as unknown as CheckDeps["resolveDigest"];
+    const out = await checkForUpdates(
+      "2.276.8",
+      { ...CONFIG, runningDigest: RUNNING },
+      deps({ ...sameVersionOnly, resolveDigest }),
+    );
+    expect(out.rebuildAvailable).toBe(false);
+  });
+});
+

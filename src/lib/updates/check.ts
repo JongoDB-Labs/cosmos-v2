@@ -28,6 +28,15 @@ export interface UpdateConfig {
   /** Tag suffix for a composed instance (e.g. `alpha`), or "" for the neutral core. */
   suffix: string;
   /**
+   * Digest of the image THIS container is running, when something told it.
+   *
+   * Nothing in a container reveals its own digest, so this arrives as
+   * COSMOS_IMAGE_DIGEST from whatever performed the deploy. Absent, the rebuild
+   * check below simply does not run — the feature degrades to version-only
+   * comparison rather than guessing.
+   */
+  runningDigest?: string;
+  /**
    * Repository carrying `<version>-notes` artifacts. Defaults to the image
    * repository, so a disconnected site that mirrors its images gets notes from
    * the same mirror and needs no second network path. Point it at the neutral
@@ -75,6 +84,7 @@ export function updateConfigFromEnv(
     migrateRepo: env.COSMOS_UPDATE_MIGRATE_REPO?.trim() || `${repo}-migrate`,
     suffix: env.COSMOS_UPDATE_TAG_SUFFIX?.trim() ?? derived,
     notesRepo: env.COSMOS_UPDATE_NOTES_REPO?.trim() || repo,
+    runningDigest: env.COSMOS_IMAGE_DIGEST?.trim() || undefined,
     sidecarRepos: (env.COSMOS_UPDATE_SIDECAR_REPOS ?? "")
       .split(",")
       .map((r) => r.trim())
@@ -95,6 +105,17 @@ export interface UpdateCheck {
   status: UpdateStatus | null;
   /** Digest the candidate resolves to, when one was found. */
   candidateDigest: string | null;
+  /**
+   * The SAME version, rebuilt since this container started.
+   *
+   * A composed image is tagged with the CORE version, so a plugin-only release
+   * republishes the same tag with different contents and `updateAvailable`
+   * stays false — correctly, because no version moved. For a client on a
+   * composed instance that is most of what ships to them, and it was invisible.
+   *
+   * Null when nothing told us our own digest, which is not the same as false.
+   */
+  rebuildAvailable: boolean | null;
   /** Tag the candidate resolved at, for display and for the actuator to reuse. */
   candidateTag: string | null;
   preflights: PreflightResult[];
@@ -123,6 +144,7 @@ const unconfigured = (now: Date): UpdateCheck => ({
   checkedAt: now.toISOString(),
   status: null,
   candidateDigest: null,
+  rebuildAvailable: null,
   candidateTag: null,
   preflights: [],
   notes: [],
@@ -160,6 +182,7 @@ export async function checkForUpdates(
     return {
       ...base,
       status: null,
+      rebuildAvailable: null,
       preflights: [],
       notes: [],
       notesOmitted: 0,
@@ -199,6 +222,32 @@ export async function checkForUpdates(
         break;
       }
       if (app && !migrate) migrateImagePresent = false;
+    }
+  }
+
+  // Has the tag we are already on been rebuilt underneath us?
+  //
+  // Only asked when something told us our own digest, and only for the tag we
+  // are running — not the latest. A newer VERSION is `updateAvailable`; this is
+  // the other case, where the version is unchanged and the contents are not.
+  let rebuildAvailable: boolean | null = null;
+  if (config.runningDigest) {
+    rebuildAvailable = false;
+    for (const tag of candidateTags(currentVersion, config.suffix)) {
+      const [app, migrate] = await Promise.all([
+        deps.resolveDigest(config.repo, tag, auth),
+        deps.resolveDigest(config.migrateRepo, tag, auth),
+      ]);
+      // Both, at the same tag, for the same reason as above: an app paired with
+      // a migration image from another build is how a schema gets corrupted.
+      if (app && migrate) {
+        rebuildAvailable = app !== config.runningDigest;
+        if (rebuildAvailable && !candidateDigest) {
+          candidateDigest = app;
+          candidateTag = tag;
+        }
+        break;
+      }
     }
   }
 
@@ -257,6 +306,7 @@ export async function checkForUpdates(
     status,
     candidateDigest,
     candidateTag,
+    rebuildAvailable,
     preflights,
     notes,
     notesOmitted: omitted,
