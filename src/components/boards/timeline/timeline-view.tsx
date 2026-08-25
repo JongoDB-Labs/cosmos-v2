@@ -480,7 +480,17 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // what make a path read as critical. Hiding them leaves a chain floating with
   // nothing to be critical RELATIVE to.
   const [criticalIsolate, setCriticalIsolate] = useState(true);
-  const [showPlanDrift, setShowPlanDrift] = useState(false);
+  // ON by default. The plan is not an optional overlay on a Gantt — it is the
+  // thing the actuals are read against, and a bar with no plan behind it answers
+  // none of the questions this chart exists for. Off by default, the board showed
+  // a solid bar from the actual start to today and silently withheld both the
+  // planned span and every drift mark, which reads as "the phantoms are broken".
+  // It was reported that way three times.
+  //
+  // Nothing is added to a board with no drift: the marks only exist where the
+  // plan and the actuals actually disagree. Still a toggle, so it can be turned
+  // off when the chart is being read for something else.
+  const [showPlanDrift, setShowPlanDrift] = useState(true);
   const [showEnablers, setShowEnablers] = useState(false);
   // Zoom replaces the old Compress/Expand controls. Those MUTATED the schedule —
   // they rewrote every item's dates by a factor, which is a destructive way to
