@@ -657,3 +657,70 @@ describe("TimelineView — a milestone's drift is hoverable too", () => {
     expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-960");
   });
 });
+
+// Bar geometry falls back to createdAt -> createdAt + 7 days when dates are
+// missing, which draws an ordinary week-long bar out of two values nobody
+// entered. On imported work that is a wall of invented plans, and it is
+// indistinguishable from a real one.
+describe("TimelineView — an item with no dates says so", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const undated = (id: string, over: Record<string, unknown> = {}) => ({
+    ...item(1, "2026-01-05", "2026-01-20"),
+    id,
+    ticketNumber: 970,
+    startDate: null,
+    dueDate: null,
+    actualStart: null,
+    completedAt: null,
+    ...over,
+  });
+
+  async function renderItems(items: unknown[]) {
+    activeItems = items;
+    renderTimeline();
+    await screen.findByText("Work Items");
+  }
+
+  it("draws a point and the words, not a week-long bar", async () => {
+    await renderItems([undated("nodates")]);
+    const el = await screen.findByTestId("gantt-bar-nodates");
+    expect(el.getAttribute("data-undated")).toBe("true");
+    // No width-bearing rect: a span is exactly what it must not imply.
+    expect(el.querySelector("rect")).toBeNull();
+    expect(el.querySelector("circle")).not.toBeNull();
+    expect(el).toHaveTextContent("No dates");
+  });
+
+  it("a normal item is untouched by it", async () => {
+    await renderItems([undated("nodates"), { ...item(2, "2026-01-05", "2026-01-20"), id: "dated", ticketNumber: 971 }]);
+    const dated = await screen.findByTestId("gantt-bar-dated");
+    expect(dated.getAttribute("data-undated")).toBeNull();
+    expect(num(dated, "width")).toBeGreaterThan(0);
+  });
+
+  it("knowing WHEN IT FINISHED is knowing something — not undated", async () => {
+    await renderItems([undated("finished", { completedAt: "2026-01-27" })]);
+    const el = await screen.findByTestId("gantt-bar-finished");
+    expect(el.getAttribute("data-undated")).toBeNull();
+  });
+
+  it("knowing WHEN IT STARTED is knowing something — not undated", async () => {
+    await renderItems([undated("started", { actualStart: "2026-01-09" })]);
+    const el = await screen.findByTestId("gantt-bar-started");
+    expect(el.getAttribute("data-undated")).toBeNull();
+  });
+
+  it("still opens the overlay, so the item stays reachable", async () => {
+    await renderItems([undated("nodates")]);
+    const el = await screen.findByTestId("gantt-bar-nodates");
+    expect(screen.queryByTestId("gantt-hover-card")).toBeNull();
+    fireEvent.mouseOver(el);
+    expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-970");
+  });
+});
