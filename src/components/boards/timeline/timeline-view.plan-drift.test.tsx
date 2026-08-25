@@ -222,8 +222,14 @@ describe("TimelineView — drift colour is ahead-vs-behind", () => {
     await renderWithPlanDrift();
     // The lens row survives; only this control is gone. Guard the premise so
     // this cannot pass simply because the lenses failed to render at all.
-    expect(screen.getByRole("button", { name: /^enablers$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^blocked$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /plan drift/i })).toBeNull();
+  });
+
+  it("offers no Enablers lens either", async () => {
+    await renderWithPlanDrift();
+    expect(screen.getByRole("button", { name: /^blocked$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^enablers$/i })).toBeNull();
   });
 
   it("a late start is RED, and ends exactly where the solid bar begins", async () => {
@@ -348,7 +354,7 @@ describe("TimelineView — one opacity for the plan, and no stray outlines", () 
     const marks = Array.from(document.querySelectorAll('[data-testid^="gantt-drift-"]'));
     expect(marks.length).toBeGreaterThanOrEqual(4);
     for (const m of marks) {
-      // Outlines are reserved for blocked / critical / enabler. A dashed edge
+      // Outlines are reserved for blocked and the critical chain. A dashed edge
       // here competed with them and said nothing of its own.
       expect(m.getAttribute("stroke")).toBe("none");
       expect(m.getAttribute("stroke-dasharray")).toBeNull();
@@ -557,7 +563,16 @@ describe("TimelineView — lens dimming does not compound", () => {
     activeItems = [
       { ...item(1, "2026-01-05", "2026-01-20"), id: "plain", ticketNumber: 970 },
       { ...item(2, "2026-01-05", "2026-01-20"), id: "other", ticketNumber: 971 },
+      { ...item(3, "2026-01-05", "2026-01-20"), id: "bystander", ticketNumber: 972 },
     ];
+    // `plain` is blocked, so the Blocked lens dims everything else by 0.35.
+    // `bystander` is hovered and links to nothing, so its dependency
+    // neighbourhood is itself alone and `other` sits outside it: 0.22.
+    //
+    // BOTH therefore apply to `other`. Multiplied that is 0.077; the strongest
+    // single factor is 0.22. Hovering `plain` would NOT work — `other` blocks
+    // it, so it IS in the neighbourhood and never dims. That confounded the
+    // first draft of this test.
     activeLinks = [{ id: "l1", type: "BLOCKS", sourceItemId: "other", targetItemId: "plain" }];
     renderTimeline();
     await screen.findByText("Work Items");
@@ -565,15 +580,18 @@ describe("TimelineView — lens dimming does not compound", () => {
     const bar = () => screen.getByTestId("gantt-bar-other");
     const base = Number(bar().getAttribute("opacity"));
 
-    // `other` is neither blocked nor an enabler, so BOTH lenses dim it: 0.35 and
-    // 0.4. Multiplied that is 0.14; the strongest single factor is 0.35.
+    // Hover FIRST. The Dependencies toggle invalidates the links query, and the
+    // rows do not come back inside this harness — so anything that has to be
+    // queried after that click cannot be found. `hoveredItem` is component
+    // state and survives the toggle, which is all the dim needs.
+    fireEvent.mouseOver(screen.getByTestId("gantt-bar-bystander"));
     fireEvent.click(screen.getByRole("button", { name: /^blocked$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^enablers$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^dependencies$/i }));
     const dimmed = Number(bar().getAttribute("opacity"));
 
     expect(dimmed).toBeLessThan(base);
-    expect(dimmed).toBeCloseTo(base * 0.35, 5);
-    expect(dimmed).not.toBeCloseTo(base * 0.35 * 0.4, 5);
+    expect(dimmed).toBeCloseTo(base * 0.22, 5);
+    expect(dimmed).not.toBeCloseTo(base * 0.35 * 0.22, 5);
   });
 });
 
@@ -731,5 +749,81 @@ describe("TimelineView — an item with no dates says so", () => {
     expect(screen.queryByTestId("gantt-hover-card")).toBeNull();
     fireEvent.mouseOver(el);
     expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-970");
+  });
+});
+
+// Green means "ahead of plan". That is a claim about how the work turned out,
+// so it cannot be made for work that has not finished. A running item's
+// remaining plan is drawn neutrally — the bar's own colour — not green.
+describe("TimelineView — a running item makes no claim about its end", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const RUNNING = [
+    // Planned 05->20 Jan, began 11 Jan, still going. Well inside its plan.
+    { ...item(1, "2026-01-05", "2026-01-20"), id: "running", ticketNumber: 980, actualStart: "2026-01-11", completedAt: null },
+    // Same shape, but finished early. This one HAS earned its green.
+    { ...item(2, "2026-01-05", "2026-01-20"), id: "finishedEarly", ticketNumber: 981, actualStart: "2026-01-11", completedAt: "2026-01-15" },
+  ];
+
+  async function renderRunning() {
+    activeItems = RUNNING;
+    renderTimeline();
+    await screen.findByText("Work Items");
+    await screen.findByTestId("gantt-bar-running");
+  }
+
+  it("draws NO green for work still in flight", async () => {
+    await renderRunning();
+    expect(screen.queryByTestId("gantt-drift-green-end-running")).toBeNull();
+    expect(screen.queryByTestId("gantt-drift-red-end-running")).toBeNull();
+  });
+
+  it("draws the remaining plan in the bar's OWN colour instead", async () => {
+    await renderRunning();
+    const planned = await screen.findByTestId("gantt-planned-running");
+    const bar = screen.getByTestId("gantt-bar-running");
+    // Same hue as the bar, at the shadow opacity — a plan, not a verdict.
+    expect(planned.getAttribute("fill")).toBe(bar.getAttribute("fill"));
+    expect(Number(planned.getAttribute("opacity"))).toBeLessThan(
+      Number(bar.getAttribute("opacity")),
+    );
+    // It starts where the BAR starts, not where the plan did: this item began
+    // late, so the plan's head belongs to the red mark. The neutral span is
+    // what is left of the plan after the drift has taken its share.
+    expect(num(planned, "x")).toBeCloseTo(num(bar, "x"), 1);
+    expect(num(planned, "width")).toBeGreaterThan(0);
+    const red = screen.getByTestId("gantt-drift-red-start-running");
+    expect(num(red, "x") + num(red, "width")).toBeCloseTo(num(planned, "x"), 1);
+  });
+
+  it("an OVERDUE running item overruns its plan visibly, with no red", async () => {
+    // This fixture is planned for January and still running today, so the solid
+    // bar runs far past the end of the planned span. That overrun is the signal
+    // — no colour is claimed, because the work has not finished and "how late
+    // did it end" is not yet a question with an answer.
+    await renderRunning();
+    const planned = screen.getByTestId("gantt-planned-running");
+    const bar = screen.getByTestId("gantt-bar-running");
+    expect(num(bar, "x") + num(bar, "width")).toBeGreaterThan(
+      num(planned, "x") + num(planned, "width"),
+    );
+    expect(screen.queryByTestId("gantt-drift-red-end-running")).toBeNull();
+  });
+
+  it("a late START is still reported — that date HAS happened", async () => {
+    await renderRunning();
+    expect(await screen.findByTestId("gantt-drift-red-start-running")).toBeInTheDocument();
+  });
+
+  it("the moment it completes early, green appears", async () => {
+    await renderRunning();
+    // Positive control for the two assertions above: the same probe DOES find
+    // green on a sibling that actually finished.
+    expect(await screen.findByTestId("gantt-drift-green-end-finishedEarly")).toBeInTheDocument();
   });
 });
