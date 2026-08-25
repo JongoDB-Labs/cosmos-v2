@@ -186,11 +186,13 @@ const DRIFT_ITEMS = [
   },
 ];
 
+/** There is no toggle any more — the plan is always drawn — so this only has to
+ *  render and wait for the rows to arrive. */
 async function renderWithPlanDrift() {
   activeItems = DRIFT_ITEMS;
   const utils = renderTimeline();
   await screen.findByText("Work Items");
-  fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
+  await screen.findByTestId("gantt-bar-behind");
   return utils;
 }
 
@@ -205,12 +207,23 @@ describe("TimelineView — drift colour is ahead-vs-behind", () => {
     vi.clearAllMocks();
   });
 
-  it("draws no marks until the lens is switched on", async () => {
+  it("draws the marks WITHOUT being asked — the plan is not an opt-in", async () => {
     activeItems = DRIFT_ITEMS;
     renderTimeline();
     await screen.findByText("Work Items");
-    expect(screen.queryByTestId("gantt-drift-red-start-behind")).toBeNull();
-    expect(screen.queryByTestId("gantt-drift-red-end-behind")).toBeNull();
+    // No click, and no control to click. A Gantt whose plan is hidden answers
+    // none of the questions it exists for, and it was reported as broken three
+    // times before the toggle was removed.
+    expect(await screen.findByTestId("gantt-drift-red-start-behind")).toBeInTheDocument();
+    expect(screen.getByTestId("gantt-drift-red-end-behind")).toBeInTheDocument();
+  });
+
+  it("offers no way to turn the plan off — it is part of the chart", async () => {
+    await renderWithPlanDrift();
+    // The lens row survives; only this control is gone. Guard the premise so
+    // this cannot pass simply because the lenses failed to render at all.
+    expect(screen.getByRole("button", { name: /^enablers$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /plan drift/i })).toBeNull();
   });
 
   it("a late start is RED, and ends exactly where the solid bar begins", async () => {
@@ -397,7 +410,6 @@ describe("TimelineView — milestone drift", () => {
     activeItems = MILESTONES;
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
   }
 
   it("marks where it was planned and joins it to where it landed", async () => {
@@ -442,7 +454,6 @@ describe("TimelineView — the axis covers what is actually drawn", () => {
     activeItems = EARLY_ITEMS;
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
   }
 
   it("never lays a bar out left of the axis origin", async () => {
@@ -465,7 +476,6 @@ describe("TimelineView — the axis covers what is actually drawn", () => {
     ];
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
     await screen.findByTestId("gantt-drift-green-start-early");
 
     const drawn = Array.from(
@@ -630,7 +640,6 @@ describe("TimelineView — a milestone's drift is hoverable too", () => {
     activeItems = MOVED;
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
   }
 
   it("opens the overlay from the diamond where it was PLANNED", async () => {

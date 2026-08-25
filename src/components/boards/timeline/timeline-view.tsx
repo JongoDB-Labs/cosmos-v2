@@ -13,7 +13,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Loader2,
-  GitCompareArrows,
   Ban,
   EyeOff,
   Wrench,
@@ -480,7 +479,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // what make a path read as critical. Hiding them leaves a chain floating with
   // nothing to be critical RELATIVE to.
   const [criticalIsolate, setCriticalIsolate] = useState(true);
-  const [showPlanDrift, setShowPlanDrift] = useState(false);
   const [showEnablers, setShowEnablers] = useState(false);
   // Zoom replaces the old Compress/Expand controls. Those MUTATED the schedule —
   // they rewrote every item's dates by a factor, which is a destructive way to
@@ -1435,14 +1433,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               accent="var(--status-done)"
             />
             <LensToggle
-              active={showPlanDrift}
-              onClick={() => setShowPlanDrift((v) => !v)}
-              icon={<GitCompareArrows className="size-3.5" />}
-              label="Plan drift"
-              title="Overlay the original planned dates (faded ghost) on the actual bars to see how the plan shifted"
-              accent="var(--status-blocked)"
-            />
-            <LensToggle
               active={showEnablers}
               onClick={() => setShowEnablers((v) => !v)}
               icon={<Wrench className="size-3.5" />}
@@ -1616,9 +1606,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       {/* Contextual legend — only the keys for what's actually on screen, and
           only outside fullscreen: there the ask is the work items and the
           calendar, so every strip that isn't one of those two gets out of the way. */}
-      {!fullscreen && (showPlanDrift || hasEnablers) && (
+      {!fullscreen && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-[var(--surface)] px-4 py-1.5 text-[11px] text-muted-foreground">
-          {showPlanDrift && (
+          {(
             <>
               <span className="text-[var(--text-muted)]">Plan:</span>
               <span className="inline-flex items-center gap-1.5">
@@ -2277,7 +2267,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       ? "green"
                       : "red"
                     : null;
-                const showMoved = showPlanDrift && driftDir !== null && actualCx !== null;
+                const showMoved = driftDir !== null && actualCx !== null;
                 return (
                   <g
                     key={item.id}
@@ -2492,8 +2482,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       a late start to the left of the bar, an early finish to its
                       right — so nothing covers them and the bar keeps its edge.
                       Shadows, at the one phantom opacity, with no outline. */}
-                  {showPlanDrift &&
-                    driftPhantoms
+                  {driftPhantoms
                       .filter((ph) => ph.style === "phantom")
                       .map((ph) => (
                         <rect
@@ -2591,8 +2580,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       late) — so painted behind it they would be invisible at any
                       opacity. Red comes last within the group, so a slip wins
                       wherever two marks meet. */}
-                  {showPlanDrift &&
-                    driftPhantoms
+                  {driftPhantoms
                       .filter((ph) => ph.style === "striped")
                       .map((ph) => (
                         <rect

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.296.2",
+    date: "2026-08-25",
+    title: "The Timeline always shows planned against actual",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The Timeline now always shows each ticket\u2019s planned dates against what actually happened. The \u201cPlan drift\u201d toggle is gone \u2014 it is not an optional view of a Gantt, it is what a Gantt is for. A ticket planned for 28 Jul to 25 Sep that actually began on 11 Aug used to draw a single solid bar from 11 Aug to today and nothing else, unless you knew to switch a lens on; it now shows the late start in red to the left of the bar and the remaining planned time in green to the right, every time. Tickets that are running to plan look exactly as they did, because a mark only appears where the plan and the actuals disagree.",
+      },
+    ],
+  },
+  {
     version: "2.296.1",
     date: "2026-08-25",
     title: "The Timeline no longer invents dates for tickets that have none",
