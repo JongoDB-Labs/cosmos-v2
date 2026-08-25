@@ -195,6 +195,7 @@ enum IdpProtocol {
 // ─────────────────────────────────────────────
 
 model Organization {
+  flags Flag[]
   id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String
   slug           String      @unique
@@ -717,6 +718,7 @@ model Project {
   roadmapNodes        RoadmapNode[]
   projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
   journalLines        JournalLine[]
+  flags               Flag[]
   dataClassifications DataClassification[]
   documents           Document[]
   risks               Risk[]
@@ -1173,6 +1175,73 @@ model Note {
 
   @@index([orgId, visibility])
   @@map("notes")
+}
+
+/// How loudly a flag asks to be looked at.
+enum FlagSeverity {
+  INFO
+  WARNING
+  CRITICAL
+
+  @@map("flag_severity")
+}
+
+enum FlagStatus {
+  OPEN
+  /// The condition went away — cleared by the rule that raised it, not by a person.
+  RESOLVED
+  /// A person decided it does not matter. Stays closed even if the rule fires again.
+  DISMISSED
+
+  @@map("flag_status")
+}
+
+/// A condition worth someone's attention, standing until it stops being true.
+///
+/// NOT a Notification. A notification is addressed to one person, read once and
+/// gone; it answers "did anyone tell me". A flag is org-level state that answers
+/// "what is wrong right now", survives being read, carries a severity, and has a
+/// lifecycle. The two coexist: a rule may raise a flag AND notify, and the
+/// notification is how someone learns of it while the flag is what they come
+/// back to.
+///
+/// Rules raise and clear their own flags. Nothing here is written by hand except
+/// a dismissal, which is a person overriding a rule and therefore sticks.
+model Flag {
+  id       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId    String       @map("org_id") @db.Uuid
+  /// Stable identifier for the rule that raised this. Namespaced by the plugin
+  /// that owns it, e.g. "finance.burn.over-fee", so core and two plugins can
+  /// each raise flags without colliding.
+  /// Namespaced by convention so a plugin's rules cannot collide with core's.
+  rule     String
+  severity FlagSeverity
+  status   FlagStatus   @default(OPEN)
+  title    String
+  body     String       @default("")
+
+  /// What it is about, where core knows the entity.
+  projectId String? @map("project_id") @db.Uuid
+  userId    String? @map("user_id") @db.Uuid
+  /// ...and where it does not. A plugin's own subject — a fee phase, a milestone
+  /// — identified by type and id rather than a foreign key, because core cannot
+  /// carry a column for every plugin's entities and a nullable FK to a table
+  /// only one instance has is worse than a pair of strings.
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id")
+
+  raisedAt     DateTime  @default(now()) @map("raised_at")
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById String?   @map("resolved_by_id") @db.Uuid
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // "What is open right now", the only question this table is asked at speed.
+  @@index([orgId, status, severity])
+  // Every rule sweeps its own flags; this is the lookup that does it.
+  @@index([orgId, rule, status])
+  @@map("flags")
 }
 
 model Notification {
