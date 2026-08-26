@@ -51,7 +51,12 @@ cd <dir> && npm ci && npx prisma generate
 
 # Container image: never bake secrets in
 
-The image is signed and published to `ghcr.io/jongodb-labs/cosmos-v2` and may be **public** — treat its filesystem as world-readable. Never bake secrets or sensitive info into a layer:
+**Two images are built from this repo, and the one that runs is not the one that is signed.** Do not let "the image is signed" stand in for the thing in production:
+
+- `.github/workflows/release.yml` builds `ghcr.io/jongodb-labs/cosmos-v2`, generates a Syft SBOM, signs by digest with cosign and attaches SLSA build provenance. It may be **public**.
+- `cosmos/assembly` (GitLab) composes core + the private plugins and pushes `cosmos/assembly/<product>` to the **private registry**. **This is what Foreman deploys** — verified 2026-08-26 by inspecting the running container on the deployed host. Its `.gitlab-ci.yml` contains no cosign, no SBOM and no attestation step at all.
+
+So the deployed artifact is currently unsigned and unattested; the signing ceremony applies to an image nothing pulls. Treat every image filesystem as world-readable regardless — the private registry is access control, not confidentiality, and a layer's contents outlive any decision to publish it. Never bake secrets or sensitive info into a layer:
 
 - **Secrets are runtime-only.** Credentials, tokens, keys, and connection strings come from env / mounted secrets / the sealed `ConnectorCredential` store — never `COPY`/`ADD`'d in or set via `ENV`/`ARG`. The DB URL stays `env("DATABASE_URL")` in `prisma/schema.prisma`; never hardcode one.
 - **`NEXT_PUBLIC_*` is inlined into the public client bundle at build time** (`next.config.ts`), so it ships in readable JS. Only non-secret values may use that prefix (today: `APP_VERSION`, `PRODUCT`). Never put a secret behind a `NEXT_PUBLIC_*` name.
