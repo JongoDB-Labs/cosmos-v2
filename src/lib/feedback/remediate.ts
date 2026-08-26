@@ -8,7 +8,7 @@
 // Revisit if teamScopedAccess is ever promoted from a visibility default to a
 // hard boundary.
 import { prisma } from "@/lib/db/client";
-import { runModelTurn } from "@/lib/ai/egress";
+import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -78,7 +78,7 @@ export interface Triage {
 }
 
 export interface RemediationSummary {
-  skipped?: "not-enabled" | "no-ai-credential" | "no-target-project";
+  skipped?: "not-enabled" | "no-ai-credential" | "no-target-project" | "already-running";
   delivered: number;
   scanned: number;
   // Items whose per-item routing (own project / org default) landed outside the
@@ -226,9 +226,16 @@ async function triageOne(
     type: "BUG" | "FEATURE";
     telemetry: Prisma.JsonValue;
   },
+  /** Foreman's own model credential. MUST be passed: `runModelTurn` otherwise
+   *  resolves the ORG's provider, and this loop runs on Foreman's account. The
+   *  security judge and the intake guardrails already do this — triage was the
+   *  one call that did not, so every classification silently fell back to the
+   *  heuristic with "AI triage unavailable" and empty acceptance criteria. */
+  credential: ModelCredential | undefined,
 ): Promise<Triage> {
   try {
     const result = await runModelTurn({
+      credential,
       ctx: {
         orgId,
         conversationId: `feedback-triage-${item.id}`,
@@ -284,8 +291,17 @@ async function triageOne(
         source: "ai",
       };
     }
-  } catch {
-    // fall through to the heuristic — delivery must not depend on the model
+  } catch (e) {
+    // Fall through to the heuristic — delivery must not depend on the model.
+    //
+    // But SAY SO. This catch was silent, and that is why an entire production run
+    // of heuristic classifications ("AI triage unavailable", empty acceptance
+    // criteria) could not be diagnosed from outside: the reason was discarded at
+    // the only place that knew it. A fail-safe that leaves no evidence is
+    // indistinguishable from one that never fired.
+    console.warn(
+      `[feedback-triage] AI triage failed for ${item.id}; using the heuristic. ${String(e).slice(0, 300)}`,
+    );
   }
   return heuristicTriage(item);
 }
@@ -372,7 +388,50 @@ function buildDescription(
  * Returns a summary; `skipped` is set (and `delivered` is 0) when the org hasn't
  * opted in or the target project is unusable.
  */
+/**
+ * Orgs with a remediation run in flight IN THIS PROCESS.
+ *
+ * `deliveredAt` is the idempotency key, but it is stamped only on SUCCESS — so it
+ * says nothing about an item a run is working on right now. Two overlapping runs
+ * both see `deliveredAt: null`, both classify, and both create a work item for
+ * the same feedback row.
+ *
+ * Not hypothetical: a client fetch timed out at 45s while the run continued
+ * server-side, a second run was fired believing the first had not happened, and
+ * the pair produced **9 duplicate work items** in one window. A double-click on
+ * "Run now" does exactly the same thing.
+ *
+ * SCOPE, stated honestly: an in-process guard. It covers the realistic case —
+ * repeated triggers hitting one app instance — and does NOT coordinate across
+ * instances. A cross-instance lock needs a durable claim, and a session-level
+ * Postgres advisory lock is unsafe here because Prisma's pool can acquire and
+ * release it on different connections.
+ */
+const runningOrgs = new Set<string>();
+
 export async function runFeedbackRemediation(
+  orgId: string,
+  opts: { actorUserId: string; limit?: number },
+): Promise<RemediationSummary> {
+  // Reported as its own outcome rather than silently doing nothing, so a caller
+  // can tell "already running" from "nothing to do".
+  if (runningOrgs.has(orgId)) {
+    return {
+      skipped: "already-running",
+      delivered: 0, scanned: 0, skippedNoTarget: 0, held: 0, rejected: 0,
+      throttled: 0, gated: 0, items: [], flagged: [], throttledItems: [],
+      gatedItems: [], duplicates: 0, duplicateItems: [],
+    };
+  }
+  runningOrgs.add(orgId);
+  try {
+    return await runFeedbackRemediationInner(orgId, opts);
+  } finally {
+    runningOrgs.delete(orgId);
+  }
+}
+
+async function runFeedbackRemediationInner(
   orgId: string,
   opts: { actorUserId: string; limit?: number },
 ): Promise<RemediationSummary> {
@@ -738,7 +797,13 @@ export async function runFeedbackRemediation(
       }
     }
 
-    const triage = await triageOne(orgId, tenantClass, item);
+    // Same shape conversion the security judge and the intake guardrails do:
+    // resolveModelCredential yields { accessToken }, runModelTurn wants a tagged
+    // ModelCredential.
+    const triageCredential: ModelCredential | undefined = foremanCredential
+      ? { kind: "oauth", token: foremanCredential.accessToken }
+      : undefined;
+    const triage = await triageOne(orgId, tenantClass, item, triageCredential);
     const typeId = await resolveTypeId(target.projectTemplateId, triage.classification);
     if (!typeId) {
       // No matching built-in type in this sector — skip this item (leave it
