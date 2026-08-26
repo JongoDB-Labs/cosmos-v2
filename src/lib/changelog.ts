@@ -23,6 +23,21 @@ export const CHANGELOG: Release[] = [
   {
     version: "2.305.0",
     date: "2026-08-26",
+    title: "A rehearsal now leaves a record",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Running Foreman in its safe rehearsal mode recorded nothing at all, so the delivery card stayed empty while work was happening and there was no way to tell an idle system from a busy one. Rehearsals are now recorded and clearly marked.",
+      },
+      {
+        kind: "improvement",
+        text: "Rehearsals are kept out of the delivery figures. A rehearsal never ships by design, so counting it would have made the success rate look worse the more carefully you tested. The card reports how many rehearsals ran, separately, and says why they are excluded.",
+      },
+    ],
+  },
+  {
+    version: "2.305.0",
+    date: "2026-08-26",
     title: "Bring a trial balance in from your bookkeeping system",
     highlights: [
       {
