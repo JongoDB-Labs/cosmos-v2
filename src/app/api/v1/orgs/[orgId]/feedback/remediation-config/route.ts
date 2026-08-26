@@ -12,6 +12,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
+import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { pruneToProjects, readAutomationConfig, validateEnableGate } from "@/lib/feedback/automation-config";
@@ -77,12 +78,34 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       orderBy: { key: "asc" },
     });
 
-    // AI-connection gate (per maintainer directive): the loop only runs with a
-    // connected model provider. Surface it so the form can point the admin at
-    // Settings → AI instead of silently no-op'ing on the heuristic.
-    const ai = await getAiProviderStatus(orgId);
+    // AI-connection gate: the loop only runs with a connected model provider.
+    //
+    // FOREMAN'S OWN PROVIDER SATISFIES THIS FIRST, and that is the fix here.
+    // Both surfaces this gate guards — auto-triage and autonomous delivery — run
+    // on FOREMAN's Claude account, not the org's: the daemon reads
+    // `foreman_ai_settings` (see its own comment, "connected Foreman Claude
+    // subscription"), and Foreman registers that same credential as the
+    // feedback-intake model provider in its server hooks. The UI has always said
+    // so — "Connect Claude for Foreman to activate auto-triage".
+    //
+    // But `getAiProviderStatus` reads `org_ai_settings`, a DIFFERENT table. So
+    // connecting Claude in the Foreman console — the credential that actually
+    // does the work — left this gate false and the toggle greyed out, while the
+    // copy told the admin to do exactly what they had already done.
+    //
+    // `resolveModelCredential` is the sanctioned plugin→core seam
+    // (src/lib/ai/model-credential-provider.ts): Foreman registers its resolver
+    // at server boot, so core learns "Foreman is connected" without importing
+    // from @/plugins/** and without knowing the table exists. Fail-safe by
+    // construction — no plugin composed ⇒ no resolver ⇒ null ⇒ the org-level
+    // providers below still decide, exactly as before.
+    const [ai, foremanCredential] = await Promise.all([
+      getAiProviderStatus(orgId),
+      resolveModelCredential(orgId),
+    ]);
+    const foremanConnected = foremanCredential !== null;
     const aiConnected =
-      ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
+      foremanConnected || ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
 
     return success({
       ...pruneToProjects(readAutomationConfig(org.settings), new Set(projects.map((p) => p.id))),
@@ -91,6 +114,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       intakePolicy: readIntakePolicy(org.settings),
       projects,
       aiConnected,
+      // Which provider satisfied the gate, so the form can say whose account
+      // the loop will actually run on rather than leaving the admin to guess.
+      foremanConnected,
       aiProvider: ai.provider,
       claudeSubscription: ai.claudeOAuth,
     });

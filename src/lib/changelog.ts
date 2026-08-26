@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.303.1",
+    date: "2026-08-26",
+    title: "Connecting Claude to Foreman now actually enables Foreman",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Connecting Claude to Foreman left the auto-triage and autonomous-delivery switches greyed out, with a message asking you to connect Claude for Foreman \u2014 which you had just done. Foreman keeps its own model connection, separate from the organisation-wide one, and the switches were checking the organisation's rather than Foreman's. They now recognise Foreman's own connection.",
+      },
+    ],
+  },
+  {
     version: "2.303.0",
     date: "2026-08-26",
     title: "Foreman has a rollout stage you can set, and it starts safe",
