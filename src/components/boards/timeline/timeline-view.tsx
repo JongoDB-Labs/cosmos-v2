@@ -15,7 +15,6 @@ import {
   Loader2,
   Ban,
   EyeOff,
-  Wrench,
   Waypoints,
   Undo2,
   Redo2,
@@ -479,7 +478,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // what make a path read as critical. Hiding them leaves a chain floating with
   // nothing to be critical RELATIVE to.
   const [criticalIsolate, setCriticalIsolate] = useState(true);
-  const [showEnablers, setShowEnablers] = useState(false);
   // Zoom replaces the old Compress/Expand controls. Those MUTATED the schedule —
   // they rewrote every item's dates by a factor, which is a destructive way to
   // get a wider or narrower picture. Zoom changes only how the same dates are
@@ -536,11 +534,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       ),
     [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap, hideDone, doneKeys],
   );
-  const hasEnablers = useMemo(
-    () => filteredItems.some((it) => it.workCategory === "ENABLER"),
-    [filteredItems],
-  );
-
   // ── Hierarchy rows (FR f396a6a9) ─────────────────────────────────────────
   // Depth-first parent→children row order with per-parent collapse. Collapsing a
   // parent hides its whole subtree (rows, bars, and arrows all key off the row
@@ -1433,14 +1426,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               accent="var(--status-done)"
             />
             <LensToggle
-              active={showEnablers}
-              onClick={() => setShowEnablers((v) => !v)}
-              icon={<Wrench className="size-3.5" />}
-              label="Enablers"
-              title="Emphasize enabler work (architecture, infra, compliance) vs. business value"
-              accent="var(--type-enabler, #0891b2)"
-            />
-            <LensToggle
               active={showDeps}
               onClick={() => {
                 setShowDeps((v) => !v);
@@ -1634,18 +1619,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               </span>
               <span className="text-[var(--text-muted)]">striped where it overlaps actual work</span>
             </>
-          )}
-          {hasEnablers && (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-block h-2.5 w-5 rounded-sm bg-muted-foreground/30"
-                style={{
-                  backgroundImage:
-                    "repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 2px, transparent 2px 5px)",
-                }}
-              />
-              Enabler work
-            </span>
           )}
         </div>
       )}
@@ -1952,24 +1925,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               <marker id="timeline-dep-arrow-down" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#0ea5e9" />
               </marker>
-              {/* Diagonal hatch overlay marking ENABLER work (architecture,
-                  infra, compliance) — a texture that reads regardless of the
-                  bar's type color. */}
-              <pattern
-                id="timeline-enabler-hatch"
-                width="6"
-                height="6"
-                patternTransform="rotate(45)"
-                patternUnits="userSpaceOnUse"
-              >
-                <rect width="6" height="6" fill="transparent" />
-                {/* Reads as ~1 wide, not 2 — the tile clips its content, so a
-                    stroke centred on x=0 loses its left half. Same trap as the
-                    red drift hatch below, and left alone for the same measured
-                    reason: the clipped edge is hard, and that is what makes the
-                    texture crisp. */}
-                <line x1="0" y1="0" x2="0" y2="6" stroke="white" strokeWidth="2" opacity="0.55" />
-              </pattern>
               {/* Drift stripes — a MATCHED PAIR, identical but for the hue,
                   because green and red are the two ends of one axis and any
                   difference in texture would read as a difference in kind.
@@ -2165,16 +2120,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               const prog = progressOf(item, doneKeys);
               const isSelected = selectedIds.has(item.id);
               const isCrit = showCritical && criticalSet.has(item.id);
-              const isEnabler = item.workCategory === "ENABLER";
               // Blocked lens: impeded work turns red and everything else recedes,
               // so a board of any size answers "what is stuck" at a glance.
               // Dimmed rather than hidden — a blocker is usually NOT itself
               // blocked, and hiding it would remove the thing the arrow points at.
               const isBlocked = showBlocked && blockedIds.has(item.id);
               const dimForBlockedLens = showBlocked && !isBlocked ? 0.35 : 1;
-              // Business items dim slightly while the Enabler lens is on so the
-              // hatched enablers pop; enablers keep full opacity.
-              const dimForEnablerLens = showEnablers && !isEnabler ? 0.4 : 1;
               // Dependency hover-focus: fade bars outside the hovered item neighborhood.
               const depDim = depFocus && !depFocus.all.has(item.id) ? 0.22 : 1;
               // Isolate the chosen path: everything off it recedes so the path
@@ -2182,12 +2133,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // the plan visible to be critical relative to anything.
               const critDim = showCritical && criticalIsolate && !isCrit ? 0.15 : 1;
               // ONE dim, not four multiplied together. Four active lenses used to
-              // reach 0.85 x 0.4 x 0.35 x 0.22 x 0.15 — about 0.4% opacity, a bar
+              // reach 0.85 x 0.35 x 0.22 x 0.15 — well under 1% opacity, a bar
               // present in the DOM and invisible on screen. Taking the STRONGEST
               // single factor keeps every dimmed element at a predictable level,
               // so planned-vs-actual and the outline marks stay legible however
               // many lenses are on.
-              const lensDim = Math.min(dimForEnablerLens, dimForBlockedLens, depDim, critDim);
+              const lensDim = Math.min(dimForBlockedLens, depDim, critDim);
 
               // PRIMARY (solid) = the ACTUAL span at real dates. The plan shows up
               // as drift PHANTOMS around it — amber/green for the start, red for an
@@ -2197,7 +2148,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // (future/planning items) and no phantom is drawn.
               const plannedStartD = item.startDate ? startOfDay(new Date(item.startDate)) : null;
               const actualStartD = item.actualStart ? startOfDay(new Date(item.actualStart)) : null;
-              const actualEndD = item.completedAt ? startOfDay(new Date(item.completedAt)) : today;
+              const plannedEndD = item.dueDate ? startOfDay(new Date(item.dueDate)) : null;
+              const completedAtD = item.completedAt ? startOfDay(new Date(item.completedAt)) : null;
+              // Where the SOLID bar reaches: the completion, or today while the
+              // work is still running. Geometry only — never a source of colour.
+              const actualEndD = completedAtD ?? today;
               let actualBar: { x: number; w: number } | null = null;
               if (actualStartD) {
                 const ax = diffDays(timelineStart, actualStartD) * dayWidth;
@@ -2207,7 +2162,36 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // Nothing has been actioned: no actual start, and the work has not
               // been moved into a started column. Such a bar is a PLAN, not progress,
               // and is drawn as a phantom so the two are not confused at a glance.
-              const notStarted = !actualStartD && !item.completedAt;
+              // Solid means the work actually STARTED. Without an actual start
+              // there is no real span to draw, so the planned dates are all the
+              // chart can honestly show — as a phantom.
+              const notStarted = !actualStartD;
+              // The PLANNED span, in its own coordinates — once work starts the
+              // row's x/w follow the actuals, so the plan has to be measured
+              // separately or it cannot be drawn behind the bar.
+              //
+              // MINUS whatever a drift mark has already claimed. A drifted end
+              // does not sit UNDER its colour, it TURNS that colour: drawing the
+              // neutral span beneath a translucent red composited the two into a
+              // muddy mauve that read as neither. A late start eats the plan's
+              // head; an early finish eats its tail; the drifts that land
+              // OUTSIDE the plan (an early start, a late finish) leave it whole.
+              const neutralFrom =
+                plannedStartD && actualStartD && actualStartD > plannedStartD
+                  ? actualStartD
+                  : plannedStartD;
+              const neutralTo =
+                plannedEndD && completedAtD && completedAtD < plannedEndD
+                  ? completedAtD
+                  : plannedEndD;
+              const hasNeutral =
+                neutralFrom !== null && neutralTo !== null && neutralTo > neutralFrom;
+              const plannedSpanX = hasNeutral
+                ? diffDays(timelineStart, neutralFrom!) * dayWidth
+                : null;
+              const plannedSpanW = hasNeutral
+                ? Math.max(diffDays(neutralFrom!, neutralTo!) * dayWidth, 2)
+                : null;
               const primaryX = actualBar ? actualBar.x : x;
               const primaryW = actualBar ? actualBar.w : w;
               // Where the PLAN disagreed with the actuals. Each end is judged on
@@ -2217,15 +2201,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
               // Returned in paint order — phantoms first, then stripes, red last.
               const driftPhantoms = planDriftPhantoms({
                 plannedStart: plannedStartD,
-                plannedEnd: item.dueDate ? startOfDay(new Date(item.dueDate)) : null,
+                plannedEnd: plannedEndD,
                 actualStart: actualStartD,
-                // A REAL end only: a completion, or today for something known to
-                // be RUNNING. Never the bare `today` fallback for work that has
-                // not started, or every un-started overdue item sprouts a red
-                // tail it has not earned. An item completed with no recorded
-                // start DOES belong here — its slip is real, and gating this on
-                // actualStart is what used to hide it.
-                actualEnd: actualStartD || item.completedAt ? actualEndD : null,
+                // Colour comes ONLY from a real completion. A running item has
+                // not finished, so nothing about its end is ahead or behind yet
+                // — the plan it has left is drawn neutrally below.
+                completedAt: completedAtD,
+                // Where the solid bar reaches, for geometry alone.
+                barEnd: actualStartD ? actualEndD : null,
               }).map((ph) => ({
                 color: ph.color,
                 style: ph.style,
@@ -2341,9 +2324,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           ? "var(--status-critical)"
                           : isCrit
                             ? "var(--status-critical)"
-                            : isEnabler && showEnablers
-                              ? "var(--type-enabler, #0891b2)"
-                              : colors.stroke
+                            : colors.stroke
                       }
                       // Lateness is carried by the drift connector now, so the
                       // outline is left to mean what it means on every other
@@ -2453,13 +2434,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         isBlocked
                           ? "var(--status-critical)"
                           : isCrit
-                          ? "var(--status-critical)"
-                          : isEnabler && showEnablers
-                            ? "var(--type-enabler, #0891b2)"
+                            ? "var(--status-critical)"
                             : colors.stroke
                       }
-                      strokeWidth={isBlocked || isCrit ? 2.5 : isEnabler ? 1.5 : 1}
-                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      strokeWidth={isBlocked || isCrit ? 2.5 : 1}
                       opacity={(preview ? 1 : notStarted ? PHANTOM_OPACITY : 1) * lensDim}
                       onPointerDown={(e) => beginDrag(item, "move", e)}
                       onPointerMove={onDragMove}
@@ -2478,6 +2456,31 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       className={canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}
                     />
                   ) : null}
+                  {/* The PLAN itself, reaching across its own dates, behind
+                      everything. Neutral — the bar's own colour, at the one
+                      phantom opacity — because a plan is not an achievement:
+                      red and green are claims about how the work turned out and
+                      are only ever made from dates that actually happened.
+
+                      Only drawn once work has STARTED. Before that the row's own
+                      bar already is the planned span, and drawing a second copy
+                      underneath it would just thicken the edges. */}
+                  {actualBar && plannedSpanX !== null && plannedSpanW !== null && (
+                    <rect
+                      data-testid={`gantt-planned-${item.id}`}
+                      x={plannedSpanX}
+                      y={y}
+                      width={plannedSpanW}
+                      height={h}
+                      rx={4}
+                      fill={colors.fill}
+                      stroke="none"
+                      opacity={PHANTOM_OPACITY * lensDim}
+                      onClick={(e) => onBarClick(item, e)}
+                      onDoubleClick={() => setDetailId(item.id)}
+                      className="cursor-pointer"
+                    />
+                  )}
                   {/* PHANTOM marks, BEHIND the bar. These land on bare canvas —
                       a late start to the left of the bar, an early finish to its
                       right — so nothing covers them and the bar keeps its edge.
@@ -2528,12 +2531,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                           ? "var(--status-critical)"
                           : isCrit
                             ? "var(--status-critical)"
-                            : isEnabler && showEnablers
-                              ? "var(--type-enabler, #0891b2)"
-                              : colors.stroke
+                            : colors.stroke
                       }
-                      strokeWidth={isBlocked || isCrit ? 2.5 : isEnabler ? 1.5 : 1}
-                      strokeDasharray={isEnabler ? "5 3" : undefined}
+                      strokeWidth={isBlocked || isCrit ? 2.5 : 1}
                       // Fully solid. Actual dates are SOLID and planned dates are
                       // shadows; anything less than 1 here blurs that line.
                       opacity={1 * lensDim}
@@ -2559,19 +2559,6 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                       rx={4}
                       fill={colors.stroke}
                       opacity={preview ? 0.65 : 0.5}
-                      style={{ pointerEvents: "none" }}
-                    />
-                  )}
-                  {/* Enabler texture on the primary. */}
-                  {isEnabler && (
-                    <rect
-                      x={primaryX}
-                      y={y}
-                      width={primaryW}
-                      height={h}
-                      rx={4}
-                      fill="url(#timeline-enabler-hatch)"
-                      opacity={showEnablers ? 1 : 0.6}
                       style={{ pointerEvents: "none" }}
                     />
                   )}
