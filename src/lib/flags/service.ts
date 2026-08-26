@@ -100,10 +100,21 @@ export async function dismissFlag(orgId: string, id: string, byId: string) {
  *
  * Resolved, never deleted. "This was true in March and is not now" is worth
  * keeping; a flag that vanishes leaves nobody able to ask whether it recurred.
+ *
+ * `scope` is what makes a rule safe to run for ONE project (or one person)
+ * rather than the whole org. Without it the sweep considers every open flag the
+ * rule has ever raised, so a run that only looked at project A would clear
+ * project B's flags -- B was not in `keep`, because the run never examined it.
+ * That failure is silent and looks exactly like the flags correctly clearing.
  */
-export async function sweepRule(orgId: string, rule: string, keep: FlagSubject[]) {
+export async function sweepRule(
+  orgId: string,
+  rule: string,
+  keep: FlagSubject[],
+  scope?: SweepScope,
+) {
   const open = await prisma.flag.findMany({
-    where: { orgId, rule, status: "OPEN" },
+    where: { orgId, rule, status: "OPEN", ...scopeWhere(scope) },
     select: { id: true, projectId: true, userId: true, subjectType: true, subjectId: true },
   });
   const live = new Set(keep.map((s) => subjectKey(rule, s)));
@@ -116,6 +127,21 @@ export async function sweepRule(orgId: string, rule: string, keep: FlagSubject[]
     data: { status: "RESOLVED", resolvedAt: new Date() },
   });
   return count;
+}
+
+/**
+ * Narrows which open flags a sweep may clear. `undefined` on a field means "do
+ * not narrow on it"; an explicit `null` means "only flags with no project/user",
+ * which is how an org-level rule sweeps without touching per-project flags.
+ */
+export type SweepScope = { projectId?: string | null; userId?: string | null };
+
+function scopeWhere(scope: SweepScope | undefined): Prisma.FlagWhereInput {
+  if (!scope) return {};
+  return {
+    ...("projectId" in scope ? { projectId: scope.projectId } : {}),
+    ...("userId" in scope ? { userId: scope.userId } : {}),
+  };
 }
 
 /** What is wrong right now, worst first. */

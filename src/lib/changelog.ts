@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.299.0",
+    date: "2026-08-25",
+    title: "Clearing flags one project at a time",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "An automated check that examines a single project can now clear only that project's flags. A check knows what is wrong in what it just looked at, so without this it would read every other project's flag as \u201cno longer a problem\u201d and clear it \u2014 which looks identical to the flags correctly resolving themselves.",
+      },
+    ],
+  },
+  {
     version: "2.298.0",
     date: "2026-08-25",
     title: "Flags: a standing list of what needs attention",

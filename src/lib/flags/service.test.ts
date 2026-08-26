@@ -168,6 +168,61 @@ describe("sweepRule", () => {
   });
 });
 
+describe("sweepRule scope", () => {
+  const openFlagRows = [
+    { id: "a1", projectId: "p1", userId: null, subjectType: null, subjectId: null },
+    { id: "b1", projectId: "p2", userId: null, subjectType: null, subjectId: null },
+  ];
+
+  it("narrows the candidates to the scope, so an unexamined project is untouched", async () => {
+    // The bug this exists to prevent: a rule run for ONE project reports what
+    // is live in that project only. Sweeping the whole rule would read every
+    // other project's flag as "no longer in keep" and clear it -- silently,
+    // and looking exactly like the flags correctly clearing.
+    prisma.flag.findMany.mockResolvedValue([openFlagRows[0]]);
+    prisma.flag.updateMany.mockResolvedValue({ count: 1 });
+    await sweepRule(ORG, RULE, [], { projectId: "p1" });
+    expect(prisma.flag.findMany.mock.calls[0][0].where).toMatchObject({
+      orgId: ORG,
+      rule: RULE,
+      status: "OPEN",
+      projectId: "p1",
+    });
+    expect(prisma.flag.updateMany.mock.calls[0][0].where.id.in).toEqual(["a1"]);
+  });
+
+  it("without a scope, considers every open flag for the rule", async () => {
+    prisma.flag.findMany.mockResolvedValue(openFlagRows);
+    prisma.flag.updateMany.mockResolvedValue({ count: 2 });
+    await sweepRule(ORG, RULE, []);
+    expect(prisma.flag.findMany.mock.calls[0][0].where).not.toHaveProperty("projectId");
+    expect(prisma.flag.updateMany.mock.calls[0][0].where.id.in.sort()).toEqual(["a1", "b1"]);
+  });
+
+  it("an explicit null scopes to org-level flags rather than meaning 'any'", async () => {
+    // `{ projectId: null }` and a missing key are different requests: the first
+    // says "only flags attached to no project", the second says "do not narrow".
+    prisma.flag.findMany.mockResolvedValue([]);
+    await sweepRule(ORG, RULE, [], { projectId: null });
+    expect(prisma.flag.findMany.mock.calls[0][0].where.projectId).toBeNull();
+  });
+
+  it("scopes by user as well as project", async () => {
+    prisma.flag.findMany.mockResolvedValue([]);
+    await sweepRule(ORG, RULE, [], { userId: "u1" });
+    const where = prisma.flag.findMany.mock.calls[0][0].where;
+    expect(where.userId).toBe("u1");
+    expect(where).not.toHaveProperty("projectId");
+  });
+
+  it("still resolves rather than deletes when scoped", async () => {
+    prisma.flag.findMany.mockResolvedValue([openFlagRows[0]]);
+    prisma.flag.updateMany.mockResolvedValue({ count: 1 });
+    await sweepRule(ORG, RULE, [], { projectId: "p1" });
+    expect(prisma.flag.updateMany.mock.calls[0][0].data).toMatchObject({ status: "RESOLVED" });
+  });
+});
+
 describe("dismissFlag", () => {
   it("dismisses an open flag and records who did it", async () => {
     prisma.flag.updateMany.mockResolvedValue({ count: 1 });
