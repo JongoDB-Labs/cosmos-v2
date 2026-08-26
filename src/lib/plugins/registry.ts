@@ -125,6 +125,19 @@ export type PluginToolContext = { orgId: string; userId: string };
 
 /** SERVER-ONLY contributions, registered separately (registry/server.ts) so they
  *  never enter a client bundle. */
+/**
+ * What one rule did on a single run. Counts, not payloads: a scheduler reads
+ * this to tell a working run from a broken one, and it must not become a
+ * channel for org data to leave through a machine account's log.
+ */
+export type RuleRunSummary = {
+  /** Namespaced, e.g. "<plugin>.<rule>" -- so two plugins cannot collide. */
+  rule: string;
+  raised: number;
+  resolved: number;
+  notified?: number;
+};
+
 export type PluginServerHooks = {
   /** Must match a registered manifest slug. */
   slug: string;
@@ -174,6 +187,17 @@ export type PluginServerHooks = {
     args: Record<string, unknown>,
     ctx: PluginToolContext,
   ) => Promise<unknown | undefined>;
+  /**
+   * Evaluate this plugin's standing rules for an org, raising and sweeping
+   * flags. Called periodically, and safe to call at any time: a rule is
+   * expected to be idempotent, because it will be.
+   *
+   * Only invoked when the plugin is enabled AND licensed for the org. A throw
+   * is caught and reported per-plugin, so one plugin cannot starve the rest --
+   * but it IS reported, not swallowed, because a scheduled run that always
+   * claims success hides a rule that stopped working months ago.
+   */
+  runRules?: (prisma: PrismaClient, orgId: string) => Promise<RuleRunSummary[]>;
   /** Adapter/integration descriptors, forwarded to IntegrationRegistry.register()
    *  by registry/server.ts (they carry sector tags the integrations UI already
    *  understands). */
