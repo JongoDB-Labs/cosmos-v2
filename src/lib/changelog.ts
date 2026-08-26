@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.311.0",
+    date: "2026-08-26",
+    title: "Your feedback draft survives picking a Type or Project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Choosing an option in the submit-feedback form's Type or Project dropdown could dismiss the whole form, so you had to reopen it and re-edit a half-finished draft to file anything with those fields set. The form now stays put — pick a Type and Project and submit in one pass — and it no longer disappears if you click past it while typing. Cancel, the X and Escape still close it.",
+      },
+    ],
+  },
+  {
     version: "2.310.0",
     date: "2026-08-26",
     title: "Auto-triage actually asks the AI now, and says so when it can't",
