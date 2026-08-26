@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket, History } from "lucide-react";
+import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket, History, Puzzle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -455,6 +455,8 @@ export function UpdatesManager() {
       {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
       <LastDeployCard />
 
+      <PluginVersionsCard />
+
       {data.preflights.length > 0 && (
         <SectionCard
           icon={AlertTriangle}
@@ -474,5 +476,113 @@ export function UpdatesManager() {
         </SectionCard>
       )}
     </div>
+  );
+}
+
+type PluginOrg = {
+  orgId: string;
+  orgName: string;
+  enabledVersion: string | null;
+  upToDate: boolean;
+};
+
+type PluginStatus = {
+  slug: string;
+  name: string;
+  deployedVersion: string | null;
+  behind: PluginOrg[];
+  current: PluginOrg[];
+};
+
+/**
+ * Plugin versions, and applying an upgrade that has not happened on its own.
+ *
+ * A plugin's CODE is never out of date — it was composed into this image. What
+ * lags is the per-org record of which version last ran its upgrade hook, and
+ * core compares that record to decide whether to run it again. It lags for an
+ * ordinary reason: reconciliation happens when somebody opens the plugin, so an
+ * org that has not opened it since the release has not reconciled, and one that
+ * never opens it never will.
+ *
+ * That is harmless for an idempotent seed and not harmless for anything that has
+ * to happen once, which is why this offers a button rather than an explanation.
+ */
+function PluginVersionsCard() {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const q = useQuery({
+    queryKey: ["admin", "updates", "plugins"],
+    queryFn: () => jsonFetch<{ plugins: PluginStatus[] }>("/api/v1/admin/updates/plugins"),
+  });
+
+  const apply = useMutation({
+    mutationFn: (slug: string) =>
+      jsonFetch<{ reconciled: number; failed: { orgName: string }[] }>(
+        "/api/v1/admin/updates/plugins",
+        { method: "POST", body: JSON.stringify({ slug }) },
+      ),
+    onSettled: () => {
+      setBusy(null);
+      void qc.invalidateQueries({ queryKey: ["admin", "updates", "plugins"] });
+    },
+  });
+
+  const plugins = q.data?.plugins ?? [];
+  if (q.isLoading || plugins.length === 0) return null;
+
+  const anyBehind = plugins.some((p) => p.behind.length > 0);
+
+  return (
+    <SectionCard
+      icon={Puzzle}
+      title="Plugins"
+      description={
+        anyBehind
+          ? "Installed with this image. Some organisations have not run the new version's upgrade step yet."
+          : "Installed with this image, and every organisation is on the current version."
+      }
+    >
+      <ul className="divide-y">
+        {plugins.map((p) => (
+          <li key={p.slug} className="flex flex-wrap items-center gap-3 py-3">
+            <div className="min-w-40 flex-1">
+              <span className="font-medium">{p.name}</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {p.deployedVersion ?? "no version declared"}
+              </span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {p.behind.length === 0
+                  ? `${p.current.length} organisation${p.current.length === 1 ? "" : "s"} up to date`
+                  : `${p.behind.length} behind: ${p.behind
+                      .map((o) => `${o.orgName} (${o.enabledVersion ?? "never run"})`)
+                      .join(", ")}`}
+              </p>
+            </div>
+            {p.behind.length === 0 ? (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" aria-hidden /> Current
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => {
+                  setBusy(p.slug);
+                  apply.mutate(p.slug);
+                }}
+              >
+                {busy === p.slug ? "Applying…" : "Apply upgrade"}
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
+        This does not change the image. It runs each plugin&rsquo;s own upgrade step for the
+        organisations that have not reached it yet &mdash; the same step that would run by itself
+        the next time somebody opened that plugin.
+      </p>
+    </SectionCard>
   );
 }
