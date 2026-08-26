@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.307.0",
+    date: "2026-08-26",
+    title: "Foreman's Claude connection is recognised where it is actually used",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Feedback automation told administrators to connect Claude for Foreman while it was already connected and working, and kept the auto-triage toggle greyed out. The connection was fine; the page was asking a component that had never been told about it. The banner and the toggle now reflect the real connection.",
+      },
+      {
+        kind: "fix",
+        text: "The same fault silently disabled both feedback intake judges \u2014 duplicate detection and the security review. They are designed to stand down rather than guess when no AI provider is available, so they reported nothing wrong while never running. They now see the connection and run.",
+      },
+    ],
+  },
+  {
     version: "2.306.0",
     date: "2026-08-26",
     title: "Foreman's delivery history starts recording again \u2014 and can now prove it wasn't edited",

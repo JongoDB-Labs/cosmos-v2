@@ -26,6 +26,13 @@ import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { delimitUntrustedFeedback, type GuardrailCategory, type GuardrailResult } from "./guardrails";
 
+// Loads the plugin server hooks, which is what REGISTERS the model-credential
+// provider. Without it `resolveModelCredential` below returns null no matter how
+// the org is configured — the resolver is a module-level singleton, and nothing
+// else in this file's import graph pulls the registry in. See the arch test in
+// src/lib/ai/__tests__/model-credential-registration.arch.test.ts.
+import "@/lib/plugins/registry/server";
+
 export interface SecurityJudgeVerdict {
   /** true ⇒ raise a would-be "allow" to "hold". */
   flag: boolean;
