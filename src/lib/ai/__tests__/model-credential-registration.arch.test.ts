@@ -92,6 +92,69 @@ describe("feedback-pipeline AI gates", () => {
   });
 });
 
+/**
+ * Every model call in the feedback pipeline must pass an EXPLICIT credential.
+ *
+ * `runModelTurn` takes an optional `credential` and, without one, resolves the
+ * ORG's provider. This pipeline runs on FOREMAN's account, so omitting it sends
+ * the call to a store that is empty on any org that connected Claude for Foreman
+ * and nothing else. The call then throws into a fallback.
+ *
+ * That is not hypothetical either: `triageOne` was the one call site that did not
+ * pass one, so an entire production run classified every item with the heuristic
+ * — "AI triage unavailable", empty acceptance criteria — while the security judge
+ * and the intake guardrails, which do pass one, worked fine beside it.
+ */
+const MODEL_CALL = /\b(?:runModelTurn|runTurn)\s*\(\s*\{/g;
+
+describe("feedback-pipeline model calls", () => {
+  const callers = files.filter((f) => {
+    const rel = relative(ROOT, f);
+    if (!FEEDBACK_PIPELINE.test(rel)) return false;
+    const src = readFileSync(f, "utf8");
+    MODEL_CALL.lastIndex = 0;
+    return MODEL_CALL.test(src);
+  });
+
+  it("finds model calls at all — a silent zero would make this vacuous", () => {
+    expect(callers.length).toBeGreaterThan(0);
+  });
+
+  it.each(callers.map((f) => [relative(ROOT, f), f] as const))(
+    "%s passes an explicit credential to every model call",
+    (rel, full) => {
+      const src = readFileSync(full, "utf8");
+      const missing: number[] = [];
+      MODEL_CALL.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = MODEL_CALL.exec(src)) !== null) {
+        // Balance braces to get the call's ACTUAL options object. A fixed-size
+        // window is not good enough: these call objects carry a system prompt,
+        // a messages array and tool schemas, so `credential` can sit hundreds of
+        // characters past the opening brace. A window that is too small reports a
+        // correctly-wired call as broken — which this test did on its first
+        // version, against intake-guardrails.ts.
+        const open = src.indexOf("{", m.index);
+        let depth = 0;
+        let end = open;
+        for (let i = open; i < src.length; i++) {
+          if (src[i] === "{") depth++;
+          else if (src[i] === "}") {
+            depth--;
+            if (depth === 0) { end = i; break; }
+          }
+        }
+        if (!/\bcredential\b/.test(src.slice(open, end + 1))) missing.push(m.index);
+      }
+      expect(
+        missing,
+        `${rel} calls the model without an explicit credential, so it resolves the ` +
+          `ORG provider. This pipeline runs on Foreman's account — pass one.`,
+      ).toEqual([]);
+    },
+  );
+});
+
 describe("model-credential registration", () => {
   it("finds callers at all — a silent zero here would make this test vacuous", () => {
     expect(callers.length).toBeGreaterThan(0);

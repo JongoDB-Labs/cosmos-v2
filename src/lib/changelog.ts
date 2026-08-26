@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.310.0",
+    date: "2026-08-26",
+    title: "Auto-triage actually asks the AI now, and says so when it can't",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Auto-triage was classifying every item with its simple keyword fallback instead of the AI, because the request was sent without Foreman's account attached and quietly failed. Tickets came out with a generic rationale and no acceptance criteria, which is also what the build agent then had to work from. It now uses Foreman's account, and when a classification genuinely can't reach the model it records the reason instead of discarding it.",
+      },
+      {
+        kind: "fix",
+        text: "Running auto-triage twice at once \u2014 a double-click, or re-trying after the page appeared to time out \u2014 created two work items for the same piece of feedback. A run now refuses to start while another is already going for that organisation, and says that is why.",
+      },
+    ],
+  },
+  {
     version: "2.309.0",
     date: "2026-08-26",
     title: "Foreman stops vouching for numbers it never measured",
