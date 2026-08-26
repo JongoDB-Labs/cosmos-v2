@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.309.0",
+    date: "2026-08-26",
+    title: "Foreman stops vouching for numbers it never measured",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman's delivery screen was reporting that its planning engine agreed with what actually shipped, and offering that as grounds for letting the engine run unsupervised \u2014 based on a log that had recorded nothing for four weeks. Agreement was being inferred from an absence of disagreements that nobody had looked for. The screen now says when nothing was recorded, and withholds the claim rather than making it.",
+      },
+      {
+        kind: "fix",
+        text: "Auto-triage was refusing to run at all. Its check for a connected AI account looked only at the organisation's provider, while the work is done by Foreman's own account \u2014 so an organisation that had connected Claude for Foreman and nothing else was turned away every run. The previous release fixed the same confusion on the settings page but not in the worker behind it, which briefly made things worse: the page reported ready and enabled the control while nothing behind it would run.",
+      },
+      {
+        kind: "improvement",
+        text: "The delivery screen now warns, with the reason, when Foreman is failing to record its history, and reports whether that history has been altered since it was written \u2014 distinguishing a record nobody touched from one that was never written, which are different facts.",
+      },
+      {
+        kind: "fix",
+        text: "The instructions Foreman gives its build agent were written in July and never revisited, so they described where the code used to live and wrongly claimed a class of tests could not be run. They are rewritten, now refresh themselves whenever Foreman restarts, and a build fails if they ever again refer to a file that does not exist.",
+      },
+    ],
+  },
+  {
     version: "2.308.0",
     date: "2026-08-26",
     title: "Add-on versions, and applying an upgrade that has not happened yet",

@@ -53,6 +53,45 @@ const files = walk(SRC).filter((f) => {
 
 const callers = files.filter((f) => readFileSync(f, "utf8").includes(CALL));
 
+/**
+ * The feedback pipeline runs on FOREMAN's Claude account, not the org's. So any
+ * gate in it that asks "is a model connected?" must consider Foreman's provider,
+ * not only `org_ai_settings`.
+ *
+ * Getting this wrong once cost a four-week outage of a different kind: the
+ * remediation worker skipped every run with `no-ai-credential` while Foreman's
+ * subscription sat connected in another table. Fixing only the CONFIG endpoint
+ * (2.307.0) made it briefly worse — the screen reported "connected" and enabled
+ * the toggle while the worker still refused to run, which is a false green with a
+ * UI attached.
+ */
+const FEEDBACK_PIPELINE = /^src\/(lib\/feedback\/|app\/api\/v1\/orgs\/\[orgId\]\/feedback\/)/;
+const ORG_ONLY_STATUS = "getAiProviderStatus";
+
+describe("feedback-pipeline AI gates", () => {
+  const gates = files.filter((f) => {
+    const rel = relative(ROOT, f);
+    return FEEDBACK_PIPELINE.test(rel) && readFileSync(f, "utf8").includes(ORG_ONLY_STATUS);
+  });
+
+  it("finds the gates at all — a silent zero would make this vacuous", () => {
+    expect(gates.length).toBeGreaterThan(0);
+  });
+
+  it("every one also considers Foreman's own provider", () => {
+    const orgOnly = gates
+      .filter((f) => !readFileSync(f, "utf8").includes(CALL))
+      .map((f) => relative(ROOT, f));
+    expect(
+      orgOnly,
+      `These gate the feedback pipeline on ${ORG_ONLY_STATUS} alone, which reads ` +
+        `org_ai_settings. Foreman runs on its OWN credential (foreman_ai_settings), ` +
+        `so an org with Claude connected for Foreman and nothing else is refused. ` +
+        `Also consider ${CALL}().`,
+    ).toEqual([]);
+  });
+});
+
 describe("model-credential registration", () => {
   it("finds callers at all — a silent zero here would make this test vacuous", () => {
     expect(callers.length).toBeGreaterThan(0);
