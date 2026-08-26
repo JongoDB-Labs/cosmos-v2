@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.298.0",
+    date: "2026-08-25",
+    title: "Flags: a standing list of what needs attention",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Automated checks can now raise a flag that stays up until the situation behind it actually changes. A notification tells one person once and is gone the moment they read it; a flag is visible to everyone, carries a severity, and can be traced back to the rule that raised it \u2014 so \u201cthis project is over its fee\u201d is something the team can still see next week.",
+      },
+      {
+        kind: "improvement",
+        text: "Flags clear themselves. When the condition that raised one stops being true, the flag is marked resolved rather than deleted, so you can still see that it happened and whether it has come back. Dismissing a flag sticks: a check that keeps finding the same thing will not re-raise something you have already judged to be fine.",
+      },
+    ],
+  },
+  {
     version: "2.297.0",
     date: "2026-08-25",
     title: "Work in progress no longer claims to have finished early",
