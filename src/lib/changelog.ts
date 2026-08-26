@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.304.0",
+    date: "2026-08-26",
+    title: "Connect GitLab to Foreman from the console",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman's Connections settings now offer GitLab alongside GitHub, so the plugin repositories hosted there can be given a read-only token. Until now only GitHub could be connected, which left the plugin releases card comparing against copies that had stopped being updated.",
+      },
+      {
+        kind: "improvement",
+        text: "The connection form checks the token against GitLab before saving it, and explains the common mistake up front: a deploy token looks like the right credential but only works for cloning, not for reading project details.",
+      },
+    ],
+  },
+  {
     version: "2.303.1",
     date: "2026-08-26",
     title: "Connecting Claude to Foreman now actually enables Foreman",
