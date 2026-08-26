@@ -142,7 +142,7 @@ describe("navigation points at the new URLs only", () => {
     }
   });
 
-  it("gives the Accounting group the five children the URLs promise", () => {
+  it("gives the Accounting group the six children the URLs promise", () => {
     const group = SIDEBAR_NAV.find(
       (e) => e.type === "group" && e.id === "accounting",
     );
@@ -150,6 +150,9 @@ describe("navigation points at the new URLs only", () => {
     const children = group?.type === "group" ? group.children : [];
     expect(children.map((c) => c.label)).toEqual([
       "Finance",
+      // Import sits directly after Finance: it is how figures GET there, and a
+      // person looking for it looks next to the statements it feeds.
+      "Import",
       "Banking",
       "Payroll",
       "Tax",

@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.305.0",
+    date: "2026-08-26",
+    title: "Bring a trial balance in from your bookkeeping system",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Accounting \u2192 Import takes a trial balance exported from your bookkeeping system and brings it into the ledger, so the reports here agree with the books they came from. The ability to do this existed but had no screen, which meant it could only be done by a developer.",
+      },
+      {
+        kind: "improvement",
+        text: "Nothing posts until you have seen what it would do. The preview shows the adjustment per account, anything left over that would land in Opening Balance Equity, and whether the file you sent balances at all \u2014 and the figures you approve are the figures that post, because the preview and the posting ask exactly the same question.",
+      },
+    ],
+  },
+  {
     version: "2.304.0",
     date: "2026-08-26",
     title: "Connect GitLab to Foreman from the console",
