@@ -1730,6 +1730,11 @@ model TimeEntry {
 
   timesheet Timesheet?          @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
   revisions TimeEntryRevision[]
+  // A vertical's own attribution of an entry (a phase, a task type, a cost
+  // code) belongs to the plugin that understands it, NOT to a column here that
+  // every other client would carry dead. The join model lives plugin-side and
+  // hangs off this marker.
+  // @plugin-backrel:TimeEntry
 
   @@index([orgId, userId, date])
   @@index([orgId, status])

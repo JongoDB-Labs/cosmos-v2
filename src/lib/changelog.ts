@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.302.0",
+    date: "2026-08-26",
+    title: "Add-ons can attach their own detail to a time entry",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "An add-on can now record its own attribution against an hour that was logged \u2014 which phase of a job it belonged to, which cost code, whatever that line of work actually tracks. Previously the only way to express it would have been a column on the time entry itself, which every organisation would have carried whether it meant anything to them or not.",
+      },
+    ],
+  },
+  {
     version: "2.301.0",
     date: "2026-08-26",
     title: "An API key that can run checks and nothing else",
