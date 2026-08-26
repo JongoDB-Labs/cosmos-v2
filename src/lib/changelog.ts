@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.302.0",
+    date: "2026-08-26",
+    title: "Foreman can show you whether anyone is actually reviewing its work",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman's delivery console now reports how long a paused ticket waits before a person responds to it, and how many have been waiting more than two weeks. When Foreman stops and asks for a human decision, you can finally see whether those questions are being answered or quietly piling up.",
+      },
+      {
+        kind: "improvement",
+        text: "The delivery card also records which individual check decided a build's outcome \u2014 type-checking, linting or tests \u2014 and whether each one actually ran. A check that was skipped no longer looks the same as a check that passed.",
+      },
+      {
+        kind: "fix",
+        text: "Foreman no longer parks a good change because a test failed once by chance. A suspect test is now re-run several times before its result is allowed to block anything.",
+      },
+    ],
+  },
+  {
     version: "2.301.0",
     date: "2026-08-26",
     title: "An API key that can run checks and nothing else",
