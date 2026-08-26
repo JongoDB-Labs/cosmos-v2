@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.299.1",
+    date: "2026-08-26",
+    title: "Open tickets no longer told how they turned out",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Hovering a ticket on the Timeline could say \u201c31d ahead of plan\u201d or \u201cSlipped 5d late\u201d for work that had not finished \u2014 it was reading today as if it were the completion date. Early and late are verdicts on finished work, so an open ticket now simply tells you where it stands: \u201c31d left\u201d, \u201cDue today\u201d, or \u201c5d past due\u201d in red. Once it completes you get the verdict: \u201cFinished 5d early\u201d, \u201cFinished 5d late\u201d or \u201cFinished on plan\u201d.",
+      },
+    ],
+  },
+  {
     version: "2.299.0",
     date: "2026-08-25",
     title: "Clearing flags one project at a time",
