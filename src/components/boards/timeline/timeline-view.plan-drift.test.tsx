@@ -827,3 +827,64 @@ describe("TimelineView — a running item makes no claim about its end", () => {
     expect(await screen.findByTestId("gantt-drift-green-end-finishedEarly")).toBeInTheDocument();
   });
 });
+
+// The hover card follows the same rule as the marks: "early" and "late" are
+// verdicts on finished work. Reading today as an end told every in-flight
+// ticket it was "31d ahead of plan" when it was simply not due yet.
+describe("TimelineView — the hover card claims no verdict before the work ends", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const card = () => screen.getByTestId("gantt-hover-card");
+
+  async function hover(id: string, items: unknown[]) {
+    activeItems = items;
+    renderTimeline();
+    await screen.findByText("Work Items");
+    fireEvent.mouseOver(await screen.findByTestId(`gantt-bar-${id}`));
+  }
+
+  const running = (due: string, id: string) => [
+    { ...item(1, "2026-01-05", due), id, ticketNumber: 990, actualStart: "2026-01-06", completedAt: null },
+  ];
+
+  it("says how long is LEFT, never how far ahead, while running", async () => {
+    // Due far in the future: the old wording called this "ahead of plan".
+    await hover("open", running("2099-01-01", "open"));
+    expect(card()).not.toHaveTextContent(/ahead/i);
+    expect(card()).not.toHaveTextContent(/early/i);
+    expect(card()).toHaveTextContent(/\d+d left/);
+  });
+
+  it("says PAST DUE for an overdue item still running — a fact about today", async () => {
+    await hover("late", running("2026-01-20", "late"));
+    expect(card()).toHaveTextContent(/\d+d past due/);
+    // Still no verdict on the finish: it has not finished.
+    expect(card()).not.toHaveTextContent(/finished/i);
+  });
+
+  it("gives the verdict the moment it completes EARLY", async () => {
+    await hover("early", [
+      { ...item(1, "2026-01-05", "2026-01-20"), id: "early", ticketNumber: 991, actualStart: "2026-01-06", completedAt: "2026-01-15" },
+    ]);
+    expect(card()).toHaveTextContent(/Finished 5d early/);
+  });
+
+  it("gives the verdict the moment it completes LATE", async () => {
+    await hover("slipped", [
+      { ...item(1, "2026-01-05", "2026-01-20"), id: "slipped", ticketNumber: 992, actualStart: "2026-01-06", completedAt: "2026-01-27" },
+    ]);
+    expect(card()).toHaveTextContent(/Finished 7d late/);
+  });
+
+  it("says finished on plan when it landed exactly", async () => {
+    await hover("exact", [
+      { ...item(1, "2026-01-05", "2026-01-20"), id: "exact", ticketNumber: 993, actualStart: "2026-01-06", completedAt: "2026-01-20" },
+    ]);
+    expect(card()).toHaveTextContent(/Finished on plan/);
+  });
+});
