@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.301.0",
+    date: "2026-08-26",
+    title: "An API key that can run checks and nothing else",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Scheduled runs of the automated checks could not actually be triggered by an API key \u2014 the permission the endpoint required was not one any key could be granted, so a key created for a scheduler would have been refused every time.",
+      },
+      {
+        kind: "improvement",
+        text: "There is now a \u201crun checks\u201d scope that grants exactly that and nothing else \u2014 not even read access. A key left on a scheduler can trigger the checks, but cannot browse the organisation or change which plugins are switched on.",
+      },
+    ],
+  },
+  {
     version: "2.300.0",
     date: "2026-08-26",
     title: "Automated checks that run on their own",

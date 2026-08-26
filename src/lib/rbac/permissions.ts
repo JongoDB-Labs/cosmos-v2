@@ -135,6 +135,12 @@ export const Permission = {
   // over all org settings.
   PLUGIN_MANAGE: 1n << 117n,
 
+  // Trigger a scheduled evaluation of the org's standing rules. SEPARATE from
+  // PLUGIN_MANAGE on purpose: that one also enables, disables and reconfigures
+  // plugins, which is far more than a timer needs. A cron key holding this can
+  // do exactly one thing.
+  RULES_RUN: 1n << 119n,
+
   // Time — read OTHER people's time entries. TIME_READ is held by MEMBER and
   // VIEWER and means "you participate in timekeeping"; it never meant "you may
   // read the whole org's", but the list route treated it that way and returned
@@ -257,6 +263,7 @@ export const RolePermissions = {
     Permission.MCP_MANAGE,
     Permission.AGENT_POLICY_MANAGE,
     Permission.PLUGIN_MANAGE,
+    Permission.RULES_RUN,
   ),
 
   BILLING_ADMIN: combine(

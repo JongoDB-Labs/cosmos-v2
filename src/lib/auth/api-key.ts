@@ -19,6 +19,10 @@ const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
     Permission.SPRINT_READ | Permission.SPRINT_CREATE,
   "documents:write":
     Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ | Permission.ITEM_CREATE,
+  // Exactly one permission, and deliberately no read: a scheduler needs to
+  // TRIGGER rules, not to browse the org. Anything wider would hand a key that
+  // sits on a cron box the ability to read projects.
+  "rules:run": Permission.RULES_RUN,
 };
 
 /** OR together the bit-masks for the given scope names; unknown scopes contribute

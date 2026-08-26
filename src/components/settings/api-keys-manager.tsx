@@ -51,6 +51,7 @@ const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   read: "Read",
   "items:write": "Write items",
   "documents:write": "Write documents",
+  "rules:run": "Run checks",
 };
 
 interface ApiKeysManagerProps {
