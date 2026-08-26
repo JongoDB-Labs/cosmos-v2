@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.306.0",
+    date: "2026-08-26",
+    title: "Foreman's delivery history starts recording again \u2014 and can now prove it wasn't edited",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman had not recorded a single step of its delivery history since 28 July. Two columns were missing from the database, so every write failed \u2014 and because history recording is deliberately unable to interfere with delivery, the failures were swallowed and the screens simply showed nothing. Anything that read that history, including the convergence and cost figures and the dry-run evidence added in the previous release, was reporting on an empty table rather than on no activity. Recording resumes when this release is applied; the four weeks in between cannot be recovered.",
+      },
+      {
+        kind: "improvement",
+        text: "Each recorded step now carries a fingerprint of its own contents and of the step before it, so altering, reordering or deleting anything in Foreman's history invalidates every step that follows. A new check reports an intact history, a missing step and an altered step as three different answers \u2014 never as one word \u2014 so \u201cnothing was recorded here\u201d can no longer be mistaken for \u201cnothing was changed here\u201d.",
+      },
+      {
+        kind: "improvement",
+        text: "If Foreman ever fails to record a step of its history again, it now says so \u2014 the failure is written to the activity feed as an error, and the delivery screens report whether recording is keeping up with the work the daemon is actually doing. Previously a recording failure and an ordinary quiet period looked identical, which is why the outage above went unnoticed for four weeks.",
+      },
+      {
+        kind: "improvement",
+        text: "Each run of the delivery loop also records the pull request it produced alongside the commit, so a completed piece of work can be traced to exactly what it changed. The link is never overwritten once known, so a ticket that pauses a second time keeps it.",
+      },
+    ],
+  },
+  {
     version: "2.305.0",
     date: "2026-08-26",
     title: "A rehearsal now leaves a record",
