@@ -2713,6 +2713,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           {hoveredItem && (
             <div
               data-testid="gantt-hover-card"
+              // Whose card this is. Lets a test wait for the card to CATCH UP
+              // with the row it just hovered — reading it in the same tick
+              // returns the previous row's content, because React has not
+              // re-rendered yet.
+              data-for={hoveredItem.id}
               className="fixed z-50 rounded-lg bg-popover border shadow-lg p-3 pointer-events-none max-w-xs"
               style={{
                 left: tooltipPos.x + 12,
@@ -2741,22 +2746,35 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                 {hoveredItem.dueDate && (
                   <p>Due: {new Date(hoveredItem.dueDate).toLocaleDateString()}</p>
                 )}
-                {/* Slippage — Actual End (or today) vs Projected End. */}
+                {/* How this ended, or where it stands. The same rule the drift
+                    marks follow: "early" and "late" are VERDICTS on a finished
+                    piece of work, and unfinished work has not earned one.
+                    Reading today as an end told every in-flight ticket it was
+                    "31d ahead of plan" — it was simply not due yet. */}
                 {hoveredItem.dueDate &&
                   (() => {
-                    const slip = slipDays({
-                      projectedEnd: startOfDay(new Date(hoveredItem.dueDate)),
-                      actualEnd: hoveredItem.completedAt
-                        ? startOfDay(new Date(hoveredItem.completedAt))
-                        : null,
-                      now: today,
-                    });
-                    if (slip === null) return null;
-                    if (slip === 0) return <p>On schedule</p>;
+                    const due = startOfDay(new Date(hoveredItem.dueDate));
+                    const done = hoveredItem.completedAt
+                      ? startOfDay(new Date(hoveredItem.completedAt))
+                      : null;
+                    if (done) {
+                      const slip = slipDays({ projectedEnd: due, actualEnd: done, now: today });
+                      if (slip === null) return null;
+                      if (slip === 0) return <p>Finished on plan</p>;
+                      return (
+                        <p className={slip > 0 ? "text-[var(--status-critical)]" : "text-[var(--status-done)]"}>
+                          {slip > 0 ? `Finished ${slip}d late` : `Finished ${-slip}d early`}
+                        </p>
+                      );
+                    }
+                    // Still open: state where it stands today and claim nothing
+                    // about the finish. Past due IS red — that is a fact about
+                    // now, not a guess about the outcome.
+                    const left = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+                    if (left === 0) return <p>Due today</p>;
+                    if (left > 0) return <p>{left}d left</p>;
                     return (
-                      <p className={slip > 0 ? "text-[var(--status-critical)]" : "text-[var(--status-done)]"}>
-                        {slip > 0 ? `Slipped ${slip}d late` : `${-slip}d ahead of plan`}
-                      </p>
+                      <p className="text-[var(--status-critical)]">{-left}d past due</p>
                     );
                   })()}
                 {/* Start delta — Actual Start later than Planned Start (slow start). */}
