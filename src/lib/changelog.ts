@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.303.0",
+    date: "2026-08-26",
+    title: "Foreman has a rollout stage you can set, and it starts safe",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman's delivery daemon now has a rollout stage \u2014 paused, dry, or live \u2014 set from the Foreman console instead of a setting only reachable on the server. Dry runs the whole decision path (deciding what to build, spotting duplicates, running checks, reviewing the result) while writing nothing and shipping nothing, so the behaviour can be watched before anything is trusted to it.",
+      },
+      {
+        kind: "improvement",
+        text: "The stage starts at dry, and can only ever make Foreman safer: a server-side override can force dry, but nothing in the settings can force it to ship. Turning autonomous delivery on therefore no longer ships anything on its own \u2014 the stage has to be set to live deliberately.",
+      },
+      {
+        kind: "fix",
+        text: "A settings table Foreman relies on was never created by any migration \u2014 it existed only where it had been made by hand, so deploy-cadence settings were broken on any freshly set-up instance. The migration now creates it, and leaves existing installations untouched.",
+      },
+      {
+        kind: "improvement",
+        text: "The plugin releases card now reads each plugin from wherever it actually lives rather than assuming one host, so the version comparison it shows is accurate again.",
+      },
+    ],
+  },
+  {
     version: "2.302.0",
     date: "2026-08-26",
     title: "Foreman can show you whether anyone is actually reviewing its work",
