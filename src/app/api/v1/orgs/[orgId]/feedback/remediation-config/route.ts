@@ -22,6 +22,13 @@ import {
   serializeIntakePolicy,
 } from "@/lib/feedback/intake-policy";
 
+// Loads the plugin server hooks, which is what REGISTERS the model-credential
+// provider. Without it `resolveModelCredential` below returns null no matter how
+// the org is configured — the resolver is a module-level singleton, and nothing
+// else in this file's import graph pulls the registry in. See the arch test in
+// src/lib/ai/__tests__/model-credential-registration.arch.test.ts.
+import "@/lib/plugins/registry/server";
+
 type RouteParams = { params: Promise<{ orgId: string }> };
 
 const configSchema = z.object({
