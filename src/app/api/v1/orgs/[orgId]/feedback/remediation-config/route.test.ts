@@ -17,7 +17,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import { OrgRole } from "@prisma/client";
 
-const { getAuthContext, prisma, getAiProviderStatus } = vi.hoisted(() => ({
+const { getAuthContext, prisma, getAiProviderStatus, resolveModelCredential } = vi.hoisted(() => ({
+  resolveModelCredential: vi.fn(),
   getAuthContext: vi.fn(),
   prisma: {
     organization: { findUnique: vi.fn(), update: vi.fn() },
@@ -31,6 +32,7 @@ const { publishToOrg } = vi.hoisted(() => ({ publishToOrg: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/ai/ai-credentials", () => ({ getAiProviderStatus }));
+vi.mock("@/lib/ai/model-credential-provider", () => ({ resolveModelCredential }));
 // Realtime publish is a best-effort side-effect (COSMOS-130); mock it so we can
 // assert a settings.updated event fires on a valid save (and never on a reject).
 vi.mock("@/lib/realtime/broker", () => ({ publishToOrg }));
@@ -84,6 +86,9 @@ beforeEach(() => {
     { id: PROJECT_A, key: "AAA", name: "Project A" },
     { id: PROJECT_B, key: "BBB", name: "Project B" },
   ]);
+  // Default: Foreman's own credential absent, so the org-level providers below
+  // decide — which keeps every pre-existing assertion in this file meaningful.
+  resolveModelCredential.mockResolvedValue(null);
   getAiProviderStatus.mockResolvedValue({
     provider: "anthropic",
     anthropic: { configured: false },
@@ -264,6 +269,58 @@ describe("remediation-config — valid PUT persists, GET round-trips", () => {
     expect(body.aiProvider).toBe("anthropic");
     expect(body.claudeSubscription).toEqual({ connected: false });
     expect(JSON.stringify(body)).not.toContain("permissions");
+  });
+
+  // The bug: the daemon builds with `foreman_ai_settings` and the UI says
+  // "Connect Claude for Foreman", but this gate read `org_ai_settings` — a
+  // different table. Connecting the credential that does the work left the
+  // toggle greyed out, telling the admin to do what they had already done.
+  it("Foreman's OWN Claude credential satisfies the AI gate, with no org-level provider", async () => {
+    resolveModelCredential.mockResolvedValue({ accessToken: "foreman-oauth-token" });
+    // Every org-level provider is unconfigured — the pre-fix state that returned false.
+    getAiProviderStatus.mockResolvedValue({
+      provider: "anthropic",
+      anthropic: { configured: false },
+      openai: { configured: false },
+      claudeOAuth: { connected: false },
+    });
+
+    const res = await GET(get(), { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.aiConnected).toBe(true);
+    expect(body.foremanConnected).toBe(true);
+    // And it must not leak the token it resolved.
+    expect(JSON.stringify(body)).not.toContain("foreman-oauth-token");
+  });
+
+  it("still gates on org-level providers when Foreman is not connected", async () => {
+    resolveModelCredential.mockResolvedValue(null);
+    getAiProviderStatus.mockResolvedValue({
+      provider: "anthropic",
+      anthropic: { configured: true },
+      openai: { configured: false },
+      claudeOAuth: { connected: false },
+    });
+    const body = await (await GET(get(), { params })).json();
+    expect(body.aiConnected).toBe(true);
+    expect(body.foremanConnected).toBe(false);
+  });
+
+  it("is closed when NEITHER Foreman nor an org provider is connected", async () => {
+    resolveModelCredential.mockResolvedValue(null);
+    const body = await (await GET(get(), { params })).json();
+    expect(body.aiConnected).toBe(false);
+    expect(body.foremanConnected).toBe(false);
+  });
+
+  it("a throwing plugin resolver degrades to false, never to an open gate", async () => {
+    // resolveModelCredential swallows resolver errors to null by contract; assert
+    // the route treats an absent credential as CLOSED rather than unknown-so-allow.
+    resolveModelCredential.mockResolvedValue(null);
+    const body = await (await GET(get(), { params })).json();
+    expect(body.foremanConnected).toBe(false);
+    expect(body.aiConnected).toBe(false);
   });
 
   it("persists the picker's Parallel-builds count (autonomousDelivery.workers = N) — non-default value round-trips", async () => {
