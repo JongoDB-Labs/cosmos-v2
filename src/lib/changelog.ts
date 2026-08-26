@@ -30,6 +30,10 @@ export const CHANGELOG: Release[] = [
         text: "Foreman's delivery screen was reporting that its planning engine agreed with what actually shipped, and offering that as grounds for letting the engine run unsupervised \u2014 based on a log that had recorded nothing for four weeks. Agreement was being inferred from an absence of disagreements that nobody had looked for. The screen now says when nothing was recorded, and withholds the claim rather than making it.",
       },
       {
+        kind: "fix",
+        text: "Auto-triage was refusing to run at all. Its check for a connected AI account looked only at the organisation's provider, while the work is done by Foreman's own account \u2014 so an organisation that had connected Claude for Foreman and nothing else was turned away every run. The previous release fixed the same confusion on the settings page but not in the worker behind it, which briefly made things worse: the page reported ready and enabled the control while nothing behind it would run.",
+      },
+      {
         kind: "improvement",
         text: "The delivery screen now warns, with the reason, when Foreman is failing to record its history, and reports whether that history has been altered since it was written \u2014 distinguishing a record nobody touched from one that was never written, which are different facts.",
       },

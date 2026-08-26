@@ -41,6 +41,12 @@ import { canRoleAutoTrigger, roleGateMessage } from "@/lib/feedback/role-gating"
 import { readIntakePolicy } from "@/lib/feedback/intake-policy";
 import type { OrgRole, Prisma } from "@prisma/client";
 
+// Loads the plugin server hooks, which REGISTERS the model-credential provider.
+// Without it `resolveModelCredential` returns null however the org is configured —
+// see src/lib/ai/__tests__/model-credential-registration.arch.test.ts.
+import "@/lib/plugins/registry/server";
+import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
+
 /**
  * Auto-remediation loop (FR 695aa097) — the in-app half.
  *
@@ -410,9 +416,28 @@ export async function runFeedbackRemediation(
   // no real model was reachable. Require a Claude subscription (OAuth) or a model
   // key connected via Settings → AI, so every delivery reflects actual AI triage.
   // The heuristic remains only as a per-item safety net for a transient model error.
-  const ai = await getAiProviderStatus(orgId);
+  //
+  // FOREMAN'S OWN PROVIDER SATISFIES THIS FIRST. This loop runs on FOREMAN's
+  // Claude account, not the org's — the judges below resolve their credential
+  // through `resolveModelCredential`, which Foreman's server hooks register. But
+  // this gate read only `org_ai_settings`, a DIFFERENT table, so an org that had
+  // connected Claude for Foreman (and nothing else) skipped every run with
+  // "no-ai-credential" while the credential that does the work sat right there.
+  //
+  // 2.307.0 fixed the same confusion on the CONFIG endpoint, which is what draws
+  // the banner and the toggle — and fixing only that made things worse for a
+  // release: the screen began reporting "connected" and enabled the control while
+  // this worker still refused to run. A readiness indicator not wired to the thing
+  // it indicates is a false green with a UI attached.
+  const [ai, foremanCredential] = await Promise.all([
+    getAiProviderStatus(orgId),
+    resolveModelCredential(orgId),
+  ]);
   const hasAi =
-    ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
+    foremanCredential !== null ||
+    ai.claudeOAuth.connected ||
+    ai.anthropic.configured ||
+    ai.openai.configured;
   if (!hasAi) return empty("no-ai-credential");
 
   // Resolve every project in scope ONCE (not just one hardcoded target): each
