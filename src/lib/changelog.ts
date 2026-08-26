@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.308.0",
+    date: "2026-08-26",
+    title: "Add-on versions, and applying an upgrade that has not happened yet",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An add-on could report an old version number indefinitely. Each one carries its version in two places, and nothing kept them in step \u2014 so when they drifted, the upgrade step for every release after that point silently never ran, and the Plugins screen kept showing the old number. Nothing failed; it simply stopped happening. The version is now stamped in one place when the add-on is packaged, so the two cannot disagree.",
+      },
+      {
+        kind: "feature",
+        text: "Administration \u2192 Updates now lists your add-ons, which organisations are on the current version, and offers to apply the upgrade to the ones that are not. This does not change your installed version \u2014 it runs each add-on's own upgrade step for organisations that have not reached it yet, which otherwise waits until somebody happens to open that add-on.",
+      },
+    ],
+  },
+  {
     version: "2.307.0",
     date: "2026-08-26",
     title: "Foreman's Claude connection is recognised where it is actually used",
