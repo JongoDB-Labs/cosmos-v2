@@ -25,7 +25,7 @@ const req = () => new NextRequest("http://localhost/api/v1/orgs/x/rules/run", { 
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID });
-  resolveAuth.mockResolvedValue({ orgId: ORG_ID, userId: "u1", permissions: Permission.PLUGIN_MANAGE });
+  resolveAuth.mockResolvedValue({ orgId: ORG_ID, userId: "u1", permissions: Permission.RULES_RUN });
   runOrgRules.mockResolvedValue({ ok: true, plugins: [] });
 });
 
@@ -42,7 +42,7 @@ describe("POST /rules/run", () => {
     expect(runOrgRules).not.toHaveBeenCalled();
   });
 
-  it("403s without PLUGIN_MANAGE, and runs nothing", async () => {
+  it("403s without RULES_RUN, and runs nothing", async () => {
     // The run has side effects -- flags, notifications -- so a read-only key
     // must not be able to fire it.
     resolveAuth.mockResolvedValue({ orgId: ORG_ID, userId: "u1", permissions: Permission.ITEM_READ });

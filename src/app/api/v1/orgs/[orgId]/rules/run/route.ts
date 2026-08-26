@@ -16,8 +16,10 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  * partial unique index on open flags), not merely by convention, so two runs
  * overlapping cannot produce duplicate flags.
  *
- * Gated on PLUGIN_MANAGE: the run has side effects (flags, notifications), so
- * it is an administrative action rather than a read.
+ * Gated on RULES_RUN: the run has side effects (flags, notifications), so it
+ * is an administrative action rather than a read -- but NOT on PLUGIN_MANAGE,
+ * which also enables and reconfigures plugins. A key that sits on a cron box
+ * should be able to do this and nothing else.
  *
  * Returns 200 with per-plugin detail even when a plugin failed, and 207 when
  * some did: the body is the useful part, and a scheduler needs to distinguish
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await resolveAuth(request, org);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    if (!hasPermission(ctx.permissions, Permission.PLUGIN_MANAGE)) {
+    if (!hasPermission(ctx.permissions, Permission.RULES_RUN)) {
       return new Response("Forbidden", { status: 403 });
     }
 
