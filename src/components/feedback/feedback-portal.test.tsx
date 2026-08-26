@@ -45,6 +45,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
   jsonFetch: vi.fn(() => Promise.resolve([])),
 }));
 
+import { jsonFetch } from "@/lib/query/json-fetcher";
 import { FeedbackPortal } from "./feedback-portal";
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
 
@@ -391,5 +392,161 @@ describe("FeedbackPortal — edit/delete permissions (COSMOS-49)", () => {
     renderWithRole("MEMBER", [MINE]);
     const dialog = await openDetail("My own request");
     expect(dialog.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  });
+});
+
+// COSMOS-173 — picking an option in the submit dialog's Type or Project picker
+// dismissed the whole dialog. Both pickers render their list through a Portal,
+// so the option element sits OUTSIDE the dialog's DOM subtree and the press can
+// reach the dialog's outside-press dismissal. The draft survived in state, but
+// you could not set a Type/Project and submit in one pass.
+//
+// The fix is `disablePointerDismissal` on the submit dialog: it holds unsaved
+// input, so no outside press may discard it. Cancel, the X and Escape still do.
+//
+// Mutation-tested: dropping that prop makes "does not discard the draft when the
+// press lands outside the dialog" fail (the outside press dismisses again).
+describe("FeedbackPortal — submit dialog survives a dropdown selection (COSMOS-173)", () => {
+  const PROJECTS = [
+    { id: "proj-1", key: "ACME", name: "Acme Rollout" },
+    { id: "proj-2", key: "BETA", name: "Beta Programme" },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", stubFetch([]));
+    // This flow DOES need the project picker populated (the shared mock above
+    // returns an empty list for the suites that don't).
+    vi.mocked(jsonFetch).mockResolvedValue(PROJECTS);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.mocked(jsonFetch).mockResolvedValue([]);
+  });
+
+  /** Open the submit dialog and type a draft into Title + Details. */
+  async function openDraft(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(
+      await screen.findByRole("button", { name: /submit feedback/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("Title"), "Board keeps scrolling");
+    await user.type(
+      within(dialog).getByLabelText(/details/i),
+      "It jumps back to the top after every drag.",
+    );
+    return dialog;
+  }
+
+  /** Open one of the dialog's pickers and click an option in its portalled list. */
+  async function chooseOption(
+    user: ReturnType<typeof userEvent.setup>,
+    dialog: HTMLElement,
+    field: string | RegExp,
+    option: string | RegExp,
+  ) {
+    await user.click(within(dialog).getByLabelText(field));
+    await user.click(await screen.findByRole("option", { name: option }));
+  }
+
+  const expectDraftIntact = (dialog: HTMLElement) => {
+    expect(within(dialog).getByLabelText("Title")).toHaveValue(
+      "Board keeps scrolling",
+    );
+    expect(within(dialog).getByLabelText(/details/i)).toHaveValue(
+      "It jumps back to the top after every drag.",
+    );
+  };
+
+  it("stays open with the draft intact when a Type option is chosen, and shows it as selected", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    const dialog = await openDraft(user);
+    await chooseOption(user, dialog, "Type", /bug report/i);
+
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expectDraftIntact(dialog);
+    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Bug report");
+  });
+
+  it("stays open with the draft intact when a Project option is chosen, and shows it as selected", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    const dialog = await openDraft(user);
+    await chooseOption(user, dialog, "Project", /Beta Programme/i);
+
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expectDraftIntact(dialog);
+    expect(within(dialog).getByLabelText("Project")).toHaveTextContent(
+      "BETA · Beta Programme",
+    );
+  });
+
+  it("files the chosen type and project with Submit, in one pass", async () => {
+    const user = userEvent.setup();
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        return { ok: true, status: 200, json: async () => [] } as Response;
+      }),
+    );
+    renderPortal();
+
+    const dialog = await openDraft(user);
+    await chooseOption(user, dialog, "Type", /bug report/i);
+    await chooseOption(user, dialog, "Project", /Beta Programme/i);
+    await user.click(within(dialog).getByRole("button", { name: "Submit" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(post).toBeDefined();
+    expect(JSON.parse(String(post!.init!.body))).toMatchObject({
+      type: "BUG",
+      projectId: "proj-2",
+      title: "Board keeps scrolling",
+    });
+  });
+
+  it("does not discard the draft when the press lands outside the dialog", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    const dialog = await openDraft(user);
+    // The dialog's own backdrop — the same outside-press path an option click
+    // in a portalled dropdown list escapes to.
+    await user.click(document.querySelector<HTMLElement>("[data-slot='dialog-overlay']")!);
+
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expectDraftIntact(dialog);
+  });
+
+  it("still dismisses on Cancel", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    const dialog = await openDraft(user);
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("still dismisses on the X button", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+
+    const dialog = await openDraft(user);
+    await user.click(within(dialog).getByRole("button", { name: /close/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
   });
 });

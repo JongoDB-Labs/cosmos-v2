@@ -676,8 +676,15 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
         </div>
       )}
 
-      {/* Submit dialog */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* Submit dialog.
+          `disablePointerDismissal` (COSMOS-173): the Type/Project pickers render
+          their option list through a Portal, so it lives OUTSIDE the dialog's DOM
+          subtree. Pressing an option could therefore reach the dialog's
+          outside-press dismissal and close the form mid-draft — the value was
+          applied, but you had to reopen and re-edit to submit it. This dialog
+          holds unsaved input, so no outside press may discard it; Cancel, the X
+          and Escape still dismiss it deliberately. */}
+      <Dialog open={open} onOpenChange={setOpen} disablePointerDismissal>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Submit feedback</DialogTitle>
