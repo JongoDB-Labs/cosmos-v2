@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.300.0",
+    date: "2026-08-26",
+    title: "Automated checks that run on their own",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Automated checks can now be run on a schedule rather than only when somebody happens to open the right page. Without it a flag list is accurate as of the last time anyone looked \u2014 a problem that started on Tuesday raises nothing until someone visits, and one that has since been fixed keeps its flag up just as long.",
+      },
+      {
+        kind: "improvement",
+        text: "One misbehaving check cannot stop the others. Each is run separately and a failure is reported rather than hidden, so a check that quietly stopped working is visible instead of looking like a clean run with nothing to report.",
+      },
+    ],
+  },
+  {
     version: "2.299.1",
     date: "2026-08-26",
     title: "Open tickets no longer told how they turned out",
