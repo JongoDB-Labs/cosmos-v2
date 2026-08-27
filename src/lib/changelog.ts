@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.313.1",
+    date: "2026-08-27",
+    title: "The delivery console stays honest while a build runs",
+    highlights: [
+      {
+        kind: "fix",
+        text: "While a build was running in the cautious \u201cpreview\u201d mode, the delivery console gradually stopped reporting on itself \u2014 the activity indicator faded from live to stale, the worker count sat at zero, and a finished build lingered in the in-flight list until the next cycle. Nothing was actually wrong: the worker simply had no opportunity to report while it was busy. It now reports every minute throughout a build, and once more the moment one finishes, so what you see keeps pace with what is happening.",
+      },
+    ],
+  },
+  {
     version: "2.313.0",
     date: "2026-08-27",
     title: "Watch an automated build as it happens",
