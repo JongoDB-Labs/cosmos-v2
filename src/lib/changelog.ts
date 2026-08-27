@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.312.0",
+    date: "2026-08-27",
+    title: "You can see what an automated build is doing while it runs",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An automated build used to be a black box: it was picked up, then nothing, then a result an hour later — with no way to tell a healthy build from a stuck one, or to notice it heading the wrong way before it produced anything. Each step it takes is now recorded as it happens, with file paths and commands, and can be read back while the build is still running.",
+      },
+      {
+        kind: "improvement",
+        text: "Anything sensitive is stripped and long output is trimmed before a step is recorded, so the activity view is safe to read and stays quick to load.",
+      },
+    ],
+  },
+  {
     version: "2.311.0",
     date: "2026-08-27",
     title: "Parked work can be picked back up, and turning a plugin off now means it",
