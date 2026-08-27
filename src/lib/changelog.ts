@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.313.0",
+    date: "2026-08-27",
+    title: "Watch an automated build as it happens",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The delivery console now shows a live activity card for whatever is being built right now — each step as the agent takes it, including the file it read or the command it ran. Until now a build was picked up, went quiet, and produced a result an hour later with nothing in between. The card appears only while something is building, and keeps up incrementally so leaving it open is cheap.",
+      },
+      {
+        kind: "fix",
+        text: "Installing an update now also brings the delivery worker up to that release. The worker runs outside the application, so it used to keep running the previous version's code indefinitely after an update — quietly, while everything reported success. It now moves to the exact code the release was built from, checks it landed before restarting, and says so loudly if it could not.",
+      },
+    ],
+  },
+  {
     version: "2.312.0",
     date: "2026-08-27",
     title: "You can see what an automated build is doing while it runs",
