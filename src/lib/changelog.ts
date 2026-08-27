@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.311.0",
+    date: "2026-08-27",
+    title: "Parked work can be picked back up, and turning a plugin off now means it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Foreman paused a ticket to ask a question, the time it spent waiting for an answer counted against the time limit for the work itself. Anything left overnight came back with its budget already spent and stopped immediately, so answering a question could not actually get the work moving again. Waiting time no longer counts against it.",
+      },
+      {
+        kind: "fix",
+        text: "Turning a plugin off in Settings hid it from the menu but left its screens reachable for anyone who still had the address. Switching it off now genuinely blocks it.",
+      },
+      {
+        kind: "improvement",
+        text: "The Plugins screen could report a version that had not been current for months, and organisations could sit on an old one indefinitely. Versions are now recorded as each release is picked up, so what you see is what is running.",
+      },
+    ],
+  },
+  {
     version: "2.310.0",
     date: "2026-08-26",
     title: "Auto-triage actually asks the AI now, and says so when it can't",
