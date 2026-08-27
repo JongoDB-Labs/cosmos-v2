@@ -21,13 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
-    version: "2.313.1",
+    version: "2.314.0",
     date: "2026-08-27",
-    title: "The delivery console stays honest while a build runs",
+    title: "See what the delivery worker is doing, and whether it is stale",
     highlights: [
       {
         kind: "fix",
         text: "While a build was running in the cautious \u201cpreview\u201d mode, the delivery console gradually stopped reporting on itself \u2014 the activity indicator faded from live to stale, the worker count sat at zero, and a finished build lingered in the in-flight list until the next cycle. Nothing was actually wrong: the worker simply had no opportunity to report while it was busy. It now reports every minute throughout a build, and once more the moment one finishes, so what you see keeps pace with what is happening.",
+      },
+      {
+        kind: "feature",
+        text: "The live activity feed now shows the whole build, not just part of it. When automated checks fail a repair pass runs, and before anything is proposed a separate reviewer reads the final change \u2014 neither used to appear, so the feed went quiet exactly where the decisions get made. Both now appear in the same timeline, labelled, in the order they happened. Picking up a parked item after you comment is shown as its own attempt rather than being folded into the original build.",
+      },
+      {
+        kind: "improvement",
+        text: "The delivery console now states which mode the worker is running in. A worker that is paused, or previewing without making changes, correctly shows no active builds \u2014 which previously looked identical to a broken worker. It also warns when the background worker is running older code than the application itself, a mismatch that was previously invisible and took real time to diagnose.",
       },
     ],
   },
