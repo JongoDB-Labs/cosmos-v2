@@ -21,10 +21,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
-    version: "2.314.0",
+    version: "2.315.0",
     date: "2026-08-27",
-    title: "See what the delivery worker is doing, and whether it is stale",
+    title: "Watch a build as it happens \u2014 and talk to it",
     highlights: [
+      {
+        kind: "feature",
+        text: "You can now send a note to a build while it is still running. Until now, if you could see a build heading the wrong way, the only option was to wait for it to finish and comment on the result. A note typed into the live activity card reaches the agent at its next step and appears in the same timeline as its own work, so the record reads in order. Delivery is at the next step rather than instantly, and if the build finishes first the note waits for the next attempt on that item \u2014 the card says so rather than behaving like a chat window.",
+      },
       {
         kind: "fix",
         text: "While a build was running in the cautious \u201cpreview\u201d mode, the delivery console gradually stopped reporting on itself \u2014 the activity indicator faded from live to stale, the worker count sat at zero, and a finished build lingered in the in-flight list until the next cycle. Nothing was actually wrong: the worker simply had no opportunity to report while it was busy. It now reports every minute throughout a build, and once more the moment one finishes, so what you see keeps pace with what is happening.",
