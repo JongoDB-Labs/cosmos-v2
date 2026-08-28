@@ -338,9 +338,19 @@ export function CardDetailSheet({
       setPriority(item.priority);
       setWorkCategory(item.workCategory ?? "BUSINESS");
       setAssigneeId(item.assigneeId);
+      // An EMPTY set is not the same as "this item has no multi-assign data":
+      // `??` only fires on null/undefined, and the API always sends the array,
+      // so an item whose primary `assigneeId` was written WITHOUT a matching
+      // `WorkItemAssignee` row (every ticket Cosmo assigned before COSMOS-192)
+      // seeded [] and opened on "Unassigned" — the assignee was on the row the
+      // whole time. Fall back on emptiness, matching the duplicate-item flow in
+      // create-work-item-dialog.
       setAssigneeIds(
-        item.assignees?.map((a) => a.userId) ??
-          (item.assigneeId ? [item.assigneeId] : []),
+        item.assignees?.length
+          ? item.assignees.map((a) => a.userId)
+          : item.assigneeId
+            ? [item.assigneeId]
+            : [],
       );
       setIntervalId(item.intervalId);
       setColumnKey(item.columnKey);

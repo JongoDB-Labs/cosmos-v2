@@ -80,6 +80,72 @@ function resolveSelfAssignee(
 }
 
 /**
+ * Display names for a set of assignee ids, from THIS org's member directory.
+ *
+ * COSMOS-192: these executors only ever handed back the raw `assigneeId`, so
+ * Cosmo's own report of what it had just done named a GUID ("assigned to
+ * 4e62cb3e-…"). The stored id is correct — it simply had no name attached to
+ * it. Resolve it the same way every UI surface does (`User.displayName`) and
+ * return the name alongside the id.
+ *
+ * Scoped through OrgMember so an id from another tenant resolves to NOTHING
+ * rather than naming a stranger, and selected explicitly down to
+ * `user.displayName` — never OrgMember.permissions, which is a decimal-string
+ * permission mask and must not ride out in a tool result.
+ *
+ * EGRESS: a person's name is PII, so `assigneeName` is deliberately NOT added
+ * to `EXPOSABLE_FIELDS` in egress/projection.ts — a withheld (gov) result keeps
+ * dropping it by default-deny, exactly as it drops `title` today. Only the
+ * commercial-unclassified path, which already shows the model this same
+ * directory via `list_org_members`, ever sees it.
+ */
+async function assigneeNames(
+  orgId: string,
+  userIds: readonly string[]
+): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds)];
+  if (ids.length === 0) return new Map();
+  const members = await prisma.orgMember.findMany({
+    where: { orgId, userId: { in: ids } },
+    select: { userId: true, user: { select: { displayName: true } } },
+  });
+  return new Map(members.map((m) => [m.userId, m.user.displayName] as const));
+}
+
+/** One id → its display name, or null when the directory has no name for it. */
+async function assigneeName(orgId: string, userId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  return (await assigneeNames(orgId, [userId])).get(userId) || null;
+}
+
+/**
+ * Refuse an assignee who is not in this org's directory.
+ *
+ * A well-formed uuid that names nobody here is exactly how a ticket ended up
+ * "assigned to a GUID": the scalar stored happily and every surface that tried
+ * to put a name to it came up empty. Same `{error} | null` shape as the gates in
+ * _ctx.ts, and the message names the lookup tool so the model can recover — it
+ * does NOT echo the offending id back.
+ *
+ * It also keeps the assignee SET writable: `WorkItemAssignee.userId` is a real
+ * foreign key, so an id belonging to no user would otherwise surface as a raw
+ * driver error instead of an answer.
+ */
+async function assertAssigneeInOrg(
+  orgId: string,
+  assigneeId: string | null | undefined
+): Promise<{ error: string } | null> {
+  if (!assigneeId) return null;
+  const known = await assigneeNames(orgId, [assigneeId]);
+  if (known.has(assigneeId)) return null;
+  return {
+    error:
+      "That assigneeId is not a member of this organization. " +
+      "Look the person up with list_org_members and pass their userId.",
+  };
+}
+
+/**
  * Resolve `type` (a short name like 'task' OR a full key like 'software.task'
  * OR a work-item-type UUID) to a concrete WorkItemType id for the given
  * project, honoring the project's template sector when present.
@@ -164,6 +230,9 @@ export async function createWorkItem(
   const outOfScope = await assertProjectRead(ctx, data.projectId, "ITEM_CREATE");
   if (outOfScope) return { error: "Project not found" };
 
+  const strangerAssignee = await assertAssigneeInOrg(ctx.orgId, data.assigneeId);
+  if (strangerAssignee) return strangerAssignee;
+
   let resolvedTypeId = data.workItemTypeId ?? null;
   if (!resolvedTypeId) {
     resolvedTypeId = await resolveWorkItemTypeId(
@@ -199,6 +268,13 @@ export async function createWorkItem(
         description: data.description ?? "",
         columnKey,
         assigneeId: data.assigneeId ?? null,
+        // Multi-assign: the SET (`WorkItemAssignee`) is what the ticket's
+        // Assignees control reads, and it is what the REST create route writes.
+        // Setting only the legacy scalar left that set empty, so a ticket Cosmo
+        // had just assigned opened on "Unassigned" (COSMOS-192).
+        ...(data.assigneeId
+          ? { assignees: { create: [{ userId: data.assigneeId, sortOrder: 0 }] } }
+          : {}),
         priority: data.priority ?? Priority.MEDIUM,
         intervalId: data.intervalId ?? null,
         parentId: data.parentId ?? null,
@@ -236,6 +312,8 @@ export async function createWorkItem(
     title: item.title,
     columnKey: item.columnKey,
     workItemTypeId: item.workItemTypeId,
+    assigneeId: item.assigneeId,
+    assigneeName: await assigneeName(ctx.orgId, item.assigneeId),
   };
 }
 
@@ -263,6 +341,9 @@ export async function updateWorkItem(
   // way, so a refusal never confirms the row is real.
   const outOfScope = await assertProjectRead(ctx, existing.projectId, "ITEM_UPDATE");
   if (outOfScope) return { error: "Work item not found" };
+
+  const strangerAssignee = await assertAssigneeInOrg(ctx.orgId, data.assigneeId);
+  if (strangerAssignee) return strangerAssignee;
 
   const update: Prisma.WorkItemUpdateInput = {};
   if (data.title !== undefined) update.title = data.title;
@@ -296,9 +377,24 @@ export async function updateWorkItem(
     else if (!isDone && existing.completedAt) update.completedAt = null;
   }
 
-  const item = await prisma.workItem.update({
-    where: { id: data.itemId },
-    data: update,
+  const item = await prisma.$transaction(async (tx) => {
+    // Keep the multi-assign SET in step with the legacy scalar, with the same
+    // semantics the PUT route uses for a single `assigneeId`: null clears the
+    // set, a user is promoted to the front of it (sortOrder -1, the set is read
+    // ordered ascending). Without this the set kept whoever it held before —
+    // and a Cosmo reassignment showed the OLD person on the ticket (COSMOS-192).
+    if (data.assigneeId !== undefined) {
+      if (data.assigneeId === null) {
+        await tx.workItemAssignee.deleteMany({ where: { workItemId: data.itemId } });
+      } else {
+        await tx.workItemAssignee.upsert({
+          where: { workItemId_userId: { workItemId: data.itemId, userId: data.assigneeId } },
+          create: { workItemId: data.itemId, userId: data.assigneeId, sortOrder: -1 },
+          update: { sortOrder: -1 },
+        });
+      }
+    }
+    return tx.workItem.update({ where: { id: data.itemId }, data: update });
   });
 
   // Column moves carry any linked feedback item along (best-effort inside).
@@ -316,6 +412,8 @@ export async function updateWorkItem(
     ticketNumber: item.ticketNumber,
     title: item.title,
     columnKey: item.columnKey,
+    assigneeId: item.assigneeId,
+    assigneeName: await assigneeName(ctx.orgId, item.assigneeId),
   };
 }
 
@@ -401,7 +499,20 @@ export async function listWorkItems(
     },
   });
 
-  return { count: items.length, items };
+  // Name every assignee in one directory lookup, so a listing reads "Ryan
+  // Beatty" rather than the id the model would otherwise have to echo.
+  const names = await assigneeNames(
+    ctx.orgId,
+    items.map((i) => i.assigneeId).filter((id): id is string => id !== null)
+  );
+
+  return {
+    count: items.length,
+    items: items.map((i) => ({
+      ...i,
+      assigneeName: i.assigneeId ? (names.get(i.assigneeId) ?? null) : null,
+    })),
+  };
 }
 
 // ─── Work-item dependency links ────────────────────────────────────────────

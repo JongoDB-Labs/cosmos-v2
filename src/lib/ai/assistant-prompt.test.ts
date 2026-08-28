@@ -48,6 +48,16 @@ describe("BASE_SYSTEM_PROMPT — CUI-blind operating guidance (bug #3 symptom fi
     expect(lower).toMatch(/never.*(encrypted|corrupted|obfuscated|broken)/);
   });
 
+  // COSMOS-192: asked to assign a ticket, Cosmo reported the assignment by
+  // pasting the assignee's GUID, because the id was the only thing it had.
+  // The tools now hand it a name; the prompt has to say to use it.
+  it("tells the model to report people by name, never by raw id", () => {
+    const lower = BASE_SYSTEM_PROMPT.toLowerCase();
+    expect(lower).toContain("assigneename");
+    expect(lower).toMatch(/name people|use the name/);
+    expect(lower).toContain("list_org_members");
+  });
+
   it("points the model at server-side resolution (list_projects query / semantic_search)", () => {
     expect(BASE_SYSTEM_PROMPT).toContain("list_projects");
     expect(BASE_SYSTEM_PROMPT.toLowerCase()).toMatch(/query|semantic_search|resolve/);
