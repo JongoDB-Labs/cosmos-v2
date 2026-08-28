@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.317.1",
+    date: "2026-08-28",
+    title: "Overdue tickets on Sprint Health open where you are",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On Sprint Health, clicking one of the tickets listed behind a number — Overdue, Completed, a chart segment — threw you off the board and onto the issues list. Reading the board is how you decide what to do about overdue work, so being sent away to touch a single ticket, with no way back but the browser button, was the wrong end of the trade. Those tickets now open in the same editable panel every other board uses, on top of the board you were reading.",
+      },
+    ],
+  },
+  {
     version: "2.317.0",
     date: "2026-08-28",
     title: "Automated delivery now looks at the screen before it ships",

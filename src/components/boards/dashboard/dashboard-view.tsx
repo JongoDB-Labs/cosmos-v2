@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -14,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { MetricCard } from "./widgets/metric-card";
 import { StatusChart } from "./widgets/status-chart";
 import { PriorityChart } from "./widgets/priority-chart";
@@ -277,10 +276,16 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   }, [filteredItems]);
 
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
-  // of the matching tickets, each deep-linking to its detail on the Issues page.
-  const params = useParams();
-  const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
+  // of the matching tickets.
+  //
+  // Each row used to be a link to `/<org>/issues?item=<id>`, which threw the
+  // reader off the board entirely to edit one ticket — a full page navigation
+  // away from the numbers they were reading, with no way back but the browser.
+  // Every other board opens the ticket in place; this now does the same via the
+  // shared BoardItemDetailSheet, which is exactly what the Table, Calendar and
+  // RAID boards use for the same "I render items, not context" situation.
   const [drill, setDrill] = useState<{ title: string; rows: WorkItem[] } | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const openDrill = (title: string, filter: (i: WorkItem) => boolean) =>
     setDrill({ title, rows: filteredItems.filter(filter) });
   const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
@@ -666,11 +671,17 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
               <p className="p-6 text-center text-sm text-muted-foreground">No matching items.</p>
             ) : (
               drill?.rows.map((i) => (
-                <Link
+                <button
                   key={i.id}
-                  href={`/${orgSlug}/issues?item=${i.id}`}
-                  className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
-                  onClick={() => setDrill(null)}
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
+                  // The list closes as the ticket opens: two stacked modals
+                  // would fight over the focus trap, and the sheet is the thing
+                  // the reader asked for.
+                  onClick={() => {
+                    setDrill(null);
+                    setDetailId(i.id);
+                  }}
                 >
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {projectKey}-{i.ticketNumber}
@@ -679,12 +690,21 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {(columnCategoryMap.get(i.columnKey) ?? "TODO").replace("_", " ").toLowerCase()}
                   </span>
-                </Link>
+                </button>
               ))
             )}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* The clicked ticket, fully editable, without leaving the board. */}
+      <BoardItemDetailSheet
+        itemId={detailId}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        boardId={boardId}
+      />
     </>
   );
 }
