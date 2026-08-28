@@ -9,7 +9,7 @@ import {
   matchesCustomFieldFilters,
 } from "@/components/boards/shared/filter-bar";
 import { itemMatchesTeam, type TeamLike } from "@/lib/teams/item-teams";
-import { matchesLabelFilter } from "@/lib/work-items/label-filter";
+import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import { matchesEstimateBand } from "@/lib/work-items/estimate-filter";
 import {
@@ -85,4 +85,49 @@ export function matchesFilters(
   if (!matchesEstimateBand(item.originalEstimate, f.estimate)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
+}
+
+/**
+ * The tags a board should OFFER in its Label menu.
+ *
+ * `presentLabels(items)` over the raw fetch is wrong on any board that scopes
+ * itself before the user touches a filter. A Kanban fetches the project's ENTIRE
+ * item list and narrows it in the client, so a SCRUM board — the same component
+ * seeded with the active sprint via `initialIntervalId` — was offering tags
+ * carried only by cards in other sprints or in the backlog. Pick one of those
+ * and every card disappears, with nothing on screen saying why: exactly the
+ * empty-board-for-an-invisible-reason failure the filter bar's "an active filter
+ * is never hidden" rule exists to prevent.
+ *
+ * So the options come from the cards the board is actually showing. Two details
+ * carry the behaviour:
+ *
+ *  - Every clause is applied EXCEPT the label clause itself. Applying it would
+ *    collapse the menu to the tags already selected the moment one is ticked,
+ *    making a second tag unselectable — and selecting more than one is the whole
+ *    point (they combine as OR; see `matchesLabelFilter`).
+ *  - Any active selection stays listed even if it now matches nothing, so it
+ *    remains removable. Same rule `shownTypeOptions` follows for Type.
+ *
+ * Arguments mirror `matchesFilters` so a caller passes through what it already
+ * computed for the filtering pass.
+ */
+export function tagFilterOptions(
+  items: WorkItem[],
+  f: BoardFilters,
+  defs: CustomField[] = [],
+  teamsByUserId: Map<string, TeamLike[]> = new Map(),
+  now: Date = new Date(),
+  rel: {
+    blocked?: Set<string>;
+    milestones?: Map<string, Set<string>>;
+  } = {},
+): string[] {
+  const withoutLabels = { ...f, labels: [] };
+  const scoped = items.filter((item) =>
+    matchesFilters(item, withoutLabels, defs, teamsByUserId, now, rel),
+  );
+  const options = new Set(presentLabels(scoped));
+  for (const tag of f.labels) options.add(tag);
+  return [...options].sort((a, b) => a.localeCompare(b));
 }

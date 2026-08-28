@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Pick tags on a sprint board and see only those cards",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can now filter a sprint board down to one or more tags and have it behave. The Label menu offers the tags actually carried by the cards the board is showing, so picking one narrows the board rather than emptying it. Before, a sprint board built that menu from the project's entire backlog: it listed tags that live only on cards in other sprints or in the backlog, and choosing one of those blanked the board with nothing on screen explaining why. Tags now also read exactly as they were typed — an \"API\" tag no longer appears in the menu as \"Api\".",
+      },
+      {
+        kind: "improvement",
+        text: "ASSUMED, because the request did not say: selecting several tags shows a card that carries ANY of them, so adding a second tag widens what you see rather than narrowing it. That matches how the Type and Priority filters already behave. If you meant \"show only cards that have ALL of these tags\", say so — it is a different question and would get its own control rather than quietly changing what the tag filter means everywhere.",
+      },
+    ],
+  },
+  {
     version: "2.317.1",
     date: "2026-08-28",
     title: "Notification links open the item you were told about",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesFilters } from "./board-filters";
+import { matchesFilters, tagFilterOptions } from "./board-filters";
 import { NO_ESTIMATE } from "./relation-filters";
 import { teamsByUser } from "@/lib/teams/item-teams";
 import { emptyFilters } from "@/components/boards/shared/filter-bar";
@@ -297,5 +297,79 @@ describe("clauses combine as AND", () => {
     expect(matchesFilters(item({ ...target, priority: "LOW" }), f)).toBe(false);
     expect(matchesFilters(item({ ...target, columnKey: "todo" }), f)).toBe(false);
     expect(matchesFilters(item({ ...target, assigneeId: "u-9" }), f)).toBe(false);
+  });
+});
+
+/**
+ * What the Label menu is allowed to OFFER.
+ *
+ * The predicate above already answers "does this card match the selected tags"
+ * — OR, so ticking a second tag widens the result. What it cannot answer is
+ * which tags a board should list, and on a sprint board that is where the
+ * feature broke: the Kanban fetches the project's whole item list, the SCRUM
+ * board scopes itself to one sprint, and the menu was built from the raw list.
+ * Every assertion here is a pair — a tag that must be offered and one that must
+ * not — so a function returning everything, or nothing, fails.
+ */
+describe("tagFilterOptions", () => {
+  const SPRINT = "int-1";
+  // The two in-sprint tags sit on DIFFERENT cards, so a scoping pass that wrongly
+  // applied the label clause would drop one of them rather than keeping both by
+  // accident.
+  const tagged = item({ id: "a", intervalId: SPRINT, tags: ["api"] });
+  const alsoTagged = item({ id: "b", intervalId: SPRINT, tags: ["ui"] });
+  const otherSprint = item({ id: "c", intervalId: "int-2", tags: ["legacy"] });
+  const backlog = item({ id: "d", intervalId: null, tags: ["icebox"] });
+  const board = [tagged, alsoTagged, otherSprint, backlog];
+
+  it("offers every tag on an unscoped board", () => {
+    expect(tagFilterOptions(board, filters())).toEqual([
+      "api",
+      "icebox",
+      "legacy",
+      "ui",
+    ]);
+  });
+
+  it("offers only the tags carried by the cards the sprint board shows", () => {
+    // The bug: "legacy" and "icebox" were offered on a board scoped to int-1,
+    // and picking either emptied it with nothing on screen saying why.
+    expect(tagFilterOptions(board, filters({ intervalId: SPRINT }))).toEqual([
+      "api",
+      "ui",
+    ]);
+  });
+
+  it("still offers the OTHER tags once one is selected, so a second can be added", () => {
+    // Applying the label clause to the scoping pass would collapse this to
+    // ["api"] — and selecting more than one tag is the point of the feature.
+    expect(
+      tagFilterOptions(board, filters({ intervalId: SPRINT, labels: ["api"] })),
+    ).toEqual(["api", "ui"]);
+  });
+
+  it("keeps a selected tag listed even when nothing on the board carries it", () => {
+    // Otherwise the tag that emptied the board vanishes from the menu that
+    // would let you take it off.
+    expect(
+      tagFilterOptions(board, filters({ intervalId: SPRINT, labels: ["legacy"] })),
+    ).toEqual(["api", "legacy", "ui"]);
+  });
+
+  it("narrows with the board's OTHER filters too, not just the sprint", () => {
+    const highPriority = item({ id: "e", priority: "HIGH", tags: ["perf"] });
+    const withPriority = [...board, highPriority];
+    expect(tagFilterOptions(withPriority, filters({ priorities: ["HIGH"] }))).toEqual([
+      "perf",
+    ]);
+    expect(tagFilterOptions(withPriority, filters())).toContain("api");
+  });
+
+  it("returns each tag once, sorted, however many cards carry it", () => {
+    const dupe = [
+      item({ id: "f", tags: ["zebra", "api"] }),
+      item({ id: "g", tags: ["api"] }),
+    ];
+    expect(tagFilterOptions(dupe, filters())).toEqual(["api", "zebra"]);
   });
 });
