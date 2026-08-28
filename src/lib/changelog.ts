@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Work that stalls comes back, and the console shows you why",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An item whose automated build crashed was left sitting In Progress with nothing working on it, and stayed there indefinitely \u2014 one had been stuck for nearly two days. A recovery step existed to return such items to the queue, but a fault meant it had not actually run since late July. It now runs on every start-up, so stalled items come back on their own instead of quietly disappearing from the queue while still looking active.",
+      },
+      {
+        kind: "improvement",
+        text: "The delivery console's activity filters now show what they claim to. \"Errors\" previously listed only one narrow kind of failure, hiding failed releases and \u2014 since the screen-checking step arrived \u2014 its verdicts, which are the clearest signal that something would have reached you broken. Those now appear under both Errors and Parked, with their own icon, instead of being buried in the full activity list.",
+      },
+      {
+        kind: "improvement",
+        text: "When an update to the application does not fully apply, the reason is now recorded instead of discarded. A deployment could previously report success while leaving part of the system running the previous release, with the warning that said so thrown away \u2014 which turned a five-minute diagnosis into an hour of guesswork.",
+      },
+    ],
+  },
+  {
     version: "2.317.1",
     date: "2026-08-28",
     title: "Notification links open the item you were told about",
