@@ -85,13 +85,30 @@ export async function POST(request: NextRequest) {
           toEmail: user.email,
           resetUrl,
         });
-      } catch {
-        // Swallow — a send failure or missing config must never leak to the
-        // caller (it would reveal the account exists).
+      } catch (e) {
+        // Swallow toward the CALLER — surfacing it would reveal the account
+        // exists. But log it: the caller and the operator are different
+        // audiences, and staying silent to both is what made this invisible.
+        //
+        // Observed live: every reset for a user with no org membership failed
+        // here. The org that supplies the email config is resolved from the
+        // user's memberships, so an invited-but-not-yet-joined account resolves
+        // NONE, falls through to the deployment-wide RESEND_API_KEY/EMAIL_FROM,
+        // and throws when those are unset. Three days of resets went nowhere
+        // with nothing in the log to say so.
+        // eslint-disable-next-line no-restricted-syntax -- operator-facing, see above
+        console.error(
+          `[password-reset] send failed for ${normalized}` +
+            `${org ? ` (org ${org.slug})` : " (no org membership — using env config)"}:`,
+          e,
+        );
       }
     }
-  } catch {
-    // Never surface lookup errors either — stay indistinguishable.
+  } catch (e) {
+    // Never surface lookup errors to the caller either — stay indistinguishable.
+    // Still logged, for the same reason as above.
+    // eslint-disable-next-line no-restricted-syntax -- operator-facing, see above
+    console.error(`[password-reset] lookup failed for ${normalized}:`, e);
   }
 
   return NextResponse.json({ ok: true });

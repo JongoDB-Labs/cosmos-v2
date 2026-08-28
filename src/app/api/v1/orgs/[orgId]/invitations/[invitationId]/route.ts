@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { sendInvitationEmail } from "@/lib/integrations/invitation-email";
+import { revokeProvisionedAccount } from "@/lib/auth/revoke-invitation";
 
 /**
  * Revoke (DELETE) or resend (POST) a pending invitation — the lifecycle the
@@ -31,7 +32,23 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    await prisma.invitation.delete({ where: { id: invitationId } });
+    // Delete the invitation AND, when it provisioned an account nobody has used,
+    // that account too — in one transaction, so a revoke can never leave the
+    // credential standing without the invitation that justified it.
+    //
+    // Without this the address became un-re-invitable: the surviving account
+    // pushed the next invite down the "pre-existing account" branch, which
+    // deliberately never issues a password, so the invitee received a sign-in
+    // link for credentials they had never been given.
+    const reset = await prisma.$transaction(async (tx) => {
+      const outcome = await revokeProvisionedAccount(tx, {
+        email: existing.email,
+        invitationId,
+        signInMethod: existing.signInMethod,
+      });
+      await tx.invitation.delete({ where: { id: invitationId } });
+      return outcome;
+    });
 
     await logAudit({
       orgId,
@@ -39,7 +56,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       action: "invitation.revoked",
       entity: "invitation",
       entityId: invitationId,
-      metadata: { email: existing.email } as Record<string, string>,
+      metadata: {
+        email: existing.email,
+        // Recorded either way: "we removed an account" and "we deliberately left
+        // one standing" are both things an admin may later need to account for.
+        accountReset: String(reset.deleted),
+        accountResetReason: reset.reason,
+      } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 

@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.319.0",
+    date: "2026-08-28",
+    title: "Invitation emails that never arrived, and revokes that left the address stuck",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Revoking an invitation now frees the email address to be invited again. Previously a revoke removed the invitation but left behind the account it had created, and because the product never attaches an administrator-set password to an account that already exists, the next invitation to that address was sent without one \u2014 a sign-in link for a password that had just been revoked. The address was effectively spent after one attempt, with nothing to indicate it. The account is only removed when it is clearly an unused leftover of the invitation being revoked: anyone who has joined an organisation, signed in, set their own password, linked a Google or SSO identity, or been invited elsewhere keeps their account exactly as before.",
+      },
+      {
+        kind: "fix",
+        text: "Password reset failures are now recorded in the server log. A reset request deliberately returns the same response whether or not the address has an account, so that nobody can use it to discover who has one \u2014 but that silence also extended to administrators, and a reset that failed to send produced no record anywhere. Resets for people who had been invited but had not yet joined an organisation were failing this way, and the only symptom was an email that never arrived. What the requester sees is unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.318.0",
     date: "2026-08-28",
     title: "Work that stalls comes back, and the console shows you why",
