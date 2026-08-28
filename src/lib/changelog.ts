@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Filter the sprint board by tag, with tags that can actually match",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Filtering a sprint board by tag now offers the tags on the cards you are looking at. The board loads the whole project and then narrows to the current sprint, but the tag menu was built from the full list — so it offered tags belonging to other sprints and to the backlog, and picking one emptied the board with no hint as to why. The menu now follows the board: scope it to Sprint 7 and it lists Sprint 7's tags, and every tag it offers has a visible card behind it. The same applies to the other filters — narrow by assignee or priority first and the tag list narrows with it.",
+      },
+      {
+        kind: "improvement",
+        text: "Picking several tags shows cards carrying ANY of them, not only cards carrying all of them — so adding a second tag widens what you see, the way the Type and Priority filters already behave. (This is the behaviour that was already shipped; it is called out here because the request did not say which was wanted, and \"all of them\" would be a different control.) Tags also now read as they were typed: an org label spelt \"API\" is offered as \"API\" rather than \"Api\".",
+      },
+    ],
+  },
+  {
     version: "2.317.1",
     date: "2026-08-28",
     title: "Notification links open the item you were told about",

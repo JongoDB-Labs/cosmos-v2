@@ -36,8 +36,7 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { matchesFilters } from "@/lib/work-items/board-filters";
-import { presentLabels } from "@/lib/work-items/label-filter";
+import { matchesFilters, tagFilterOptions } from "@/lib/work-items/board-filters";
 import {
   blockedItemIds,
   milestoneItemIds,
@@ -465,7 +464,6 @@ function KanbanBoardInner({
   // Apply filters
   // Rebuilt only when the roster changes, not per item.
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
-  const presentLabelNames = useMemo(() => presentLabels(items), [items]);
   // One instant for the whole pass: reading the clock per item lets a date
   // filter change its mind mid-list across a midnight boundary.
   const filterNow = useMemo(() => new Date(), [items]);
@@ -473,6 +471,19 @@ function KanbanBoardInner({
   // quadratic on a busy board.
   const blockedIds = useMemo(() => blockedItemIds(links), [links]);
   const milestoneMap = useMemo(() => milestoneItemIds(milestones), [milestones]);
+  // Tags on the cards the board is SHOWING, not every tag in the project. The
+  // board fetches the project's whole item list and narrows it here, so on a
+  // Sprint board — scoped to one sprint before the user touches anything — the
+  // raw list offered tags belonging to other sprints, and picking one emptied
+  // the board. See tagFilterOptions for why the label clause is excluded.
+  const presentLabelNames = useMemo(
+    () =>
+      tagFilterOptions(items, filters, projectCustomFields, teamsByUserId, filterNow, {
+        blocked: blockedIds,
+        milestones: milestoneMap,
+      }),
+    [items, filters, projectCustomFields, teamsByUserId, filterNow, blockedIds, milestoneMap],
+  );
   const presentPointValues = useMemo(() => presentStoryPoints(items), [items]);
   const showEstimate = useMemo(() => hasAnyEstimate(items), [items]);
 

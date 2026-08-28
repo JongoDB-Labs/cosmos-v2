@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesFilters } from "./board-filters";
+import { matchesFilters, tagFilterOptions } from "./board-filters";
 import { NO_ESTIMATE } from "./relation-filters";
 import { teamsByUser } from "@/lib/teams/item-teams";
 import { emptyFilters } from "@/components/boards/shared/filter-bar";
@@ -297,5 +297,69 @@ describe("clauses combine as AND", () => {
     expect(matchesFilters(item({ ...target, priority: "LOW" }), f)).toBe(false);
     expect(matchesFilters(item({ ...target, columnKey: "todo" }), f)).toBe(false);
     expect(matchesFilters(item({ ...target, assigneeId: "u-9" }), f)).toBe(false);
+  });
+});
+
+/**
+ * The tag (label) filter's OPTIONS, which is a different question from whether
+ * an item matches: what may the user pick? On a Sprint board it has to be the
+ * tags on the cards in view, because that board loads the project's whole item
+ * list and then scopes itself to one sprint — a menu built from the raw list
+ * offers tags no visible card carries, and picking one blanks the board.
+ */
+describe("tagFilterOptions", () => {
+  const sprintItems = [
+    item({ id: "a", intervalId: "s-7", tags: ["ui", "blocked"] }),
+    item({ id: "b", intervalId: "s-7", tags: ["api"] }),
+    // Another sprint, and the backlog: their tags must not be offered while the
+    // board is scoped to s-7.
+    item({ id: "c", intervalId: "s-3", tags: ["legacy"] }),
+    item({ id: "d", intervalId: null, tags: ["someday"] }),
+  ];
+
+  it("offers every tag on the board when nothing is scoping it", () => {
+    expect(tagFilterOptions(sprintItems, filters())).toEqual([
+      "api",
+      "blocked",
+      "legacy",
+      "someday",
+      "ui",
+    ]);
+  });
+
+  it("offers only the tags of the cards the sprint scope leaves visible", () => {
+    expect(tagFilterOptions(sprintItems, filters({ intervalId: "s-7" }))).toEqual([
+      "api",
+      "blocked",
+      "ui",
+    ]);
+  });
+
+  it("keeps offering the other tags once one is selected, so a second can be added", () => {
+    // The label clause is excluded from the scoping pass on purpose: selecting
+    // "ui" must not collapse the menu to ["ui"], or multi-select is impossible.
+    expect(
+      tagFilterOptions(sprintItems, filters({ intervalId: "s-7", labels: ["ui"] })),
+    ).toEqual(["api", "blocked", "ui"]);
+  });
+
+  it("keeps a selected tag listed even when nothing in scope carries it", () => {
+    // Otherwise a stale selection (from a shared URL, or a sprint switch) would
+    // narrow the board with no control left to clear it.
+    expect(
+      tagFilterOptions(sprintItems, filters({ intervalId: "s-7", labels: ["legacy"] })),
+    ).toEqual(["api", "blocked", "legacy", "ui"]);
+  });
+
+  it("narrows with the board's other filters too", () => {
+    const mixed = [
+      item({ id: "a", priority: "HIGH", tags: ["ui"] }),
+      item({ id: "b", priority: "LOW", tags: ["legacy"] }),
+    ];
+    expect(tagFilterOptions(mixed, filters({ priorities: ["HIGH"] }))).toEqual(["ui"]);
+  });
+
+  it("is empty for a board with no tagged cards, so the control can hide", () => {
+    expect(tagFilterOptions([item({ tags: [] })], filters())).toEqual([]);
   });
 });
