@@ -147,7 +147,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
               message: snippet,
               relatedId: noteId,
               relatedType: "note",
-              url: `/notes/${noteId}`,
+              // Same 404 as the create path: no org slug, and no per-note route.
+              url: `/${org.slug}/notes`,
             }).catch(() => { /* swallow */ });
           }
         }

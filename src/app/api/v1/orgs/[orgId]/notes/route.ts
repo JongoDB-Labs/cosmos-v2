@@ -124,7 +124,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             message: snippet,
             relatedId: note.id,
             relatedType: "note",
-            url: `/notes/${note.id}`,
+            // Slug-less, and there is no /[orgSlug]/notes/[noteId] route to deep-link
+            // to — both make this a 404. Land on the org's notes list instead; the
+            // notification title already names the note. Deep-linking a single note
+            // needs a page that reads it from the URL, which does not exist yet.
+            url: `/${org.slug}/notes`,
           }).catch(() => { /* swallow */ });
         }
       }
