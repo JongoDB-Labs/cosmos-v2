@@ -9,7 +9,7 @@ import {
   matchesCustomFieldFilters,
 } from "@/components/boards/shared/filter-bar";
 import { itemMatchesTeam, type TeamLike } from "@/lib/teams/item-teams";
-import { matchesLabelFilter } from "@/lib/work-items/label-filter";
+import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import { matchesEstimateBand } from "@/lib/work-items/estimate-filter";
 import {
@@ -85,4 +85,43 @@ export function matchesFilters(
   if (!matchesEstimateBand(item.originalEstimate, f.estimate)) return false;
   if (!matchesCustomFieldFilters(item.customFields, f.customFields, defs)) return false;
   return true;
+}
+
+/**
+ * The tags to offer in a board's tag (label) filter menu.
+ *
+ * Derived from the cards the board is CURRENTLY showing, not from every item the
+ * project has ever had. That distinction is the whole point on a Sprint board:
+ * it loads the project's full item list and then scopes itself to one sprint, so
+ * a menu built from the raw list offers tags that only exist in another sprint
+ * or in the backlog — pick one and the board goes blank. Tags you can select are
+ * now tags some visible card actually carries.
+ *
+ * The label clause itself is excluded from that pass, deliberately: with it
+ * applied, selecting one tag would collapse the menu to that tag alone and there
+ * would be no way to add a second. Selecting more tags has to keep widening the
+ * result (OR), so the options have to be computed as if nothing were selected.
+ *
+ * An active selection is always kept in the list even if nothing on screen
+ * carries it any more, so it stays removable — the same rule `presentTypeKeys`
+ * follows in the filter bar.
+ */
+export function tagFilterOptions(
+  items: WorkItem[],
+  f: BoardFilters,
+  defs: CustomField[] = [],
+  teamsByUserId: Map<string, TeamLike[]> = new Map(),
+  now: Date = new Date(),
+  rel: {
+    blocked?: Set<string>;
+    milestones?: Map<string, Set<string>>;
+  } = {},
+): string[] {
+  const withoutLabels = { ...f, labels: [] };
+  const inScope = items.filter((item) =>
+    matchesFilters(item, withoutLabels, defs, teamsByUserId, now, rel),
+  );
+  const options = new Set(presentLabels(inScope));
+  for (const selected of f.labels) if (selected) options.add(selected);
+  return [...options].sort((a, b) => a.localeCompare(b));
 }

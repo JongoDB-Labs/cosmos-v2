@@ -576,6 +576,11 @@ export function FilterBar({
           options={presentLabelNames}
           selected={filters.labels}
           onChange={(labels) => onFilterChange({ ...filters, labels })}
+          // Labels are typed by people, not drawn from an enum, so the default
+          // title-casing is wrong here: it renders the org's "API" label as
+          // "Api" and "needs-QA" as "needs-qa" — a menu entry that doesn't match
+          // the name on the item. Map each option to itself so it shows as spelt.
+          labelMap={Object.fromEntries(presentLabelNames.map((n) => [n, n]))}
         />
       )}
 
