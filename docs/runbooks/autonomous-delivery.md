@@ -56,13 +56,29 @@ brings back (a clean restart reclaims any stranded ticket). The unit lives at
 
 **Self-reload after a self-modifying ship** — tsx loads Foreman's modules once at
 boot and never hot-reloads, so after Foreman ships a change touching its own
-runtime (`scripts/foreman/**` or `src/lib/foreman/**`) it would keep executing the
-OLD code until restarted. On such a ship the daemon arms a clean self-restart:
-finishes any in-flight build/ship, then exits non-zero so `Restart=on-failure`
-brings it back on the now-current checkout (`mergePr` hard-resets the local repo to
-the merged commit). It's logged (`self-restart …` with version + commit) and guarded
-to once per shipped commit (stamp: `.deploy/FOREMAN_RESTART_COMMIT`), so it can't
-restart-loop.
+runtime it would keep executing the OLD code until restarted. On such a ship the
+daemon arms a clean self-restart: finishes any in-flight build/ship, then exits
+non-zero so `Restart=on-failure` brings it back on the now-current checkout
+(`mergePr` hard-resets the local repo to the merged commit). It's logged
+(`self-restart …` with version + commit) and guarded to once per shipped commit
+(stamp: `.deploy/FOREMAN_RESTART_COMMIT`), so it can't restart-loop.
+
+**…but since the P3 plugin extraction that trigger cannot fire (COSMOS-153).**
+It tests a shipped core diff against `src/plugins/foreman/`, and Foreman's code no
+longer lives in this repo: `scripts/plugins/sync.mjs` composes it in from the
+private plugin repo and adds every composed path to `.git/info/exclude`, so a core
+commit can never contain one. Two gaps follow, both fixed in the PLUGIN repo — the
+core tree has no Foreman code to change:
+
+- The core-side signal that Foreman's runtime moved is a **`plugins.lock.json` ref
+  bump** (the `chore(plugins): compose with foreman <v>` commits), not a
+  `src/plugins/foreman/**` path. Nothing in the daemon watches that file.
+- A restart alone would not be enough anyway: the daemon runs the *composed* tree,
+  which a reset to the merged core commit does not regenerate. The refresh is
+  `src/plugins/foreman/daemon/refresh-daemon.sh <core-version>` — fetch the tag,
+  check out the plugin commit its lock pins, re-compose, `prisma generate`, verify
+  the composed manifest equals the locked `VERSION`, then restart the service. It
+  is correct and idempotent, but **nothing invokes it**; it is run by hand today.
 
 ## The audit trail — reworking or rolling back a change
 
@@ -96,10 +112,10 @@ change it, and let Foreman ship the next version.
 
 ## Safety rails
 
-- **Self-modification gate** (`src/lib/foreman/risk.ts`) — a change that touches
-  auth/RBAC/ABAC/AI-egress, `prisma/` schema or migrations, the Dockerfile,
+- **Self-modification gate** (`src/plugins/foreman/lib/risk.ts`) — a change that
+  touches auth/RBAC/ABAC/AI-egress, `prisma/` schema or migrations, the Dockerfile,
   `next.config.ts`, `.deploy/`, `.github/workflows/`, or Foreman's own code
-  (`scripts/foreman/`, `src/lib/foreman/`) is **always** parked for review, never
+  (`src/plugins/foreman/`) is **always** parked for review, never
   auto-shipped. So is any diff over the size budget (> 8 files or > 400 lines).
 - **Health-gated deploys** — a deploy that fails the `:8090`/public health check
   rolls back automatically and parks the ticket.
