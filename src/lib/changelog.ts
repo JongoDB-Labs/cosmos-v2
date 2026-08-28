@@ -21,7 +21,7 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
-    version: "2.316.2",
+    version: "2.316.3",
     date: "2026-08-28",
     title: "The feedback board stops interrupting you mid-sentence",
     highlights: [
