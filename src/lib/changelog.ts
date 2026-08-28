@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Scroll through time on the timeline",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The timeline (Gantt) used to end a few days either side of your work — there was no calendar to scroll into, so you could not look at the weeks before a plan starts or the months after it finishes. Scrolling up against either end now keeps going: the chart adds another screen of calendar each time you reach an edge, left or right, as far as three years past your plan in either direction. A new Today button jumps the chart straight back to the present, however far out you have wandered.",
+      },
+      {
+        kind: "improvement",
+        text: "Scrolling backwards in time keeps the bars you were looking at exactly where they are, so the chart never lurches sideways as new dates appear. Assumption worth confirming: the wider window is drawn from the work items already loaded — it shows more calendar around the same board, and leaves your zoom level alone.",
+      },
+    ],
+  },
+  {
     version: "2.317.1",
     date: "2026-08-28",
     title: "Notification links open the item you were told about",

@@ -1013,3 +1013,124 @@ describe("TimelineView — bars still open the ticket for a read-only viewer", (
     expect(screen.getByTestId("detail-sheet")).toHaveTextContent("i1");
   });
 });
+
+// COSMOS-156: "a user should be able to scroll left infinitely and right
+// infinitely to see everything they want". The axis was derived from the board's
+// own dates and stopped 3 days before the first bar / 7 days after the last one,
+// so there was no calendar either side to scroll into — the chart simply ended.
+//
+// jsdom has no layout, so the scroller's geometry is stubbed and the scroll
+// event is fired by hand; what's asserted is the observable effect, the chart's
+// rendered width (totalDays * dayWidth) growing, plus the scroll compensation
+// that keeps the view still when days are prepended.
+describe("TimelineView — scrolling to an edge extends the calendar (COSMOS-156)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  /** Give the (layout-less) scroller a viewport and a scrollable content width,
+   *  with a scrollLeft that actually stores what's written to it. */
+  const stubScroller = (el: HTMLElement, { clientWidth = 800, scrollWidth = 2000 } = {}) => {
+    let scrollLeft = 0;
+    Object.defineProperty(el, "clientWidth", { value: clientWidth, configurable: true });
+    Object.defineProperty(el, "scrollWidth", { value: scrollWidth, configurable: true });
+    Object.defineProperty(el, "scrollLeft", {
+      get: () => scrollLeft,
+      set: (v: number) => {
+        scrollLeft = v;
+      },
+      configurable: true,
+    });
+    return {
+      scrollTo(x: number) {
+        scrollLeft = x;
+        fireEvent.scroll(el);
+      },
+      get left() {
+        return scrollLeft;
+      },
+    };
+  };
+
+  const chartWidth = () => parseFloat(screen.getByTestId("gantt-chart").style.width);
+
+  it("adds calendar behind the plan when you scroll to the left edge, without moving the view", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    const before = chartWidth();
+
+    const scroller = stubScroller(screen.getByTestId("gantt-scroll"));
+    scroller.scrollTo(400); // somewhere in the middle — nothing to extend yet
+    expect(chartWidth()).toBe(before);
+
+    scroller.scrollTo(0); // up against the left end
+    expect(chartWidth()).toBeGreaterThan(before);
+    // The days went on the FRONT, so everything already drawn moved right by
+    // exactly as much — the scroll offset follows it, or the chart lurches
+    // sideways under the user at the moment they scroll into it.
+    expect(scroller.left).toBe(chartWidth() - before);
+  });
+
+  it("adds calendar past the plan when you scroll to the right edge", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    const before = chartWidth();
+
+    const scroller = stubScroller(screen.getByTestId("gantt-scroll"));
+    scroller.scrollTo(1200); // scrollWidth - clientWidth: the far end
+    expect(chartWidth()).toBeGreaterThan(before);
+    // Appending changes nothing already on screen, so the offset stays put.
+    expect(scroller.left).toBe(1200);
+  });
+
+  it("keeps extending, so scrolling on never runs out of calendar", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    const before = chartWidth();
+
+    const scroller = stubScroller(screen.getByTestId("gantt-scroll"));
+    scroller.scrollTo(1200);
+    const once = chartWidth();
+    scroller.scrollTo(1100);
+    scroller.scrollTo(1200);
+    expect(chartWidth()).toBeGreaterThan(once);
+    expect(once).toBeGreaterThan(before);
+  });
+
+  it("does not grow while the user is only scrolling vertically", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+    const before = chartWidth();
+
+    // A vertical scroll fires the same event, and the view starts life at
+    // scrollLeft 0 — i.e. already "at the left edge". Reading down a long board
+    // must not silently push the axis years into the past.
+    const scroll = screen.getByTestId("gantt-scroll");
+    const scroller = stubScroller(scroll);
+    fireEvent.scroll(scroll);
+    fireEvent.scroll(scroll);
+    expect(chartWidth()).toBe(before);
+    expect(scroller.left).toBe(0);
+  });
+
+  it("offers one click back to today, since the window now runs far past the plan", async () => {
+    renderTimeline();
+    await screen.findByTestId("gantt-chart");
+
+    const scroller = stubScroller(screen.getByTestId("gantt-scroll"));
+    scroller.scrollTo(1200);
+    expect(scroller.left).toBe(1200);
+
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to today" }));
+    // Today is in 2026 and the fixture's bars are in Jan 2026, so today sits
+    // past them: the jump lands somewhere else, deliberately, rather than
+    // leaving the user where they had scrolled to.
+    expect(scroller.left).not.toBe(1200);
+    // And it lands on a POSITION, not a nudge: pressing it again from where it
+    // just put you doesn't move you on.
+    const landed = scroller.left;
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to today" }));
+    expect(scroller.left).toBe(landed);
+  });
+});

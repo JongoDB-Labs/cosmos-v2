@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -186,6 +186,38 @@ const BASE_DAY_WIDTH = 28;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 1.25;
+
+// ── Scroll through time (COSMOS-156) ────────────────────────────────────────
+// The axis is derived from the board's own dates, so it used to STOP three days
+// before the first bar and seven days after the last one: there was no calendar
+// either side to scroll into, and "scroll left/right to see everything" hit a
+// wall. Reaching either edge now EXTENDS the rendered window by another chunk of
+// days, so the user keeps scrolling and keeps getting calendar.
+//
+// ASSUMPTION (recorded so the reviewer is confirming a decision they can see):
+// the extension is purely client-side. It draws more calendar around the SAME
+// already-loaded work items — no paged range-fetching from the backend — and it
+// leaves zoom and granularity exactly as the user set them. The board loads its
+// items in one query, so there is nothing more to fetch; what was missing was
+// canvas, not data.
+//
+/** How close to an edge counts as having reached it. Small on purpose: this
+ *  fires when the user has scrolled up AGAINST the end, not merely near it. */
+const EDGE_SLACK_PX = 48;
+/** Each extension adds a screen-width of days, floored here so a narrow
+ *  viewport (or a deep zoom-out) still moves the window by a useful amount. */
+const MIN_EXTEND_DAYS = 30;
+/** "Infinitely" in practice. Every day column is real DOM (a header cell, and a
+ *  gridline or weekend band in the body), so the window cannot grow without
+ *  bound and stay usable. Three years each side of the plan is far past any
+ *  schedule this chart draws, and it is reached a screen at a time. */
+const MAX_EXTRA_DAYS = 365 * 3;
+
+/** `useLayoutEffect` on the client, `useEffect` on the server. The scroll
+ *  compensation below has to land BEFORE paint or the chart visibly jumps, but
+ *  a bare `useLayoutEffect` warns during SSR — this component's skeleton does
+ *  render on the server. */
+const useBeforePaintEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 /** Work-items column font scales with zoom so the two panes stay legible together. */
 function labelScale(zoom: number): number {
   return Math.min(Math.max(zoom, 0.75), 1.4);
@@ -495,6 +527,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // a plan gets the whole screen. Zoom (and every other control's state) lives
   // in this component, so entering and leaving changes nothing but the layout.
   const [fullscreen, setFullscreen] = useState(false);
+  // Days of calendar added beyond the data-derived range by scrolling to an
+  // edge (COSMOS-156). Purely a VIEW extent, like zoom: it changes how much
+  // empty calendar is drawn, never an item's dates.
+  const [extraDays, setExtraDays] = useState({ before: 0, after: 0 });
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // Prepending days shifts every existing column right; this is how many pixels
+  // the scroll offset owes to stay put, applied once the wider chart is in the DOM.
+  const pendingScrollShiftRef = useRef(0);
+  // Scroll events fire for VERTICAL scrolling too, and the initial view already
+  // sits at scrollLeft 0 — without this, scrolling down at the left edge would
+  // silently grow the window backwards forever. Extending requires horizontal
+  // movement TOWARDS the edge that is being extended.
+  const lastScrollLeftRef = useRef(0);
   const [showDeps, setShowDeps] = useState(false);
   // Blocked lens: red bars for impeded work, with arrows to whatever is holding
   // it up. Every dependency renders the same grey otherwise, so "what is stuck,
@@ -555,6 +600,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     if (boardRef.current === boardId) return;
     boardRef.current = boardId;
     setCollapsedIds(readCollapsedIds(boardId));
+    // A different board is a different plan: start it on its own dates rather
+    // than on however far the previous one had been scrolled out.
+    setExtraDays({ before: 0, after: 0 });
   }, [boardId]);
 
   const fullTree = useMemo(
@@ -687,10 +735,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // Compute timeline range. The range spans ALL filtered items (collapsed
   // subtrees included) so collapsing never reflows the axis; row ORDER comes
   // from the hierarchy walk above.
-  const { timelineStart, totalDays } = useMemo(() => {
+  //
+  // This is the range the DATA implies; `timelineStart`/`totalDays` below widen
+  // it by whatever the user has scrolled into (COSMOS-156).
+  const { baseStart, baseDays } = useMemo(() => {
     if (filteredItems.length === 0) {
       const now = startOfDay(new Date());
-      return { timelineStart: addDays(now, -7), totalDays: 37 };
+      return { baseStart: addDays(now, -7), baseDays: 37 };
     }
 
     const now = new Date();
@@ -714,8 +765,59 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     const padEnd = addDays(startOfDay(maxDate), 7);
     const days = Math.max(diffDays(padStart, padEnd), 30);
 
-    return { timelineStart: padStart, totalDays: days };
+    return { baseStart: padStart, baseDays: days };
   }, [filteredItems]);
+
+  // The window actually drawn: the data's range plus every chunk the user has
+  // scrolled into, in either direction. Every x/offset on the chart is measured
+  // from `timelineStart`, so extending backwards moves the whole picture right
+  // — which is what the scroll compensation below undoes.
+  const timelineStart = useMemo(
+    () => addDays(baseStart, -extraDays.before),
+    [baseStart, extraDays.before],
+  );
+  const totalDays = baseDays + extraDays.before + extraDays.after;
+
+  // Reaching an edge extends the window rather than stopping there. Guarded on
+  // horizontal movement toward that edge, so a vertical scroll (which fires the
+  // same event, and which at rest sits at scrollLeft 0) can never grow it.
+  const onScrollExtend = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      const prev = lastScrollLeftRef.current;
+      const left = el.scrollLeft;
+      lastScrollLeftRef.current = left;
+      const max = el.scrollWidth - el.clientWidth;
+      // Nothing overflows: both "edges" are the same place and the user has not
+      // scrolled to either. Growing here would run away unprompted.
+      if (max <= 0) return;
+      const chunk = Math.max(MIN_EXTEND_DAYS, Math.ceil(el.clientWidth / dayWidth));
+      if (left < prev && left <= EDGE_SLACK_PX) {
+        const add = Math.min(chunk, MAX_EXTRA_DAYS - extraDays.before);
+        if (add <= 0) return;
+        pendingScrollShiftRef.current += add * dayWidth;
+        setExtraDays((p) => ({ ...p, before: p.before + add }));
+      } else if (left > prev && max - left <= EDGE_SLACK_PX) {
+        const add = Math.min(chunk, MAX_EXTRA_DAYS - extraDays.after);
+        if (add <= 0) return;
+        setExtraDays((p) => ({ ...p, after: p.after + add }));
+      }
+    },
+    [dayWidth, extraDays.before, extraDays.after],
+  );
+
+  // Put the viewport back where it was after a backwards extension. Without
+  // this the newly drawn days would push the bars the user was looking at off
+  // to the right, and scrolling left would read as the chart lurching sideways.
+  useBeforePaintEffect(() => {
+    const shift = pendingScrollShiftRef.current;
+    if (shift === 0) return;
+    pendingScrollShiftRef.current = 0;
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollLeft += shift;
+    lastScrollLeftRef.current = el.scrollLeft;
+  }, [extraDays]);
 
   const sortedItems = useMemo(() => visibleRows.map((r) => r.item), [visibleRows]);
 
@@ -1254,6 +1356,19 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   const today = startOfDay(new Date());
   const todayOffset = diffDays(timelineStart, today);
 
+  // The way home. A window that extends as far as you scroll needs one: three
+  // years out, today is no longer somewhere you can find by scrolling back a
+  // bit. Centred rather than pinned left so today lands with context either side.
+  // Assigned directly instead of `scrollTo({behavior:"smooth"})` — smooth-
+  // animating across years of calendar is a long ride to a place you asked to be.
+  const scrollToToday = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const left = Math.max(todayOffset * dayWidth + dayWidth / 2 - el.clientWidth / 2, 0);
+    el.scrollLeft = left;
+    lastScrollLeftRef.current = el.scrollLeft;
+  }, [todayOffset, dayWidth]);
+
   // Milestones that fall inside the visible window, placed on the same day grid
   // the bars use. Undated ones are skipped — there is nowhere honest to put them.
   const milestoneMarkers = useMemo(() => {
@@ -1492,6 +1607,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             >
               <ZoomIn className="size-3" />
             </Button>
+            {/* Pairs with the endless scroll: the chart now goes as far as the
+                user cares to drag it, so there has to be one click back to the
+                part of the calendar that is happening. */}
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={scrollToToday}
+              title="Scroll the chart back to today"
+              aria-label="Scroll to today"
+            >
+              Today
+            </Button>
             <Button
               variant="outline"
               size="xs"
@@ -1640,6 +1767,10 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           the headers stay pinned the whole way down. */}
       <div
         data-testid="gantt-scroll"
+        ref={scrollerRef}
+        // Scrolling to either end extends the calendar rather than stopping at
+        // the last bar (COSMOS-156) — see `onScrollExtend`.
+        onScroll={onScrollExtend}
         className="relative flex flex-1 items-start overflow-auto"
       >
         {/* Left column - item labels. Narrower on phones so the chart isn't
