@@ -176,14 +176,23 @@ describe("POST /work-items/[itemId]/comments — live updates (COSMOS-127)", () 
   });
 });
 
-// COSMOS-191: "clicking a notification gives a 404". Every dashboard page lives
-// under /[orgSlug], so a slug-less link resolves [orgSlug]="projects" and 404s.
-// The assignee notification in this same handler always carried the slug; the
-// mention notification twenty lines above it did not, so mention links — the
-// ones users actually click — were dead in production for months.
+// COSMOS-191: "clicking a notification gives a 404".
 //
-// Assert the WHOLE url. A `toContain(org.slug)` here would pass against
-// `/acme` alone and against a path with the segments in the wrong order.
+// The first fix for this was WRONG and shipped: it added the missing /[orgSlug]
+// prefix, on the theory that the slug was the problem. It is not — the
+// notification dropdown normalises the prefix (strips a leading /{orgSlug} and
+// re-adds exactly one), so both forms resolved identically. The real cause is
+// that **there is no work-items route at all** — no
+// /[orgSlug]/projects/[projectKey]/work-items/[id] page, and no catch-all — so
+// every variant of that path 404s.
+//
+// The app's actual work-item deep link is /[orgSlug]/issues?item=<id>: 7 call
+// sites use it, including issue-copy-link, and issues-view.tsx consumes it via
+// searchParams.get("item").
+//
+// These tests therefore assert the URL's SHAPE (pathname + item param), not a
+// string literal. A literal is what let the wrong fix look verified: the test
+// asserted the URL I had decided on, so it passed while the bug stayed live.
 describe("POST /work-items/[itemId]/comments — mention notification link (COSMOS-191)", () => {
   const MENTIONED_ID = "66666666-6666-6666-6666-666666666666";
 
@@ -204,7 +213,7 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
     ]);
   }
 
-  it("links a mention notification to the org-scoped work-item route, not a slug-less 404", async () => {
+  it("links a mention notification to a work-item route that EXISTS (/issues?item=)", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
     getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
     prisma.orgMember.findMany.mockResolvedValue([{ userId: MENTIONED_ID }]);
@@ -214,11 +223,15 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
     expect(res.status).toBe(201);
 
     expect(createNotification).toHaveBeenCalledTimes(1);
-    expect(createNotification.mock.calls[0][0]).toMatchObject({
-      userId: MENTIONED_ID,
-      type: "comment.mentioned",
-      url: `/acme/projects/ACME/work-items/${ITEM_ID}`,
-    });
+    const call = createNotification.mock.calls[0][0];
+    expect(call).toMatchObject({ userId: MENTIONED_ID, type: "comment.mentioned" });
+
+    // Parse it the way the dropdown does, and check it names a route that exists.
+    const u = new URL(call.url, "http://x");
+    expect(u.pathname).toBe("/acme/issues");
+    expect(u.searchParams.get("item")).toBe(ITEM_ID);
+    // The dead route, in any form, must never come back.
+    expect(call.url).not.toContain("work-items");
   });
 
   it("does not notify the author when they mention themselves", async () => {

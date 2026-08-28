@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.317.1",
+    date: "2026-08-28",
+    title: "Notification links open the item you were told about",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a notification about a work item \u2014 a mention in a comment, a new comment on something assigned to you, or a bulk update \u2014 led to a \"page not found\" screen. An earlier attempt at this in 2.316.2 fixed the wrong thing: the link was pointed at an address that has never existed in the product, so no amount of correcting its prefix could make it resolve. Notifications now link to the item the way the rest of the app does \u2014 the same address the \"copy link\" button produces \u2014 so clicking one opens the item. Being told you were assigned something now takes you to the thing you were assigned, rather than to the workspace home page.",
+      },
+      {
+        kind: "improvement",
+        text: "Automated delivery's new screen-checking step had three faults of its own on its first real run, all now fixed. It rejected a change after correctly verifying it, because the development server it had to start left behind build files it mistook for tampering; it now distinguishes those from actual edits. When it did reject something it did not say what had changed, which made the rejection impossible to act on. And it wasted effort rediscovering that the development server needs a specific start-up flag in that environment, which it is now simply told.",
+      },
+    ],
+  },
+  {
     version: "2.317.0",
     date: "2026-08-28",
     title: "Automated delivery now looks at the screen before it ships",

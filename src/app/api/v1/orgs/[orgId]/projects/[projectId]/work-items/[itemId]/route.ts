@@ -350,7 +350,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         message: `${actorName} assigned you a work item`,
         relatedType: "work_item",
         relatedId: itemId,
-        url: `/${org.slug}`,
+        // Was the org home: an "Assigned: X" notification that did not take you
+        // to X. Not a 404, just useless. Same deep link as every other path.
+        url: `/${org.slug}/issues?item=${itemId}`,
       }).catch(() => {
         /* swallow — notification is convenience, not load-bearing */
       });
