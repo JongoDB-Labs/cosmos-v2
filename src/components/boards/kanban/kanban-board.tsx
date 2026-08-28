@@ -1015,7 +1015,13 @@ function KanbanBoardInner({
             projectId={projectId}
             projectKey={projectKey}
             boardId={boardId}
-            onCreated={() => void fetchData()}
+            // Silent + fresh, like every other post-mutation refetch here
+            // (COSMOS-164). A bare fetchData() flipped `loading`, which
+            // early-returns the skeleton ABOVE this whole tree — the board
+            // visibly tore itself down after every create — and it read the
+            // items list back through the 30s staleTime, so the issue just
+            // created could be missing from the list it came back with.
+            onCreated={() => void fetchData({ silent: true, fresh: true })}
           />
         )}
         {(canBulkEdit || canBulkDelete) && (

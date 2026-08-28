@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.316.2",
+    date: "2026-08-28",
+    title: "The feedback board stops interrupting you mid-sentence",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The feedback board refreshes itself whenever anyone in your org submits, triages or delivers something — and that refresh used to replace the whole board with a loading placeholder for the length of the request. If you had “Submit feedback” or an item's edit form open at that moment, it vanished and took the cursor with it, so the next thing you typed went nowhere. Background refreshes are now invisible: the list updates underneath you while what you are typing stays put, still focused, exactly as you left it. A refresh that can't reach the server now leaves the board you are looking at alone instead of swapping it for an error message. This was fixed by making the refresh non-destructive to unsaved input rather than by adding saved drafts or autosave — nothing you type is stored anywhere until you submit it.",
+      },
+      {
+        kind: "fix",
+        text: "Creating an issue from a Kanban board no longer blanks the board to a placeholder while it reloads, and the issue you just created is guaranteed to be in the list that comes back rather than possibly waiting on the next live update.",
+      },
+    ],
+  },
+  {
     version: "2.316.1",
     date: "2026-08-27",
     title: "Watch a build as it happens, talk to it, and wait on it less",

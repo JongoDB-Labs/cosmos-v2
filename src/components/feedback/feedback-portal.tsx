@@ -266,18 +266,41 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     void fetch(`${basePath}/attachments/${id}`, { method: "DELETE" }).catch(() => {});
   }
 
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
-    setError(false);
+  /**
+   * Load the board.
+   *
+   * `silent` skips the loading/error flags — and that is the whole point, not a
+   * cosmetic nicety. Both flags early-return ABOVE every dialog in this file, so
+   * flipping either one UNMOUNTS the submit dialog and the detail modal along
+   * with the list. The field values themselves live on this component and so
+   * come back with it, but the DOM does not: for the length of the request the
+   * form the user is typing into is simply gone, the caret and focus with it, so
+   * the keystrokes in that window land nowhere. That is the reported "it blanks
+   * out / resets / refreshes and i lose my progress" (COSMOS-164), and `error`
+   * is worse still — a background refresh that failed swapped the whole board
+   * for an error panel and hid the open form until it was retried.
+   *
+   * So a failed background refresh is swallowed rather than surfaced: the list
+   * on screen is still the last good one, and the next event retries. Only the
+   * foreground load (mount / retry / post-submit) may show a skeleton or an
+   * error state, and at those moments there is no in-progress edit to lose.
+   */
+  const fetchItems = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setError(false);
+    }
     try {
       const res = await fetch(basePath);
       if (!res.ok) throw new Error("Failed to load feedback");
       setItems(await res.json());
     } catch (err) {
+      if (silent) return;
       notifyError(err, "Couldn't load feedback.");
       setError(true);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [basePath]);
 
@@ -286,14 +309,18 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
   // delivered FR/BR becomes a work item — so the board reflects submissions, triage,
   // and delivery in real time without a manual refresh. Handlers are read from a ref
   // inside the hook, so re-creating this object each render doesn't reopen the stream.
+  //
+  // ALWAYS silent (COSMOS-164). These fire on someone ELSE's activity — including
+  // `work-item.created` for any work item in the org — so they land at arbitrary
+  // moments, including while this user is halfway through typing a submission.
   useRealtimeEvents(orgId, {
-    "feedback.delivered": () => void fetchItems(),
-    "feedback.throttled": () => void fetchItems(),
-    "feedback.gated": () => void fetchItems(),
-    "feedback.flagged": () => void fetchItems(),
-    "feedback.duplicate": () => void fetchItems(),
-    "feedback.rejected": () => void fetchItems(),
-    "work-item.created": () => void fetchItems(),
+    "feedback.delivered": () => void fetchItems({ silent: true }),
+    "feedback.throttled": () => void fetchItems({ silent: true }),
+    "feedback.gated": () => void fetchItems({ silent: true }),
+    "feedback.flagged": () => void fetchItems({ silent: true }),
+    "feedback.duplicate": () => void fetchItems({ silent: true }),
+    "feedback.rejected": () => void fetchItems({ silent: true }),
+    "work-item.created": () => void fetchItems({ silent: true }),
   });
 
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -422,7 +449,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     return (
       <div className="flex flex-col items-center gap-3 py-12 text-center">
         <p className="text-sm text-muted-foreground">Couldn&apos;t load feedback.</p>
-        <Button variant="outline" size="sm" onClick={fetchItems}>
+        <Button variant="outline" size="sm" onClick={() => void fetchItems()}>
           Try again
         </Button>
       </div>
