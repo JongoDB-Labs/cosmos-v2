@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Clearing a tag filter gives you your sprint board back",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a sprint board, clearing a tag filter handed back the wrong board. \"Clear\" reset every filter to empty — including the sprint the board was showing — so a board narrowed to one tag opened out to every item in the project, backlog and finished sprints included, and the sprint header was replaced by \"No active sprint\". Clearing now restores the board you were actually looking at: the same sprint, all of its cards, every column back. Unticking the last tag and pressing \"Clear\" now land in exactly the same place. Two things follow from the same change: an untouched sprint board no longer shows a \"Clear\" button (or a filter count) for a sprint scope you never chose, and clearing your filters no longer undoes your swimlane grouping — that is how you chose to look at the board, not something narrowing it.",
+      },
+      {
+        kind: "improvement",
+        text: "ASSUMED, and worth confirming: \"clearing the filter\" means emptying the tag selection — by unticking the last tag or pressing \"Clear\" — and it restores every column and card exactly as the board was before you filtered, while leaving the rest of your view alone (grouping, scroll position, and which sprint you are on all stay put). \"Clear\" still clears all the filters at once, not just tags.",
+      },
+    ],
+  },
+  {
     version: "2.317.1",
     date: "2026-08-28",
     title: "Notification links open the item you were told about",
