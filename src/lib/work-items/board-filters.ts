@@ -6,6 +6,7 @@ import type { BoardFilters } from "@/components/boards/shared/filter-bar";
 // extraction exists to end.
 import {
   bareTypeKey,
+  emptyFilters,
   matchesCustomFieldFilters,
 } from "@/components/boards/shared/filter-bar";
 import { itemMatchesTeam, type TeamLike } from "@/lib/teams/item-teams";
@@ -17,6 +18,21 @@ import {
   matchesMilestone,
   matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
+
+/**
+ * A board's UNFILTERED state — what its filter bar should clear back to.
+ *
+ * A plain Kanban opens showing everything, so that is the empty filter. A Sprint
+ * board opens scoped to a sprint (`initialIntervalId`), and that scope is the
+ * board itself rather than something the user applied — so clearing a tag there
+ * has to leave it in place. See lib/work-items/filter-baseline for what "Clear"
+ * then does with it.
+ */
+export function boardBaseline(initialIntervalId?: string | null): BoardFilters {
+  return initialIntervalId
+    ? { ...emptyFilters, intervalId: initialIntervalId }
+    : emptyFilters;
+}
 
 /**
  * Does one work item satisfy a board's filters?
