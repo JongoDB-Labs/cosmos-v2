@@ -21,10 +21,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
-    version: "2.316.0",
+    version: "2.316.1",
     date: "2026-08-27",
     title: "Watch a build as it happens, talk to it, and wait on it less",
     highlights: [
+      {
+        kind: "fix",
+        text: "A round of reliability fixes to automated delivery, found by testing it end to end rather than in pieces. Sending a note to a running build failed outright; the note is now delivered, and shown in the activity feed with its text rather than just a marker. Switching the worker from preview mode to live no longer leaves the items it previewed stuck and undeliverable. If the worker cannot read its own mode it now genuinely pauses, instead of continuing to deliver while reporting that it had paused. Sending a note also now requires an owner or admin, matching every other control that steers the worker.",
+      },
       {
         kind: "feature",
         text: "Automated delivery no longer stops on every small ambiguity. Previously an item was either fully specified or it halted to ask a question \u2014 and most of those questions were never answered, so the work simply sat. Where a detail is genuinely minor and easily reversed, it now proceeds on a clearly stated assumption, gets built and reviewed as usual, and is then handed to you as a draft with the assumption spelled out, along with the question it was standing in for. Anything that is a product, pricing, security or data decision still waits for you, exactly as before \u2014 and work built on an assumption is never merged automatically.",
