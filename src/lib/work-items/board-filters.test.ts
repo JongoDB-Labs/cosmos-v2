@@ -168,14 +168,41 @@ describe("labels", () => {
 });
 
 describe("team", () => {
-  // A team's work is what its members are assigned; items carry no team.
-  // Built through `teamsByUser`, the same call the boards make, rather than a
-  // hand-rolled Map — the first draft hand-rolled one without `members`, which
-  // typechecked only because the test cast it away and passed only because
+  // An item's OWN team wins; otherwise a team's work is what its members are
+  // assigned. Built through `teamsByUser`, the same call the boards make, rather
+  // than a hand-rolled Map — the first draft hand-rolled one without `members`,
+  // which typechecked only because the test cast it away and passed only because
   // `itemMatchesTeam` happens to read `id` alone today.
   const roster = teamsByUser([
     { id: "team-a", name: "A", members: [{ userId: "u-1" }] },
+    { id: "team-b", name: "B", members: [{ userId: "u-2" }] },
   ]);
+
+  it("keeps work assigned to the team DIRECTLY, with nobody on it", () => {
+    // COSMOS-186: the case derivation could never express. No assignee at all,
+    // and the item is still the team's.
+    expect(
+      matchesFilters(
+        item({ teamId: "team-a", assigneeId: null }),
+        filters({ teamId: "team-a" }),
+        [],
+        roster,
+      ),
+    ).toBe(true);
+  });
+
+  it("drops an item whose OWN team is a different one, whoever holds it", () => {
+    // The explicit team wins over the assignee's membership — otherwise moving
+    // an item to team A would leave it showing under team B as well.
+    expect(
+      matchesFilters(
+        item({ teamId: "team-a", assigneeId: "u-2" }),
+        filters({ teamId: "team-b" }),
+        [],
+        roster,
+      ),
+    ).toBe(false);
+  });
 
   it("keeps work assigned to a member of the chosen team", () => {
     expect(

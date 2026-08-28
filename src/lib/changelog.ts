@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.317.0",
+    date: "2026-08-28",
+    title: "Give work to a team, not just to a person",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A work item can now be assigned to a TEAM directly, with nobody on it. Until now a team's work was inferred from who its people were assigned — so work plainly intended for a squad belonged to no team at all until someone picked it up, and reassigning it moved it between teams silently. An item's detail panel now has a Team field beside Assignees, independent of it: set either, both or neither. The board's Team filter and Team swimlanes read the item's own team when it has one and fall back to the old behaviour when it does not, so nothing you already rely on changes. Disbanding a team leaves its work in place, with no team.",
+      },
+      {
+        kind: "improvement",
+        text: "ASSUMPTION FOR REVIEW: this was built as a dedicated team field on the item (one team per item, a real reference to the team) rather than as a tag convention, and the team is deliberately independent of the assignee rather than derived from them. The open question was whether “assigned to a team” should be a first-class field or a tag; if a tag was wanted instead, this is the decision to send back.",
+      },
+    ],
+  },
+  {
     version: "2.316.1",
     date: "2026-08-27",
     title: "Watch a build as it happens, talk to it, and wait on it less",

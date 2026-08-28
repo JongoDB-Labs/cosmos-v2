@@ -66,6 +66,10 @@ export interface WorkItem {
   description: string;
   columnKey: string;
   assigneeId: string | null;
+  /** The team the item is assigned to (COSMOS-186). Independent of `assigneeId`:
+   *  an item can belong to a team with nobody on it yet. Optional so a row from
+   *  an older server, or a fixture, is still a valid WorkItem. */
+  teamId?: string | null;
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   intervalId: string | null;
   parentId: string | null;

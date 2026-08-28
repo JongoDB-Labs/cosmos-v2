@@ -57,6 +57,7 @@ import {
   Loader2,
   Calendar,
   User,
+  Users,
   Layers,
   Shapes,
   Target,
@@ -98,6 +99,13 @@ interface CardDetailSheetProps {
   intervals: Interval[];
   columns: BoardColumn[];
   /**
+   * The project's teams, for the Team field (COSMOS-186). Optional and passed in
+   * rather than fetched here, matching members/intervals/columns — this sheet is
+   * presentational, and a query of its own would drag every caller and every test
+   * that renders it into a QueryClient. Omitted (or empty) hides the control.
+   */
+  teams?: { id: string; name: string }[];
+  /**
    * The project's workflow statuses, unioned across its boards. Optional: a board
    * that owns real columns (Kanban) can leave it out and get the same list.
    */
@@ -130,6 +138,7 @@ export function CardDetailSheet({
   members,
   intervals,
   columns,
+  teams = [],
   statusColumns,
   onUpdate,
   onDelete,
@@ -180,6 +189,10 @@ export function CardDetailSheet({
   // Multi-assign (FR 1d38496a): the full set, primary first. assigneeId above
   // mirrors the set's head so single-assignee displays stay consistent.
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  // Team assignment (COSMOS-186). Held separately from the assignee state above
+  // because it is a separate thing: an item can be the platform team's with
+  // nobody on it, and reassigning a person never moves it.
+  const [teamId, setTeamId] = useState<string | null>(null);
   const [intervalId, setIntervalId] = useState<string | null>(null);
   const [columnKey, setColumnKey] = useState("");
   const [storyPoints, setStoryPoints] = useState<number | null>(null);
@@ -235,11 +248,12 @@ export function CardDetailSheet({
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
+      team: (id: string) => teams.find((t) => t.id === id)?.name,
       interval: (id: string) => intervals.find((c) => c.id === id)?.name,
       type: (id: string) => allTypes.find((t) => t.id === id)?.name,
       column: (key: string) => statusOptions.find((c) => c.key === key)?.name,
     }),
-    [members, intervals, allTypes, statusOptions],
+    [members, teams, intervals, allTypes, statusOptions],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -331,6 +345,7 @@ export function CardDetailSheet({
         item.assignees?.map((a) => a.userId) ??
           (item.assigneeId ? [item.assigneeId] : []),
       );
+      setTeamId(item.teamId ?? null);
       setIntervalId(item.intervalId);
       setColumnKey(item.columnKey);
       setStoryPoints(item.storyPoints);
@@ -547,6 +562,9 @@ export function CardDetailSheet({
           case "assigneeId":
             setAssigneeId(item.assigneeId);
             break;
+          case "teamId":
+            setTeamId(item.teamId ?? null);
+            break;
           case "intervalId":
             setIntervalId(item.intervalId);
             break;
@@ -649,6 +667,9 @@ export function CardDetailSheet({
         break;
       case "assigneeId":
         setAssigneeId(value as string | null);
+        break;
+      case "teamId":
+        setTeamId(value as string | null);
         break;
       case "intervalId":
         setIntervalId(value as string | null);
@@ -1147,6 +1168,41 @@ export function CardDetailSheet({
                 }))}
               />
             </MetadataField>
+
+            {/* Team assignment (COSMOS-186). Sits beside Assignees rather than
+                inside it because it is not a kind of assignee: an item can be a
+                team's with nobody on it, and it stays that team's when the
+                people change. Hidden on projects with no teams, matching the
+                board's Team filter. */}
+            {teams.length > 0 && (
+              <MetadataField icon={Users} label="Team">
+                <Select
+                  items={{
+                    __none__: "No team",
+                    ...Object.fromEntries(teams.map((t) => [t.id, t.name])),
+                  }}
+                  value={teamId ?? "__none__"}
+                  onValueChange={(v) =>
+                    handleFieldChange(
+                      "teamId",
+                      (v === "__none__" ? null : v) as string | null,
+                    )
+                  }
+                >
+                  <SelectTrigger size="sm" aria-label="Team" className="w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No team</SelectItem>
+                    {teams.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </MetadataField>
+            )}
 
             <MetadataField icon={Hash} label="Points">
               <Input

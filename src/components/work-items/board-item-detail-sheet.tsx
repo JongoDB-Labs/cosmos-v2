@@ -53,8 +53,11 @@ export function BoardItemDetailSheet({
   const boardKey = useOrgQueryKey("board", boardId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
+  // Same key the boards and useProjectTeams use, so this is a cache hit wherever
+  // the host already loaded the roster.
+  const teamsKey = useOrgQueryKey("project-teams", projectId);
 
-  const [itemQ, boardQ, membersQ, intervalsQ] = useQueries({
+  const [itemQ, boardQ, membersQ, intervalsQ, teamsQ] = useQueries({
     queries: [
       {
         queryKey: itemKey,
@@ -80,6 +83,13 @@ export function BoardItemDetailSheet({
         enabled: !!itemId,
         staleTime,
       },
+      {
+        queryKey: teamsKey,
+        queryFn: () =>
+          jsonFetch<{ id: string; name: string }[]>(`${basePath}/teams`),
+        enabled: !!itemId,
+        staleTime,
+      },
     ],
   });
 
@@ -101,6 +111,7 @@ export function BoardItemDetailSheet({
       members={(membersQ.data as OrgMember[] | undefined) ?? []}
       intervals={(intervalsQ.data as Interval[] | undefined) ?? []}
       columns={columns}
+      teams={(teamsQ.data as { id: string; name: string }[] | undefined) ?? []}
       // The sheet does no cache work of its own — it reports the saved row and
       // leaves persistence to the host. Writing the row straight into the list
       // the board renders from keeps the card behind the sheet in step without

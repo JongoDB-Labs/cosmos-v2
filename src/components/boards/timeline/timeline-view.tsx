@@ -2830,6 +2830,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         members={members}
         intervals={intervals}
         columns={columns}
+        teams={teams}
         projectItems={items}
         onUpdate={(updated) =>
           qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>

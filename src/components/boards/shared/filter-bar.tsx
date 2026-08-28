@@ -62,11 +62,6 @@ export interface BoardFilters {
   assigneeId: string | null;
   intervalId: string | null;
   /**
-   * Show only work belonging to this team, or null for all teams. A team's
-   * work is what is assigned to its members — items carry no team of their
-   * own — so an item can match more than one team. See lib/teams/item-teams.
-   */
-  /**
    * Selected labels. An item matches if it carries ANY of them — unlike Type or
    * Priority, an item has many labels, so this is an intersection rather than a
    * membership test. See lib/work-items/label-filter.
@@ -88,6 +83,15 @@ export interface BoardFilters {
   storyPoints: string[];
   /** Time-tracking estimate, as a size band rather than a comparator. */
   estimate: EstimateBand;
+  /**
+   * Show only work belonging to this team, or null for all teams. An item
+   * assigned to a team directly matches that team alone; one that is not falls
+   * back to what its assignee's membership implies, and so can match more than
+   * one team. See lib/teams/item-teams.
+   *
+   * (This doc had drifted onto `intervalId` above, describing the derived-only
+   * model that COSMOS-186 replaced. Moved back onto the field it describes.)
+   */
   teamId: string | null;
   swimlaneBy: SwimlaneKey;
   /**

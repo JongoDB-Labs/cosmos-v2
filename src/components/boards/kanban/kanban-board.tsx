@@ -44,7 +44,7 @@ import {
   presentStoryPoints,
 } from "@/lib/work-items/relation-filters";
 import { hasAnyEstimate } from "@/lib/work-items/estimate-filter";
-import { teamsByUser, teamLaneFor, type TeamLike } from "@/lib/teams/item-teams";
+import { teamsByUser, teamsById, teamLaneFor, type TeamLike } from "@/lib/teams/item-teams";
 import { selectRange } from "@/lib/boards/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -465,6 +465,8 @@ function KanbanBoardInner({
   // Apply filters
   // Rebuilt only when the roster changes, not per item.
   const teamsByUserId = useMemo(() => teamsByUser(teams), [teams]);
+  // Names the team an item is assigned to directly (COSMOS-186).
+  const teamsByTeamId = useMemo(() => teamsById(teams), [teams]);
   const presentLabelNames = useMemo(() => presentLabels(items), [items]);
   // One instant for the whole pass: reading the clock per item lets a date
   // filter change its mind mid-list across a midnight boundary.
@@ -530,10 +532,10 @@ function KanbanBoardInner({
           label: memberName(item.assigneeId) ?? "Unassigned",
         };
       case "team":
-        // One lane per card: the assignee's alphabetically-first team. See
-        // lib/teams/item-teams for why filtering may match several but a lane
-        // cannot.
-        return teamLaneFor(item.assigneeId, teamsByUserId);
+        // One lane per card: the item's own team, else the assignee's
+        // alphabetically-first one. See lib/teams/item-teams for why filtering
+        // may match several but a lane cannot.
+        return teamLaneFor(item, teamsByUserId, teamsByTeamId);
       case "priority":
         return { id: item.priority, label: titleCase(item.priority) };
       case "type": {
@@ -1288,6 +1290,7 @@ function KanbanBoardInner({
         members={members}
         intervals={intervals}
         columns={columns}
+        teams={teams}
         onUpdate={handleItemUpdate}
         onDelete={handleItemDeleted}
         onDuplicate={handleItemDuplicated}

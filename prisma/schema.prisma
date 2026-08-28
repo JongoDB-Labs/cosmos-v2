@@ -749,8 +749,10 @@ model Team {
 
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  members TeamMember[]
-  boards  Board[]
+  members   TeamMember[]
+  boards    Board[]
+  /// Work assigned to the team itself (COSMOS-186), independent of who is on it.
+  workItems WorkItem[]
   // @plugin-backrel:Team
 
   @@unique([projectId, name])
@@ -855,6 +857,11 @@ model WorkItem {
   description     String                      @default("")
   columnKey       String                      @map("column_key")
   assigneeId      String?                     @map("assignee_id") @db.Uuid
+  /// Team assignment (COSMOS-186). A FIRST-CLASS reference, not a tag and not a
+  /// projection of the assignee's membership: an item can be owned by a team with
+  /// nobody on it yet, which is the case `Team`-by-derivation could never express.
+  /// Independent of `assigneeId` in both directions — either, both, or neither.
+  teamId          String?                     @map("team_id") @db.Uuid
   priority        Priority                    @default(MEDIUM)
   parentId        String?                     @map("parent_id") @db.Uuid
   ticketNumber    Int                         @map("ticket_number")
@@ -909,6 +916,8 @@ model WorkItem {
   children         WorkItem[]           @relation("WorkItemHierarchy")
   workItemType     WorkItemType         @relation(fields: [workItemTypeId], references: [id])
   interval         Interval?            @relation(fields: [intervalId], references: [id])
+  // Deleting a team must not delete its work. The items survive, unassigned.
+  team             Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   activities       Activity[]
   comments         Comment[]
   // Prod-parity back-relations (dependency links + attachments).
@@ -927,6 +936,7 @@ model WorkItem {
   @@unique([orgId, externalSource, externalId])
   @@index([orgId, columnKey])
   @@index([orgId, assigneeId])
+  @@index([orgId, teamId])
   @@map("work_items")
 }
 

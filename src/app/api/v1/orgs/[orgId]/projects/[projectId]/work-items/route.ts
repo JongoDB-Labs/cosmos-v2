@@ -9,6 +9,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamBelongsToProject } from "@/lib/teams/team-assignment";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -26,6 +27,9 @@ const createItemSchema = z.object({
   // Multi-assign (FR 1d38496a): full assignee set; first entry becomes the
   // primary `assigneeId`. When present it wins over the legacy single field.
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
+  // Team assignment (COSMOS-186): stands alone — an item may carry a team, an
+  // assignee, both or neither.
+  teamId: z.string().uuid().nullable().optional(),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   intervalId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
@@ -74,6 +78,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (sp.get("priority")) where.priority = sp.get("priority");
     if (sp.get("columnKey")) where.columnKey = sp.get("columnKey");
     if (sp.get("assigneeId")) where.assigneeId = sp.get("assigneeId");
+    if (sp.get("teamId")) where.teamId = sp.get("teamId");
     if (sp.get("intervalId")) where.intervalId = sp.get("intervalId");
     if (sp.get("parentId")) where.parentId = sp.get("parentId");
 
@@ -131,6 +136,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       assigneeId: data.assigneeId ?? null,
       projectId,
     });
+
+    // A team from another project (or another org) is a bad request, not a
+    // silent cross-project assignment. See lib/teams/team-assignment.
+    if (data.teamId && !(await teamBelongsToProject(data.teamId, orgId, projectId))) {
+      return NextResponse.json(
+        { error: "Team does not belong to this project" },
+        { status: 400 },
+      );
+    }
 
     let resolvedTypeId = data.workItemTypeId;
     if (!resolvedTypeId) {
@@ -196,6 +210,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           assignees: {
             create: assigneeIds.map((userId, i) => ({ userId, sortOrder: i })),
           },
+          // Independent of the assignee set above — a team-owned item with no
+          // assignee at all is the point of the field (COSMOS-186).
+          teamId: data.teamId ?? null,
           priority: data.priority,
           intervalId: data.intervalId ?? null,
           parentId: data.parentId ?? null,

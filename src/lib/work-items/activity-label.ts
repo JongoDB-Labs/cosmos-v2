@@ -25,6 +25,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const FIELD_LABELS: Record<string, string> = {
   assigneeId: "assignee",
+  teamId: "team",
   columnKey: "status",
   intervalId: "interval",
   workItemTypeId: "type",
@@ -43,6 +44,7 @@ export function activityFieldLabel(field: string): string {
 /** Lookups from an id/key to a display name, wired from whatever the caller has. */
 export interface ActivityValueResolvers {
   user?: (id: string) => string | undefined;
+  team?: (id: string) => string | undefined;
   interval?: (id: string) => string | undefined;
   type?: (id: string) => string | undefined;
   column?: (key: string) => string | undefined;
@@ -65,6 +67,9 @@ export function activityValueLabel(
   switch (field) {
     case "assigneeId":
       resolved = resolvers.user?.(value);
+      break;
+    case "teamId":
+      resolved = resolvers.team?.(value);
       break;
     case "intervalId":
       resolved = resolvers.interval?.(value);

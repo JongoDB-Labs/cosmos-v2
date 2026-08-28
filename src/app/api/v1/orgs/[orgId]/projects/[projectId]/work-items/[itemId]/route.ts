@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
 import { getAuthContext } from "@/lib/auth/session";
@@ -12,6 +12,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { teamBelongsToProject } from "@/lib/teams/team-assignment";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
@@ -24,6 +25,9 @@ const updateItemSchema = z.object({
   // Multi-assign (FR 1d38496a): replaces the WHOLE set; first entry becomes the
   // primary assigneeId. When present it wins over the legacy single field.
   assigneeIds: z.array(z.string().uuid()).max(50).optional(),
+  // Team assignment (COSMOS-186): stands alone — setting it neither requires nor
+  // clears an assignee, and null means "no team".
+  teamId: z.string().uuid().nullable().optional(),
   priority: z.nativeEnum(Priority).optional(),
   intervalId: z.string().uuid().nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
@@ -101,6 +105,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const data = updateItemSchema.parse(body);
 
+    // Same scope check as the create route — a team from another project is a
+    // bad request, not a silent cross-project assignment.
+    if (data.teamId && !(await teamBelongsToProject(data.teamId, orgId, projectId))) {
+      return NextResponse.json(
+        { error: "Team does not belong to this project" },
+        { status: 400 },
+      );
+    }
+
     const item = await prisma.$transaction(async (tx) => {
       const trackFields: Array<{ field: string; oldVal: string | null; newVal: string | null }> = [];
 
@@ -126,6 +139,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.intervalId !== undefined && data.intervalId !== existing.intervalId) {
         trackFields.push({ field: "intervalId", oldVal: existing.intervalId, newVal: data.intervalId });
       }
+      if (data.teamId !== undefined && data.teamId !== existing.teamId) {
+        trackFields.push({ field: "teamId", oldVal: existing.teamId, newVal: data.teamId });
+      }
       if (data.workItemTypeId !== undefined && data.workItemTypeId !== existing.workItemTypeId) {
         trackFields.push({ field: "workItemTypeId", oldVal: existing.workItemTypeId, newVal: data.workItemTypeId });
       }
@@ -142,6 +158,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
       if (data.assigneeId !== undefined) updateData.assigneeId = data.assigneeId;
       if (data.assigneeIds !== undefined) updateData.assigneeId = data.assigneeIds[0] ?? null;
+      // Deliberately NOT touched by the assignee branches above or below: a team
+      // assignment survives a reassignment, and clearing the assignee leaves the
+      // item with its team (COSMOS-186).
+      if (data.teamId !== undefined) updateData.teamId = data.teamId;
       if (data.priority !== undefined) updateData.priority = data.priority;
       if (data.intervalId !== undefined) updateData.intervalId = data.intervalId;
       if (data.parentId !== undefined) updateData.parentId = data.parentId;

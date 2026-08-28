@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import { activityFieldLabel, activityValueLabel } from "./activity-label";
 
 const UUID = "118ec485-9938-4146-9d0b-943c007ffc64";
+const TEAM_UUID = "6a1f9d2c-4b7e-4e1a-9c3d-70f5b2a8e611";
 const resolvers = {
   user: (id: string) => (id === UUID ? "Ben Okoro" : undefined),
+  team: (id: string) => (id === TEAM_UUID ? "Platform" : undefined),
   interval: (id: string) => (id === "cyc-1" ? "Sprint 3" : undefined),
   type: (id: string) => (id === "typ-1" ? "Bug" : undefined),
   column: (key: string) => (key === "in_progress" ? "In Progress" : undefined),
@@ -12,6 +14,7 @@ const resolvers = {
 describe("activityFieldLabel", () => {
   it("humanizes the id-valued field names", () => {
     expect(activityFieldLabel("assigneeId")).toBe("assignee");
+    expect(activityFieldLabel("teamId")).toBe("team");
     expect(activityFieldLabel("columnKey")).toBe("status");
     expect(activityFieldLabel("intervalId")).toBe("interval");
     expect(activityFieldLabel("workItemTypeId")).toBe("type");
@@ -32,6 +35,17 @@ describe("activityValueLabel", () => {
     const other = "99999999-9999-4999-8999-999999999999";
     const out = activityValueLabel("assigneeId", other, resolvers);
     expect(out).toBeNull();
+  });
+
+  it("resolves a team id to the team's name (COSMOS-186)", () => {
+    // Team assignment is recorded like every other id-valued field, so without
+    // a resolver case the Activity tab would read "changed team" and drop the
+    // value — or, worse, leak the GUID.
+    expect(activityValueLabel("teamId", TEAM_UUID, resolvers)).toBe("Platform");
+  });
+
+  it("never surfaces a raw team id it cannot name", () => {
+    expect(activityValueLabel("teamId", TEAM_UUID, {})).toBeNull();
   });
 
   it("resolves interval and type ids", () => {
