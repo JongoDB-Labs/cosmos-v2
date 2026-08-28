@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Notes boxes are four lines deep, so you can read what you type",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Every “Notes” box in the product — on meetings, contracts, contacts, partners, compliance assessments and the PM trackers — sat about one line deep, so a note longer than a few words scrolled out of sight as you wrote it and the only way to read it back was to save and reopen the record. Those fields were each written to be two or three lines tall, but browsers were ignoring that instruction and sizing them to whatever had been typed so far. Multi-line fields now rest four lines deep, still grow as you type, and can be dragged taller. Nothing about what gets saved has changed.",
+      },
+      {
+        kind: "improvement",
+        text: "The report — “the Notes input box is one line deep” — did not say which screen it was on, and every Notes field in the app is the same underlying control, so the fix was made once in that control and applies everywhere at once. Four lines is the depth we assumed was wanted; a single screen can be made deeper or shallower on its own if that turns out to be wrong.",
+      },
+    ],
+  },
+  {
     version: "2.317.1",
     date: "2026-08-28",
     title: "Notification links open the item you were told about",
