@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.317.1",
+    date: "2026-08-28",
+    title: "Asking Cosmo for sprint data no longer ends in a database error",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking Cosmo to pull your sprint numbers — to prepare a retrospective, for instance — could end the answer with a raw database error instead of the data. When Cosmo guessed at a project's internal identifier rather than looking it up, the guess went straight to the database, which rejected it and took the whole reply down with it. Cosmo now checks an identifier before using it and looks the real one up instead, and if a query does fail it says so in plain language and carries on rather than dropping the conversation. Sprint briefs for a real project are unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.317.0",
     date: "2026-08-28",
     title: "Automated delivery now looks at the screen before it ships",
