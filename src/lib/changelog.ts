@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.317.0",
+    date: "2026-08-28",
+    title: "Automated delivery now looks at the screen before it ships",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Until now nothing in automated delivery ever rendered a page. A change was type-checked, linted and unit-tested, then read by a reviewing agent \u2014 but no gate ever opened the app and looked at it, which is why a run of console defects (a panel reading \"unknown\", cards with no reference on them, a deployment stuck on \"queued\") passed every check and still reached you broken. When a change touches a screen, a second agent now starts the application on its own private copy of the data, signs in, drives the part of the product that changed, and judges what a person would actually see \u2014 blank panels, raw identifiers where a name belongs, dead links, errors in the browser. If it cannot run, or cannot reach a verdict, the change is held rather than shipped. You can watch it happen: the delivery console shows a \"Checking the screen\" step and the activity feed labels its work.",
+      },
+      {
+        kind: "fix",
+        text: "When an automated build finished without changing any files, the item was closed as \"already implemented\" and tagged so it would never be picked up again \u2014 and nothing checked that conclusion. At least one live bug was closed this way: a report that notification links led to a \"page not found\" screen was closed after a long build, while the fault was still there. A second agent must now show where in the code the work already exists, quoting the specific lines, before an item can be closed on that basis. If it cannot, the item goes to review for a person instead of being closed. Items that are closed this way now carry the evidence in a comment, so the reasoning can be checked rather than taken on trust.",
+      },
+    ],
+  },
+  {
     version: "2.316.2",
     date: "2026-08-28",
     title: "Notification links now open the thing you were mentioned in",
