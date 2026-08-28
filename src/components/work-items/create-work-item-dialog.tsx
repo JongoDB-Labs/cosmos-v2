@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { memberOptions } from "@/lib/org/member-options";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -537,32 +539,30 @@ export function CreateWorkItemDialog({
               </select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Assignees</Label>
-              {/* Multi-assign (FR 1d38496a): check any number; first checked
-                  becomes the primary assignee. */}
-              <div className="max-h-28 overflow-y-auto rounded-md border border-[var(--border)] p-1.5">
-                {members.map((m) => (
-                  <label
-                    key={m.userId}
-                    className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted/40"
-                  >
-                    <input
-                      type="checkbox"
-                      className="accent-[var(--primary)]"
-                      checked={assigneeIds.includes(m.userId)}
-                      disabled={submitting}
-                      onChange={(e) =>
-                        setAssigneeIds((prev) =>
-                          e.target.checked
-                            ? [...prev, m.userId]
-                            : prev.filter((id) => id !== m.userId),
-                        )
-                      }
-                    />
-                    {m.user?.displayName ?? m.user?.email ?? m.userId}
-                  </label>
-                ))}
-              </div>
+              <Label className="text-xs" htmlFor="create-assignees">
+                Assignees
+              </Label>
+              {/* Multi-assign (FR 1d38496a): pick any number; first picked
+                  becomes the primary assignee — <SearchableMultiSelect>
+                  preserves selection order, so that survives.
+                  COSMOS-171: this used to be a bare checkbox list in the
+                  members route's join order, with no filter — unusable once an
+                  org has more people than fit the 7rem scroll box. Same
+                  searchable control the detail sheet's Assignees field uses
+                  (COSMOS-37), now alphabetical in both. */}
+              <SearchableMultiSelect
+                id="create-assignees"
+                size="sm"
+                aria-label="Assignees"
+                className="w-full text-xs"
+                placeholder="Unassigned"
+                searchPlaceholder="Search members…"
+                emptyText="No members"
+                disabled={submitting}
+                value={assigneeIds}
+                onValueChange={setAssigneeIds}
+                options={memberOptions(members)}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Story points</Label>

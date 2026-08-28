@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
+import { memberOptions } from "@/lib/org/member-options";
 import type { Board, OrgMember, WorkItem } from "@/types/models";
 
 export interface PaletteProject {
@@ -241,9 +242,12 @@ export function QuickCreateWorkItem({
             disabled={submitting}
           >
             <option value="">Unassigned</option>
-            {members.map((m) => (
-              <option key={m.userId} value={m.userId}>
-                {m.user?.displayName ?? m.user?.email ?? m.userId}
+            {/* Alphabetical, not the members route's join order (COSMOS-171).
+                A native <select> types-ahead by first letter, which only helps
+                if the list is actually in name order. */}
+            {memberOptions(members).map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
               </option>
             ))}
           </select>

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.318.0",
+    date: "2026-08-28",
+    title: "Find the person you want to assign",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Assigning people got hard to do as workspaces grew: the lists of members offered no way to search, and they were ordered by the date each person joined — an order nobody can guess, so finding someone meant reading every name. People are now listed alphabetically wherever you assign them, and the \"New issue\" dialog's Assignees field has gained the same type-to-search box the issue detail panel already had, so you can filter by name or email instead of scrolling. Picking several people still works the same way, and the first person you pick is still the primary assignee. Assumed while building this: sorting and searching both work on the name already shown in the list (falling back to the email address when someone has no name), and the filtering happens instantly in your browser rather than as a new search request.",
+      },
+    ],
+  },
+  {
     version: "2.317.0",
     date: "2026-08-28",
     title: "Automated delivery now looks at the screen before it ships",

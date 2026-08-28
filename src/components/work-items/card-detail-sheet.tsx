@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { memberOptions } from "@/lib/org/member-options";
 import {
   Dialog,
   DialogContent,
@@ -1130,7 +1131,8 @@ export function CardDetailSheet({
               {/* Multi-assign (FR 1d38496a): first-checked stays the primary.
                   Searchable so it stays usable when an org has hundreds of
                   members — type to filter by name/email instead of scrolling
-                  (COSMOS-37). Falls back to "Unassigned" when the set is empty. */}
+                  (COSMOS-37), listed alphabetically rather than in join order
+                  (COSMOS-171). Falls back to "Unassigned" when the set is empty. */}
               <SearchableMultiSelect
                 size="sm"
                 aria-label="Assignees"
@@ -1141,10 +1143,7 @@ export function CardDetailSheet({
                 emptyText="No members"
                 value={assigneeIds}
                 onValueChange={(ids) => void patchAssignees(ids)}
-                options={members.map((m) => ({
-                  value: m.userId,
-                  label: m.user?.displayName ?? m.user?.email ?? "Unknown",
-                }))}
+                options={memberOptions(members)}
               />
             </MetadataField>
 
