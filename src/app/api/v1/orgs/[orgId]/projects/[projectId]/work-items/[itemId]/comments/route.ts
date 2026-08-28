@@ -163,10 +163,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               .slice(0, 200),
             relatedId: workItem.id,
             relatedType: "work_item",
-            // Every dashboard route lives under /[orgSlug]; a slug-less path
-            // resolves [orgSlug]="projects" and 404s. The assignee notification
-            // 20 lines below always had the slug — this one did not (COSMOS-191).
-            url: `/${org.slug}/projects/${projectKey}/work-items/${workItem.id}`,
+            // COSMOS-191. There is no /projects/[projectKey]/work-items/[id]
+            // route — not under [orgSlug], not anywhere, and no catch-all. Every
+            // form of that path 404s, which is what the reporter hit. The app's
+            // real work-item deep link is /[orgSlug]/issues?item=<id> (see
+            // issue-copy-link and 6 other call sites); issues-view.tsx reads it
+            // with searchParams.get("item").
+            url: `/${org.slug}/issues?item=${workItem.id}`,
           }).catch(() => {
             /* swallow */
           });
@@ -188,7 +191,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           message: (comment.content ?? "").slice(0, 200),
           relatedId: workItem.id,
           relatedType: "work_item",
-          url: `/${org.slug}/projects/${projectKey}/work-items/${workItem.id}`,
+          url: `/${org.slug}/issues?item=${workItem.id}`,
         }).catch(() => {
           /* swallow */
         });
