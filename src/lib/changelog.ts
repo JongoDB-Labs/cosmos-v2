@@ -21,6 +21,37 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.316.1",
+    date: "2026-08-27",
+    title: "Watch a build as it happens, talk to it, and wait on it less",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A round of reliability fixes to automated delivery, found by testing it end to end rather than in pieces. Sending a note to a running build failed outright; the note is now delivered, and shown in the activity feed with its text rather than just a marker. Switching the worker from preview mode to live no longer leaves the items it previewed stuck and undeliverable. If the worker cannot read its own mode it now genuinely pauses, instead of continuing to deliver while reporting that it had paused. Sending a note also now requires an owner or admin, matching every other control that steers the worker.",
+      },
+      {
+        kind: "feature",
+        text: "Automated delivery no longer stops on every small ambiguity. Previously an item was either fully specified or it halted to ask a question \u2014 and most of those questions were never answered, so the work simply sat. Where a detail is genuinely minor and easily reversed, it now proceeds on a clearly stated assumption, gets built and reviewed as usual, and is then handed to you as a draft with the assumption spelled out, along with the question it was standing in for. Anything that is a product, pricing, security or data decision still waits for you, exactly as before \u2014 and work built on an assumption is never merged automatically.",
+      },
+      {
+        kind: "feature",
+        text: "You can now send a note to a build while it is still running. Until now, if you could see a build heading the wrong way, the only option was to wait for it to finish and comment on the result. A note typed into the live activity card reaches the agent at its next step and appears in the same timeline as its own work, so the record reads in order. Delivery is at the next step rather than instantly, and if the build finishes first the note waits for the next attempt on that item \u2014 the card says so rather than behaving like a chat window.",
+      },
+      {
+        kind: "fix",
+        text: "While a build was running in the cautious \u201cpreview\u201d mode, the delivery console gradually stopped reporting on itself \u2014 the activity indicator faded from live to stale, the worker count sat at zero, and a finished build lingered in the in-flight list until the next cycle. Nothing was actually wrong: the worker simply had no opportunity to report while it was busy. It now reports every minute throughout a build, and once more the moment one finishes, so what you see keeps pace with what is happening.",
+      },
+      {
+        kind: "feature",
+        text: "The live activity feed now shows the whole build, not just part of it. When automated checks fail a repair pass runs, and before anything is proposed a separate reviewer reads the final change \u2014 neither used to appear, so the feed went quiet exactly where the decisions get made. Both now appear in the same timeline, labelled, in the order they happened. Picking up a parked item after you comment is shown as its own attempt rather than being folded into the original build.",
+      },
+      {
+        kind: "improvement",
+        text: "The delivery console now states which mode the worker is running in. A worker that is paused, or previewing without making changes, correctly shows no active builds \u2014 which previously looked identical to a broken worker. It also warns when the background worker is running older code than the application itself, a mismatch that was previously invisible and took real time to diagnose.",
+      },
+    ],
+  },
+  {
     version: "2.313.0",
     date: "2026-08-27",
     title: "Watch an automated build as it happens",
