@@ -32,7 +32,9 @@ const { getAuthContext, getCurrentUser, prisma } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 // Best-effort side-effects the POST path fires — stub so they never reach I/O.
-vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
+// Hoisted so the mention test can assert the notification URL it is called with.
+const { createNotification } = vi.hoisted(() => ({ createNotification: vi.fn() }));
+vi.mock("@/lib/notifications/create", () => ({ createNotification }));
 vi.mock("@/lib/mentions/references", () => ({
   syncReferences: vi.fn().mockResolvedValue(undefined),
 }));
@@ -171,5 +173,62 @@ describe("POST /work-items/[itemId]/comments — live updates (COSMOS-127)", () 
 
     expect(res.status).toBe(403);
     expect(publishToOrg).not.toHaveBeenCalled();
+  });
+});
+
+// COSMOS-191: "clicking a notification gives a 404". Every dashboard page lives
+// under /[orgSlug], so a slug-less link resolves [orgSlug]="projects" and 404s.
+// The assignee notification in this same handler always carried the slug; the
+// mention notification twenty lines above it did not, so mention links — the
+// ones users actually click — were dead in production for months.
+//
+// Assert the WHOLE url. A `toContain(org.slug)` here would pass against
+// `/acme` alone and against a path with the segments in the wrong order.
+describe("POST /work-items/[itemId]/comments — mention notification link (COSMOS-191)", () => {
+  const MENTIONED_ID = "66666666-6666-6666-6666-666666666666";
+
+  /** The route parses mentions out of the PERSISTED comment, not the request
+   *  body, so the $transaction fixture is what has to carry the mention. */
+  function persistedWithContent(content: string) {
+    prisma.$transaction.mockResolvedValue([
+      {
+        id: "55555555-5555-5555-5555-555555555555",
+        orgId: ORG_ID,
+        workItemId: ITEM_ID,
+        authorId: ACTOR_ID,
+        content,
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        updatedAt: new Date("2026-07-10T00:00:00Z"),
+      },
+      { id: "activity-1" },
+    ]);
+  }
+
+  it("links a mention notification to the org-scoped work-item route, not a slug-less 404", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
+    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
+    prisma.orgMember.findMany.mockResolvedValue([{ userId: MENTIONED_ID }]);
+    persistedWithContent(`Take a look <@${MENTIONED_ID}>`);
+
+    const res = await POST(postRequest(`Take a look <@${MENTIONED_ID}>`), { params });
+    expect(res.status).toBe(201);
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification.mock.calls[0][0]).toMatchObject({
+      userId: MENTIONED_ID,
+      type: "comment.mentioned",
+      url: `/acme/projects/ACME/work-items/${ITEM_ID}`,
+    });
+  });
+
+  it("does not notify the author when they mention themselves", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
+    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
+    prisma.orgMember.findMany.mockResolvedValue([{ userId: ACTOR_ID }]);
+    persistedWithContent(`note to self <@${ACTOR_ID}>`);
+
+    const res = await POST(postRequest(`note to self <@${ACTOR_ID}>`), { params });
+    expect(res.status).toBe(201);
+    expect(createNotification).not.toHaveBeenCalled();
   });
 });

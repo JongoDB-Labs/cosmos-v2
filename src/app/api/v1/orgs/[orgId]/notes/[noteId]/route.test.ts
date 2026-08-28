@@ -43,7 +43,9 @@ vi.mock("@/lib/audit", () => ({ logAudit }));
 // I/O. storeEmbedding resolves void so the re-embed branch is a no-op (no model
 // load, no DB write).
 vi.mock("@/lib/rag/embed", () => ({ storeEmbedding: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
+// Hoisted so the mention test can assert the notification URL it is called with.
+const { createNotification } = vi.hoisted(() => ({ createNotification: vi.fn() }));
+vi.mock("@/lib/notifications/create", () => ({ createNotification }));
 
 import { PUT, DELETE } from "./route";
 
@@ -259,5 +261,34 @@ describe("DELETE /notes/[noteId] — NOTE_DELETE authz (requireAccess)", () => {
 
     expect(res.status).toBe(204);
     expect(prisma.note.delete).toHaveBeenCalledWith({ where: { id: NOTE_ID } });
+  });
+});
+
+// COSMOS-191 (same defect class as the work-item comment link): a notification
+// url with no /[orgSlug] prefix 404s. These note links were worse than the
+// comment one — `/notes/<id>` has no org slug AND no matching route, since only
+// /[orgSlug]/notes/page.tsx exists and nothing reads a note id from the URL.
+// Until a per-note page exists, the org's notes list is the honest target: the
+// notification title already names the note.
+describe("PUT /notes/[noteId] — mention notification link (COSMOS-191)", () => {
+  it("links a newly-mentioned user to the org-scoped notes page, not a slug-less 404", async () => {
+    getAuthContext.mockResolvedValue(ctxWith({ permissions: bits("NOTE_UPDATE") }));
+    prisma.orgMember.findMany.mockResolvedValue([{ userId: OTHER_USER_ID }]);
+    prisma.note.update.mockResolvedValue({
+      id: NOTE_ID,
+      title: "Design doc",
+      content: `ping <@${OTHER_USER_ID}>`,
+      authorId: ACTOR_ID,
+    });
+
+    const res = await PUT(putRequest({ title: "Design doc", content: `ping <@${OTHER_USER_ID}>` }), { params });
+    expect(res.status).toBe(200);
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification.mock.calls[0][0]).toMatchObject({
+      userId: OTHER_USER_ID,
+      type: "note.mentioned",
+      url: "/acme/notes",
+    });
   });
 });

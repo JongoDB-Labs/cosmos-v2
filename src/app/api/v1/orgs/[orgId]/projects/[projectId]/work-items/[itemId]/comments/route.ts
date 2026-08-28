@@ -163,7 +163,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               .slice(0, 200),
             relatedId: workItem.id,
             relatedType: "work_item",
-            url: `/projects/${projectKey}/work-items/${workItem.id}`,
+            // Every dashboard route lives under /[orgSlug]; a slug-less path
+            // resolves [orgSlug]="projects" and 404s. The assignee notification
+            // 20 lines below always had the slug — this one did not (COSMOS-191).
+            url: `/${org.slug}/projects/${projectKey}/work-items/${workItem.id}`,
           }).catch(() => {
             /* swallow */
           });

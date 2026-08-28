@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.316.2",
+    date: "2026-08-28",
+    title: "Notification links now open the thing you were mentioned in",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a notification that said you were mentioned in a comment led to a \"page not found\" screen instead of the work item. The link was being built without the workspace name in it, so it never pointed anywhere real \u2014 which meant the fastest way to act on a mention, simply clicking it, was the one way that did not work. Mention links now open the work item directly. Notifications for mentions in notes had the same broken link and now open your notes; a note-specific link will follow once notes can be opened individually.",
+      },
+    ],
+  },
+  {
     version: "2.316.1",
     date: "2026-08-27",
     title: "Watch a build as it happens, talk to it, and wait on it less",
