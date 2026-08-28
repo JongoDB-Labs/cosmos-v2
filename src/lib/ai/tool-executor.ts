@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { sumMoney, moneyToNumber } from "@/lib/money";
 import { connectorToolNames, executeConnectorTool } from "./connectors";
 import {
@@ -214,12 +215,46 @@ export function parseToolCalls(text: string): {
   return { toolCalls, firstMatchIndex };
 }
 
+/**
+ * Does this error come from the Prisma client rather than from our own code?
+ *
+ * Matched on the constructor NAME, not `instanceof` one class: the same bad
+ * argument surfaces as `PrismaClientKnownRequestError` (P2007, the uuid case),
+ * `PrismaClientValidationError` or `PrismaClientUnknownRequestError` depending
+ * on where the driver rejects it, and only the whole family is a safe thing to
+ * turn into a tool-result error.
+ */
+function isPrismaError(err: unknown): boolean {
+  return err instanceof Error && err.name.startsWith("PrismaClient");
+}
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>,
   ctx: ToolContext
 ): Promise<unknown> {
-  const result = await dispatchTool(name, input, ctx);
+  let result: unknown;
+  try {
+    result = await dispatchTool(name, input, ctx);
+  } catch (err) {
+    // A tool that hands Postgres a bad argument used to take the whole turn
+    // with it: `runAgentLoop` has no per-tool catch, so the assistant route's
+    // stream forwarded the driver's own text — "Invalid
+    // `prisma.interval.findFirst()` invocation … invalid input syntax for type
+    // uuid" — to the chat as an `error` event, and the answer was lost. Contain
+    // DATABASE errors here so the model sees an ordinary `{error}` tool result
+    // and can correct itself, exactly as it does for a permission denial. The
+    // driver's message is logged, never returned: it quotes the failing query.
+    // Deliberately narrow — a connector's deliberate hard refusal (the D5
+    // gov-block) still throws, because that contract is "nothing ran".
+    if (!isPrismaError(err)) throw err;
+    console.error(`[executeTool] ${name} failed against the database:`, err);
+    result = {
+      error:
+        `The ${name} tool could not read that data. The ids it was given may not exist — ` +
+        `look them up with a list tool (list_projects, query_intervals) and try again.`,
+    };
+  }
   // Governance: write every *mutating* assistant tool call to the org audit
   // trail so an AI action is as traceable as a human one. Best-effort — an
   // audit failure must never change the tool result the model sees.
@@ -576,9 +611,54 @@ async function auditAssistantToolUse(
   }
 }
 
+/**
+ * Every id these legacy tools accept lands in a Postgres `uuid` column, and
+ * they take it straight off the model's tool call. A model that GUESSES an id
+ * instead of looking it up ("f9s8d7f9-team-proj-id") therefore reached the
+ * driver, and Postgres' `invalid input syntax for type uuid` came back as a
+ * thrown error that killed the turn.
+ *
+ * The Phase-3b executors already parse their input with zod; these five
+ * predate that and cast (`input.projectId as string`). Validate the ids the
+ * same way, and return the model something it can act on — naming the lookup
+ * tool matters, because "invalid uuid" alone just invites another guess.
+ *
+ * Called AFTER the permission gate on purpose: a caller without the read bit
+ * must get "Insufficient permissions" whatever they passed, so a malformed
+ * argument never becomes a way to probe which tools exist.
+ */
+const uuidArg = z.string().uuid();
+
+function assertUuidArgs(
+  input: Record<string, unknown>,
+  fields: string[],
+  required: string[] = [],
+): { error: string } | null {
+  for (const field of fields) {
+    const value = input[field];
+    if (value === undefined || value === null || value === "") {
+      if (required.includes(field)) {
+        return { error: `${field} is required — get it from list_projects or query_intervals.` };
+      }
+      continue;
+    }
+    if (!uuidArg.safeParse(value).success) {
+      return {
+        error:
+          `Invalid ${field}: it must be the record's UUID, not a name or a made-up id. ` +
+          `Look it up with list_projects / query_intervals first.`,
+      };
+    }
+  }
+  return null;
+}
+
 async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.ITEM_READ);
   if (denied) return denied;
+
+  const badId = assertUuidArgs(input, ["projectId", "assigneeId", "intervalId", "workItemTypeId"]);
+  if (badId) return badId;
 
   // ITEM_READ is held by MEMBER and VIEWER, so it authorises reading SOME
   // tickets and says nothing about WHICH. This is the widest read the agent
@@ -630,6 +710,9 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
 async function queryIntervals(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
+
+  const badId = assertUuidArgs(input, ["projectId"], ["projectId"]);
+  if (badId) return badId;
   // SPRINT_READ is held by MEMBER and VIEWER, and the projectId comes straight
   // from the caller — so this leaked interval names, goals and work-item counts
   // for projects the asker cannot open.
@@ -701,6 +784,12 @@ async function queryFinance(input: Record<string, unknown>, ctx: ToolContext) {
 async function generateIntervalBrief(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
+
+  // This is the tool the "prepare me for a retro" ask lands on, and the one
+  // that crashed: it queries by projectId BEFORE any scope check, so an id the
+  // model invented went straight to Postgres.
+  const badId = assertUuidArgs(input, ["projectId", "intervalId"], ["projectId"]);
+  if (badId) return badId;
   const projectId = input.projectId as string;
   let interval;
 
