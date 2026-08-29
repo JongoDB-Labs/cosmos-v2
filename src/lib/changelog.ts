@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.322.0",
+    date: "2026-08-29",
+    title: "An email address stuck after a revoked invitation can be invited again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Revoking an invitation now frees the email address even when the account behind it was created by an earlier invitation. Inviting an address, revoking it, and inviting again used to leave the address permanently unusable: the second invitation could not carry a password because the account already existed, and revoking that one did not clean up, because it was not the invitation that had created the account. Anyone in that state can now be invited again normally. Accounts are still only ever removed when nobody could be using them \u2014 anyone who has joined an organisation, signed in, chosen their own password, linked a Google or SSO identity, or been invited elsewhere is left untouched.",
+      },
+    ],
+  },
+  {
     version: "2.321.0",
     date: "2026-08-29",
     title: "Choose whether updates install themselves",

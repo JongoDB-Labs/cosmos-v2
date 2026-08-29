@@ -23,9 +23,9 @@ const EMAIL = "revoke-cycle@acceptance.invalid";
 const MEMBER_EMAIL = "revoke-member@acceptance.invalid";
 
 /** What the route does, in the same order and the same transaction. */
-async function revoke(email: string, invitationId: string, signInMethod = "email_password") {
+async function revoke(email: string, invitationId: string) {
   return prisma.$transaction(async (tx) => {
-    const outcome = await revokeProvisionedAccount(tx, { email, invitationId, signInMethod });
+    const outcome = await revokeProvisionedAccount(tx, { email, invitationId });
     await tx.invitation.delete({ where: { id: invitationId } });
     return outcome;
   });
@@ -96,6 +96,49 @@ describe("revoking an invitation frees the address", () => {
     const outcome = await revoke(EMAIL.toUpperCase(), invitationId);
     expect(outcome.deleted).toBe(true);
     expect(await prisma.user.findFirst({ where: { email: EMAIL } })).toBeNull();
+  });
+});
+
+describe("the stranded-account sequence, end to end", () => {
+  it("frees an address whose account outlived the invitation that made it", async () => {
+    // Reproduces the production sequence exactly, against a real database:
+    //
+    //   1. invite  -> account provisioned with a temporary password
+    //   2. revoke  -> (pre-fix) invitation gone, ACCOUNT LEFT BEHIND
+    //   3. invite  -> coerced to "oauth" because the account now exists,
+    //                 so no credential is issued: a dead end
+    //   4. revoke  -> declined to clean up, because THIS invitation had not
+    //                 provisioned anything. The address was finished.
+    //
+    // Step 4 is what this change fixes.
+    const first = await invite(EMAIL);
+    expect(first.tempPassword).toBeTruthy();
+
+    // Step 2, as it behaved before any of this: drop only the invitation.
+    await prisma.invitation.delete({ where: { id: first.invitationId } });
+    expect(await prisma.user.findFirst({ where: { email: EMAIL } })).not.toBeNull();
+
+    // Step 3: the re-invite the create route would write for an existing account.
+    const second = await prisma.invitation.create({
+      data: {
+        orgId: ORG,
+        email: EMAIL,
+        role: "MEMBER",
+        signInMethod: "oauth",
+        expiresAt: new Date(Date.now() + 7 * 864e5),
+      },
+      select: { id: true },
+    });
+
+    // Step 4: revoking it must now free the address.
+    const outcome = await revoke(EMAIL, second.id);
+    expect(outcome.deleted).toBe(true);
+    expect(await prisma.user.findFirst({ where: { email: EMAIL } })).toBeNull();
+
+    // And the address is genuinely re-invitable again, with a real credential.
+    const third = await invite(EMAIL);
+    expect(third.tempPassword).toBeTruthy();
+    await revoke(EMAIL, third.invitationId);
   });
 });
 

@@ -32,7 +32,6 @@ const run = (over: Record<string, unknown> = {}) =>
   revokeProvisionedAccount(tx as never, {
     email: "invitee@example.com",
     invitationId: "inv1",
-    signInMethod: "email_password",
     ...over,
   });
 
@@ -59,16 +58,30 @@ describe("deletes only a pure artifact of the invitation", () => {
   });
 });
 
-describe("refuses to delete anything that might be a person", () => {
-  it("leaves an OAuth-style invitation's account alone", async () => {
-    // Nothing was provisioned, so there is nothing of ours to undo — the
-    // account pre-existed the invite.
-    const out = await run({ signInMethod: "oauth" });
-    expect(out.deleted).toBe(false);
-    expect(tx.user.findFirst).not.toHaveBeenCalled();
-    expect(tx.user.delete).not.toHaveBeenCalled();
+describe("frees an account stranded by an earlier revoke", () => {
+  it("deletes it even though THIS invitation provisioned nothing", async () => {
+    // The real sequence that stayed broken: invite (account created), revoke,
+    // re-invite. The second invitation is coerced to "oauth" because the account
+    // now exists, so a guard keyed on THIS invitation's signInMethod declined to
+    // clean up and the address stayed un-re-invitable forever.
+    //
+    // Whether this particular invitation issued the credential is not the
+    // question. Whether anyone can use the account is, and the guards below
+    // answer it.
+    const out = await run();
+    expect(out.deleted).toBe(true);
+    expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: "u1" } });
   });
 
+  it("never reaches a synthetic bot account", async () => {
+    // Bots have no temp password so the guards already exclude them, but the
+    // lookup refuses to see them at all -- same as every other credential path.
+    await run();
+    expect(tx.user.findFirst.mock.calls[0][0].where.isBot).toBe(false);
+  });
+});
+
+describe("refuses to delete anything that might be a person", () => {
   it("leaves an account that belongs to an organisation", async () => {
     tx.user.findFirst.mockResolvedValue(disposable({ _count: { memberships: 1 } }));
     expect((await run()).deleted).toBe(false);

@@ -44,7 +44,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       const outcome = await revokeProvisionedAccount(tx, {
         email: existing.email,
         invitationId,
-        signInMethod: existing.signInMethod,
       });
       await tx.invitation.delete({ where: { id: invitationId } });
       return outcome;
