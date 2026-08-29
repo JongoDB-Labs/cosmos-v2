@@ -174,3 +174,61 @@ describe("sendPasswordInviteEmail — sender selection", () => {
     expect(call.text).not.toContain("Temporary password");
   });
 });
+
+describe("invitee who already has a password gets a way to reset it", () => {
+  // The failure this covers: an invite to an address that already had an account
+  // was sent the OAuth email — "sign in with your Google account" — to accounts
+  // with no Google identity. Unfollowable instructions for the one population
+  // most likely to be locked out.
+  const RESET = "https://app.example.com/login?forgot=1";
+
+  /**
+   * Text and HTML are asserted SEPARATELY and deliberately. Concatenating them
+   * first made every test here vacuous: dropping the pointer from one body still
+   * found it in the other, and both mutations passed.
+   */
+  const sent = () => {
+    const call = sendAppEmail.mock.calls[0][0];
+    expect(typeof call.text).toBe("string");
+    expect(typeof call.html).toBe("string");
+    return call as { text: string; html: string };
+  };
+
+  beforeEach(() => isTransactionalEmailConfigured.mockReturnValue(true));
+
+  it("offers the reset link in BOTH bodies when no temporary password was issued", async () => {
+    await sendPasswordInviteEmail({ ...BASE_PASSWORD, tempPassword: null, resetUrl: RESET });
+    const { text, html } = sent();
+    expect(text).toContain(RESET);
+    expect(text).toMatch(/don't remember it/i);
+    expect(html).toContain(RESET);
+    expect(html).toMatch(/don't remember it/i);
+  });
+
+  it("does NOT offer a reset link alongside a freshly issued password", async () => {
+    // They were just given a credential; pointing them at a reset in the same
+    // breath invites them to throw it away.
+    await sendPasswordInviteEmail({ ...BASE_PASSWORD, tempPassword: "TempPass123!", resetUrl: RESET });
+    const { text, html } = sent();
+    expect(text).not.toContain(RESET);
+    expect(html).not.toContain(RESET);
+  });
+
+  it("stays sane when no reset link is supplied", async () => {
+    await sendPasswordInviteEmail({ ...BASE_PASSWORD, tempPassword: null });
+    const { text, html } = sent();
+    expect(text).toMatch(/password you already use/i);
+    expect(text).not.toMatch(/don't remember it/i);
+    expect(html).not.toMatch(/don't remember it/i);
+  });
+
+  it("never carries a reset TOKEN — only a link to the request form", async () => {
+    // The invite is triggered by someone else against an account that already
+    // belongs to a real person. A token here would be a long-lived credential
+    // sitting in an inbox, minted on a third party's action.
+    await sendPasswordInviteEmail({ ...BASE_PASSWORD, tempPassword: null, resetUrl: RESET });
+    const { text, html } = sent();
+    expect(text).not.toMatch(/[?&]token=/);
+    expect(html).not.toMatch(/[?&]token=/);
+  });
+});
