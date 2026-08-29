@@ -150,6 +150,15 @@ export async function sendPasswordInviteEmail(params: {
   loginUrl: string;
   tempPassword: string | null;
   mfaRequired: boolean;
+  /**
+   * Where to go to set a new password, for an invitee who already has an account
+   * and may not remember its password. This is a link to the reset REQUEST form,
+   * not a reset token: the invite is triggered by someone else, against an
+   * account that already belongs to a real person, so it must not mint a
+   * long-lived credential and leave it sitting in an inbox. They ask for the
+   * token themselves and it arrives with the usual single-use, one-hour terms.
+   */
+  resetUrl?: string | null;
 }): Promise<void> {
   const brand = getBrand().name;
   const subject = `Your ${params.orgName} account on ${brand}`;
@@ -169,6 +178,9 @@ export async function sendPasswordInviteEmail(params: {
         `Email: ${params.toEmail}`,
         "",
         "Sign in with the password you already use for this account.",
+        ...(params.resetUrl
+          ? ["", "Don't remember it? Set a new one here:", params.resetUrl]
+          : []),
       ].join("\n");
 
   const textBody = [
@@ -190,7 +202,10 @@ export async function sendPasswordInviteEmail(params: {
          <tr><td style="padding:2px 8px;color:#666;">Temporary&nbsp;password</td><td style="padding:2px 8px;"><code>${escapeHtml(params.tempPassword)}</code></td></tr>
        </table>
        <p style="color:#666;font-size:12px;">For your security you'll be required to choose a new password the first time you sign in.</p>`
-    : `<p>Sign in with the email <code>${escapeHtml(params.toEmail)}</code> and the password you already use for this account.</p>`;
+    : `<p>Sign in with the email <code>${escapeHtml(params.toEmail)}</code> and the password you already use for this account.</p>` +
+      (params.resetUrl
+        ? `<p style="color:#666;font-size:13px;">Don't remember it? <a href="${escapeHtml(params.resetUrl)}">Set a new password</a>.</p>`
+        : "");
 
   const htmlBody = `
     <p>${escapeHtml(params.inviterName)} has invited you to join
