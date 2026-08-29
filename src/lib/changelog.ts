@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.325.0",
+    date: "2026-08-29",
+    title: "Automated delivery fixes its own review comments, and proves a bug was real",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When automated delivery reviews its own finished work and rejects it, it now repairs the change and re-checks it instead of putting it in your queue. Two of its checks judge a finished build \u2014 a code review of the final change, and a verification that boots the application and drives the screen \u2014 and until now either one refusing meant the work stopped and waited for a person. Looking at what was actually waiting: of the fifty items in review, only about eleven were questions anyone could answer, and seventeen were the system's own verdict on its own code, several naming the exact file and line to fix. The oldest had been waiting fifty days. It now hands that critique back to the agent that wrote the change, up to twice, and re-runs the whole check. Changes held for a human decision \u2014 anything large, touching sensitive code, or changing the database \u2014 still wait for you, and the agent is explicitly allowed to disagree with a review it believes is wrong rather than weaken a test to satisfy it.",
+      },
+      {
+        kind: "improvement",
+        text: "A bug fix must now come with a test that genuinely fails without it. The test is run twice \u2014 once with the fix removed, once with it restored \u2014 and only counts if it fails the first time and passes the second. A test that passes either way proves nothing while reading as coverage. A fix may add tests but never weaken or delete an existing one. Bug fixes without such a test are held for review rather than merged, which means a few more items to look at in exchange for not shipping fixes nobody has shown to work.",
+      },
+      {
+        kind: "fix",
+        text: "A ticket can no longer be closed as \u201calready fixed\u201d on an opinion. When an automated build produces no changes at all, that has two very different causes \u2014 the work was genuinely already done, or the agent failed to find it \u2014 and it used to be closed either way, permanently and without review. Closing now requires a test that demonstrates the reported behaviour working, which the system runs itself rather than taking the agent's word for. Without that evidence the ticket is held for a person, with the draft test attached.",
+      },
+      {
+        kind: "fix",
+        text: "Installing an update now also updates the background delivery worker, which has silently stayed on older code since several releases ago. Two separate faults were involved: one stopped the update partway through, and beneath it another aborted the whole step immediately \u2014 but only when run automatically during an install, which is why it worked every time anyone tried it by hand. The step also now takes its instructions from the version being installed rather than the one already there, so a future correction takes effect on the release that carries it instead of the one after.",
+      },
+      {
+        kind: "improvement",
+        text: "The delivery console no longer reports the background worker as out of date when it is not. It was comparing application version numbers, but the worker is a separate component whose version moves for unrelated reasons \u2014 so it regularly claimed to be behind while running exactly the right code. It now compares what is actually installed, and there is a Restart control for when it genuinely has drifted.",
+      },
+    ],
+  },
+  {
     version: "2.324.0",
     date: "2026-08-29",
     title: "The background delivery worker updates itself again",
