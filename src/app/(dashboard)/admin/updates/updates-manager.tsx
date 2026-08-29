@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket, History, Puzzle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, HelpCircle, History, Package, Puzzle, RefreshCw, Rocket, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -295,6 +295,86 @@ function LastDeployCard() {
   );
 }
 
+
+const SETTINGS_KEY = ["admin", "update-settings"] as const;
+
+/**
+ * Does this instance install a newer version by itself?
+ *
+ * Deliberately NOT gated on `updateAvailable`, for the same reason as
+ * LastDeployCard: the answer to "will this update itself?" is exactly what an
+ * operator wants when nothing is pending, and a control that appears only during
+ * an upgrade is one you cannot find when you need to set it.
+ *
+ * The switch stores a preference and nothing else. The host-side daemon reads it
+ * on its next pass — the web tier has no path to the host, and this must not
+ * become one.
+ */
+function UpdateModeCard() {
+  const qc = useQueryClient();
+  const { data, isPending, isError } = useQuery({
+    queryKey: SETTINGS_KEY,
+    queryFn: () => jsonFetch<{ autoUpdate: boolean; updatedAt: string | null }>(
+      "/api/v1/admin/updates/settings",
+    ),
+    refetchOnWindowFocus: false,
+  });
+  const save = useMutation({
+    mutationFn: (autoUpdate: boolean) =>
+      jsonFetch("/api/v1/admin/updates/settings", {
+        method: "PUT",
+        body: JSON.stringify({ autoUpdate }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
+  });
+
+  return (
+    <SectionCard
+      icon={RefreshCw}
+      title="How updates are installed"
+      description="Whether this instance installs a newer version on its own, or waits for you."
+    >
+      {isPending ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : isError ? (
+        // Never imply a setting we could not read. "Automatic" shown over a
+        // failed fetch is the kind of confident wrong answer this page exists
+        // to avoid.
+        <p className="text-sm text-muted-foreground">
+          Could not read the current setting. Reload to try again.
+        </p>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            {([true, false] as const).map((mode) => (
+              <Button
+                key={String(mode)}
+                size="sm"
+                variant={data.autoUpdate === mode ? "default" : "outline"}
+                aria-pressed={data.autoUpdate === mode}
+                disabled={save.isPending}
+                onClick={() => save.mutate(mode)}
+              >
+                {mode ? "Automatic" : "Manual"}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {data.autoUpdate
+              ? "A newer version installs itself once its image is built. The install is recorded below, and can be rolled back."
+              : "A newer version is reported here and in the delivery activity feed, and waits for you to press Install."}
+          </p>
+          {save.isError && (
+            <p className="mt-2 text-sm text-destructive">
+              Could not save that. The setting is unchanged.
+            </p>
+          )}
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
 export function UpdatesManager() {
   const { data, isPending, isError, error, isFetching, refetch } = useQuery({
     queryKey: QUERY_KEY,
@@ -451,6 +531,9 @@ export function UpdatesManager() {
       {status?.updateAvailable && status.latest && (
         <DeployPanel version={status.latest} applyable={data.applyable} />
       )}
+
+      {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
+      <UpdateModeCard />
 
       {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
       <LastDeployCard />
