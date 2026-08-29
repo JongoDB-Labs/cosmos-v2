@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.320.0",
+    date: "2026-08-29",
+    title: "Password reset emails now reach people who were invited but haven't joined yet",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Password reset emails were never arriving for anyone who had been invited but had not yet accepted. The email is sent using the configuration of an organisation the person belongs to, and someone mid-invitation belongs to none, so the message fell back to a deployment-wide setting that may not be configured and failed silently. The people most likely to need a reset link \u2014 they have never signed in \u2014 were the only ones who could never receive one. Resets now fall back to the organisation that invited them.",
+      },
+      {
+        kind: "fix",
+        text: "An invitation sent to an email address that already has an account now gives instructions that can actually be followed. Previously it always said to sign in with a Google account, including for people who sign in with a password and have no Google account linked. Those invitations now say to sign in with the existing password, and link to the page for setting a new one if it has been forgotten.",
+      },
+    ],
+  },
+  {
     version: "2.319.0",
     date: "2026-08-28",
     title: "Invitation emails that never arrived, and revokes that left the address stuck",
