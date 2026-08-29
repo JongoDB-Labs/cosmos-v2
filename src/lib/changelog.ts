@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.320.0",
+    date: "2026-08-29",
+    title: "Ctrl+K files a new issue, from wherever you are",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Ctrl+K (⌘K on a Mac) now files a new issue from anywhere in the application — the timeline Gantt, a programme view, the issues list, a report. \"New issue\" is the first entry in the command palette that shortcut already opens, and when the page you are on belongs to a project, the issue is filed against that project without you having to pick it. Requested from the timeline Gantt, where creating an issue previously meant leaving the view you were reading.",
+      },
+      {
+        kind: "improvement",
+        text: "Ctrl+K now opens the same full New issue form as the \"New issue\" button on every board — description, priority, status, planned dates, labels and any custom fields — instead of a cut-down version offering only a title, type, assignee and due date. The new issue appears in the view you were already looking at rather than sending you off to a different board.",
+      },
+      {
+        kind: "fix",
+        text: "Ctrl+K no longer interrupts you mid-sentence. While the cursor is in a text box or a document editor the keystroke stays with what you are typing, so shortcuts like Ctrl+K for inserting a link work again; press it anywhere else and the palette opens as before.",
+      },
+    ],
+  },
+  {
     version: "2.319.0",
     date: "2026-08-28",
     title: "Invitation emails that never arrived, and revokes that left the address stuck",
