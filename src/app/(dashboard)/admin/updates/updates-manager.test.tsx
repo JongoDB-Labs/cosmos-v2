@@ -307,3 +307,58 @@ describe("UpdatesManager", () => {
     expect(await screen.findByText(/blocks upgrade/i)).toBeTruthy();
   });
 });
+
+// Found on prod 2026-08-29, by opening the page rather than reading the code:
+// the registry check hung, UpdatesManager early-returned its "Checking for
+// updates…" card, and the update-mode switch — mounted BELOW that return — did
+// not exist at all. The switch does not depend on the update check, and the
+// state in which you most want to reach it (the check is stuck, or failing) was
+// exactly the state that hid it.
+describe("UpdatesManager — the update-mode switch survives the check's own states", () => {
+  /** Update-check never settles; the settings endpoint answers normally. */
+  function stubHangingCheck(autoUpdate = true) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        if (u.includes("/settings")) {
+          return new Response(JSON.stringify({ autoUpdate, updatedAt: null }), { status: 200 });
+        }
+        if (u.includes("/deploy")) return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        return new Promise<Response>(() => {}); // never resolves
+      }),
+    );
+  }
+
+  it("is reachable while the update check is still running", async () => {
+    stubHangingCheck();
+    renderPanel();
+    expect(await screen.findByText("Checking for updates…")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Automatic" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Manual" })).toBeTruthy();
+  });
+
+  it("is reachable when the update check FAILED", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        if (u.includes("/settings")) {
+          return new Response(JSON.stringify({ autoUpdate: false, updatedAt: null }), { status: 200 });
+        }
+        if (u.includes("/deploy")) return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        return new Response("boom", { status: 500 });
+      }),
+    );
+    renderPanel();
+    expect(await screen.findByText(/Could not check for updates/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Manual" })).toBeTruthy();
+  });
+
+  it("shows the stored choice rather than assuming automatic", async () => {
+    stubHangingCheck(false);
+    renderPanel();
+    const manual = await screen.findByRole("button", { name: "Manual" });
+    await waitFor(() => expect(manual.getAttribute("aria-pressed")).toBe("true"));
+  });
+});

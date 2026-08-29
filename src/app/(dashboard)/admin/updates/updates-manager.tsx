@@ -393,21 +393,33 @@ export function UpdatesManager() {
   // "never ran". A surface whose whole purpose is to distinguish *unknown* from
   // *up to date* must not have an unknown state of its own that looks like
   // nothing at all.
+  // NOTE THE FRAGMENT. Both of these used to return the version card ALONE, so
+  // while the registry call was in flight — or had failed — the update-mode
+  // switch below simply did not exist. Observed on prod: the registry check hung
+  // and the switch was unreachable, which is the same defect the card's own
+  // comment warns about ("a control you can only find during an upgrade is one
+  // you cannot find when you need it"), just reached by a different route. The
+  // switch does not depend on the update check and must not be gated behind it.
   if (isPending) {
     return (
-      <SectionCard
-        icon={Package}
-        title="Application version"
-        description="This instance, compared against the container registry it is configured for."
-      >
-        <p className="text-sm text-muted-foreground">Checking for updates…</p>
-      </SectionCard>
+      <div className="space-y-4">
+        <UpdateModeCard />
+        <SectionCard
+          icon={Package}
+          title="Application version"
+          description="This instance, compared against the container registry it is configured for."
+        >
+          <p className="text-sm text-muted-foreground">Checking for updates…</p>
+        </SectionCard>
+      </div>
     );
   }
 
   if (isError) {
     return (
-      <SectionCard
+      <div className="space-y-4">
+        <UpdateModeCard />
+        <SectionCard
         icon={AlertTriangle}
         title="Application version"
         description="This instance, compared against the container registry it is configured for."
@@ -421,7 +433,8 @@ export function UpdatesManager() {
         <Button variant="outline" className="mt-4" onClick={() => void refetch()}>
           <RefreshCw className="mr-2 size-4" aria-hidden /> Try again
         </Button>
-      </SectionCard>
+        </SectionCard>
+      </div>
     );
   }
 

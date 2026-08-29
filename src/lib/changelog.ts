@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.323.1",
+    date: "2026-08-29",
+    title: "The update-installation switch is reachable when you need it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The choice between automatic and manual installation was only shown once the check against the container registry had finished. If that check was slow, or failed, the page showed only its own progress message and the switch was nowhere \u2014 so the two situations where you would most want to reach it were the two that hid it. It is now shown regardless of whether the version check has finished, since it does not depend on it.",
+      },
+    ],
+  },
+  {
     version: "2.323.0",
     date: "2026-08-29",
     title: "Automated delivery activity reads as a summary, and the update switch is live",
