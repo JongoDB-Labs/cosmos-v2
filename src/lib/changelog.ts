@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.322.0",
+    date: "2026-08-29",
+    title: "The sprint board's tag filter lists the tags actually on it",
+    highlights: [
+      {
+        kind: "feature",
+        text: "A sprint board now has a tag filter that lists the tags available on that board. Before, it listed every tag in the project, because a sprint board is the Kanban board narrowed to the active sprint and the list was built from everything fetched rather than from what is on screen. Picking a tag that only existed on a card in another sprint, or in the backlog, emptied the board with nothing to say why. Tags are also shown exactly as you typed them — an \"API\" tag was being displayed as \"Api\", so the entry in the menu no longer read as the tag on the card.",
+      },
+      {
+        kind: "improvement",
+        text: "Because the ticket did not settle it, an assumption was made and is worth confirming: \"available tags\" means the distinct tags on the cards the board is currently showing, not a project- or org-wide tag list, and picking several tags shows the cards carrying ANY of them — so adding a tag widens the result, and picking none filters nothing. That matches how the Type and Priority filters already behave. A tag you have already picked stays listed even if nothing matches it any more, so you can always un-pick it.",
+      },
+    ],
+  },
+  {
     version: "2.321.0",
     date: "2026-08-29",
     title: "Choose whether updates install themselves",

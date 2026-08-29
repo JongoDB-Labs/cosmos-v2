@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesFilters } from "./board-filters";
+import { matchesFilters, tagFilterOptions } from "./board-filters";
 import { NO_ESTIMATE } from "./relation-filters";
 import { teamsByUser } from "@/lib/teams/item-teams";
 import { emptyFilters } from "@/components/boards/shared/filter-bar";
@@ -297,5 +297,100 @@ describe("clauses combine as AND", () => {
     expect(matchesFilters(item({ ...target, priority: "LOW" }), f)).toBe(false);
     expect(matchesFilters(item({ ...target, columnKey: "todo" }), f)).toBe(false);
     expect(matchesFilters(item({ ...target, assigneeId: "u-9" }), f)).toBe(false);
+  });
+});
+
+/**
+ * Sprint board tags, phase 1: "the board provides a tag filter control that
+ * lists available tags".
+ *
+ * ASSUMPTION under test, stated so it fails by name if it was the wrong call:
+ * "available" means the distinct tags on the CURRENT BOARD'S cards, not the
+ * org's tag registry and not the project's whole item list. A SCRUM board is
+ * the Kanban seeded with the active sprint, so those three sets differ — and
+ * listing a tag no visible card carries is offering an empty board.
+ */
+describe("tagFilterOptions — which tags the control lists", () => {
+  const SPRINT = "int-7";
+  const board: WorkItem[] = [
+    // Deliberately one tag per card: if "API" and "ui" shared a card, applying
+    // the label clause to the scoping pass would still surface both and the
+    // "still lists the other tags" case below would pass for the wrong reason.
+    item({ id: "a", intervalId: SPRINT, tags: ["API"] }),
+    item({ id: "b", intervalId: SPRINT, tags: ["ui"] }),
+    item({ id: "c", intervalId: SPRINT, tags: [] }),
+    item({ id: "d", intervalId: "int-8", tags: ["legacy"] }),
+    item({ id: "e", intervalId: null, tags: ["backlog-only"] }),
+  ];
+
+  it("lists the tags on the sprint's cards", () => {
+    expect(tagFilterOptions(board, filters({ intervalId: SPRINT }))).toEqual([
+      "API",
+      "ui",
+    ]);
+  });
+
+  it("omits a tag carried only by a card outside the sprint", () => {
+    // The whole failure this exists to stop: "legacy" and "backlog-only" are in
+    // the fetched list but on no card this board shows, so picking one blanks
+    // the board with the reason invisible.
+    const options = tagFilterOptions(board, filters({ intervalId: SPRINT }));
+    expect(options).not.toContain("legacy");
+    expect(options).not.toContain("backlog-only");
+  });
+
+  it("lists every tag in the project when the board is not scoped", () => {
+    // The paired case: without an interval scope, an unscoped Kanban still
+    // lists everything. A pass that just dropped tags would look identical to
+    // correct scoping above.
+    expect(tagFilterOptions(board, filters())).toEqual([
+      "API",
+      "backlog-only",
+      "legacy",
+      "ui",
+    ]);
+  });
+
+  it("still lists the other tags once one is selected", () => {
+    // Scoping applies every clause EXCEPT the label clause. Applying it too
+    // would collapse the list to what is already ticked, making a second tag
+    // unselectable — and multiple tags combine as OR, so that is the point.
+    expect(
+      tagFilterOptions(board, filters({ intervalId: SPRINT, labels: ["API"] })),
+    ).toEqual(["API", "ui"]);
+  });
+
+  it("keeps a selected tag listed even when it matches nothing here", () => {
+    // Otherwise a tag carried in from a shared URL is active, invisible, and
+    // unremovable. Same rule the Type control follows.
+    expect(
+      tagFilterOptions(board, filters({ intervalId: SPRINT, labels: ["legacy"] })),
+    ).toContain("legacy");
+  });
+
+  it("narrows the list by the board's other filters too", () => {
+    // "On this board" means under everything currently applied, not just the
+    // sprint: with the search box narrowing to card b, "API" can no longer match.
+    const scoped = tagFilterOptions(
+      [
+        item({ id: "a", intervalId: SPRINT, title: "Rotate keys", tags: ["API"] }),
+        item({ id: "b", intervalId: SPRINT, title: "Tidy settings", tags: ["ui"] }),
+      ],
+      filters({ intervalId: SPRINT, search: "Tidy" }),
+    );
+    expect(scoped).toEqual(["ui"]);
+  });
+
+  it("lists each tag once, sorted, however many cards carry it", () => {
+    expect(
+      tagFilterOptions(
+        [item({ id: "a", tags: ["zebra", "ui"] }), item({ id: "b", tags: ["ui"] })],
+        filters(),
+      ),
+    ).toEqual(["ui", "zebra"]);
+  });
+
+  it("lists nothing when no visible card is tagged", () => {
+    expect(tagFilterOptions([item({ id: "c", tags: [] })], filters())).toEqual([]);
   });
 });

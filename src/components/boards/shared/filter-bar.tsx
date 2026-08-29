@@ -135,7 +135,9 @@ interface FilterBarProps {
   /**
    * Labels actually present on THIS board's items. Derived from what is on
    * screen rather than the org catalog, so the menu never offers a label that
-   * cannot match anything — same precedent as presentTypeKeys.
+   * cannot match anything — same precedent as presentTypeKeys. A board that
+   * scopes itself (a sprint board) should build this with `tagFilterOptions`,
+   * which measures "on screen" against the board's other active filters.
    */
   presentLabelNames?: string[];
   /** Board columns, for the Status filter. Omitted ⇒ no Status control. */
@@ -304,6 +306,7 @@ function MultiSelectMenu({
   onChange,
   colorMap,
   labelMap,
+  verbatim = false,
 }: {
   label: string;
   options: readonly string[];
@@ -312,6 +315,12 @@ function MultiSelectMenu({
   colorMap?: Record<string, string>;
   /** Display text for an option whose raw value is not readable (e.g. NONE). */
   labelMap?: Record<string, string>;
+  /**
+   * List options exactly as given. For a set the USER typed — tags — rather
+   * than an enum, where the title-casing below turns an org's "API" into "Api"
+   * and stops the menu entry reading as the tag on the card.
+   */
+  verbatim?: boolean;
 }) {
   const count = selected.length;
   return (
@@ -345,7 +354,8 @@ function MultiSelectMenu({
               {/* Title-casing suits enum-ish values (BUSINESS → Business) but
                   mangles a label the user typed and turns "13" into "13". An
                   explicit labelMap entry wins outright. */}
-              {labelMap?.[opt] ?? opt.charAt(0) + opt.slice(1).toLowerCase()}
+              {labelMap?.[opt] ??
+                (verbatim ? opt : opt.charAt(0) + opt.slice(1).toLowerCase())}
             </span>
           </DropdownMenuCheckboxItem>
         ))}
@@ -576,6 +586,7 @@ export function FilterBar({
           options={presentLabelNames}
           selected={filters.labels}
           onChange={(labels) => onFilterChange({ ...filters, labels })}
+          verbatim
         />
       )}
 
