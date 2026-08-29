@@ -12,9 +12,8 @@ import type { Prisma } from "@prisma/client";
  * end that looked like a working re-invite.
  *
  * This is a DELETE, so the guards are the whole design. We remove the account
- * only when it is unambiguously an artifact of the invitation being revoked:
+ * only when it is unambiguously an unused artifact of an invitation:
  *
- *   - the invitation provisioned it        (signInMethod === "email_password")
  *   - it belongs to no organisation        (never accepted anywhere)
  *   - it has never been used               (lastActiveAt null)
  *   - its password is still the issued one (mustChangePassword still true)
@@ -24,17 +23,28 @@ import type { Prisma } from "@prisma/client";
  * Any one of those failing means a real person may be behind the account, and we
  * leave it alone. Revoking is then exactly what it was before: the invitation
  * goes, the account stays.
+ *
+ * NOTE ON `mustChangePassword`: it carries more weight than it looks. The ONLY
+ * code that ever sets it true is provisionEmailPasswordInvite, so a true value
+ * means "an invitation issued this credential and nobody has rotated it since".
+ * That is what makes the account identifiable as an artifact.
+ *
+ * This deliberately does NOT ask whether the invitation BEING REVOKED is the one
+ * that provisioned the account. It first did, and that guard was wrong in the
+ * exact case it needed to handle: invite an address (account created), revoke,
+ * re-invite -- the second invitation is coerced to "oauth" because the account
+ * now exists, so revoking IT declined to clean up, and the address stayed
+ * un-re-invitable forever. The five checks above already establish the account is
+ * unusable by anyone; which invitation created it changes nothing about that.
  */
 export async function revokeProvisionedAccount(
   tx: Prisma.TransactionClient,
-  params: { email: string; invitationId: string; signInMethod: string },
+  params: { email: string; invitationId: string },
 ): Promise<{ deleted: boolean; reason: string }> {
-  if (params.signInMethod !== "email_password") {
-    return { deleted: false, reason: "invitation did not provision an account" };
-  }
-
   const user = await tx.user.findFirst({
-    where: { email: { equals: params.email, mode: "insensitive" } },
+    // isBot mirrors every other credential lookup in this codebase: a synthetic
+    // chat bot is nobody's invitee and must never be reachable by this path.
+    where: { email: { equals: params.email, mode: "insensitive" }, isBot: false },
     select: {
       id: true,
       lastActiveAt: true,
