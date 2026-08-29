@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.326.0",
+    date: "2026-08-29",
+    title: "The delivery queue says what it is actually holding",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The automated delivery console's review queue is now grouped by what each item actually needs, instead of one number over four different things. It showed everything in the review column as \u201cawaiting approval\u201d \u2014 but of the fifty items sitting there, twenty-two had never been touched by automated delivery at all (someone moved them there), only about eleven were questions anyone could answer, and the rest were the system's own verdict on its own code, which it now repairs itself. The queue is split into what is waiting on you, what delivery is handling, and what it never touched, each with its own count and each item labelled with the kind of hold it is. Nothing is hidden \u2014 every item still appears, and the list now reaches back far enough to include the oldest holds, which the previous limit was quietly cutting off.",
+      },
+      {
+        kind: "feature",
+        text: "Automated delivery now stops taking on new work when too much finished work is already waiting for you, and says so rather than simply going quiet. The limit is configurable and shown wherever the worker's status appears, because a system that has deliberately paused looks exactly like one that has died if it does not tell you which it is.",
+      },
+      {
+        kind: "improvement",
+        text: "A build that runs out of time now writes down what it learned before it is discarded \u2014 what the ticket actually requires, what it finished, what was left, which files matter, and what it would do next. A later attempt at the same ticket gets that account, marked clearly as unverified, so it does not spend its whole budget rediscovering the same dead end. Previously all of it was thrown away and the next attempt started from nothing.",
+      },
+      {
+        kind: "improvement",
+        text: "The worker keeps reporting its status when it is newer than the database it talks to, instead of going silent. During an update there is a moment when the two disagree, and the status write was being discarded without comment \u2014 so a perfectly healthy worker appeared on the console as stale, with the evidence only in the system log.",
+      },
+      {
+        kind: "improvement",
+        text: "Which reference material a build actually drew on is now recorded and shown, so it is possible to tell whether that material is used at all before anyone adds more of it.",
+      },
+    ],
+  },
+  {
     version: "2.325.0",
     date: "2026-08-29",
     title: "Automated delivery fixes its own review comments, and proves a bug was real",
