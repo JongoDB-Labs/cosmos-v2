@@ -4435,3 +4435,29 @@ model DeployRequest {
   @@index([status, requestedAt])
   @@map("deploy_requests")
 }
+
+/// Instance-wide update behaviour, surfaced on /admin/updates.
+///
+/// Lives in CORE, not in the Foreman plugin, even though the Foreman daemon is
+/// what acts on it. Two reasons. CI builds core with no `plugins/` composed, so
+/// core code cannot reference a plugin model at all. And an operator reasonably
+/// expects the page with the Install button to own whether installs happen by
+/// themselves — the daemon is an implementation detail of HOW, not of WHETHER.
+model UpdateSettings {
+  id          String   @id @default(cuid())
+  /// Singleton discriminator. Unique so an upsert can never quietly create a
+  /// second row that nothing reads.
+  scope       String   @unique @default("instance")
+  /// Poll for a newer released version and install it unattended. False = report
+  /// it and wait for someone to click Install.
+  ///
+  /// Defaults TRUE because that is what every deployment does today, and because
+  /// the dangerous failure here is an instance that silently stops updating —
+  /// which is the outage this control was built after, not one it should cause.
+  autoUpdate  Boolean  @default(true) @map("auto_update")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("update_settings")
+}

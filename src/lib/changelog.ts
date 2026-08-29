@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.321.0",
+    date: "2026-08-29",
+    title: "Choose whether updates install themselves",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Updates page now lets you choose how a new version arrives: automatically, where the instance installs it as soon as its image is ready, or manually, where it tells you a version is waiting and does nothing until you press Install. Until now this was a property of the code with no way to see or change it, so the only way to find out which you had was to wait and watch. The setting sits with the Install button rather than in a separate area, and is shown whether or not an update is currently pending \u2014 a control you can only find during an upgrade is one you cannot find when you need it.",
+      },
+      {
+        kind: "improvement",
+        text: "Automatic installs stopped working silently for part of a day. The step that brings the background delivery worker up to a new release authenticates with a stored credential, and that file was being rewritten with the wrong ownership by an earlier step \u2014 after which the worker could no longer read it. The application updated, the worker stayed on the previous version, and the warning that said so was discarded rather than recorded. The credential is no longer rewritten by the wrong user, the specific file is named when it cannot be read, and the warning is now kept.",
+      },
+    ],
+  },
+  {
     version: "2.320.0",
     date: "2026-08-29",
     title: "Password reset emails now reach people who were invited but haven't joined yet",
