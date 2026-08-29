@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.323.0",
+    date: "2026-08-29",
+    title: "Automated delivery activity reads as a summary, and the update switch is live",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The live activity for an automated build now reads as a summary rather than a keystroke log. It held roughly nine tool calls for every line of the agent's own reasoning, with unbroken stretches of over a hundred commands between one explanation and the next, so what the agent was actually deciding was buried in what it was typing. Explanations, your own messages to it, and outcomes stay in view; runs of commands collapse into a single line saying what that stretch of work was \u2014 \"Edited 2 files\", \"Ran 14 commands\", \"Explored 8 files\" \u2014 which opens if you want the detail. A run that changed a file always says so, however many commands surround it, and the number of steps stays visible so a long stretch still looks long.",
+      },
+      {
+        kind: "feature",
+        text: "The choice between installing updates automatically and installing them yourself, added to the Updates page in the previous version, is now actually honoured: the background delivery worker reads it each cycle, so changing it takes effect without restarting anything. On manual, a newer version is reported in the activity feed every cycle it remains uninstalled rather than announced once and forgotten \u2014 a message that scrolls away leaves an instance that is waiting looking identical to one that is up to date.",
+      },
+    ],
+  },
+  {
     version: "2.322.0",
     date: "2026-08-29",
     title: "An email address stuck after a revoked invitation can be invited again",
