@@ -57,10 +57,16 @@ import {
   ENTITY_LABEL_PLURAL,
   type EntityType,
 } from "@/lib/mentions/refs";
-import {
-  QuickCreateWorkItem,
-  type PaletteProject,
-} from "./quick-create-work-item";
+import { PaletteNewIssue } from "./palette-new-issue";
+
+/** An org project as the palette lists it. `sector` scopes the New issue
+ *  dialog's Type picker; null/absent means "show the whole catalogue". */
+interface PaletteProject {
+  id: string;
+  key: string;
+  name: string;
+  sector?: string | null;
+}
 
 // ⌘K is a GLOBAL search: the route returns the shared registry's canonical
 // `EntityType`, so the palette groups/labels every entity class the platform
@@ -105,7 +111,7 @@ interface CommandPaletteProps {
   orgs: { id: string; slug: string }[];
 }
 
-type Mode = "search" | "create" | "projects";
+type Mode = "search" | "projects";
 
 export function CommandPalette({ orgs }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
@@ -113,6 +119,9 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<Mode>("search");
+  // "New issue" hands off to the full create dialog, which lives outside the
+  // palette (base-ui won't stack one modal inside another).
+  const [creating, setCreating] = useState(false);
   const [projects, setProjects] = useState<PaletteProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const router = useRouter();
@@ -126,24 +135,77 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const onProjectRoute = segments[1] === "projects" && !!segments[2];
   const routeProjectKey = onProjectRoute ? segments[2] : null;
 
+  // Lazily fetch the org's projects — only when something that needs them
+  // happens (opening on a project route, create, the project picker). Keeps the
+  // common search path fast.
+  const ensureProjects = useCallback(async () => {
+    if (!currentOrg || projects.length > 0 || projectsLoading) return;
+    setProjectsLoading(true);
+    try {
+      const data = await jsonFetch<PaletteProject[]>(
+        `/api/v1/orgs/${currentOrg.id}/projects`,
+      );
+      setProjects(
+        data.map((p) => ({
+          id: p.id,
+          key: p.key,
+          name: p.name,
+          sector: p.sector ?? null,
+        })),
+      );
+    } catch {
+      // Leave the list empty; pickers degrade gracefully.
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [currentOrg, projects.length, projectsLoading]);
+
+  // Called on every path that OPENS the palette. The route gives us a project
+  // KEY; only the project list turns that into the id the New issue dialog
+  // prefills with. Fetched lazily at action time it resolved after the action
+  // had already been picked, so ⌘K on a board offered a bare "New issue…" and
+  // then defaulted to whichever project happened to be first.
+  const prefetchRouteProject = useCallback(() => {
+    if (routeProjectKey) void ensureProjects();
+  }, [routeProjectKey, ensureProjects]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setOpen((prev) => !prev);
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return;
+
+      // ⌘K is global, but it must not be taken out of the field you're typing
+      // in — a text input, a textarea or a rich-text editor owns the keystroke
+      // (⌘K is "insert link" in the Lexical editors). Matches the same guard
+      // the timeline board applies to its own ⌘Z/⌘Y bindings.
+      //
+      // Exempt once the palette is already open: its own command input is an
+      // <input>, and ⌘K has to stay the way you dismiss it.
+      const target = e.target as HTMLElement | null;
+      const inTextField =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (inTextField && !open) return;
+
+      e.preventDefault();
+      if (!open) prefetchRouteProject();
+      setOpen((prev) => !prev);
     }
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [open, prefetchRouteProject]);
 
   useEffect(() => {
-    const handler = () => setOpen(true);
+    const handler = () => {
+      prefetchRouteProject();
+      setOpen(true);
+    };
     window.addEventListener("cosmos:command-palette:open", handler);
     return () =>
       window.removeEventListener("cosmos:command-palette:open", handler);
-  }, []);
+  }, [prefetchRouteProject]);
 
   // Reset transient state whenever the dialog closes.
   useEffect(() => {
@@ -154,25 +216,6 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open]);
-
-  // Lazily fetch the org's projects — only when an action view that needs them
-  // is opened (create / project picker). Keeps the common search path fast.
-  const ensureProjects = useCallback(async () => {
-    if (!currentOrg || projects.length > 0 || projectsLoading) return;
-    setProjectsLoading(true);
-    try {
-      const data = await jsonFetch<
-        { id: string; key: string; name: string }[]
-      >(`/api/v1/orgs/${currentOrg.id}/projects`);
-      setProjects(
-        data.map((p) => ({ id: p.id, key: p.key, name: p.name })),
-      );
-    } catch {
-      // Leave the list empty; pickers degrade gracefully.
-    } finally {
-      setProjectsLoading(false);
-    }
-  }, [currentOrg, projects.length, projectsLoading]);
 
   // Resolve the prefilled project for the route we're on (needs the project
   // list to map key -> id). Case-insensitive, matching the route resolver.
@@ -187,8 +230,8 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   // intended pattern here (synchronizing with the query input + fetch).
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    // Only the search view queries the server. In action views the input is a
-    // form field (e.g. the work-item title), not a search box.
+    // Only the search view queries the server. In the project picker the input
+    // is a client-side filter over the fetched list, not a search box.
     if (mode !== "search") return;
 
     const isActionQuery = query.trimStart().startsWith(">");
@@ -234,8 +277,13 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     [router],
   );
 
+  // Close the palette and hand off to the full New issue dialog. The project
+  // list has to be in hand first: it is what turns the route's project KEY into
+  // the id the dialog prefills with, so opening before it lands would show an
+  // empty Project picker and then blank the title when the list arrived.
   const openCreate = useCallback(() => {
-    setMode("create");
+    setOpen(false);
+    setCreating(true);
     void ensureProjects();
   }, [ensureProjects]);
 
@@ -330,9 +378,24 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     actionQuery.trim() === "" ||
     label.toLowerCase().includes(actionQuery.trim().toLowerCase());
   const filteredNav = showActions ? navItems.filter((n) => matchesAction(n.label)) : [];
+
+  // The top action, named after the thing the nav calls these rows ("Issues"),
+  // and scoped to the project you're on when the route names one. The older
+  // wordings stay searchable so ">create work item" still lands on it.
+  const createLabel = prefilledProject
+    ? `New issue in ${prefilledProject.key}`
+    : "New issue";
+  const createAliases = [
+    createLabel,
+    "Create work item",
+    "Add card to this project",
+    "New task",
+    "New bug",
+  ];
+  const matchesCreate = createAliases.some(matchesAction);
+
   const fixedActionLabels = [
-    prefilledProject ? `Create work item in ${prefilledProject.key}` : "Create work item",
-    ...(onProjectRoute ? ["Add card to this project"] : []),
+    ...createAliases,
     "Go to project",
     "New board",
     "New project",
@@ -342,196 +405,175 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     showActions && (filteredNav.length > 0 || fixedActionLabels.some(matchesAction));
 
   const inputPlaceholder =
-    mode === "create"
-      ? "Work item title…"
-      : mode === "projects"
-        ? "Filter projects…"
-        : "Search everything — projects, items, docs, people… or “>” for actions";
+    mode === "projects"
+      ? "Filter projects…"
+      : "Search everything — projects, items, docs, people… or “>” for actions";
 
   // shouldFilter={false}: results are filtered server-side; cmdk's client filter
   // would otherwise re-hide rows (it matches the query against the item value, a
   // "{type}-{id}" string, not the visible name).
   return (
-    <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
-      <CommandInput
-        placeholder={inputPlaceholder}
-        value={query}
-        onValueChange={setQuery}
-      />
-
-      {mode === "create" && currentOrg ? (
-        <QuickCreateWorkItem
-          orgId={currentOrg.id}
-          orgSlug={orgSlug}
-          title={query}
-          prefilledProject={prefilledProject}
-          projects={projects}
-          projectsLoading={projectsLoading}
-          onClose={() => setOpen(false)}
+    <>
+      <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
+        <CommandInput
+          placeholder={inputPlaceholder}
+          value={query}
+          onValueChange={setQuery}
         />
-      ) : mode === "projects" ? (
-        <CommandList>
-          {projectsLoading ? (
-            <div className="py-6 text-center">
-              <p className="text-sm text-muted-foreground">Loading projects…</p>
-            </div>
-          ) : (
-            (() => {
-              const filtered = projects.filter((p) =>
-                `${p.key} ${p.name}`
-                  .toLowerCase()
-                  .includes(query.trim().toLowerCase()),
-              );
-              if (filtered.length === 0) {
-                return <CommandEmpty>No projects found.</CommandEmpty>;
-              }
-              return (
-                <CommandGroup heading="Go to project">
-                  {filtered.map((p) => (
-                    <CommandItem
-                      key={p.id}
-                      value={`project-${p.id}`}
-                      onSelect={() => goToProject(p)}
-                    >
-                      <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="flex-1 truncate">{p.name}</span>
-                      <Badge variant="neutral" className="ml-2 text-[10px]">
-                        {p.key}
-                      </Badge>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              );
-            })()
-          )}
-        </CommandList>
-      ) : (
-        <CommandList>
-          {showActions && fixedActionLabels.some(matchesAction) && (
-            <CommandGroup heading="Actions">
-              {matchesAction(
-                prefilledProject
-                  ? `Create work item in ${prefilledProject.key}`
-                  : "Create work item",
-              ) && (
-                <CommandItem value="action-create-work-item" onSelect={openCreate}>
-                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">
-                    {prefilledProject
-                      ? `Create work item in ${prefilledProject.key}…`
-                      : "Create work item…"}
-                  </span>
-                  <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
-                </CommandItem>
-              )}
 
-              {onProjectRoute && matchesAction("Add card to this project") && (
-                <CommandItem
-                  value="action-add-card"
-                  onSelect={openCreate}
-                >
-                  <LayoutList className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">
-                    Add card to this project
-                  </span>
-                </CommandItem>
-              )}
+        {mode === "projects" ? (
+          <CommandList>
+            {projectsLoading ? (
+              <div className="py-6 text-center">
+                <p className="text-sm text-muted-foreground">Loading projects…</p>
+              </div>
+            ) : (
+              (() => {
+                const filtered = projects.filter((p) =>
+                  `${p.key} ${p.name}`
+                    .toLowerCase()
+                    .includes(query.trim().toLowerCase()),
+                );
+                if (filtered.length === 0) {
+                  return <CommandEmpty>No projects found.</CommandEmpty>;
+                }
+                return (
+                  <CommandGroup heading="Go to project">
+                    {filtered.map((p) => (
+                      <CommandItem
+                        key={p.id}
+                        value={`project-${p.id}`}
+                        onSelect={() => goToProject(p)}
+                      >
+                        <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 truncate">{p.name}</span>
+                        <Badge variant="neutral" className="ml-2 text-[10px]">
+                          {p.key}
+                        </Badge>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                );
+              })()
+            )}
+          </CommandList>
+        ) : (
+          <CommandList>
+            {showActions && fixedActionLabels.some(matchesAction) && (
+              <CommandGroup heading="Actions">
+                {currentOrg && matchesCreate && (
+                  <CommandItem value="action-create-work-item" onSelect={openCreate}>
+                    <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">{createLabel}…</span>
+                    <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
+                  </CommandItem>
+                )}
 
-              {matchesAction("Go to project") && (
-                <CommandItem
-                  value="action-go-to-project"
-                  onSelect={openProjectPicker}
-                >
-                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">Go to project…</span>
-                </CommandItem>
-              )}
+                {matchesAction("Go to project") && (
+                  <CommandItem
+                    value="action-go-to-project"
+                    onSelect={openProjectPicker}
+                  >
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">Go to project…</span>
+                  </CommandItem>
+                )}
 
-              {matchesAction("New board") && (
-                <CommandItem value="action-new-board" onSelect={goToNewBoard}>
-                  <Columns3 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">New board</span>
-                </CommandItem>
-              )}
+                {matchesAction("New board") && (
+                  <CommandItem value="action-new-board" onSelect={goToNewBoard}>
+                    <Columns3 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">New board</span>
+                  </CommandItem>
+                )}
 
-              {matchesAction("New project") && (
-                <CommandItem
-                  value="action-new-project"
-                  onSelect={() => goTo("/projects/new")}
-                >
-                  <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">New project…</span>
-                </CommandItem>
-              )}
+                {matchesAction("New project") && (
+                  <CommandItem
+                    value="action-new-project"
+                    onSelect={() => goTo("/projects/new")}
+                  >
+                    <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">New project…</span>
+                  </CommandItem>
+                )}
 
-              {matchesAction("Open Assistant") && (
-                <CommandItem value="action-assistant" onSelect={openAssistant}>
-                  <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">Open Assistant</span>
-                </CommandItem>
-              )}
-            </CommandGroup>
-          )}
+                {matchesAction("Open Assistant") && (
+                  <CommandItem value="action-assistant" onSelect={openAssistant}>
+                    <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">Open Assistant</span>
+                  </CommandItem>
+                )}
+              </CommandGroup>
+            )}
 
-          {showActions && currentOrg && filteredNav.length > 0 && (
-            <CommandGroup heading="Go to">
-              {filteredNav.map((n) => (
-                <CommandItem
-                  key={n.id}
-                  value={`nav-${n.id}`}
-                  onSelect={() =>
-                    n.drawer ? openToolDrawer(n.drawer) : goTo(n.suffix)
-                  }
-                >
-                  {n.icon}
-                  <span className="flex-1 truncate">{n.label}</span>
-                  <ArrowRight className="ml-2 h-3.5 w-3.5 text-muted-foreground/40" />
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
+            {showActions && currentOrg && filteredNav.length > 0 && (
+              <CommandGroup heading="Go to">
+                {filteredNav.map((n) => (
+                  <CommandItem
+                    key={n.id}
+                    value={`nav-${n.id}`}
+                    onSelect={() =>
+                      n.drawer ? openToolDrawer(n.drawer) : goTo(n.suffix)
+                    }
+                  >
+                    {n.icon}
+                    <span className="flex-1 truncate">{n.label}</span>
+                    <ArrowRight className="ml-2 h-3.5 w-3.5 text-muted-foreground/40" />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
 
-          {query.trim() === "" ? (
-            <div className="px-2 pb-3 pt-1 text-center">
-              <p className="text-xs text-muted-foreground">
-                Type to search · “{">"}” for actions
-              </p>
-            </div>
-          ) : query.trimStart().startsWith(">") ? (
-            actionQuery.trim() === "" || anyActionVisible ? null : (
-              <CommandEmpty>No actions match “{actionQuery.trim()}”.</CommandEmpty>
-            )
-          ) : loading ? (
-            <div className="py-6 text-center">
-              <p className="text-sm text-muted-foreground">Searching...</p>
-            </div>
-          ) : results.length === 0 ? (
-            <CommandEmpty>No results found.</CommandEmpty>
-          ) : (
-            groupOrder.map((type) => {
-              const items = grouped[type];
-              if (!items || items.length === 0) return null;
-              return (
-                <CommandGroup key={type} heading={groupLabels[type]}>
-                  {items.map((result) => (
-                    <CommandItem
-                      key={result.id}
-                      value={`${result.type}-${result.id}`}
-                      onSelect={() => handleSelect(result)}
-                    >
-                      {typeIcons[result.type]}
-                      <span className="flex-1 truncate">{result.name}</span>
-                      <Badge variant="neutral" className="ml-2 text-[10px]">
-                        {typeLabels[result.type]}
-                      </Badge>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              );
-            })
-          )}
-        </CommandList>
+            {query.trim() === "" ? (
+              <div className="px-2 pb-3 pt-1 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Type to search · “{">"}” for actions
+                </p>
+              </div>
+            ) : query.trimStart().startsWith(">") ? (
+              actionQuery.trim() === "" || anyActionVisible ? null : (
+                <CommandEmpty>No actions match “{actionQuery.trim()}”.</CommandEmpty>
+              )
+            ) : loading ? (
+              <div className="py-6 text-center">
+                <p className="text-sm text-muted-foreground">Searching...</p>
+              </div>
+            ) : results.length === 0 ? (
+              <CommandEmpty>No results found.</CommandEmpty>
+            ) : (
+              groupOrder.map((type) => {
+                const items = grouped[type];
+                if (!items || items.length === 0) return null;
+                return (
+                  <CommandGroup key={type} heading={groupLabels[type]}>
+                    {items.map((result) => (
+                      <CommandItem
+                        key={result.id}
+                        value={`${result.type}-${result.id}`}
+                        onSelect={() => handleSelect(result)}
+                      >
+                        {typeIcons[result.type]}
+                        <span className="flex-1 truncate">{result.name}</span>
+                        <Badge variant="neutral" className="ml-2 text-[10px]">
+                          {typeLabels[result.type]}
+                        </Badge>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                );
+              })
+            )}
+          </CommandList>
+        )}
+      </CommandDialog>
+
+      {creating && currentOrg && !projectsLoading && (
+        <PaletteNewIssue
+          orgId={currentOrg.id}
+          projects={projects}
+          prefilledProjectId={prefilledProject?.id}
+          onClose={() => setCreating(false)}
+        />
       )}
-    </CommandDialog>
+    </>
   );
 }
