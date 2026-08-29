@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.324.0",
+    date: "2026-08-29",
+    title: "The background delivery worker updates itself again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Installing a new version now updates the background delivery worker along with the application. The worker runs from its own checkout of the release, and for the last several versions that checkout refused to move: a handful of files were marked, for a separate reason, as ones the local copy should never be overwritten, and the update stopped at the first of them and gave up without saying so. The application updated, the worker did not, and the two drifted apart until someone updated it by hand. The update now clears those marks before switching versions, so the worker ends up on the version that was installed.",
+      },
+    ],
+  },
+  {
     version: "2.323.1",
     date: "2026-08-29",
     title: "The update-installation switch is reachable when you need it",
