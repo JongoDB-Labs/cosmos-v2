@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.328.0",
+    date: "2026-08-30",
+    title: "Fixes for problems an audit found in the day's own work",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A change that introduced an unreliable test could crash the automated build instead of holding it for review. Two improvements made earlier the same day were each correct on their own, but together one read a value before it existed \u2014 so the one check whose job is to stop an unreliable test from shipping failed outright, and the ticket became invisible until a periodic sweep recovered it. Neither the type checker nor the test suite can see this class of mistake in that file, which is why an audit of the day's combined work found it and nothing else did.",
+      },
+      {
+        kind: "fix",
+        text: "Three kinds of held work introduced earlier the same day were being reported as handled when nobody was handling them \u2014 a bug fix with no reproducing test, a browser-test regression, and a newly unreliable test. A hold whose reason the system does not recognise was being filed as \u201cbeing dealt with\u201d and hidden from your queue; it now asks for a person instead. An unrecognised hold is exactly the one somebody should look at, and the cost of being wrong that way is one extra item to read, against a ticket that quietly disappears.",
+      },
+      {
+        kind: "fix",
+        text: "The background worker's fallback for reporting status against an older database could never actually work. It omitted one newer field, but database changes apply in order \u2014 so an installation missing that field was always missing the others too, and the retry failed for the same reason as the first attempt. It now keeps only the fields that have always existed, so a field added in future cannot silently break it again.",
+      },
+      {
+        kind: "improvement",
+        text: "The check that every kind of held work carries a meaningful label now reads the delivery worker's own source rather than a record of what has happened before. A record of the past cannot contain something introduced today, so it could not fail for exactly the cases most likely to be missing. On its first run the new check found two further unlabelled cases, both from the merge step, which had simply never failed on this installation.",
+      },
+    ],
+  },
+  {
     version: "2.327.0",
     date: "2026-08-30",
     title: "Automated delivery checks the screens it changed before shipping",
