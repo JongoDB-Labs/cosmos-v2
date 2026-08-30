@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.327.0",
+    date: "2026-08-30",
+    title: "Automated delivery checks the screens it changed before shipping",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Before an automated change merges on its own, the browser test suite is now run twice \u2014 once against the code as it was, once against the change \u2014 and the change is held only for a test that passed before and fails after. Nothing had been running those tests before any automated change reached production. Running them as a straight pass/fail would not have worked: a third of them already fail for reasons unrelated to any change, so the gate would have been permanently red and switched off within a week. Comparing the two runs isolates what the change actually broke, and anything already failing is named in the record but does not block. Suspected breakages are re-run on both sides before anything is held, because a single sample produced eight false alarms in testing.",
+      },
+      {
+        kind: "improvement",
+        text: "A question that needs your answer now comes with the plausible answers listed, and can be answered by replying with a number. Where the choice cannot be sensibly enumerated \u2014 the answer is a name, a figure, or something only you know \u2014 the question is asked as before rather than dressed up as a multiple choice. Nothing is applied without your reply, and the message says so.",
+      },
+      {
+        kind: "improvement",
+        text: "Every held item is now labelled with what kind of hold it is, and the labels have been applied to the whole history as well as to new ones. Of 195 records, none were left unclassified. The largest group turned out to be older entries that never recorded a reason at all \u2014 counted honestly as unknown rather than guessed into a category, so the remaining numbers can be trusted.",
+      },
+      {
+        kind: "improvement",
+        text: "When installing an update fails to bring the background worker along, the log now shows which step it reached instead of only that it failed. A recent failure reported one line, gave no account of what went wrong, and then succeeded when run by hand \u2014 the evidence was being discarded at exactly the moment it existed.",
+      },
+      {
+        kind: "improvement",
+        text: "Alongside the existing recommendation, each finished change now carries an assessment of what evidence actually backs it \u2014 which checks ran, which passed, and whether anything vetoes it outright. Nothing merges differently as a result: this release only records what a stricter rule would have decided, so the rule can be compared against real decisions before it is trusted with any.",
+      },
+    ],
+  },
+  {
     version: "2.326.0",
     date: "2026-08-29",
     title: "The delivery queue says what it is actually holding",
