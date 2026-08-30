@@ -8,7 +8,12 @@
 // Moved here from create-issue-button.test.tsx when the board-local create
 // dialog was retired in favour of the full one every board now shares.
 import { describe, it, expect } from "vitest";
-import { projectStatusColumns, createStatusOptions } from "./status-columns";
+import {
+  projectStatusColumns,
+  createStatusOptions,
+  editStatusOptions,
+  FALLBACK_STATUS_COLUMNS,
+} from "./status-columns";
 
 const kanban = {
   columns: [
@@ -35,8 +40,8 @@ describe("projectStatusColumns", () => {
   });
 
   it("returns nothing when no board in the project defines a workflow", () => {
-    // Honest empty rather than a fabricated status — the dialog stays disabled,
-    // which is correct when the project genuinely has nowhere to put an item.
+    // Honest empty: this reports what the project ACTUALLY defines. Substituting
+    // a vocabulary belongs to the picker helpers below, not here.
     expect(projectStatusColumns([{ columns: [] }, {}] as never)).toEqual([]);
   });
 });
@@ -66,5 +71,53 @@ describe("createStatusOptions", () => {
   it("sorts a board's own columns by sortOrder", () => {
     const cols = createStatusOptions(backlog.columns as never, [] as never);
     expect(cols.map((c) => c.key)).toEqual(["todo", "backlog"]);
+  });
+
+  // COSMOS-168. A Timeline/Gantt board owns no columns, and a project whose
+  // boards were all added after creation defines none either — so the picker was
+  // empty AND disabled while the dialog still submitted `columnKey: "backlog"`.
+  // That is the reported "always defaults to backlog and I can't change it".
+  it("offers the fallback workflow when the project defines none either", () => {
+    const cols = createStatusOptions([], [{ columns: [] }, {}] as never);
+    expect(cols.map((c) => c.key)).toEqual([
+      "backlog",
+      "todo",
+      "in-progress",
+      "review",
+      "done",
+    ]);
+  });
+
+  it("starts the fallback on the key creation already writes", () => {
+    // The dialog defaults to the FIRST option; landing anywhere but "backlog"
+    // would change where items go on projects that have no workflow.
+    expect(createStatusOptions([], [] as never)[0].key).toBe("backlog");
+  });
+});
+
+describe("editStatusOptions", () => {
+  it("prefers the project's pooled workflow", () => {
+    const cols = editStatusOptions(
+      [{ key: "todo", name: "To Do" }],
+      [{ key: "risks", name: "Risks" }],
+    );
+    expect(cols.map((c) => c.key)).toEqual(["todo"]);
+  });
+
+  it("falls back to the board's own columns when the pooled list is EMPTY", () => {
+    // The regression this fixes: every caller passes an array, so the sheet's
+    // old `statusColumns ?? columns` never reached `columns` — not while the
+    // boards request was in flight, and not when it failed.
+    const cols = editStatusOptions([], [{ key: "todo", name: "To Do" }]);
+    expect(cols.map((c) => c.key)).toEqual(["todo"]);
+  });
+
+  it("falls back to the board's own columns when no pooled list is passed", () => {
+    const cols = editStatusOptions(undefined, [{ key: "todo", name: "To Do" }]);
+    expect(cols.map((c) => c.key)).toEqual(["todo"]);
+  });
+
+  it("offers the fallback workflow when neither source has anything", () => {
+    expect(editStatusOptions([], [])).toBe(FALLBACK_STATUS_COLUMNS);
   });
 });

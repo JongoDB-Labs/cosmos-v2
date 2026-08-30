@@ -219,4 +219,45 @@ describe("the Status dropdown on a board that owns no columns", () => {
     );
     expect(Array.from(statusSelect().options).map((o) => o.textContent)).toEqual(["To Do"]);
   });
+
+  // COSMOS-168. The board views pass `useProjectStatuses(...)`, which is an
+  // ARRAY — empty until the boards request resolves, and empty again if it
+  // fails. `statusColumns ?? columns` fires on neither, so the Gantt's Status
+  // control was empty even with the board's own workflow sitting right there.
+  it("falls back to the board's columns when the project list is EMPTY, not just absent", () => {
+    render(
+      <CardDetailSheet
+        {...SHEET_PROPS}
+        columns={[{ key: "todo", name: "To Do" } as never]}
+        statusColumns={[]}
+        item={itemFixture()}
+      />
+    );
+    expect(Array.from(statusSelect().options).map((o) => o.textContent)).toEqual(["To Do"]);
+  });
+
+  // The reported state: a Timeline/Gantt board owns no columns and its project
+  // defines none either, so Status had nothing to pick and every ticket kept the
+  // "backlog" the create dialog writes as ITS fallback.
+  it("still offers a workflow when the board and the project both define none", () => {
+    render(
+      <CardDetailSheet
+        {...SHEET_PROPS}
+        columns={[]}
+        statusColumns={[]}
+        item={itemFixture({ columnKey: "backlog" } as never)}
+      />
+    );
+    const select = statusSelect();
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      "backlog",
+      "todo",
+      "in-progress",
+      "review",
+      "done",
+    ]);
+    // ...and the ticket's current status is one of them, so changing it is a
+    // pick rather than a blank control that cannot be moved off Backlog.
+    expect(select.value).toBe("backlog");
+  });
 });

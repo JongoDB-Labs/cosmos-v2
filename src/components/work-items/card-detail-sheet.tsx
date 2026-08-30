@@ -87,6 +87,7 @@ import {
   activityValueLabel,
 } from "@/lib/work-items/activity-label";
 import { formatDateStable } from "@/lib/format/stable-date";
+import { editStatusOptions } from "@/lib/boards/status-columns";
 
 interface CardDetailSheetProps {
   item: WorkItem | null;
@@ -229,7 +230,13 @@ export function CardDetailSheet({
   // come from its parent — and giving it a query of its own would put every
   // caller, and every test that renders it, inside a QueryClient and a router.
   // The board views that need it already hold the hook's result.
-  const statusOptions = statusColumns ?? columns;
+  //
+  // Resolved through `editStatusOptions` rather than `??` (COSMOS-168): the prop
+  // is an ARRAY that is empty while the boards request is in flight and empty
+  // again when a project defines no workflow anywhere, and `??` fires on neither
+  // — so the Gantt's Status control stayed empty and every ticket kept the
+  // "backlog" the create dialog falls back to.
+  const statusOptions = editStatusOptions(statusColumns, columns);
 
   // from one would otherwise have no name to show.
   const activityResolvers = useMemo(
