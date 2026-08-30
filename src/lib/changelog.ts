@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.357.1",
+    date: "2026-09-10",
+    title: "The Status picker works on the Timeline / Gantt",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On the Timeline / Gantt, Status could open onto an empty list — so every ticket you created or edited there was stuck on Backlog with no way to move it. A Timeline board has no workflow columns of its own, and on a project where none of the other boards define any either, there was nothing to offer. Status now falls back to the board's own columns, and then to the standard Backlog → To Do → In Progress → Review → Done workflow, so the picker always has somewhere to put the work.",
+      },
+    ],
+  },
+  {
     version: "2.357.0",
     date: "2026-09-10",
     title: "Attach a file to a message you send a running build",
