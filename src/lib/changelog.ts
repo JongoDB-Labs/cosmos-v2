@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.329.0",
+    date: "2026-08-30",
+    title: "A whole class of crash is now rejected before it can ship",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Reading a value before it exists is a mistake that runs fine until the exact moment it does not, and neither the type checker nor the test suite can see it in the delivery worker's own files. One such mistake crashed a build yesterday instead of holding it for review. The standard check for it is now enforced on the delivery plugin, where the code is clean under it \u2014 so the same mistake is rejected by the build, in a step that already runs on every change, rather than found afterwards in production. The same check reports nineteen findings elsewhere in the application; those are recorded as follow-up work rather than quietly folded into this change.",
+      },
+      {
+        kind: "improvement",
+        text: "When installing an update fails to bring the background worker along, the log now keeps the error the failing command actually printed. The previous version showed which step the update reached \u2014 useful, and on the next install it narrowed a failure to two statements \u2014 but the filter looked for words that the tools involved do not use, so it could say where something stopped without saying what it said. It now also keeps the lines a tool prints only when something has gone wrong, while still leaving out the chatter those same tools produce when everything is fine.",
+      },
+    ],
+  },
+  {
     version: "2.328.0",
     date: "2026-08-30",
     title: "Fixes for problems an audit found in the day's own work",
