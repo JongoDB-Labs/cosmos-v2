@@ -21,6 +21,41 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.330.0",
+    date: "2026-08-30",
+    title: "Seven corrections to Foreman, most of them to things that were reporting success",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Installing an update has never once restarted the background worker. The step that does it runs from inside the worker it is about to restart, and stopping that worker kills it mid-line \u2014 the previous fix moved the restart command out of harm's way but not the script issuing it, so nothing changed. The evidence is a single number: the worker's process id is identical across four consecutive installs. The script now moves itself out of the way first, and the check afterwards requires a genuinely NEW process, because the old check asked only \"is it running?\" \u2014 which the instance that never stopped answers yes to.",
+      },
+      {
+        kind: "fix",
+        text: "The review queue told you Foreman was handling work that nothing was working on. Rejected builds, failed interface checks and failed test runs were grouped as \"Foreman is handling it\" \u2014 but every one of those is recorded only AFTER it has already given up trying, and nothing picks a parked ticket back up without a person. They now sit in their own group, \"Stalled \u2014 nothing is running\", and count against the limit that stops Foreman piling up work nobody has absorbed. Expect that limit to be reached sooner; that is the measurement, not a regression.",
+      },
+      {
+        kind: "fix",
+        text: "Eight reasons Foreman parks work were shown as \"Unclassified\", including one the vocabulary has always claimed to cover. A release waiting for someone to press Install was filed as a failure to ship. Two genuinely new categories were missing: a coordinated release that is BLOCKED rather than merely waiting, and a ticket that has run out of attempts.",
+      },
+      {
+        kind: "fix",
+        text: "Every instruction Foreman gave a build about tests contradicted the gate that judged them. It was told to \"add or update a test\"; the gate refuses any change that touches an existing test file and stops it for a person \u2014 never handing it back. For a bug fix, editing an existing test is the ordinary case, so bug tickets were being steered into a dead end. It is now told to ADD a test, never to modify one, and what to do when an existing test genuinely contradicts the fix.",
+      },
+      {
+        kind: "fix",
+        text: "The records used to judge whether Foreman's own limits are set correctly were counting stopped work about twice and shipped work once, and one whole measurement was reading backwards because approvals were written to a file but never to the activity feed \u2014 so \"gated changes are essentially never approved\" was an artefact of when someone last ran an import script by hand.",
+      },
+      {
+        kind: "fix",
+        text: "The dashboard strip reported only half the queue it should. It counted the questions waiting on you and not the builds Foreman had rejected and stopped working on \u2014 on this instance, 13 against 14 more \u2014 so the strip would have said \"13 waiting on you\" while Foreman's own limit was holding at 27. It now shows both, as two numbers rather than one total, because they want different things from you: a question wants an answer, a stalled build wants a decision about work that is already finished.",
+      },
+      {
+        kind: "improvement",
+        text: "A build that fixes a review comment is now re-checked for having introduced an unreliable test. That check ran once, before the fix-up round, so a test that only passes on a retry could be added during the repair and sail through everything after it. The same release adds the standard code check to the delivery plugin's own pre-merge gate, which ran the type checker and the tests but no lint at all \u2014 including the rule added last release specifically to catch a crash the type checker cannot see.",
+      },
+    ],
+  },
+  {
     version: "2.329.0",
     date: "2026-08-30",
     title: "A whole class of crash is now rejected before it can ship",
