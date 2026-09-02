@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.331.0",
+    date: "2026-09-02",
+    title: "A browser-test regression could be cleared by a check that never ran",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The browser-test gate does not read a simple pass or fail — it runs the same tests before and after a change, and only a test that worked before and breaks after counts against it. When it finds one, it re-runs just that test on both sides to be sure it was not a fluke. The code weighing that second opinion treated \u201Cthe re-run found nothing\u201D and \u201Cthe re-run never happened\u201D as the same answer, so a genuine regression plus any hiccup in the re-run came out as a PASS \u2014 and the merge-eligibility rating then read that as clean evidence and gave the change its highest score with nothing against it. The explanation attached even said the test \u201Cdid not reproduce on a second pass\u201D, describing a run that never took place. A re-run that could not check a test now reports no verdict rather than a pass. That still never blocks a change, which is the whole design of this gate; it simply stops telling the rest of the system the change was checked and found clean.",
+      },
+    ],
+  },
+  {
     version: "2.330.0",
     date: "2026-08-30",
     title: "Seven corrections to Foreman, most of them to things that were reporting success",
