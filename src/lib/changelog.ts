@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.332.0",
+    date: "2026-09-02",
+    title: "Installing an update now says why the worker step failed, and retries long enough to matter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The step that brings the background worker along with an update has failed on every install, and for the first time it has said why: the connection to the plugin repository is refused for about a minute right after the application containers are replaced, then works normally. The previous release retried once after five seconds \u2014 inside that window. It now tries three times, waiting fifteen then thirty seconds, which spans the interval that has actually been measured to clear. This is not a diagnosis: when it does give up, it now also asks the address directly and records what came back, because being refused, being rate-limited, being blocked by a filter and having no route at all are four different problems with four different fixes, and the tool's own message calls all of them the same thing. The next failure should arrive already explained.",
+      },
+      {
+        kind: "fix",
+        text: "Two ways the same update could stop dead without saying anything. Reading a setting that is not configured, and looking for a tool that is not installed, both returned a failure the script treated as fatal \u2014 before it had written a single line of its log, so the only evidence would have been the update simply ending. Neither could happen on a machine already set up correctly, which is exactly why neither had ever been seen. Both now fail loudly, and name what is missing.",
+      },
+      {
+        kind: "improvement",
+        text: "The record of what happened to each piece of delivered work is being kept again. A finished, model-free job that labels every completed build \u2014 did its change merge, did a person have to edit it, was it reverted within a week \u2014 existed but had never been run, so the table it fills was empty and every threshold in the delivery system was unfalsifiable. It has now been run over the full history: 127 builds labelled, none reverted.",
+      },
+    ],
+  },
+  {
     version: "2.331.0",
     date: "2026-09-02",
     title: "A browser-test regression could be cleared by a check that never ran",
