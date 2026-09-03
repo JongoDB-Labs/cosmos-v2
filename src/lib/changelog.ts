@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.342.0",
+    date: "2026-09-03",
+    title: "An update no longer discards work that is running",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Installing an update restarts the assistant, which stops anything it has underway. A guard added earlier today was meant to prevent that by asking it to finish first \u2014 and on its first encounter with real work in progress, it correctly noticed the assistant was busy, failed to record the request, and restarted anyway, discarding the build it was protecting. The failure was in how it read the database's reply: the tool it uses prints the answer and then a summary line, and the guard was comparing both together against the answer alone, so a successful request always looked like a failed one. It now reads only the answer. Verified against the live database rather than a stand-in, which is what hid the problem the first time.",
+      },
+    ],
+  },
+  {
     version: "2.341.1",
     date: "2026-09-03",
     title: "Blocked Work and Work Type Mix stay inside their cards",
