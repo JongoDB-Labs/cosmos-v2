@@ -21,6 +21,37 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.337.0",
+    date: "2026-09-03",
+    title: "The branch was fine. Everything that looked at it was not",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A reported bug \u2014 two panels overflowing their cards on the sprint health board \u2014 was fixed correctly on the first attempt and then failed to ship three times, each time for a reason that had nothing to do with the fix. The last of those told the reviewer, in the assistant's own voice, that their branch no longer applied cleanly and needed rebuilding. It did apply cleanly: rebased onto the current code it needed only the three routine version files resolved, and it passed every check. That message was produced for ANY merge failure, whatever the failure was. It now reports what actually went wrong, and mentions a conflict only when there is one.",
+      },
+      {
+        kind: "fix",
+        text: "The underlying cause: when the assistant prepares an approved change for merging, it sets up a temporary copy of the project to check the work in. Four places create such a copy, and each has to install the project's tools into it. Three did. The fourth \u2014 the one used by approvals \u2014 never had, since the day it was written, so its type check ran with no type checker present. That is what sent the command runner looking elsewhere and let it pick up a package that merely shared the name. All four now share one routine that installs the tools AND verifies they work, and a test pairs every copy with its tools so a fifth cannot be added without them.",
+      },
+      {
+        kind: "improvement",
+        text: "A correction to an earlier release, which said all fourteen tool invocations now refuse to install anything. There were fifteen, and the one missed is the one that failed \u2014 its call was written across three lines and the test enforcing the rule only recognised the single-line form. Refusing to install was also not enough by itself: it prevents fetching a package but not running one fetched earlier, and the machine still had it. The assistant no longer uses that command runner at all; tools are located in the project or reported missing by name.",
+      },
+      {
+        kind: "improvement",
+        text: "Updating the assistant no longer interrupts work that is running. Restarting it previously stopped every task it had underway, discarding unfinished work with no record beyond a ticket that looked abandoned. Updates now ask it to finish and restart itself, waiting up to thirty minutes before falling back to the old behaviour \u2014 and saying so plainly when it does.",
+      },
+      {
+        kind: "fix",
+        text: "Updates also stopped failing when a source-code server briefly refused a connection. Ten consecutive updates were abandoned that way while the same request succeeded by hand minutes later. An update needs exactly one specific version, so when it already has it, it no longer asks at all; when it does need to ask, it keeps trying for close to four minutes rather than forty-five seconds.",
+      },
+      {
+        kind: "improvement",
+        text: "The end-to-end test comparison now says how much it actually proved. It runs the browser tests before and after a change and reports only what the change itself broke \u2014 but its first live verdict read \"35 tests compared, no regression\" when 34 of those were already failing beforehand. A test that is already failing cannot newly fail, so exactly one of the 35 could have caught anything. Every result now states how many tests were actually capable of catching a problem, and a run where none were is reported as inconclusive rather than as a pass.",
+      },
+    ],
+  },
+  {
     version: "2.336.0",
     date: "2026-09-03",
     title: "Mention notifications now tell you who was mentioned",
