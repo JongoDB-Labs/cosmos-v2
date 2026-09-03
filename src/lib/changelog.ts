@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.333.0",
+    date: "2026-09-03",
+    title: "When delivery stops, it now tells you what actually happened",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A correct, tested fix was stopped at the final step by a message that named a cause nobody had checked \u2014 and the cause was false. It reported that the main branch had moved underneath the work; it had not, the change was based on exactly the commit it was compared against, and the code passes its type check cleanly. The advisor that suggests what to do next then read that message and recommended throwing the work away and starting over. The report now states only what was observed: whether the branch moved is determined by comparing it before and after, and the type checker's own output travels with the failure.",
+      },
+      {
+        kind: "fix",
+        text: "The type checker was running without enough memory. It does not fit in the default allocation on a codebase this size \u2014 the project's own build pipelines say so and raise it explicitly \u2014 but the delivery worker builds its child environments from scratch for safety reasons, so each place that runs it has to ask for the larger allowance. One place did, the others did not, and the most likely explanation for the failure above is that it simply ran out of room. That setting now lives in one named place every future call inherits.",
+      },
+      {
+        kind: "improvement",
+        text: "When a review step crashes rather than reaching a verdict, the report now says which way it crashed \u2014 ran out of time, ran out of steps, or failed to start \u2014 and carries what it last said. Three different problems with three different fixes were all being reported as one sentence. A new check also fails the build if any code stops a piece of work while discarding the reason; it found a second instance of exactly that on its first run, fixed here too.",
+      },
+    ],
+  },
+  {
     version: "2.332.0",
     date: "2026-09-02",
     title: "Installing an update now says why the worker step failed, and retries long enough to matter",
