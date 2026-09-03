@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.344.0",
+    date: "2026-09-03",
+    title: "A ticket could be rebuilt over work it had already finished",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant paused a ticket after a build that changed nothing, the note it left behind did not record which branch the work was on. Asking it to continue then found no branch, so it started a fresh build instead \u2014 and setting up that build reset the branch, erasing the finished work sitting on it. The next build saw nothing had changed, paused again, and the cycle repeated. That happened to the sprint-health fix today: it was rebuilt from scratch even though the completed change already existed, and a reviewer was shown \"Nothing built yet\". The note now records the branch.",
+      },
+      {
+        kind: "improvement",
+        text: "A broader version of this fix was written and rejected before release. It would have treated any branch still differing from the main line as unfinished work \u2014 which stays true forever after a change is merged, because of how merges are recorded here. It would have picked up seventeen branches whose work had already shipped, and skipped two of the checks that exist to stop exactly that. The narrow fix above is what shipped.",
+      },
+    ],
+  },
+  {
     version: "2.343.0",
     date: "2026-09-03",
     title: "A change that had already shipped was reported as failed",
