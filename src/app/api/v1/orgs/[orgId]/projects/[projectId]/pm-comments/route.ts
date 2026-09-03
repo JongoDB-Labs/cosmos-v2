@@ -7,6 +7,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
+import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { parseMentions } from "@/lib/chat/mentions";
 import { resolvePmSubject, isPmSubjectType } from "@/lib/pm/subjects";
 import { logPmActivity } from "@/lib/pm/activity-log";
@@ -114,8 +115,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (mentioned.length > 0) {
         const valid = await prisma.orgMember.findMany({
           where: { orgId, userId: { in: mentioned } },
-          select: { userId: true },
+          select: { userId: true, user: { select: { displayName: true } } },
         });
+        const mentionLabels = userMentionLabels(
+          valid.map((m) => ({ id: m.userId, displayName: m.user.displayName })),
+        );
         for (const m of valid) {
           if (m.userId === ctx.userId) continue;
           await createNotification({
@@ -123,7 +127,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             userId: m.userId,
             type: "comment.mentioned",
             title: `Mentioned on ${label}`,
-            message: (comment.content ?? "").replace(/<@[0-9a-f-]{36}>/gi, "@user").slice(0, 200),
+            message: mentionsToPlainText(comment.content ?? "", mentionLabels).slice(0, 200),
             relatedId: data.subjectId,
             relatedType: `pm_${data.subjectType}`,
             url,
