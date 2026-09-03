@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.334.0",
+    date: "2026-09-03",
+    title: "The type checker that failed a release was not the type checker",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The previous release made the delivery worker report what actually went wrong at the final step instead of guessing. Asked the question an hour later, the answer was that the command runner had been invoked somewhere the project's own TypeScript was not reachable \u2014 so rather than fail, it downloaded a package from the public registry whose NAME matched, and ran that. It is an abandoned package from 2016 that is not the compiler. It exited with an error, and the release step reported the result as a type error. The wrong verdict is the smaller problem: the larger one is that code from the public registry was fetched and executed on the delivery machine, during a release, chosen by a name collision. The linter, the test runner, the database tool and the web framework were all invoked the same way. All fourteen of those calls now refuse to install anything: a missing local tool is a loud failure instead of a silent substitution, and a test enforces it so the fifteenth call cannot quietly omit it.",
+      },
+      {
+        kind: "improvement",
+        text: "A correction worth stating: the previous release suggested this failure was the type checker running out of memory. That was a reasonable guess, and running out of memory is a real hazard on a codebase this size \u2014 the memory fix is kept \u2014 but it was not the cause. It took making the step carry its evidence before anyone could tell the difference.",
+      },
+    ],
+  },
+  {
     version: "2.333.0",
     date: "2026-09-03",
     title: "When delivery stops, it now tells you what actually happened",
