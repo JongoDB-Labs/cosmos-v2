@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.341.0",
+    date: "2026-09-03",
+    title: "Twelve failed updates blamed on the network were a setting of ours",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every automatic update for weeks failed at the same step, saying it could not authenticate to the server holding part of the code. The same request, run by hand on the same machine, always worked \u2014 which pointed at an intermittent network or CDN problem, and two earlier releases went into surviving one: waiting longer between retries, and skipping the request entirely when the needed version was already on disk. Neither touched the cause. The assistant sets a git option to make its own GitHub credentials take priority, and that option was being applied to every server rather than only GitHub \u2014 so for the other server it switched OFF the credentials that were meant to be used, leaving the request with none. It is now scoped to GitHub alone. Verified on the live machine: with the old setting the request fails, with the new one it succeeds, and GitHub still behaves exactly as before.",
+      },
+      {
+        kind: "improvement",
+        text: "The earlier retry and skip-the-request changes are kept. They were mitigations rather than the fix, but they still hold: an update should not need a third-party service to be reachable in order to install a version it already has.",
+      },
+    ],
+  },
+  {
     version: "2.340.0",
     date: "2026-09-03",
     title: "Approving a change no longer fails on a version it set itself",
