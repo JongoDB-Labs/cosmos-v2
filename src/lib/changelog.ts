@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.340.0",
+    date: "2026-09-03",
+    title: "Approving a change no longer fails on a version it set itself",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you approve a change that was prepared before other work landed, the assistant rebuilds it against the current code and gives it a fresh version number. It was updating that number in one of the two files that have to agree, and leaving the other on the old one \u2014 which the release checks then rejected. So every approval that needed rebuilding failed, and reported the failure as a merge problem rather than the mismatch that caused it. It now moves both together, and checks they agree before trying to merge rather than finding out afterwards.",
+      },
+      {
+        kind: "improvement",
+        text: "The assistant can now install its own updates without help. Its self-update had been failing at the same step for weeks \u2014 it asked a source-code server for a version it already had on disk, and when that server briefly refused the connection the whole update was abandoned. Because the step that fixes this only runs after the step that was failing, the fix could never install itself; each one needed a person. It now checks what it already has before asking, and completed an update end to end on its own for the first time.",
+      },
+    ],
+  },
+  {
     version: "2.339.0",
     date: "2026-09-03",
     title: "Card highlights now show on the Gantt, the dependency map and ceremony lists",
