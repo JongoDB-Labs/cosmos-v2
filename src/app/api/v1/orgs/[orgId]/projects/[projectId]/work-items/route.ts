@@ -85,7 +85,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where,
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true } },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
         assignees: {
           orderBy: { sortOrder: "asc" },
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           createdById: ctx.userId,
         },
         include: {
-          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
+          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true, completedAt: true } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
           assignees: {
             orderBy: { sortOrder: "asc" },

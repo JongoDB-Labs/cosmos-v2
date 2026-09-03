@@ -31,6 +31,8 @@ export interface IssueRow {
   intervalId: string | null;
   storyPoints: number | null;
   tags: string[];
+  /** Hand-set meeting callout colour; a `WORK_ITEM_HIGHLIGHTS` key or null. */
+  highlight: string | null;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
@@ -83,6 +85,11 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
         intervalId: true,
         storyPoints: true,
         tags: true,
+        // Keep in step with `IssueRow` above AND the client-side copy in
+        // issues-view.tsx. A field missing from THIS select is `undefined` at
+        // runtime with a perfectly green type-check — Prisma's selected type is
+        // inferred, so the interface below is a claim, not a constraint.
+        highlight: true,
         startDate: true,
         dueDate: true,
         completedAt: true,
@@ -192,6 +199,7 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
       intervalId: item.intervalId,
       storyPoints: item.storyPoints,
       tags: item.tags,
+      highlight: item.highlight,
       startDate: item.startDate ? item.startDate.toISOString() : null,
       dueDate: item.dueDate ? item.dueDate.toISOString() : null,
       completedAt: item.completedAt ? item.completedAt.toISOString() : null,

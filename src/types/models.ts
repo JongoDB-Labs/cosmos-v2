@@ -84,6 +84,11 @@ export interface WorkItem {
   /** SAFe classification: main-effort value vs enabling work. */
   workCategory: "BUSINESS" | "ENABLER";
   tags: string[];
+  /** Hand-set meeting callout colour, painted as a coloured border on the card.
+   *  A key of `WORK_ITEM_HIGHLIGHTS` (`@/lib/work-items/highlights`); narrow it
+   *  with `isWorkItemHighlight` before use — the column is plain TEXT, so an
+   *  unrecognised value from another build can reach here. */
+  highlight?: string | null;
   customFields: Record<string, unknown>;
   createdById: string;
   createdAt: string;
@@ -110,6 +115,10 @@ export interface WorkItemRef {
   ticketNumber: number;
   workItemTypeId: string;
   columnKey?: string;
+  /** The ACTUAL end date. Present so a sub-item can be shown struck through
+   *  when it is finished — `columnKey` alone cannot answer that on the board
+   *  types that own no columns. See `@/lib/work-items/done-state`. */
+  completedAt?: string | null;
 }
 
 export interface Interval {

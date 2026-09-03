@@ -21,6 +21,9 @@ import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { notifyError } from "@/lib/errors/notify";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { highlightLabel, highlightStyle, type WorkItemHighlight } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember } from "@/types/models";
 
 interface KanbanCardProps {
@@ -97,6 +100,29 @@ export function KanbanCard({
     invalidate,
   });
 
+  // Optimistic locally so the border paints on the click, not on the round
+  // trip: this board holds items in local state (see `invalidate` above), so a
+  // cache invalidation alone would not repaint the card until its next mount.
+  const [highlightDraft, setHighlightDraft] = useState<string | null | undefined>(undefined);
+  const highlight = highlightDraft === undefined ? item.highlight : highlightDraft;
+
+  const highlightMutation = useOrgMutation<unknown, Error, WorkItemHighlight | null>({
+    mutationFn: (next) =>
+      jsonFetch(basePath, { method: "PUT", body: JSON.stringify({ highlight: next }) }),
+    invalidate,
+    // Put the item's own value back on failure, so a rejected save does not
+    // leave a border the server never stored.
+    //
+    // `notifyError` is called explicitly: `useOrgMutation` only applies its
+    // default error toast when the caller passes NO onError, so a bare rollback
+    // here would roll the border back silently and the user would just see
+    // their click do nothing.
+    onError: (err) => {
+      setHighlightDraft(undefined);
+      notifyError(err, "Couldn't save the highlight.");
+    },
+  });
+
   const deleteMutation = useOrgMutation<unknown, Error, void>({
     mutationFn: () => jsonFetch(basePath, { method: "DELETE" }),
     invalidate,
@@ -168,8 +194,18 @@ export function KanbanCard({
         : [],
     };
 
-    return [editGroup, priorityGroup, destructiveGroup];
-  }, [can, item, onClick, priorityMutation]);
+    const highlightGroup = highlightMenuGroup({
+      current: highlight,
+      canEdit: canUpdate,
+      disabled: highlightMutation.isPending,
+      onPick: (next) => {
+        setHighlightDraft(next);
+        highlightMutation.mutate(next);
+      },
+    });
+
+    return [editGroup, priorityGroup, highlightGroup, destructiveGroup];
+  }, [can, item, onClick, priorityMutation, highlight, highlightMutation]);
 
   return (
     <>
@@ -180,7 +216,13 @@ export function KanbanCard({
         // pointer gesture, so there is no way to cover a drop without one.
         data-testid={`kanban-card-${item.id}`}
         data-column={item.columnKey}
-        style={style}
+        data-highlight={highlight ?? undefined}
+        // The highlight's border/ring merges into dnd-kit's transform style.
+        // Spread AFTER so a highlighted card still animates while dragging.
+        style={{ ...style, ...highlightStyle(highlight) }}
+        // The border is the signal; the tooltip is what makes it decodable by
+        // someone who wasn't in the meeting where the colours were agreed.
+        title={highlightLabel(highlight) ?? undefined}
         {...attributes}
         // In select mode the card is a checkbox toggle, NOT a draggable — omit
         // the drag listeners so a tap selects instead of starting a drag (the

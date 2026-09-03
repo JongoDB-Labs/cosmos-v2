@@ -40,7 +40,9 @@ import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models"
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Plus, Check, Download, Star, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { highlightLabel, highlightRowStyle } from "@/lib/work-items/highlights";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +81,10 @@ interface IssueRow {
   intervalId: string | null;
   storyPoints: number | null;
   tags: string[];
+  /** Meeting callout colour. Mirrors `IssueRow` in
+   *  `@/lib/work-items/query/project` — that file's Prisma `select` has to
+   *  carry it too, and tsc cannot check that it does. */
+  highlight: string | null;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
@@ -968,6 +974,24 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                   ),
               })),
             },
+            {
+              label: "Highlight",
+              icon: Highlighter,
+              // Nested, like the other quick field changes on this menu, rather
+              // than a top-level group: this row menu already carries three
+              // groups and flattening six colours into it would bury them.
+              submenu: highlightMenuGroup({
+                current: r.highlight,
+                onPick: (next) =>
+                  patch(
+                    { highlight: next },
+                    next
+                      ? `Highlighted ${highlightLabel(next)!.toLowerCase()}`
+                      : "Highlight cleared",
+                    "Couldn't save the highlight.",
+                  ),
+              }).items,
+            },
           ]
         : [];
 
@@ -1140,6 +1164,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             getRowId={(r) => r.id}
             onRowClick={(r) => setDetailRow(r)}
             rowActions={rowActions}
+            rowStyle={(r) => highlightRowStyle(r.highlight)}
             {...(canBulkEdit || canBulkDelete
               ? { rowSelection, onRowSelectionChange: setRowSelection }
               : {})}

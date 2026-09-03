@@ -70,6 +70,15 @@ export interface DataTableProps<T> {
    * cursor) AND gets a trailing ⋯ actions column (for touch / discoverability).
    * Both render the same menu. Return [] for a row to give it no actions. */
   rowActions?: (row: T) => ActionMenuGroup[];
+  /**
+   * Extra inline style for a row, e.g. a work item's highlight colour.
+   *
+   * A generic callback rather than anything domain-specific on purpose: this
+   * table is shared by a dozen unrelated surfaces (team, accounting, contracts,
+   * payroll, …) and a `WorkItem`-shaped hardcode here would reach all of them.
+   * Return `undefined` to leave a row alone.
+   */
+  rowStyle?: (row: T) => React.CSSProperties | undefined;
 }
 
 export function DataTable<T>({
@@ -88,6 +97,7 @@ export function DataTable<T>({
   stickyHeader,
   onRowClick,
   rowActions,
+  rowStyle,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -503,6 +513,7 @@ export function DataTable<T>({
                     row.getIsSelected() && "bg-[var(--primary-tint)]/40",
                     onRowClick && "cursor-pointer",
                   )}
+                  style={rowStyle?.(row.original)}
                 >
                   {renderExpanded ? (
                     <td className="hidden w-10 px-2 py-3 align-top md:table-cell">
