@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.339.0",
+    date: "2026-09-03",
+    title: "Card highlights now show on the Gantt, the dependency map and ceremony lists",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The colour you put on a card now travels to the three places it was still missing \u2014 the Gantt schedule, the dependency map, and the What-shipped and Carrying-forward lists on a sprint ceremony. A meeting that reads status off the board reads the same status off the schedule. On the two charts the colour appears as a band along the bottom edge of the bar, diamond, dot or node, because an item's outline there already means blocked, critical or enabler and a second meaning on the same edge would be unreadable.",
+      },
+    ],
+  },
+  {
     version: "2.338.0",
     date: "2026-09-03",
     title: "Right-click a backlog row, not just its hidden menu button",
