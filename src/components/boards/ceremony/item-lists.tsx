@@ -2,6 +2,7 @@
 
 import { AlertTriangle } from "lucide-react";
 import type { CeremonyItem, CeremonyPayload } from "./use-ceremony";
+import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 
 /** "1 item" / "2 items". Read aloud in a ceremony, so it has to be grammatical. */
 function itemCount(n: number): string {
@@ -35,6 +36,9 @@ export function ShippedList({
         {items.map((i) => (
           <li
             key={i.id}
+            data-highlight={i.highlight ?? undefined}
+            style={highlightStyle(i.highlight)}
+            title={highlightLabel(i.highlight) ?? undefined}
             className="flex items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
           >
             <div className="min-w-0 flex-1">
@@ -108,6 +112,9 @@ export function CarriedList({
         {carried.items.map((i) => (
           <li
             key={i.id}
+            data-highlight={i.highlight ?? undefined}
+            style={highlightStyle(i.highlight)}
+            title={highlightLabel(i.highlight) ?? undefined}
             className="flex items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
           >
             <div className="min-w-0 flex-1">

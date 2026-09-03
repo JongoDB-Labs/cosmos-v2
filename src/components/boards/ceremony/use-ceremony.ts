@@ -13,6 +13,8 @@ export interface CeremonyItem {
   columnKey: string;
   storyPoints: number | null;
   statusLabel?: string;
+  /** Meeting callout colour; a `WORK_ITEM_HIGHLIGHTS` key or null. */
+  highlight?: string | null;
 }
 
 export interface CeremonyNote {
