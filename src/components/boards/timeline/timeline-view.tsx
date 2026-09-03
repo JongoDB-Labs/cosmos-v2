@@ -43,6 +43,7 @@ import {
 import { matchesLabelFilter, presentLabels } from "@/lib/work-items/label-filter";
 import { matchesOneOf, matchesDuePreset } from "@/lib/work-items/metadata-filters";
 import { matchesFilters } from "@/lib/work-items/board-filters";
+import { HighlightUnderline } from "@/components/work-items/highlight-underline";
 import { blockersByItem, isBlockingLink } from "@/lib/work-items/blocking";
 import {
   blockedItemIds,
@@ -2347,6 +2348,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         style={{ pointerEvents: "none" }}
                       />
                     )}
+                    <HighlightUnderline
+                      highlight={item.highlight}
+                      x={cx - size}
+                      y={y}
+                      width={size * 2}
+                      height={h}
+                    />
                   </g>
                 );
               }
@@ -2397,6 +2405,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     >
                       No dates
                     </text>
+                    <HighlightUnderline
+                      highlight={item.highlight}
+                      x={x}
+                      y={y}
+                      width={10}
+                      height={h}
+                    />
                   </g>
                 );
               }
@@ -2659,6 +2674,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                         : item.title}
                     </text>
                   )}
+                  {/* Meeting highlight, drawn LAST so it paints ON TOP of the
+                      shape. Placed before it, the bar covers it — which only
+                      looked fine because an unstarted bar is a semi-transparent
+                      phantom and the colour bled through, dimmed. A started bar
+                      is opaque and would have hidden it completely. Its own
+                      channel, not the stroke: see HighlightUnderline. */}
+                  <HighlightUnderline highlight={item.highlight} x={x} y={y} width={w} height={h} />
                 </g>
               );
             })}

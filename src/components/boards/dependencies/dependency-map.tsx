@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { cn } from "@/lib/utils";
+import { HighlightUnderline } from "@/components/work-items/highlight-underline";
 import type { WorkItem } from "@/types/models";
 
 /** The up+downstream dependency chain of a node — itself + everything it
@@ -297,7 +298,18 @@ export function DependencyMap({ orgId, projectId, projectKey }: DependencyMapPro
           stroke={isSelected ? "var(--primary)" : inInterval ? "var(--status-critical)" : "var(--border)"}
           strokeWidth={isSelected || inInterval ? 2 : 1}
         />
+        {/* The 4px left stripe is the work-item TYPE colour and the stroke is
+            selected / in-a-cycle, so the meeting highlight takes the bottom
+            edge — the same channel the Gantt uses. Inset from the left so it
+            does not run into the type stripe's rounded corner. */}
         <rect width={4} height={NODE_H} rx={2} fill={color} />
+        <HighlightUnderline
+          highlight={item.highlight}
+          x={6}
+          y={0}
+          width={NODE_W - 12}
+          height={NODE_H}
+        />
         <text x={14} y={19} className="fill-[var(--text-muted)] text-[10px]" style={{ fontSize: 10 }}>
           {projectKey}-{item.ticketNumber}
         </text>
