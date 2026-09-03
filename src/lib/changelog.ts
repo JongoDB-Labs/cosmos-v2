@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.338.0",
+    date: "2026-09-03",
+    title: "Right-click a backlog row, not just its hidden menu button",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Right-clicking a row on the Backlog did nothing. The menu was anchored to an invisible marker rather than the row, so the only way to reach Move to sprint or Highlight was the \u201C\u2026\u201D button that appears on hover \u2014 which is undiscoverable, and unreachable on a touch screen. The whole row now opens the menu, matching the board, the table and the issues list. The \u2026 button stays for touch.",
+      },
+    ],
+  },
+  {
     version: "2.337.0",
     date: "2026-09-03",
     title: "The branch was fine. Everything that looked at it was not",
