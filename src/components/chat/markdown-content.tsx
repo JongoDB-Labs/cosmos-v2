@@ -9,6 +9,7 @@ import {
   type ResolvedEntity,
 } from "@/lib/mentions/refs";
 import { ENTITY_PREFIX } from "@/lib/mentions/registry.client";
+import { displayUrl, isBareUrlLabel } from "@/lib/format/display-url";
 
 /**
  * Render a small markdown subset to React elements. Supports:
@@ -18,7 +19,9 @@ import { ENTITY_PREFIX } from "@/lib/mentions/registry.client";
  *   - `**bold**`, `*italic*`, `~strike~`
  *   - `inline code` and ```fenced code blocks```
  *   - > quoted lines
- *   - autolinks (https://...)
+ *   - markdown links `[label](https://...)` — which the Lexical editor emits
+ *     for anything it auto-linked, so this is the shape a PASTED url arrives in
+ *   - autolinks (https://...), rendered with a shortened label
  *   - line breaks
  *
  * NO HTML output. Tokens render as React elements directly.
@@ -57,12 +60,75 @@ function MentionChip({
   );
 }
 
+/**
+ * Trim the punctuation a URL picks up from the prose around it.
+ *
+ * `(see https://x.com/a)` and `https://x.com/a.` both autolink one character too
+ * far. A trailing `)` is only sentence punctuation when the URL has no unclosed
+ * `(` of its own — otherwise it belongs to the link
+ * (`.../wiki/Foo_(bar)`), which is the same balance rule CommonMark's autolink
+ * extension uses.
+ *
+ * Returns the URL and whatever was trimmed, so the caller can render the
+ * trimmed characters back as plain text instead of eating them.
+ */
+export function splitTrailingPunctuation(url: string): [string, string] {
+  let end = url.length;
+  while (end > 0) {
+    const ch = url[end - 1];
+    if (".,;:!?'\"".includes(ch)) {
+      end--;
+      continue;
+    }
+    if (ch === ")") {
+      const slice = url.slice(0, end);
+      const opens = (slice.match(/\(/g) ?? []).length;
+      const closes = (slice.match(/\)/g) ?? []).length;
+      if (closes > opens) {
+        end--;
+        continue;
+      }
+    }
+    break;
+  }
+  return [url.slice(0, end), url.slice(end)];
+}
+
+function ExternalLink({
+  href,
+  label,
+  keyPrefix,
+}: {
+  href: string;
+  label: string;
+  keyPrefix: string;
+}) {
+  return (
+    <a
+      key={keyPrefix}
+      className="text-primary underline break-words"
+      href={href}
+      // The label is deliberately shortened, so the full target has to stay
+      // reachable somewhere the reader can get at it without clicking.
+      title={href}
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      {label}
+    </a>
+  );
+}
+
 // Exported so other renderers can reuse the exact same inline tokenizer.
 export function renderInline(line: string, refMap: RefMap): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let i = 0;
+  // The `[label](url)` alternative MUST precede the bare-url one: at the `[` the
+  // engine tries alternatives in order, and without it the url inside the
+  // parentheses would autolink on its own and the brackets would render as
+  // literal text — which is the reported "shows the whole url" symptom.
   const re =
-    /<@(?:([a-zA-Z][a-zA-Z0-9]*):)?([a-zA-Z0-9_-]+)>|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(~[^~]+~)|((?:https?:\/\/[^\s]+))/gi;
+    /<@(?:([a-zA-Z][a-zA-Z0-9]*):)?([a-zA-Z0-9_-]+)>|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(~[^~]+~)|\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)|((?:https?:\/\/[^\s]+))/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(line))) {
     if (m.index > i) out.push(line.slice(i, m.index));
@@ -89,18 +155,26 @@ export function renderInline(line: string, refMap: RefMap): React.ReactNode[] {
       out.push(<em key={`${m.index}-i`}>{m[5].slice(1, -1)}</em>);
     } else if (m[6]) {
       out.push(<s key={`${m.index}-s`}>{m[6].slice(1, -1)}</s>);
-    } else if (m[7]) {
-      out.push(
-        <a
-          key={`${m.index}-a`}
-          className="text-primary underline"
-          href={m[7]}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {m[7]}
-        </a>,
-      );
+    } else if (m[8]) {
+      // `[label](url)`. A label the editor generated from the url itself gets
+      // the shortened form; a label a PERSON wrote is theirs and is left alone.
+      const href = m[8];
+      const written = m[7] ?? "";
+      const label =
+        written.trim() === "" || isBareUrlLabel(written, href)
+          ? displayUrl(href)
+          : written;
+      out.push(<ExternalLink key={`${m.index}-a`} keyPrefix={`${m.index}-a`} href={href} label={label} />);
+    } else if (m[9]) {
+      const [href, trailing] = splitTrailingPunctuation(m[9]);
+      if (href) {
+        out.push(
+          <ExternalLink key={`${m.index}-a`} keyPrefix={`${m.index}-a`} href={href} label={displayUrl(href)} />,
+        );
+        if (trailing) out.push(trailing);
+      } else {
+        out.push(m[9]);
+      }
     }
     i = m.index + m[0].length;
   }

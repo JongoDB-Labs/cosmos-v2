@@ -71,6 +71,7 @@ import {
   GripVertical,
   Plus,
   Pencil,
+  Flag,
   X,
 } from "lucide-react";
 import type {
@@ -87,6 +88,14 @@ import {
   activityValueLabel,
 } from "@/lib/work-items/activity-label";
 import { formatDateStable } from "@/lib/format/stable-date";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
+import { isWorkItemDone } from "@/lib/work-items/done-state";
+import {
+  WORK_ITEM_HIGHLIGHTS,
+  WORK_ITEM_HIGHLIGHT_ORDER,
+  highlightLabel,
+  isWorkItemHighlight,
+} from "@/lib/work-items/highlights";
 
 interface CardDetailSheetProps {
   item: WorkItem | null;
@@ -187,6 +196,8 @@ export function CardDetailSheet({
   const [dueDate, setDueDate] = useState<string>("");
   const [actualStart, setActualStart] = useState<string>("");
   const [actualEnd, setActualEnd] = useState<string>("");
+  /** Meeting callout colour. A `WORK_ITEM_HIGHLIGHTS` key, or null for none. */
+  const [highlight, setHighlight] = useState<string | null>(null);
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
@@ -338,6 +349,7 @@ export function CardDetailSheet({
       setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
       setActualStart(item.actualStart ? item.actualStart.split("T")[0] : "");
       setActualEnd(item.completedAt ? item.completedAt.split("T")[0] : "");
+      setHighlight(item.highlight ?? null);
       setParentId(item.parentId);
       setChildren(item.children ?? []);
       setChildTitle("");
@@ -506,6 +518,10 @@ export function CardDetailSheet({
                   ticketNumber: updated.ticketNumber,
                   workItemTypeId: updated.workItemTypeId,
                   columnKey: updated.columnKey,
+                  // Carried so the new parent's Sub-items list can strike a
+                  // finished child immediately, rather than looking unfinished
+                  // until the next full refetch.
+                  completedAt: updated.completedAt,
                 },
               ],
             });
@@ -570,6 +586,9 @@ export function CardDetailSheet({
             break;
           case "parentId":
             setParentId(item.parentId);
+            break;
+          case "highlight":
+            setHighlight(item.highlight ?? null);
             break;
         }
         notifyError(err, "Couldn't save the change.");
@@ -643,6 +662,9 @@ export function CardDetailSheet({
         break;
       case "priority":
         setPriority(value as WorkItem["priority"]);
+        break;
+      case "highlight":
+        setHighlight((value as string | null) ?? null);
         break;
       case "workCategory":
         setWorkCategory(value as WorkItem["workCategory"]);
@@ -1099,6 +1121,53 @@ export function CardDetailSheet({
               </Select>
             </MetadataField>
 
+            {/* Meeting callout colour. A swatch row rather than a <Select>:
+                the value IS a colour, and a dropdown of colour NAMES makes the
+                reader translate twice. Each swatch is a real button with an
+                accessible name, so the meaning is still available to a screen
+                reader and on hover. */}
+            <MetadataField icon={Flag} label="Highlight">
+              <div
+                role="group"
+                aria-label="Highlight"
+                className="flex flex-wrap items-center gap-1"
+              >
+                {WORK_ITEM_HIGHLIGHT_ORDER.map((key) => {
+                  const def = WORK_ITEM_HIGHLIGHTS[key];
+                  const active = highlight === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={!canEditItem}
+                      aria-pressed={active}
+                      aria-label={def.label}
+                      title={def.label}
+                      onClick={() =>
+                        // Clicking the active swatch clears it, so the control
+                        // is its own undo and needs no separate "None" option.
+                        handleFieldChange("highlight", active ? null : key)
+                      }
+                      className={cn(
+                        "h-5 w-5 rounded-full border transition-transform disabled:cursor-not-allowed disabled:opacity-50",
+                        active
+                          ? "scale-110 border-foreground/60 ring-2 ring-offset-1 ring-offset-[var(--surface)]"
+                          : "border-foreground/20 hover:scale-110",
+                      )}
+                      style={{
+                        backgroundColor: `var(${def.cssVar})`,
+                        ...(active ? { "--tw-ring-color": `var(${def.cssVar})` } : {}),
+                      } as React.CSSProperties}
+                    />
+                  );
+                })}
+                <span className="ml-1 text-[11px] text-muted-foreground">
+                  {highlightLabel(highlight) ??
+                    (isWorkItemHighlight(highlight) ? "" : "None")}
+                </span>
+              </div>
+            </MetadataField>
+
             {/* SAFe epic classification (business vs enabler epic). Only epics
                 carry it — hidden for features/stories/tasks. */}
             {(item?.workItemType?.key ?? "").split(".").pop()?.toLowerCase() ===
@@ -1374,9 +1443,19 @@ export function CardDetailSheet({
                   <CornerDownRight className="h-3.5 w-3.5" />
                   Sub-items ({children.length})
                 </h3>
-                {children.map((c, idx) => (
+                {children.map((c, idx) => {
+                  // BR: "sub-items ... show as striken through if they are done
+                  // ... if the child ticket is in the done column or the actual
+                  // end date is set". Both signals, ORed — see
+                  // @/lib/work-items/done-state. `statusOptions` is this
+                  // surface's column list and is EMPTY on the board types that
+                  // seed no columns, which is exactly why the end date has to
+                  // count on its own.
+                  const childDone = isWorkItemDone(c, statusOptions);
+                  return (
                   <div
                     key={c.id}
+                    data-done={childDone || undefined}
                     className={cn(
                       "group/child flex items-center gap-1.5 text-sm rounded transition-colors",
                       dragChildIdx !== null && dragChildIdx !== idx && "border-t border-transparent",
@@ -1408,10 +1487,26 @@ export function CardDetailSheet({
                       disabled={!onOpenItem}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left enabled:hover:text-primary disabled:cursor-default"
                     >
-                      <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[11px] text-muted-foreground shrink-0",
+                          childDone && "line-through",
+                        )}
+                      >
                         #{c.ticketNumber}
                       </span>
-                      <span className="truncate">{c.title}</span>
+                      <span
+                        className={cn(
+                          "truncate",
+                          // Struck AND dimmed: strike-through alone is a weak
+                          // signal at 14px, and it is invisible to anyone who
+                          // cannot see the thin line.
+                          childDone && "line-through text-muted-foreground",
+                        )}
+                        title={childDone ? `${c.title} — done` : undefined}
+                      >
+                        {c.title}
+                      </span>
                     </button>
                     {canEditItem && (
                       <button
@@ -1425,7 +1520,8 @@ export function CardDetailSheet({
                       </button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 {canDuplicate && (
                   <div className="flex gap-2">
                     <Input
@@ -1543,8 +1639,17 @@ export function CardDetailSheet({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium">{name}</span>
+                        {/* BR: "could you ensure there are timestamps on each
+                            comment as well rather than only the date itself."
+                            <LocalTimestamp> and not formatDateTimeStable: the
+                            stable formatters are all pinned to UTC, which is
+                            right for a coarse due date but tells a reader west
+                            of UTC the wrong hour for an instant. The component
+                            renders the pinned string for the first paint (so
+                            hydration matches) and swaps to the viewer's own
+                            zone after mount. */}
                         <span className="text-[10px] text-muted-foreground">
-                          {formatDateStable(c.createdAt)}
+                          <LocalTimestamp value={c.createdAt} />
                           {edited ? " · edited" : ""}
                         </span>
                         {!isEditing && (c.canEdit || c.canDelete) && (

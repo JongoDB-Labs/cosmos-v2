@@ -34,6 +34,8 @@ import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { highlightRowStyle } from "@/lib/work-items/highlights";
 import {
   resolveDrag,
   buildIntervalSections,
@@ -277,6 +279,31 @@ export function BacklogView({
     },
   });
 
+  const highlightMutation = useOrgMutation<
+    unknown,
+    Error,
+    { id: string; highlight: string | null }
+  >({
+    mutationFn: ({ id, highlight }) =>
+      jsonFetch(`${basePath}/work-items/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ highlight }),
+      }),
+    invalidate: [["work-items", projectId]],
+    onMutate: ({ id, highlight }) => {
+      const previous = qc.getQueryData<WorkItem[]>(itemsKey);
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        (prev ?? []).map((i) => (i.id === id ? { ...i, highlight } : i)),
+      );
+      return { previous };
+    },
+    onError: (err, _vars, context) => {
+      const ctx = context as { previous?: WorkItem[] } | undefined;
+      if (ctx?.previous) qc.setQueryData(itemsKey, ctx.previous);
+      notifyError(err, "Couldn't save the highlight.");
+    },
+  });
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
@@ -411,9 +438,17 @@ export function BacklogView({
           : []),
         ...targets,
       ];
-      return [{ label: "Move to sprint", items }];
+      return [
+        { label: "Move to sprint", items },
+        highlightMenuGroup({
+          current: item.highlight,
+          disabled: highlightMutation.isPending,
+          onPick: (next) =>
+            highlightMutation.mutate({ id: item.id, highlight: next }),
+        }),
+      ];
     },
-    [intervals, assignMutation],
+    [intervals, assignMutation, highlightMutation],
   );
 
   if (loading) return <BacklogSkeleton />;
@@ -738,10 +773,14 @@ function RowContent({
   const assigneeName = member?.user?.displayName ?? null;
   return (
     <div
+      data-highlight={item.highlight ?? undefined}
       className={cn(
         "group/action flex items-center gap-2 border-b border-[var(--border)]/60 px-2 py-2 transition-colors hover:bg-[var(--surface)]/60",
         done && "opacity-60",
       )}
+      // Row shape, not card shape: this is a full-width divider row, so the
+      // highlight is a left edge plus a wash rather than an outline.
+      style={highlightRowStyle(item.highlight)}
     >
       {dragHandle ?? <span className="w-5 shrink-0" aria-hidden />}
 

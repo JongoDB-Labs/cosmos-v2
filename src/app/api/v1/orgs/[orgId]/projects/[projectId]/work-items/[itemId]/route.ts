@@ -12,6 +12,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
@@ -34,6 +35,13 @@ const updateItemSchema = z.object({
   actualStart: z.string().datetime().nullable().optional(),
   completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
+  // Meeting callout colour. Validated against the palette on WRITE even though
+  // reads deliberately tolerate an unknown key: the column is plain TEXT for
+  // forward-compatibility with a NEWER build, which is not a licence for THIS
+  // build to store a typo. A rejected value is a 400 the user can see; a stored
+  // one would be an invisible no-op border they could never clear from the UI.
+  // `null` clears the highlight.
+  highlight: z.enum(WORK_ITEM_HIGHLIGHT_ORDER).nullable().optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
 });
@@ -54,7 +62,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: itemId, orgId, projectId },
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
         comments: { orderBy: { createdAt: "asc" }, take: 50 },
         activities: { orderBy: { createdAt: "desc" }, take: 50 },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
@@ -152,6 +160,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
       if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
       if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
+      if (data.highlight !== undefined) updateData.highlight = data.highlight;
       // Labels are NOT written here. `tags` is a mirror of the work_item_labels
       // rows now, so writing the array directly would leave the catalogue out of
       // step — the label would filter but not exist to rename or delete.
@@ -257,7 +266,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           // Keep the child-ref shape consistent with the GET routes (the detail
           // sheet renders `#{ticketNumber}` for each sub-item) so a PUT echo of a
           // parent doesn't strip ticket numbers off its cached sub-item list.
-          children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
+          children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true, celebrateOnComplete: true } },
           assignees: {
             orderBy: { sortOrder: "asc" },

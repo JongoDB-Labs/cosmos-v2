@@ -13,6 +13,7 @@ import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { highlightColor, highlightLabel } from "@/lib/work-items/highlights";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { WorkItem, OrgMember } from "@/types/models";
 
@@ -38,6 +39,20 @@ const priorityBorderMap: Record<string, string> = {
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * The highlight, as a ring ONLY — no `borderColor`.
+ *
+ * Every item on this view already carries `priorityBorderMap` on its LEFT
+ * edge, and `highlightStyle()` sets `borderColor` on all four sides, which
+ * would silently repaint priority's edge in the highlight colour. Two different
+ * meanings competing for one border is worse than either alone, so the
+ * highlight takes the inset ring and priority keeps the left edge.
+ */
+function calendarHighlightStyle(value: unknown): React.CSSProperties | undefined {
+  const color = highlightColor(value);
+  return color ? { boxShadow: `inset 0 0 0 2px ${color}` } : undefined;
+}
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -282,11 +297,18 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
                       key={item.id}
                       type="button"
                       onClick={() => setDetailId(item.id)}
+                      data-highlight={item.highlight ?? undefined}
+                      style={calendarHighlightStyle(item.highlight)}
                       className={cn(
                         "w-full text-left text-[10px] leading-tight px-1.5 py-0.5 rounded border-l-2 truncate bg-muted/40 hover:bg-muted",
                         priorityBorderMap[item.priority]
                       )}
-                      title={`${projectKey}-${item.ticketNumber}: ${item.title}`}
+                      title={[
+                        `${projectKey}-${item.ticketNumber}: ${item.title}`,
+                        highlightLabel(item.highlight),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     >
                       {item.title}
                     </button>
@@ -340,6 +362,9 @@ export function CalendarView({ orgId, projectId, projectKey, boardId }: Calendar
                   key={item.id}
                   type="button"
                   onClick={() => setDetailId(item.id)}
+                  data-highlight={item.highlight ?? undefined}
+                  style={calendarHighlightStyle(item.highlight)}
+                  title={highlightLabel(item.highlight) ?? undefined}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-md border p-2 border-l-4 text-left hover:bg-muted/50",
                     priorityBorderMap[item.priority]

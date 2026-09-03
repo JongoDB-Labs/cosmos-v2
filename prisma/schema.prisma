@@ -872,6 +872,17 @@ model WorkItem {
   // infrastructure / compliance / exploration work that clears the way for it.
   workCategory    WorkCategory                @default(BUSINESS) @map("work_category")
   tags            String[]                    @default([])
+  /// Hand-set callout colour for meetings ("on track" / "at risk" / "blocked"),
+  /// painted as a coloured border on the item's card. See
+  /// `src/lib/work-items/highlights.ts` for the palette and for why the stored
+  /// value is the COLOUR rather than the meaning.
+  ///
+  /// Plain nullable TEXT rather than a Postgres enum, deliberately: adding a
+  /// colour should not require a migration, and a row written by a build that
+  /// carried a key this build has dropped must degrade to "no highlight" on
+  /// render instead of failing to deserialize. Unknown values are filtered by
+  /// `isWorkItemHighlight`, not by the database.
+  highlight       String?
   customFields    Json                        @default("{}") @map("custom_fields")
   createdById     String                      @map("created_by_id") @db.Uuid
   createdAt       DateTime                    @default(now()) @map("created_at")
