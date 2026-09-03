@@ -155,7 +155,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         mentionedUserIds = new Set(validInOrg.map((m) => m.userId));
         mentionedUserIds.delete(ctx.userId);
         const mentionLabels = userMentionLabels(
-          validInOrg.map((m) => ({ id: m.userId, displayName: m.user.displayName })),
+          validInOrg
+            .filter((m) => m.user?.displayName)
+            .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
         );
 
         for (const recipientId of mentionedUserIds) {

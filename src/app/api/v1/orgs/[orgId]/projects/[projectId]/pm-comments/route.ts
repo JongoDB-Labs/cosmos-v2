@@ -118,7 +118,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           select: { userId: true, user: { select: { displayName: true } } },
         });
         const mentionLabels = userMentionLabels(
-          valid.map((m) => ({ id: m.userId, displayName: m.user.displayName })),
+          valid
+            .filter((m) => m.user?.displayName)
+            .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
         );
         for (const m of valid) {
           if (m.userId === ctx.userId) continue;

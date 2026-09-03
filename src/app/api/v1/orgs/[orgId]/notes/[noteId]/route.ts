@@ -138,7 +138,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           const snippet = mentionsToPlainText(
             updated.content,
             userMentionLabels(
-              validMembers.map((m) => ({ id: m.userId, displayName: m.user.displayName })),
+              validMembers
+            .filter((m) => m.user?.displayName)
+            .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
             ),
           ).slice(0, 200);
 
