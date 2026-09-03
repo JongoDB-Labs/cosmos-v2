@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.341.1",
+    date: "2026-09-03",
+    title: "Blocked Work and Work Type Mix stay inside their cards",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On Sprint Health's current-sprint board, the Blocked Work and Work Type Mix panels spilled their contents past the edge of their own cards and over the widgets beside and below them — a project with more than a handful of blocked items, or more than a few work types, ended up with two panels painted on top of each other and neither readable. Both cards now keep their list inside the card and scroll it when there is more than fits, so the card underneath stays where it belongs. The line explaining what each panel counts stays pinned at the bottom rather than scrolling out of sight.",
+      },
+    ],
+  },
+  {
     version: "2.341.0",
     date: "2026-09-03",
     title: "Twelve failed updates blamed on the network were a setting of ours",
