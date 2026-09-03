@@ -21,6 +21,33 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.335.0",
+    date: "2026-09-03",
+    title: "Colour a card to call it out, and three fixes to ticket comments",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cards can now be highlighted with a colour that shows as a border, so a board can be read as a status at a glance in a meeting rather than explained row by row. Right-click any card on the sprint board or Kanban \u2014 or use the new Highlight control when editing a ticket \u2014 and pick one of six: On track, At risk, Blocked, Watching, Escalated, On hold. The border follows the item everywhere it appears: the board, the backlog, the table, the org-wide Issues list, RAID, the roadmap and the calendar. It is shared, not private, so everyone in the meeting is looking at the same picture, and the colour's meaning is on the tooltip for anyone who was not in the room when they were agreed.",
+      },
+      {
+        kind: "improvement",
+        text: "Sub-items on a ticket are now struck through once they are finished, so opening a feature shows what is left rather than a flat list. A child counts as done if it sits in a done column or has an actual end date recorded \u2014 either one is enough, which matters because the Timeline, Roadmap, Calendar and Table boards have no columns of their own to consult.",
+      },
+      {
+        kind: "fix",
+        text: "Typing an @-mention into a ticket comment repeatedly popped the person's name up on every keystroke and would not let you pick them. The suggestion list was being painted underneath the ticket panel, so a click aimed at a name landed in the comment box instead \u2014 nothing was inserted, the typed text stayed put, and the list re-opened on the next key. It also meant a mention in a comment never notified the person it named. Both are fixed, and the list now opens upward when the comment box is near the bottom of the screen instead of running off it.",
+      },
+      {
+        kind: "fix",
+        text: "A link in a comment showed its entire address, which wrapped across lines and buried the part worth reading. Links now show a short, informative label \u2014 and a link written with your own wording keeps that wording \u2014 with the full address on hover and on click. A full stop or closing bracket after a link is no longer swallowed into it.",
+      },
+      {
+        kind: "fix",
+        text: "Comments showed only the date they were posted. They now show the time as well, in your own time zone.",
+      },
+    ],
+  },
+  {
     version: "2.334.0",
     date: "2026-09-03",
     title: "The type checker that failed a release was not the type checker",
