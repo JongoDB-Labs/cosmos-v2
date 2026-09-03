@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.343.0",
+    date: "2026-09-03",
+    title: "A change that had already shipped was reported as failed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Approving a change merges it and then tidies up locally. If any of that tidying failed, the whole approval was reported as a failed merge \u2014 so a reviewer could be told their change had not shipped seventy-one seconds after it had. That is exactly what happened to the sprint-health fix earlier today: it merged at 19:50 and the assistant announced a failure at 19:51, about a change already on its way to production. Once the merge succeeds it is now treated as a fact; the tidying that follows is best-effort and reported separately, and cannot retract it. A note in the code had already recorded this same problem for one of the four tidy-up steps, and it had been fixed for that one and left in place for the other three.",
+      },
+    ],
+  },
+  {
     version: "2.342.0",
     date: "2026-09-03",
     title: "An update no longer discards work that is running",
