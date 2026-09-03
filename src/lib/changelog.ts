@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.336.0",
+    date: "2026-09-03",
+    title: "Mention notifications now tell you who was mentioned",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A notification about an @-mention said \u201C@user\u201D instead of the person's name \u2014 so it told you someone had been mentioned and never who, including when it was you. Mentions of anything other than a person (a ticket, a project, a note) were worse: they arrived as a raw internal id. Notifications, chat previews, note previews, the Teams card and the assistant's own reading of a conversation all now show real names, and an unresolved reference reads as \u201C@someone\u201D or \u201C#work item\u201D rather than exposing an id.",
+      },
+      {
+        kind: "improvement",
+        text: "Seven places in the product were each doing this conversion their own way, which is why the same defect appeared in all of them. They now share one implementation, and a check keeps an eighth from drifting back \u2014 it was that check, not a search, that turned up the seventh (note previews, which said \u201C@mention\u201D). Chat notifications also make one fewer database query per message than before.",
+      },
+    ],
+  },
+  {
     version: "2.335.0",
     date: "2026-09-03",
     title: "Colour a card to call it out, and three fixes to ticket comments",

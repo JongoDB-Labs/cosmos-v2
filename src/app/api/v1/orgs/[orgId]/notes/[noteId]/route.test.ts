@@ -273,7 +273,11 @@ describe("DELETE /notes/[noteId] — NOTE_DELETE authz (requireAccess)", () => {
 describe("PUT /notes/[noteId] — mention notification link (COSMOS-191)", () => {
   it("links a newly-mentioned user to the org-scoped notes page, not a slug-less 404", async () => {
     getAuthContext.mockResolvedValue(ctxWith({ permissions: bits("NOTE_UPDATE") }));
-    prisma.orgMember.findMany.mockResolvedValue([{ userId: OTHER_USER_ID }]);
+    prisma.orgMember.findMany.mockResolvedValue([
+      // Mirrors the route's SELECT — see the comments-route test for why a
+      // userId-only mock hid a real failure behind a swallow.
+      { userId: OTHER_USER_ID, user: { displayName: "Other Person" } },
+    ]);
     prisma.note.update.mockResolvedValue({
       id: NOTE_ID,
       title: "Design doc",

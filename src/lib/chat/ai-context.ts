@@ -1,3 +1,5 @@
+import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
+
 type ContextMessage = { authorId: string; content: string; createdAt: Date };
 
 export interface AiContextOptions {
@@ -7,15 +9,20 @@ export interface AiContextOptions {
   channelTopic?: string | null;
 }
 
-/** Resolve `<@uuid>` mention tokens to "@DisplayName" using the name map.
+/** Resolve mention tokens to "@DisplayName" using the name map.
  *  Falls back to "@someone" for ids we couldn't resolve — never leaks a raw
  *  uuid into the prompt. (The old behaviour stripped every mention to a generic
- *  "@user", losing who was actually addressed.) */
+ *  "@user", losing who was actually addressed.)
+ *
+ *  Delegates to the shared resolver so this prompt and every notification body
+ *  agree, and so TYPED tokens (`<@workItem:…>`) resolve here too — the local
+ *  regex only ever matched the legacy 36-character people form, leaving a raw
+ *  id in the prompt for anything else. */
 function resolveMentions(text: string, namesById: Map<string, string>): string {
-  return text.replace(/<@([0-9a-f-]{36})>/gi, (_full, id: string) => {
-    const name = namesById.get(id.toLowerCase());
-    return name ? `@${name}` : "@someone";
-  });
+  return mentionsToPlainText(
+    text,
+    userMentionLabels([...namesById].map(([id, displayName]) => ({ id, displayName }))),
+  );
 }
 
 /** Format recent channel messages as "Name: text" lines for an AI bot prompt.

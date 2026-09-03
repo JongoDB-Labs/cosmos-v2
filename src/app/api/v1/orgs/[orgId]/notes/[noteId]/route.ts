@@ -10,6 +10,7 @@ import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
 import { syncReferences } from "@/lib/mentions/references";
 import { createNotification } from "@/lib/notifications/create";
+import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { z } from "zod";
 import { Visibility } from "@prisma/client";
 
@@ -129,14 +130,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         if (added.length > 0) {
           const validMembers = await prisma.orgMember.findMany({
             where: { orgId, userId: { in: added } },
-            select: { userId: true },
+            select: { userId: true, user: { select: { displayName: true } } },
           });
           const recipients = new Set(validMembers.map((m) => m.userId));
           recipients.delete(ctx.userId);
 
-          const snippet = updated.content
-            .replace(/<@[0-9a-f-]{36}>/gi, "@user")
-            .slice(0, 200);
+          const snippet = mentionsToPlainText(
+            updated.content,
+            userMentionLabels(
+              validMembers
+            .filter((m) => m.user?.displayName)
+            .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
+            ),
+          ).slice(0, 200);
 
           for (const recipientId of recipients) {
             await createNotification({
