@@ -782,6 +782,17 @@ function RowContent({
       // highlight is a left edge plus a wash rather than an outline.
       style={highlightRowStyle(item.highlight)}
     >
+      {/* The menu wraps the ROW, not a hidden span.
+          It used to enclose only an `sr-only` marker, which is a clipped 1x1px
+          box — so `ActionMenu`'s own `onContextMenu` had no area over the ticket
+          key, title, badge or avatar, and right-clicking the row did nothing.
+          The only way in was the hover-revealed ⋯ button, which is unreachable
+          on a touch device mid-scroll and undiscoverable everywhere else.
+
+          `ActionMenu` renders its wrapper as `display: contents`, so every cell
+          below stays a direct flex child of this row and the layout is
+          unchanged. The ⋯ trigger still renders last, where it always did. */}
+      <ActionMenu groups={menuGroups} triggerClassName="shrink-0">
       {dragHandle ?? <span className="w-5 shrink-0" aria-hidden />}
 
       <button
@@ -837,8 +848,7 @@ function RowContent({
         )}
       </div>
 
-      <ActionMenu groups={menuGroups} triggerClassName="shrink-0">
-        <span className="sr-only">Row actions for {item.title}</span>
+      <span className="sr-only">Row actions for {item.title}</span>
       </ActionMenu>
     </div>
   );
