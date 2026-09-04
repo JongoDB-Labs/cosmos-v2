@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.344.1",
+    date: "2026-09-03",
+    title: "Cosmo names the person it put on a ticket",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Ask Cosmo to create or change a ticket and assign it to someone, and it now tells you who \u2014 \"assigned to Ryan Beatty\" rather than a 36-character id \u2014 and the ticket itself shows that person in its Assignees field. Two separate things were wrong. Cosmo was only ever handed the assignee's id, so an id was the only thing it could report back; and it set the ticket's primary assignee without adding them to the assignee list the ticket detail actually reads, so a ticket it had just assigned opened on \"Unassigned\". Tickets assigned this way BEFORE the fix now show the right name too \u2014 the person was recorded correctly all along, the screen simply was not looking them up. Assumed, and worth confirming: the assignee stored on the ticket was always the right person, so this resolves and displays it rather than changing what gets stored, and it shows whatever name your member directory holds \u2014 someone whose account name is a username appears under that username. Assignments made by hand are unchanged.",
+      },
+    ],
+  },
+  {
     version: "2.344.0",
     date: "2026-09-03",
     title: "A ticket could be rebuilt over work it had already finished",
