@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.347.0",
+    date: "2026-09-09",
+    title: "The build activity view is now a transcript you can read",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A single build can run to a hundred steps, and the activity view listed them flat \u2014 fine for ten, unusable for a hundred. It now reads as a transcript: steps are grouped into collapsible sections by what the assistant was doing at the time (building, repairing, reviewing, checking the screen), each with a count and how it ended. Every tool step collapses to one line and opens to show what it was given and what it returned, shell commands render as a terminal block, and a header carries the step and tool counts. Long sections scroll inside their own panel rather than pushing the page around.",
+      },
+      {
+        kind: "fix",
+        text: "Secrets could appear on screen in two places in that view \u2014 in a step label built from a file path, and in the small status chip beside a section \u2014 even though the surrounding rows correctly showed them as redacted. Both are fixed at the point the text is prepared rather than at each place it is drawn, so any future addition inherits it.",
+      },
+    ],
+  },
+  {
     version: "2.346.0",
     date: "2026-09-09",
     title: "\u201cThe screen is broken\u201d and \u201cnobody looked at the screen\u201d are different answers",
