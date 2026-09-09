@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.346.0",
+    date: "2026-09-09",
+    title: "\u201cThe screen is broken\u201d and \u201cnobody looked at the screen\u201d are different answers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "After making a change the assistant opens the app and checks the screen it altered. If that check could not run \u2014 it timed out, or the session died \u2014 the result was recorded as though the screen had been examined and found broken. A ticket then showed a red \u201cgate rejected\u201d against work whose type checks, linting and tests had all passed, and a reviewer had no way to tell a real visual defect from a check that never happened. The two are now recorded separately: a check that could not run reads as unproven, and only a check that ran and found a problem counts against the change.",
+      },
+      {
+        kind: "improvement",
+        text: "With one deliberate exception, found in review before release: if the check writes down a problem and only then runs out of time, that is a real finding and still counts against the change. The record is read before concluding that nobody looked \u2014 and a half-finished check can never be read as approval, only as a problem or as unproven.",
+      },
+    ],
+  },
+  {
     version: "2.345.0",
     date: "2026-09-09",
     title: "Security: two critical Next.js vulnerabilities closed",
