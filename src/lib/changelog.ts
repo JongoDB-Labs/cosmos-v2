@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.345.0",
+    date: "2026-09-09",
+    title: "Security: two critical Next.js vulnerabilities closed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The web framework COSMOS is built on published two critical advisories, both allowing remote code execution without any login. One affects the image-resizing endpoint when handling AVIF files; the other affects Windows-hosted servers, which does not apply to this deployment. The image endpoint is reachable from the internet on every COSMOS instance, so this is the one that matters. The framework is updated to the patched release. No COSMOS code changed \u2014 this is a dependency update, and it was caught by the dependency scanner that runs on every release.",
+      },
+    ],
+  },
+  {
     version: "2.344.0",
     date: "2026-09-03",
     title: "A ticket could be rebuilt over work it had already finished",
