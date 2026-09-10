@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.355.0",
+    date: "2026-09-10",
+    title: "Talk to a build, and see which outside systems it used",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The message box in Foreman's activity view now has a microphone, so you can dictate a note to a running build instead of typing it. Speaking your close phrase finishes the dictation and leaves the text in the box \u2014 it never sends on its own, because sending can approve work that then merges and deploys, and that should always be a deliberate press. Your browser does the transcription; in Chrome that means the audio goes to Google, the same as the assistant elsewhere in Cosmos, and the microphone button says so. The activity header also now lists any connected services a build actually used during its run \u2014 the ones it really called, not the ones merely available to it.",
+      },
+    ],
+  },
+  {
     version: "2.354.0",
     date: "2026-09-10",
     title: "Choose the model Foreman builds with, and see which one it used",
