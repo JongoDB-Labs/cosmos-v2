@@ -73,7 +73,7 @@
     "exceljs": "^4.4.0",
     "fflate": "^0.8.3",
     "file-type": "^22.0.1",
-    "framer-motion": "^12.43.0",
+    "framer-motion": "^13.0.0",
     "google-auth-library": "^11.0.0",
     "googleapis": "^173.0.0",
     "ipaddr.js": "^2.5.0",
