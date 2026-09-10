@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.352.0",
+    date: "2026-09-09",
+    title: "The Foreman page starts drawing straight away",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Opening Foreman used to show nothing at all until your permissions had been checked and the first data had come back \u2014 the page was doing that work before it drew anything, which made the screen an operator opens most often the slowest one to appear. The heading now paints immediately and the console fills in underneath it, against a placeholder shaped like the real thing so the layout does not jump when it arrives. Nothing about what the page shows has changed. It was the only screen in the app doing this, and it was found by opening every tab of the console in a real browser and reading what the page reported about itself.",
+      },
+    ],
+  },
+  {
     version: "2.351.0",
     date: "2026-09-09",
     title: "The activity tab's message box now actually works",
