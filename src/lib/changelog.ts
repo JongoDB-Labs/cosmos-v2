@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.348.0",
+    date: "2026-09-09",
+    title: "Asking Foreman to rework a ticket could ship it instead",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman's Rework dialog sends notes to a build that is waiting on you, and promises to resume that build rather than start over. It also read those notes to decide what you meant \u2014 and a note that happened to read as an approval (\u201cship it\u201d, \u201capproved\u201d, \u201clgtm\u201d, or a lone thumbs-up) was taken as approval of the whole change: it merged the pull request, tagged a release and deployed, while the confirmation on screen said only that your notes had been sent. Approving deliberately goes through a button that names production and asks you to confirm; this path had no such step. Now the button you press decides what happens. Rework always means rework, whatever the note says, and the note is passed to the builder as guidance. If what you type reads like an approval, the dialog says so and points you at Approve. Approving is unchanged, and still needs its confirmation. Nothing else could reach a deploy this way: the other controls carry their intent directly rather than inferring it from text.",
+      },
+    ],
+  },
+  {
     version: "2.347.1",
     date: "2026-09-03",
     title: "Cosmo names the person it put on a ticket",
