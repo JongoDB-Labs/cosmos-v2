@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.353.0",
+    date: "2026-09-10",
+    title: "Foreman's activity view now shows what commands printed, and the plan it is following",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Watching a build, you could see that the agent ran a command but never what came back \u2014 the panel said as much, that it had captured the command only. It now records the output too, so a failing type-check reads as the errors it actually printed rather than a line you have to take on trust. That is usually the thing that decides whether you approve the work or send it back. Failed steps are marked as failed; no exit code is shown, because the agent framework does not report one and inventing a number would be worse than omitting it. Long output keeps its beginning AND its end, since the part that explains a failure is almost always the last few lines, and it says how much it left out. The checklist the agent is working through is also visible now, with each item marked done, in progress or still to do \u2014 previously the panel could only tell you that a list had been rewritten, not what was on it.",
+      },
+    ],
+  },
+  {
     version: "2.352.0",
     date: "2026-09-09",
     title: "The Foreman page starts drawing straight away",
