@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.353.1",
+    date: "2026-09-10",
+    title: "Groundwork for choosing the model Foreman builds with",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Storage for two settings that arrive in the next release: which Claude model Foreman's build agents use, and how much reasoning effort to spend. Nothing changes yet \u2014 this release only adds the empty columns, deliberately left blank so that builds continue to run exactly as they do today until someone chooses otherwise. It ships separately because the settings themselves cannot be released until the storage exists.",
+      },
+    ],
+  },
+  {
     version: "2.353.0",
     date: "2026-09-10",
     title: "Foreman's activity view now shows what commands printed, and the plan it is following",
