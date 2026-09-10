@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.356.0",
+    date: "2026-09-10",
+    title: "See when a build hands work to another agent",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman's builds sometimes delegate part of a job \u2014 to a research agent, or to a task that runs in the background. Until now the activity view showed everything those helpers did as though the main agent had done it itself, with no indication that a handoff had happened at all. Each delegation now appears as its own line, naming what was handed off and to what kind of helper, and again when it finishes or fails. It is shown at the top level rather than tucked inside the collapsed run of steps, because a handoff is where the work branches and that is worth seeing without digging. Routine housekeeping tasks are left out, and progress chatter in between is not recorded \u2014 only the start and the outcome.",
+      },
+    ],
+  },
+  {
     version: "2.355.0",
     date: "2026-09-10",
     title: "Talk to a build, and see which outside systems it used",
