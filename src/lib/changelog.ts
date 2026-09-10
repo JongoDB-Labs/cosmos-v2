@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.351.0",
+    date: "2026-09-09",
+    title: "The activity tab's message box now actually works",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The message box added to Foreman's Live activity panel in the previous release could not be used. On the rare screen where it appeared it reported that it could not load what Foreman would accept, because the address it asks that question at was never wired up \u2014 and the panel itself only appeared while a build was actively running, which is precisely when its most useful commands do not apply. Both are fixed. The panel now follows whatever a worker is building, or, when nothing is running, the newest ticket that has stopped and is waiting on you. You can type a note, or a slash command: /rework to send guidance, /rebuild to start over, /approve to merge and deploy, /status and /help to see where things stand. Each command says whether it can act and why not \u2014 /approve on a ticket with no pull request explains that rather than failing silently. Notes are queued, not sent: the build reads them at its next step, and the panel says so.",
+      },
+    ],
+  },
+  {
     version: "2.350.0",
     date: "2026-09-09",
     title: "Approve stopped working on tickets that had a pull request",
