@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.357.0",
+    date: "2026-09-10",
+    title: "Attach a file to a message you send a running build",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can now attach a file \u2014 a log, a screenshot \u2014 to a message you send a build from the activity view, and the agent can open it. That last part is the whole point: the file is delivered into the working copy the agent is already running in, and the message it receives names the path, so it can simply read it. Up to three files per message, 1 MB each, because this goes into the agent's context rather than a document store; an oversized file is refused outright rather than the message being sent without it. Files can only accompany a message to a running build \u2014 approving or rebuilding has nowhere to put one, and you will be told rather than having the attachment quietly dropped.",
+      },
+    ],
+  },
+  {
     version: "2.356.0",
     date: "2026-09-10",
     title: "See when a build hands work to another agent",
