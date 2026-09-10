@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.350.0",
+    date: "2026-09-09",
+    title: "Approve stopped working on tickets that had a pull request",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a ticket Foreman had paused for review, the Approve button could sit greyed out saying \u201cNothing built yet\u201d even though the work was finished and the pull request was there to see. A ticket records several notes as it goes, and the screen read the pull request only from the most recent one \u2014 so any later note that had no reason to mention a link, such as \u201cthere were no changes to ship\u201d, made the earlier link disappear from view and left the only button that could act on the work disabled. The link and the reason are now read separately, so a note that says nothing about a pull request no longer erases one. Nothing is invented: when no pull request was ever opened, Approve still says so, because then it is true. This also covers the new /approve command in the activity tab, which decides the same way.",
+      },
+    ],
+  },
+  {
     version: "2.349.0",
     date: "2026-09-09",
     title: "Foreman's activity tab gets a real composer",
