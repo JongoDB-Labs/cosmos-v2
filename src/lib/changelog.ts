@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.349.0",
+    date: "2026-09-09",
+    title: "Foreman's activity tab gets a real composer",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Live activity panel's plain note box is now a composer: type prose to steer a running build, or a slash command to act on one that has stopped \u2014 /rework to send guidance, /rebuild to start over, /approve to merge and deploy, /status and /help to see where things stand. Each command is enabled or refused by the server with a sentence saying why, so a control is never simply missing. Two things this deliberately gets right. It stays on screen when nothing is building, because the commands that matter most apply to a build that has stopped and is waiting on you. And /approve is refused when no pull request was ever opened \u2014 the same condition the Approve button already disables on \u2014 so the two controls for that action cannot disagree about when it works. Notes are still queued rather than sent: the build reads them at its next step, and the panel says so rather than implying a chat.",
+      },
+    ],
+  },
+  {
     version: "2.348.0",
     date: "2026-09-09",
     title: "Asking Foreman to rework a ticket could ship it instead",
