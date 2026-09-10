@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.354.0",
+    date: "2026-09-10",
+    title: "Choose the model Foreman builds with, and see which one it used",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Foreman's build agents always ran on one fixed model, with no way to change it and no way to find out afterwards which one a piece of work had used. Under Build behavior you can now pick the model, and how much reasoning effort to spend on each build; both apply to every agent Foreman runs, including the one that reviews its own work. Leave the effort blank and builds behave exactly as they always have. Whatever a build ran with is recorded against that build, so the activity view shows what THAT run used rather than whatever the setting happens to say today \u2014 and for builds from before this release it says plainly that it was not recorded, instead of guessing. The model box takes free text on purpose, so a newly released model can be used the day it appears rather than waiting for us to ship an update.",
+      },
+    ],
+  },
+  {
     version: "2.353.0",
     date: "2026-09-10",
     title: "Foreman's activity view now shows what commands printed, and the plan it is following",
