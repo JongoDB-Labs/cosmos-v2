@@ -449,6 +449,10 @@ export interface TimeEntry {
   status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
   approvedById: string | null;
   approvedAt: string | null;
+  /** Hours to bill; null bills what was logged. See lib/time/billed-hours. */
+  billedHours: number | null;
+  billedById: string | null;
+  billedAt: string | null;
   tags: string[];
   createdAt: string;
   updatedAt: string;

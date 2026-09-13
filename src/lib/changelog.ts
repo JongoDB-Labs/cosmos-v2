@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.359.0",
+    date: "2026-09-13",
+    title: "Set what an entry bills, on the screen where you already review time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time tracking now has a Billed column. Anyone who can bill time can set what an approved entry charges without touching the hours that were logged, so the record of what was worked survives the decision about what to invoice. Entries nobody has decided on read \u201cas logged\u201d rather than repeating the number, and an entry billed differently shows the gap beside it. The control appears only on approved entries and only for people who can bill, and it stays available while reviewing someone else\u2019s week \u2014 which is when the decision usually gets made. Clearing the field returns the entry to billing what it logged; entering zero records a deliberate nothing.",
+      },
+    ],
+  },
+  {
     version: "2.358.0",
     date: "2026-09-13",
     title: "Bill a different number of hours than were logged",
