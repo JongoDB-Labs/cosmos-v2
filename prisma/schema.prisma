@@ -1720,6 +1720,19 @@ model TimeEntry {
   status       TimeEntryStatus @default(DRAFT)
   approvedById String?         @map("approved_by_id") @db.Uuid
   approvedAt   DateTime?       @map("approved_at")
+  // What the client is BILLED, decided separately from what was logged.
+  //
+  // NULL means "bill what was logged" -- the ordinary case, and the reason this
+  // is nullable rather than defaulted to `hours`: a default would have to be
+  // kept in step with every edit to `hours`, and the first missed sync would
+  // silently bill a stale number. Null defers to `hours` at read time instead,
+  // so the two can never drift.
+  //
+  // An explicit value is a decision, and 0 is a real one: "worked, not billed"
+  // is different from "not yet decided", and only an explicit zero can say it.
+  billedHours  Float?          @map("billed_hours")
+  billedById   String?         @map("billed_by_id") @db.Uuid
+  billedAt     DateTime?       @map("billed_at")
   tags         String[]        @default([])
   // Pay run this entry was rolled into (prod-parity). Plain scalar, NO relation/FK —
   // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
