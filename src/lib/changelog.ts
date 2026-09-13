@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.358.0",
+    date: "2026-09-13",
+    title: "Bill a different number of hours than were logged",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time entries now carry billed hours separately from logged hours. Previously writing an entry down meant editing the hours themselves, which destroyed the record of what was actually worked in order to record what was charged \u2014 the two numbers are different judgements and both are worth keeping. Approving an entry still means \"these hours were worked\"; billing is a second decision taken afterwards, and only approved entries can be billed. Entries left alone bill exactly what they log, so nothing changes until someone deliberately sets a different figure. Billing zero hours is itself a decision the system records, and reads differently from never having decided.",
+      },
+    ],
+  },
+  {
     version: "2.357.0",
     date: "2026-09-10",
     title: "Attach a file to a message you send a running build",
