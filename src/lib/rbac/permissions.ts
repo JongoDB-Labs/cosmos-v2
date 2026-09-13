@@ -141,6 +141,15 @@ export const Permission = {
   // do exactly one thing.
   RULES_RUN: 1n << 119n,
 
+  // Decide how many hours to BILL, once logged hours have been approved.
+  //
+  // SEPARATE from TIME_APPROVE, and the separation is the point: approving says
+  // "these hours were worked", billing says "this is what the client pays for",
+  // and they are different judgements that a firm may well put in different
+  // hands. The same split already exists for reading (TIME_READ_ALL rather than
+  // reusing TIME_APPROVE), for the same reason.
+  TIME_BILL: 1n << 120n,
+
   // Time — read OTHER people's time entries. TIME_READ is held by MEMBER and
   // VIEWER and means "you participate in timekeeping"; it never meant "you may
   // read the whole org's", but the list route treated it that way and returned
@@ -240,6 +249,7 @@ export const RolePermissions = {
     Permission.TIME_UPDATE,
     Permission.TIME_DELETE,
     Permission.TIME_APPROVE,
+    Permission.TIME_BILL,
     Permission.MEETING_CREATE,
     Permission.MEETING_READ,
     Permission.MEETING_UPDATE,
