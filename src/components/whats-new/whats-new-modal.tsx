@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTour } from "@/components/tour/tour-provider";
+import { toursForVersion } from "@/lib/tours/registry";
+import { PluginRegistry } from "@/lib/plugins/registry";
+import { useEnabledPlugins } from "@/components/plugins/plugin-slot";
 import { Sparkles, ArrowUpCircle, Bug } from "lucide-react";
 import {
   Dialog,
@@ -47,6 +51,12 @@ function formatDate(iso: string): string {
  * to show, so it's inert on the server and for up-to-date users.
  */
 export function WhatsNew() {
+  const { start } = useTour();
+  const enabledPlugins = useEnabledPlugins();
+  // A tour for the running version, from core or from a plugin this org has
+  // enabled. Only the first is offered: two "walk me through it" buttons for one
+  // release is a choice nobody asked to make.
+  const tour = toursForVersion(CURRENT_VERSION, PluginRegistry.getAll(), enabledPlugins)[0];
   const [open, setOpen] = useState(false);
   const [releases, setReleases] = useState<Release[]>([]);
 
@@ -146,6 +156,21 @@ export function WhatsNew() {
         </div>
 
         <DialogFooter>
+          {/* Offered only when THIS release actually shipped a tour. A button
+              that started a tour of some other version's features would be
+              worse than no button at all. */}
+          {tour && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                handleOpenChange(false);
+                start(tour, 0);
+              }}
+            >
+              <Sparkles className="mr-1 size-3.5" />
+              Walk me through it
+            </Button>
+          )}
           <Button ref={gotItRef} onClick={() => handleOpenChange(false)}>Got it</Button>
         </DialogFooter>
       </DialogContent>
