@@ -13,6 +13,7 @@ import { upsertRoadmapNodes } from "@/lib/roadmap/import";
 import { roadmapImportNodeSchema } from "@/lib/roadmap/types";
 import type { RoadmapImportReport } from "@/lib/roadmap/types";
 import { NotFoundError } from "@/lib/rbac/check";
+import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 
 /**
  * Structured item-ingest contract (BYO-LLM).
@@ -138,14 +139,8 @@ async function createIssue(
   const startDate = parseDate(item.startDate);
 
   const created = await prisma.$transaction(async (tx) => {
-    const maxTicket = await tx.workItem.aggregate({
-      where: { orgId, projectId },
-      _max: { ticketNumber: true },
-    });
-    const maxSort = await tx.workItem.aggregate({
-      where: { orgId, projectId, columnKey },
-      _max: { sortOrder: true },
-    });
+    const ticketNumber = await allocateTicketNumber(tx, { orgId, projectId });
+    const sortOrder = await allocateSortOrder(tx, { orgId, projectId, columnKey });
     const wi = await tx.workItem.create({
       data: {
         orgId,
@@ -155,8 +150,8 @@ async function createIssue(
         description,
         columnKey,
         priority: item.priority ?? "MEDIUM",
-        ticketNumber: (maxTicket._max.ticketNumber ?? 0) + 1,
-        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+        ticketNumber,
+        sortOrder,
         columnEnteredAt: new Date(),
         tags: item.tags ?? [],
         dueDate: dueDate ?? null,

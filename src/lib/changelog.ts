@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.2",
+    date: "2026-09-14",
+    title: "Two people can add a ticket to the same project at the same moment",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Creating a ticket while a teammate created one in the same project could fail outright — the second person got an error and lost what they had typed. The same clash could break a document-table import part-way through, or drop rows from a spreadsheet import with no obvious reason. Ticket numbers are now handed out one at a time, so simultaneous creates simply queue behind each other instead of colliding.",
+      },
+    ],
+  },
+  {
     version: "2.368.1",
     date: "2026-09-14",
     title: "An update arriving mid-build no longer throws the work away",
