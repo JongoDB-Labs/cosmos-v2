@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.1",
+    date: "2026-09-14",
+    title: "An update arriving mid-build no longer throws the work away",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a new release arrived while Foreman was part-way through a ticket, the delivery service could exhaust its memory and stop — abandoning the build and leaving the ticket sitting in progress with nothing to show for it. Updates now wait for the build to finish, as they were always meant to, and a ticket keeps the work already done.",
+      },
+    ],
+  },
+  {
     version: "2.368.0",
     date: "2026-09-14",
     title: "Keys you can point at one project, and an Archived filter that filters",
