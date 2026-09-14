@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db/client";
 import { orgThemeCss } from "@/lib/theme/server-styles";
 import { WhatsNew } from "@/components/whats-new/whats-new-modal";
 import { TourMount } from "@/components/tour/tour-mount";
-import { getAuthContext } from "@/lib/auth/session";
 
 type LayoutParams = { params: Promise<{ orgSlug: string }> };
 
@@ -31,10 +30,12 @@ export default function OrgScopedLayout({
           renders nothing until it has an unseen release to show. */}
       <WhatsNew />
       {/* The guided walkthrough, when one is running. Renders nothing otherwise,
-          and sits inside the DrawerProvider/TourProvider mounted by the shell. */}
-      <Suspense fallback={null}>
-        <TourIsland params={params} />
-      </Suspense>
+          and sits inside the DrawerProvider/TourProvider mounted by the shell.
+          A pure client island: it reads the org from context rather than the
+          server, because an awaited session read HERE is an uncached read in a
+          layout above every org route, and Next rejects the prerender for all
+          of them. */}
+      <TourMount />
     </>
   );
 }
@@ -57,16 +58,4 @@ async function getOrgThemePrimary(slug: string) {
     where: { slug },
     select: { themePrimary: true },
   });
-}
-
-/**
- * Resolves the org for the walkthrough card. Separate island so the layout
- * itself stays synchronous and the card can be a client component that needs an
- * org id rather than a slug.
- */
-async function TourIsland({ params }: { params: Promise<{ orgSlug: string }> }) {
-  const { orgSlug } = await params;
-  const ctx = await getAuthContext(orgSlug);
-  if (!ctx) return null;
-  return <TourMount orgId={ctx.orgId} />;
 }
