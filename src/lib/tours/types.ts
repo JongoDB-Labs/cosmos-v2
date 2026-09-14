@@ -1,0 +1,52 @@
+/**
+ * A guided walk through what a release changed.
+ *
+ * Tours are CODE, shipped beside the feature they describe, so a step can never
+ * point at a page that does not exist yet or describe a control that shipped
+ * differently. Kept in a table they would drift, and the drift would surface in
+ * front of whoever the tour was built to impress.
+ */
+export interface TourStep {
+  /** Stable within a tour; used for feedback attribution and resume state. */
+  id: string;
+  /** What this step is about, in the reader's terms. */
+  title: string;
+  /** Why it exists. One or two sentences. */
+  blurb: string;
+  /**
+   * Where the step lives, relative to the org — "/reports" becomes
+   * "/{orgSlug}/reports". Omit for a step about the page they are already on.
+   */
+  href?: string;
+  /** The one thing to look at once they arrive. */
+  look: string;
+  /**
+   * Asked on their behalf when they press "Ask about this". A starting point
+   * they can follow up on, not an answer.
+   */
+  ask?: string;
+}
+
+export interface Tour {
+  /**
+   * Stable, globally unique, and the thing everything else keys on: resume
+   * state, "already seen", and the ?tour= link.
+   *
+   * NOT the release version. A tour belongs to whatever ships it, on its own
+   * cadence — a plugin releasing weekly would otherwise have to name a core
+   * version it has nothing to do with, and renaming a tour would silently
+   * reset everyone's progress.
+   */
+  id: string;
+  /** Shown on the launcher and on the card. */
+  name: string;
+  /** One line saying what this release was about. */
+  summary: string;
+  /**
+   * Sorts newest-first when several are on offer. ISO date (YYYY-MM-DD) of the
+   * release it describes — a date rather than a version because the things
+   * contributing tours version independently of each other.
+   */
+  released: string;
+  steps: TourStep[];
+}

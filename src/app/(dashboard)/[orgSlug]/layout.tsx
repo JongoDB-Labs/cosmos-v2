@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { prisma } from "@/lib/db/client";
 import { orgThemeCss } from "@/lib/theme/server-styles";
 import { WhatsNew } from "@/components/whats-new/whats-new-modal";
+import { TourMount } from "@/components/tour/tour-mount";
 
 type LayoutParams = { params: Promise<{ orgSlug: string }> };
 
@@ -28,6 +29,9 @@ export default function OrgScopedLayout({
           version + localStorage), so it's safe outside a Suspense boundary and
           renders nothing until it has an unseen release to show. */}
       <WhatsNew />
+      {/* The guided tour, when one is running. Renders nothing otherwise, and
+          sits inside the DrawerProvider/TourProvider mounted by the shell. */}
+      <TourMount />
     </>
   );
 }

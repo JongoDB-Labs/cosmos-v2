@@ -16,6 +16,21 @@ import {
  * multitasking tool (take notes while watching the kanban board, chat with
  * someone while viewing a page, etc.). Only one is open at a time.
  */
+/**
+ * Context handed to a panel by whoever opened it — today, the product tour
+ * naming the step somebody is looking at. Panels that do not understand a seed
+ * ignore it, and it is cleared on the next open so it can never outlive the
+ * intent that set it.
+ */
+export interface DrawerSeed {
+  /** Prefills a title where the panel has one. */
+  title?: string;
+  /** Prefills a body where the panel has one. */
+  body?: string;
+  /** Free-form origin, e.g. "tour:2.361.0:runway", for attribution. */
+  source?: string;
+}
+
 export type DrawerTool =
   | "assistant"
   | "chat"
@@ -35,10 +50,12 @@ function clampWidth(n: number): number {
 interface DrawerContextValue {
   /** The currently open tool, or null when closed. */
   tool: DrawerTool | null;
-  /** Open (or switch to) a tool. */
-  open: (tool: DrawerTool) => void;
+  /** What the opener wanted this panel to start from; null when opened by hand. */
+  seed: DrawerSeed | null;
+  /** Open (or switch to) a tool, optionally seeding the panel. */
+  open: (tool: DrawerTool, seed?: DrawerSeed) => void;
   /** Back-compat alias for `open`. */
-  openDrawer: (tool: DrawerTool) => void;
+  openDrawer: (tool: DrawerTool, seed?: DrawerSeed) => void;
   /** Toggle a tool — opens it, or closes if it's already the open one. */
   toggle: (tool: DrawerTool) => void;
   close: () => void;
@@ -52,6 +69,7 @@ const DrawerContext = createContext<DrawerContextValue | null>(null);
 
 export function DrawerProvider({ children }: { children: React.ReactNode }) {
   const [tool, setTool] = useState<DrawerTool | null>(null);
+  const [seed, setSeed] = useState<DrawerSeed | null>(null);
   const [width, setWidthState] = useState<number>(DRAWER_DEFAULT_WIDTH);
 
   // Restore the persisted width on mount (client-only → no hydration mismatch).
@@ -75,10 +93,21 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const open = useCallback((t: DrawerTool) => setTool(t), []);
-  const close = useCallback(() => setTool(null), []);
+  const open = useCallback((t: DrawerTool, s?: DrawerSeed) => {
+    // Always written, including to null: a stale seed reappearing the next time
+    // somebody opens the drawer by hand would put words in their mouth.
+    setSeed(s ?? null);
+    setTool(t);
+  }, []);
+  const close = useCallback(() => {
+    setSeed(null);
+    setTool(null);
+  }, []);
   const toggle = useCallback(
-    (t: DrawerTool) => setTool((cur) => (cur === t ? null : t)),
+    (t: DrawerTool) => {
+      setSeed(null);
+      setTool((cur) => (cur === t ? null : t));
+    },
     [],
   );
   const isOpen = useCallback((t: DrawerTool) => tool === t, [tool]);
@@ -86,6 +115,7 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<DrawerContextValue>(
     () => ({
       tool,
+      seed,
       open,
       openDrawer: open,
       toggle,
@@ -94,7 +124,7 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
       width,
       setWidth,
     }),
-    [tool, open, toggle, close, isOpen, width, setWidth],
+    [tool, seed, open, toggle, close, isOpen, width, setWidth],
   );
 
   return (
@@ -109,6 +139,7 @@ export function useDrawers(): DrawerContextValue {
     return {
       tool: null,
       open: () => {},
+      seed: null,
       openDrawer: () => {},
       toggle: () => {},
       close: () => {},
