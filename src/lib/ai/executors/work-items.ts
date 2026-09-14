@@ -11,6 +11,7 @@ import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, assertProjectRead, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
+import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────
 
@@ -247,17 +248,16 @@ export async function createWorkItem(
   const columnKey = data.columnKey ?? "todo";
 
   const item = await prisma.$transaction(async (tx) => {
-    const maxTicket = await tx.workItem.aggregate({
-      where: { orgId: ctx.orgId, projectId: data.projectId },
-      _max: { ticketNumber: true },
+    const ticketNumber = await allocateTicketNumber(tx, {
+      orgId: ctx.orgId,
+      projectId: data.projectId,
     });
-    const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
 
-    const maxSort = await tx.workItem.aggregate({
-      where: { orgId: ctx.orgId, projectId: data.projectId, columnKey },
-      _max: { sortOrder: true },
+    const sortOrder = await allocateSortOrder(tx, {
+      orgId: ctx.orgId,
+      projectId: data.projectId,
+      columnKey,
     });
-    const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
     const created = await tx.workItem.create({
       data: {
