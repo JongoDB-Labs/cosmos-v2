@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Sparkles, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TourStep } from "@/lib/tours/types";
@@ -157,7 +159,13 @@ export function TourAsk({
           {error ? (
             <span className="text-red-600">{error}</span>
           ) : answer ? (
-            <span className="whitespace-pre-wrap">{answer}</span>
+            // The SAME renderer and prose classes the assistant panel uses, so a
+            // list, a table or a code block reads identically wherever the
+            // answer is shown. Rendering it as plain text here meant markdown
+            // arrived as literal asterisks and pipes.
+            <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-background prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
+            </div>
           ) : (
             <span className="inline-flex items-center gap-1 text-[var(--text-muted)]">
               <Sparkles className="size-3 animate-pulse" /> Thinking…

@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.363.1",
+    date: "2026-09-14",
+    title: "Walkthrough answers are formatted properly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Answers to questions asked inside a walkthrough were shown as plain text, so lists, bold text and tables arrived as their raw punctuation. They now render exactly as they do in the assistant panel.",
+      },
+    ],
+  },
+  {
     version: "2.363.0",
     date: "2026-09-14",
     title: "The walkthrough points at what it is describing, and answers without leaving",
