@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.3",
+    date: "2026-09-14",
+    title: "A ticket that explains why it isn't a duplicate now gets read",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When deciding whether a new ticket duplicated an existing one, Foreman was shown only the two titles — never the ticket's own description. A report that spelled out why it was not a duplicate, with evidence, could still be closed as one within seconds. The description is now part of that decision.",
+      },
+      {
+        kind: "fix",
+        text: "A ticket Foreman previously closed as “already done” no longer counts as prior work when judging duplicates. If that verdict was wrong, every later report of the same problem was being closed against the original mistake, leaving no way to raise it again.",
+      },
+    ],
+  },
+  {
     version: "2.368.2",
     date: "2026-09-14",
     title: "Two people can add a ticket to the same project at the same moment",
