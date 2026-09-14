@@ -72,6 +72,9 @@ import {
   Plus,
   Pencil,
   Flag,
+  Link2,
+  Archive,
+  ArchiveRestore,
   X,
 } from "lucide-react";
 import type {
@@ -90,6 +93,9 @@ import {
 import { formatDateStable } from "@/lib/format/stable-date";
 import { LocalTimestamp } from "@/components/ui/local-timestamp";
 import { isWorkItemDone } from "@/lib/work-items/done-state";
+import { entityUrl } from "@/lib/mentions/urls";
+import { useOrgSlug } from "@/lib/query/keys";
+import { toast } from "sonner";
 import {
   WORK_ITEM_HIGHLIGHTS,
   WORK_ITEM_HIGHLIGHT_ORDER,
@@ -198,6 +204,9 @@ export function CardDetailSheet({
   const [actualEnd, setActualEnd] = useState<string>("");
   /** Meeting callout colour. A `WORK_ITEM_HIGHLIGHTS` key, or null for none. */
   const [highlight, setHighlight] = useState<string | null>(null);
+  /** Archived timestamp, or null when the item is active. */
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const orgSlug = useOrgSlug();
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
@@ -360,6 +369,7 @@ export function CardDetailSheet({
       setActualStart(item.actualStart ? item.actualStart.split("T")[0] : "");
       setActualEnd(item.completedAt ? item.completedAt.split("T")[0] : "");
       setHighlight(item.highlight ?? null);
+      setArchivedAt(item.archivedAt ?? null);
       setParentId(item.parentId);
       setChildren(item.children ?? []);
       setChildTitle("");
@@ -600,6 +610,9 @@ export function CardDetailSheet({
           case "highlight":
             setHighlight(item.highlight ?? null);
             break;
+          case "archivedAt":
+            setArchivedAt(item.archivedAt ?? null);
+            break;
         }
         notifyError(err, "Couldn't save the change.");
       }
@@ -675,6 +688,9 @@ export function CardDetailSheet({
         break;
       case "highlight":
         setHighlight((value as string | null) ?? null);
+        break;
+      case "archivedAt":
+        setArchivedAt((value as string | null) ?? null);
         break;
       case "workCategory":
         setWorkCategory(value as WorkItem["workCategory"]);
@@ -979,6 +995,54 @@ export function CardDetailSheet({
                 <Star className={cn("h-3.5 w-3.5", watching && "fill-current")} />
                 {watching ? "Watching" : "Watch"}
               </Button>
+                {/* Copy link. Ungated: a link to something already on screen
+                    reveals nothing. It lived only on the Issues list and the
+                    roadmap, so from a board the only way to get one was to read
+                    the id out of network traffic. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-muted-foreground"
+                  onClick={() => {
+                    if (!orgSlug) return;
+                    const href = entityUrl("workItem", { orgSlug, id: item.id });
+                    if (!href) return;
+                    try {
+                      void navigator.clipboard?.writeText(
+                        `${window.location.origin}${href}`,
+                      );
+                      toast.success("Issue link copied");
+                    } catch {
+                      /* clipboard unavailable — say nothing rather than lie */
+                    }
+                  }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Copy link
+                </Button>
+                {/* Archive — ITEM_UPDATE, not ITEM_DELETE. Whoever may edit an
+                    item may put it away, because doing so is reversible. */}
+                {canEditItem && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() =>
+                      void patchField(
+                        "archivedAt",
+                        archivedAt ? null : new Date().toISOString(),
+                      )
+                    }
+                    disabled={actionPending !== null}
+                  >
+                    {archivedAt ? (
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5" />
+                    )}
+                    {archivedAt ? "Restore" : "Archive"}
+                  </Button>
+                )}
                 {canDuplicate && (
                   <Button
                     variant="ghost"

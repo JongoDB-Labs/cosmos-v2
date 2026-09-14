@@ -23,6 +23,8 @@ import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
+import { useOrgSlug } from "@/lib/query/keys";
 import { highlightLabel, highlightStyle, type WorkItemHighlight } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember } from "@/types/models";
 
@@ -123,6 +125,20 @@ export function KanbanCard({
     },
   });
 
+  const orgSlug = useOrgSlug();
+  const [archivedDraft, setArchivedDraft] = useState<string | null | undefined>(undefined);
+  const archivedAt = archivedDraft === undefined ? item.archivedAt : archivedDraft;
+
+  const archiveMutation = useOrgMutation<unknown, Error, string | null>({
+    mutationFn: (next) =>
+      jsonFetch(basePath, { method: "PUT", body: JSON.stringify({ archivedAt: next }) }),
+    invalidate,
+    onError: (err) => {
+      setArchivedDraft(undefined);
+      notifyError(err, "Couldn't archive that item.");
+    },
+  });
+
   const deleteMutation = useOrgMutation<unknown, Error, void>({
     mutationFn: () => jsonFetch(basePath, { method: "DELETE" }),
     invalidate,
@@ -204,8 +220,29 @@ export function KanbanCard({
       },
     });
 
-    return [editGroup, priorityGroup, highlightGroup, destructiveGroup];
-  }, [can, item, onClick, priorityMutation, highlight, highlightMutation]);
+    // Copy link and Archive. Copy link is ungated — a link to something you can
+    // already see reveals nothing; Archive takes ITEM_UPDATE, the same bar as
+    // any other edit on this card.
+    const shareGroup: ActionMenuGroup = {
+      items: [
+        ...copyLinkAction(item, orgSlug),
+        ...archiveAction({
+          item: { id: item.id, archivedAt },
+          canEdit: canUpdate,
+          pending: archiveMutation.isPending,
+          onToggle: (next) => {
+            setArchivedDraft(next);
+            archiveMutation.mutate(next);
+          },
+        }),
+      ],
+    };
+
+    return [editGroup, priorityGroup, highlightGroup, shareGroup, destructiveGroup];
+  }, [
+    can, item, onClick, priorityMutation, highlight, highlightMutation,
+    orgSlug, archivedAt, archiveMutation,
+  ]);
 
   return (
     <>
@@ -253,8 +290,12 @@ export function KanbanCard({
         onKeyDown={activateOnKey(() =>
           selectMode ? onToggleSelect?.(item.id) : onClick(item),
         )}
+        data-archived={archivedAt ? "true" : undefined}
         className={cn(
           "group/action relative rounded-lg border bg-card p-3 transition-colors",
+          // An archived card is normally filtered out entirely; when a surface
+          // deliberately shows one, it should not look like live work.
+          archivedAt && "opacity-60",
           selectMode
             ? "cursor-pointer pl-8"
             : "cursor-grab active:cursor-grabbing",
