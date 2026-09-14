@@ -73,9 +73,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Archived items are out of the way by default. This route feeds the BOARD
     // surfaces (kanban, table, backlog, timeline), which query it directly
     // rather than through the shared where-builder — so the rule has to be
-    // stated in both places, and `archive-filtering.arch.test.ts` pins that it
-    // is. `?includeArchived=1` is how the "show archived" view gets them back.
-    if (sp.get("includeArchived") !== "1") where.archivedAt = null;
+    // stated in both places, and `archive-filtering.test.ts` pins that it is.
+    //
+    // Same vocabulary as the shared builder: `?archived=only` selects them,
+    // `?archived=all` (or the `?includeArchived=1` alias that shipped first)
+    // shows both, anything else means active.
+    const archivedMode = sp.get("archived");
+    if (archivedMode === "only") where.archivedAt = { not: null };
+    else if (archivedMode !== "all" && sp.get("includeArchived") !== "1")
+      where.archivedAt = null;
 
     if (sp.get("workItemTypeId")) where.workItemTypeId = sp.get("workItemTypeId");
     if (sp.get("priority")) where.priority = sp.get("priority");

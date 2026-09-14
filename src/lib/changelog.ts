@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.0",
+    date: "2026-09-14",
+    title: "Keys you can point at one project, and an Archived filter that filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An API key can now be limited to specific projects instead of the whole organisation \u2014 the same idea as a token that only reaches certain repositories. Choose \u201CAll projects\u201D or pick the ones a key should reach when you create it. A key can only ever be narrowed this way, never widened: it still cannot reach anything its owner could not. Existing keys are unchanged and remain organisation-wide.",
+      },
+      {
+        kind: "fix",
+        text: "The \u201CArchived\u201D filter on the Issues page added archived items to the active ones instead of showing the archived ones. On a list with one archived item that looked like the filter did nothing. It now shows exactly the archived items, the way the \u201CWatching\u201D filter beside it shows exactly what you watch.",
+      },
+      {
+        kind: "improvement",
+        text: "Copy link now produces a link that names the ticket \u2014 .../issues?item=ACME-320 rather than a long internal id \u2014 so a link pasted into a message says where it goes before anyone clicks it. Links already shared keep working.",
+      },
+    ],
+  },
+  {
     version: "2.367.0",
     date: "2026-09-14",
     title: "Money you can see for your own projects, and a billing role that can bill",

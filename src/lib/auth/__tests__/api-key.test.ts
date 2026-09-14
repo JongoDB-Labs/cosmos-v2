@@ -124,6 +124,7 @@ describe("verifyApiKey", () => {
     prefix?: string;
     secret?: string;
     scopes?: string[];
+    projectIds?: string[];
     expiresAt?: Date | null;
     createdById?: string | null;
   }) {
@@ -134,6 +135,9 @@ describe("verifyApiKey", () => {
       id: KEY_ID,
       keyHash: sha256(secret),
       scopes: opts.scopes ?? ["read"],
+      // Shaped like the verifier's SELECT. Empty = org-wide, which is what
+      // every key minted before project scoping existed carries.
+      projectIds: opts.projectIds ?? [],
       expiresAt: opts.expiresAt ?? null,
       createdById: "createdById" in opts ? opts.createdById : USER_ID,
     });
@@ -176,6 +180,22 @@ describe("verifyApiKey", () => {
     expect(prisma.apiKey.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { orgId_prefix: { orgId: ORG_ID, prefix: "0a1b2c3d" } } }),
     );
+  });
+
+  it("a project-scoped key carries its ceiling onto the AuthContext", async () => {
+    const { token } = setupKey({ projectIds: ["p1", "p2"] });
+    loadEffectivePermissions.mockResolvedValue(effFor(ALL_BITS));
+    const ctx = await verifyApiKey(bearer(token), ORG_ID);
+    expect(ctx?.projectScope).toEqual(["p1", "p2"]);
+  });
+
+  it("an org-wide key carries NO ceiling — undefined, never []", async () => {
+    // `[]` as a ceiling denies everything, so mapping empty to undefined is
+    // what keeps every key minted before project scoping existed working.
+    const { token } = setupKey({ projectIds: [] });
+    loadEffectivePermissions.mockResolvedValue(effFor(ALL_BITS));
+    const ctx = await verifyApiKey(bearer(token), ORG_ID);
+    expect(ctx?.projectScope).toBeUndefined();
   });
 
   it("masking proof: OWNER all-bits + read scope → no ITEM_CREATE bit", async () => {

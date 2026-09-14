@@ -31,12 +31,24 @@ describe("buildWorkItemWhere — the shared path", () => {
     expect(where.archivedAt).toBeNull();
   });
 
-  it("shows them when explicitly asked", () => {
-    const where = buildWorkItemWhere({ ...base, filter: { includeArchived: true } });
+  it("shows ONLY archived for archived=only — what the toggle is named for", () => {
+    // The shipped first cut made the "Archived" control an INCLUDE toggle, so
+    // switching it on changed nothing visible on a board with three active
+    // items and one archived. A filter named after a state selects that state.
+    const where = buildWorkItemWhere({ ...base, filter: { archived: "only" } });
+    expect(where.archivedAt).toEqual({ not: null });
+  });
+
+  it("shows both for archived=all", () => {
+    const where = buildWorkItemWhere({ ...base, filter: { archived: "all" } });
     // Not `null` — the constraint must be ABSENT, so both active and archived
     // rows match. Asserting `!== null` alone would pass on `undefined` from a
-    // typo'd key, so pin the property is gone.
+    // typo'd key, so pin that the property is gone.
     expect(where.archivedAt).toBeUndefined();
+  });
+
+  it("treats an explicit 'active' the same as the default", () => {
+    expect(buildWorkItemWhere({ ...base, filter: { archived: "active" } }).archivedAt).toBeNull();
   });
 
   it("keeps hiding them alongside other filters", () => {
@@ -54,25 +66,39 @@ describe("buildWorkItemWhere — the shared path", () => {
     // Un-hiding must not become a way around RBAC.
     const where = buildWorkItemWhere({
       ...base,
-      filter: { includeArchived: true, projectIds: ["p1", "p-not-allowed"] },
+      filter: { archived: "all", projectIds: ["p1", "p-not-allowed"] },
     });
     expect(where.projectId).toEqual({ in: ["p1"] });
   });
 });
 
-describe("the opt-in is exactly '1'", () => {
-  const parse = (qs: string) => parseSearchParams(new URLSearchParams(qs));
+describe("the archive mode is parsed strictly", () => {
+  const parse = (qs: string) => parseSearchParams(new URLSearchParams(qs)).filter.archived;
 
-  it("turns on for ?includeArchived=1", () => {
-    expect(parse("includeArchived=1").filter.includeArchived).toBe(true);
+  it("reads ?archived=only and ?archived=all", () => {
+    expect(parse("archived=only")).toBe("only");
+    expect(parse("archived=all")).toBe("all");
   });
 
-  it("stays off for absent, 'false', 'true' and '0'", () => {
-    // A loose truthy check would read `includeArchived=false` as ON and quietly
-    // un-hide everything for anyone who guessed the wrong value.
-    for (const qs of ["", "includeArchived=false", "includeArchived=true", "includeArchived=0"]) {
-      expect(parse(qs).filter.includeArchived, qs || "(absent)").toBe(false);
+  it("defaults to active, including for junk values", () => {
+    for (const qs of ["", "archived=", "archived=yes", "archived=true", "archived=ONLY"]) {
+      expect(parse(qs), qs || "(absent)").toBe("active");
     }
+  });
+
+  it("still honours ?includeArchived=1, which shipped first, as 'all'", () => {
+    // Back-compat, not a second way of saying the same thing: that param went
+    // out in a release and may already be in someone's script.
+    expect(parse("includeArchived=1")).toBe("all");
+  });
+
+  it("does NOT read includeArchived=false as truthy", () => {
+    expect(parse("includeArchived=false")).toBe("active");
+    expect(parse("includeArchived=0")).toBe("active");
+  });
+
+  it("lets the explicit mode win over the legacy alias", () => {
+    expect(parse("includeArchived=1&archived=only")).toBe("only");
   });
 });
 
@@ -83,14 +109,20 @@ describe("the board route filters archived too", () => {
     expect(BOARD_ROUTE).toContain("where.archivedAt = null");
   });
 
-  it("gates that on the same explicit opt-in", () => {
+  it("selects archived on ?archived=only, the same word the shared builder uses", () => {
+    expect(BOARD_ROUTE).toContain('where.archivedAt = { not: null }');
+    expect(BOARD_ROUTE).toMatch(/archivedMode === "only"/);
+  });
+
+  it("still honours the ?includeArchived=1 alias that shipped first", () => {
     expect(BOARD_ROUTE).toMatch(/includeArchived["']?\)\s*!==\s*["']1["']/);
   });
 
-  it("the assertion above would have caught the unfiltered route", () => {
+  it("the assertions above would have caught an unfiltered route", () => {
     // Positive control: without it, a route that never mentions archivedAt
     // passes every other test in this file, because none of them execute it.
-    const withoutRule = BOARD_ROUTE.replace(/if \(sp\.get\("includeArchived"\) !== "1"\) where\.archivedAt = null;/, "");
-    expect(withoutRule).not.toContain("where.archivedAt = null");
+    // Strip every archivedAt constraint and the checks must have nothing left.
+    const withoutRule = BOARD_ROUTE.replace(/where\.archivedAt = [^;]+;/g, "");
+    expect(withoutRule).not.toContain("where.archivedAt =");
   });
 });

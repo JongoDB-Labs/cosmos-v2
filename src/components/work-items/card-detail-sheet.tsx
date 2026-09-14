@@ -1005,7 +1005,19 @@ export function CardDetailSheet({
                   className="gap-1.5 text-muted-foreground"
                   onClick={() => {
                     if (!orgSlug) return;
-                    const href = entityUrl("workItem", { orgSlug, id: item.id });
+                    // The ticket KEY when the item carries one, so the link says
+                    // which ticket it points at before anyone clicks it. Same
+                    // fallback chain the kanban card uses — the key rides on
+                    // customFields for board-sourced items and as a bare field
+                    // for query-sourced ones. No key (neither present) falls back
+                    // to the uuid, which the deep-link route still resolves.
+                    const pk =
+                      (item.customFields?.projectKey as string | undefined) ??
+                      ((item as unknown as Record<string, unknown>).projectKey as
+                        | string
+                        | undefined);
+                    const ref = pk ? `${pk}-${item.ticketNumber}` : item.id;
+                    const href = entityUrl("workItem", { orgSlug, id: ref });
                     if (!href) return;
                     try {
                       void navigator.clipboard?.writeText(

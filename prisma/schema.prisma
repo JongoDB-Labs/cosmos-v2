@@ -621,6 +621,14 @@ model ApiKey {
   keyHash     String    @map("key_hash")
   prefix      String
   scopes      String[]
+  /// Projects this key may touch. EMPTY means org-wide — every project the
+  /// minting user can reach — which is what every key minted before this
+  /// existed had, so an empty array is the correct value for them.
+  ///
+  /// A ceiling, not a grant: it only ever narrows the minting user's own
+  /// access. Enforced in `getReadableProjectIds` and `isProjectVisible`, both
+  /// BEFORE their role short-circuits, so it binds for an OWNER too.
+  projectIds  String[]  @map("project_ids")
   createdById String?   @map("created_by_id") @db.Uuid
   expiresAt   DateTime? @map("expires_at")
   lastUsed    DateTime? @map("last_used")

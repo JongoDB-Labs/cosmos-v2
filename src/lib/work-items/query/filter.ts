@@ -42,16 +42,23 @@ export interface WorkItemFilter {
    *  scope). Used to open a single item by id (e.g. a mention deep-link). */
   ids?: string[];
   /**
-   * Include archived items. DEFAULT FALSE — archiving exists to get things out
-   * of the way, so a list that still showed them would not have archived
-   * anything.
+   * Which items to return with respect to archiving. Defaults to "active".
    *
-   * Opt-in rather than opt-out on purpose: a surface that forgets to filter
-   * should show too LITTLE (an archived duplicate stays hidden) rather than too
-   * much (the clutter comes back everywhere). The one place it is turned on is
-   * the view for finding something you archived by mistake.
+   *   active — only live items. The default everywhere, because archiving
+   *            exists to get things out of the way; a list that still showed
+   *            them would not have archived anything.
+   *   only   — only archived items. What a control LABELLED "Archived" has to
+   *            mean: the first cut of this shipped as an include-toggle, so
+   *            turning it on changed nothing visible on a board with three
+   *            active items and one archived. A filter named after a state
+   *            selects that state, the way the "Watching" filter beside it does.
+   *   all    — both. No UI reaches for it; it exists for an API caller
+   *            reconciling a full set.
+   *
+   * Opt-in rather than opt-out: a surface that forgets this shows too LITTLE
+   * (an archived duplicate stays hidden) rather than too much.
    */
-  includeArchived?: boolean;
+  archived?: "active" | "only" | "all";
   /** Project.id values — OR within, scoped to allowed projects by the builder. */
   projectIds?: string[];
   /** WorkItemType.id values. */

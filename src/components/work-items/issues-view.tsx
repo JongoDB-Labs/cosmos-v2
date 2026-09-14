@@ -154,9 +154,11 @@ interface FilterState {
   updatedTo: string;
   /** FR 8702c9b8 — restrict to items the current user watches. */
   watchedByMe: boolean;
-  /** Show archived items as well as active ones. Off by default: archiving
-   *  exists to get things out of the way, so this is the one surface that
-   *  deliberately brings them back — it is where you go to undo one. */
+  /** Show ONLY archived items. Off by default: archiving exists to get things
+   *  out of the way, so this is the one surface that deliberately brings them
+   *  back — it is where you go to find one and undo it. It selects rather than
+   *  includes, because a control labelled "Archived" that merely ADDED them
+   *  looked like it did nothing at all on a list with one archived item. */
   showArchived: boolean;
 }
 
@@ -202,7 +204,7 @@ function toQueryString(f: FilterState, page: number, pageSize: number): string {
   if (f.updatedFrom) p.set("updatedFrom", f.updatedFrom);
   if (f.updatedTo) p.set("updatedTo", f.updatedTo);
   if (f.watchedByMe) p.set("watchedByMe", "1");
-  if (f.showArchived) p.set("includeArchived", "1");
+  if (f.showArchived) p.set("archived", "only");
   p.set("page", String(page));
   p.set("pageSize", String(pageSize));
   return p.toString();
@@ -1037,7 +1039,13 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                 // widgets and dependency map already use, so every deep link in
                 // the product has one definition. The issues view honours
                 // `?item=` by opening that item's detail sheet.
-                const href = entityUrl("workItem", { orgSlug, id: r.id });
+                // The ticket KEY, not the uuid — a link that says which
+                // ticket it points at before anyone clicks it. `/row` resolves
+                // either, so older uuid links keep working.
+                const href = entityUrl("workItem", {
+                  orgSlug,
+                  id: r.ticketKey?.trim() || r.id,
+                });
                 if (!href) return;
                 try {
                   void navigator.clipboard?.writeText(`${window.location.origin}${href}`);
@@ -1094,7 +1102,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
             buttonVariants({ variant: filters.showArchived ? "default" : "outline", size: "sm" }),
             "gap-1.5",
           )}
-          title="Include archived items in the results"
+          title="Show only archived items"
         >
           <Archive className="h-4 w-4" /> Archived
         </button>

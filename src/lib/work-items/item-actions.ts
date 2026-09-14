@@ -39,7 +39,7 @@ export interface ActionableItem {
  * definition and they cannot drift.
  */
 export function copyLinkAction(
-  item: { id: string },
+  item: { id: string; ticketKey?: string | null },
   orgSlug: string | null | undefined,
   label = "Copy link",
 ): ActionMenuItem[] {
@@ -51,7 +51,13 @@ export function copyLinkAction(
     label,
     icon: Link2,
     onClick: () => {
-      const href = entityUrl("workItem", { orgSlug, id: item.id });
+      // Prefer the TICKET KEY over the uuid. A link is something a person reads
+      // in Slack and, increasingly often, retypes — ".../issues?item=ACME-320"
+      // says which ticket before anyone clicks it, and a uuid says nothing at
+      // all. The deep-link route resolves either, so nothing is lost: an older
+      // link with a uuid keeps working.
+      const ref = item.ticketKey?.trim() || item.id;
+      const href = entityUrl("workItem", { orgSlug, id: ref });
       if (!href) return;
       try {
         void navigator.clipboard?.writeText(`${window.location.origin}${href}`);
