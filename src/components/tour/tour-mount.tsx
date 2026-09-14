@@ -20,7 +20,7 @@ import { useTour } from "./tour-provider";
  * layout, a server component, and threading an awaited param into a client
  * island for a value already in the URL is more machinery than it is worth.
  */
-export function TourMount() {
+export function TourMount({ orgId }: { orgId: string }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const enabled = useEnabledPlugins();
@@ -43,5 +43,5 @@ export function TourMount() {
   }, [requested, enabled, start]);
 
   if (!orgSlug) return null;
-  return <TourCard orgSlug={orgSlug} />;
+  return <TourCard orgId={orgId} orgSlug={orgSlug} />;
 }

@@ -21,10 +21,21 @@ export interface TourStep {
   /** The one thing to look at once they arrive. */
   look: string;
   /**
-   * Asked on their behalf when they press "Ask about this". A starting point
-   * they can follow up on, not an answer.
+   * Questions offered as one-tap chips beside the free-text box. Suggestions,
+   * not a script: the box is always there, and these only save typing the ones
+   * everybody asks anyway.
    */
-  ask?: string;
+  asks?: string[];
+  /**
+   * The element this step is about, matched as [data-tour="<anchor>"].
+   *
+   * A deliberate attribute rather than a CSS selector into somebody else's
+   * markup: a selector silently stops matching the first time that component is
+   * restyled, and a walkthrough that highlights nothing is worse than one that
+   * never tried. When the element is absent the card falls back to its corner
+   * and simply does not highlight — never a broken pointer at empty space.
+   */
+  anchor?: string;
 }
 
 export interface Tour {
