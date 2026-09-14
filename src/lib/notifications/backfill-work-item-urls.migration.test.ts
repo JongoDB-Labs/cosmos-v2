@@ -53,7 +53,7 @@ beforeAll(async () => {
 
   const fixtures: [string, string, string][] = [
     // [label, type, url] — the shapes that are actually sitting in prod.
-    ["stale-mention", "comment.mentioned", `/projects/USMC/work-items/${ITEM_ID}`],
+    ["stale-mention", "comment.mentioned", `/projects/PLTFM/work-items/${ITEM_ID}`],
     ["stale-other-project", "comment.mentioned", `/projects/ACME-7/work-items/${ITEM_ID}`],
     ["already-fixed", "comment.mentioned", `/${orgSlug}/issues?item=${ITEM_ID}`],
     ["foreman-alert", "foreman.alert", "/"],
