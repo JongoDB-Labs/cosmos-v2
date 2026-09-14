@@ -21,6 +21,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.365.0",
+    date: "2026-09-14",
+    title: "API keys actually work now",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key could be created and was then refused by every endpoint, which made it look like the key was wrong. It wasn't: nothing in the request path ever looked at it. Keys now work everywhere an org-scoped request is made.",
+      },
+      {
+        kind: "fix",
+        text: "The \u201Citems:write\u201D scope could create an item but not change one \u2014 no status, no assignee, no dates \u2014 and could not comment at all. \u201Cread\u201D could not read comments, so a key could post one and then be refused its own reply. Both now grant what their names say. Neither can delete an item; that stays a separate decision.",
+      },
+      {
+        kind: "improvement",
+        text: "Work items can now be read and updated by id without knowing which project they are in: a collection at /work-items, and the item and its comments beneath it. Previously only the project-scoped path existed, so any script had to look the project up before every write.",
+      },
+      {
+        kind: "fix",
+        text: "Restored a rendering boundary around the guided walkthrough that was dropped in a recent release. Without it the walkthrough's use of the page's URL query could stop the pages around it from being pre-rendered.",
+      },
+    ],
+  },
+  {
     version: "2.364.0",
     date: "2026-09-14",
     title: "Walkthroughs follow what your role can actually reach",
