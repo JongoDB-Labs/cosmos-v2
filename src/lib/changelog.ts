@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.367.1",
+    date: "2026-09-14",
+    title: "Older mention notifications open the work item again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Notifications from before the link fix pointed at a page that no longer exists, so clicking an older \"you were mentioned\" alert in the bell dropdown landed on a Not Found screen. Those links have been repaired in place — every one of them now opens the work item it is about, and no notification was removed.",
+      },
+    ],
+  },
+  {
     version: "2.367.0",
     date: "2026-09-14",
     title: "Money you can see for your own projects, and a billing role that can bill",
