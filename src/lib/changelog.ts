@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.363.0",
+    date: "2026-09-14",
+    title: "The walkthrough points at what it is describing, and answers without leaving",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A walkthrough step can now highlight the part of the screen it is talking about: the card moves beside it, rings it, and scrolls it into view. Where a step is about a whole page, the card stays out of the way in the corner as before.",
+      },
+      {
+        kind: "improvement",
+        text: "Asking a question or sending feedback now happens inside the walkthrough card. Previously both opened the side panel, which covered the very thing the step was pointing at. Suggested questions sit beside a box you can type your own into, and anything you send reaches the same feedback queue as the rest of the product, labelled with the step you were on.",
+      },
+      {
+        kind: "feature",
+        text: "A compass in the top bar lists every walkthrough available to your organisation, so one can be revisited long after its notice was dismissed \u2014 and somebody who joined later can catch up on what changed before they arrived.",
+      },
+    ],
+  },
+  {
     version: "2.362.1",
     date: "2026-09-14",
     title: "The walkthrough card no longer hides behind the panel it opens",
