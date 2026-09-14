@@ -88,6 +88,12 @@ export async function isProjectVisible(
   // indistinguishable from a missing one.
   if (!project) return false;
 
+  // A project-scoped API key's ceiling. Checked before the role short-circuits
+  // below, for the same reason as in getReadableProjectIds: an org
+  // administrator keeps access to every project by design, so a restriction
+  // evaluated after that would never bind for the people who mint keys.
+  if (ctx.projectScope && !ctx.projectScope.includes(projectId)) return false;
+
   // The default, and the reason existing orgs see no behaviour change.
   if (!project.teamScopedAccess) return true;
 

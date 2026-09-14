@@ -56,7 +56,10 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
  * intersected with the key's scope mask.
  */
 export async function mintApiKey(input: {
-  orgId: string; name: string; scopes: string[]; createdById: string; expiresAt?: Date | null;
+  orgId: string; name: string; scopes: string[]; createdById: string;
+  expiresAt?: Date | null;
+  /** Projects the key may touch. Omit or pass [] for org-wide. */
+  projectIds?: string[];
 }) {
   // Prefix is HEX (no `_`/`-`) so the token splits unambiguously at the prefix's
   // `_` delimiter — the secret (base64url) may contain `_`/`-`, and as the final
@@ -69,8 +72,12 @@ export async function mintApiKey(input: {
     data: {
       orgId: input.orgId, name: input.name, prefix, keyHash: sha256(secret),
       scopes: input.scopes, createdById: input.createdById, expiresAt: input.expiresAt ?? null,
+      projectIds: input.projectIds ?? [],
     },
-    select: { id: true, name: true, prefix: true, scopes: true, expiresAt: true, createdAt: true },
+    select: {
+      id: true, name: true, prefix: true, scopes: true, projectIds: true,
+      expiresAt: true, createdAt: true,
+    },
   });
   return { token, record };
 }
@@ -119,7 +126,10 @@ export async function verifyApiKeyHeader(
   if (!parsed) return null;
   const key = await prisma.apiKey.findUnique({
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
-    select: { id: true, keyHash: true, scopes: true, expiresAt: true, createdById: true },
+    select: {
+      id: true, keyHash: true, scopes: true, projectIds: true,
+      expiresAt: true, createdById: true,
+    },
   });
   if (!key || !key.createdById) return null;
   const a = Buffer.from(sha256(parsed.secret)); const b = Buffer.from(key.keyHash);
@@ -133,6 +143,10 @@ export async function verifyApiKeyHeader(
     userId: key.createdById, orgId, orgRole: eff.orgRole,
     permissions: eff.permissions & mask, basePermissions: eff.basePermissions & mask,
     abacRules: eff.abacRules,
+    // Empty means org-wide, so it must stay UNDEFINED rather than become an
+    // empty allowlist — `[]` as a ceiling would deny everything, turning every
+    // pre-existing key into a key that can reach nothing.
+    projectScope: key.projectIds?.length ? key.projectIds : undefined,
   };
 }
 

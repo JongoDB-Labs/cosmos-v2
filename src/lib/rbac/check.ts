@@ -15,6 +15,21 @@ export interface AuthContext {
   /** Collected ABAC rules (member + assigned work-role policies). Evaluated
    *  by requireAccess(); empty for orgs with no work-roles/policies. */
   abacRules: AbacRule[];
+  /**
+   * A hard ceiling on which projects this actor may touch, independent of role.
+   *
+   * `undefined` means unrestricted — every session has this, and nothing about
+   * the cookie path changes. It is set only by a project-scoped API KEY, and it
+   * is a CEILING rather than a grant: it can only ever narrow what the minting
+   * user could already do.
+   *
+   * It is applied AFTER the role logic, deliberately. `getReadableProjectIds`
+   * short-circuits to every project for an OWNER, and org administrators keep
+   * access to every project by design — so a restriction evaluated earlier
+   * would be skipped for exactly the people most likely to mint a key, and
+   * "scope this key to one project" would quietly mean nothing.
+   */
+  projectScope?: readonly string[];
 }
 
 export function resolvePermissions(
