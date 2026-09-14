@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.362.1",
+    date: "2026-09-14",
+    title: "The walkthrough card no longer hides behind the panel it opens",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking the assistant about a walkthrough step opens the side panel, and the walkthrough card was sitting underneath it \u2014 so the action most likely to be taken hid the card that offered it. The card now moves aside while a panel is open, and sits clear of the assistant button, which had been covering the Next control.",
+      },
+    ],
+  },
+  {
     version: "2.362.0",
     date: "2026-09-14",
     title: "Be walked through what changed, inside the product",
