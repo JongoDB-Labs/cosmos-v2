@@ -214,7 +214,12 @@ export function ChannelView({
       if (d.channelId !== channelId) return;
       applyReceipt(d.userId, d.lastReadMessageId);
     },
-  });
+  }, 
+  // This feed is kept up to date by PATCHING the cache from event payloads,
+  // which makes a missed event permanent: nothing re-reads the truth. After a
+  // reconnect, throw the patched copy away and refetch.
+  { onResync: () => void qc.invalidateQueries({ queryKey: msgsKey }) },
+);
 
   // Mark-read when the latest message id changes
   const lastMessageId = messages?.[messages.length - 1]?.id;

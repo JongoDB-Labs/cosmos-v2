@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.4",
+    date: "2026-09-14",
+    title: "Boards and chat catch up by themselves after a dropped connection",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Live updates arrive over a connection that the browser silently re-opens after a network blip, a laptop waking up, or a new version being deployed — but anything that happened while it was down was never sent, so a board, chat channel or settings page could sit there quietly out of date until someone pressed refresh. Every release did this to every open tab at once. Those views now notice the connection came back and re-read what they missed.",
+      },
+    ],
+  },
+  {
     version: "2.368.3",
     date: "2026-09-14",
     title: "A ticket that explains why it isn't a duplicate now gets read",
