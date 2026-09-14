@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.360.0",
+    date: "2026-09-13",
+    title: "Choose which sections your sidebar shows",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Settings \u2192 Navigation lets an administrator hide sections your organisation does not use, so people are not navigating past menu entries that lead nowhere for them. It is a whole-organisation choice rather than a personal preference, so everyone sees the same product. Hiding only ever takes something away: a section someone cannot already reach will not appear because it was left switched on. Overview and Settings always stay visible, so there is always a way back \u2014 including a way back to this screen.",
+      },
+    ],
+  },
+  {
     version: "2.359.0",
     date: "2026-09-13",
     title: "Set what an entry bills, on the screen where you already review time",
