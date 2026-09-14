@@ -225,7 +225,7 @@ export function KanbanCard({
     // any other edit on this card.
     const shareGroup: ActionMenuGroup = {
       items: [
-        ...copyLinkAction(item, orgSlug),
+        ...copyLinkAction({ id: item.id, ticketKey: projectKey ? ticketLabel : null }, orgSlug),
         ...archiveAction({
           item: { id: item.id, archivedAt },
           canEdit: canUpdate,

@@ -539,7 +539,10 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
       groups.push({
         items: [
-          ...copyLinkAction(item, orgSlug),
+          ...copyLinkAction(
+            { id: item.id, ticketKey: projectKey ? `${projectKey}-${item.ticketNumber}` : null },
+            orgSlug,
+          ),
           ...archiveAction({
             item,
             canEdit: canCreate,

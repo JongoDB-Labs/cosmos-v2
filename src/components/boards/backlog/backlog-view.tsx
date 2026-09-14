@@ -471,7 +471,10 @@ export function BacklogView({
         { label: "Move to sprint", items },
         {
           items: [
-            ...copyLinkAction(item, orgSlug),
+            ...copyLinkAction(
+              { id: item.id, ticketKey: projectKey ? `${projectKey}-${item.ticketNumber}` : null },
+              orgSlug,
+            ),
             ...archiveAction({
               item,
               canEdit: true,
