@@ -22,7 +22,7 @@ import { useTour } from "./tour-provider";
  */
 export function TourCard({ orgSlug }: { orgSlug: string }) {
   const { tour, index, next, back, stop } = useTour();
-  const { openDrawer } = useDrawers();
+  const { openDrawer, tool, width } = useDrawers();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -46,9 +46,15 @@ export function TourCard({ orgSlug }: { orgSlug: string }) {
     <div
       role="complementary"
       aria-label={`${tour.name} tour, step ${index + 1} of ${tour.steps.length}`}
+      // Sits clear of two things it would otherwise hide behind. The docked
+      // drawer is the one the tour itself opens, so landing underneath it is the
+      // COMMON case, not an edge one; and the assistant bubble parks in exactly
+      // this corner, over the Next button.
+      style={{ right: tool ? width + 16 : 16 }}
       className={cn(
-        "fixed bottom-4 right-4 z-40 w-[min(24rem,calc(100vw-2rem))]",
+        "fixed bottom-20 z-40 w-[min(24rem,calc(100vw-2rem))]",
         "rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg",
+        "transition-[right] motion-reduce:transition-none",
       )}
     >
       <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] px-4 py-2.5">
