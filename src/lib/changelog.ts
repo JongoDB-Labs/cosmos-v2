@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.361.0",
+    date: "2026-09-14",
+    title: "Hand someone a temporary look at the product, and take it back",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Administrators can issue a disposable demo account for showing a stakeholder what has just shipped, and remove it again with one command. The account is read-only by default and cannot see fee figures, so hours, pace and phase health are visible while money is not. Its password is emailed by the same path as any other invitation and is never displayed, and an address that already has an account is refused outright rather than having a password set on it. Revoking removes the account as well as the invitation, so a demo pass does not quietly become a permanent one.",
+      },
+    ],
+  },
+  {
     version: "2.360.0",
     date: "2026-09-13",
     title: "Choose which sections your sidebar shows",
