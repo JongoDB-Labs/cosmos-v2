@@ -35,11 +35,13 @@ export default async function NavigationSettingsPage({ params }: PageParams) {
       title="Navigation"
       description="Which sections appear in this organisation's sidebar"
     >
-      <NavVisibility
-        orgId={ctx.orgId}
-        sections={sections}
-        initialHidden={readNavLayout(org?.settings)?.hidden ?? []}
-      />
+      <div data-tour="nav-visibility">
+        <NavVisibility
+          orgId={ctx.orgId}
+          sections={sections}
+          initialHidden={readNavLayout(org?.settings)?.hidden ?? []}
+        />
+      </div>
     </PageShell>
   );
 }
