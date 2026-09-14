@@ -81,6 +81,25 @@ describe("frees an account stranded by an earlier revoke", () => {
   });
 });
 
+describe("revoking with no invitation to point at", () => {
+  it("still considers every other invitation for the address", async () => {
+    // Teardown for a pass that was already used: the invitation is gone, so the
+    // caller passes a nil UUID meaning "nothing of ours to exclude". Every real
+    // invitation must then count, or a pass could be torn down while another org
+    // is still relying on the account.
+    const NIL = "00000000-0000-0000-0000-000000000000";
+    tx.invitation.count.mockResolvedValue(1);
+    const out = await run({ invitationId: NIL });
+    expect(out.deleted).toBe(false);
+    expect(tx.invitation.count.mock.calls[0][0].where.id).toEqual({ not: NIL });
+  });
+
+  it("removes the account when nothing else is outstanding", async () => {
+    const out = await run({ invitationId: "00000000-0000-0000-0000-000000000000" });
+    expect(out.deleted).toBe(true);
+  });
+});
+
 describe("refuses to delete anything that might be a person", () => {
   it("leaves an account that belongs to an organisation", async () => {
     tx.user.findFirst.mockResolvedValue(disposable({ _count: { memberships: 1 } }));
