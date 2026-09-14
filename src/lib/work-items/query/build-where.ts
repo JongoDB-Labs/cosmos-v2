@@ -63,7 +63,8 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
   // Applied here, on the shared builder, so every surface that queries through
   // it inherits it — search, export, facets, the single-row deep link, and the
   // org-scoped API. A per-surface filter would be one more thing to forget.
-  if (!filter.includeArchived) where.archivedAt = null;
+  if (filter.archived === "only") where.archivedAt = { not: null };
+  else if (filter.archived !== "all") where.archivedAt = null;
 
   const and: Prisma.WorkItemWhereInput[] = [];
 

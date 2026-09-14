@@ -142,10 +142,17 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
     if (parentIds) parent = { mode: "is", parentIds };
   }
 
-  // Opt-in, and only the exact string "1" turns it on — a stray
-  // `?includeArchived=false` must not read as truthy and quietly un-hide
-  // everything.
-  const includeArchived = params.get("includeArchived") === "1";
+  // `?archived=only|all`, defaulting to active. `?includeArchived=1` shipped
+  // first and meant "all", so it stays an alias rather than a break — but only
+  // the exact string "1", so a stray `includeArchived=false` cannot read as
+  // truthy and quietly un-hide everything.
+  const archivedParam = params.get("archived");
+  const archived: WorkItemFilter["archived"] =
+    archivedParam === "only" || archivedParam === "all"
+      ? archivedParam
+      : params.get("includeArchived") === "1"
+        ? "all"
+        : "active";
 
   const startFrom = params.get("startFrom") ?? undefined;
   const startTo = params.get("startTo") ?? undefined;
@@ -159,7 +166,7 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
   const customFields = parseCustomFieldParams(params);
 
   const filter: WorkItemFilter = {
-    includeArchived,
+    archived,
     projectIds: multi(params, "project"),
     typeIds: multi(params, "type"),
     columnKeys: multi(params, "status"),
