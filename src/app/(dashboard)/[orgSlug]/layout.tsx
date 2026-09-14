@@ -34,8 +34,19 @@ export default function OrgScopedLayout({
           A pure client island: it reads the org from context rather than the
           server, because an awaited session read HERE is an uncached read in a
           layout above every org route, and Next rejects the prerender for all
-          of them. */}
-      <TourMount />
+          of them.
+
+          Inside <Suspense> because it calls useSearchParams(). Next's own docs
+          are unconditional on this — "The useSearchParams hook ALWAYS needs a
+          <Suspense> boundary, since search params are only known at request
+          time" — and the cost of omitting it is paid by everything around it:
+          calling it opts "the Client Component tree up to the closest Suspense
+          boundary" out of prerendering. From a layout above every org route,
+          that tree is every org route. The boundary keeps the blast radius to
+          this island, which renders nothing anyway until a tour is running. */}
+      <Suspense fallback={null}>
+        <TourMount />
+      </Suspense>
     </>
   );
 }

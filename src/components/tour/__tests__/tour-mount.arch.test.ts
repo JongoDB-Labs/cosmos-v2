@@ -23,6 +23,34 @@ describe("org layout keeps the walkthrough client-side", () => {
     expect(layout).not.toMatch(/<TourMount\s+[^/>]/);
   });
 
+  it("keeps the mount inside a Suspense boundary", () => {
+    // It calls useSearchParams(), and Next's docs are unconditional: that hook
+    // ALWAYS needs a boundary. Without one, calling it opts "the Client
+    // Component tree up to the closest Suspense boundary" out of prerendering —
+    // and from THIS layout that tree is every org route in the product.
+    //
+    // The previous shape had the boundary and lost it while fixing something
+    // else; nothing failed, because the cost does not show up as an error.
+    // Comments are stripped FIRST. The doc comment beside the mount explains
+    // why the boundary is there and quotes "<Suspense>" while doing it — and a
+    // naive count读 those as real boundaries, so the check passed against the
+    // very shape it exists to reject. Verified by reverting the layout: it must
+    // fail, and it does.
+    const code = layout
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    const mountAt = code.indexOf("<TourMount />");
+    expect(mountAt).toBeGreaterThan(-1);
+    const before = code.slice(0, mountAt);
+    const opens = (before.match(/<Suspense\b/g) ?? []).length;
+    const closes = (before.match(/<\/Suspense>/g) ?? []).length;
+    expect(
+      opens - closes,
+      "<TourMount /> must sit inside an open <Suspense> boundary",
+    ).toBeGreaterThan(0);
+  });
+
   it("does not resolve the session in the layout", () => {
     expect(layout).not.toContain("getAuthContext");
   });
