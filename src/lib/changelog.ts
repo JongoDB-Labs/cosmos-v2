@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.362.0",
+    date: "2026-09-14",
+    title: "Be walked through what changed, inside the product",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When a release adds something worth showing, the \u201cWhat\u2019s new\u201d notice now offers to walk you through it. The walkthrough takes you to each page in turn, says what to look at on your own data, and remembers where you stopped if you leave partway. At every step you can ask the assistant about what you are looking at, or send the team a question or a request \u2014 both open the assistant and feedback panels you already use, with the step you were on attached, so nothing you send needs explaining afterwards.",
+      },
+    ],
+  },
+  {
     version: "2.361.0",
     date: "2026-09-14",
     title: "Hand someone a temporary look at the product, and take it back",
