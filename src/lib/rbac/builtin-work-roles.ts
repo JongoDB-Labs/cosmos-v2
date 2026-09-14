@@ -45,6 +45,9 @@ export const BUILTIN_WORK_ROLES: BuiltinWorkRole[] = [
     // COMMENT_*, so none of it depended on this role.
     permissions: [
       "PROJECT_CREATE", "PROJECT_READ",
+      // Money for the projects they are ON, never the practice's book. The same
+      // scoping this role already applies to project administration.
+      "FINANCE_READ_PROJECT",
       "BOARD_CREATE", "BOARD_READ",
       "ITEM_CREATE", "ITEM_READ", "ITEM_UPDATE", "ITEM_ASSIGN",
       "SPRINT_READ",
@@ -99,23 +102,6 @@ export const BUILTIN_WORK_ROLES: BuiltinWorkRole[] = [
       "BOARD_READ", "BOARD_UPDATE", "SPRINT_READ", "PROJECT_READ",
       "COMMENT_CREATE", "COMMENT_READ",
       "TIME_READ", "NOTIFICATION_READ", "CHAT_USE",
-    ],
-  },
-  {
-    key: "builtin.project-manager",
-    name: "Project Manager",
-    description:
-      "Run projects end to end, including the money on the ones you are on — the fee, the burn and the billing decision, without the rest of the practice's book.",
-    permissions: [
-      "PROJECT_READ", "PROJECT_UPDATE",
-      "BOARD_READ", "SPRINT_READ",
-      "ITEM_READ", "ITEM_UPDATE", "ITEM_ASSIGN", "ITEM_CREATE",
-      // The point of this role: fees for YOUR projects, not the firm's book.
-      "FINANCE_READ_PROJECT",
-      "TIME_READ", "TIME_READ_ALL", "TIME_APPROVE",
-      "ANALYTICS_READ", "REPORT_CREATE",
-      "COMMENT_CREATE", "COMMENT_READ", "NOTE_READ",
-      "MEETING_READ", "NOTIFICATION_READ", "CHAT_USE",
     ],
   },
   {

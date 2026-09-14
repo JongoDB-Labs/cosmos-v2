@@ -4,12 +4,16 @@ import { Permission, permissionMaskFromKeys, maskToDb } from "./permissions";
 import { readFileSync } from "node:fs";
 
 describe("BUILTIN_WORK_ROLES catalog", () => {
-  it("has 9 entries with unique keys and names", () => {
-    expect(BUILTIN_WORK_ROLES).toHaveLength(9);
+  it("has 8 entries with unique keys and names", () => {
+    expect(BUILTIN_WORK_ROLES).toHaveLength(8);
     const keys = BUILTIN_WORK_ROLES.map((r) => r.key);
     const names = BUILTIN_WORK_ROLES.map((r) => r.name.toLowerCase());
-    expect(new Set(keys).size).toBe(8);
-    expect(new Set(names).size).toBe(8);
+    // Compared to the CATALOG LENGTH, not a literal. Against a literal this
+    // passed while the catalog held a duplicate key: the count was bumped to
+    // match the new length and the distinct-count still read as correct. The
+    // seed upserts by key, so a duplicate silently overwrites a role's grants.
+    expect(new Set(keys).size).toBe(BUILTIN_WORK_ROLES.length);
+    expect(new Set(names).size).toBe(BUILTIN_WORK_ROLES.length);
   });
   it("every key carries the reserved prefix", () => {
     for (const r of BUILTIN_WORK_ROLES) expect(r.key.startsWith(BUILTIN_KEY_PREFIX)).toBe(true);
@@ -75,21 +79,21 @@ describe("BUILTIN_WORK_ROLES catalog", () => {
     // run in production, and their literals must never be edited to match a
     // catalog they predate.
     const sql = readFileSync(
-      "prisma/migrations/20260801220000_project_manager_loses_time_approve/migration.sql",
+      "prisma/migrations/20260914190000_project_manager_gains_project_finance/migration.sql",
       "utf8",
     );
     const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
     expect(sql).toContain(maskToDb(permissionMaskFromKeys(pm.permissions)));
   });
 
-  it("the change from the previous re-sync is TIME_APPROVE and NOTHING else", () => {
+  it("the change from the previous re-sync is FINANCE_READ_PROJECT and NOTHING else", () => {
     // A mask literal is opaque. A typo, or an unrelated catalog edit made in the
     // same commit, would quietly revoke other permissions from 16 people and
     // look identical in review.
     const pm = BUILTIN_WORK_ROLES.find((r) => r.key === "builtin.project-manager")!;
-    const previous = 283954336511455713695124606159872n;
-    expect(previous - permissionMaskFromKeys(pm.permissions)).toBe(
-      Permission.TIME_APPROVE,
+    const previous = 283954317168642599861057810861056n;
+    expect(permissionMaskFromKeys(pm.permissions) - previous).toBe(
+      Permission.FINANCE_READ_PROJECT,
     );
   });
 
