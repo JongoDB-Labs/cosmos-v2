@@ -68,6 +68,14 @@ interface AppSidebarProps {
     enabledModules?: string[] | null;
     /** Fail-closed plugin axis: absent/empty = no plugin surfaces. */
     enabledPlugins?: string[];
+    /**
+     * Which top-level sections this ORG hides, and in what order.
+     *
+     * Read from the org rather than a shell-level prop: the sidebar re-renders
+     * across an org switch, and one shared prop would carry the previous org's
+     * choices into the new one for a paint.
+     */
+    navLayout?: { order?: string[]; hidden?: string[] };
   }[];
   user: {
     id: string;
@@ -121,7 +129,9 @@ export function AppSidebar({
       ),
       new Set(currentOrg?.enabledPlugins ?? []),
     ),
-    navLayout,
+    // Settings only ever CONSTRAIN: permission, entitlement and plugin
+    // filtering have already run, so hiding can never reveal anything.
+    navLayout ?? currentOrg?.navLayout,
   );
 
   // Every visible leaf href across the WHOLE nav (top-level leaves + all group
