@@ -142,6 +142,11 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
     if (parentIds) parent = { mode: "is", parentIds };
   }
 
+  // Opt-in, and only the exact string "1" turns it on — a stray
+  // `?includeArchived=false` must not read as truthy and quietly un-hide
+  // everything.
+  const includeArchived = params.get("includeArchived") === "1";
+
   const startFrom = params.get("startFrom") ?? undefined;
   const startTo = params.get("startTo") ?? undefined;
   const dueFrom = params.get("dueFrom") ?? undefined;
@@ -154,6 +159,7 @@ export function parseSearchParams(params: URLSearchParams): ParsedQuery {
   const customFields = parseCustomFieldParams(params);
 
   const filter: WorkItemFilter = {
+    includeArchived,
     projectIds: multi(params, "project"),
     typeIds: multi(params, "type"),
     columnKeys: multi(params, "status"),

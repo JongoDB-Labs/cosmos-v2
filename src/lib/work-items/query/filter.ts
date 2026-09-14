@@ -41,6 +41,17 @@ export interface WorkItemFilter {
   /** WorkItem.id values — direct id lookup (still intersected with RBAC project
    *  scope). Used to open a single item by id (e.g. a mention deep-link). */
   ids?: string[];
+  /**
+   * Include archived items. DEFAULT FALSE — archiving exists to get things out
+   * of the way, so a list that still showed them would not have archived
+   * anything.
+   *
+   * Opt-in rather than opt-out on purpose: a surface that forgets to filter
+   * should show too LITTLE (an archived duplicate stays hidden) rather than too
+   * much (the clutter comes back everywhere). The one place it is turned on is
+   * the view for finding something you archived by mistake.
+   */
+  includeArchived?: boolean;
   /** Project.id values — OR within, scoped to allowed projects by the builder. */
   projectIds?: string[];
   /** WorkItemType.id values. */

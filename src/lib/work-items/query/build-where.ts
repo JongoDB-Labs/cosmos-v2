@@ -59,6 +59,12 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
     projectId: { in: effectiveProjectIds },
   };
 
+  // ── Archived ────────────────────────────────────────────────────────
+  // Applied here, on the shared builder, so every surface that queries through
+  // it inherits it — search, export, facets, the single-row deep link, and the
+  // org-scoped API. A per-surface filter would be one more thing to forget.
+  if (!filter.includeArchived) where.archivedAt = null;
+
   const and: Prisma.WorkItemWhereInput[] = [];
 
   // ── Direct id lookup (deep-link to a single item) ────────────────────

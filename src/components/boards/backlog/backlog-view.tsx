@@ -34,7 +34,9 @@ import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { useOrgSlug } from "@/lib/query/keys";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
 import { highlightRowStyle } from "@/lib/work-items/highlights";
 import {
   resolveDrag,
@@ -279,6 +281,33 @@ export function BacklogView({
     },
   });
 
+  const orgSlug = useOrgSlug();
+
+  const archiveMutation = useOrgMutation<
+    unknown,
+    Error,
+    { id: string; archivedAt: string | null }
+  >({
+    mutationFn: ({ id, archivedAt }) =>
+      jsonFetch(`${basePath}/work-items/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ archivedAt }),
+      }),
+    invalidate: [["work-items", projectId]],
+    onMutate: ({ id, archivedAt }) => {
+      const previous = qc.getQueryData<WorkItem[]>(itemsKey);
+      qc.setQueryData<WorkItem[]>(itemsKey, (prev) =>
+        (prev ?? []).map((i) => (i.id === id ? { ...i, archivedAt } : i)),
+      );
+      return { previous };
+    },
+    onError: (err, _vars, context) => {
+      const ctx = context as { previous?: WorkItem[] } | undefined;
+      if (ctx?.previous) qc.setQueryData(itemsKey, ctx.previous);
+      notifyError(err, "Couldn't archive that item.");
+    },
+  });
+
   const highlightMutation = useOrgMutation<
     unknown,
     Error,
@@ -440,6 +469,18 @@ export function BacklogView({
       ];
       return [
         { label: "Move to sprint", items },
+        {
+          items: [
+            ...copyLinkAction(item, orgSlug),
+            ...archiveAction({
+              item,
+              canEdit: true,
+              pending: archiveMutation.isPending,
+              onToggle: (next) =>
+                archiveMutation.mutate({ id: item.id, archivedAt: next }),
+            }),
+          ],
+        },
         highlightMenuGroup({
           current: item.highlight,
           disabled: highlightMutation.isPending,
@@ -448,7 +489,7 @@ export function BacklogView({
         }),
       ];
     },
-    [intervals, assignMutation, highlightMutation],
+    [intervals, assignMutation, highlightMutation, archiveMutation, orgSlug],
   );
 
   if (loading) return <BacklogSkeleton />;

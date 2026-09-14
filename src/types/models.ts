@@ -89,6 +89,8 @@ export interface WorkItem {
    *  with `isWorkItemHighlight` before use — the column is plain TEXT, so an
    *  unrecognised value from another build can reach here. */
   highlight?: string | null;
+  /** Archived (out of the way, not deleted); null when active. */
+  archivedAt?: string | null;
   customFields: Record<string, unknown>;
   createdById: string;
   createdAt: string;

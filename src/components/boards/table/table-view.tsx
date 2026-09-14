@@ -9,6 +9,8 @@ import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
+import { useOrgSlug } from "@/lib/query/keys";
 import { highlightRowStyle } from "@/lib/work-items/highlights";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
@@ -117,6 +119,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [grouping, setGrouping] = useState<GroupingState>([]);
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
+  const orgSlug = useOrgSlug();
   const [density, setDensity] = useState<Density>("comfortable");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
@@ -303,6 +306,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       else if (field === "storyPoints") payload = { storyPoints: value ? Number(value) : null };
       else if (field === "columnKey") payload = { columnKey: value };
       else if (field === "highlight") payload = { highlight: value || null };
+      else if (field === "archivedAt") payload = { archivedAt: value || null };
       else if (field === "dueDate")
         payload = { dueDate: value ? new Date(value).toISOString() : null };
       else return;
@@ -533,6 +537,17 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         });
       }
 
+      groups.push({
+        items: [
+          ...copyLinkAction(item, orgSlug),
+          ...archiveAction({
+            item,
+            canEdit: canCreate,
+            onToggle: (next) => void saveEdit(item.id, "archivedAt", next ?? ""),
+          }),
+        ],
+      });
+
       groups.push(
         highlightMenuGroup({
           current: item.highlight,
@@ -557,7 +572,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
       return groups;
     },
-    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey, saveEdit],
+    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey, saveEdit, orgSlug],
   );
 
   const columnHelper = createColumnHelper<WorkItem>();

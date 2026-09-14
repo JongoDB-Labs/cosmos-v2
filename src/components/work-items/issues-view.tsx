@@ -40,8 +40,9 @@ import type { WorkItem, OrgMember, Interval, BoardColumn } from "@/types/models"
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { planTagAddition, type TagRowInfo } from "@/lib/work-items/bulk-tags";
 import { summarizeBulkDelete } from "@/lib/work-items/bulk-delete";
-import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
+import { AlertTriangle, ListFilter, Save, Search, X, Eye, ExternalLink, Link2, Trash2, Copy, Flag, Highlighter, Plus, Check, Download, Star, Archive, UserPlus, CheckCircle2, CalendarRange } from "lucide-react";
 import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction } from "@/lib/work-items/item-actions";
 import { highlightLabel, highlightRowStyle } from "@/lib/work-items/highlights";
 import {
   Dialog,
@@ -85,6 +86,8 @@ interface IssueRow {
    *  `@/lib/work-items/query/project` — that file's Prisma `select` has to
    *  carry it too, and tsc cannot check that it does. */
   highlight: string | null;
+  /** Archived (out of the way, not deleted); null when active. */
+  archivedAt: string | null;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
@@ -151,6 +154,10 @@ interface FilterState {
   updatedTo: string;
   /** FR 8702c9b8 — restrict to items the current user watches. */
   watchedByMe: boolean;
+  /** Show archived items as well as active ones. Off by default: archiving
+   *  exists to get things out of the way, so this is the one surface that
+   *  deliberately brings them back — it is where you go to undo one. */
+  showArchived: boolean;
 }
 
 /** Filter keys whose "inactive" value is an empty string (not the ANY
@@ -176,6 +183,7 @@ const EMPTY_FILTERS: FilterState = {
   updatedFrom: "",
   updatedTo: "",
   watchedByMe: false,
+  showArchived: false,
 };
 
 /** Build the search query string from the active filters + page. */
@@ -194,6 +202,7 @@ function toQueryString(f: FilterState, page: number, pageSize: number): string {
   if (f.updatedFrom) p.set("updatedFrom", f.updatedFrom);
   if (f.updatedTo) p.set("updatedTo", f.updatedTo);
   if (f.watchedByMe) p.set("watchedByMe", "1");
+  if (f.showArchived) p.set("includeArchived", "1");
   p.set("page", String(page));
   p.set("pageSize", String(pageSize));
   return p.toString();
@@ -359,6 +368,7 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
     () =>
       (Object.keys(filters) as (keyof FilterState)[]).filter((k) => {
         if (k === "watchedByMe") return filters.watchedByMe;
+        if (k === "showArchived") return filters.showArchived;
         return (STRING_FILTER_KEYS as readonly string[]).includes(k)
           ? (filters[k] as string).trim() !== ""
           : filters[k] !== ANY;
@@ -974,6 +984,16 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
                   ),
               })),
             },
+            ...archiveAction({
+              item: r,
+              canEdit: canUpdateItem,
+              onToggle: (next) =>
+                patch(
+                  { archivedAt: next },
+                  next ? "Archived" : "Restored from archive",
+                  next ? "Couldn't archive that item." : "Couldn't restore that item.",
+                ),
+            }),
             {
               label: "Highlight",
               icon: Highlighter,
@@ -1062,6 +1082,21 @@ export function IssuesView({ orgId, orgSlug }: { orgId: string; orgSlug: string 
           title="Show only the items you're watching"
         >
           <Star className={cn("h-4 w-4", filters.watchedByMe && "fill-current")} /> Watching
+        </button>
+        {/* Archived items are hidden everywhere else. This is the one place
+            they can be brought back into view — which is how somebody finds the
+            thing they archived by mistake and restores it. */}
+        <button
+          type="button"
+          onClick={() => set("showArchived", !filters.showArchived)}
+          aria-pressed={filters.showArchived}
+          className={cn(
+            buttonVariants({ variant: filters.showArchived ? "default" : "outline", size: "sm" }),
+            "gap-1.5",
+          )}
+          title="Include archived items in the results"
+        >
+          <Archive className="h-4 w-4" /> Archived
         </button>
         {/* Plain <a> (not Link): the route returns a Content-Disposition
             attachment, so this downloads the CSV without navigating away.

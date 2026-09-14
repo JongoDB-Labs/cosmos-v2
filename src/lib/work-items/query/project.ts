@@ -33,6 +33,8 @@ export interface IssueRow {
   tags: string[];
   /** Hand-set meeting callout colour; a `WORK_ITEM_HIGHLIGHTS` key or null. */
   highlight: string | null;
+  /** Archived (out of the way, not deleted); null when active. */
+  archivedAt: string | null;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
@@ -90,6 +92,7 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
         // runtime with a perfectly green type-check — Prisma's selected type is
         // inferred, so the interface below is a claim, not a constraint.
         highlight: true,
+        archivedAt: true,
         startDate: true,
         dueDate: true,
         completedAt: true,
@@ -200,6 +203,7 @@ export async function runWorkItemQuery(args: RunQueryArgs): Promise<RunQueryResu
       storyPoints: item.storyPoints,
       tags: item.tags,
       highlight: item.highlight,
+      archivedAt: item.archivedAt ? item.archivedAt.toISOString() : null,
       startDate: item.startDate ? item.startDate.toISOString() : null,
       dueDate: item.dueDate ? item.dueDate.toISOString() : null,
       completedAt: item.completedAt ? item.completedAt.toISOString() : null,

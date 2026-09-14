@@ -871,6 +871,20 @@ model WorkItem {
   // SAFe classification: BUSINESS = main-effort value; ENABLER = architecture /
   // infrastructure / compliance / exploration work that clears the way for it.
   workCategory    WorkCategory                @default(BUSINESS) @map("work_category")
+  /// Archived — out of the way, not destroyed. Null means active.
+  ///
+  /// Exists because tidying up is not deleting. The reported case was five
+  /// duplicates created by accident: the person who made them could not remove
+  /// them (deleting is ADMIN-only, deliberately) and ended up RENAMING them to
+  /// say "duplicate", which leaves the clutter and adds noise. Archiving is
+  /// gated on ITEM_UPDATE, so whoever can edit an item can also file it away,
+  /// and it is reversible — which is exactly why it can be a lower bar than
+  /// DELETE rather than a synonym for it.
+  ///
+  /// A timestamp rather than a boolean: "when was this put away" is the
+  /// question asked when something turns out to have been archived wrongly, and
+  /// null/non-null filters identically to a flag.
+  archivedAt      DateTime?                   @map("archived_at")
   tags            String[]                    @default([])
   /// Hand-set callout colour for meetings ("on track" / "at risk" / "blocked"),
   /// painted as a coloured border on the item's card. See
