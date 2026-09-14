@@ -35,6 +35,13 @@ const updateItemSchema = z.object({
   actualStart: z.string().datetime().nullable().optional(),
   completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
+  // Archive / unarchive. A timestamp in, or null to bring it back.
+  //
+  // It rides on this route rather than getting an endpoint of its own because
+  // it is gated on ITEM_UPDATE like every other field here — which is the whole
+  // point: archiving is editing, not deleting, so the person who made a mess can
+  // clear it up without being handed the ability to destroy anyone's work.
+  archivedAt: z.string().datetime().nullable().optional(),
   // Meeting callout colour. Validated against the palette on WRITE even though
   // reads deliberately tolerate an unknown key: the column is plain TEXT for
   // forward-compatibility with a NEWER build, which is not a licence for THIS
@@ -160,6 +167,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
       if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
       if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
+      if (data.archivedAt !== undefined)
+        updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
       if (data.highlight !== undefined) updateData.highlight = data.highlight;
       // Labels are NOT written here. `tags` is a mirror of the work_item_labels
       // rows now, so writing the array directly would leave the catalogue out of

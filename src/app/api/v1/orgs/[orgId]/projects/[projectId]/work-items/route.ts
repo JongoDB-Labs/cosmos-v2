@@ -70,6 +70,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const sp = request.nextUrl.searchParams;
     const where: Record<string, unknown> = { orgId, projectId };
 
+    // Archived items are out of the way by default. This route feeds the BOARD
+    // surfaces (kanban, table, backlog, timeline), which query it directly
+    // rather than through the shared where-builder — so the rule has to be
+    // stated in both places, and `archive-filtering.arch.test.ts` pins that it
+    // is. `?includeArchived=1` is how the "show archived" view gets them back.
+    if (sp.get("includeArchived") !== "1") where.archivedAt = null;
+
     if (sp.get("workItemTypeId")) where.workItemTypeId = sp.get("workItemTypeId");
     if (sp.get("priority")) where.priority = sp.get("priority");
     if (sp.get("columnKey")) where.columnKey = sp.get("columnKey");
