@@ -18,13 +18,13 @@ interface TourContextValue {
 const TourContext = createContext<TourContextValue | null>(null);
 
 /** Where this browser left off in a given tour, or 0. */
-function readProgress(version: string): number {
+function readProgress(tourId: string): number {
   if (typeof window === "undefined") return 0;
   try {
     const raw = window.localStorage.getItem(PROGRESS_KEY);
     if (!raw) return 0;
     const map = JSON.parse(raw) as Record<string, number>;
-    const n = map[version];
+    const n = map[tourId];
     return typeof n === "number" && n >= 0 ? n : 0;
   } catch {
     // A private window, cleared storage, or a value some earlier version wrote
@@ -34,12 +34,12 @@ function readProgress(version: string): number {
   }
 }
 
-function writeProgress(version: string, index: number) {
+function writeProgress(tourId: string, index: number) {
   if (typeof window === "undefined") return;
   try {
     const raw = window.localStorage.getItem(PROGRESS_KEY);
     const map = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-    map[version] = index;
+    map[tourId] = index;
     window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(map));
   } catch {
     /* progress is a convenience, never a requirement */
@@ -53,7 +53,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   const start = useCallback((t: Tour, at?: number) => {
     // Resume where they stopped unless the caller names a step. Somebody
     // returning to a tour they abandoned halfway does not want to start again.
-    const from = typeof at === "number" ? at : readProgress(t.version);
+    const from = typeof at === "number" ? at : readProgress(t.id);
     setIndex(Math.min(Math.max(0, from), Math.max(0, t.steps.length - 1)));
     setTour(t);
   }, []);
@@ -64,7 +64,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
         if (!cur) return cur;
         const clamped = Math.min(Math.max(0, i), cur.steps.length - 1);
         setIndex(clamped);
-        writeProgress(cur.version, clamped);
+        writeProgress(cur.id, clamped);
         return cur;
       });
     },
@@ -76,7 +76,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
       if (!cur) return cur;
       setIndex((i) => {
         const n = Math.min(i + 1, cur.steps.length - 1);
-        writeProgress(cur.version, n);
+        writeProgress(cur.id, n);
         return n;
       });
       return cur;
@@ -88,7 +88,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
       if (!cur) return cur;
       setIndex((i) => {
         const n = Math.max(i - 1, 0);
-        writeProgress(cur.version, n);
+        writeProgress(cur.id, n);
         return n;
       });
       return cur;

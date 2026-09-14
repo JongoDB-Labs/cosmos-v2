@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTour } from "@/components/tour/tour-provider";
-import { toursForVersion } from "@/lib/tours/registry";
+import { nextUnseenTour } from "@/lib/tours/registry";
+import { readSeenTours, markTourSeen } from "@/lib/tours/seen";
 import { PluginRegistry } from "@/lib/plugins/registry";
 import { useEnabledPlugins } from "@/components/plugins/plugin-slot";
 import { Sparkles, ArrowUpCircle, Bug } from "lucide-react";
@@ -53,10 +54,14 @@ function formatDate(iso: string): string {
 export function WhatsNew() {
   const { start } = useTour();
   const enabledPlugins = useEnabledPlugins();
-  // A tour for the running version, from core or from a plugin this org has
-  // enabled. Only the first is offered: two "walk me through it" buttons for one
-  // release is a choice nobody asked to make.
-  const tour = toursForVersion(CURRENT_VERSION, PluginRegistry.getAll(), enabledPlugins)[0];
+  // The newest tour this reader has not been offered, from core or from a plugin
+  // this org has enabled. Deliberately NOT keyed to the running version:
+  // whoever ships tours does so on their own cadence, and a plugin releasing
+  // weekly should not have to name a core version it has nothing to do with.
+  //
+  // Undefined on every deployment that contributes no tours, which is what keeps
+  // this invisible to anyone who has not asked for it.
+  const tour = nextUnseenTour(PluginRegistry.getAll(), enabledPlugins, readSeenTours());
   const [open, setOpen] = useState(false);
   const [releases, setReleases] = useState<Release[]>([]);
 
@@ -164,6 +169,9 @@ export function WhatsNew() {
               variant="ghost"
               onClick={() => {
                 handleOpenChange(false);
+                // Offered once. Declining is an answer, and re-asking every load
+                // would turn the offer into nagging.
+                markTourSeen(tour.id);
                 start(tour, 0);
               }}
             >

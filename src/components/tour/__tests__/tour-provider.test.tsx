@@ -9,9 +9,10 @@ import { TourProvider, useTour } from "../tour-provider";
 import type { Tour } from "@/lib/tours/types";
 
 const TOUR: Tour = {
-  version: "9.9.9",
+  id: "test-tour",
   name: "Test",
   summary: "",
+  released: "2026-01-01",
   steps: [
     { id: "a", title: "A", blurb: "", look: "" },
     { id: "b", title: "B", blurb: "", look: "" },
@@ -23,7 +24,7 @@ function Harness({ at }: { at?: number }) {
   const { tour, index, start, next, back, stop } = useTour();
   return (
     <div>
-      <span data-testid="state">{tour ? tour.version + ":" + index : "idle"}</span>
+      <span data-testid="state">{tour ? tour.id + ":" + index : "idle"}</span>
       <button onClick={() => start(TOUR, at)}>start</button>
       <button onClick={next}>next</button>
       <button onClick={back}>back</button>
@@ -42,20 +43,20 @@ describe("stepping", () => {
     render(<TourProvider><Harness /></TourProvider>);
     expect(state()).toBe("idle");
     click("start");
-    expect(state()).toBe("9.9.9:0");
+    expect(state()).toBe("test-tour:0");
     click("next");
-    expect(state()).toBe("9.9.9:1");
+    expect(state()).toBe("test-tour:1");
     click("back");
-    expect(state()).toBe("9.9.9:0");
+    expect(state()).toBe("test-tour:0");
   });
 
   it("clamps at both ends rather than running off the tour", () => {
     render(<TourProvider><Harness /></TourProvider>);
     click("start");
     click("back");
-    expect(state()).toBe("9.9.9:0");
+    expect(state()).toBe("test-tour:0");
     click("next"); click("next"); click("next"); click("next");
-    expect(state()).toBe("9.9.9:2");
+    expect(state()).toBe("test-tour:2");
   });
 
   it("stop leaves the tour, and nothing renders for it", () => {
@@ -69,11 +70,11 @@ describe("resume", () => {
   it("comes back to where they stopped", () => {
     const { unmount } = render(<TourProvider><Harness /></TourProvider>);
     click("start"); click("next"); click("next");
-    expect(state()).toBe("9.9.9:2");
+    expect(state()).toBe("test-tour:2");
     unmount();
     render(<TourProvider><Harness /></TourProvider>);
     click("start");
-    expect(state()).toBe("9.9.9:2");
+    expect(state()).toBe("test-tour:2");
   });
 
   it("an explicit step wins over the remembered one", () => {
@@ -84,14 +85,14 @@ describe("resume", () => {
     const starts = screen.getAllByText("start");
     fireEvent.click(starts[starts.length - 1]);
     const states = screen.getAllByTestId("state");
-    expect(states[states.length - 1].textContent).toBe("9.9.9:0");
+    expect(states[states.length - 1].textContent).toBe("test-tour:0");
   });
 
   it("clamps a remembered step that is past the end of a shortened tour", () => {
-    window.localStorage.setItem("cosmos:tour-progress", JSON.stringify({ "9.9.9": 99 }));
+    window.localStorage.setItem("cosmos:tour-progress", JSON.stringify({ "test-tour": 99 }));
     render(<TourProvider><Harness /></TourProvider>);
     click("start");
-    expect(state()).toBe("9.9.9:2");
+    expect(state()).toBe("test-tour:2");
   });
 });
 
@@ -100,14 +101,14 @@ describe("storage that lies", () => {
     window.localStorage.setItem("cosmos:tour-progress", "{not json");
     render(<TourProvider><Harness /></TourProvider>);
     expect(() => click("start")).not.toThrow();
-    expect(state()).toBe("9.9.9:0");
+    expect(state()).toBe("test-tour:0");
   });
 
   it("starts from the beginning when the stored shape is wrong", () => {
-    window.localStorage.setItem("cosmos:tour-progress", JSON.stringify({ "9.9.9": "two" }));
+    window.localStorage.setItem("cosmos:tour-progress", JSON.stringify({ "test-tour": "two" }));
     render(<TourProvider><Harness /></TourProvider>);
     click("start");
-    expect(state()).toBe("9.9.9:0");
+    expect(state()).toBe("test-tour:0");
   });
 
   it("keeps working when storage throws on read and on write", () => {
@@ -117,7 +118,7 @@ describe("storage that lies", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
     render(<TourProvider><Harness /></TourProvider>);
     expect(() => { click("start"); click("next"); }).not.toThrow();
-    expect(state()).toBe("9.9.9:1");
+    expect(state()).toBe("test-tour:1");
   });
 });
 

@@ -76,7 +76,7 @@ export function TourCard({ orgSlug }: { orgSlug: string }) {
             onClick={() =>
               openDrawer("assistant", {
                 body: step.ask ?? `Tell me about "${step.title}".`,
-                source: `tour:${tour.version}:${step.id}`,
+                source: `tour:${tour.id}:${step.id}`,
               })
             }
           >
@@ -91,7 +91,7 @@ export function TourCard({ orgSlug }: { orgSlug: string }) {
                 // The step goes in the body, not the title: a title somebody did
                 // not write is a title they will send without reading.
                 body: `\n\n— raised from the ${tour.name} tour, step "${step.title}"`,
-                source: `tour:${tour.version}:${step.id}`,
+                source: `tour:${tour.id}:${step.id}`,
               })
             }
           >
