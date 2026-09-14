@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.366.0",
+    date: "2026-09-14",
+    title: "Archive a ticket, and copy a link to one from anywhere",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Tickets can now be ARCHIVED \u2014 put out of the way without being destroyed. Archived tickets disappear from boards, lists, counts and search, and can be brought back from the Issues page using the new \u201CArchived\u201D toggle. Anyone who can edit a ticket can archive it, which is the point: clearing up duplicates should not require the ability to permanently delete other people's work. Deleting is unchanged and still restricted to admins.",
+      },
+      {
+        kind: "feature",
+        text: "\u201CCopy link\u201D is now on every card and row \u2014 the board, the table, the backlog and the ticket panel \u2014 not just the Issues list. Getting a shareable link to a ticket previously meant reading its internal id out of the browser's network traffic.",
+      },
+      {
+        kind: "improvement",
+        text: "A ticket link can now use the ticket's own key. /issues?item=ACME-320 opens that ticket, so a link can be typed from memory instead of copied. The internal id still works.",
+      },
+    ],
+  },
+  {
     version: "2.365.0",
     date: "2026-09-14",
     title: "API keys actually work now",
