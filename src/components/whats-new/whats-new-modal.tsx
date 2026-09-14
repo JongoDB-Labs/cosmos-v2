@@ -6,6 +6,7 @@ import { nextUnseenTour } from "@/lib/tours/registry";
 import { readSeenTours, markTourSeen } from "@/lib/tours/seen";
 import { PluginRegistry } from "@/lib/plugins/registry";
 import { useEnabledPlugins } from "@/components/plugins/plugin-slot";
+import { usePermissions } from "@/components/providers/permissions-provider";
 import { Sparkles, ArrowUpCircle, Bug } from "lucide-react";
 import {
   Dialog,
@@ -54,6 +55,7 @@ function formatDate(iso: string): string {
 export function WhatsNew() {
   const { start } = useTour();
   const enabledPlugins = useEnabledPlugins();
+  const { permissions } = usePermissions();
   // The newest tour this reader has not been offered, from core or from a plugin
   // this org has enabled. Deliberately NOT keyed to the running version:
   // whoever ships tours does so on their own cadence, and a plugin releasing
@@ -61,7 +63,7 @@ export function WhatsNew() {
   //
   // Undefined on every deployment that contributes no tours, which is what keeps
   // this invisible to anyone who has not asked for it.
-  const tour = nextUnseenTour(PluginRegistry.getAll(), enabledPlugins, readSeenTours());
+  const tour = nextUnseenTour(PluginRegistry.getAll(), enabledPlugins, readSeenTours(), permissions);
   const [open, setOpen] = useState(false);
   const [releases, setReleases] = useState<Release[]>([]);
 

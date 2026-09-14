@@ -122,11 +122,12 @@ export function BilledHoursCell({
     <span className="text-xs text-[var(--text-muted)]">as logged</span>
   );
 
-  if (!billable) return label;
+  if (!billable) return <span data-tour="billed-hours">{label}</span>;
 
   return (
     <button
       type="button"
+      data-tour="billed-hours"
       className="group inline-flex items-center gap-1 rounded px-1 hover:bg-[var(--surface-hover)]"
       onClick={() => {
         setValue(decided ? String(entry.billedHours) : String(entry.hours));

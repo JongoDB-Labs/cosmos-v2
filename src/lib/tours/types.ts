@@ -27,6 +27,16 @@ export interface TourStep {
    */
   asks?: string[];
   /**
+   * Permissions that make this step reachable — ANY one suffices. Omit for a
+   * step everybody can follow.
+   *
+   * A step is only worth showing to somebody who can act on it. Without this a
+   * walkthrough sends a reader to a page their role redirects away from, and the
+   * walkthrough is where they learn they are not trusted with it — which is a
+   * worse first impression than never offering the step at all.
+   */
+  anyOf?: bigint[];
+  /**
    * The element this step is about, matched as [data-tour="<anchor>"].
    *
    * A deliberate attribute rather than a CSS selector into somebody else's

@@ -3,6 +3,7 @@
 import { Compass, Check } from "lucide-react";
 import { PluginRegistry } from "@/lib/plugins/registry";
 import { useEnabledPlugins } from "@/components/plugins/plugin-slot";
+import { usePermissions } from "@/components/providers/permissions-provider";
 import { availableTours } from "@/lib/tours/registry";
 import { readSeenTours, markTourSeen } from "@/lib/tours/seen";
 import { useTour } from "./tour-provider";
@@ -21,8 +22,9 @@ import { cn } from "@/lib/utils";
  */
 export function TourLauncher({ onPick }: { onPick?: () => void }) {
   const enabled = useEnabledPlugins();
+  const { permissions } = usePermissions();
   const { start } = useTour();
-  const tours = availableTours(PluginRegistry.getAll(), enabled);
+  const tours = availableTours(PluginRegistry.getAll(), enabled, permissions);
   if (tours.length === 0) return null;
   const seen = readSeenTours();
 

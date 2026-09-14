@@ -5,6 +5,7 @@ import { Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PluginRegistry } from "@/lib/plugins/registry";
 import { useEnabledPlugins } from "@/components/plugins/plugin-slot";
+import { usePermissions } from "@/components/providers/permissions-provider";
 import { availableTours } from "@/lib/tours/registry";
 import { TourLauncher } from "./tour-launcher";
 
@@ -17,6 +18,7 @@ import { TourLauncher } from "./tour-launcher";
  */
 export function TourMenu() {
   const enabled = useEnabledPlugins();
+  const { permissions } = usePermissions();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -36,7 +38,7 @@ export function TourMenu() {
     };
   }, [open]);
 
-  if (availableTours(PluginRegistry.getAll(), enabled).length === 0) return null;
+  if (availableTours(PluginRegistry.getAll(), enabled, permissions).length === 0) return null;
 
   return (
     <div className="relative" ref={ref}>

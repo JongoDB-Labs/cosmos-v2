@@ -53,6 +53,7 @@ export function TourAsk({
         body: JSON.stringify({ title: `${tourName}: ${step.title}` }),
         signal: ctl.signal,
       });
+      if (convRes.status === 403) throw new Error("forbidden");
       if (!convRes.ok) throw new Error("conversation");
       const conv = (await convRes.json()) as { data?: { id?: string }; id?: string };
       const conversationId = conv.data?.id ?? conv.id;
@@ -72,6 +73,7 @@ export function TourAsk({
           signal: ctl.signal,
         },
       );
+      if (res.status === 403) throw new Error("forbidden");
       if (!res.ok || !res.body) throw new Error("send");
 
       // Read whatever the stream gives us and show it as it arrives. Server-sent
@@ -109,7 +111,11 @@ export function TourAsk({
       if (!text) setError("No answer came back. The assistant may not be connected yet.");
     } catch (e) {
       if ((e as Error)?.name === "AbortError") return;
-      setError("Couldn't ask just now.");
+      setError(
+        (e as Error)?.message === "forbidden"
+          ? "Your role cannot use the assistant, so this step has no Q&A."
+          : "Couldn't ask just now.",
+      );
     } finally {
       setBusy(false);
     }

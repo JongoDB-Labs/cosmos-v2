@@ -31,7 +31,7 @@ export function TourMount() {
   // Org identity from context, never a server read: this mounts in a layout
   // above every org route, and an awaited read there fails the prerender for
   // all of them.
-  const { orgId } = usePermissions();
+  const { orgId, permissions } = usePermissions();
   const orgSlug = (pathname || "/").split("/")[1] || "";
   const requested = params.get("tour");
 
@@ -40,7 +40,7 @@ export function TourMount() {
     // Once per id: the param survives the navigations the tour itself performs,
     // and restarting on every step would pin it to step one forever.
     if (startedRef.current === requested) return;
-    const tour = tourById(requested, PluginRegistry.getAll(), enabled);
+    const tour = tourById(requested, PluginRegistry.getAll(), enabled, permissions);
     if (!tour) return;
     startedRef.current = requested;
     markTourSeen(tour.id);

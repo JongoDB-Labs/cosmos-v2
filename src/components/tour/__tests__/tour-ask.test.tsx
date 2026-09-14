@@ -88,3 +88,23 @@ describe("when the assistant cannot answer", () => {
     );
   });
 });
+
+// A refusal is not a hiccup. "Couldn't ask just now" invites a retry that can
+// never succeed and hides a role problem behind a transient-sounding word.
+it("says the role cannot use the assistant when the endpoint refuses", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) }) as unknown as Response),
+  );
+  render(<TourAsk orgId="o1" step={step} tourName="T" />);
+  fireEvent.click(screen.getByText("How is runway calculated?"));
+  expect(await screen.findByText(/role cannot use the assistant/i)).toBeInTheDocument();
+  expect(screen.queryByText(/just now/i)).not.toBeInTheDocument();
+});
+
+it("still reports a genuine transient failure as transient", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as unknown as Response));
+  render(<TourAsk orgId="o1" step={step} tourName="T" />);
+  fireEvent.click(screen.getByText("How is runway calculated?"));
+  expect(await screen.findByText(/just now/i)).toBeInTheDocument();
+});
