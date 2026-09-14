@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.364.0",
+    date: "2026-09-14",
+    title: "Walkthroughs follow what your role can actually reach",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A walkthrough step can now name the permissions it needs, and steps a reader cannot reach are left out rather than sending them to a page that redirects. A walkthrough whose every step is out of reach is not offered at all.",
+      },
+      {
+        kind: "fix",
+        text: "Asking a question inside a walkthrough is offered only to people whose role can use the assistant. Where it is refused, the card now says so plainly instead of reporting a temporary problem and inviting a retry that could never succeed.",
+      },
+    ],
+  },
+  {
     version: "2.363.1",
     date: "2026-09-14",
     title: "Walkthrough answers are formatted properly",

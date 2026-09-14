@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import { useTour } from "./tour-provider";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import { Permission } from "@/lib/rbac/permissions";
 import { useAnchor, scrollAnchorIntoView } from "./use-anchor";
 import { TourAsk } from "./tour-ask";
 import { TourFeedback } from "./tour-feedback";
@@ -30,6 +32,8 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
   const router = useRouter();
   const pathname = usePathname();
   const [panel, setPanel] = useState<"none" | "ask" | "feedback">("none");
+  const { can } = usePermissions();
+  const canAsk = can(Permission.CHAT_USE);
 
   const step = tour ? tour.steps[index] : null;
   const target = step?.href ? `/${orgSlug}${step.href}` : null;
@@ -122,14 +126,20 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant={panel === "ask" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setPanel((p) => (p === "ask" ? "none" : "ask"))}
-            >
-              <Sparkles className="mr-1 size-3.5" />
-              Ask about this
-            </Button>
+            {/* Offered only to somebody the assistant will actually answer. The
+                endpoint requires CHAT_USE, which VIEWER does not hold — and a
+                demo pass is a VIEWER by default, so without this the headline
+                feature fails for exactly the reader it was built to impress. */}
+            {canAsk && (
+              <Button
+                variant={panel === "ask" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setPanel((p) => (p === "ask" ? "none" : "ask"))}
+              >
+                <Sparkles className="mr-1 size-3.5" />
+                Ask about this
+              </Button>
+            )}
             <Button
               variant={panel === "feedback" ? "secondary" : "ghost"}
               size="sm"
@@ -140,7 +150,7 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
             </Button>
           </div>
 
-          {panel === "ask" && <TourAsk orgId={orgId} step={step} tourName={tour.name} />}
+          {panel === "ask" && canAsk && <TourAsk orgId={orgId} step={step} tourName={tour.name} />}
           {panel === "feedback" && (
             <TourFeedback orgId={orgId} step={step} tourName={tour.name} tourId={tour.id} />
           )}
