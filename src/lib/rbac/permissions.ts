@@ -157,6 +157,22 @@ export const Permission = {
   // reusing TIME_APPROVE: finance reads all time without approving any, and a
   // supervisor approves without needing the money. See lib/time/visibility.ts.
   TIME_READ_ALL: 1n << 118n,
+
+  // Finance — but only for projects the holder is actually on.
+  //
+  // FINANCE_READ is the whole practice's book: every fee, every project,
+  // whether or not you have anything to do with it. That is a principal's view,
+  // and making it the only way to see money forced a choice nobody should have
+  // to make — either a project manager cannot see the fee they are managing to,
+  // or they are made an org admin and pick up user management, audit logs, API
+  // keys and security settings on the way.
+  //
+  // This is the narrower grant: the same figures, restricted to projects the
+  // holder is a member of. FINANCE_READ still implies it; a holder of this
+  // alone sees nothing outside their own work.
+  //
+  // The same own/all split TIME_READ and TIME_READ_ALL already make.
+  FINANCE_READ_PROJECT: 1n << 121n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -232,6 +248,7 @@ export const RolePermissions = {
     Permission.NOTE_DELETE,
     Permission.NOTIFICATION_READ,
     Permission.FINANCE_READ,
+    Permission.FINANCE_READ_PROJECT,
     Permission.FINANCE_MANAGE,
     Permission.EXPENSE_APPROVE,
     Permission.ACCOUNTING_READ,
@@ -280,11 +297,19 @@ export const RolePermissions = {
     Permission.ORG_READ,
     Permission.ORG_MANAGE_BILLING,
     Permission.FINANCE_READ,
+    Permission.FINANCE_READ_PROJECT,
     Permission.FINANCE_MANAGE,
     Permission.EXPENSE_APPROVE,
     Permission.ACCOUNTING_READ,
     Permission.ACCOUNTING_MANAGE,
     Permission.ACCOUNTING_CLOSE,
+    // The billing role could not bill. Deciding what an entry bills is the
+    // job this role is named for, and it needs to see the work to bill it:
+    // the delivery screens are where hours meet the phase they belong to.
+    Permission.PROJECT_READ,
+    Permission.TIME_READ,
+    Permission.TIME_READ_ALL,
+    Permission.TIME_BILL,
   ),
 
   MEMBER: combine(

@@ -4,8 +4,8 @@ import { Permission, permissionMaskFromKeys, maskToDb } from "./permissions";
 import { readFileSync } from "node:fs";
 
 describe("BUILTIN_WORK_ROLES catalog", () => {
-  it("has 8 entries with unique keys and names", () => {
-    expect(BUILTIN_WORK_ROLES).toHaveLength(8);
+  it("has 9 entries with unique keys and names", () => {
+    expect(BUILTIN_WORK_ROLES).toHaveLength(9);
     const keys = BUILTIN_WORK_ROLES.map((r) => r.key);
     const names = BUILTIN_WORK_ROLES.map((r) => r.name.toLowerCase());
     expect(new Set(keys).size).toBe(8);

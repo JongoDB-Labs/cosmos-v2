@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.367.0",
+    date: "2026-09-14",
+    title: "Money you can see for your own projects, and a billing role that can bill",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Finance access can now be granted for the projects somebody is actually on, rather than the whole organisation's book. The built-in Project Manager role carries it, so running a project no longer means being made an administrator with user management and audit logs attached.",
+      },
+      {
+        kind: "fix",
+        text: "The Billing Admin role could not set billed hours, which is the job it is named for. It can now, and can see the delivery screens where hours meet the phase they belong to.",
+      },
+    ],
+  },
+  {
     version: "2.366.0",
     date: "2026-09-14",
     title: "Archive a ticket, and copy a link to one from anywhere",
