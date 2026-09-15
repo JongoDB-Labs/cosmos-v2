@@ -1,0 +1,13 @@
+-- Project-scoped API keys: a key may be limited to specific projects instead of
+-- the whole org, the way a fine-grained token is limited to specific repos.
+--
+-- DEFAULT '{}' is load-bearing. Empty means ORG-WIDE — every project the minting
+-- user can reach — which is exactly what every key issued before this column
+-- existed already had. Backfilling anything else would silently narrow keys that
+-- are in use.
+--
+-- Stored as ids rather than keys: a project can be renamed, and a key's reach
+-- must not change when someone edits a label. Nothing enforces referential
+-- integrity here on purpose — a deleted project simply stops matching, which is
+-- the correct outcome for a ceiling and avoids a FK that would block deletion.
+ALTER TABLE "api_keys" ADD COLUMN "project_ids" TEXT[] NOT NULL DEFAULT '{}';

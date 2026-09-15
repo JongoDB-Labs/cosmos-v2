@@ -1,6 +1,6 @@
 {
   "name": "cosmos-v2",
-  "version": "2.330.0",
+  "version": "2.368.6",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -20,6 +20,7 @@
     "sync": "node scripts/plugins/sync.mjs",
     "sync:watch": "node scripts/plugins/sync.mjs --watch",
     "seed:demo": "tsx prisma/seed/demo-defense.ts && tsx prisma/seed/demo-defense-extra.ts && tsx prisma/seed/demo-defense-fill.ts && tsx prisma/seed/demo-defense-pm.ts",
+    "demo:pass": "tsx scripts/demo-pass.ts",
     "seed:demo:teardown": "tsx prisma/seed/demo-defense-teardown.ts",
     "seed:roadmap": "tsx prisma/seed/roadmap-import.ts",
     "test:arch": "vitest run arch.test.ts",
@@ -80,7 +81,7 @@
     "lexical": "^0.49.0",
     "lucide-react": "^1.30.0",
     "mammoth": "^1.12.0",
-    "next": "16.3.0",
+    "next": "16.3.4",
     "next-themes": "^0.4.6",
     "node-html-parser": "^9.0.1",
     "nuqs": "^2.9.4",

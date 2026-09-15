@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { SectorKey } from "@/lib/entitlements/modules";
+import type { Tour } from "@/lib/tours/types";
 // TYPE-ONLY import — erased at compile time, so no runtime cycle with nav-config
 // (nav-config never imports this file; composition lives in nav-plugins.ts).
 import type { NavEntry } from "@/components/layouts/nav-config";
@@ -90,6 +91,16 @@ export type PluginManifest = {
   /** Components this plugin renders into core UI slots (see PluginSlotProps). Rendered
    *  by <PluginSlot> ONLY when the plugin is enabled for the org (fail-closed). */
   slots?: PluginSlots;
+  /**
+   * Guided walks through what a release of THIS plugin changed.
+   *
+   * They live with the plugin rather than in core for the same reason its pages
+   * do: core cannot name a plugin's routes, and a tour whose steps are written
+   * anywhere other than beside the feature drifts from it. Offered only while
+   * the plugin is enabled — otherwise a step would navigate somewhere the org
+   * cannot reach.
+   */
+  tours?: Tour[];
 };
 
 /**

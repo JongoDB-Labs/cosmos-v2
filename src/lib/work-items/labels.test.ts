@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { createFixtureWorkItem } from "@/lib/testing/db-fixtures";
 import {
   normalizeLabelNames,
   recomputeTagMirror,
@@ -40,22 +41,15 @@ describe("work-item labels (e2e DB)", () => {
       where: { OR: [{ orgId: org.id }, { orgId: null }] },
     });
     const author = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
-    const last = await prisma.workItem.findFirst({
-      where: { projectId: project.id },
-      orderBy: { ticketNumber: "desc" },
-      select: { ticketNumber: true },
-    });
-    const item = await prisma.workItem.create({
-      data: {
-        orgId: org.id,
-        projectId: project.id,
-        ticketNumber: (last?.ticketNumber ?? 0) + 1,
-        title: `labels fixture ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        description: "",
-        columnKey: "todo",
-        workItemTypeId: type.id,
-        createdById: author.id,
-      },
+    // See the note in db-fixtures: `max + 1` computed inline races the other
+    // DB-backed spec files, which resolve the same org and the same project.
+    const item = await createFixtureWorkItem({
+      orgId: org.id,
+      projectId: project.id,
+      workItemTypeId: type.id,
+      createdById: author.id,
+      title: `labels fixture ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      columnKey: "todo",
     });
     created.workItemIds.push(item.id);
     return { org, item };

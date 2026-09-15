@@ -216,7 +216,13 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
   it("links a mention notification to a work-item route that EXISTS (/issues?item=)", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
     getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
-    prisma.orgMember.findMany.mockResolvedValue([{ userId: MENTIONED_ID }]);
+    prisma.orgMember.findMany.mockResolvedValue([
+      // Shaped like the route's SELECT, which pulls the display name so the
+      // notification body can name who was mentioned. A mock that returns only
+      // `userId` made `m.user.displayName` throw INSIDE the route's
+      // best-effort catch — so the notification silently never fired.
+      { userId: MENTIONED_ID, user: { displayName: "Mentioned Person" } },
+    ]);
     persistedWithContent(`Take a look <@${MENTIONED_ID}>`);
 
     const res = await POST(postRequest(`Take a look <@${MENTIONED_ID}>`), { params });
@@ -234,10 +240,35 @@ describe("POST /work-items/[itemId]/comments — mention notification link (COSM
     expect(call.url).not.toContain("work-items");
   });
 
+  it("names the mentioned person in the body, and never shows a raw id", async () => {
+    // The body used to be a hardcoded "@user", so it told the recipient someone
+    // had been mentioned and never who — including when it was them.
+    //
+    // This assertion is what the suite was missing: the tests above check only
+    // THAT a notification fired, so when the display-name lookup started
+    // throwing inside the route's best-effort catch, "0 notifications" was the
+    // only symptom and the cause was invisible.
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
+    prisma.orgMember.findMany.mockResolvedValue([
+      { userId: MENTIONED_ID, user: { displayName: "Dana Scully" } },
+    ]);
+    persistedWithContent(`Take a look <@${MENTIONED_ID}>`);
+
+    await POST(postRequest(`Take a look <@${MENTIONED_ID}>`), { params });
+
+    const { message } = createNotification.mock.calls[0][0];
+    expect(message).toBe("Take a look @Dana Scully");
+    expect(message).not.toContain("@user");
+    expect(message).not.toContain(MENTIONED_ID);
+    expect(message).not.toContain("<@");
+  });
+
   it("does not notify the author when they mention themselves", async () => {
     getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
     getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
-    prisma.orgMember.findMany.mockResolvedValue([{ userId: ACTOR_ID }]);
+    prisma.orgMember.findMany.mockResolvedValue([
+      { userId: ACTOR_ID, user: { displayName: "The Actor" } },
+    ]);
     persistedWithContent(`note to self <@${ACTOR_ID}>`);
 
     const res = await POST(postRequest(`note to self <@${ACTOR_ID}>`), { params });

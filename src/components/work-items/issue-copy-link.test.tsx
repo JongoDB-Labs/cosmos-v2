@@ -64,11 +64,19 @@ describe("Copy link call site", () => {
   const SRC = "src/components/work-items/issues-view.tsx";
   const src = readFileSync(SRC, "utf8");
 
-  /** The `{ label: "Copy link", … }` menu entry, up to the end of its handler. */
+  /** The `{ label: "Copy link", … }` menu entry, up to the end of its handler.
+   *
+   *  The window is a crude delimiter, not part of the contract — it only has to
+   *  be wide enough to contain the handler INCLUDING its comments. It was 900
+   *  and a comment explaining why the link carries the ticket key rather than
+   *  the uuid pushed the call past the edge, failing a test about something
+   *  else entirely. Widened rather than shortening the comment: the assertion
+   *  is "this handler uses entityUrl", and how much prose sits beside it is not
+   *  the thing being tested. */
   function copyLinkHandler(): string {
     const i = src.indexOf('label: "Copy link"');
     expect(i).toBeGreaterThan(-1); // not vacuous: the entry must exist
-    return src.slice(i, i + 900);
+    return src.slice(i, i + 1800);
   }
 
   it("builds the copied URL with entityUrl", () => {

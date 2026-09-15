@@ -87,7 +87,11 @@ export function ThreadPane({
         ) ?? [],
       );
     },
-  });
+  }, 
+  // Same reason as the channel feed: this pane patches its own cache from
+  // event payloads, so a gap in the stream leaves it silently wrong.
+  { onResync: () => void qc.invalidateQueries({ queryKey: threadKey }) },
+);
 
   const userSeed = useMemo(() => {
     const m = new Map<string, ResolvedEntity>();

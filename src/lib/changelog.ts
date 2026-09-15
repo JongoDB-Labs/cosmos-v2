@@ -21,6 +21,662 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.6",
+    date: "2026-09-15",
+    title: "A stuck update says so instead of waiting in silence",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When an update is ready but Foreman is still finishing a ticket, it waits rather than throwing the work away — but until now that wait was silent, so a delivery service stuck behind a job that never finished looked exactly like an idle one. It now reports how long it has been waiting and what it is waiting on, and says plainly that it will not abandon the job on its own.",
+      },
+    ],
+  },
+  {
+    version: "2.368.5",
+    date: "2026-09-14",
+    title: "Older mention notifications open the work item again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Notifications from before the link fix pointed at a page that no longer exists, so clicking an older \"you were mentioned\" alert in the bell dropdown landed on a Not Found screen. Those links have been repaired in place — every one of them now opens the work item it is about, and no notification was removed.",
+      },
+    ],
+  },
+  {
+    version: "2.368.4",
+    date: "2026-09-14",
+    title: "Boards and chat catch up by themselves after a dropped connection",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Live updates arrive over a connection that the browser silently re-opens after a network blip, a laptop waking up, or a new version being deployed — but anything that happened while it was down was never sent, so a board, chat channel or settings page could sit there quietly out of date until someone pressed refresh. Every release did this to every open tab at once. Those views now notice the connection came back and re-read what they missed.",
+      },
+    ],
+  },
+  {
+    version: "2.368.3",
+    date: "2026-09-14",
+    title: "A ticket that explains why it isn't a duplicate now gets read",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When deciding whether a new ticket duplicated an existing one, Foreman was shown only the two titles — never the ticket's own description. A report that spelled out why it was not a duplicate, with evidence, could still be closed as one within seconds. The description is now part of that decision.",
+      },
+      {
+        kind: "fix",
+        text: "A ticket Foreman previously closed as “already done” no longer counts as prior work when judging duplicates. If that verdict was wrong, every later report of the same problem was being closed against the original mistake, leaving no way to raise it again.",
+      },
+    ],
+  },
+  {
+    version: "2.368.2",
+    date: "2026-09-14",
+    title: "Two people can add a ticket to the same project at the same moment",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Creating a ticket while a teammate created one in the same project could fail outright — the second person got an error and lost what they had typed. The same clash could break a document-table import part-way through, or drop rows from a spreadsheet import with no obvious reason. Ticket numbers are now handed out one at a time, so simultaneous creates simply queue behind each other instead of colliding.",
+      },
+    ],
+  },
+  {
+    version: "2.368.1",
+    date: "2026-09-14",
+    title: "An update arriving mid-build no longer throws the work away",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a new release arrived while Foreman was part-way through a ticket, the delivery service could exhaust its memory and stop — abandoning the build and leaving the ticket sitting in progress with nothing to show for it. Updates now wait for the build to finish, as they were always meant to, and a ticket keeps the work already done.",
+      },
+    ],
+  },
+  {
+    version: "2.368.0",
+    date: "2026-09-14",
+    title: "Keys you can point at one project, and an Archived filter that filters",
+    highlights: [
+      {
+        kind: "feature",
+        text: "An API key can now be limited to specific projects instead of the whole organisation \u2014 the same idea as a token that only reaches certain repositories. Choose \u201CAll projects\u201D or pick the ones a key should reach when you create it. A key can only ever be narrowed this way, never widened: it still cannot reach anything its owner could not. Existing keys are unchanged and remain organisation-wide.",
+      },
+      {
+        kind: "fix",
+        text: "The \u201CArchived\u201D filter on the Issues page added archived items to the active ones instead of showing the archived ones. On a list with one archived item that looked like the filter did nothing. It now shows exactly the archived items, the way the \u201CWatching\u201D filter beside it shows exactly what you watch.",
+      },
+      {
+        kind: "improvement",
+        text: "Copy link now produces a link that names the ticket \u2014 .../issues?item=ACME-320 rather than a long internal id \u2014 so a link pasted into a message says where it goes before anyone clicks it. Links already shared keep working.",
+      },
+    ],
+  },
+  {
+    version: "2.367.0",
+    date: "2026-09-14",
+    title: "Money you can see for your own projects, and a billing role that can bill",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Finance access can now be granted for the projects somebody is actually on, rather than the whole organisation's book. The built-in Project Manager role carries it, so running a project no longer means being made an administrator with user management and audit logs attached.",
+      },
+      {
+        kind: "fix",
+        text: "The Billing Admin role could not set billed hours, which is the job it is named for. It can now, and can see the delivery screens where hours meet the phase they belong to.",
+      },
+    ],
+  },
+  {
+    version: "2.366.0",
+    date: "2026-09-14",
+    title: "Archive a ticket, and copy a link to one from anywhere",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Tickets can now be ARCHIVED \u2014 put out of the way without being destroyed. Archived tickets disappear from boards, lists, counts and search, and can be brought back from the Issues page using the new \u201CArchived\u201D toggle. Anyone who can edit a ticket can archive it, which is the point: clearing up duplicates should not require the ability to permanently delete other people's work. Deleting is unchanged and still restricted to admins.",
+      },
+      {
+        kind: "feature",
+        text: "\u201CCopy link\u201D is now on every card and row \u2014 the board, the table, the backlog and the ticket panel \u2014 not just the Issues list. Getting a shareable link to a ticket previously meant reading its internal id out of the browser's network traffic.",
+      },
+      {
+        kind: "improvement",
+        text: "A ticket link can now use the ticket's own key. /issues?item=ACME-320 opens that ticket, so a link can be typed from memory instead of copied. The internal id still works.",
+      },
+    ],
+  },
+  {
+    version: "2.365.0",
+    date: "2026-09-14",
+    title: "API keys actually work now",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key could be created and was then refused by every endpoint, which made it look like the key was wrong. It wasn't: nothing in the request path ever looked at it. Keys now work everywhere an org-scoped request is made.",
+      },
+      {
+        kind: "fix",
+        text: "The \u201Citems:write\u201D scope could create an item but not change one \u2014 no status, no assignee, no dates \u2014 and could not comment at all. \u201Cread\u201D could not read comments, so a key could post one and then be refused its own reply. Both now grant what their names say. Neither can delete an item; that stays a separate decision.",
+      },
+      {
+        kind: "improvement",
+        text: "Work items can now be read and updated by id without knowing which project they are in: a collection at /work-items, and the item and its comments beneath it. Previously only the project-scoped path existed, so any script had to look the project up before every write.",
+      },
+      {
+        kind: "fix",
+        text: "Restored a rendering boundary around the guided walkthrough that was dropped in a recent release. Without it the walkthrough's use of the page's URL query could stop the pages around it from being pre-rendered.",
+      },
+    ],
+  },
+  {
+    version: "2.364.0",
+    date: "2026-09-14",
+    title: "Walkthroughs follow what your role can actually reach",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A walkthrough step can now name the permissions it needs, and steps a reader cannot reach are left out rather than sending them to a page that redirects. A walkthrough whose every step is out of reach is not offered at all.",
+      },
+      {
+        kind: "fix",
+        text: "Asking a question inside a walkthrough is offered only to people whose role can use the assistant. Where it is refused, the card now says so plainly instead of reporting a temporary problem and inviting a retry that could never succeed.",
+      },
+    ],
+  },
+  {
+    version: "2.363.1",
+    date: "2026-09-14",
+    title: "Walkthrough answers are formatted properly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Answers to questions asked inside a walkthrough were shown as plain text, so lists, bold text and tables arrived as their raw punctuation. They now render exactly as they do in the assistant panel.",
+      },
+    ],
+  },
+  {
+    version: "2.363.0",
+    date: "2026-09-14",
+    title: "The walkthrough points at what it is describing, and answers without leaving",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A walkthrough step can now highlight the part of the screen it is talking about: the card moves beside it, rings it, and scrolls it into view. Where a step is about a whole page, the card stays out of the way in the corner as before.",
+      },
+      {
+        kind: "improvement",
+        text: "Asking a question or sending feedback now happens inside the walkthrough card. Previously both opened the side panel, which covered the very thing the step was pointing at. Suggested questions sit beside a box you can type your own into, and anything you send reaches the same feedback queue as the rest of the product, labelled with the step you were on.",
+      },
+      {
+        kind: "feature",
+        text: "A compass in the top bar lists every walkthrough available to your organisation, so one can be revisited long after its notice was dismissed \u2014 and somebody who joined later can catch up on what changed before they arrived.",
+      },
+    ],
+  },
+  {
+    version: "2.362.1",
+    date: "2026-09-14",
+    title: "The walkthrough card no longer hides behind the panel it opens",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Asking the assistant about a walkthrough step opens the side panel, and the walkthrough card was sitting underneath it \u2014 so the action most likely to be taken hid the card that offered it. The card now moves aside while a panel is open, and sits clear of the assistant button, which had been covering the Next control.",
+      },
+    ],
+  },
+  {
+    version: "2.362.0",
+    date: "2026-09-14",
+    title: "Be walked through what changed, inside the product",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When a release adds something worth showing, the \u201cWhat\u2019s new\u201d notice now offers to walk you through it. The walkthrough takes you to each page in turn, says what to look at on your own data, and remembers where you stopped if you leave partway. At every step you can ask the assistant about what you are looking at, or send the team a question or a request \u2014 both open the assistant and feedback panels you already use, with the step you were on attached, so nothing you send needs explaining afterwards.",
+      },
+    ],
+  },
+  {
+    version: "2.361.0",
+    date: "2026-09-14",
+    title: "Hand someone a temporary look at the product, and take it back",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Administrators can issue a disposable demo account for showing a stakeholder what has just shipped, and remove it again with one command. The account is read-only by default and cannot see fee figures, so hours, pace and phase health are visible while money is not. Its password is emailed by the same path as any other invitation and is never displayed, and an address that already has an account is refused outright rather than having a password set on it. Revoking removes the account as well as the invitation, so a demo pass does not quietly become a permanent one.",
+      },
+    ],
+  },
+  {
+    version: "2.360.0",
+    date: "2026-09-13",
+    title: "Choose which sections your sidebar shows",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Settings \u2192 Navigation lets an administrator hide sections your organisation does not use, so people are not navigating past menu entries that lead nowhere for them. It is a whole-organisation choice rather than a personal preference, so everyone sees the same product. Hiding only ever takes something away: a section someone cannot already reach will not appear because it was left switched on. Overview and Settings always stay visible, so there is always a way back \u2014 including a way back to this screen.",
+      },
+    ],
+  },
+  {
+    version: "2.359.0",
+    date: "2026-09-13",
+    title: "Set what an entry bills, on the screen where you already review time",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time tracking now has a Billed column. Anyone who can bill time can set what an approved entry charges without touching the hours that were logged, so the record of what was worked survives the decision about what to invoice. Entries nobody has decided on read \u201cas logged\u201d rather than repeating the number, and an entry billed differently shows the gap beside it. The control appears only on approved entries and only for people who can bill, and it stays available while reviewing someone else\u2019s week \u2014 which is when the decision usually gets made. Clearing the field returns the entry to billing what it logged; entering zero records a deliberate nothing.",
+      },
+    ],
+  },
+  {
+    version: "2.358.0",
+    date: "2026-09-13",
+    title: "Bill a different number of hours than were logged",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Time entries now carry billed hours separately from logged hours. Previously writing an entry down meant editing the hours themselves, which destroyed the record of what was actually worked in order to record what was charged \u2014 the two numbers are different judgements and both are worth keeping. Approving an entry still means \"these hours were worked\"; billing is a second decision taken afterwards, and only approved entries can be billed. Entries left alone bill exactly what they log, so nothing changes until someone deliberately sets a different figure. Billing zero hours is itself a decision the system records, and reads differently from never having decided.",
+      },
+    ],
+  },
+  {
+    version: "2.357.0",
+    date: "2026-09-10",
+    title: "Attach a file to a message you send a running build",
+    highlights: [
+      {
+        kind: "feature",
+        text: "You can now attach a file \u2014 a log, a screenshot \u2014 to a message you send a build from the activity view, and the agent can open it. That last part is the whole point: the file is delivered into the working copy the agent is already running in, and the message it receives names the path, so it can simply read it. Up to three files per message, 1 MB each, because this goes into the agent's context rather than a document store; an oversized file is refused outright rather than the message being sent without it. Files can only accompany a message to a running build \u2014 approving or rebuilding has nowhere to put one, and you will be told rather than having the attachment quietly dropped.",
+      },
+    ],
+  },
+  {
+    version: "2.356.0",
+    date: "2026-09-10",
+    title: "See when a build hands work to another agent",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman's builds sometimes delegate part of a job \u2014 to a research agent, or to a task that runs in the background. Until now the activity view showed everything those helpers did as though the main agent had done it itself, with no indication that a handoff had happened at all. Each delegation now appears as its own line, naming what was handed off and to what kind of helper, and again when it finishes or fails. It is shown at the top level rather than tucked inside the collapsed run of steps, because a handoff is where the work branches and that is worth seeing without digging. Routine housekeeping tasks are left out, and progress chatter in between is not recorded \u2014 only the start and the outcome.",
+      },
+    ],
+  },
+  {
+    version: "2.355.0",
+    date: "2026-09-10",
+    title: "Talk to a build, and see which outside systems it used",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The message box in Foreman's activity view now has a microphone, so you can dictate a note to a running build instead of typing it. Speaking your close phrase finishes the dictation and leaves the text in the box \u2014 it never sends on its own, because sending can approve work that then merges and deploys, and that should always be a deliberate press. Your browser does the transcription; in Chrome that means the audio goes to Google, the same as the assistant elsewhere in Cosmos, and the microphone button says so. The activity header also now lists any connected services a build actually used during its run \u2014 the ones it really called, not the ones merely available to it.",
+      },
+    ],
+  },
+  {
+    version: "2.354.0",
+    date: "2026-09-10",
+    title: "Choose the model Foreman builds with, and see which one it used",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Foreman's build agents always ran on one fixed model, with no way to change it and no way to find out afterwards which one a piece of work had used. Under Build behavior you can now pick the model, and how much reasoning effort to spend on each build; both apply to every agent Foreman runs, including the one that reviews its own work. Leave the effort blank and builds behave exactly as they always have. Whatever a build ran with is recorded against that build, so the activity view shows what THAT run used rather than whatever the setting happens to say today \u2014 and for builds from before this release it says plainly that it was not recorded, instead of guessing. The model box takes free text on purpose, so a newly released model can be used the day it appears rather than waiting for us to ship an update.",
+      },
+    ],
+  },
+  {
+    version: "2.353.0",
+    date: "2026-09-10",
+    title: "Foreman's activity view now shows what commands printed, and the plan it is following",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Watching a build, you could see that the agent ran a command but never what came back \u2014 the panel said as much, that it had captured the command only. It now records the output too, so a failing type-check reads as the errors it actually printed rather than a line you have to take on trust. That is usually the thing that decides whether you approve the work or send it back. Failed steps are marked as failed; no exit code is shown, because the agent framework does not report one and inventing a number would be worse than omitting it. Long output keeps its beginning AND its end, since the part that explains a failure is almost always the last few lines, and it says how much it left out. The checklist the agent is working through is also visible now, with each item marked done, in progress or still to do \u2014 previously the panel could only tell you that a list had been rewritten, not what was on it.",
+      },
+    ],
+  },
+  {
+    version: "2.352.0",
+    date: "2026-09-09",
+    title: "The Foreman page starts drawing straight away",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Opening Foreman used to show nothing at all until your permissions had been checked and the first data had come back \u2014 the page was doing that work before it drew anything, which made the screen an operator opens most often the slowest one to appear. The heading now paints immediately and the console fills in underneath it, against a placeholder shaped like the real thing so the layout does not jump when it arrives. Nothing about what the page shows has changed. It was the only screen in the app doing this, and it was found by opening every tab of the console in a real browser and reading what the page reported about itself.",
+      },
+    ],
+  },
+  {
+    version: "2.351.0",
+    date: "2026-09-09",
+    title: "The activity tab's message box now actually works",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The message box added to Foreman's Live activity panel in the previous release could not be used. On the rare screen where it appeared it reported that it could not load what Foreman would accept, because the address it asks that question at was never wired up \u2014 and the panel itself only appeared while a build was actively running, which is precisely when its most useful commands do not apply. Both are fixed. The panel now follows whatever a worker is building, or, when nothing is running, the newest ticket that has stopped and is waiting on you. You can type a note, or a slash command: /rework to send guidance, /rebuild to start over, /approve to merge and deploy, /status and /help to see where things stand. Each command says whether it can act and why not \u2014 /approve on a ticket with no pull request explains that rather than failing silently. Notes are queued, not sent: the build reads them at its next step, and the panel says so.",
+      },
+    ],
+  },
+  {
+    version: "2.350.0",
+    date: "2026-09-09",
+    title: "Approve stopped working on tickets that had a pull request",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On a ticket Foreman had paused for review, the Approve button could sit greyed out saying \u201cNothing built yet\u201d even though the work was finished and the pull request was there to see. A ticket records several notes as it goes, and the screen read the pull request only from the most recent one \u2014 so any later note that had no reason to mention a link, such as \u201cthere were no changes to ship\u201d, made the earlier link disappear from view and left the only button that could act on the work disabled. The link and the reason are now read separately, so a note that says nothing about a pull request no longer erases one. Nothing is invented: when no pull request was ever opened, Approve still says so, because then it is true. This also covers the new /approve command in the activity tab, which decides the same way.",
+      },
+    ],
+  },
+  {
+    version: "2.349.0",
+    date: "2026-09-09",
+    title: "Foreman's activity tab gets a real composer",
+    highlights: [
+      {
+        kind: "feature",
+        text: "The Live activity panel's plain note box is now a composer: type prose to steer a running build, or a slash command to act on one that has stopped \u2014 /rework to send guidance, /rebuild to start over, /approve to merge and deploy, /status and /help to see where things stand. Each command is enabled or refused by the server with a sentence saying why, so a control is never simply missing. Two things this deliberately gets right. It stays on screen when nothing is building, because the commands that matter most apply to a build that has stopped and is waiting on you. And /approve is refused when no pull request was ever opened \u2014 the same condition the Approve button already disables on \u2014 so the two controls for that action cannot disagree about when it works. Notes are still queued rather than sent: the build reads them at its next step, and the panel says so rather than implying a chat.",
+      },
+    ],
+  },
+  {
+    version: "2.348.0",
+    date: "2026-09-09",
+    title: "Asking Foreman to rework a ticket could ship it instead",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman's Rework dialog sends notes to a build that is waiting on you, and promises to resume that build rather than start over. It also read those notes to decide what you meant \u2014 and a note that happened to read as an approval (\u201cship it\u201d, \u201capproved\u201d, \u201clgtm\u201d, or a lone thumbs-up) was taken as approval of the whole change: it merged the pull request, tagged a release and deployed, while the confirmation on screen said only that your notes had been sent. Approving deliberately goes through a button that names production and asks you to confirm; this path had no such step. Now the button you press decides what happens. Rework always means rework, whatever the note says, and the note is passed to the builder as guidance. If what you type reads like an approval, the dialog says so and points you at Approve. Approving is unchanged, and still needs its confirmation. Nothing else could reach a deploy this way: the other controls carry their intent directly rather than inferring it from text.",
+      },
+    ],
+  },
+  {
+    version: "2.347.1",
+    date: "2026-09-03",
+    title: "Cosmo names the person it put on a ticket",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Ask Cosmo to create or change a ticket and assign it to someone, and it now tells you who \u2014 \"assigned to Ryan Beatty\" rather than a 36-character id \u2014 and the ticket itself shows that person in its Assignees field. Two separate things were wrong. Cosmo was only ever handed the assignee's id, so an id was the only thing it could report back; and it set the ticket's primary assignee without adding them to the assignee list the ticket detail actually reads, so a ticket it had just assigned opened on \"Unassigned\". Tickets assigned this way BEFORE the fix now show the right name too \u2014 the person was recorded correctly all along, the screen simply was not looking them up. Assumed, and worth confirming: the assignee stored on the ticket was always the right person, so this resolves and displays it rather than changing what gets stored, and it shows whatever name your member directory holds \u2014 someone whose account name is a username appears under that username. Assignments made by hand are unchanged.",
+      },
+    ],
+  },
+  {
+    version: "2.347.0",
+    date: "2026-09-09",
+    title: "The build activity view is now a transcript you can read",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A single build can run to a hundred steps, and the activity view listed them flat \u2014 fine for ten, unusable for a hundred. It now reads as a transcript: steps are grouped into collapsible sections by what the assistant was doing at the time (building, repairing, reviewing, checking the screen), each with a count and how it ended. Every tool step collapses to one line and opens to show what it was given and what it returned, shell commands render as a terminal block, and a header carries the step and tool counts. Long sections scroll inside their own panel rather than pushing the page around.",
+      },
+      {
+        kind: "fix",
+        text: "Secrets could appear on screen in two places in that view \u2014 in a step label built from a file path, and in the small status chip beside a section \u2014 even though the surrounding rows correctly showed them as redacted. Both are fixed at the point the text is prepared rather than at each place it is drawn, so any future addition inherits it.",
+      },
+    ],
+  },
+  {
+    version: "2.346.0",
+    date: "2026-09-09",
+    title: "\u201cThe screen is broken\u201d and \u201cnobody looked at the screen\u201d are different answers",
+    highlights: [
+      {
+        kind: "fix",
+        text: "After making a change the assistant opens the app and checks the screen it altered. If that check could not run \u2014 it timed out, or the session died \u2014 the result was recorded as though the screen had been examined and found broken. A ticket then showed a red \u201cgate rejected\u201d against work whose type checks, linting and tests had all passed, and a reviewer had no way to tell a real visual defect from a check that never happened. The two are now recorded separately: a check that could not run reads as unproven, and only a check that ran and found a problem counts against the change.",
+      },
+      {
+        kind: "improvement",
+        text: "With one deliberate exception, found in review before release: if the check writes down a problem and only then runs out of time, that is a real finding and still counts against the change. The record is read before concluding that nobody looked \u2014 and a half-finished check can never be read as approval, only as a problem or as unproven.",
+      },
+    ],
+  },
+  {
+    version: "2.345.0",
+    date: "2026-09-09",
+    title: "Security: two critical Next.js vulnerabilities closed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The web framework COSMOS is built on published two critical advisories, both allowing remote code execution without any login. One affects the image-resizing endpoint when handling AVIF files; the other affects Windows-hosted servers, which does not apply to this deployment. The image endpoint is reachable from the internet on every COSMOS instance, so this is the one that matters. The framework is updated to the patched release. No COSMOS code changed \u2014 this is a dependency update, and it was caught by the dependency scanner that runs on every release.",
+      },
+    ],
+  },
+  {
+    version: "2.344.0",
+    date: "2026-09-03",
+    title: "A ticket could be rebuilt over work it had already finished",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When the assistant paused a ticket after a build that changed nothing, the note it left behind did not record which branch the work was on. Asking it to continue then found no branch, so it started a fresh build instead \u2014 and setting up that build reset the branch, erasing the finished work sitting on it. The next build saw nothing had changed, paused again, and the cycle repeated. That happened to the sprint-health fix today: it was rebuilt from scratch even though the completed change already existed, and a reviewer was shown \"Nothing built yet\". The note now records the branch.",
+      },
+      {
+        kind: "improvement",
+        text: "A broader version of this fix was written and rejected before release. It would have treated any branch still differing from the main line as unfinished work \u2014 which stays true forever after a change is merged, because of how merges are recorded here. It would have picked up seventeen branches whose work had already shipped, and skipped two of the checks that exist to stop exactly that. The narrow fix above is what shipped.",
+      },
+    ],
+  },
+  {
+    version: "2.343.0",
+    date: "2026-09-03",
+    title: "A change that had already shipped was reported as failed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Approving a change merges it and then tidies up locally. If any of that tidying failed, the whole approval was reported as a failed merge \u2014 so a reviewer could be told their change had not shipped seventy-one seconds after it had. That is exactly what happened to the sprint-health fix earlier today: it merged at 19:50 and the assistant announced a failure at 19:51, about a change already on its way to production. Once the merge succeeds it is now treated as a fact; the tidying that follows is best-effort and reported separately, and cannot retract it. A note in the code had already recorded this same problem for one of the four tidy-up steps, and it had been fixed for that one and left in place for the other three.",
+      },
+    ],
+  },
+  {
+    version: "2.342.0",
+    date: "2026-09-03",
+    title: "An update no longer discards work that is running",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Installing an update restarts the assistant, which stops anything it has underway. A guard added earlier today was meant to prevent that by asking it to finish first \u2014 and on its first encounter with real work in progress, it correctly noticed the assistant was busy, failed to record the request, and restarted anyway, discarding the build it was protecting. The failure was in how it read the database's reply: the tool it uses prints the answer and then a summary line, and the guard was comparing both together against the answer alone, so a successful request always looked like a failed one. It now reads only the answer. Verified against the live database rather than a stand-in, which is what hid the problem the first time.",
+      },
+    ],
+  },
+  {
+    version: "2.341.1",
+    date: "2026-09-03",
+    title: "Blocked Work and Work Type Mix stay inside their cards",
+    highlights: [
+      {
+        kind: "fix",
+        text: "On Sprint Health's current-sprint board, the Blocked Work and Work Type Mix panels spilled their contents past the edge of their own cards and over the widgets beside and below them — a project with more than a handful of blocked items, or more than a few work types, ended up with two panels painted on top of each other and neither readable. Both cards now keep their list inside the card and scroll it when there is more than fits, so the card underneath stays where it belongs. The line explaining what each panel counts stays pinned at the bottom rather than scrolling out of sight.",
+      },
+    ],
+  },
+  {
+    version: "2.341.0",
+    date: "2026-09-03",
+    title: "Twelve failed updates blamed on the network were a setting of ours",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every automatic update for weeks failed at the same step, saying it could not authenticate to the server holding part of the code. The same request, run by hand on the same machine, always worked \u2014 which pointed at an intermittent network or CDN problem, and two earlier releases went into surviving one: waiting longer between retries, and skipping the request entirely when the needed version was already on disk. Neither touched the cause. The assistant sets a git option to make its own GitHub credentials take priority, and that option was being applied to every server rather than only GitHub \u2014 so for the other server it switched OFF the credentials that were meant to be used, leaving the request with none. It is now scoped to GitHub alone. Verified on the live machine: with the old setting the request fails, with the new one it succeeds, and GitHub still behaves exactly as before.",
+      },
+      {
+        kind: "improvement",
+        text: "The earlier retry and skip-the-request changes are kept. They were mitigations rather than the fix, but they still hold: an update should not need a third-party service to be reachable in order to install a version it already has.",
+      },
+    ],
+  },
+  {
+    version: "2.340.0",
+    date: "2026-09-03",
+    title: "Approving a change no longer fails on a version it set itself",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you approve a change that was prepared before other work landed, the assistant rebuilds it against the current code and gives it a fresh version number. It was updating that number in one of the two files that have to agree, and leaving the other on the old one \u2014 which the release checks then rejected. So every approval that needed rebuilding failed, and reported the failure as a merge problem rather than the mismatch that caused it. It now moves both together, and checks they agree before trying to merge rather than finding out afterwards.",
+      },
+      {
+        kind: "improvement",
+        text: "The assistant can now install its own updates without help. Its self-update had been failing at the same step for weeks \u2014 it asked a source-code server for a version it already had on disk, and when that server briefly refused the connection the whole update was abandoned. Because the step that fixes this only runs after the step that was failing, the fix could never install itself; each one needed a person. It now checks what it already has before asking, and completed an update end to end on its own for the first time.",
+      },
+    ],
+  },
+  {
+    version: "2.339.0",
+    date: "2026-09-03",
+    title: "Card highlights now show on the Gantt, the dependency map and ceremony lists",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The colour you put on a card now travels to the three places it was still missing \u2014 the Gantt schedule, the dependency map, and the What-shipped and Carrying-forward lists on a sprint ceremony. A meeting that reads status off the board reads the same status off the schedule. On the two charts the colour appears as a band along the bottom edge of the bar, diamond, dot or node, because an item's outline there already means blocked, critical or enabler and a second meaning on the same edge would be unreadable.",
+      },
+    ],
+  },
+  {
+    version: "2.338.0",
+    date: "2026-09-03",
+    title: "Right-click a backlog row, not just its hidden menu button",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Right-clicking a row on the Backlog did nothing. The menu was anchored to an invisible marker rather than the row, so the only way to reach Move to sprint or Highlight was the \u201C\u2026\u201D button that appears on hover \u2014 which is undiscoverable, and unreachable on a touch screen. The whole row now opens the menu, matching the board, the table and the issues list. The \u2026 button stays for touch.",
+      },
+    ],
+  },
+  {
+    version: "2.337.0",
+    date: "2026-09-03",
+    title: "The branch was fine. Everything that looked at it was not",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A reported bug \u2014 two panels overflowing their cards on the sprint health board \u2014 was fixed correctly on the first attempt and then failed to ship three times, each time for a reason that had nothing to do with the fix. The last of those told the reviewer, in the assistant's own voice, that their branch no longer applied cleanly and needed rebuilding. It did apply cleanly: rebased onto the current code it needed only the three routine version files resolved, and it passed every check. That message was produced for ANY merge failure, whatever the failure was. It now reports what actually went wrong, and mentions a conflict only when there is one.",
+      },
+      {
+        kind: "fix",
+        text: "The underlying cause: when the assistant prepares an approved change for merging, it sets up a temporary copy of the project to check the work in. Four places create such a copy, and each has to install the project's tools into it. Three did. The fourth \u2014 the one used by approvals \u2014 never had, since the day it was written, so its type check ran with no type checker present. That is what sent the command runner looking elsewhere and let it pick up a package that merely shared the name. All four now share one routine that installs the tools AND verifies they work, and a test pairs every copy with its tools so a fifth cannot be added without them.",
+      },
+      {
+        kind: "improvement",
+        text: "A correction to an earlier release, which said all fourteen tool invocations now refuse to install anything. There were fifteen, and the one missed is the one that failed \u2014 its call was written across three lines and the test enforcing the rule only recognised the single-line form. Refusing to install was also not enough by itself: it prevents fetching a package but not running one fetched earlier, and the machine still had it. The assistant no longer uses that command runner at all; tools are located in the project or reported missing by name.",
+      },
+      {
+        kind: "improvement",
+        text: "Updating the assistant no longer interrupts work that is running. Restarting it previously stopped every task it had underway, discarding unfinished work with no record beyond a ticket that looked abandoned. Updates now ask it to finish and restart itself, waiting up to thirty minutes before falling back to the old behaviour \u2014 and saying so plainly when it does.",
+      },
+      {
+        kind: "fix",
+        text: "Updates also stopped failing when a source-code server briefly refused a connection. Ten consecutive updates were abandoned that way while the same request succeeded by hand minutes later. An update needs exactly one specific version, so when it already has it, it no longer asks at all; when it does need to ask, it keeps trying for close to four minutes rather than forty-five seconds.",
+      },
+      {
+        kind: "improvement",
+        text: "The end-to-end test comparison now says how much it actually proved. It runs the browser tests before and after a change and reports only what the change itself broke \u2014 but its first live verdict read \"35 tests compared, no regression\" when 34 of those were already failing beforehand. A test that is already failing cannot newly fail, so exactly one of the 35 could have caught anything. Every result now states how many tests were actually capable of catching a problem, and a run where none were is reported as inconclusive rather than as a pass.",
+      },
+    ],
+  },
+  {
+    version: "2.336.0",
+    date: "2026-09-03",
+    title: "Mention notifications now tell you who was mentioned",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A notification about an @-mention said \u201C@user\u201D instead of the person's name \u2014 so it told you someone had been mentioned and never who, including when it was you. Mentions of anything other than a person (a ticket, a project, a note) were worse: they arrived as a raw internal id. Notifications, chat previews, note previews, the Teams card and the assistant's own reading of a conversation all now show real names, and an unresolved reference reads as \u201C@someone\u201D or \u201C#work item\u201D rather than exposing an id.",
+      },
+      {
+        kind: "improvement",
+        text: "Seven places in the product were each doing this conversion their own way, which is why the same defect appeared in all of them. They now share one implementation, and a check keeps an eighth from drifting back \u2014 it was that check, not a search, that turned up the seventh (note previews, which said \u201C@mention\u201D). Chat notifications also make one fewer database query per message than before.",
+      },
+    ],
+  },
+  {
+    version: "2.335.0",
+    date: "2026-09-03",
+    title: "Colour a card to call it out, and three fixes to ticket comments",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cards can now be highlighted with a colour that shows as a border, so a board can be read as a status at a glance in a meeting rather than explained row by row. Right-click any card on the sprint board or Kanban \u2014 or use the new Highlight control when editing a ticket \u2014 and pick one of six: On track, At risk, Blocked, Watching, Escalated, On hold. The border follows the item everywhere it appears: the board, the backlog, the table, the org-wide Issues list, RAID, the roadmap and the calendar. It is shared, not private, so everyone in the meeting is looking at the same picture, and the colour's meaning is on the tooltip for anyone who was not in the room when they were agreed.",
+      },
+      {
+        kind: "improvement",
+        text: "Sub-items on a ticket are now struck through once they are finished, so opening a feature shows what is left rather than a flat list. A child counts as done if it sits in a done column or has an actual end date recorded \u2014 either one is enough, which matters because the Timeline, Roadmap, Calendar and Table boards have no columns of their own to consult.",
+      },
+      {
+        kind: "fix",
+        text: "Typing an @-mention into a ticket comment repeatedly popped the person's name up on every keystroke and would not let you pick them. The suggestion list was being painted underneath the ticket panel, so a click aimed at a name landed in the comment box instead \u2014 nothing was inserted, the typed text stayed put, and the list re-opened on the next key. It also meant a mention in a comment never notified the person it named. Both are fixed, and the list now opens upward when the comment box is near the bottom of the screen instead of running off it.",
+      },
+      {
+        kind: "fix",
+        text: "A link in a comment showed its entire address, which wrapped across lines and buried the part worth reading. Links now show a short, informative label \u2014 and a link written with your own wording keeps that wording \u2014 with the full address on hover and on click. A full stop or closing bracket after a link is no longer swallowed into it.",
+      },
+      {
+        kind: "fix",
+        text: "Comments showed only the date they were posted. They now show the time as well, in your own time zone.",
+      },
+    ],
+  },
+  {
+    version: "2.334.0",
+    date: "2026-09-03",
+    title: "The type checker that failed a release was not the type checker",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The previous release made the delivery worker report what actually went wrong at the final step instead of guessing. Asked the question an hour later, the answer was that the command runner had been invoked somewhere the project's own TypeScript was not reachable \u2014 so rather than fail, it downloaded a package from the public registry whose NAME matched, and ran that. It is an abandoned package from 2016 that is not the compiler. It exited with an error, and the release step reported the result as a type error. The wrong verdict is the smaller problem: the larger one is that code from the public registry was fetched and executed on the delivery machine, during a release, chosen by a name collision. The linter, the test runner, the database tool and the web framework were all invoked the same way. All fourteen of those calls now refuse to install anything: a missing local tool is a loud failure instead of a silent substitution, and a test enforces it so the fifteenth call cannot quietly omit it.",
+      },
+      {
+        kind: "improvement",
+        text: "A correction worth stating: the previous release suggested this failure was the type checker running out of memory. That was a reasonable guess, and running out of memory is a real hazard on a codebase this size \u2014 the memory fix is kept \u2014 but it was not the cause. It took making the step carry its evidence before anyone could tell the difference.",
+      },
+    ],
+  },
+  {
+    version: "2.333.0",
+    date: "2026-09-03",
+    title: "When delivery stops, it now tells you what actually happened",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A correct, tested fix was stopped at the final step by a message that named a cause nobody had checked \u2014 and the cause was false. It reported that the main branch had moved underneath the work; it had not, the change was based on exactly the commit it was compared against, and the code passes its type check cleanly. The advisor that suggests what to do next then read that message and recommended throwing the work away and starting over. The report now states only what was observed: whether the branch moved is determined by comparing it before and after, and the type checker's own output travels with the failure.",
+      },
+      {
+        kind: "fix",
+        text: "The type checker was running without enough memory. It does not fit in the default allocation on a codebase this size \u2014 the project's own build pipelines say so and raise it explicitly \u2014 but the delivery worker builds its child environments from scratch for safety reasons, so each place that runs it has to ask for the larger allowance. One place did, the others did not, and the most likely explanation for the failure above is that it simply ran out of room. That setting now lives in one named place every future call inherits.",
+      },
+      {
+        kind: "improvement",
+        text: "When a review step crashes rather than reaching a verdict, the report now says which way it crashed \u2014 ran out of time, ran out of steps, or failed to start \u2014 and carries what it last said. Three different problems with three different fixes were all being reported as one sentence. A new check also fails the build if any code stops a piece of work while discarding the reason; it found a second instance of exactly that on its first run, fixed here too.",
+      },
+    ],
+  },
+  {
+    version: "2.332.0",
+    date: "2026-09-02",
+    title: "Installing an update now says why the worker step failed, and retries long enough to matter",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The step that brings the background worker along with an update has failed on every install, and for the first time it has said why: the connection to the plugin repository is refused for about a minute right after the application containers are replaced, then works normally. The previous release retried once after five seconds \u2014 inside that window. It now tries three times, waiting fifteen then thirty seconds, which spans the interval that has actually been measured to clear. This is not a diagnosis: when it does give up, it now also asks the address directly and records what came back, because being refused, being rate-limited, being blocked by a filter and having no route at all are four different problems with four different fixes, and the tool's own message calls all of them the same thing. The next failure should arrive already explained.",
+      },
+      {
+        kind: "fix",
+        text: "Two ways the same update could stop dead without saying anything. Reading a setting that is not configured, and looking for a tool that is not installed, both returned a failure the script treated as fatal \u2014 before it had written a single line of its log, so the only evidence would have been the update simply ending. Neither could happen on a machine already set up correctly, which is exactly why neither had ever been seen. Both now fail loudly, and name what is missing.",
+      },
+      {
+        kind: "improvement",
+        text: "The record of what happened to each piece of delivered work is being kept again. A finished, model-free job that labels every completed build \u2014 did its change merge, did a person have to edit it, was it reverted within a week \u2014 existed but had never been run, so the table it fills was empty and every threshold in the delivery system was unfalsifiable. It has now been run over the full history: 127 builds labelled, none reverted.",
+      },
+    ],
+  },
+  {
+    version: "2.331.0",
+    date: "2026-09-02",
+    title: "A browser-test regression could be cleared by a check that never ran",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The browser-test gate does not read a simple pass or fail — it runs the same tests before and after a change, and only a test that worked before and breaks after counts against it. When it finds one, it re-runs just that test on both sides to be sure it was not a fluke. The code weighing that second opinion treated \u201Cthe re-run found nothing\u201D and \u201Cthe re-run never happened\u201D as the same answer, so a genuine regression plus any hiccup in the re-run came out as a PASS \u2014 and the merge-eligibility rating then read that as clean evidence and gave the change its highest score with nothing against it. The explanation attached even said the test \u201Cdid not reproduce on a second pass\u201D, describing a run that never took place. A re-run that could not check a test now reports no verdict rather than a pass. That still never blocks a change, which is the whole design of this gate; it simply stops telling the rest of the system the change was checked and found clean.",
+      },
+    ],
+  },
+  {
     version: "2.330.0",
     date: "2026-08-30",
     title: "Seven corrections to Foreman, most of them to things that were reporting success",

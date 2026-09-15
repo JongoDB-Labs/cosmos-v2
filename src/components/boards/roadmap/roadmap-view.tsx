@@ -20,6 +20,7 @@ import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { cn } from "@/lib/utils";
+import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember, Interval, Board, BoardColumn } from "@/types/models";
 import { bareTypeKey } from "@/components/boards/shared/filter-bar";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
@@ -362,6 +363,12 @@ function FeatureCard({ item, onClick }: { item: WorkItem; onClick: () => void })
   return (
     <button
       onClick={onClick}
+      data-highlight={item.highlight ?? undefined}
+      // Read-only here: this card has no context menu, so the highlight is set
+      // from the detail sheet this button opens (or from any board that does
+      // have one) and rendered here.
+      style={highlightStyle(item.highlight)}
+      title={highlightLabel(item.highlight) ?? undefined}
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-left text-xs transition-colors hover:border-[var(--primary)]",
         done && "opacity-70",

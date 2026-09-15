@@ -21,6 +21,11 @@ import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { notifyError } from "@/lib/errors/notify";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
+import { useOrgSlug } from "@/lib/query/keys";
+import { highlightLabel, highlightStyle, type WorkItemHighlight } from "@/lib/work-items/highlights";
 import type { WorkItem, OrgMember } from "@/types/models";
 
 interface KanbanCardProps {
@@ -97,6 +102,43 @@ export function KanbanCard({
     invalidate,
   });
 
+  // Optimistic locally so the border paints on the click, not on the round
+  // trip: this board holds items in local state (see `invalidate` above), so a
+  // cache invalidation alone would not repaint the card until its next mount.
+  const [highlightDraft, setHighlightDraft] = useState<string | null | undefined>(undefined);
+  const highlight = highlightDraft === undefined ? item.highlight : highlightDraft;
+
+  const highlightMutation = useOrgMutation<unknown, Error, WorkItemHighlight | null>({
+    mutationFn: (next) =>
+      jsonFetch(basePath, { method: "PUT", body: JSON.stringify({ highlight: next }) }),
+    invalidate,
+    // Put the item's own value back on failure, so a rejected save does not
+    // leave a border the server never stored.
+    //
+    // `notifyError` is called explicitly: `useOrgMutation` only applies its
+    // default error toast when the caller passes NO onError, so a bare rollback
+    // here would roll the border back silently and the user would just see
+    // their click do nothing.
+    onError: (err) => {
+      setHighlightDraft(undefined);
+      notifyError(err, "Couldn't save the highlight.");
+    },
+  });
+
+  const orgSlug = useOrgSlug();
+  const [archivedDraft, setArchivedDraft] = useState<string | null | undefined>(undefined);
+  const archivedAt = archivedDraft === undefined ? item.archivedAt : archivedDraft;
+
+  const archiveMutation = useOrgMutation<unknown, Error, string | null>({
+    mutationFn: (next) =>
+      jsonFetch(basePath, { method: "PUT", body: JSON.stringify({ archivedAt: next }) }),
+    invalidate,
+    onError: (err) => {
+      setArchivedDraft(undefined);
+      notifyError(err, "Couldn't archive that item.");
+    },
+  });
+
   const deleteMutation = useOrgMutation<unknown, Error, void>({
     mutationFn: () => jsonFetch(basePath, { method: "DELETE" }),
     invalidate,
@@ -168,8 +210,39 @@ export function KanbanCard({
         : [],
     };
 
-    return [editGroup, priorityGroup, destructiveGroup];
-  }, [can, item, onClick, priorityMutation]);
+    const highlightGroup = highlightMenuGroup({
+      current: highlight,
+      canEdit: canUpdate,
+      disabled: highlightMutation.isPending,
+      onPick: (next) => {
+        setHighlightDraft(next);
+        highlightMutation.mutate(next);
+      },
+    });
+
+    // Copy link and Archive. Copy link is ungated — a link to something you can
+    // already see reveals nothing; Archive takes ITEM_UPDATE, the same bar as
+    // any other edit on this card.
+    const shareGroup: ActionMenuGroup = {
+      items: [
+        ...copyLinkAction({ id: item.id, ticketKey: projectKey ? ticketLabel : null }, orgSlug),
+        ...archiveAction({
+          item: { id: item.id, archivedAt },
+          canEdit: canUpdate,
+          pending: archiveMutation.isPending,
+          onToggle: (next) => {
+            setArchivedDraft(next);
+            archiveMutation.mutate(next);
+          },
+        }),
+      ],
+    };
+
+    return [editGroup, priorityGroup, highlightGroup, shareGroup, destructiveGroup];
+  }, [
+    can, item, onClick, priorityMutation, highlight, highlightMutation,
+    orgSlug, archivedAt, archiveMutation,
+  ]);
 
   return (
     <>
@@ -180,7 +253,13 @@ export function KanbanCard({
         // pointer gesture, so there is no way to cover a drop without one.
         data-testid={`kanban-card-${item.id}`}
         data-column={item.columnKey}
-        style={style}
+        data-highlight={highlight ?? undefined}
+        // The highlight's border/ring merges into dnd-kit's transform style.
+        // Spread AFTER so a highlighted card still animates while dragging.
+        style={{ ...style, ...highlightStyle(highlight) }}
+        // The border is the signal; the tooltip is what makes it decodable by
+        // someone who wasn't in the meeting where the colours were agreed.
+        title={highlightLabel(highlight) ?? undefined}
         {...attributes}
         // In select mode the card is a checkbox toggle, NOT a draggable — omit
         // the drag listeners so a tap selects instead of starting a drag (the
@@ -211,8 +290,12 @@ export function KanbanCard({
         onKeyDown={activateOnKey(() =>
           selectMode ? onToggleSelect?.(item.id) : onClick(item),
         )}
+        data-archived={archivedAt ? "true" : undefined}
         className={cn(
           "group/action relative rounded-lg border bg-card p-3 transition-colors",
+          // An archived card is normally filtered out entirely; when a surface
+          // deliberately shows one, it should not look like live work.
+          archivedAt && "opacity-60",
           selectMode
             ? "cursor-pointer pl-8"
             : "cursor-grab active:cursor-grabbing",
