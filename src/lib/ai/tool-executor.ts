@@ -30,6 +30,7 @@ import { semanticSearch } from "./executors/rag";
 import { canonicalizeStageFilter } from "@/lib/crm/stages";
 import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext } from "./executors/_ctx";
+import { isOptionalUuid } from "@/lib/ids";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { logAudit } from "@/lib/audit";
 import { queryComplianceControls, updateComplianceControl, listOrgMembers } from "./executors/compliance";
@@ -212,22 +213,6 @@ export function parseToolCalls(text: string): {
   }
 
   return { toolCalls, firstMatchIndex };
-}
-
-/**
- * The shape Postgres accepts for a `uuid` column. Every cosmos id is one, and
- * the model does NOT always send one: it will happily invent a readable-looking
- * id ("f9s8d7f9-demo-proj-id") when it never looked the project up. Handing that
- * to Prisma raises P2007 — `invalid input syntax for type uuid` — which is a
- * THROW, not a tool error, so it tore down the whole chat turn instead of
- * letting the model recover.
- */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** `true` when `value` is absent, or a string Postgres will accept as a uuid. */
-function isOptionalUuid(value: unknown): boolean {
-  if (value === undefined || value === null) return true;
-  return typeof value === "string" && UUID_RE.test(value);
 }
 
 /**
