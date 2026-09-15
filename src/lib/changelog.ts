@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.2",
+    date: "2026-09-15",
+    title: "A delivery no longer fails because GitHub had not finished thinking",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you approve a finished change, Foreman rebases it onto the latest code and then merges it. GitHub works out whether a change can be merged in the background, and for a few seconds after that rebase it has no answer yet — so the merge was being refused with a message blaming the main branch for having moved, when it had not moved for seven minutes. The change was set aside as a failed delivery even though nothing was wrong with it; approving it again a few minutes later merged it with no other change. Foreman now waits for that answer before merging, so an approval no longer fails on a race it cannot see.",
+      },
+    ],
+  },
+  {
     version: "2.371.1",
     date: "2026-09-15",
     title: "Foreman no longer stops working because of a question from July",
