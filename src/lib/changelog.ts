@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.10",
+    date: "2026-09-15",
+    title: "A delivery in progress is no longer thrown away by an update",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When an update arrived while Foreman was part-way through a piece of work, it waited for that work to finish — but only for thirty minutes, which is almost exactly how long an average job takes. So roughly half the time the update gave up and restarted anyway, discarding work that was nearly done and starting it again from scratch; one job lost around forty minutes this way. It now waits three hours, the same point at which it already tells you a job looks stalled, so a job in progress is finished rather than repeated.",
+      },
+      {
+        kind: "improvement",
+        text: "Foreman's record of how much it spends on each job was counting only a small fraction of it, because the bulk of what a long job re-reads each step was never added up. Those figures were therefore far too low to be useful for judging cost. They are now counted the same way everywhere, and a step that reports nothing is recorded as unknown rather than as zero.",
+      },
+    ],
+  },
+  {
     version: "2.368.9",
     date: "2026-09-15",
     title: "A ticket's title and description save themselves now",
