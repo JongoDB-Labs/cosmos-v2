@@ -36,7 +36,7 @@ import {
 import { useCustomFields } from "@/hooks/use-custom-fields";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { syncOpenDetail } from "@/lib/work-items/detail-sync";
-import { matchesFilters } from "@/lib/work-items/board-filters";
+import { boardBaseline, matchesFilters } from "@/lib/work-items/board-filters";
 import { presentLabels } from "@/lib/work-items/label-filter";
 import {
   blockedItemIds,
@@ -187,6 +187,15 @@ function KanbanBoardInner({
     seededIntervalRef.current = initialIntervalId;
     setFilters((prev) => ({ ...prev, intervalId: initialIntervalId ?? null }));
   }, [initialIntervalId]);
+
+  // What this board looks like with NO filter on it — which is what "Clear" has
+  // to restore. On a Sprint board that is the sprint, not every item in the
+  // project: clearing to the empty filter dropped the sprint scope too and left
+  // the user on a wider board than the one they filtered.
+  const baseFilters = useMemo(
+    () => boardBaseline(initialIntervalId),
+    [initialIntervalId],
+  );
 
   // Report the board's real scope back up, so the host's own sprint affordance
   // follows a filter-bar change too and the two can't disagree.
@@ -1000,6 +1009,7 @@ function KanbanBoardInner({
         customFields={projectCustomFields}
         presentTypeKeys={presentTypeKeys}
         presentCustomFieldKeys={presentCustomFieldKeys}
+        baseFilters={baseFilters}
         showSwimlane
       />
 
