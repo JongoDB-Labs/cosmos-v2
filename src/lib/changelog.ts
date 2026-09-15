@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.2",
+    date: "2026-09-15",
+    title: "The API key reference explains project scoping and what each scope really grants",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The API & MCP reference on the API keys page now covers limiting a key to specific projects, which it never mentioned even though the option exists when you create one. It also describes the item-writing scope accurately — it allows updating items and posting comments, not just creating them, and deliberately does not allow deleting — and explains that a mistyped filter now returns an error instead of quietly returning unfiltered results.",
+      },
+    ],
+  },
+  {
     version: "2.371.1",
     date: "2026-09-15",
     title: "Foreman no longer stops working because of a question from July",

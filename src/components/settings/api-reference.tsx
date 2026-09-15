@@ -44,6 +44,20 @@ export function ApiReference({ orgId }: { orgId: string }) {
               grant more than its owner has. Send it as a bearer token; bearer
               requests skip CSRF (no <code>Origin</code> needed).
             </p>
+            <p>
+              A key can also be limited to <b>specific projects</b> when you mint
+              it. That ceiling is absolute: it applies before any role-based
+              access, so even a key minted by an owner reaches only the projects
+              you named. Leave it empty for an org-wide key. This is the control
+              to reach for when handing a key to something that only needs one
+              project — it is far stronger than trusting the script to stay put.
+            </p>
+            <p>
+              Unrecognised query parameters are <b>rejected with a 400</b> that
+              names them, rather than being ignored. A filter that silently does
+              not filter returns a plausible but unfiltered page, which is worse
+              than an error — check the supported filters below if you get one.
+            </p>
           </Prose>
 
           <div>
@@ -57,9 +71,10 @@ export function ApiReference({ orgId }: { orgId: string }) {
                   </tr>
                 </thead>
                 <tbody className="align-top">
-                  <ScopeRow scope="read" grants="Read projects, items, OKRs, sprints (templates + listing)." />
-                  <ScopeRow scope="items:write" grants="Create items — issues, milestones, OKRs, goals, sprints, roadmap." />
+                  <ScopeRow scope="read" grants="Read projects, items, comments, OKRs, sprints (templates + listing)." />
+                  <ScopeRow scope="items:write" grants="Create AND update items — issues, milestones, OKRs, goals, sprints, roadmap — and post comments. Does NOT include deleting: destroying work stays with a person. Archive an item instead (it is reversible)." />
                   <ScopeRow scope="documents:write" grants="Upload documents and convert their blocks into items." />
+                  <ScopeRow scope="rules:run" grants="Trigger rule evaluation. Nothing else — not even reading projects." />
                 </tbody>
               </table>
             </div>
