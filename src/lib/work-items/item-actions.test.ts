@@ -28,6 +28,40 @@ describe("copyLinkAction", () => {
     );
   });
 
+  it("prefers the TICKET KEY over the uuid — the whole point of the change", () => {
+    // The uuid says nothing to a human reading a link in Slack; ACME-320 says
+    // which ticket before anyone clicks it. This went untested when it shipped:
+    // every fixture below omits `ticketKey`, so `item.ticketKey?.trim() || item.id`
+    // fell through to the id and a mutation removing the preference entirely
+    // still passed 9/9.
+    const [action] = copyLinkAction({ id: "w1", ticketKey: "ACME-320" }, "acme");
+    action.onClick!();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "https://cosmos.example/acme/issues?item=ACME-320",
+    );
+  });
+
+  it("falls back to the uuid when the item has no ticket key", () => {
+    const [action] = copyLinkAction({ id: "w1", ticketKey: null }, "acme");
+    action.onClick!();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "https://cosmos.example/acme/issues?item=w1",
+    );
+  });
+
+  it("ignores a blank ticket key rather than linking to nothing", () => {
+    // `""` and `"   "` are falsy-after-trim; without the trim a whitespace key
+    // would produce `?item=%20%20` and a deep link that resolves to nothing.
+    for (const key of ["", "   "]) {
+      vi.mocked(navigator.clipboard.writeText).mockClear();
+      const [action] = copyLinkAction({ id: "w1", ticketKey: key }, "acme");
+      action.onClick!();
+      expect(navigator.clipboard.writeText, JSON.stringify(key)).toHaveBeenCalledWith(
+        "https://cosmos.example/acme/issues?item=w1",
+      );
+    }
+  });
+
   it("renders no row at all when there is no org in the URL", () => {
     // A row that silently does nothing is worse than no row; ActionMenu drops
     // empty groups, so the menu simply does not grow a dead entry.
