@@ -21,6 +21,25 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.0",
+    date: "2026-09-15",
+    title: "Ctrl+K files an issue from the timeline, without reaching for the mouse",
+    highlights: [
+      {
+        kind: "feature",
+        text: "On a Timeline / Gantt board, ⌘K (Ctrl+K) now offers \"New issue in <project> timeline\" alongside search. Choosing it opens the full create dialog — the same one the board's own \"New issue\" button opens, with every field — already pointed at that project and that board's workflow. If a row is selected, or your pointer is resting on one, its planned start and due dates come across as the new issue's, so filing work alongside what you were reading doesn't mean retyping its schedule. It works in fullscreen too, where the toolbar and its button are hidden and the keyboard is the only way in.",
+      },
+      {
+        kind: "improvement",
+        text: "ASSUMED, and worth confirming: Ctrl+K opens the command palette with a New Issue action in it, rather than jumping straight into a create form. The context carried over is the project and board you are on plus the dates of the row in focus — the Gantt has no separate \"program\" grouping to scope to, so the project in scope is what the new issue is filed under. The rest of the app is unchanged: the palette's existing quick \"Create work item\" is still there everywhere, and only the Timeline publishes this richer context for now.",
+      },
+      {
+        kind: "fix",
+        text: "The create-issue dialog no longer opens holding the planned start date from the last issue you drafted — every field now starts clean.",
+      },
+    ],
+  },
+  {
     version: "2.370.3",
     date: "2026-09-15",
     title: "The biggest changes no longer reach you unreviewed",
