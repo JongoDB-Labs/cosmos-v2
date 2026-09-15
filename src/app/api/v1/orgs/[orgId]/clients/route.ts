@@ -40,7 +40,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_READ);
+    // CRM_READ, not PROJECT_READ. A client is a CRM entity — its siblings
+    // `contracts`, `partners` and `products` all gate on CRM_READ, and this
+    // route was the only one reaching for a project permission instead.
+    //
+    // It matters because this returns contact data: legalName, email, phone and
+    // notes. PROJECT_READ is in the `read` API-key scope, which is documented
+    // as "read projects, items, comments, OKRs, sprints" — so a key issued for
+    // work tracking was also able to enumerate every client and their contact
+    // details, which is not what anyone choosing that scope is agreeing to.
+    // Found by auditing a real key against production on 2026-09-15.
+    requirePermission(ctx, Permission.CRM_READ);
 
     // Inactive clients are excluded by default but reachable, because a former
     // client still owns its history and sometimes needs to be picked again.
@@ -72,7 +82,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
-    requirePermission(ctx, Permission.PROJECT_UPDATE);
+    // CRM_CREATE, matching the siblings — and matching the GET above, so you
+    // cannot be permitted to create a client you are not permitted to list.
+    requirePermission(ctx, Permission.CRM_CREATE);
 
     const data = createSchema.parse(await request.json());
     const name = data.name.replace(/\s+/g, " ").trim();

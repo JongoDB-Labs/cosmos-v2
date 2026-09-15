@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.3",
+    date: "2026-09-15",
+    title: "Client contact details need CRM access, like the rest of CRM",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The client list — including legal names, email addresses and phone numbers — was available to anyone who could read projects, rather than requiring CRM access the way contracts, partners and products always have. That also meant an API key issued only for work tracking could read it. Viewing or adding clients now needs CRM permission, matching every other part of CRM.",
+      },
+    ],
+  },
+  {
     version: "2.371.1",
     date: "2026-09-15",
     title: "Foreman no longer stops working because of a question from July",
