@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.9",
+    date: "2026-09-15",
+    title: "A ticket's title and description save themselves now",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Editing a work item's title or description and then closing the panel used to discard the change without a word — the panel kept showing the new text while the old one stayed in the database. Both fields now save the moment you click away (or press Enter on a title, \u2318/Ctrl+Enter in a description), exactly like Status, Priority and Assignees already did, and each one shows its own \"Unsaved / Saving\u2026 / Saved\" marker right beside the field instead of at the bottom of the panel. The separate \"Save changes\" button is gone. Where the ticket left the choice open — inline warning versus save-on-blur — we took save-on-blur, so the panel behaves the same way throughout.",
+      },
+    ],
+  },
+  {
     version: "2.368.7",
     date: "2026-09-15",
     title: "A release can no longer quietly ship older code than the release before it",
