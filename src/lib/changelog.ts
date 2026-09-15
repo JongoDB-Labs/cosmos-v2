@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.370.3",
+    date: "2026-09-15",
+    title: "The biggest changes no longer reach you unreviewed",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When Foreman finishes a change that is too large or too sensitive to merge on its own, it hands the work to a person — and until now it handed it over with no opinion attached, because its code reviewer only ran on changes small enough to merge automatically. So the changes most in need of a second read were the only ones that never got one: over the last fortnight the reviewer ran on three of ten tickets, and every large change on record reached a person cold. Now a change that is set aside for you has already been read by an independent reviewer, and that verdict arrives with it. The review is advisory only — it can never approve a change or let one merge on its own, and a change whose tests are failing is still set aside without spending a review on it.",
+      },
+    ],
+  },
+  {
     version: "2.370.2",
     date: "2026-09-15",
     title: "A key limited to one project can no longer see the names of the others",
