@@ -10,6 +10,12 @@ export interface SearchableOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /**
+   * Extra text the filter should match, for details worth searching but not
+   * worth rendering in every row (a member's email, say). Honoured by
+   * <SearchableMultiSelect>; <SearchableSelect> matches on `label` alone.
+   */
+  searchText?: string;
 }
 
 /**

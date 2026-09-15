@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.370.0",
+    date: "2026-09-15",
+    title: "Search — and alphabetical order — when you assign people",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Assigning an issue no longer means scrolling an unordered list of everyone in the organisation. The assignee pickers on the New issue dialog and the issue detail panel now list people alphabetically and accept a search: type any part of someone's name or their email address to narrow it. The request did not say what the list should be ordered by or what search should look at, so we sorted by the name already shown in each row (falling back to the email address for people without one) and match your typing against both the name and the email, even though only the name is displayed.",
+      },
+    ],
+  },
+  {
     version: "2.369.2",
     date: "2026-09-15",
     title: "The API tells you when a filter you asked for does not exist",

@@ -19,9 +19,10 @@ import type { SearchableOption } from "@/components/ui/searchable-select";
  * Controlled shape mirrors the checkbox lists it replaces: an array of string
  * ids in, an array of string ids out. Selection ORDER is preserved — existing
  * ids keep their position and newly-checked ids are appended — so a
- * "primary-first" convention survives the swap. Filtering is automatic:
- * base-ui matches the input text against each item's `label` (inferred from the
- * `{ value, label }` shape), case-insensitively as a substring.
+ * "primary-first" convention survives the swap. Filtering is case-insensitive
+ * substring matching against each item's `label`, widened to its optional
+ * `searchText` when one is given — so a picker can match on something it does
+ * not render, e.g. a member's email behind their display name (COSMOS-171).
  */
 export function SearchableMultiSelect({
   value,
@@ -81,6 +82,11 @@ export function SearchableMultiSelect({
     <Combobox.Root
       multiple
       items={options}
+      filter={(item: SearchableOption, query: string) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return (item.searchText ?? item.label).toLowerCase().includes(q);
+      }}
       value={selected}
       onValueChange={(next: SearchableOption[]) =>
         onValueChange(next.map((o) => o.value))
