@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.12",
+    date: "2026-09-15",
+    title: "Deliveries stop failing on a step that was already fixed elsewhere",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman's final step — merging a finished change and pushing it — ran a command that could never succeed where it runs, because that workspace always holds generated files it is not allowed to discard. The same problem was found and fixed two weeks ago in the tidy-up that follows a delivery, but not in the delivery itself, so every failed delivery on record is this one step refusing to run. Worse, it could report a delivery as failed more than a minute after it had actually succeeded, telling a reviewer their change had not shipped when it already had.",
+      },
+      {
+        kind: "improvement",
+        text: "Foreman gives its own reviewer and its screen-checker room to finish. Both were limited to fewer steps than the work usually takes — the review limit sat almost exactly on the length of an average review — so a review that ran long was abandoned with nothing to show for it and the ticket was set aside for a person, even when the change had already been proven correct. Longer limits mean fewer abandoned runs, which costs less rather than more. Its own sense of how long a job has been running now counts the whole job, not just the part after the first pause.",
+      },
+    ],
+  },
+  {
     version: "2.368.11",
     date: "2026-09-15",
     title: "Clearing a tag filter gives you your sprint board back",
