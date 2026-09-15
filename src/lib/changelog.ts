@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.3",
+    date: "2026-09-15",
+    title: "Foreman's own release notes can no longer fall silently out of date",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Foreman had shipped seven releases whose changes were never written down, because nothing checked that a release documented itself — the main application has had that check for months, but Foreman's own component did not. It does now: a release that bumps its version without describing what changed fails to build. The seven undocumented releases have been written up from their commit history, so the record is complete again.",
+      },
+    ],
+  },
+  {
     version: "2.371.2",
     date: "2026-09-15",
     title: "A delivery no longer fails because GitHub had not finished thinking",
