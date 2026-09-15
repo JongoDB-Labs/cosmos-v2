@@ -123,3 +123,54 @@ describe("GET projects — team-scoped projects stay out of the list", () => {
     expect(prisma.projectMember.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe("GET projects — a project-scoped API key cannot enumerate the others", () => {
+  /**
+   * The ceiling has to bind the LIST, not only each project's contents.
+   *
+   * Measured against production on 2026-09-15 with a real key scoped to one
+   * project: every other project's work-items correctly returned 403, and this
+   * endpoint still returned all six by name, key and counts. Refusing the
+   * contents while publishing the inventory gives away exactly what the scope
+   * exists to withhold — a token limited to one repository should not be able
+   * to read the names of the others.
+   *
+   * `getVisibleProjectIds` is the FOURTH function needing this ceiling ahead of
+   * its role short-circuit, after `getReadableProjectIds`, `isProjectVisible`
+   * (its sibling in the same file) and `evaluateAccess`. The shape recurs
+   * because every visibility helper has an owner break-glass, and a ceiling
+   * placed after one binds everyone except the people most likely to mint a key.
+   */
+  it("lists only the project in its ceiling, even for an OWNER's key", async () => {
+    getAuthContext.mockResolvedValue(
+      ctx({ orgRole: OrgRole.OWNER, projectScope: [OPEN] }),
+    );
+    const res = await GET(listReq(), { params });
+    expect(await listedIds(res)).toEqual([OPEN]);
+  });
+
+  it("hides even an unrestricted project that is outside the ceiling", async () => {
+    // OPEN is teamScopedAccess:false, so nothing but the ceiling excludes it —
+    // this is the case the `restricted.length === 0` shortcut would have let
+    // straight through.
+    getAuthContext.mockResolvedValue(
+      ctx({ orgRole: OrgRole.OWNER, projectScope: [RESTRICTED] }),
+    );
+    expect(await listedIds(await GET(listReq(), { params }))).toEqual([RESTRICTED]);
+  });
+
+  it("lists nothing when the ceiling names no project in this org", async () => {
+    getAuthContext.mockResolvedValue(
+      ctx({ orgRole: OrgRole.OWNER, projectScope: ["99999999-9999-4999-8999-999999999999"] }),
+    );
+    expect(await listedIds(await GET(listReq(), { params }))).toEqual([]);
+  });
+
+  it("an UNSCOPED owner still sees both — the negative control", async () => {
+    // Without this, a helper that returned nothing at all would satisfy every
+    // assertion above while breaking the list for every ordinary caller.
+    getAuthContext.mockResolvedValue(ctx({ orgRole: OrgRole.OWNER }));
+    expect((await listedIds(await GET(listReq(), { params }))).sort())
+      .toEqual([OPEN, RESTRICTED].sort());
+  });
+});

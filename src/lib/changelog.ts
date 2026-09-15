@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.370.2",
+    date: "2026-09-15",
+    title: "A key limited to one project can no longer see the names of the others",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key restricted to specific projects correctly refused to open any other project, but the project list still showed every project in the organisation — their names, keys and counts. For a key handed to an outside script or integration, that disclosed the shape of work it was never meant to know about. The list now shows only the projects the key was given.",
+      },
+    ],
+  },
+  {
     version: "2.370.0",
     date: "2026-09-15",
     title: "Search — and alphabetical order — when you assign people",

@@ -122,13 +122,40 @@ export async function getVisibleProjectIds(
   if (projectIds.length === 0) return new Set();
   if (!hasPermission(ctx.permissions, Permission.PROJECT_READ)) return new Set();
 
+  // A project-scoped API key's ceiling, applied FIRST — before the
+  // nothing-restricted shortcut and the org-administrator branch below, either
+  // of which would otherwise hand back every project in the org.
+  //
+  // `isProjectVisible` in this same file already did this; this sibling did
+  // not, and the LIST is exactly where it matters: a key scoped to one project
+  // correctly 403'd every other project's contents while still enumerating all
+  // six by name, key and counts. That is precisely the information the scope
+  // exists to withhold — a token limited to one repository should not be able
+  // to read the names of the others.
+  //
+  // Measured against production on 2026-09-15 with a real key scoped to a
+  // single project: GET /projects returned all six.
+  const scoped = ctx.projectScope
+    ? projectIds.filter((id) => ctx.projectScope!.includes(id))
+    : projectIds;
+  if (scoped.length === 0) return new Set();
+
   const projects = await prisma.project.findMany({
-    where: { id: { in: projectIds }, orgId: ctx.orgId },
+    where: { id: { in: scoped }, orgId: ctx.orgId },
     select: { id: true, teamScopedAccess: true },
   });
 
-  const unrestricted = projects.filter((p) => !p.teamScopedAccess).map((p) => p.id);
-  const restricted = projects.filter((p) => p.teamScopedAccess).map((p) => p.id);
+  // Narrowed again on the RESULT, not only in the WHERE above. The query is
+  // the efficient half; this is the half that still holds if that predicate is
+  // ever refactored, cached, or handed a wider row set than it asked for. A
+  // ceiling that depends on one clause staying exactly as written is a ceiling
+  // waiting to be lifted by an unrelated change.
+  const inScope = ctx.projectScope
+    ? projects.filter((p) => ctx.projectScope!.includes(p.id))
+    : projects;
+
+  const unrestricted = inScope.filter((p) => !p.teamScopedAccess).map((p) => p.id);
+  const restricted = inScope.filter((p) => p.teamScopedAccess).map((p) => p.id);
 
   // Nothing opted in — the common case. Skip the membership query entirely.
   if (restricted.length === 0) return new Set(unrestricted);
