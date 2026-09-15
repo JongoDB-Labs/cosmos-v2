@@ -214,12 +214,72 @@ export function parseToolCalls(text: string): {
   return { toolCalls, firstMatchIndex };
 }
 
+/**
+ * The shape Postgres accepts for a `uuid` column. Every cosmos id is one, and
+ * the model does NOT always send one: it will happily invent a readable-looking
+ * id ("f9s8d7f9-demo-proj-id") when it never looked the project up. Handing that
+ * to Prisma raises P2007 — `invalid input syntax for type uuid` — which is a
+ * THROW, not a tool error, so it tore down the whole chat turn instead of
+ * letting the model recover.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `true` when `value` is absent, or a string Postgres will accept as a uuid. */
+function isOptionalUuid(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+/**
+ * Refusal for a malformed id. Names the field and tells the model how to get a
+ * real one, so it re-resolves by name (`list_projects`) rather than retrying the
+ * same invented id — and the user sees this instead of a Prisma stack.
+ */
+function invalidIdError(field: string): { error: string } {
+  return {
+    error: `${field} is not a valid id. Ids are UUIDs — look the record up by name first (list_projects / query_intervals) and pass the id it returns.`,
+  };
+}
+
+/**
+ * Prisma error codes that mean "the ARGUMENTS were unusable", not "the database
+ * is unhappy": P2007 is the uuid/enum validation failure, P2023 the malformed
+ * column data it used to be reported as.
+ */
+const BAD_INPUT_PRISMA_CODES = new Set(["P2007", "P2023"]);
+
+/**
+ * Last-resort translation of a thrown executor error into a tool RESULT.
+ *
+ * A raw Prisma message quotes the failing query and the server source path, so
+ * it can never be shown to a user — and letting it throw was worse still: the
+ * agent loop has no catch, so one bad id ended the turn with a raw
+ * "Invalid `prisma.interval.findFirst()` invocation" instead of an answer.
+ * Returning `{error}` keeps the model in the loop: it sees the failure, and can
+ * retry with a resolved id or explain what it needs.
+ */
+function toolFailureResult(name: string, err: unknown): { error: string } {
+  const code = (err as { code?: unknown } | null)?.code;
+  console.error(`[executeTool] ${name} failed:`, (err as Error)?.message ?? err);
+  if (typeof code === "string" && BAD_INPUT_PRISMA_CODES.has(code)) {
+    return {
+      error: `The ${name} tool was called with an id that isn't a valid record id. Look the record up by name first and retry with the id it returns.`,
+    };
+  }
+  return { error: `The ${name} tool failed. Tell the user it couldn't be completed and suggest they try again.` };
+}
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>,
   ctx: ToolContext
 ): Promise<unknown> {
-  const result = await dispatchTool(name, input, ctx);
+  let result: unknown;
+  try {
+    result = await dispatchTool(name, input, ctx);
+  } catch (err) {
+    result = toolFailureResult(name, err);
+  }
   // Governance: write every *mutating* assistant tool call to the org audit
   // trail so an AI action is as traceable as a human one. Best-effort — an
   // audit failure must never change the tool result the model sees.
@@ -603,6 +663,12 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
     // An EMPTY readable set must mean nothing, never "no filter".
     where.projectId = { in: readable };
   }
+  // These land in `uuid` columns unvalidated, so a model-invented id raises
+  // P2007 rather than returning nothing. `projectId` above is compared against
+  // `readable` first, which is a string match and so already safe.
+  for (const field of ["assigneeId", "intervalId", "workItemTypeId"] as const) {
+    if (!isOptionalUuid(input[field])) return invalidIdError(field);
+  }
   if (input.assigneeId) where.assigneeId = input.assigneeId as string;
   if (input.priority) where.priority = input.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   if (input.intervalId) where.intervalId = input.intervalId as string;
@@ -630,6 +696,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
 async function queryIntervals(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
+  if (!isOptionalUuid(input.projectId)) return invalidIdError("projectId");
   // SPRINT_READ is held by MEMBER and VIEWER, and the projectId comes straight
   // from the caller — so this leaked interval names, goals and work-item counts
   // for projects the asker cannot open.
@@ -701,6 +768,12 @@ async function queryFinance(input: Record<string, unknown>, ctx: ToolContext) {
 async function generateIntervalBrief(input: Record<string, unknown>, ctx: ToolContext) {
   const denied = await assertPermission(ctx, Permission.SPRINT_READ);
   if (denied) return denied;
+  // The sprint-data entry point the assistant reaches for when asked to prep a
+  // retro, and the one that crashed: both ids go straight into `uuid` columns,
+  // so an id the model invented rather than resolved threw P2007 out of the
+  // agent loop. Reject it as a tool error the model can act on instead.
+  if (!isOptionalUuid(input.projectId)) return invalidIdError("projectId");
+  if (!isOptionalUuid(input.intervalId)) return invalidIdError("intervalId");
   const projectId = input.projectId as string;
   let interval;
 

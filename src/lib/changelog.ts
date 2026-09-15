@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.369.1",
+    date: "2026-09-15",
+    title: "Asking the assistant for sprint data no longer ends in a database error",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Ask the assistant to pull your sprint data — to prepare a retro, say — and it sometimes answered with a raw database error instead. When it reached for a sprint or project it had not looked up first, it passed along an id the database could not read, and the whole reply fell over at that point. Now a bad id is handled as what it is: the assistant is told the id was not a real one and to look the record up by name, so it retries and answers you. If a lookup fails for any other reason, you get a plain explanation rather than the database's own words.",
+      },
+    ],
+  },
+  {
     version: "2.369.0",
     date: "2026-09-15",
     title: "Scroll through time on the timeline",
