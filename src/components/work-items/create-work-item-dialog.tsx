@@ -99,6 +99,8 @@ export function CreateWorkItemDialog({
   prefilledProjectId,
   boardId,
   initialLabels,
+  initialStartDate,
+  initialDueDate,
   duplicateSource,
   onCreated,
 }: {
@@ -117,6 +119,15 @@ export function CreateWorkItemDialog({
   /** Labels applied by default. The RAID log seeds its category here so a new
    *  entry never lands in "Unclassified" (COSMOS-80); the user can edit them. */
   initialLabels?: string[];
+  /**
+   * `YYYY-MM-DD` seeds for the planned start / due dates. The schedule surfaces
+   * open this dialog already knowing the dates in play — the row you were on in
+   * the Gantt — and both fields are required to create, so handing them over is
+   * the difference between confirming a schedule and retyping it (COSMOS-166).
+   * They are SEEDS, not locks: the user edits them like any other field.
+   */
+  initialStartDate?: string | null;
+  initialDueDate?: string | null;
   /** When set, the dialog opens as a "Duplicate issue" draft pre-filled from
    *  this source item (COSMOS-13). The user edits before creating; comments,
    *  activity, and status are never carried over (they aren't part of create). */
@@ -207,7 +218,11 @@ export function CreateWorkItemDialog({
       setAssigneeIds([]);
       setAssigneeSearch("");
       setStoryPoints("");
-      setDueDate("");
+      // Both date fields are reset from their seeds (usually absent, so ""):
+      // start was previously not reset at all, which left the last draft's
+      // planned start sitting in a freshly opened form.
+      setStartDate(initialStartDate ?? "");
+      setDueDate(initialDueDate ?? "");
       setIntervalId(null);
       setDescription("");
       setLabels(initialLabelsText);
@@ -224,7 +239,15 @@ export function CreateWorkItemDialog({
     // the Issues view rebuilds `facets.projects` on every refetch. Depending on
     // the array meant the title silently emptied and "Create issue" went back
     // to disabled.
-  }, [open, prefilledProjectId, firstProjectId, duplicateSource, initialLabelsText]);
+  }, [
+    open,
+    prefilledProjectId,
+    firstProjectId,
+    duplicateSource,
+    initialLabelsText,
+    initialStartDate,
+    initialDueDate,
+  ]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
   // opened from a board, else the project's, pooled across its boards.

@@ -54,7 +54,10 @@ import {
   matchesStoryPoints,
 } from "@/lib/work-items/relation-filters";
 import { matchesEstimateBand, hasAnyEstimate } from "@/lib/work-items/estimate-filter";
-import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
+import { useOrgQueryKey, useOrgSlug, orgQueryKey } from "@/lib/query/keys";
+import { dateOnlyKey } from "@/lib/time/date-only";
+import { usePublishNewIssueContext } from "@/hooks/use-new-issue-context";
+import type { NewIssueContext } from "@/lib/boards/new-issue-context";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
@@ -1242,6 +1245,35 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   );
   const allVisibleSelected =
     sortedItems.length > 0 && selectedItems.length === sortedItems.length;
+
+  // ── ⌘K / Ctrl+K → "New issue in <KEY> timeline" ──────────────────────────
+  // Publish this board's create context so the command palette can offer the
+  // SAME full dialog the toolbar's "New issue" button opens (COSMOS-166). The
+  // toolbar is hidden in fullscreen, which is precisely when the keyboard is
+  // the only way in, so the registration lives on the view rather than on the
+  // button. The row in FOCUS — the one selected, else the one under the
+  // pointer — seeds the dates, so filing work alongside what you were reading
+  // doesn't mean retyping its schedule.
+  const focusItem = selectedItems.length === 1 ? selectedItems[0] : hoveredItem;
+  const refetchItems = useCallback(() => {
+    void qc.invalidateQueries({
+      queryKey: orgQueryKey(orgSlug, "work-items", projectId),
+    });
+  }, [qc, orgSlug, projectId]);
+  const newIssueContext = useMemo<NewIssueContext>(
+    () => ({
+      scopeLabel: `${projectKey} timeline`,
+      orgId,
+      projectId,
+      projectKey,
+      boardId,
+      startDate: focusItem?.startDate ? dateOnlyKey(focusItem.startDate) : null,
+      dueDate: focusItem?.dueDate ? dateOnlyKey(focusItem.dueDate) : null,
+      onCreated: refetchItems,
+    }),
+    [orgId, projectId, projectKey, boardId, focusItem, refetchItems],
+  );
+  usePublishNewIssueContext(newIssueContext);
 
   // ── Bulk schedule ops ────────────────────────────────────────────────────
   // Shift moves the SELECTED items by N days. The target list is a parameter
