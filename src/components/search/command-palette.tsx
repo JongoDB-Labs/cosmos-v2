@@ -61,6 +61,12 @@ import {
   QuickCreateWorkItem,
   type PaletteProject,
 } from "./quick-create-work-item";
+import { CreateWorkItemDialog } from "@/components/work-items/create-work-item-dialog";
+import {
+  getNewIssueContext,
+  newIssueActionLabel,
+  type NewIssueContext,
+} from "@/lib/boards/new-issue-context";
 
 // ⌘K is a GLOBAL search: the route returns the shared registry's canonical
 // `EntityType`, so the palette groups/labels every entity class the platform
@@ -115,6 +121,13 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const [mode, setMode] = useState<Mode>("search");
   const [projects, setProjects] = useState<PaletteProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  // The surface-published "new issue, here" context, SNAPSHOT when the palette
+  // opens (COSMOS-166). Snapshotting rather than subscribing keeps the globally
+  // mounted palette out of the Gantt's hover re-render path, and it is the right
+  // semantics anyway: the action applies to what you were looking at when you
+  // pressed ⌘K, not to whatever the pointer drifted onto afterwards.
+  const [newIssueCtx, setNewIssueCtx] = useState<NewIssueContext | null>(null);
+  const [newIssueOpen, setNewIssueOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const { openDrawer } = useDrawers();
@@ -145,14 +158,18 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
       window.removeEventListener("cosmos:command-palette:open", handler);
   }, []);
 
-  // Reset transient state whenever the dialog closes.
+  // Reset transient state whenever the dialog closes; take the create-context
+  // snapshot whenever it opens. The context is deliberately NOT cleared on
+  // close — closing the palette is how the New-issue dialog gets opened.
   useEffect(() => {
-    if (!open) {
-      /* eslint-disable react-hooks/set-state-in-effect */
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (open) {
+      setNewIssueCtx(getNewIssueContext());
+    } else {
       setMode("search");
       setQuery("");
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open]);
 
   // Lazily fetch the org's projects — only when an action view that needs them
@@ -238,6 +255,14 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     setMode("create");
     void ensureProjects();
   }, [ensureProjects]);
+
+  // Hand off to the SAME full create dialog the surface's own "New issue"
+  // button opens — project, board, and the dates of the row in focus already
+  // filled in — rather than the palette's cut-down capture form.
+  const openNewIssue = useCallback(() => {
+    setOpen(false);
+    setNewIssueOpen(true);
+  }, []);
 
   const openProjectPicker = useCallback(() => {
     setMode("projects");
@@ -330,7 +355,9 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     actionQuery.trim() === "" ||
     label.toLowerCase().includes(actionQuery.trim().toLowerCase());
   const filteredNav = showActions ? navItems.filter((n) => matchesAction(n.label)) : [];
+  const newIssueLabel = newIssueCtx ? newIssueActionLabel(newIssueCtx) : null;
   const fixedActionLabels = [
+    ...(newIssueLabel ? [newIssueLabel] : []),
     prefilledProject ? `Create work item in ${prefilledProject.key}` : "Create work item",
     ...(onProjectRoute ? ["Add card to this project"] : []),
     "Go to project",
@@ -352,6 +379,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   // would otherwise re-hide rows (it matches the query against the item value, a
   // "{type}-{id}" string, not the visible name).
   return (
+    <>
     <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
       <CommandInput
         placeholder={inputPlaceholder}
@@ -409,6 +437,14 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
         <CommandList>
           {showActions && fixedActionLabels.some(matchesAction) && (
             <CommandGroup heading="Actions">
+              {newIssueLabel && matchesAction(newIssueLabel) && (
+                <CommandItem value="action-new-issue" onSelect={openNewIssue}>
+                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate">{newIssueLabel}…</span>
+                  <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
+                </CommandItem>
+              )}
+
               {matchesAction(
                 prefilledProject
                   ? `Create work item in ${prefilledProject.key}`
@@ -533,5 +569,27 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
         </CommandList>
       )}
     </CommandDialog>
+
+    {newIssueCtx && (
+      <CreateWorkItemDialog
+        orgId={newIssueCtx.orgId}
+        open={newIssueOpen}
+        onOpenChange={setNewIssueOpen}
+        projects={[
+          {
+            id: newIssueCtx.projectId,
+            key: newIssueCtx.projectKey,
+            name: newIssueCtx.projectName ?? newIssueCtx.projectKey,
+            sector: newIssueCtx.sector ?? null,
+          },
+        ]}
+        prefilledProjectId={newIssueCtx.projectId}
+        boardId={newIssueCtx.boardId}
+        initialStartDate={newIssueCtx.startDate}
+        initialDueDate={newIssueCtx.dueDate}
+        onCreated={newIssueCtx.onCreated}
+      />
+    )}
+    </>
   );
 }
