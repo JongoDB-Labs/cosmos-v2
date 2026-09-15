@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -35,6 +33,7 @@ import {
 import type { IntervalChange } from "@/lib/dashboard/scope-change";
 import type { WorkItemLinkLike, ObjectiveLike } from "@/lib/dashboard/impediments";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { burndown } from "@/lib/intervals/burndown";
 import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
@@ -277,10 +276,15 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   }, [filteredItems]);
 
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
-  // of the matching tickets, each deep-linking to its detail on the Issues page.
-  const params = useParams();
-  const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
+  // of the matching tickets.
+  //
+  // A row used to be a <Link> to `/{org}/issues?item=…`, which threw the reader
+  // out of Sprint Health entirely to edit one overdue ticket — and left them on
+  // the Issues page afterwards. Every other board opens the ticket in place, so
+  // this does too: same sheet, same editing, and a save lands in the very
+  // `work-items` cache entry this board's numbers are computed from.
   const [drill, setDrill] = useState<{ title: string; rows: WorkItem[] } | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const openDrill = (title: string, filter: (i: WorkItem) => boolean) =>
     setDrill({ title, rows: filteredItems.filter(filter) });
   const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
@@ -666,11 +670,16 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
               <p className="p-6 text-center text-sm text-muted-foreground">No matching items.</p>
             ) : (
               drill?.rows.map((i) => (
-                <Link
+                <button
                   key={i.id}
-                  href={`/${orgSlug}/issues?item=${i.id}`}
-                  className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
-                  onClick={() => setDrill(null)}
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50"
+                  onClick={() => {
+                    // The list dialog closes first: two stacked modals fight over
+                    // the focus trap, and the sheet is what the user asked for.
+                    setDrill(null);
+                    setDetailId(i.id);
+                  }}
                 >
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {projectKey}-{i.ticketNumber}
@@ -679,12 +688,21 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {(columnCategoryMap.get(i.columnKey) ?? "TODO").replace("_", " ").toLowerCase()}
                   </span>
-                </Link>
+                </button>
               ))
             )}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* The same editable ticket the Table, Calendar and RAID boards open. */}
+      <BoardItemDetailSheet
+        itemId={detailId}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        orgId={orgId}
+        projectId={projectId}
+        boardId={boardId}
+      />
     </>
   );
 }
