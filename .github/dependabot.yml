@@ -74,6 +74,29 @@ updates:
       # upgrade deliberately as its own PR.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # pdfkit 0.20.x silently stops rendering the org logo.
+      #
+      # Measured 2026-09-15 by installing it against this tree:
+      # `src/lib/pdf/brand.test.ts` goes 40/40 -> 3 failed, and the failure is
+      # the contract assertion that matters —
+      #
+      #   expect(withLogo.equals(plain)).toBe(false)   // received: true
+      #
+      # i.e. a PDF generated WITH a logo comes out byte-identical to one
+      # generated without. Both the data-URL path and the threaded-bytes path
+      # fail, so it is not one call site. Shipping it would quietly drop
+      # branding from every generated invoice and audit log.
+      #
+      # pdfkit is 0.x, where a minor bump is a breaking change by convention,
+      # and it is in `serverExternalPackages` (next.config.ts) because its CJS
+      # shape does not bundle — so its image handling is exactly the kind of
+      # thing that moves underneath us.
+      #
+      # Held at 0.19.x rather than ignored outright, so patches and any later
+      # line still arrive. Remove this once 0.20+ renders the logo again, and
+      # re-run brand.test.ts to confirm rather than assuming.
+      - dependency-name: "pdfkit"
+        versions: ["0.20.x"]
 
   - package-ecosystem: github-actions
     directory: "/"
