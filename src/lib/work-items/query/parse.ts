@@ -203,3 +203,50 @@ function clampInt(raw: string | null, fallback: number, min: number, max: number
   if (Number.isNaN(n)) return fallback;
   return Math.min(Math.max(n, min), max);
 }
+
+/**
+ * Every query parameter the work-item search surface understands.
+ *
+ * WHY THIS EXISTS. An unrecognised parameter used to be silently dropped, so
+ * `?search=`, `?q=`, `?limit=`, `?offset=` and `?cursor=` all returned an
+ * unfiltered first page instead of an error. A filter that silently does not
+ * filter is worse than one that fails: it returns plausible WRONG answers. A
+ * caller paging with `?offset=` re-read page 1 sixteen times and concluded the
+ * ticket it wanted did not exist — the API answered truthfully and uselessly
+ * that there were 25 items, every time.
+ *
+ * KEEP THIS IN SYNC. Adding a parameter to the parser without adding it here
+ * turns that new filter into a 400 — the failure runs the other way, which is
+ * why `parse.params.test.ts` reads this file and asserts every parameter the
+ * parser actually reads appears in this set. The list cannot drift silently.
+ */
+export const KNOWN_QUERY_PARAMS: ReadonlySet<string> = new Set([
+  // multi-value filters
+  "project", "type", "status", "assignee", "label", "interval", "priority",
+  // custom fields, repeated
+  "cf",
+  // hierarchy + archive state
+  "parent", "parentId", "archived", "includeArchived",
+  // date ranges
+  "startFrom", "startTo", "dueFrom", "dueTo",
+  "createdFrom", "createdTo", "updatedFrom", "updatedTo",
+  // free text, sort, paging
+  "text", "sortField", "sortDir", "page", "pageSize",
+]);
+
+/**
+ * Parameters a caller supplied that nothing will read.
+ *
+ * `extra` is for parameters a ROUTE handles itself rather than through
+ * `parseSearchParams` — `watchedByMe` on the search route is the only one
+ * today. Passing it there keeps the check honest at the route that owns it,
+ * instead of widening the shared set for every caller.
+ */
+export function unknownQueryParams(
+  params: URLSearchParams,
+  extra: readonly string[] = [],
+): string[] {
+  const allowed = new Set([...KNOWN_QUERY_PARAMS, ...extra]);
+  // De-duplicated: `?project=a&project=b` would otherwise report twice.
+  return [...new Set([...params.keys()])].filter((k) => !allowed.has(k));
+}

@@ -8,6 +8,7 @@ import {
   getReadableProjectIds,
   parseSearchParams,
   runWorkItemQuery,
+  unknownQueryParams,
 } from "@/lib/work-items/query";
 import { toCSV } from "@/lib/export/csv";
 
@@ -54,6 +55,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const allowedProjectIds = await getReadableProjectIds(ctx);
     if (allowedProjectIds.length === 0) {
       return new Response("", { status: 200, headers: csvHeaders(org.slug) });
+    }
+
+    // Reject parameters nothing will read, rather than answering as if they
+    // had been applied. A filter that silently does not filter returns
+    // plausible WRONG answers, which costs the caller more than an error.
+    const unknown = unknownQueryParams(request.nextUrl.searchParams);
+    if (unknown.length > 0) {
+      return new Response(
+        JSON.stringify({
+          error: "Unknown query parameter",
+          unknown,
+          hint:
+            "Unrecognised parameters are not applied, so this request would have "
+            + "returned an unfiltered page. Check the spelling against the supported filters.",
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
     }
 
     const { filter, sort } = parseSearchParams(request.nextUrl.searchParams);
