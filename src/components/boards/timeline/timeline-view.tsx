@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -75,6 +75,17 @@ import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";
 import { planDriftPhantoms, type DriftColor } from "@/lib/boards/plan-drift";
 import { paintedSpan, solidSpan } from "@/lib/boards/timeline-span";
+import {
+  NO_PAN,
+  PAN_CHUNK_DAYS,
+  fillerDays,
+  grownPan,
+  panIntent,
+  sameDayWindow,
+  visibleDayWindow,
+  type DayWindow,
+  type PanWindow,
+} from "@/lib/boards/timeline-pan";
 
 interface TimelineViewProps {
   orgId: string;
@@ -556,6 +567,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     if (boardRef.current === boardId) return;
     boardRef.current = boardId;
     setCollapsedIds(readCollapsedIds(boardId));
+    // How far you scrolled through one board's calendar says nothing about the
+    // next one's, so the extended axis goes back to that board's own dates.
+    setPan(NO_PAN);
   }, [boardId]);
 
   const fullTree = useMemo(
@@ -685,10 +699,33 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     return map;
   }, [members]);
 
+  // ── Scroll through time (COSMOS-156) ─────────────────────────────────────
+  // How far past the data the axis currently reaches. The window below is what
+  // the ITEMS occupy; this is what the USER has asked to see beyond them, grown
+  // a quarter at a time as they scroll into either edge. Kept in days (not
+  // pixels) so zooming never moves it, and reset with the rest of a board's
+  // view state when this instance is reused for a different board.
+  const [pan, setPan] = useState<PanWindow>(NO_PAN);
+  // The slice of day columns actually put in the DOM. Quantised, so panning a
+  // long way re-renders the chart every ~quarter of travel rather than every
+  // frame. `null` until the scroller has been measured = draw every day.
+  const [dayWindow, setDayWindow] = useState<DayWindow | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The horizontal offset at the end of the last scroll event — the direction of
+  // travel is what tells a reach for the left edge apart from a scroll straight
+  // down a board that happens to sit at scrollLeft 0.
+  const lastScrollLeftRef = useRef(0);
+  // Pixels the viewport owes once a "before" extension lands. Prepending days
+  // moves every existing bar to the right, so without this the chart would jump
+  // under the cursor. Non-zero also means an extension is in flight, which is
+  // what stops one flick from queuing a dozen of them: scrollLeft stays pinned
+  // near 0 until the compensation below runs.
+  const pendingScrollShiftRef = useRef(0);
+
   // Compute timeline range. The range spans ALL filtered items (collapsed
   // subtrees included) so collapsing never reflows the axis; row ORDER comes
   // from the hierarchy walk above.
-  const { timelineStart, totalDays } = useMemo(() => {
+  const { timelineStart: dataStart, totalDays: dataDays } = useMemo(() => {
     if (filteredItems.length === 0) {
       const now = startOfDay(new Date());
       return { timelineStart: addDays(now, -7), totalDays: 37 };
@@ -717,6 +754,16 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
     return { timelineStart: padStart, totalDays: days };
   }, [filteredItems]);
+
+  // The axis everything below is drawn against: the data's window, opened out by
+  // however far the user has scrolled past it. Every x/offset in this component
+  // already measures from `timelineStart`, so the bars, the today line, the
+  // milestone markers and the dependency arrows all follow for free.
+  const timelineStart = useMemo(
+    () => addDays(dataStart, -pan.before),
+    [dataStart, pan.before],
+  );
+  const totalDays = dataDays + pan.before + pan.after;
 
   const sortedItems = useMemo(() => visibleRows.map((r) => r.item), [visibleRows]);
 
@@ -1271,6 +1318,147 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // The date header renders in its own sticky SVG; the body SVG holds only rows.
   const bodyHeight = sortedItems.length * ROW_HEIGHT + 20;
 
+  // Buy another quarter of PAST, and book the viewport shift that keeps the
+  // chart still while it lands. Every route into the past goes through here —
+  // the scroll handler, the wheel-into-the-wall handler, and the initial seed —
+  // so "one extension in flight at a time" is one rule in one place rather than
+  // three copies that can disagree.
+  const extendBefore = useCallback((): boolean => {
+    if (pendingScrollShiftRef.current !== 0) return false;
+    pendingScrollShiftRef.current = PAN_CHUNK_DAYS * dayWidth;
+    setPan((p) => grownPan(p, "before"));
+    return true;
+  }, [dayWidth]);
+
+  // Reaching either edge of the chart buys another quarter of calendar, so the
+  // axis is bounded by where you have looked rather than by the dates someone
+  // happened to enter. Also the one place the drawn day-column window is
+  // recomputed — same event, same measurements.
+  const onScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      const previousScrollLeft = lastScrollLeftRef.current;
+      lastScrollLeftRef.current = el.scrollLeft;
+
+      setDayWindow((prev) => {
+        const next = visibleDayWindow({
+          // Chart coordinates: the sticky work-items column sits in front of the
+          // chart in the same scroll flow, so the chart's own x=0 is that far in.
+          scrollLeft: el.scrollLeft - nameColW,
+          clientWidth: el.clientWidth,
+          dayWidth,
+          totalDays,
+        });
+        return prev && sameDayWindow(prev, next) ? prev : next;
+      });
+
+      const side = panIntent({
+        scrollLeft: el.scrollLeft,
+        previousScrollLeft,
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      });
+      if (!side) return;
+      if (side === "before") {
+        extendBefore();
+        return;
+      }
+      setPan((p) => grownPan(p, side));
+    },
+    [dayWidth, extendBefore, nameColW, totalDays],
+  );
+
+  // ── Pushing INTO a wall ──────────────────────────────────────────────────
+  // A browser fires `scroll` only when the offset actually CHANGES, so a wheel
+  // that pushes past an edge it is already sitting on dispatches nothing at all
+  // — on a freshly loaded board, parked at scrollLeft 0, fifty wheel events
+  // produce zero scroll events and the axis above never hears about any of
+  // them. The gesture itself is the only evidence that the user is asking for
+  // more calendar, so at a wall it is what extends the axis. Off a wall this
+  // does nothing and the scroll handler does the work as before.
+  const onWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      // ⌘/Ctrl+wheel is the zoom gesture (handled on the chart), not a pan.
+      if (e.ctrlKey || e.metaKey) return;
+      const el = e.currentTarget;
+      if (el.clientWidth <= 0) return;
+      // Chrome reports shift+wheel as deltaY while scrolling horizontally with
+      // it; Firefox reports deltaX. Take whichever carries the sideways intent,
+      // so a plain wheel DOWN the rows is never read as a reach for the past.
+      const deltaX = e.deltaX !== 0 ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+      if (deltaX === 0) return;
+      if (deltaX < 0) {
+        if (el.scrollLeft > 0) return; // not at the wall — a scroll event follows
+        extendBefore();
+      } else if (el.scrollLeft >= el.scrollWidth - el.clientWidth) {
+        // No compensation on this side: appending days leaves everything drawn
+        // where it was, and it moves the wall out from under the cursor, so the
+        // next wheel event in the same gesture no longer qualifies.
+        setPan((p) => grownPan(p, "after"));
+      }
+    },
+    [extendBefore],
+  );
+
+  // Put the viewport back where it was looking after days are prepended. Layout
+  // effect, not effect: this has to land in the same frame the wider axis paints
+  // in, or the chart visibly jumps right and then snaps back.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const shift = pendingScrollShiftRef.current;
+    if (!el || shift === 0) return;
+    pendingScrollShiftRef.current = 0;
+    el.scrollLeft += shift;
+    lastScrollLeftRef.current = el.scrollLeft;
+  }, [pan]);
+
+  // Keep room to scroll INTO on BOTH sides. An edge you cannot reach is an edge
+  // that never extends, and the view opens flush against the left one.
+  //
+  //  · right — a short plan on a wide screen has no horizontal scrollbar at
+  //    all, so the future would stay invisible on exactly the boards with the
+  //    least in them. Converges in one pass: the days added cover the deficit.
+  //  · left  — the chart opens at scrollLeft 0, which is a wall. Seeding a
+  //    quarter of past and stepping off it is what makes the past reachable by
+  //    ORDINARY scrolling — a scrollbar drag, an arrow key, a touch flick —
+  //    rather than only by the wheel handler above. Once, per mount: after that
+  //    the compensation keeps the viewport off 0 on its own.
+  //
+  // Both halves are inert wherever the scroller can't be measured (SSR, a
+  // hidden tab), which is also what stops the top-up from running away.
+  const seededPastRef = useRef(false);
+  const ensureRoomToScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || el.clientWidth <= 0) return;
+    // The content width comes from what this component DREW (the sticky column
+    // plus the chart), not from `el.scrollWidth` — the days added widen exactly
+    // that number, which is what makes the next pass come up short and stop.
+    const add = fillerDays(el.clientWidth, nameColW + svgWidth, dayWidth);
+    if (add > 0) setPan((p) => ({ before: p.before, after: p.after + add }));
+    if (!seededPastRef.current && el.scrollLeft <= 0 && extendBefore()) {
+      seededPastRef.current = true;
+    }
+  }, [dayWidth, extendBefore, nameColW, svgWidth]);
+  // `loading` is in here because the scroller does not exist behind the
+  // skeleton: the first measurable pass is the one after the items arrive.
+  useEffect(() => {
+    ensureRoomToScroll();
+  }, [ensureRoomToScroll, fullscreen, loading]);
+  useEffect(() => {
+    window.addEventListener("resize", ensureRoomToScroll);
+    return () => window.removeEventListener("resize", ensureRoomToScroll);
+  }, [ensureRoomToScroll]);
+
+  // Day columns to actually draw. Before the first scroll (and wherever the
+  // scroller reports no width) that is all of them.
+  const drawnDays = useMemo(
+    () =>
+      dateHeaders
+        .slice(dayWindow?.from ?? 0, dayWindow?.to ?? dateHeaders.length)
+        .map((h, i) => ({ ...h, index: (dayWindow?.from ?? 0) + i })),
+    [dateHeaders, dayWindow],
+  );
+
   if (loading) return <TimelineSkeleton />;
 
   if (error) {
@@ -1641,6 +1829,9 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
           the headers stay pinned the whole way down. */}
       <div
         data-testid="gantt-scroll"
+        ref={scrollRef}
+        onScroll={onScroll}
+        onWheel={onWheel}
         className="relative flex flex-1 items-start overflow-auto"
       >
         {/* Left column - item labels. Narrower on phones so the chart isn't
@@ -1843,11 +2034,11 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
                     </text>
                   </g>
                 ))}
-                {dateHeaders.map((h, i) => {
-                  const x = i * dayWidth;
+                {drawnDays.map((h) => {
+                  const x = h.index * dayWidth;
                   const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
                   return (
-                    <g key={i}>
+                    <g key={h.index}>
                       {isWeekend && (
                         <rect
                           x={x}
@@ -1968,12 +2159,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
             </defs>
 
             {/* Weekend shading + week gridlines */}
-            {dateHeaders.map((h, i) => {
-              const x = i * dayWidth;
+            {drawnDays.map((h) => {
+              const x = h.index * dayWidth;
               const isWeekend = h.date.getDay() === 0 || h.date.getDay() === 6;
               if (!isWeekend && !h.isWeekStart) return null;
               return (
-                <g key={i}>
+                <g key={h.index}>
                   {isWeekend && (
                     <rect
                       x={x}
