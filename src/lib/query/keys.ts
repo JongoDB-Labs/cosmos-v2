@@ -7,7 +7,12 @@ import { usePathname } from "next/navigation";
  */
 export function useOrgSlug(): string | null {
   const pathname = usePathname();
-  const seg = pathname.split("/").filter(Boolean)[0];
+  // `usePathname()` is typed as `string` but returns null in real contexts —
+  // outside the app router's tree, and in any test that mocks `next/navigation`
+  // without it. Calling `.split` on that throws and takes the whole component
+  // down, which is a lot of damage for a hook whose honest answer here is "no
+  // org". Newly load-bearing now that cards read the slug to build a copy link.
+  const seg = pathname?.split("/").filter(Boolean)[0];
   // Reserved top-level routes that aren't orgs
   if (
     !seg ||

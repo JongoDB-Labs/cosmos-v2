@@ -32,12 +32,16 @@ import {
   KeyRound,
 } from "lucide-react";
 import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/auth/api-key-scopes";
+import { formatDateStable } from "@/lib/format/stable-date";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
 
 interface ApiKeyRow {
   id: string;
   name: string;
   prefix: string;
   scopes: string[];
+  /** Projects the key is limited to. Empty = org-wide. */
+  projectIds?: string[];
   expiresAt: string | null;
   lastUsed: string | null;
   createdAt: string;
@@ -49,10 +53,18 @@ const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   read: "Read",
   "items:write": "Write items",
   "documents:write": "Write documents",
+  "rules:run": "Run checks",
 };
 
 interface ApiKeysManagerProps {
   orgId: string;
+}
+
+/** A project, as the picker needs it. */
+interface PickerProject {
+  id: string;
+  key: string;
+  name: string;
 }
 
 export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
@@ -65,6 +77,10 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
 
   const [formName, setFormName] = useState("");
   const [formScopes, setFormScopes] = useState<ApiKeyScope[]>([]);
+  /** All projects (org-wide) vs a chosen few — the same shape as a fine-grained
+   *  token's "All repositories" / "Only select repositories". */
+  const [formAllProjects, setFormAllProjects] = useState(true);
+  const [formProjectIds, setFormProjectIds] = useState<string[]>([]);
   const [formExpiry, setFormExpiry] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -81,9 +97,22 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     queryFn: () => jsonFetch<ApiKeyRow[]>(apiBase),
   });
 
+  // The projects available to scope a key to. Lazy — only fetched once the
+  // create dialog is open, since most visits to this page are to read or revoke
+  // an existing key rather than mint a new one.
+  const projectsQueryKey = useOrgQueryKey("api-key-projects");
+  const { data: projects = [] } = useQuery({
+    queryKey: projectsQueryKey,
+    enabled: createDialogOpen,
+    queryFn: () =>
+      jsonFetch<PickerProject[]>(`/api/v1/orgs/${orgId}/projects`),
+  });
+
   function openCreateDialog() {
     setFormName("");
     setFormScopes([]);
+    setFormAllProjects(true);
+    setFormProjectIds([]);
     setFormExpiry("");
     setErrors({});
     setCreateDialogOpen(true);
@@ -109,13 +138,23 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     const next: Record<string, string> = {};
     if (!formName.trim()) next.name = "Name is required";
     if (formScopes.length === 0) next.scopes = "Select at least one scope";
+    // Without this the form would submit an empty list, which the server reads
+    // as ORG-WIDE — the opposite of what "only selected projects" asked for.
+    if (!formAllProjects && formProjectIds.length === 0) {
+      next.projects = "Select at least one project, or choose All projects";
+    }
     return next;
   }
 
   const createMutation = useOrgMutation<
     MintedKey,
     Error,
-    { name: string; scopes: ApiKeyScope[]; expiresAt: string | null }
+    {
+      name: string;
+      scopes: ApiKeyScope[];
+      projectIds: string[];
+      expiresAt: string | null;
+    }
   >({
     mutationFn: (payload) =>
       jsonFetch(apiBase, {
@@ -155,6 +194,8 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
     createMutation.mutate({
       name: formName.trim(),
       scopes: formScopes,
+      // Empty means org-wide, which is what "All projects" sends.
+      projectIds: formAllProjects ? [] : formProjectIds,
       expiresAt,
     });
   }
@@ -247,13 +288,11 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
               <div className="flex flex-col items-end gap-0.5 text-xs text-[var(--text-muted)]">
                 <span>
                   Last used:{" "}
-                  {key.lastUsed
-                    ? new Date(key.lastUsed).toLocaleString()
-                    : "never"}
+                  <LocalTimestamp value={key.lastUsed} fallback="never" />
                 </span>
                 <span>
                   {key.expiresAt
-                    ? `Expires ${new Date(key.expiresAt).toLocaleDateString()}`
+                    ? `Expires ${formatDateStable(key.expiresAt)}`
                     : "No expiry"}
                 </span>
               </div>
@@ -335,15 +374,95 @@ export function ApiKeysManager({ orgId }: ApiKeysManagerProps) {
                   </label>
                 ))}
               </div>
-              {errors.scopes && (
-                <p
-                  id="create-scopes-error"
-                  className="text-xs text-[var(--status-critical-text,var(--status-critical))]"
-                >
-                  {errors.scopes}
-                </p>
-              )}
             </div>
+
+            {/* Project scope. Two states, like a fine-grained token's "All
+                repositories" / "Only select repositories": a key is either
+                org-wide or limited to named projects. Empty means org-wide,
+                which is what every key minted before this existed already had —
+                so the default here matches their behaviour exactly. */}
+            <div className="flex flex-col gap-2">
+              <Label id="create-projects-label">Project access</Label>
+              <div
+                className="flex flex-col gap-2"
+                role="group"
+                aria-labelledby="create-projects-label"
+              >
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs hover:bg-[var(--surface)]">
+                  <input
+                    type="radio"
+                    name="project-scope"
+                    checked={formAllProjects}
+                    onChange={() => setFormAllProjects(true)}
+                  />
+                  <span className="font-medium">All projects</span>
+                  <span className="ml-auto text-[10px] text-[var(--text-muted)]">
+                    everything the key&apos;s owner can reach
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs hover:bg-[var(--surface)]">
+                  <input
+                    type="radio"
+                    name="project-scope"
+                    checked={!formAllProjects}
+                    onChange={() => setFormAllProjects(false)}
+                  />
+                  <span className="font-medium">Only selected projects</span>
+                </label>
+
+                {!formAllProjects && (
+                  <div className="max-h-44 overflow-y-auto rounded-md border border-[var(--border)] p-2">
+                    {projects.length === 0 ? (
+                      <p className="px-1 py-2 text-xs text-[var(--text-muted)]">
+                        No projects to choose from.
+                      </p>
+                    ) : (
+                      projects.map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-xs hover:bg-[var(--surface)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formProjectIds.includes(p.id)}
+                            onChange={() =>
+                              setFormProjectIds((prev) =>
+                                prev.includes(p.id)
+                                  ? prev.filter((x) => x !== p.id)
+                                  : [...prev, p.id],
+                              )
+                            }
+                          />
+                          <code className="font-mono text-[10px] text-[var(--text-muted)]">
+                            {p.key}
+                          </code>
+                          <span className="truncate">{p.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+                {!formAllProjects && formProjectIds.length === 0 && (
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    Pick at least one project, or choose All projects.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {errors.scopes && (
+              <p
+                id="create-scopes-error"
+                className="text-xs text-[var(--status-critical-text,var(--status-critical))]"
+              >
+                {errors.scopes}
+              </p>
+            )}
+            {errors.projects && (
+              <p className="text-xs text-[var(--status-critical-text,var(--status-critical))]">
+                {errors.projects}
+              </p>
+            )}
 
             <FormField label="Expires (optional)" error={errors.expiresAt}>
               {(p) => (

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import { buildCrumbs } from "./breadcrumbs";
 import { slugify } from "@/lib/templates/slugify";
+import { BUILT_IN_BOARD_TEMPLATES } from "@/lib/boards/built-in-templates";
 
 describe("buildCrumbs", () => {
   it("returns empty for root", () => {
@@ -64,27 +64,20 @@ describe("buildCrumbs", () => {
  * drift: adding a built-in board whose name carries an acronym or punctuation
  * fails HERE until `LABEL_OVERRIDES` gains an entry.
  *
- * The list is read from source because the route file does not export it, and
- * widening a route module's export surface to satisfy a test is the wrong
- * trade. `slugify` is imported for real — reimplementing it here would let the
- * test pass while the app slugged differently.
+ * The list used to be scraped from the route's source, because the route did
+ * not export it and widening a route module's export surface for a test is the
+ * wrong trade. The catalogue now lives in its own lib module with a real
+ * export, so this imports it — no regex, and moving a file can no longer make
+ * this test quietly iterate the wrong list. `slugify` is imported for real too;
+ * reimplementing it here would let the test pass while the app slugged
+ * differently.
  */
 describe("every built-in board name survives the breadcrumb round-trip", () => {
-  const ROUTE = "src/app/api/v1/orgs/[orgId]/templates/built-in/route.ts";
-  const src = readFileSync(ROUTE, "utf8");
-
-  // Kanban COLUMN names ("Open", "In Progress") live in this same file inside
-  // `config.columns` and are never URL segments. A column literal carries
-  // `key:` and `color:` on its line; a board name never does.
-  const names = src
-    .split("\n")
-    .filter((line) => !(line.includes("key:") && line.includes("color:")))
-    .flatMap((line) => [...line.matchAll(/name: "([^"]+)"/g)].map((m) => m[1]));
+  const names = BUILT_IN_BOARD_TEMPLATES.map((t) => t.name);
 
   it("found the built-in board list", () => {
-    // Guards the guard: a moved file or changed shape must fail loudly rather
-    // than iterate an empty list and report success.
-    expect(src.length).toBeGreaterThan(1000);
+    // Guards the guard: an empty or truncated list must fail loudly rather than
+    // iterate nothing and report success.
     expect(names.length).toBeGreaterThan(10);
     expect(names).toContain("OKR View");
   });

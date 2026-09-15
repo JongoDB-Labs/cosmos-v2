@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { createFixtureWorkItem } from "@/lib/testing/db-fixtures";
 import { feedbackStatusForColumn, syncFeedbackForWorkItems } from "./status-sync";
 
 describe("feedbackStatusForColumn", () => {
@@ -41,22 +42,16 @@ describe("syncFeedbackForWorkItems (e2e DB)", () => {
       where: { OR: [{ orgId: org.id }, { orgId: null }] },
     });
     const author = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
-    const last = await prisma.workItem.findFirst({
-      where: { projectId: project.id },
-      orderBy: { ticketNumber: "desc" },
-      select: { ticketNumber: true },
-    });
-    const wi = await prisma.workItem.create({
-      data: {
-        orgId: org.id,
-        projectId: project.id,
-        ticketNumber: (last?.ticketNumber ?? 0) + 1,
-        title: `status-sync fixture ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        description: "",
-        columnKey,
-        workItemTypeId: type.id,
-        createdById: author.id,
-      },
+    // Via the shared helper: computing `max + 1` inline races another spec file
+    // doing the same thing in a parallel worker against the same project, and
+    // the loser gets a unique-constraint failure on (org, project, ticket).
+    const wi = await createFixtureWorkItem({
+      orgId: org.id,
+      projectId: project.id,
+      workItemTypeId: type.id,
+      createdById: author.id,
+      title: `status-sync fixture ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      columnKey,
     });
     const fb = await prisma.feedbackItem.create({
       data: {

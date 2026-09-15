@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tag, Plus, Pencil, Trash2 } from "lucide-react";
+import { formatDateStable } from "@/lib/format/stable-date";
 import {
   SELECTABLE_CLASSIFICATION_LEVELS,
   CLASSIFICATION_BADGE_COLORS,
@@ -464,7 +465,7 @@ export function ClassificationManager({ orgId }: { orgId: string }) {
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
-                      {new Date(cls.createdAt).toLocaleDateString()}
+                      {formatDateStable(cls.createdAt)}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">

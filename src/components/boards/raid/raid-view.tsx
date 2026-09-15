@@ -22,9 +22,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { notifyError } from "@/lib/errors/notify";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -181,6 +187,16 @@ export function RaidView({
 
   const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
 
+  // One filter model, one predicate — the same `matchesFilters` the Timeline
+  // uses. A board that filters differently from its neighbours is worse than a
+  // board that does not filter at all.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+  const projectStatuses = useProjectStatuses(orgId, projectId);
+  const visibleItems = useMemo(
+    () => items.filter((it) => matchesFilters(it, filters)),
+    [items, filters],
+  );
+
   const loading = itemsQ.isLoading || membersQ.isLoading;
   const fatalError = itemsQ.error;
   const error = fatalError
@@ -244,13 +260,13 @@ export function RaidView({
     const map = new Map<RaidKey | "__none__", WorkItem[]>();
     for (const cat of RAID_CATEGORIES) map.set(cat.key, []);
     map.set("__none__", []);
-    for (const item of items) {
+    for (const item of visibleItems) {
       if (hideDone && item.columnKey === "done") continue;
       const cat = categorize(item);
       map.get(cat ?? "__none__")!.push(item);
     }
     return map;
-  }, [items, hideDone]);
+  }, [visibleItems, hideDone]);
 
   const totalShown = useMemo(
     () =>
@@ -275,18 +291,42 @@ export function RaidView({
 
   if (items.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col">
+        <div className="border-b border-[var(--border)] px-4 py-2">
+          <FilterBar
+            filters={filters}
+            onFilterChange={setFilters}
+            members={membersQ.data ?? []}
+            intervals={[]}
+            teams={[]}
+            orgId={orgId}
+            boardColumns={projectStatuses}
+          />
+        </div>
+        <div className="flex flex-1 items-center justify-center">
         <EmptyState
           icon={ShieldAlert}
           title="No items to triage"
           description="Risks, assumptions, issues, and dependencies you tag will show up here. Tag a work item risk, assumption, issue, or dependency to populate the RAID log."
         />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
+      <div className="border-b border-[var(--border)] px-4 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={membersQ.data ?? []}
+          intervals={[]}
+          teams={[]}
+          orgId={orgId}
+          boardColumns={projectStatuses}
+        />
+      </div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border)]">
         <span className="text-sm font-semibold text-[var(--text)]">
@@ -491,6 +531,25 @@ function RaidCard({
     ? `${projectKey}-${item.ticketNumber}`
     : `#${item.ticketNumber}`;
 
+  // Highlight is owned by the card, not threaded down from the board: the ids
+  // it needs are already on the work item, which is how `KanbanCard` does it.
+  // Threading an `onHighlight` through RaidBoard -> RaidColumn -> RaidCard
+  // would add two prop hops for no extra capability.
+  const [highlightDraft, setHighlightDraft] = useState<string | null | undefined>(undefined);
+  const highlight = highlightDraft === undefined ? item.highlight : highlightDraft;
+  const highlightMutation = useOrgMutation<unknown, Error, string | null>({
+    mutationFn: (next) =>
+      jsonFetch(
+        `/api/v1/orgs/${item.orgId}/projects/${item.projectId}/work-items/${item.id}`,
+        { method: "PUT", body: JSON.stringify({ highlight: next }) },
+      ),
+    invalidate: [["work-items", item.projectId]],
+    onError: (err) => {
+      setHighlightDraft(undefined);
+      notifyError(err, "Couldn't save the highlight.");
+    },
+  });
+
   // Selector: the 4 RAID categories (current one check-marked + disabled),
   // then a "Clear" action when the item currently sits in a RAID column.
   const menuGroups: ActionMenuGroup[] = [
@@ -515,13 +574,23 @@ function RaidCard({
             ]
           : [],
     },
+    highlightMenuGroup({
+      current: highlight,
+      disabled: highlightMutation.isPending,
+      onPick: (next) => {
+        setHighlightDraft(next);
+        highlightMutation.mutate(next);
+      },
+    }),
   ];
 
   return (
     <ActionMenu groups={menuGroups}>
       <div
         ref={setNodeRef}
-        style={dragStyle}
+        data-highlight={highlight ?? undefined}
+        style={{ ...dragStyle, ...highlightStyle(highlight) }}
+        title={highlightLabel(highlight) ?? undefined}
         className={cn(
           "group/action relative rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--primary)]/50",
           isDragging && "z-20 opacity-80 shadow-lg",

@@ -7,6 +7,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { isDoneColumnKey } from "@/lib/intervals/sprint-review";
+import { buildIntervalReport } from "@/lib/intervals/interval-report";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 const completeSchema = z.object({
@@ -44,25 +46,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const completed = await prisma.$transaction(async (tx) => {
       const items = interval.workItems;
-      const doneItems = items.filter((i) => isDoneColumnKey(i.columnKey));
       const incompleteItems = items.filter((i) => !isDoneColumnKey(i.columnKey));
 
-      const totalPoints = items.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
-      const completedPoints = doneItems.reduce((sum, i) => sum + (i.storyPoints ?? 0), 0);
-
-      const report = {
-        completedAt: new Date().toISOString(),
-        totalItems: items.length,
-        completedItems: doneItems.length,
-        incompleteItems: incompleteItems.length,
-        totalStoryPoints: totalPoints,
-        completedStoryPoints: completedPoints,
-        velocity: completedPoints,
-        itemsByPriority: items.reduce((acc, i) => {
-          acc[i.priority] = (acc[i.priority] ?? 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
-      };
+      // Built BEFORE the reassignment below, and it records which items carried.
+      // Completing the sprint severs their link to it, so after this transaction
+      // nothing else can answer "what rolled into the next sprint" — the review
+      // board would derive an empty list.
+      const report = buildIntervalReport(items, new Date().toISOString());
 
       if (incompleteItems.length > 0 && data.moveIncompleteToIntervalId) {
         await tx.workItem.updateMany({
@@ -78,7 +68,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       return tx.interval.update({
         where: { id: intervalId },
-        data: { status: "COMPLETED", report },
+        data: {
+          status: "COMPLETED",
+          report: report as unknown as Prisma.InputJsonValue,
+        },
         include: { _count: { select: { workItems: true } } },
       });
     });

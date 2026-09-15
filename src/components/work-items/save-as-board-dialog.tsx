@@ -23,13 +23,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
+import {
+  BOARD_TYPE_REGISTRY,
+  savableFromViewTypes,
+} from "@/lib/boards/board-types";
 
-/** The board types a saved view can render today (kanban + table cover the set
- *  the work-items load is wired for; others are "coming soon"). */
-const BOARD_TYPES = [
-  { value: "KANBAN", label: "Board (Kanban)" },
-  { value: "TABLE", label: "Table" },
-] as const;
+/** The board types a saved view can render, derived from the one registry: a
+ *  saved view is a work-item filter, so only types that render a list of work
+ *  items can be built from one. Marked per-type by `savableFromView`, never by
+ *  a second list here that could disagree with the enum. */
+const BOARD_TYPES = savableFromViewTypes().map((value) => ({
+  value,
+  label: BOARD_TYPE_REGISTRY[value].label,
+}));
 
 interface ProjectOption {
   id: string;

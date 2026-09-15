@@ -43,7 +43,9 @@ import {
 } from "lucide-react";
 import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import type { TimeEntry } from "@/types/models";
+import { BilledHoursCell } from "./billed-hours-cell";
 import { notifyError } from "@/lib/errors/notify";
+import { localDateString } from "@/lib/time/local-date";
 import { ApprovalsQueue } from "./approvals-queue";
 import { toast } from "sonner";
 
@@ -225,7 +227,11 @@ function getWeekDates(baseDate: Date): Date[] {
 }
 
 function toDateString(d: Date): string {
-  return d.toISOString().split("T")[0];
+  // LOCAL day. toISOString() is UTC, so after 20:00 Eastern this returned
+  // tomorrow — the default entry date and every isToday highlight were a day
+  // ahead. Stored dates are still read back in UTC (formatDateStable); this is
+  // the "what day is it for this person" case.
+  return localDateString(d);
 }
 
 function formatCurrency(amount: number): string {
@@ -961,8 +967,16 @@ export function TimeTracker({ orgId }: TimeTrackerProps) {
       ) : (
         <ListView
           entries={entries}
+          orgId={orgId}
           onEdit={viewingSomeoneElse ? undefined : openEdit}
           onDelete={viewingSomeoneElse ? undefined : requestVoid}
+          // Billing is an approver's action on somebody ELSE's hours, so unlike
+          // edit/delete it stays available while viewing another person.
+          onBilledChange={(id, billedHours) =>
+            setEntries((prev) =>
+              prev.map((e) => (e.id === id ? { ...e, billedHours } : e)),
+            )
+          }
         />
       )}
 
@@ -1563,13 +1577,18 @@ function WeekView({
 
 function ListView({
   entries,
+  orgId,
   onEdit,
   onDelete,
+  onBilledChange,
 }: {
   entries: TimeEntry[];
+  orgId: string;
   // Optional = read-only; see WeekView above.
   onEdit?: (entry: TimeEntry) => void;
   onDelete?: (id: string) => void;
+  /** Lifts a billing decision back to the owner of the entries array. */
+  onBilledChange: (id: string, billedHours: number | null) => void;
 }) {
   const sorted = [...entries].sort(byDateOnlyDesc);
 
@@ -1639,6 +1658,18 @@ function ListView({
         <span className="font-medium md:text-right md:block">
           {row.original.hours.toFixed(2)}
         </span>
+      ),
+    },
+    {
+      id: "billedHours",
+      header: "Billed",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <BilledHoursCell
+          entry={row.original}
+          orgId={orgId}
+          onSaved={({ id, billedHours }) => onBilledChange(id, billedHours)}
+        />
       ),
     },
     {

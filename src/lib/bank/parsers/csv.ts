@@ -13,8 +13,12 @@ export type CsvMapping =
 /**
  * RFC-4180-compatible CSV splitter that handles quoted fields with embedded
  * commas and escaped double-quotes ("").
+ *
+ * Exported so the trial-balance importer shares this one tokenizer rather than
+ * growing a second. It arguably belongs in a neutral module now that two
+ * callers want it, but this file has no tests, so moving it is its own change.
  */
-function splitCsv(text: string): string[][] {
+export function splitCsv(text: string): string[][] {
   const rows: string[][] = [];
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;

@@ -5,6 +5,7 @@ import { CodeSnippet } from "@/components/ui/code-snippet";
 import { badgeExamples } from "@/components/ui/__examples__/badge";
 import { statCardExamples } from "@/components/ui/__examples__/stat-card";
 import { emptyStateExamples } from "@/components/ui/__examples__/empty-state";
+import { localTimestampExamples } from "@/components/ui/__examples__/local-timestamp";
 import { noPageAccessExamples } from "@/components/ui/__examples__/no-page-access";
 import { pageShellExamples } from "@/components/ui/__examples__/page-shell";
 import { pageSectionExamples } from "@/components/ui/__examples__/page-section";
@@ -33,6 +34,7 @@ const SECTIONS: Section[] = [
   { title: "Badge", examples: badgeExamples },
   { title: "StatCard", examples: statCardExamples },
   { title: "EmptyState", examples: emptyStateExamples },
+  { title: "LocalTimestamp", examples: localTimestampExamples },
   { title: "NoPageAccess", examples: noPageAccessExamples },
   { title: "LoadError", examples: loadErrorExamples },
   { title: "PageShell", examples: pageShellExamples },

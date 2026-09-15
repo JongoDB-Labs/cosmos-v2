@@ -26,7 +26,7 @@ When several changes are in flight, pick the version against `origin/main` **at 
 
 # Before you push: check `e2e/`
 
-`tsc`, `eslint` and `vitest` never load `e2e/`, so a renamed or removed UI affordance breaks Playwright silently and CI fails 15+ minutes later. The specs locate elements by accessible name — button text, tab labels, placeholders, `aria-label`s, headings.
+`eslint` and `vitest` never load `e2e/`. `tsc` **does** typecheck it (`tsconfig.json` includes `**/*.ts` and excludes only `node_modules` and `plugins`) — verified by planting a type error there and watching it fail — but that buys you almost nothing here, because the specs locate elements by accessible NAME: button text, tab labels, placeholders, `aria-label`s, headings. Those are strings. Rename one and every type still checks out, Playwright breaks silently, and CI fails 15+ minutes later.
 
 For every label you rename or remove, `grep -rn "<old label>" e2e/`. If a *seeding* affordance goes away, replace it with a shared helper in `e2e/fixtures/` rather than patching each spec. Do this **before** implementing where you can: an existing spec's selector is a constraint on your design, not just a thing to fix afterwards.
 
@@ -51,7 +51,12 @@ cd <dir> && npm ci && npx prisma generate
 
 # Container image: never bake secrets in
 
-The image is signed and published to `ghcr.io/jongodb-labs/cosmos-v2` and may be **public** — treat its filesystem as world-readable. Never bake secrets or sensitive info into a layer:
+**Two images are built from this repo, and the one that runs is not the one that is signed.** Do not let "the image is signed" stand in for the thing in production:
+
+- `.github/workflows/release.yml` builds `ghcr.io/jongodb-labs/cosmos-v2`, generates a Syft SBOM, signs by digest with cosign and attaches SLSA build provenance. It may be **public**.
+- `cosmos/assembly` (GitLab) composes core + the private plugins and pushes `cosmos/assembly/<product>` to the **private registry**. **This is what Foreman deploys** — verified 2026-08-26 by inspecting the running container on the deployed host. Its `.gitlab-ci.yml` contains no cosign, no SBOM and no attestation step at all.
+
+So the deployed artifact is currently unsigned and unattested; the signing ceremony applies to an image nothing pulls. Treat every image filesystem as world-readable regardless — the private registry is access control, not confidentiality, and a layer's contents outlive any decision to publish it. Never bake secrets or sensitive info into a layer:
 
 - **Secrets are runtime-only.** Credentials, tokens, keys, and connection strings come from env / mounted secrets / the sealed `ConnectorCredential` store — never `COPY`/`ADD`'d in or set via `ENV`/`ARG`. The DB URL stays `env("DATABASE_URL")` in `prisma/schema.prisma`; never hardcode one.
 - **`NEXT_PUBLIC_*` is inlined into the public client bundle at build time** (`next.config.ts`), so it ships in readable JS. Only non-secret values may use that prefix (today: `APP_VERSION`, `PRODUCT`). Never put a secret behind a `NEXT_PUBLIC_*` name.
@@ -103,7 +108,7 @@ Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — sam
 ## Server-side response patterns
 
 - **Permission masks are decimal-string `TEXT`, not `BigInt`.** `OrgMember.permissions` and `WorkRole.grants` store a permission bitmask as a decimal string (the bitfield in `src/lib/rbac/permissions.ts` assigns bits ≥ 63, which overflow Postgres `BIGINT`). Keep ALL bit-math on `bigint` and cross the DB boundary with `maskFromDb()` (read) / `maskToDb()` (write) from `@/lib/rbac/permissions` — never `BigInt(row.permissions)` or `mask` written raw. The `JSON.stringify`-throws-on-BigInt crash class is gone, but these are still permission masks: don't `select`/`include` them into a `success()` payload carelessly. Project members with an explicit `select` that excludes `permissions`, and expose `WorkRole.grants` only as permission KEYS via `toWorkRoleDto` — never the raw value.
-- **Behind nginx + Cloudflare Tunnel** — `request.url` resolves to the bind hostname (`localhost:3000`), not the public URL. For any redirect, use `getPublicOrigin(request)` from `@/lib/auth/public-url` which honors `X-Forwarded-Host` + `X-Forwarded-Proto`.
+- **Always behind a reverse proxy** — `compose/Caddyfile` puts **Caddy** in front of the app (not nginx, as this line said until 2026-09-14; verified against a running instance), and a tunnel or cloud LB may sit in front of that again. So `request.url` resolves to the bind hostname (`localhost:3000`), never the public URL. For any redirect, use `getPublicOrigin(request)` from `@/lib/auth/public-url`, which honors the `X-Forwarded-Host` + `X-Forwarded-Proto` the Caddyfile sets.
 
 ## base-ui primitives don't support `asChild`
 

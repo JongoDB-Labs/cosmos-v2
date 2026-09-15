@@ -85,10 +85,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         })),
       );
     }
-    const projectKey = await prisma.project
-      .findUnique({ where: { id: projectId }, select: { key: true } })
-      .then((p) => p?.key ?? projectId)
-      .catch(() => projectId);
 
     let updatedCount = 0;
     for (const batch of chunk(ids, BULK_CHUNK)) {
@@ -139,7 +135,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           message: `You've been assigned a work item`,
           relatedId: prev.id,
           relatedType: "work_item",
-          url: `/${org.slug}/projects/${projectKey}/work-items/${prev.id}`,
+          // Same dead route as COSMOS-191 — /[orgSlug]/issues?item= is the real one.
+          url: `/${org.slug}/issues?item=${prev.id}`,
         }).catch(() => {
           /* swallow */
         });

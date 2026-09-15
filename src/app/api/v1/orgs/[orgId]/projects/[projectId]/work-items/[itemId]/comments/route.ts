@@ -6,6 +6,7 @@ import { requireAccess } from "@/lib/abac/require-access";
 import { canManageProject } from "@/lib/rbac/scope";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { createNotification } from "@/lib/notifications/create";
+import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { parseMentions } from "@/lib/chat/mentions";
 import { syncReferences } from "@/lib/mentions/references";
@@ -145,12 +146,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const mentionedAll = parseMentions(comment.content ?? "");
       let mentionedUserIds = new Set<string>();
       if (mentionedAll.length > 0 && workItem) {
+        // displayName rides along on the query that already runs to decide the
+        // fan-out, so resolving the snippet below costs no extra round trip.
         const validInOrg = await prisma.orgMember.findMany({
           where: { orgId, userId: { in: mentionedAll } },
-          select: { userId: true },
+          select: { userId: true, user: { select: { displayName: true } } },
         });
         mentionedUserIds = new Set(validInOrg.map((m) => m.userId));
         mentionedUserIds.delete(ctx.userId);
+        const mentionLabels = userMentionLabels(
+          validInOrg
+            .filter((m) => m.user?.displayName)
+            .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
+        );
 
         for (const recipientId of mentionedUserIds) {
           await createNotification({
@@ -158,12 +166,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             userId: recipientId,
             type: "comment.mentioned",
             title: `Mentioned in ${workItem.title}`,
-            message: (comment.content ?? "")
-              .replace(/<@[0-9a-f-]{36}>/gi, "@user")
-              .slice(0, 200),
+            message: mentionsToPlainText(comment.content ?? "", mentionLabels).slice(0, 200),
             relatedId: workItem.id,
             relatedType: "work_item",
-            url: `/projects/${projectKey}/work-items/${workItem.id}`,
+            // COSMOS-191. There is no /projects/[projectKey]/work-items/[id]
+            // route — not under [orgSlug], not anywhere, and no catch-all. Every
+            // form of that path 404s, which is what the reporter hit. The app's
+            // real work-item deep link is /[orgSlug]/issues?item=<id> (see
+            // issue-copy-link and 6 other call sites); issues-view.tsx reads it
+            // with searchParams.get("item").
+            url: `/${org.slug}/issues?item=${workItem.id}`,
           }).catch(() => {
             /* swallow */
           });
@@ -182,10 +194,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           userId: workItem.assigneeId,
           type: "comment.added",
           title: `New comment on ${workItem.title}`,
-          message: (comment.content ?? "").slice(0, 200),
+          message: mentionsToPlainText(comment.content ?? "").slice(0, 200),
           relatedId: workItem.id,
           relatedType: "work_item",
-          url: `/${org.slug}/projects/${projectKey}/work-items/${workItem.id}`,
+          url: `/${org.slug}/issues?item=${workItem.id}`,
         }).catch(() => {
           /* swallow */
         });

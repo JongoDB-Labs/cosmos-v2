@@ -28,7 +28,12 @@ const KEY = process.env.E2E_PROJECT_KEY ?? "test";
 // its default KANBAN board). The kanban board is reached via a STATIC path:
 // /projects/{key} server-redirects to /projects/{key}/boards/{id}, so no
 // dynamic board id is hardcoded. Raw /boards/[id] and /chat/[id] stay excluded.
-const PAGES: Array<{ name: string; path: string }> = [
+/**
+ * `redirects: true` marks a path that does not render itself — it sends the
+ * browser somewhere else. Those need an extra wait before anything inspects the
+ * page; see the note at the goto below.
+ */
+const PAGES: Array<{ name: string; path: string; redirects?: true }> = [
   { name: "overview", path: "" },
   // Top-level sidebar nav.
   { name: "projects", path: "/projects" },
@@ -43,7 +48,7 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "crm/contracts", path: "/contracts" },
   // Accounting group. Every path mirrors its breadcrumb trail; the old
   // /finance/* paths still 307 here (src/lib/nav/legacy-redirects.ts).
-  { name: "accounting (redirects to first child)", path: "/accounting" },
+  { name: "accounting (redirects to first child)", path: "/accounting", redirects: true },
   { name: "accounting/finance", path: "/accounting/finance" },
   { name: "accounting/invoices", path: "/accounting/invoices" },
   { name: "accounting/banking", path: "/accounting/banking" },
@@ -62,7 +67,7 @@ const PAGES: Array<{ name: string; path: string }> = [
   // /settings is now a redirect to the viewer's first accessible page (profile
   // for the e2e admin). Kept as a surface to guard that the redirect lands on
   // an accessible page.
-  { name: "settings (redirects to first accessible)", path: "/settings" },
+  { name: "settings (redirects to first accessible)", path: "/settings", redirects: true },
   { name: "settings/profile", path: "/settings/profile" },
   { name: "settings/preferences", path: "/settings/preferences" },
   { name: "settings/security", path: "/settings/security" },
@@ -80,11 +85,11 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: "settings/templates", path: "/settings/templates" },
   // Themes now redirects to /settings/organization (v2.101.0). Kept as a
   // surface to guard that the redirect lands on an accessible page.
-  { name: "settings/themes (redirects to organization)", path: "/settings/themes" },
+  { name: "settings/themes (redirects to organization)", path: "/settings/themes", redirects: true },
 ];
 
 test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
-  for (const { name, path } of PAGES) {
+  for (const { name, path, redirects } of PAGES) {
     test(`${name} has no serious/critical axe violations`, async ({
       page,
       signInAs,
@@ -101,6 +106,39 @@ test.describe("a11y — WCAG 2 A/AA across key surfaces", () => {
       await page.emulateMedia({ reducedMotion: "reduce" });
 
       await page.goto(`/${ORG}${path}`, { waitUntil: "domcontentloaded" });
+
+      // A redirect route's goto() returns BEFORE the redirect runs. Measured on
+      // all three, with `waitUntil: "domcontentloaded"`:
+      //
+      //   /settings/themes  goto returned at .../settings/themes,
+      //                     scanned at .../settings/organization
+      //   /settings         goto returned at .../settings,
+      //                     scanned at .../settings/profile
+      //   /accounting       goto returned at .../accounting,
+      //                     scanned at .../accounting/finance
+      //
+      // So the scan could begin mid-navigation, and the guard below cannot see
+      // it: `/${ORG}/settings/themes` starts with `/${ORG}` exactly as the
+      // destination does, so a half-finished navigation reads as a successful
+      // landing. This spec describes itself as scanning the SETTLED UI, and
+      // that has to include the redirect settling.
+      //
+      // The assertion is "we are no longer on the path we asked for", NOT "the
+      // URL stopped changing for a moment" — the first version of this waited
+      // for two equal readings 150ms apart and passed instantly, every time,
+      // because the redirect had not fired yet. It looked like a fix and was a
+      // no-op. It is also NOT a hardcoded destination: where these land is
+      // RBAC-dependent, and pinning it here would turn a permissions change
+      // into a confusing a11y failure.
+      if (redirects) {
+        await expect
+          .poll(() => new URL(page.url()).pathname, {
+            timeout: 15_000,
+            intervals: [100],
+            message: `${name}: still on the pre-redirect path — the redirect never ran`,
+          })
+          .not.toBe(`/${ORG}${path}`);
+      }
 
       // Fail loudly if we didn't land on the authenticated org page. Without
       // this, a sign-in / org-membership regression redirects every page to

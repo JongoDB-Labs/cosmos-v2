@@ -16,11 +16,6 @@ export default async function ChangesPage({ params }: PageParams) {
   });
   if (!project) notFound();
 
-  const branches = await prisma.programBranch.findMany({
-    where: { orgId: ctx.orgId },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, code: true, name: true },
-  });
 
-  return <ChangeTracker orgId={ctx.orgId} projectId={project.id} branches={branches} />;
+  return <ChangeTracker orgId={ctx.orgId} projectId={project.id} />;
 }

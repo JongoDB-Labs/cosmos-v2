@@ -23,7 +23,7 @@ const OK = {
   candidateTag: "2.277.1-alpha",
   preflights: [
     { id: "candidate-resolves", title: "Candidate image exists", status: "pass", detail: "resolves", blocking: true },
-    { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true },
+    { id: "disk-headroom", title: "Disk headroom", status: "unknown", detail: "not observable here", blocking: true, deferredTo: "host-runner" },
   ],
   notes: [
     {
@@ -51,6 +51,77 @@ function renderPanel() {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+});
+
+/** Route both endpoints the panel now uses off one stub. */
+function stubFetch(check: unknown, deploy: unknown = { latest: null }, onPost?: () => Response) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/deploy")) {
+        if (init?.method === "POST") return onPost ? onPost() : new Response(JSON.stringify({ id: "r1" }), { status: 202 });
+        return new Response(JSON.stringify(deploy), { status: 200 });
+      }
+      return new Response(JSON.stringify(check), { status: 200 });
+    }),
+  );
+}
+
+describe("UpdatesManager — the install control", () => {
+  it("offers to install when every blocking check passed", async () => {
+    stubFetch({ ...OK, applyable: true });
+    renderPanel();
+    expect(await screen.findByRole("button", { name: /install 2\.277\.1/i })).toBeTruthy();
+  });
+
+  it("REFUSES to offer it while a blocking check has not passed", async () => {
+    stubFetch({ ...OK, applyable: false });
+    renderPanel();
+    const btn = await screen.findByRole("button", { name: /install 2\.277\.1/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/until every blocking check above passes/i)).toBeTruthy();
+  });
+
+  it("says a queued request is UNCLAIMED rather than implying progress", async () => {
+    // A request nobody picks up means no runner is running. Showing "installing"
+    // forever is the exact lie this surface exists to avoid.
+    const stale = {
+      latest: {
+        id: "r1", version: "2.277.1", status: "PENDING",
+        requestedAt: new Date().toISOString(), unclaimedMs: 5 * 60_000,
+        requestedByEmail: "jon@example.com", claimedAt: null, claimedBy: null,
+        finishedAt: null, exitCode: null, log: "",
+      },
+    };
+    stubFetch({ ...OK, applyable: true }, stale);
+    renderPanel();
+    expect(await screen.findByText(/deploy runner may not be installed/i)).toBeTruthy();
+  });
+
+  it("presents ABANDONED as UNKNOWN, never as a failure", async () => {
+    const abandoned = {
+      latest: {
+        id: "r1", version: "2.277.1", status: "ABANDONED",
+        requestedAt: new Date().toISOString(), requestedByEmail: "jon@example.com",
+        claimedAt: new Date().toISOString(), claimedBy: "host-1",
+        finishedAt: new Date().toISOString(), exitCode: null, log: "swept", unclaimedMs: 0,
+      },
+    };
+    stubFetch({ ...OK, applyable: true }, abandoned);
+    renderPanel();
+    expect(await screen.findByText(/outcome of this install is unknown/i)).toBeTruthy();
+  });
+
+  it("surfaces a refusal from the server instead of failing silently", async () => {
+    stubFetch({ ...OK, applyable: true }, { latest: null }, () =>
+      new Response(JSON.stringify({ error: "A deploy is already in progress on this instance." }), { status: 409 }),
+    );
+    renderPanel();
+    const btn = await screen.findByRole("button", { name: /install/i });
+    btn.click();
+    expect(await screen.findByText(/already in progress/i)).toBeTruthy();
+  });
 });
 
 describe("UpdatesManager", () => {
@@ -108,6 +179,75 @@ describe("UpdatesManager", () => {
     expect(await screen.findByText(/up to date/i)).toBeTruthy();
   });
 
+  it("STILL reports the last install after it succeeded and left nothing to upgrade", async () => {
+    // The defect this pins, found by installing a release on production: the
+    // outcome and log lived inside the install panel, which renders only when
+    // `updateAvailable`. Succeeding makes that false — you are now newest — so
+    // the panel unmounted at the exact moment it worked and erased its own
+    // result. The operator was left inferring success from a version number,
+    // with the log unreachable. A FAILED install kept the upgrade on offer and
+    // so stayed visible; only success disappeared.
+    const upToDate = {
+      ...OK,
+      status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
+      preflights: [],
+    };
+    stubFetch(upToDate, {
+      latest: {
+        id: "r1",
+        version: "2.277.1",
+        status: "SUCCEEDED",
+        requestedAt: "2026-08-11T15:00:00.000Z",
+        requestedByEmail: "admin@example.com",
+        claimedAt: "2026-08-11T15:00:10.000Z",
+        claimedBy: "host-01",
+        finishedAt: "2026-08-11T15:02:00.000Z",
+        exitCode: 0,
+        log: "DEPLOY OK - app serving 2.277.1",
+        unclaimedMs: 0,
+      },
+    });
+    renderPanel();
+
+    // Guard the premise: if an upgrade were still on offer this would prove
+    // nothing, because the old install panel would have rendered the record.
+    expect(await screen.findByText(/up to date/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Install/ })).toBeNull();
+
+    // Assert on things only this card renders — the version string alone also
+    // appears as Running / Newest available / Candidate tag.
+    expect(await screen.findByText(/Last install/i)).toBeTruthy();
+    expect(await screen.findByText(/succeeded/i)).toBeTruthy();
+    expect(await screen.findByText(/DEPLOY OK - app serving 2\.277\.1/)).toBeTruthy();
+  });
+
+  it("reports an ABANDONED install as UNKNOWN, not as a failure, once nothing is on offer", async () => {
+    // Same unmount path, and the case where silence is most dangerous: the
+    // outcome genuinely is not known, so the warning has to survive too.
+    const upToDate = {
+      ...OK,
+      status: { current: "2.277.1", latest: "2.277.1", newer: [], updateAvailable: false, ahead: false },
+      preflights: [],
+    };
+    stubFetch(upToDate, {
+      latest: {
+        id: "r2",
+        version: "2.277.1",
+        status: "ABANDONED",
+        requestedAt: "2026-08-11T15:00:00.000Z",
+        requestedByEmail: "admin@example.com",
+        claimedAt: "2026-08-11T15:00:10.000Z",
+        claimedBy: "host-01",
+        finishedAt: "2026-08-11T15:20:00.000Z",
+        exitCode: null,
+        log: "SWEPT",
+        unclaimedMs: 0,
+      },
+    });
+    renderPanel();
+    expect(await screen.findByText(/outcome of this install is unknown/i)).toBeTruthy();
+  });
+
   it("warns rather than offers when the instance is AHEAD of the registry", async () => {
     const ahead = {
       ...OK,
@@ -147,10 +287,78 @@ describe("UpdatesManager", () => {
     expect(await screen.findByText(/No release notes are published/i)).toBeTruthy();
   });
 
-  it("marks a blocking preflight that could not be run, rather than hiding it", async () => {
+  it("labels a DEFERRED check as host-checked, never as 'blocks upgrade'", async () => {
+    // Labelling a check that can never be answered on this side as blocking is
+    // how a page trains its operator to ignore the badge.
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(OK), { status: 200 })));
     renderPanel();
     await waitFor(() => expect(screen.getByText("Disk headroom")).toBeTruthy());
-    expect(screen.getAllByText(/blocks upgrade/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/checked on the host/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/blocks upgrade/i)).toBeNull();
+  });
+
+  it("still says 'blocks upgrade' for a real blocking failure", async () => {
+    const blocked = {
+      ...OK,
+      preflights: [{ id: "sidecars-paired", title: "Plugin sidecar images", status: "fail", detail: "missing", blocking: true }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(blocked), { status: 200 })));
+    renderPanel();
+    expect(await screen.findByText(/blocks upgrade/i)).toBeTruthy();
+  });
+});
+
+// Found on prod 2026-08-29, by opening the page rather than reading the code:
+// the registry check hung, UpdatesManager early-returned its "Checking for
+// updates…" card, and the update-mode switch — mounted BELOW that return — did
+// not exist at all. The switch does not depend on the update check, and the
+// state in which you most want to reach it (the check is stuck, or failing) was
+// exactly the state that hid it.
+describe("UpdatesManager — the update-mode switch survives the check's own states", () => {
+  /** Update-check never settles; the settings endpoint answers normally. */
+  function stubHangingCheck(autoUpdate = true) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        if (u.includes("/settings")) {
+          return new Response(JSON.stringify({ autoUpdate, updatedAt: null }), { status: 200 });
+        }
+        if (u.includes("/deploy")) return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        return new Promise<Response>(() => {}); // never resolves
+      }),
+    );
+  }
+
+  it("is reachable while the update check is still running", async () => {
+    stubHangingCheck();
+    renderPanel();
+    expect(await screen.findByText("Checking for updates…")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Automatic" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Manual" })).toBeTruthy();
+  });
+
+  it("is reachable when the update check FAILED", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        if (u.includes("/settings")) {
+          return new Response(JSON.stringify({ autoUpdate: false, updatedAt: null }), { status: 200 });
+        }
+        if (u.includes("/deploy")) return new Response(JSON.stringify({ latest: null }), { status: 200 });
+        return new Response("boom", { status: 500 });
+      }),
+    );
+    renderPanel();
+    expect(await screen.findByText(/Could not check for updates/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Manual" })).toBeTruthy();
+  });
+
+  it("shows the stored choice rather than assuming automatic", async () => {
+    stubHangingCheck(false);
+    renderPanel();
+    const manual = await screen.findByRole("button", { name: "Manual" });
+    await waitFor(() => expect(manual.getAttribute("aria-pressed")).toBe("true"));
   });
 });

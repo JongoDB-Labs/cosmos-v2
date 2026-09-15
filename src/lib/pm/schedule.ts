@@ -62,7 +62,9 @@ export function deriveMilestone(
   return { status: anyInProgress ? "IN_PROGRESS" : "UPCOMING", completedAt: null, ...counts };
 }
 
-const branchSelect = { select: { id: true, code: true, name: true } } as const;
+const intervalSelect = {
+  select: { id: true, number: true, name: true, startDate: true, endDate: true },
+} as const;
 
 export type DerivedMilestone = Awaited<
   ReturnType<typeof loadMilestonesWithDerived>
@@ -70,13 +72,13 @@ export type DerivedMilestone = Awaited<
 
 /**
  * Load a project's milestones with work-item-derived status + completion. One
- * query for milestones (+ links + branch), one for the linked items' columns —
- * no per-milestone fan-out. Derivation is computed on read, never persisted.
+ * query for milestones (+ links + Program Increment), one for the linked items'
+ * columns — no per-milestone fan-out. Derivation is computed on read, never persisted.
  */
 export async function loadMilestonesWithDerived(orgId: string, projectId?: string) {
   const milestones = await prisma.milestone.findMany({
     where: projectId ? { orgId, projectId } : { orgId },
-    include: { links: true, programBranch: branchSelect },
+    include: { links: true, interval: intervalSelect },
     orderBy: { dueDate: "asc" },
   });
 

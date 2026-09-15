@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { SectorKey } from "@/lib/entitlements/modules";
+import type { Tour } from "@/lib/tours/types";
 // TYPE-ONLY import — erased at compile time, so no runtime cycle with nav-config
 // (nav-config never imports this file; composition lives in nav-plugins.ts).
 import type { NavEntry } from "@/components/layouts/nav-config";
@@ -90,6 +91,16 @@ export type PluginManifest = {
   /** Components this plugin renders into core UI slots (see PluginSlotProps). Rendered
    *  by <PluginSlot> ONLY when the plugin is enabled for the org (fail-closed). */
   slots?: PluginSlots;
+  /**
+   * Guided walks through what a release of THIS plugin changed.
+   *
+   * They live with the plugin rather than in core for the same reason its pages
+   * do: core cannot name a plugin's routes, and a tour whose steps are written
+   * anywhere other than beside the feature drifts from it. Offered only while
+   * the plugin is enabled — otherwise a step would navigate somewhere the org
+   * cannot reach.
+   */
+  tours?: Tour[];
 };
 
 /**
@@ -125,6 +136,19 @@ export type PluginToolContext = { orgId: string; userId: string };
 
 /** SERVER-ONLY contributions, registered separately (registry/server.ts) so they
  *  never enter a client bundle. */
+/**
+ * What one rule did on a single run. Counts, not payloads: a scheduler reads
+ * this to tell a working run from a broken one, and it must not become a
+ * channel for org data to leave through a machine account's log.
+ */
+export type RuleRunSummary = {
+  /** Namespaced, e.g. "<plugin>.<rule>" -- so two plugins cannot collide. */
+  rule: string;
+  raised: number;
+  resolved: number;
+  notified?: number;
+};
+
 export type PluginServerHooks = {
   /** Must match a registered manifest slug. */
   slug: string;
@@ -174,6 +198,17 @@ export type PluginServerHooks = {
     args: Record<string, unknown>,
     ctx: PluginToolContext,
   ) => Promise<unknown | undefined>;
+  /**
+   * Evaluate this plugin's standing rules for an org, raising and sweeping
+   * flags. Called periodically, and safe to call at any time: a rule is
+   * expected to be idempotent, because it will be.
+   *
+   * Only invoked when the plugin is enabled AND licensed for the org. A throw
+   * is caught and reported per-plugin, so one plugin cannot starve the rest --
+   * but it IS reported, not swallowed, because a scheduled run that always
+   * claims success hides a rule that stopped working months ago.
+   */
+  runRules?: (prisma: PrismaClient, orgId: string) => Promise<RuleRunSummary[]>;
   /** Adapter/integration descriptors, forwarded to IntegrationRegistry.register()
    *  by registry/server.ts (they carry sector tags the integrations UI already
    *  understands). */

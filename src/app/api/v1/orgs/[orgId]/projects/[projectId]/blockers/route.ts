@@ -8,12 +8,10 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
-import { resolveBranchScope, branchScopeWhere } from "@/lib/rbac/branch-scope";
 import { logPmActivity } from "@/lib/pm/activity-log";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
-const blockerInclude = { programBranch: { select: { id: true, code: true, name: true } } };
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -27,10 +25,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const branchScope = await resolveBranchScope(orgId, ctx.userId);
     const blockers = await prisma.blocker.findMany({
-      where: { orgId, projectId, ...branchScopeWhere(branchScope) },
-      include: blockerInclude,
+      where: { orgId, projectId },
       orderBy: { createdAt: "asc" },
     });
     return success(blockers);
@@ -43,7 +39,6 @@ const createSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().nullish(),
   type: z.nativeEnum(BlockerType).default(BlockerType.INTERNAL),
-  branchId: z.string().uuid().nullish(),
   source: z.string().max(200).nullish(),
   identifiedBy: z.string().max(120).nullish(),
   owner: z.string().max(120).nullish(),
@@ -91,7 +86,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: data.title,
         description: data.description ?? null,
         type: data.type,
-        branchId: data.branchId ?? null,
         source: data.source ?? null,
         identifiedBy: data.identifiedBy ?? null,
         owner: data.owner ?? null,
@@ -107,7 +101,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         relatedRef: data.relatedRef ?? null,
         notes: data.notes ?? null,
       },
-      include: blockerInclude,
     });
 
     // Seed the activity log with a "created" event (best-effort).

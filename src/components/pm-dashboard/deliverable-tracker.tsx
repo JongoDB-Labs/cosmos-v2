@@ -35,7 +35,6 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
-import { branchOptions } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { formatDateStable } from "@/lib/format/stable-date";
 
@@ -51,12 +50,6 @@ type DeliverableStatus =
   | "REJECTED"
   | "OVERDUE";
 
-interface BranchLite {
-  id: string;
-  code: string;
-  name: string;
-}
-
 interface Deliverable {
   id: string;
   code: string;
@@ -64,8 +57,6 @@ interface Deliverable {
   description: string | null;
   deliverableType: string | null;
   clin: string | null;
-  branchId: string | null;
-  programBranch: BranchLite | null;
   owner: string | null;
   baselineDue: string | null;
   internalReview: string | null;
@@ -76,7 +67,6 @@ interface Deliverable {
   revRequired: boolean;
   escalate: boolean;
   status: DeliverableStatus;
-  branchOwner: string | null;
   workItemRef: string | null;
   notes: string | null;
 }
@@ -84,7 +74,6 @@ interface Deliverable {
 interface DeliverableTrackerProps {
   orgId: string;
   projectId: string;
-  branches: BranchLite[];
 }
 
 const STATUS_OPTIONS: DeliverableStatus[] = [
@@ -120,7 +109,6 @@ interface DeliverableForm {
   description: string;
   deliverableType: string;
   clin: string;
-  branchId: string;
   owner: string;
   baselineDue: string;
   internalReview: string;
@@ -131,7 +119,6 @@ interface DeliverableForm {
   revRequired: boolean;
   escalate: boolean;
   status: DeliverableStatus;
-  branchOwner: string;
   workItemRef: string;
   notes: string;
 }
@@ -141,7 +128,6 @@ const emptyForm: DeliverableForm = {
   description: "",
   deliverableType: "Report",
   clin: "",
-  branchId: "",
   owner: "",
   baselineDue: "",
   internalReview: "",
@@ -152,7 +138,6 @@ const emptyForm: DeliverableForm = {
   revRequired: false,
   escalate: false,
   status: "NOT_STARTED",
-  branchOwner: "",
   workItemRef: "",
   notes: "",
 };
@@ -163,7 +148,6 @@ function formToBody(f: DeliverableForm) {
     description: f.description.trim() || null,
     deliverableType: f.deliverableType || null,
     clin: f.clin.trim() || null,
-    branchId: f.branchId || null,
     owner: f.owner.trim() || null,
     baselineDue: f.baselineDue ? new Date(f.baselineDue).toISOString() : null,
     internalReview: f.internalReview ? new Date(f.internalReview).toISOString() : null,
@@ -174,7 +158,6 @@ function formToBody(f: DeliverableForm) {
     revRequired: f.revRequired,
     escalate: f.escalate,
     status: f.status,
-    branchOwner: f.branchOwner.trim() || null,
     workItemRef: f.workItemRef.trim() || null,
     notes: f.notes.trim() || null,
   };
@@ -231,12 +214,6 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
     header: "CLIN",
     accessorFn: (d) => d.clin ?? "",
     cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.clin ?? "—"}</span>,
-  },
-  {
-    id: "branch",
-    header: "Branch",
-    accessorFn: (d) => d.programBranch?.code ?? "",
-    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
   },
   {
     accessorKey: "status",
@@ -296,7 +273,7 @@ const DELIVERABLE_COLUMNS: ColumnDef<Deliverable>[] = [
   },
 ];
 
-export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTrackerProps) {
+export function DeliverableTracker({ orgId, projectId }: DeliverableTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/deliverables`;
   const queryKey = useOrgQueryKey("deliverables", projectId);
   const { data: deliverables = [], isLoading, isError, refetch } = useQuery({
@@ -428,7 +405,7 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
   }, [deliverables, now]);
 
   function openCreate() {
-    setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setForm(emptyForm);
     setCreateOpen(true);
   }
   // Row click → open the detail drawer (the primary row-detail view).
@@ -460,15 +437,6 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         placeholder: "Select type",
       },
       { key: "clin", label: "CLIN", type: "text", value: d.clin, editable: canEdit },
-      {
-        key: "branchId",
-        label: "Branch",
-        type: "select",
-        value: d.branchId,
-        editable: canEdit && branches.length > 0,
-        options: branchOptions(branches),
-        placeholder: "Select branch",
-      },
       { key: "owner", label: "Owner", type: "text", value: d.owner, editable: canEdit },
       {
         key: "status",
@@ -540,7 +508,6 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         ],
         coerce: (v) => v === "true",
       },
-      { key: "branchOwner", label: "Branch owner", type: "text", value: d.branchOwner, editable: canEdit },
       { key: "workItemRef", label: "Work item reference", type: "text", value: d.workItemRef, editable: canEdit },
       {
         key: "notes",
@@ -593,8 +560,8 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         columns={DELIVERABLE_COLUMNS}
         search={filter}
         onSearchChange={setFilter}
-        searchText={(d) => [d.code, d.title, d.clin ?? "", d.owner ?? "", d.programBranch?.name ?? ""].join(" ")}
-        searchPlaceholder="Filter by title, ID, CLIN, owner, branch…"
+        searchText={(d) => [d.code, d.title, d.clin ?? "", d.owner ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, CLIN, owner…"
         onRowClick={openDetail}
         rowActions={rowActions}
         onNew={canEdit ? openCreate : undefined}
@@ -649,7 +616,6 @@ export function DeliverableTracker({ orgId, projectId, branches }: DeliverableTr
         title="New Deliverable"
         form={form}
         setForm={setForm}
-        branches={branches}
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
@@ -709,7 +675,6 @@ function DeliverableDialog({
   title,
   form,
   setForm,
-  branches,
   pending,
   onSubmit,
   submitLabel,
@@ -719,7 +684,6 @@ function DeliverableDialog({
   title: string;
   form: DeliverableForm;
   setForm: React.Dispatch<React.SetStateAction<DeliverableForm>>;
-  branches: BranchLite[];
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
@@ -782,22 +746,6 @@ function DeliverableDialog({
                 />
               )}
             </FormField>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Branch</label>
-              <Select
-                value={form.branchId}
-                onValueChange={(v) => setForm((f) => ({ ...f, branchId: v ?? "" }))}
-              >
-                <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-                <SelectContent>
-                  {branchOptions(branches).map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -916,16 +864,6 @@ function DeliverableDialog({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Branch owner">
-              {(p) => (
-                <Input
-                  {...p}
-                  value={form.branchOwner}
-                  onChange={(e) => setForm((f) => ({ ...f, branchOwner: e.target.value }))}
-                  placeholder="Branch-level accountable person"
-                />
-              )}
-            </FormField>
             <FormField label="Work item reference">
               {(p) => (
                 <Input

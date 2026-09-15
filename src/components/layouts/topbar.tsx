@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "./breadcrumbs";
+import { TourMenu } from "@/components/tour/tour-menu";
 import { NotificationDropdown } from "@/components/notifications/notification-dropdown";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { visibleTopbarNav } from "./topbar-nav";
@@ -194,6 +195,7 @@ export function Topbar({ orgs, onToggleSidebar, sidebarExpanded }: TopbarProps) 
             >
               <MessageSquarePlus className="h-4 w-4" />
             </Button>
+            <TourMenu />
           </div>
         )}
 

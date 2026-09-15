@@ -12,13 +12,33 @@ export { API_KEY_SCOPES };
 export type { ApiKeyScope };
 
 const SCOPE_MASK: Record<ApiKeyScope, bigint> = {
-  read: Permission.PROJECT_READ | Permission.ITEM_READ | Permission.OKR_READ | Permission.SPRINT_READ,
+  // COMMENT_READ belongs in `read` for the same reason the others do: a
+  // conversation is part of reading an item, and without it a key could POST a
+  // comment (with items:write) and then be denied its own reply on the way back
+  // out — "Access denied by policy" on a GET the caller had just written to.
+  read:
+    Permission.PROJECT_READ | Permission.ITEM_READ | Permission.COMMENT_READ |
+    Permission.OKR_READ | Permission.SPRINT_READ,
+  // Write means write: CREATE alone let a key file an item and then never touch
+  // it again — no status change, no re-assign, no comment — which is most of
+  // what "work the board without a browser" actually is. ITEM_UPDATE and
+  // COMMENT_CREATE are what the item PUT and the comment POST gate on.
+  //
+  // ITEM_DELETE is deliberately NOT here. Destroying work is a different
+  // decision from editing it, and a scope named for writing should not quietly
+  // carry it; a key that needs to delete should say so with a scope of its own.
   "items:write":
     Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ |
-    Permission.ITEM_CREATE | Permission.OKR_READ | Permission.OKR_CREATE |
+    Permission.ITEM_CREATE | Permission.ITEM_UPDATE |
+    Permission.COMMENT_CREATE | Permission.COMMENT_READ |
+    Permission.OKR_READ | Permission.OKR_CREATE |
     Permission.SPRINT_READ | Permission.SPRINT_CREATE,
   "documents:write":
     Permission.PROJECT_READ | Permission.PROJECT_UPDATE | Permission.ITEM_READ | Permission.ITEM_CREATE,
+  // Exactly one permission, and deliberately no read: a scheduler needs to
+  // TRIGGER rules, not to browse the org. Anything wider would hand a key that
+  // sits on a cron box the ability to read projects.
+  "rules:run": Permission.RULES_RUN,
 };
 
 /** OR together the bit-masks for the given scope names; unknown scopes contribute
@@ -36,7 +56,10 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
  * intersected with the key's scope mask.
  */
 export async function mintApiKey(input: {
-  orgId: string; name: string; scopes: string[]; createdById: string; expiresAt?: Date | null;
+  orgId: string; name: string; scopes: string[]; createdById: string;
+  expiresAt?: Date | null;
+  /** Projects the key may touch. Omit or pass [] for org-wide. */
+  projectIds?: string[];
 }) {
   // Prefix is HEX (no `_`/`-`) so the token splits unambiguously at the prefix's
   // `_` delimiter — the secret (base64url) may contain `_`/`-`, and as the final
@@ -49,8 +72,12 @@ export async function mintApiKey(input: {
     data: {
       orgId: input.orgId, name: input.name, prefix, keyHash: sha256(secret),
       scopes: input.scopes, createdById: input.createdById, expiresAt: input.expiresAt ?? null,
+      projectIds: input.projectIds ?? [],
     },
-    select: { id: true, name: true, prefix: true, scopes: true, expiresAt: true, createdAt: true },
+    select: {
+      id: true, name: true, prefix: true, scopes: true, projectIds: true,
+      expiresAt: true, createdAt: true,
+    },
   });
   return { token, record };
 }
@@ -78,11 +105,31 @@ export function hasBearer(req: Request): boolean {
  * the returned permissions are that user's effective permissions ∩ scope mask.
  */
 export async function verifyApiKey(req: Request, orgId: string): Promise<AuthContext | null> {
-  const parsed = parseToken(req.headers.get("authorization"));
+  return verifyApiKeyHeader(req.headers.get("authorization"), orgId);
+}
+
+/**
+ * The same verification, from the `Authorization` header alone.
+ *
+ * `getAuthContext` is the single place every org-scoped route authenticates,
+ * and it has no `Request` — it reads `cookies()`/`headers()` from the request
+ * context. Taking the header directly lets the key path live THERE, rather than
+ * asking ~300 route handlers to opt in one at a time. That opt-in is exactly
+ * what never happened: this module shipped complete and, until now, had no
+ * caller outside its own test.
+ */
+export async function verifyApiKeyHeader(
+  authorization: string | null,
+  orgId: string,
+): Promise<AuthContext | null> {
+  const parsed = parseToken(authorization);
   if (!parsed) return null;
   const key = await prisma.apiKey.findUnique({
     where: { orgId_prefix: { orgId, prefix: parsed.prefix } },
-    select: { id: true, keyHash: true, scopes: true, expiresAt: true, createdById: true },
+    select: {
+      id: true, keyHash: true, scopes: true, projectIds: true,
+      expiresAt: true, createdById: true,
+    },
   });
   if (!key || !key.createdById) return null;
   const a = Buffer.from(sha256(parsed.secret)); const b = Buffer.from(key.keyHash);
@@ -96,6 +143,10 @@ export async function verifyApiKey(req: Request, orgId: string): Promise<AuthCon
     userId: key.createdById, orgId, orgRole: eff.orgRole,
     permissions: eff.permissions & mask, basePermissions: eff.basePermissions & mask,
     abacRules: eff.abacRules,
+    // Empty means org-wide, so it must stay UNDEFINED rather than become an
+    // empty allowlist — `[]` as a ceiling would deny everything, turning every
+    // pre-existing key into a key that can reach nothing.
+    projectScope: key.projectIds?.length ? key.projectIds : undefined,
   };
 }
 

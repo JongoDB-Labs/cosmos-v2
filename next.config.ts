@@ -18,6 +18,12 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_PRODUCT: process.env.PRODUCT ?? "cosmos",
   },
   cacheComponents: true,
+  // Next 16 writes its own AGENTS.md on every `next dev`. AGENTS.md here is NOT
+  // a generated file — it is the hand-maintained engineering guide CLAUDE.md
+  // imports, and the only copy of these rules that reaches a git worktree. Left
+  // on, a local dev run silently edits it and the next `git add -A` commits the
+  // machine's version over ours.
+  agentRules: false,
   // `experimental.viewTransition` was REMOVED in Next 16.3.0 — not renamed, and
   // not promoted to a top-level option. It is absent from ExperimentalConfig, its
   // config doc page is deleted, and the surviving view-transitions guide

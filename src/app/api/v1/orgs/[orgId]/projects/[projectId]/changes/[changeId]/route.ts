@@ -13,13 +13,11 @@ type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; changeId: string }>;
 };
 
-const changeInclude = { programBranch: { select: { id: true, code: true, name: true } } };
 
 const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().nullish(),
   type: z.string().max(80).nullish(),
-  branchId: z.string().uuid().nullish(),
   initiatedBy: z.string().max(120).nullish(),
   decisionAuthority: z.string().max(120).nullish(),
   approvedBy: z.string().max(120).nullish(),
@@ -55,7 +53,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.type !== undefined && { type: data.type }),
-        ...(data.branchId !== undefined && { branchId: data.branchId }),
         ...(data.initiatedBy !== undefined && { initiatedBy: data.initiatedBy }),
         ...(data.decisionAuthority !== undefined && { decisionAuthority: data.decisionAuthority }),
         ...(data.approvedBy !== undefined && { approvedBy: data.approvedBy }),
@@ -74,7 +71,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(data.scopeImpact !== undefined && { scopeImpact: data.scopeImpact }),
         ...(data.notes !== undefined && { notes: data.notes }),
       },
-      include: changeInclude,
     });
 
     // Audit field changes (best-effort). Label-keyed maps so the Activity log
@@ -86,7 +82,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         title: existing.title,
         status: existing.status,
         type: existing.type,
-        branchId: existing.branchId,
         initiatedBy: existing.initiatedBy,
         decisionAuthority: existing.decisionAuthority,
         approvedBy: existing.approvedBy,
@@ -100,7 +95,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         title: updated.title,
         status: updated.status,
         type: updated.type,
-        branchId: updated.branchId,
         initiatedBy: updated.initiatedBy,
         decisionAuthority: updated.decisionAuthority,
         approvedBy: updated.approvedBy,

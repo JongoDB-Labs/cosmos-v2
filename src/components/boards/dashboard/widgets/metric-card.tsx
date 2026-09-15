@@ -33,7 +33,14 @@ export function MetricCard({ label, value, trend, trendValue, color, onClick }: 
     >
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex items-end gap-2">
-        <span className={cn("text-2xl font-bold", color)}>{value}</span>
+        {/* Addressable so a test can assert THIS metric moved, rather than
+            matching a bare number that also appears in three other cards. */}
+        <span
+          data-testid={`metric-${label.toLowerCase().replace(/\s+/g, "-")}`}
+          className={cn("text-2xl font-bold", color)}
+        >
+          {value}
+        </span>
         {trend && (
           <span
             className={cn(

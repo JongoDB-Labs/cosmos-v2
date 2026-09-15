@@ -352,7 +352,7 @@ jobs:
 
       # SBOM (gate 6) — Syft SPDX-JSON of the merged runtime image, by digest.
       - name: Generate + attach SBOM (Syft SPDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ env.IMAGE }}@${{ steps.manifest.outputs.runtime_digest }}
           format: spdx-json
@@ -389,7 +389,7 @@ jobs:
 
       # SLSA build provenance attestation, bound to the merged runtime manifest digest.
       - name: Attest build provenance (SLSA)
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.manifest.outputs.runtime_digest }}
@@ -563,7 +563,7 @@ jobs:
         run: cosign sign --yes --key "env://COSIGN_KEY" "$CHART_REF@${{ steps.push.outputs.digest }}"
 
       - name: Attest chart provenance (SLSA)
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.CHART_REF }}
           subject-digest: ${{ steps.push.outputs.digest }}

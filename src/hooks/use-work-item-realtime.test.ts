@@ -14,9 +14,15 @@ import { renderHook } from "@testing-library/react";
 // Capture the handler map the hook hands to useRealtimeEvents (which itself opens
 // an SSE EventSource jsdom lacks) so we can drive events synchronously.
 let captured: Record<string, (data: unknown) => void> = {};
+let capturedOptions: { onResync?: () => void } | undefined;
 vi.mock("./use-realtime-events", () => ({
-  useRealtimeEvents: (_orgId: string, handlers: Record<string, (data: unknown) => void>) => {
+  useRealtimeEvents: (
+    _orgId: string,
+    handlers: Record<string, (data: unknown) => void>,
+    options?: { onResync?: () => void },
+  ) => {
     captured = handlers;
+    capturedOptions = options;
   },
 }));
 
@@ -24,6 +30,7 @@ import { useWorkItemRealtime } from "./use-work-item-realtime";
 
 beforeEach(() => {
   captured = {};
+  capturedOptions = undefined;
 });
 
 describe("useWorkItemRealtime", () => {
@@ -73,5 +80,38 @@ describe("useWorkItemRealtime", () => {
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("recovering the events the stream cannot replay", () => {
+  it("refetches when the connection comes back", () => {
+    // The stream has no replay, so a reconnect means "things may have changed
+    // while we were away". A deploy drops every open tab at once, and before
+    // this the board simply stayed stale until someone hit refresh.
+    const onChange = vi.fn();
+    renderHook(() => useWorkItemRealtime("org-1", null, onChange));
+
+    capturedOptions?.onResync?.();
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("refetches on reconnect even when scoped to ONE project", () => {
+    // The payload filter cannot apply here: the whole problem is that we never
+    // saw the payloads. Skipping the refetch for a scoped board would leave
+    // exactly the views Foreman drives showing stale columns.
+    const onChange = vi.fn();
+    renderHook(() => useWorkItemRealtime("org-1", "p1", onChange));
+
+    capturedOptions?.onResync?.();
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("actually passes an onResync — the control for the two tests above", () => {
+    // Both assertions use optional chaining, so a hook that passed no options
+    // at all would satisfy them vacuously by calling nothing.
+    renderHook(() => useWorkItemRealtime("org-1", null, () => {}));
+    expect(typeof capturedOptions?.onResync).toBe("function");
   });
 });
