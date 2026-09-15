@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.1",
+    date: "2026-09-15",
+    title: "Foreman no longer stops working because of a question from July",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman pauses taking on new work when too many finished items are waiting on a person, so it cannot pile up work faster than anyone can review it. But that count included every item it had ever set aside, going back months, and nothing removed an item from it except someone acting on that item — so the count only ever grew, hit its ceiling once, and stayed there. Delivery stopped entirely, and no amount of Foreman working better could restart it: fourteen of the twenty items holding it shut were more than a fortnight old and six dated from July. The pause now reflects the current rate rather than all history — items stop counting toward it after fourteen days. Set aside a full ceiling's worth of work in a fortnight and Foreman still pauses; what it can no longer do is stay paused over a question nobody answered seven weeks ago. Nothing is hidden or closed: every item still appears in the review queue exactly as before.",
+      },
+    ],
+  },
+  {
     version: "2.371.0",
     date: "2026-09-15",
     title: "Ctrl+K files an issue from the timeline, without reaching for the mouse",
