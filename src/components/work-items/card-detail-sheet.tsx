@@ -93,6 +93,7 @@ import {
 import { formatDateStable } from "@/lib/format/stable-date";
 import { LocalTimestamp } from "@/components/ui/local-timestamp";
 import { isWorkItemDone } from "@/lib/work-items/done-state";
+import { memberPickerOptions } from "@/lib/org/member-picker";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
 import { toast } from "sonner";
@@ -288,6 +289,9 @@ export function CardDetailSheet({
     }),
     [members, intervals, allTypes, statusOptions],
   );
+  // Assignee options: alphabetical, with the email carried as hidden search
+  // text so the picker's filter matches it too (COSMOS-171).
+  const assigneeOptions = useMemo(() => memberPickerOptions(members), [members]);
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
@@ -1403,7 +1407,9 @@ export function CardDetailSheet({
               {/* Multi-assign (FR 1d38496a): first-checked stays the primary.
                   Searchable so it stays usable when an org has hundreds of
                   members — type to filter by name/email instead of scrolling
-                  (COSMOS-37). Falls back to "Unassigned" when the set is empty. */}
+                  (COSMOS-37). Sorted by name, and email really is matched now
+                  that the options carry it as hidden search text (COSMOS-171).
+                  Falls back to "Unassigned" when the set is empty. */}
               <SearchableMultiSelect
                 size="sm"
                 aria-label="Assignees"
@@ -1414,10 +1420,7 @@ export function CardDetailSheet({
                 emptyText="No members"
                 value={assigneeIds}
                 onValueChange={(ids) => void patchAssignees(ids)}
-                options={members.map((m) => ({
-                  value: m.userId,
-                  label: m.user?.displayName ?? m.user?.email ?? "Unknown",
-                }))}
+                options={assigneeOptions}
               />
             </MetadataField>
 

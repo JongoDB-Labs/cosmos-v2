@@ -25,6 +25,7 @@ import {
   isRenderableCustomField,
 } from "@/components/work-items/custom-field-input";
 import { createStatusOptions } from "@/lib/boards/status-columns";
+import { filterMemberOptions, memberPickerOptions } from "@/lib/org/member-picker";
 import type { Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
@@ -149,6 +150,9 @@ export function CreateWorkItemDialog({
   const [description, setDescription] = useState("");
   const [labels, setLabels] = useState("");
   const [members, setMembers] = useState<OrgMember[]>([]);
+  // Assignee search box (COSMOS-171) — client-side only; the member list is
+  // already loaded in full.
+  const [assigneeSearch, setAssigneeSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Status. The dialog used to resolve this silently — first board, first column
   // — with no way to say where the issue should land, which is the one thing the
@@ -183,6 +187,14 @@ export function CreateWorkItemDialog({
     [allTypes, selectedSector],
   );
 
+  // Assignee rows: alphabetical by displayed name, narrowed by the search box
+  // (matches name OR email) — COSMOS-171.
+  const memberOptions = useMemo(() => memberPickerOptions(members), [members]);
+  const visibleMemberOptions = useMemo(
+    () => filterMemberOptions(memberOptions, assigneeSearch),
+    [memberOptions, assigneeSearch],
+  );
+
   // Reset the form each time the dialog opens; default the project. In duplicate
   // mode the seed effect below owns initialization, so skip the reset — otherwise
   // a parent re-render (which recreates `projects`) would blank the pre-filled
@@ -193,6 +205,7 @@ export function CreateWorkItemDialog({
       setTitle("");
       setPriority("MEDIUM");
       setAssigneeIds([]);
+      setAssigneeSearch("");
       setStoryPoints("");
       setDueDate("");
       setIntervalId(null);
@@ -539,27 +552,43 @@ export function CreateWorkItemDialog({
             <div className="space-y-1">
               <Label className="text-xs">Assignees</Label>
               {/* Multi-assign (FR 1d38496a): check any number; first checked
-                  becomes the primary assignee. */}
+                  becomes the primary assignee. Sorted by name and filterable by
+                  name or email, because scrolling an unordered list stopped
+                  working once orgs grew past a screenful (COSMOS-171). */}
+              <Input
+                type="search"
+                aria-label="Search assignees"
+                placeholder="Search members…"
+                value={assigneeSearch}
+                onChange={(e) => setAssigneeSearch(e.target.value)}
+                disabled={submitting}
+                className="h-8 text-xs"
+              />
               <div className="max-h-28 overflow-y-auto rounded-md border border-[var(--border)] p-1.5">
-                {members.map((m) => (
+                {visibleMemberOptions.length === 0 && (
+                  <p className="px-1.5 py-1 text-xs text-muted-foreground">
+                    {memberOptions.length === 0 ? "No members" : "No matches"}
+                  </p>
+                )}
+                {visibleMemberOptions.map((m) => (
                   <label
-                    key={m.userId}
+                    key={m.value}
                     className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted/40"
                   >
                     <input
                       type="checkbox"
                       className="accent-[var(--primary)]"
-                      checked={assigneeIds.includes(m.userId)}
+                      checked={assigneeIds.includes(m.value)}
                       disabled={submitting}
                       onChange={(e) =>
                         setAssigneeIds((prev) =>
                           e.target.checked
-                            ? [...prev, m.userId]
-                            : prev.filter((id) => id !== m.userId),
+                            ? [...prev, m.value]
+                            : prev.filter((id) => id !== m.value),
                         )
                       }
                     />
-                    {m.user?.displayName ?? m.user?.email ?? m.userId}
+                    {m.label}
                   </label>
                 ))}
               </div>
