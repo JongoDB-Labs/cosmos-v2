@@ -1318,6 +1318,18 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
   // The date header renders in its own sticky SVG; the body SVG holds only rows.
   const bodyHeight = sortedItems.length * ROW_HEIGHT + 20;
 
+  // Buy another quarter of PAST, and book the viewport shift that keeps the
+  // chart still while it lands. Every route into the past goes through here —
+  // the scroll handler, the wheel-into-the-wall handler, and the initial seed —
+  // so "one extension in flight at a time" is one rule in one place rather than
+  // three copies that can disagree.
+  const extendBefore = useCallback((): boolean => {
+    if (pendingScrollShiftRef.current !== 0) return false;
+    pendingScrollShiftRef.current = PAN_CHUNK_DAYS * dayWidth;
+    setPan((p) => grownPan(p, "before"));
+    return true;
+  }, [dayWidth]);
+
   // Reaching either edge of the chart buys another quarter of calendar, so the
   // axis is bounded by where you have looked rather than by the dates someone
   // happened to enter. Also the one place the drawn day-column window is
@@ -1348,12 +1360,44 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       });
       if (!side) return;
       if (side === "before") {
-        if (pendingScrollShiftRef.current !== 0) return; // one extension in flight
-        pendingScrollShiftRef.current = PAN_CHUNK_DAYS * dayWidth;
+        extendBefore();
+        return;
       }
       setPan((p) => grownPan(p, side));
     },
-    [dayWidth, nameColW, totalDays],
+    [dayWidth, extendBefore, nameColW, totalDays],
+  );
+
+  // ── Pushing INTO a wall ──────────────────────────────────────────────────
+  // A browser fires `scroll` only when the offset actually CHANGES, so a wheel
+  // that pushes past an edge it is already sitting on dispatches nothing at all
+  // — on a freshly loaded board, parked at scrollLeft 0, fifty wheel events
+  // produce zero scroll events and the axis above never hears about any of
+  // them. The gesture itself is the only evidence that the user is asking for
+  // more calendar, so at a wall it is what extends the axis. Off a wall this
+  // does nothing and the scroll handler does the work as before.
+  const onWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      // ⌘/Ctrl+wheel is the zoom gesture (handled on the chart), not a pan.
+      if (e.ctrlKey || e.metaKey) return;
+      const el = e.currentTarget;
+      if (el.clientWidth <= 0) return;
+      // Chrome reports shift+wheel as deltaY while scrolling horizontally with
+      // it; Firefox reports deltaX. Take whichever carries the sideways intent,
+      // so a plain wheel DOWN the rows is never read as a reach for the past.
+      const deltaX = e.deltaX !== 0 ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+      if (deltaX === 0) return;
+      if (deltaX < 0) {
+        if (el.scrollLeft > 0) return; // not at the wall — a scroll event follows
+        extendBefore();
+      } else if (el.scrollLeft >= el.scrollWidth - el.clientWidth) {
+        // No compensation on this side: appending days leaves everything drawn
+        // where it was, and it moves the wall out from under the cursor, so the
+        // next wheel event in the same gesture no longer qualifies.
+        setPan((p) => grownPan(p, "after"));
+      }
+    },
+    [extendBefore],
   );
 
   // Put the viewport back where it was looking after days are prepended. Layout
@@ -1368,29 +1412,42 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     lastScrollLeftRef.current = el.scrollLeft;
   }, [pan]);
 
-  // Keep something to scroll INTO on the right. A short plan on a wide screen
-  // has no horizontal scrollbar at all, and an edge you cannot reach is an edge
-  // that never extends — the future would stay invisible on exactly the boards
-  // with the least in them. Converges in one pass (the days added cover the
-  // deficit exactly) and is inert wherever the scroller can't be measured.
-  const fillRight = useCallback(() => {
+  // Keep room to scroll INTO on BOTH sides. An edge you cannot reach is an edge
+  // that never extends, and the view opens flush against the left one.
+  //
+  //  · right — a short plan on a wide screen has no horizontal scrollbar at
+  //    all, so the future would stay invisible on exactly the boards with the
+  //    least in them. Converges in one pass: the days added cover the deficit.
+  //  · left  — the chart opens at scrollLeft 0, which is a wall. Seeding a
+  //    quarter of past and stepping off it is what makes the past reachable by
+  //    ORDINARY scrolling — a scrollbar drag, an arrow key, a touch flick —
+  //    rather than only by the wheel handler above. Once, per mount: after that
+  //    the compensation keeps the viewport off 0 on its own.
+  //
+  // Both halves are inert wherever the scroller can't be measured (SSR, a
+  // hidden tab), which is also what stops the top-up from running away.
+  const seededPastRef = useRef(false);
+  const ensureRoomToScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || el.clientWidth <= 0) return;
     // The content width comes from what this component DREW (the sticky column
     // plus the chart), not from `el.scrollWidth` — the days added widen exactly
     // that number, which is what makes the next pass come up short and stop.
     const add = fillerDays(el.clientWidth, nameColW + svgWidth, dayWidth);
     if (add > 0) setPan((p) => ({ before: p.before, after: p.after + add }));
-  }, [dayWidth, nameColW, svgWidth]);
+    if (!seededPastRef.current && el.scrollLeft <= 0 && extendBefore()) {
+      seededPastRef.current = true;
+    }
+  }, [dayWidth, extendBefore, nameColW, svgWidth]);
   // `loading` is in here because the scroller does not exist behind the
   // skeleton: the first measurable pass is the one after the items arrive.
   useEffect(() => {
-    fillRight();
-  }, [fillRight, fullscreen, loading]);
+    ensureRoomToScroll();
+  }, [ensureRoomToScroll, fullscreen, loading]);
   useEffect(() => {
-    window.addEventListener("resize", fillRight);
-    return () => window.removeEventListener("resize", fillRight);
-  }, [fillRight]);
+    window.addEventListener("resize", ensureRoomToScroll);
+    return () => window.removeEventListener("resize", ensureRoomToScroll);
+  }, [ensureRoomToScroll]);
 
   // Day columns to actually draw. Before the first scroll (and wherever the
   // scroller reports no width) that is all of them.
@@ -1774,6 +1831,7 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
         data-testid="gantt-scroll"
         ref={scrollRef}
         onScroll={onScroll}
+        onWheel={onWheel}
         className="relative flex flex-1 items-start overflow-auto"
       >
         {/* Left column - item labels. Narrower on phones so the chart isn't
