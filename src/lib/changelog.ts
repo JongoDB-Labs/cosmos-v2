@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.6",
+    date: "2026-09-15",
+    title: "A stuck update says so instead of waiting in silence",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "When an update is ready but Foreman is still finishing a ticket, it waits rather than throwing the work away — but until now that wait was silent, so a delivery service stuck behind a job that never finished looked exactly like an idle one. It now reports how long it has been waiting and what it is waiting on, and says plainly that it will not abandon the job on its own.",
+      },
+    ],
+  },
+  {
     version: "2.368.5",
     date: "2026-09-14",
     title: "Older mention notifications open the work item again",
