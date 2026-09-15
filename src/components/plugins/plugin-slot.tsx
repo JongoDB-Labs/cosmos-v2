@@ -40,6 +40,17 @@ export function PluginEnablementProvider({
   );
 }
 
+/**
+ * Which plugins are enabled for the org being viewed.
+ *
+ * Exported so other core surfaces (the product tour) can gate on the SAME set
+ * the slots do. A second notion of "enabled" is how a plugin ends up switched
+ * off in one place and on in another.
+ */
+export function useEnabledPlugins(): ReadonlySet<string> {
+  return useContext(EnabledPluginsContext);
+}
+
 /** Pure: the enabled plugins' components for a slot, in registry order. Unit-testable. */
 export function slotContributions<K extends PluginSlotName>(
   name: K,

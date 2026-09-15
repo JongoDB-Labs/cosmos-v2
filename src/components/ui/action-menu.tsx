@@ -39,6 +39,16 @@ export interface ActionMenuItem {
   /** Marks this row as the field's CURRENT value, so a submenu shows what the
    *  item is already set to rather than an undifferentiated list. */
   checked?: boolean;
+  /**
+   * A CSS colour rendered as a filled swatch in the icon slot.
+   *
+   * For rows whose whole meaning IS a colour (the card-highlight palette). Kept
+   * separate from `icon` rather than tinting a Lucide glyph: `ActionRow` renders
+   * icons as `<Icon className="h-4 w-4" />` with no way to pass a colour
+   * through, and an outline glyph is a poor swatch anyway. Ignored when `icon`
+   * is also set — a row gets one thing in that slot.
+   */
+  swatch?: string;
 }
 
 export interface ActionMenuGroup {
@@ -176,7 +186,15 @@ export function ActionRow({ item, onDone }: { item: ActionMenuItem; onDone: () =
         onDone();
       }}
     >
-      {Icon && <Icon className="h-4 w-4" />}
+      {Icon ? (
+        <Icon className="h-4 w-4" />
+      ) : item.swatch ? (
+        <span
+          aria-hidden
+          className="h-3 w-3 shrink-0 rounded-full ring-1 ring-foreground/20"
+          style={{ backgroundColor: item.swatch }}
+        />
+      ) : null}
       <span className="truncate">{item.label}</span>
       {item.checked && <Check className="ml-auto h-3.5 w-3.5 shrink-0" />}
     </DropdownMenuItem>

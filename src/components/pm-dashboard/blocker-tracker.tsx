@@ -33,7 +33,6 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { PmEntityDrawer, type PmField } from "@/components/pm-dashboard/pm-entity-drawer";
 import { PmDataTable } from "@/components/pm-dashboard/pm-data-table";
 import { bulkFanOut } from "@/lib/pm/bulk";
-import { branchOptions } from "@/lib/pm/branch-label";
 import type { ActionMenuGroup } from "@/components/ui/action-menu";
 
 type BlockerStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "ESCALATED";
@@ -43,12 +42,6 @@ type BlockerType =
   | "EXTERNAL_PROCUREMENT"
   | "EXTERNAL_THIRD_PARTY";
 
-interface BranchLite {
-  id: string;
-  code: string;
-  name: string;
-}
-
 interface Blocker {
   id: string;
   code: string;
@@ -56,8 +49,6 @@ interface Blocker {
   description: string | null;
   type: BlockerType;
   status: BlockerStatus;
-  branchId: string | null;
-  programBranch: BranchLite | null;
   source: string | null;
   identifiedBy: string | null;
   owner: string | null;
@@ -76,7 +67,6 @@ interface Blocker {
 interface BlockerTrackerProps {
   orgId: string;
   projectId: string;
-  branches: BranchLite[];
 }
 
 const STATUS_OPTIONS: BlockerStatus[] = ["OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED"];
@@ -138,12 +128,6 @@ const BLOCKER_COLUMNS: ColumnDef<Blocker>[] = [
     cell: ({ row }) => <span className="block max-w-xs truncate text-[var(--text)]">{row.original.title}</span>,
   },
   {
-    id: "branch",
-    header: "Branch",
-    accessorFn: (b) => b.programBranch?.code ?? "",
-    cell: ({ row }) => <span className="text-xs text-[var(--text-muted)]">{row.original.programBranch?.code ?? "—"}</span>,
-  },
-  {
     id: "type",
     header: "Type",
     accessorFn: (b) => TYPE_LABEL[b.type],
@@ -179,7 +163,6 @@ interface BlockerForm {
   title: string;
   description: string;
   type: BlockerType;
-  branchId: string;
   source: string;
   identifiedBy: string;
   owner: string;
@@ -199,7 +182,6 @@ const emptyForm: BlockerForm = {
   title: "",
   description: "",
   type: "INTERNAL",
-  branchId: "",
   source: "",
   identifiedBy: "",
   owner: "",
@@ -220,7 +202,6 @@ function formToBody(f: BlockerForm) {
     title: f.title.trim(),
     description: f.description.trim() || null,
     type: f.type,
-    branchId: f.branchId || null,
     source: f.source.trim() || null,
     identifiedBy: f.identifiedBy.trim() || null,
     owner: f.owner.trim() || null,
@@ -237,7 +218,7 @@ function formToBody(f: BlockerForm) {
   };
 }
 
-export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerProps) {
+export function BlockerTracker({ orgId, projectId }: BlockerTrackerProps) {
   const apiBase = `/api/v1/orgs/${orgId}/projects/${projectId}/blockers`;
   const queryKey = useOrgQueryKey("blockers", projectId);
   const { data: blockers = [], isLoading, isError, refetch } = useQuery({
@@ -320,7 +301,7 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
   );
 
   function openCreate() {
-    setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setForm(emptyForm);
     setCreateOpen(true);
   }
   // Row click → open the detail drawer (the primary row-detail view).
@@ -357,15 +338,6 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
         value: b.status,
         editable: canEdit,
         options: STATUS_OPTIONS.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
-      },
-      {
-        key: "branchId",
-        label: "Branch",
-        type: "select",
-        value: b.branchId,
-        editable: canEdit && branches.length > 0,
-        options: branchOptions(branches),
-        placeholder: "Select branch",
       },
       { key: "source", label: "Source", type: "text", value: b.source, editable: canEdit },
       {
@@ -473,8 +445,8 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
         columns={BLOCKER_COLUMNS}
         search={filter}
         onSearchChange={setFilter}
-        searchText={(b) => [b.code, b.title, b.owner ?? "", b.programBranch?.name ?? ""].join(" ")}
-        searchPlaceholder="Filter by title, ID, owner, branch…"
+        searchText={(b) => [b.code, b.title, b.owner ?? ""].join(" ")}
+        searchPlaceholder="Filter by title, ID, owner…"
         onRowClick={openDetail}
         rowActions={rowActions}
         onNew={canEdit ? openCreate : undefined}
@@ -529,7 +501,6 @@ export function BlockerTracker({ orgId, projectId, branches }: BlockerTrackerPro
         title="New Blocker"
         form={form}
         setForm={setForm}
-        branches={branches}
         pending={createMutation.isPending}
         onSubmit={() => createMutation.mutate(form)}
         submitLabel="Create"
@@ -589,7 +560,6 @@ function BlockerDialog({
   title,
   form,
   setForm,
-  branches,
   pending,
   onSubmit,
   submitLabel,
@@ -599,7 +569,6 @@ function BlockerDialog({
   title: string;
   form: BlockerForm;
   setForm: React.Dispatch<React.SetStateAction<BlockerForm>>;
-  branches: BranchLite[];
   pending: boolean;
   onSubmit: () => void;
   submitLabel: string;
@@ -646,20 +615,6 @@ function BlockerDialog({
                 <SelectContent>
                   {TYPE_OPTIONS.map((o) => (
                     <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Branch */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Branch</label>
-              <Select value={form.branchId} onValueChange={(v) => setForm((f) => ({ ...f, branchId: v ?? "" }))}>
-                <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-                <SelectContent>
-                  {branchOptions(branches).map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

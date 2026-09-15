@@ -9,7 +9,7 @@ export const workItemTools: ToolDefinition[] = [
   {
     name: "list_work_items",
     description:
-      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, intervalId, dueDate, storyPoints.",
+      "List work items in a project with optional filters. Returns id, ticketNumber, title, columnKey, priority, assigneeId, assigneeName (the assignee's display name — use it when you name the person, never the id), intervalId, dueDate, storyPoints.",
     input_schema: {
       type: "object",
       properties: {

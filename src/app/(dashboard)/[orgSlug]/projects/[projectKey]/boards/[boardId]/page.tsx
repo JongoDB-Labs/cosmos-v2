@@ -78,6 +78,8 @@ export default async function BoardPage({ params }: PageParams) {
       boardId={board.id}
       boardType={board.type}
       viewMode={viewMode}
+      boardTeamId={board.teamId}
+      viewerUserId={ctx.userId}
     />
   );
 }

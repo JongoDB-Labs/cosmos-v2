@@ -77,6 +77,7 @@ interface DuplicateSourceItem {
   assignees?: { userId: string }[];
   intervalId: string | null;
   storyPoints: number | null;
+  startDate: string | null;
   dueDate: string | null;
   tags?: string[];
   customFields?: Record<string, unknown> | null;
@@ -135,6 +136,12 @@ export function CreateWorkItemDialog({
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [storyPoints, setStoryPoints] = useState("");
   const [dueDate, setDueDate] = useState("");
+  // Planned start. REQUIRED alongside the due date: without both, an item can
+  // never appear on the timeline, and "why is my ticket missing from the Gantt"
+  // is a question the create form is the right place to answer. Enforced HERE
+  // rather than in the API, which must stay permissive for imports, seeds and
+  // the agent tools — and for the existing rows that predate this rule.
+  const [startDate, setStartDate] = useState("");
   // Interval (sprint / PI) the new item joins — optional, project-scoped. Matches
   // the field editable on the detail sheet after creation (COSMOS-64).
   const [intervalId, setIntervalId] = useState<string | null>(null);
@@ -317,6 +324,7 @@ export function CreateWorkItemDialog({
         // The date <input> wants YYYY-MM-DD; the source's dueDate is an ISO
         // string, so take its date portion (UTC, matching how it's displayed).
         setDueDate(src.dueDate ? src.dueDate.slice(0, 10) : "");
+        setStartDate(src.startDate ? src.startDate.slice(0, 10) : "");
         setIntervalId(src.intervalId ?? null);
         setDescription(src.description ?? "");
         setLabels((src.tags ?? []).join(", "));
@@ -337,6 +345,18 @@ export function CreateWorkItemDialog({
   async function handleSubmit() {
     const trimmed = title.trim();
     if (!trimmed || !projectId || submitting) return;
+
+    // Planned dates are not optional. An item without them cannot be placed on
+    // the timeline at all, and the plan is the thing every drift mark is measured
+    // against — there is nothing to compare the actuals to without it.
+    if (!startDate || !dueDate) {
+      toast.error("Set both planned dates — the timeline needs a start and an end.");
+      return;
+    }
+    if (dueDate < startDate) {
+      toast.error("Planned end is before planned start.");
+      return;
+    }
 
     // Enforce required custom fields before hitting the API.
     const missing = renderableFields.filter(
@@ -392,6 +412,7 @@ export function CreateWorkItemDialog({
           ...(assigneeIds.length ? { assigneeIds } : {}),
           ...(intervalId ? { intervalId } : {}),
           description: description.trim() || null,
+          startDate: startDate ? new Date(startDate).toISOString() : null,
           dueDate: dueDate ? new Date(dueDate).toISOString() : null,
           tags: tags.length ? tags : undefined,
           ...(points != null && Number.isFinite(points) ? { storyPoints: points } : {}),
@@ -418,7 +439,7 @@ export function CreateWorkItemDialog({
           <DialogDescription>
             {isDuplicate
               ? "Pre-filled from the original — edit anything, then create. Comments, activity, and status aren't carried over."
-              : "Fill in as much as you like — only a title and project are required."}
+              : "A title, a project and the planned dates are required — everything else is optional."}
           </DialogDescription>
         </DialogHeader>
         <div
@@ -557,13 +578,31 @@ export function CreateWorkItemDialog({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Due date</Label>
+              <Label className="text-xs" htmlFor="create-planned-start">
+                Planned start *
+              </Label>
               <input
+                id="create-planned-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className={fieldClass}
+                disabled={submitting}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs" htmlFor="create-planned-end">
+                Planned end *
+              </Label>
+              <input
+                id="create-planned-end"
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
                 className={fieldClass}
                 disabled={submitting}
+                required
               />
             </div>
             {/* Interval (sprint / PI) — only when the project has intervals, matching
@@ -664,7 +703,11 @@ export function CreateWorkItemDialog({
               // button permanently disabled whenever the org's types were slow /
               // failed to load, so the user could fill the form but never create
               // (COSMOS-86).
-              disabled={!title.trim() || !projectId || submitting}
+              // Planned dates join title + project as the gate. Still NOT the
+              // work-item type: the board quick-create paths must not block on
+              // the async types fetch, and handleSubmit falls back to a bare
+              // "TASK" when none is chosen (COSMOS-86).
+              disabled={!title.trim() || !projectId || !startDate || !dueDate || submitting}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create issue"}
             </Button>

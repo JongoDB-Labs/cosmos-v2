@@ -43,6 +43,9 @@ export default async function IntervalsPage({ params }: PageParams) {
       projectId={project.id}
       projectKey={project.key}
       defaultKind={defaultKind}
+      // Lets capacity planning open on the team this person LEADS rather than
+      // on every member of the project.
+      viewerUserId={ctx.userId}
     />
   );
 }

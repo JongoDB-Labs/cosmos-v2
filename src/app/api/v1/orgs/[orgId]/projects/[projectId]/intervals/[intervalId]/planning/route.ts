@@ -24,7 +24,7 @@ type RouteParams = {
  * The client merges these onto the org member roster; suggestions only carry
  * members with history, so brand-new members fall back to `defaultCapacity`.
  */
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId, projectId, intervalId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -47,9 +47,49 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     });
     const unit = capacityUnitForSector(project?.projectTemplate?.sector);
 
-    // Committed scope: everything currently pulled into the sprint.
+    // Optional team scope. A ceremony belongs to a squad, and a lead planning
+    // their own sprint should not be sizing work for people they do not run.
+    //
+    // Capacity and committed are scoped TOGETHER or not at all. Scoping one and
+    // not the other would measure a team's hours against the whole project's
+    // commitment and report a headroom that is confidently wrong, which is worse
+    // than one that is plainly absent.
+    const teamId = request.nextUrl.searchParams.get("teamId");
+    let teamUserIds: string[] | null = null;
+    if (teamId) {
+      const team = await prisma.team.findFirst({
+        where: { id: teamId, projectId },
+        select: {
+          members: {
+            select: {
+              projectMember: { select: { orgMember: { select: { userId: true } } } },
+            },
+          },
+        },
+      });
+      // A team that does not exist, or belongs to another project, scopes to
+      // NOBODY rather than falling back to the whole project — failing open here
+      // would put every squad back in the room, which is the bug being fixed.
+      teamUserIds = (team?.members ?? []).map(
+        (m) => m.projectMember.orgMember.userId,
+      );
+    }
+    const scopedToTeam = <T,>(map: Record<string, T>): Record<string, T> => {
+      if (!teamUserIds) return map;
+      const allow = new Set(teamUserIds);
+      return Object.fromEntries(Object.entries(map).filter(([u]) => allow.has(u)));
+    };
+
+    // Committed scope: everything currently pulled into the sprint. Narrowed by
+    // the OWNER (`assigneeId`) — the same key the velocity suggestions below
+    // use, so both halves of the panel count the same people.
     const items = await prisma.workItem.findMany({
-      where: { orgId, projectId, intervalId },
+      where: {
+        orgId,
+        projectId,
+        intervalId,
+        ...(teamUserIds ? { assigneeId: { in: teamUserIds } } : {}),
+      },
       select: { storyPoints: true, originalEstimate: true },
     });
     const committed = {
@@ -108,8 +148,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       unit,
       goal: interval.goal ?? "",
       committed,
-      current,
-      suggestions,
+      // Both keyed by userId, both narrowed to the same roster as `committed`.
+      current: scopedToTeam(current),
+      suggestions: scopedToTeam(suggestions),
       defaultCapacity:
         unit === "points" ? DEFAULT_POINTS_CAPACITY : DEFAULT_HOURS_CAPACITY,
     });

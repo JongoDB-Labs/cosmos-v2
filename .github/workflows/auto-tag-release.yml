@@ -74,6 +74,71 @@ jobs:
           echo "::notice::pushed ${TAG} — release.yml should now build, sign, and dispatch the composed images."
           echo "### Released \`${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
 
+      # The step above only ever considers HEAD's version, so it cannot notice a
+      # version that went by WITHOUT this workflow running at all. That is not
+      # hypothetical: 2.368.1 (b86224de) reached main on 2026-09-14 and has no
+      # tag and no auto-tag-release run of any kind — not failed, not cancelled,
+      # absent. Nothing anywhere reported it; it was found days later by reading
+      # the tag list by hand. Its content only reached production because the
+      # NEXT release happened to carry it along.
+      #
+      # So: whenever this commit changed the version, check that the version it
+      # replaced actually got tagged. Deliberately bounded to the immediately
+      # preceding commit — it fires once, at the moment the gap appears, rather
+      # than nagging about the same historical miss on every future merge.
+      #
+      # This one DOES fail the job, unlike the missing-token warning above. That
+      # warning would fire on every single merge forever, where this fires only
+      # when a release was genuinely lost — rare enough that a red run is
+      # signal rather than noise. And because this workflow runs AFTER merge, a
+      # failure here blocks nobody's pull request; it just makes the loss
+      # impossible to miss.
+      #
+      # Verified by replaying the logic over the last 8 commits on main: it
+      # reports exactly one miss (v2.368.1, at dc2afedd) and stays silent on the
+      # seven healthy commits, including two that did not bump the version.
+      - name: A release must not go by untagged
+        if: always()
+        run: |
+          set -euo pipefail
+
+          # A root commit has nothing to compare against.
+          if ! git rev-parse -q --verify "HEAD^" >/dev/null 2>&1; then
+            echo "No parent commit — nothing to check."
+            exit 0
+          fi
+
+          CURRENT="$(node -p "require('./package.json').version")"
+          PREVIOUS="$(git show "HEAD^:package.json" | node -e "
+            let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).version))
+          ")"
+
+          if [ "${CURRENT}" = "${PREVIOUS}" ]; then
+            echo "Version unchanged at ${CURRENT} — nothing to check."
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --tags origin "v${PREVIOUS}" >/dev/null 2>&1; then
+            echo "::notice::v${PREVIOUS} is tagged; the previous release shipped."
+            exit 0
+          fi
+
+          echo "::error::v${PREVIOUS} reached main but was never tagged, so no release ever ran for it and the deployed instances never received it. This commit bumped to ${CURRENT}, which means that version has now been skipped over."
+          {
+            echo "### A release was skipped"
+            echo ""
+            echo "\`v${PREVIOUS}\` reached \`main\` and was never tagged, so \`release.yml\` never ran for it."
+            echo ""
+            echo "Its changes are still in the tree and will ship inside \`${CURRENT}\`, so nothing is lost —"
+            echo "but that version was never released on its own, and no changelog or deployment records it."
+            echo ""
+            echo "**Do not tag it retroactively.** \`release.yml\` builds from the tag, so tagging an old"
+            echo "commit now would build and deploy that older tree over the current one."
+            echo ""
+            echo "Check why \`auto-tag-release\` did not run for the commit that set \`${PREVIOUS}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
       # Close the loop. Pushing the tag is only half the job: if the token is ever
       # swapped for GITHUB_TOKEN, the push still SUCCEEDS but GitHub's recursion
       # guard suppresses the `on: push: tags` trigger, so release.yml never runs

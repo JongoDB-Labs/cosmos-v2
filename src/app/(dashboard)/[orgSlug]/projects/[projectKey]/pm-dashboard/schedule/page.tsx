@@ -1,3 +1,4 @@
+import { IntervalKind } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { redirect, notFound } from "next/navigation";
@@ -16,11 +17,24 @@ export default async function SchedulePage({ params }: PageParams) {
   });
   if (!project) notFound();
 
-  const branches = await prisma.programBranch.findMany({
-    where: { orgId: ctx.orgId },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, code: true, name: true },
+  // Only Program Increments may hold a milestone, and only this project's —
+  // the FK cannot express either rule, so the picker is narrowed at the source
+  // and re-checked server-side on write (lib/pm/milestone-interval.ts).
+  const programIncrements = await prisma.interval.findMany({
+    where: {
+      orgId: ctx.orgId,
+      projectId: project.id,
+      intervalKind: IntervalKind.PROGRAM_INCREMENT,
+    },
+    orderBy: { number: "desc" },
+    select: { id: true, number: true, name: true },
   });
 
-  return <ScheduleTracker orgId={ctx.orgId} projectId={project.id} branches={branches} />;
+  return (
+    <ScheduleTracker
+      orgId={ctx.orgId}
+      projectId={project.id}
+      programIncrements={programIncrements}
+    />
+  );
 }

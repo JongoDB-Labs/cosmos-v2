@@ -18,6 +18,7 @@ import {
   refKey,
 } from "./refs";
 import { entityUrl } from "./urls";
+import { parseTicketQuery } from "./ticket-query";
 
 export type SearchScope = { orgId: string; userId: string };
 
@@ -82,8 +83,17 @@ function makeHandler(cfg: {
 
   return {
     async search(q, { orgId }, take) {
+      // Entities with a ticket number are looked up BY that number at least as
+      // often as by title — "TEST-123" is how people refer to them — but the
+      // number was only ever selected for display, never searched.
+      const ticket = cfg.hasTicket ? parseTicketQuery(q).ticketNumber : undefined;
+      const where =
+        ticket === undefined
+          ? { orgId, [cfg.field]: ci(q) }
+          : { orgId, OR: [{ [cfg.field]: ci(q) }, { ticketNumber: ticket }] };
+
       const rows = await cfg.delegate.findMany({
-        where: { orgId, [cfg.field]: ci(q) },
+        where,
         select,
         take,
         orderBy: { [cfg.field]: "asc" },

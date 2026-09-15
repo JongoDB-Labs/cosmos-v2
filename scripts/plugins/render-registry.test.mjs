@@ -73,3 +73,57 @@ describe("generated registry composition", () => {
     expect(renderRegistryServer([])).not.toContain("PluginServerRegistry.register(");
   });
 });
+
+describe("version stamping", () => {
+  const entry = (over = {}) => ({
+    slug: "demo",
+    importPath: "@/plugins/demo/manifest",
+    serverPath: "@/plugins/demo/server",
+    ...over,
+  });
+
+  // WHY THIS EXISTS: a plugin's manifest hardcodes a version and plugin.json
+  // carries another, with nothing keeping them in step. Core compares the
+  // MANIFEST version against an org's stored enabledVersion to decide whether to
+  // run onUpgrade — so a stale manifest silently stops releases reaching orgs.
+  // Nothing errors: the equality check short-circuits and returns, which is
+  // right when they match and silent when they only appear to. One plugin sat
+  // eight releases behind exactly that way. Stamping at composition makes the
+  // drift impossible for every plugin rather than detectable in one.
+
+  it("stamps plugin.json's version over whatever the manifest hardcodes", () => {
+    const out = renderRegistryIndex([entry({ version: "2.1.0" })]);
+    expect(out).toContain('PluginRegistry.register({ ...demoManifest, version: "2.1.0" });');
+  });
+
+  it("registers the manifest unchanged when no version is declared", () => {
+    // Not a failure — the plugin keeps the behaviour it had. sync.mjs warns,
+    // because this is the shape that allowed the drift.
+    const out = renderRegistryIndex([entry({ version: null })]);
+    expect(out).toContain("PluginRegistry.register(demoManifest);");
+    expect(out).not.toContain("version:");
+  });
+
+  it("stamps every plugin, not just the first", () => {
+    const out = renderRegistryIndex([
+      entry({ slug: "one", version: "1.0.0" }),
+      entry({ slug: "two", version: "3.4.5" }),
+    ]);
+    expect(out).toContain('...oneManifest, version: "1.0.0"');
+    expect(out).toContain('...twoManifest, version: "3.4.5"');
+  });
+
+  it("escapes the version rather than interpolating it raw", () => {
+    // It comes from a file on disk. Emitting it unquoted into generated source
+    // is how package metadata becomes a build-time syntax error — the same
+    // class of bug a kebab-case slug already caused in this file once.
+    const out = renderRegistryIndex([entry({ version: 'x"; evil()//' })]);
+    expect(out).toContain(String.raw`version: "x\"; evil()//"`);
+  });
+
+  it("still resolves a kebab-case slug to a valid identifier", () => {
+    const out = renderRegistryIndex([entry({ slug: "pi-planning", version: "1.0.0" })]);
+    expect(out).toContain("piPlanningManifest");
+    expect(out).not.toContain("pi-planningManifest");
+  });
+});

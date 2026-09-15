@@ -68,7 +68,7 @@ export const cosmosTools: ToolDefinition[] = [
   {
     name: "create_work_item",
     description:
-      "Create a new work item. Pass `type` (e.g. 'task', 'story', 'bug', 'epic' — sector-aware lookup) OR a specific `workItemTypeId`. `columnKey` defaults to 'todo'.",
+      "Create a new work item. Pass `type` (e.g. 'task', 'story', 'bug', 'epic' — sector-aware lookup) OR a specific `workItemTypeId`. `columnKey` defaults to 'todo'. Returns `assigneeName` alongside `assigneeId` — report the NAME back to the user.",
     input_schema: {
       type: "object",
       properties: {
@@ -95,7 +95,8 @@ export const cosmosTools: ToolDefinition[] = [
   },
   {
     name: "update_work_item",
-    description: "Update an existing work item's fields.",
+    description:
+      "Update an existing work item's fields. Returns `assigneeName` alongside `assigneeId` — report the NAME back to the user.",
     input_schema: {
       type: "object",
       properties: {

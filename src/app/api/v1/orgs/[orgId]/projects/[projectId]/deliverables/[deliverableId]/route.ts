@@ -16,7 +16,6 @@ type RouteParams = {
 };
 
 const deliverableInclude = {
-  programBranch: { select: { id: true, code: true, name: true } },
   ownerUser: { select: { id: true, displayName: true, avatarUrl: true } },
 };
 
@@ -25,7 +24,6 @@ const updateSchema = z.object({
   description: z.string().nullish(),
   deliverableType: z.string().max(80).nullish(),
   clin: z.string().max(80).nullish(),
-  branchId: z.string().uuid().nullish(),
   owner: z.string().max(120).nullish(),
   ownerUserId: z.string().uuid().nullish(),
   baselineDue: z.string().nullish(),
@@ -37,7 +35,6 @@ const updateSchema = z.object({
   revRequired: z.boolean().optional(),
   escalate: z.boolean().optional(),
   status: z.nativeEnum(DeliverableStatus).optional(),
-  branchOwner: z.string().nullish(),
   workItemRef: z.string().nullish(),
   notes: z.string().nullish(),
 });
@@ -63,7 +60,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.description !== undefined) updateData.description = data.description;
     if (data.deliverableType !== undefined) updateData.deliverableType = data.deliverableType;
     if (data.clin !== undefined) updateData.clin = data.clin;
-    if (data.branchId !== undefined) updateData.branchId = data.branchId;
     if (data.owner !== undefined) updateData.owner = data.owner;
     if (data.ownerUserId !== undefined) updateData.ownerUserId = data.ownerUserId;
     if (data.baselineDue !== undefined) updateData.baselineDue = data.baselineDue ? new Date(data.baselineDue) : null;
@@ -75,7 +71,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (data.revRequired !== undefined) updateData.revRequired = data.revRequired;
     if (data.escalate !== undefined) updateData.escalate = data.escalate;
     if (data.status !== undefined) updateData.status = data.status;
-    if (data.branchOwner !== undefined) updateData.branchOwner = data.branchOwner ?? null;
     if (data.workItemRef !== undefined) updateData.workItemRef = data.workItemRef ?? null;
     if (data.notes !== undefined) updateData.notes = data.notes ?? null;
 
@@ -96,28 +91,24 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         status: existing.status,
         deliverableType: existing.deliverableType,
         clin: existing.clin,
-        branchId: existing.branchId,
         owner: existing.owner,
         ownerUserId: existing.ownerUserId,
         govReviewPeriod: existing.govReviewPeriod,
         revisionCycle: existing.revisionCycle,
         revRequired: existing.revRequired,
         escalate: existing.escalate,
-        branchOwner: existing.branchOwner,
       },
       {
         title: updated.title,
         status: updated.status,
         deliverableType: updated.deliverableType,
         clin: updated.clin,
-        branchId: updated.branchId,
         owner: updated.owner,
         ownerUserId: updated.ownerUserId,
         govReviewPeriod: updated.govReviewPeriod,
         revisionCycle: updated.revisionCycle,
         revRequired: updated.revRequired,
         escalate: updated.escalate,
-        branchOwner: updated.branchOwner,
       },
     );
 

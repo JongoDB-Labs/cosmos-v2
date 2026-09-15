@@ -71,6 +71,10 @@ import {
   GripVertical,
   Plus,
   Pencil,
+  Flag,
+  Link2,
+  Archive,
+  ArchiveRestore,
   X,
 } from "lucide-react";
 import type {
@@ -87,6 +91,17 @@ import {
   activityValueLabel,
 } from "@/lib/work-items/activity-label";
 import { formatDateStable } from "@/lib/format/stable-date";
+import { LocalTimestamp } from "@/components/ui/local-timestamp";
+import { isWorkItemDone } from "@/lib/work-items/done-state";
+import { entityUrl } from "@/lib/mentions/urls";
+import { useOrgSlug } from "@/lib/query/keys";
+import { toast } from "sonner";
+import {
+  WORK_ITEM_HIGHLIGHTS,
+  WORK_ITEM_HIGHLIGHT_ORDER,
+  highlightLabel,
+  isWorkItemHighlight,
+} from "@/lib/work-items/highlights";
 
 interface CardDetailSheetProps {
   item: WorkItem | null;
@@ -97,6 +112,11 @@ interface CardDetailSheetProps {
   members: OrgMember[];
   intervals: Interval[];
   columns: BoardColumn[];
+  /**
+   * The project's workflow statuses, unioned across its boards. Optional: a board
+   * that owns real columns (Kanban) can leave it out and get the same list.
+   */
+  statusColumns?: { key: string; name: string }[];
   onUpdate: (updated: WorkItem) => void;
   /** Remove the item from the parent's local state after a successful delete. */
   onDelete?: (id: string) => void;
@@ -125,6 +145,7 @@ export function CardDetailSheet({
   members,
   intervals,
   columns,
+  statusColumns,
   onUpdate,
   onDelete,
   onDuplicate,
@@ -181,6 +202,11 @@ export function CardDetailSheet({
   const [dueDate, setDueDate] = useState<string>("");
   const [actualStart, setActualStart] = useState<string>("");
   const [actualEnd, setActualEnd] = useState<string>("");
+  /** Meeting callout colour. A `WORK_ITEM_HIGHLIGHTS` key, or null for none. */
+  const [highlight, setHighlight] = useState<string | null>(null);
+  /** Archived timestamp, or null when the item is active. */
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const orgSlug = useOrgSlug();
 
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [comments, setComments] = useState<Comment[]>([]);
@@ -213,15 +239,27 @@ export function CardDetailSheet({
   // Resolve id-valued activity fields (assignee/interval/type/status) to names so
   // the Activity tab never shows a raw GUID (FR 545f81b1). `allTypes`, not the
   // `workItemTypes` picker list — that one hides shadow types, so a retype to or
+  // A work item's status is a PROJECT-level value, but this sheet is handed the
+  // CURRENT board's columns — and board creation seeds none, so on Timeline/Gantt,
+  // Roadmap and Calendar the Status control opened onto an empty list. Same
+  // modelling error the Status FILTER had (#670); this is the surface it missed.
+  //
+  // The options arrive as a PROP rather than from useProjectStatuses here on
+  // purpose: this sheet is presentational — members, intervals and columns all
+  // come from its parent — and giving it a query of its own would put every
+  // caller, and every test that renders it, inside a QueryClient and a router.
+  // The board views that need it already hold the hook's result.
+  const statusOptions = statusColumns ?? columns;
+
   // from one would otherwise have no name to show.
   const activityResolvers = useMemo(
     () => ({
       user: (id: string) => members.find((m) => m.userId === id)?.user?.displayName,
       interval: (id: string) => intervals.find((c) => c.id === id)?.name,
       type: (id: string) => allTypes.find((t) => t.id === id)?.name,
-      column: (key: string) => columns.find((c) => c.key === key)?.name,
+      column: (key: string) => statusOptions.find((c) => c.key === key)?.name,
     }),
-    [members, intervals, allTypes, columns],
+    [members, intervals, allTypes, statusOptions],
   );
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
@@ -309,9 +347,19 @@ export function CardDetailSheet({
       setPriority(item.priority);
       setWorkCategory(item.workCategory ?? "BUSINESS");
       setAssigneeId(item.assigneeId);
+      // An EMPTY set is not the same as "this item has no multi-assign data":
+      // `??` only fires on null/undefined, and the API always sends the array,
+      // so an item whose primary `assigneeId` was written WITHOUT a matching
+      // `WorkItemAssignee` row (every ticket Cosmo assigned before COSMOS-192)
+      // seeded [] and opened on "Unassigned" — the assignee was on the row the
+      // whole time. Fall back on emptiness, matching the duplicate-item flow in
+      // create-work-item-dialog.
       setAssigneeIds(
-        item.assignees?.map((a) => a.userId) ??
-          (item.assigneeId ? [item.assigneeId] : []),
+        item.assignees?.length
+          ? item.assignees.map((a) => a.userId)
+          : item.assigneeId
+            ? [item.assigneeId]
+            : [],
       );
       setIntervalId(item.intervalId);
       setColumnKey(item.columnKey);
@@ -320,6 +368,8 @@ export function CardDetailSheet({
       setDueDate(item.dueDate ? item.dueDate.split("T")[0] : "");
       setActualStart(item.actualStart ? item.actualStart.split("T")[0] : "");
       setActualEnd(item.completedAt ? item.completedAt.split("T")[0] : "");
+      setHighlight(item.highlight ?? null);
+      setArchivedAt(item.archivedAt ?? null);
       setParentId(item.parentId);
       setChildren(item.children ?? []);
       setChildTitle("");
@@ -488,6 +538,10 @@ export function CardDetailSheet({
                   ticketNumber: updated.ticketNumber,
                   workItemTypeId: updated.workItemTypeId,
                   columnKey: updated.columnKey,
+                  // Carried so the new parent's Sub-items list can strike a
+                  // finished child immediately, rather than looking unfinished
+                  // until the next full refetch.
+                  completedAt: updated.completedAt,
                 },
               ],
             });
@@ -519,9 +573,11 @@ export function CardDetailSheet({
             setPriority(item.priority);
             break;
           case "workItemTypeId":
-        setWorkItemTypeId(value as string);
-        break;
-      case "workCategory":
+            // Revert to the SERVER's value, like every case around it. This set
+            // `value` — the type that had just failed to save.
+            setWorkItemTypeId(item.workItemTypeId);
+            break;
+          case "workCategory":
             setWorkCategory(item.workCategory ?? "BUSINESS");
             break;
           case "assigneeId":
@@ -550,6 +606,12 @@ export function CardDetailSheet({
             break;
           case "parentId":
             setParentId(item.parentId);
+            break;
+          case "highlight":
+            setHighlight(item.highlight ?? null);
+            break;
+          case "archivedAt":
+            setArchivedAt(item.archivedAt ?? null);
             break;
         }
         notifyError(err, "Couldn't save the change.");
@@ -614,8 +676,21 @@ export function CardDetailSheet({
   ) {
     // Update local state immediately for responsive UI
     switch (field) {
+      // Was missing here and sitting in the REVERT switch instead, so the
+      // control the user clicked never moved while the header — which renders
+      // from the refreshed `item` prop — did. The seeding effect cannot cover
+      // for it: it is keyed on item.id, so a same-item save never re-seeds.
+      case "workItemTypeId":
+        setWorkItemTypeId(value as string);
+        break;
       case "priority":
         setPriority(value as WorkItem["priority"]);
+        break;
+      case "highlight":
+        setHighlight((value as string | null) ?? null);
+        break;
+      case "archivedAt":
+        setArchivedAt((value as string | null) ?? null);
         break;
       case "workCategory":
         setWorkCategory(value as WorkItem["workCategory"]);
@@ -920,6 +995,66 @@ export function CardDetailSheet({
                 <Star className={cn("h-3.5 w-3.5", watching && "fill-current")} />
                 {watching ? "Watching" : "Watch"}
               </Button>
+                {/* Copy link. Ungated: a link to something already on screen
+                    reveals nothing. It lived only on the Issues list and the
+                    roadmap, so from a board the only way to get one was to read
+                    the id out of network traffic. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-muted-foreground"
+                  onClick={() => {
+                    if (!orgSlug) return;
+                    // The ticket KEY when the item carries one, so the link says
+                    // which ticket it points at before anyone clicks it. Same
+                    // fallback chain the kanban card uses — the key rides on
+                    // customFields for board-sourced items and as a bare field
+                    // for query-sourced ones. No key (neither present) falls back
+                    // to the uuid, which the deep-link route still resolves.
+                    const pk =
+                      (item.customFields?.projectKey as string | undefined) ??
+                      ((item as unknown as Record<string, unknown>).projectKey as
+                        | string
+                        | undefined);
+                    const ref = pk ? `${pk}-${item.ticketNumber}` : item.id;
+                    const href = entityUrl("workItem", { orgSlug, id: ref });
+                    if (!href) return;
+                    try {
+                      void navigator.clipboard?.writeText(
+                        `${window.location.origin}${href}`,
+                      );
+                      toast.success("Issue link copied");
+                    } catch {
+                      /* clipboard unavailable — say nothing rather than lie */
+                    }
+                  }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Copy link
+                </Button>
+                {/* Archive — ITEM_UPDATE, not ITEM_DELETE. Whoever may edit an
+                    item may put it away, because doing so is reversible. */}
+                {canEditItem && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() =>
+                      void patchField(
+                        "archivedAt",
+                        archivedAt ? null : new Date().toISOString(),
+                      )
+                    }
+                    disabled={actionPending !== null}
+                  >
+                    {archivedAt ? (
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5" />
+                    )}
+                    {archivedAt ? "Restore" : "Archive"}
+                  </Button>
+                )}
                 {canDuplicate && (
                   <Button
                     variant="ghost"
@@ -1029,7 +1164,7 @@ export function CardDetailSheet({
 
             <MetadataField icon={Layers} label="Status">
               <Select
-                items={Object.fromEntries(columns.map((c) => [c.key, c.name]))}
+                items={Object.fromEntries(statusOptions.map((c) => [c.key, c.name]))}
                 value={columnKey}
                 onValueChange={(v) => handleFieldChange("columnKey", v ?? "")}
               >
@@ -1037,7 +1172,7 @@ export function CardDetailSheet({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {columns.map((c) => (
+                  {statusOptions.map((c) => (
                     <SelectItem key={c.key} value={c.key}>
                       {c.name}
                     </SelectItem>
@@ -1070,6 +1205,53 @@ export function CardDetailSheet({
                   ))}
                 </SelectContent>
               </Select>
+            </MetadataField>
+
+            {/* Meeting callout colour. A swatch row rather than a <Select>:
+                the value IS a colour, and a dropdown of colour NAMES makes the
+                reader translate twice. Each swatch is a real button with an
+                accessible name, so the meaning is still available to a screen
+                reader and on hover. */}
+            <MetadataField icon={Flag} label="Highlight">
+              <div
+                role="group"
+                aria-label="Highlight"
+                className="flex flex-wrap items-center gap-1"
+              >
+                {WORK_ITEM_HIGHLIGHT_ORDER.map((key) => {
+                  const def = WORK_ITEM_HIGHLIGHTS[key];
+                  const active = highlight === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={!canEditItem}
+                      aria-pressed={active}
+                      aria-label={def.label}
+                      title={def.label}
+                      onClick={() =>
+                        // Clicking the active swatch clears it, so the control
+                        // is its own undo and needs no separate "None" option.
+                        handleFieldChange("highlight", active ? null : key)
+                      }
+                      className={cn(
+                        "h-5 w-5 rounded-full border transition-transform disabled:cursor-not-allowed disabled:opacity-50",
+                        active
+                          ? "scale-110 border-foreground/60 ring-2 ring-offset-1 ring-offset-[var(--surface)]"
+                          : "border-foreground/20 hover:scale-110",
+                      )}
+                      style={{
+                        backgroundColor: `var(${def.cssVar})`,
+                        ...(active ? { "--tw-ring-color": `var(${def.cssVar})` } : {}),
+                      } as React.CSSProperties}
+                    />
+                  );
+                })}
+                <span className="ml-1 text-[11px] text-muted-foreground">
+                  {highlightLabel(highlight) ??
+                    (isWorkItemHighlight(highlight) ? "" : "None")}
+                </span>
+              </div>
             </MetadataField>
 
             {/* SAFe epic classification (business vs enabler epic). Only epics
@@ -1347,9 +1529,19 @@ export function CardDetailSheet({
                   <CornerDownRight className="h-3.5 w-3.5" />
                   Sub-items ({children.length})
                 </h3>
-                {children.map((c, idx) => (
+                {children.map((c, idx) => {
+                  // BR: "sub-items ... show as striken through if they are done
+                  // ... if the child ticket is in the done column or the actual
+                  // end date is set". Both signals, ORed — see
+                  // @/lib/work-items/done-state. `statusOptions` is this
+                  // surface's column list and is EMPTY on the board types that
+                  // seed no columns, which is exactly why the end date has to
+                  // count on its own.
+                  const childDone = isWorkItemDone(c, statusOptions);
+                  return (
                   <div
                     key={c.id}
+                    data-done={childDone || undefined}
                     className={cn(
                       "group/child flex items-center gap-1.5 text-sm rounded transition-colors",
                       dragChildIdx !== null && dragChildIdx !== idx && "border-t border-transparent",
@@ -1381,10 +1573,26 @@ export function CardDetailSheet({
                       disabled={!onOpenItem}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left enabled:hover:text-primary disabled:cursor-default"
                     >
-                      <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[11px] text-muted-foreground shrink-0",
+                          childDone && "line-through",
+                        )}
+                      >
                         #{c.ticketNumber}
                       </span>
-                      <span className="truncate">{c.title}</span>
+                      <span
+                        className={cn(
+                          "truncate",
+                          // Struck AND dimmed: strike-through alone is a weak
+                          // signal at 14px, and it is invisible to anyone who
+                          // cannot see the thin line.
+                          childDone && "line-through text-muted-foreground",
+                        )}
+                        title={childDone ? `${c.title} — done` : undefined}
+                      >
+                        {c.title}
+                      </span>
                     </button>
                     {canEditItem && (
                       <button
@@ -1398,7 +1606,8 @@ export function CardDetailSheet({
                       </button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 {canDuplicate && (
                   <div className="flex gap-2">
                     <Input
@@ -1516,8 +1725,17 @@ export function CardDetailSheet({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium">{name}</span>
+                        {/* BR: "could you ensure there are timestamps on each
+                            comment as well rather than only the date itself."
+                            <LocalTimestamp> and not formatDateTimeStable: the
+                            stable formatters are all pinned to UTC, which is
+                            right for a coarse due date but tells a reader west
+                            of UTC the wrong hour for an instant. The component
+                            renders the pinned string for the first paint (so
+                            hydration matches) and swaps to the viewer's own
+                            zone after mount. */}
                         <span className="text-[10px] text-muted-foreground">
-                          {formatDateStable(c.createdAt)}
+                          <LocalTimestamp value={c.createdAt} />
                           {edited ? " · edited" : ""}
                         </span>
                         {!isEditing && (c.canEdit || c.canDelete) && (

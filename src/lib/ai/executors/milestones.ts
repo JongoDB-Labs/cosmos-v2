@@ -19,7 +19,7 @@ function invalid(error: z.ZodError): { error: string } {
 // the same `requireProjectRead` the HTTP routes use. See _ctx.ts.
 
 const MILESTONE_SELECT = {
-  id: true, projectId: true, ownerId: true, branchId: true, status: true, dueDate: true,
+  id: true, projectId: true, ownerId: true, intervalId: true, status: true, dueDate: true,
   autoStatus: true, completedAt: true, scheduleEscalate: true,
   actualDate: true, sortOrder: true, title: true, createdAt: true, updatedAt: true,
 } as const;

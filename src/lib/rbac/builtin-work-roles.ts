@@ -45,6 +45,9 @@ export const BUILTIN_WORK_ROLES: BuiltinWorkRole[] = [
     // COMMENT_*, so none of it depended on this role.
     permissions: [
       "PROJECT_CREATE", "PROJECT_READ",
+      // Money for the projects they are ON, never the practice's book. The same
+      // scoping this role already applies to project administration.
+      "FINANCE_READ_PROJECT",
       "BOARD_CREATE", "BOARD_READ",
       "ITEM_CREATE", "ITEM_READ", "ITEM_UPDATE", "ITEM_ASSIGN",
       "SPRINT_READ",

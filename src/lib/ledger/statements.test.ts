@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Prisma } from "@prisma/client";
-import { computeTrialBalance, computeProfitAndLoss, computeBalanceSheet, type StmtAccount, type StmtLine } from "./statements";
+import { computeTrialBalance, computeProfitAndLoss, computeBalanceSheet, accountNaturalBalance, type StmtAccount, type StmtLine } from "./statements";
 
 const D = (n: string) => new Prisma.Decimal(n);
 const accounts: StmtAccount[] = [
@@ -63,5 +63,17 @@ describe("statements — orphan line guard", () => {
     const accts: StmtAccount[] = [{ id: "cash", type: "ASSET" }];
     const ls: StmtLine[] = [{ accountId: "cash", direction: "DEBIT", amount: D("100") }, { accountId: "ghost", direction: "CREDIT", amount: D("100") }];
     expect(() => computeTrialBalance(accts, ls)).toThrow(/unknown account/i);
+  });
+});
+
+describe("accountBalances (pure part)", () => {
+  // accountBalances is thin I/O over debitPositiveBalances + accountNaturalBalance;
+  // the sign convention is the part worth pinning, because every ratio built on
+  // it inherits the error if it flips.
+  it("reads revenue as positive when earned and expense as positive when spent", () => {
+    expect(accountNaturalBalance("REVENUE", new Prisma.Decimal(-5000)).toString()).toBe("5000");
+    expect(accountNaturalBalance("EXPENSE", new Prisma.Decimal(3000)).toString()).toBe("3000");
+    expect(accountNaturalBalance("ASSET", new Prisma.Decimal(1200)).toString()).toBe("1200");
+    expect(accountNaturalBalance("LIABILITY", new Prisma.Decimal(-800)).toString()).toBe("800");
   });
 });

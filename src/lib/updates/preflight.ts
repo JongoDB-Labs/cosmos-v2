@@ -40,6 +40,26 @@ export interface PreflightResult {
    * the offer.
    */
   blocking: boolean;
+  /**
+   * Set when this check cannot be answered in THIS tier and belongs to another
+   * one that will answer it before acting.
+   *
+   * This is NOT a softer `unknown`, and the distinction is the whole point:
+   *   - `unknown`  = "I tried to establish this and could not." It BLOCKS.
+   *   - `deferred` = "this tier cannot see the answer; the named tier checks it
+   *                   immediately before it acts, and refuses there."
+   *
+   * Disk headroom is the real case. The application container has no host
+   * mount, so it can never answer it — and a permanently-unanswerable blocking
+   * check would mean the deploy button never enables at all, which is not
+   * caution, it is a dead control. The host runner CAN see the disk, so it owns
+   * that check.
+   *
+   * THIS IS ONLY SAFE BECAUSE THE DEFERRED-TO TIER ACTUALLY ENFORCES IT. If the
+   * runner ever stopped re-evaluating with real facts, `deferred` would become
+   * a hole straight through the gate. That enforcement is tested, not assumed.
+   */
+  deferredTo?: "host-runner";
 }
 
 export interface PreflightFacts {
@@ -173,6 +193,7 @@ export function evaluatePreflights(f: PreflightFacts): PreflightResult[] {
     blocking: false,
   });
 
+  // Deferred rather than unknown when this tier cannot see the disk at all.
   const diskKnown = f.hostDiskFreeBytes !== null && f.estimatedRequiredBytes !== null;
   results.push({
     id: "disk-headroom",
@@ -182,8 +203,9 @@ export function evaluatePreflights(f: PreflightFacts): PreflightResult[] {
       : f.hostDiskFreeBytes! >= f.estimatedRequiredBytes!
         ? "pass"
         : "fail",
+    deferredTo: diskKnown ? undefined : ("host-runner" as const),
     detail: !diskKnown
-      ? "Not observable from the application container — it has no host mount. The host-side actuator must check this before pulling."
+      ? "Not observable from the application container, which has no host mount. The host runner checks this immediately before it starts, and refuses there if the space is not available."
       : f.hostDiskFreeBytes! >= f.estimatedRequiredBytes!
         ? "Enough free space for the image and the pre-upgrade database dump."
         : "Not enough free space. The pre-upgrade dump IS the rollback, so a full disk loses the rollback before it is needed.",
@@ -202,10 +224,24 @@ export function evaluatePreflights(f: PreflightFacts): PreflightResult[] {
  * belongs to the host-side runner that CAN see the missing facts.
  */
 export function canApply(results: readonly PreflightResult[]): boolean {
-  return !results.some((r) => r.blocking && r.status !== "pass");
+  return blockers(results).length === 0;
 }
 
-/** Blocking checks that did not pass, for an operator-facing explanation. */
+/**
+ * Blocking checks THIS tier can answer and that did not pass.
+ *
+ * Deferred checks are excluded: they are not failures, they are questions this
+ * tier is not the right one to ask. They are excluded ONLY because the tier
+ * they are deferred to re-evaluates them — with real facts, where `deferredTo`
+ * is unset and they become ordinary blocking checks — immediately before it
+ * acts.
+ */
 export function blockers(results: readonly PreflightResult[]): PreflightResult[] {
-  return results.filter((r) => r.blocking && r.status !== "pass");
+  return results.filter((r) => r.blocking && !r.deferredTo && r.status !== "pass");
 }
+
+/** Blocking checks handed to another tier, so a surface can say who checks them. */
+export function deferred(results: readonly PreflightResult[]): PreflightResult[] {
+  return results.filter((r) => r.blocking && r.deferredTo);
+}
+

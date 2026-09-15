@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { isDonePhase, isStartedPhase } from "@/lib/boards/column-phase";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -11,6 +12,7 @@ import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { syncFeedbackForWorkItems } from "@/lib/feedback/status-sync";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
+import { WORK_ITEM_HIGHLIGHT_ORDER } from "@/lib/work-items/highlights";
 import { z } from "zod";
 import { Priority, Prisma, WorkCategory } from "@prisma/client";
 
@@ -33,6 +35,20 @@ const updateItemSchema = z.object({
   actualStart: z.string().datetime().nullable().optional(),
   completedAt: z.string().datetime().nullable().optional(),
   workCategory: z.nativeEnum(WorkCategory).optional(),
+  // Archive / unarchive. A timestamp in, or null to bring it back.
+  //
+  // It rides on this route rather than getting an endpoint of its own because
+  // it is gated on ITEM_UPDATE like every other field here — which is the whole
+  // point: archiving is editing, not deleting, so the person who made a mess can
+  // clear it up without being handed the ability to destroy anyone's work.
+  archivedAt: z.string().datetime().nullable().optional(),
+  // Meeting callout colour. Validated against the palette on WRITE even though
+  // reads deliberately tolerate an unknown key: the column is plain TEXT for
+  // forward-compatibility with a NEWER build, which is not a licence for THIS
+  // build to store a typo. A rejected value is a 400 the user can see; a stored
+  // one would be an invisible no-op border they could never clear from the UI.
+  // `null` clears the highlight.
+  highlight: z.enum(WORK_ITEM_HIGHLIGHT_ORDER).nullable().optional(),
   tags: z.array(z.string()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
 });
@@ -53,7 +69,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: { id: itemId, orgId, projectId },
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
         comments: { orderBy: { createdAt: "asc" }, take: 50 },
         activities: { orderBy: { createdAt: "desc" }, take: 50 },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
@@ -151,6 +167,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (data.actualStart !== undefined) updateData.actualStart = data.actualStart ? new Date(data.actualStart) : null;
       if (data.completedAt !== undefined) updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
       if (data.workCategory !== undefined) updateData.workCategory = data.workCategory;
+      if (data.archivedAt !== undefined)
+        updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
+      if (data.highlight !== undefined) updateData.highlight = data.highlight;
       // Labels are NOT written here. `tags` is a mirror of the work_item_labels
       // rows now, so writing the array directly would leave the catalogue out of
       // step — the label would filter but not exist to rename or delete.
@@ -174,9 +193,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         } as Prisma.InputJsonValue;
       }
 
-      const doneColumn = data.columnKey && ["done", "completed", "closed"].some(
-        (k) => data.columnKey!.toLowerCase().includes(k)
-      );
+      // The destination column's CATEGORY decides whether this move means
+      // "started" or "finished". Both checks used to guess from the key string
+      // ("not backlog/todo" = started, "contains done" = finished), which stamped
+      // an actual START on any team-named column such as Review — the cause of a
+      // user's Gantt bars all jumping to today after a batch of Sprint-board moves.
+      const destColumn = data.columnKey
+        ? await tx.boardColumn.findFirst({
+            where: { board: { projectId }, key: data.columnKey },
+            select: { category: true },
+          })
+        : null;
+      const doneColumn = destColumn ? isDonePhase(destColumn.category) : false;
       // Actual End auto-capture (skipped when the request sets completedAt manually).
       if (data.completedAt === undefined) {
         if (doneColumn && !existing.completedAt) {
@@ -188,9 +216,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // Actual Start auto-capture: first time the item enters a started (in-progress
       // or done) column. Mirrors the completedAt capture; never overwritten once set;
       // a manual actualStart in this request wins.
-      const startedColumn =
-        data.columnKey != null &&
-        !["backlog", "todo", "to-do"].includes(data.columnKey.toLowerCase());
+      const startedColumn = destColumn ? isStartedPhase(destColumn.category) : false;
       if (data.actualStart === undefined && startedColumn && !existing.actualStart) {
         updateData.actualStart = new Date();
       }
@@ -224,6 +250,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         }
       }
 
+      // DATE AUDIT. Every date on the item, diffed from the FINAL updateData
+      // rather than from the request body — the 2026-08-14 incident was caused by
+      // an AUTO-CAPTURED actualStart that the client never sent, so tracking only
+      // what the caller asked for would have recorded nothing and left no trail of
+      // the very change that caused the report. Recording the derived value is the
+      // whole point.
+      const DATE_FIELDS = ["startDate", "dueDate", "actualStart", "completedAt"] as const;
+      for (const field of DATE_FIELDS) {
+        if (!(field in updateData)) continue;
+        const before = existing[field] as Date | null;
+        const after = updateData[field] as Date | null;
+        const beforeIso = before ? new Date(before).toISOString() : null;
+        const afterIso = after ? new Date(after).toISOString() : null;
+        if (beforeIso !== afterIso) {
+          trackFields.push({ field, oldVal: beforeIso, newVal: afterIso });
+        }
+      }
+
       const updated = await tx.workItem.update({
         where: { id: itemId },
         data: updateData,
@@ -231,7 +275,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           // Keep the child-ref shape consistent with the GET routes (the detail
           // sheet renders `#{ticketNumber}` for each sub-item) so a PUT echo of a
           // parent doesn't strip ticket numbers off its cached sub-item list.
-          children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true }, orderBy: { sortOrder: "asc" } },
+          children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true }, orderBy: { sortOrder: "asc" } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true, celebrateOnComplete: true } },
           assignees: {
             orderBy: { sortOrder: "asc" },
@@ -324,7 +368,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         message: `${actorName} assigned you a work item`,
         relatedType: "work_item",
         relatedId: itemId,
-        url: `/${org.slug}`,
+        // Was the org home: an "Assigned: X" notification that did not take you
+        // to X. Not a 404, just useless. Same deep link as every other path.
+        url: `/${org.slug}/issues?item=${itemId}`,
       }).catch(() => {
         /* swallow — notification is convenience, not load-bearing */
       });

@@ -16,11 +16,6 @@ export default async function BlockersPage({ params }: PageParams) {
   });
   if (!project) notFound();
 
-  const branches = await prisma.programBranch.findMany({
-    where: { orgId: ctx.orgId },
-    orderBy: { sortOrder: "asc" },
-    select: { id: true, code: true, name: true },
-  });
 
-  return <BlockerTracker orgId={ctx.orgId} projectId={project.id} branches={branches} />;
+  return <BlockerTracker orgId={ctx.orgId} projectId={project.id} />;
 }

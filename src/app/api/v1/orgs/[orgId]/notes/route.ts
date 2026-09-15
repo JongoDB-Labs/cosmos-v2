@@ -9,6 +9,7 @@ import { storeEmbedding } from "@/lib/rag/embed";
 import { parseMentions } from "@/lib/chat/mentions";
 import { syncReferences } from "@/lib/mentions/references";
 import { createNotification } from "@/lib/notifications/create";
+import { mentionsToPlainText, userMentionLabels } from "@/lib/mentions/plain-text";
 import { z } from "zod";
 import { Visibility } from "@prisma/client";
 
@@ -106,14 +107,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (mentionedIds.length > 0) {
         const validMembers = await prisma.orgMember.findMany({
           where: { orgId, userId: { in: mentionedIds } },
-          select: { userId: true },
+          select: { userId: true, user: { select: { displayName: true } } },
         });
         const recipients = new Set(validMembers.map((m) => m.userId));
         recipients.delete(ctx.userId);
 
-        const snippet = note.content
-          .replace(/<@[0-9a-f-]{36}>/gi, "@user")
-          .slice(0, 200);
+        const snippet = mentionsToPlainText(
+          note.content,
+          userMentionLabels(
+            validMembers
+            .filter((m) => m.user?.displayName)
+            .map((m) => ({ id: m.userId, displayName: m.user!.displayName })),
+          ),
+        ).slice(0, 200);
 
         for (const recipientId of recipients) {
           await createNotification({
@@ -124,7 +130,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             message: snippet,
             relatedId: note.id,
             relatedType: "note",
-            url: `/notes/${note.id}`,
+            // Slug-less, and there is no /[orgSlug]/notes/[noteId] route to deep-link
+            // to — both make this a 404. Land on the org's notes list instead; the
+            // notification title already names the note. Deep-linking a single note
+            // needs a page that reads it from the URL, which does not exist yet.
+            url: `/${org.slug}/notes`,
           }).catch(() => { /* swallow */ });
         }
       }

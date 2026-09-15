@@ -6,6 +6,7 @@ import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { ipMatchesAny } from "@/lib/auth/cidr";
 import { SESSION_COOKIE } from "./client";
+import { verifyApiKeyHeader } from "./api-key";
 
 /**
  * Whether a session satisfies an org's Require-MFA floor, under the
@@ -147,16 +148,74 @@ export async function revokeOrgSessions(orgId: string): Promise<number> {
  * Shape preserved from the previous Auth0 implementation so existing route
  * handlers can keep destructuring `{ userId, orgId, orgRole, permissions }`.
  */
+/**
+ * The org's IP allowlist floor, as a pure gate both auth paths go through.
+ *
+ * Extracted because an API key must not be a way around it: an org that has
+ * restricted access to its own network would not expect a bearer token minted
+ * inside that network to work from anywhere. Returns true when the request is
+ * allowed (including when the feature is off, or the list is empty — an empty
+ * list never blocks, which is the anti-lockout rule).
+ */
+async function ipAllowed(orgId: string): Promise<boolean> {
+  const rules = await prisma.ipAllowlist.findMany({
+    where: { orgId },
+    select: { cidr: true },
+  });
+  if (rules.length === 0) return true;
+  const h = await headers();
+  // Trusted client IP for an ACCESS-CONTROL decision (not just audit).
+  // Behind Cloudflare Tunnel → nginx, `cf-connecting-ip` is stamped by
+  // Cloudflare at the edge and can't be spoofed by the client (the tunnel is
+  // the only ingress), so it's preferred. `x-real-ip` is nginx's view of its
+  // immediate peer. The leftmost `x-forwarded-for` hop is client-controlled,
+  // so it's the LAST resort and never wins over the trusted sources.
+  const ip = (
+    h.get("cf-connecting-ip") ??
+    h.get("x-real-ip") ??
+    h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    ""
+  ).trim();
+  return !!ip && ipMatchesAny(ip, rules.map((r) => r.cidr));
+}
+
 export const getAuthContext = cache(
   async (orgSlug: string): Promise<AuthContext | null> => {
-    const user = await getCurrentUser();
-    if (!user) return null;
-
     const org = await prisma.organization.findUnique({
       where: { slug: orgSlug },
     });
 
     if (!org) return null;
+
+    // ── API key ──────────────────────────────────────────────────────────────
+    // Checked BEFORE the session, and only when the request actually carries a
+    // cosmos bearer token, so nothing about the cookie path changes.
+    //
+    // This is the single place org-scoped routes resolve an actor, which is why
+    // the key path belongs here: `verifyApiKey` was written, tested and wired to
+    // NOTHING, so every key was minted, displayed in settings, and then rejected
+    // by every endpoint with a 401 that looked like a bad key.
+    //
+    // The key's grant is already its minting user's permissions ∩ its scope mask
+    // (see verifyApiKeyHeader), so it can never widen what that user could do.
+    // Session-shaped floors (Require-MFA, idle timeout) are deliberately not
+    // applied: they are properties of an interactive login, and a key has its own
+    // expiry and revocation. The IP allowlist IS applied — that one is about
+    // where a request comes from, which is just as true of a key.
+    const authorization = (await headers()).get("authorization");
+    if (authorization && /^Bearer\s+cosmos_/.test(authorization.trim())) {
+      const keyCtx = await verifyApiKeyHeader(authorization, org.id);
+      if (!keyCtx) return null;
+      const sec = await prisma.orgSecuritySettings.findUnique({
+        where: { orgId: org.id },
+        select: { ipAllowlistEnabled: true },
+      });
+      if (sec?.ipAllowlistEnabled && !(await ipAllowed(org.id))) return null;
+      return keyCtx;
+    }
+
+    const user = await getCurrentUser();
+    if (!user) return null;
 
     // Effective permissions fold in work-role grants (widen) + collect ABAC
     // rules; one query, memoized by the cache() wrapper above.
@@ -206,29 +265,7 @@ export const getAuthContext = cache(
 
       // IP allowlist: when enabled AND at least one CIDR is configured, the
       // client IP must fall within it. An empty list never blocks (anti-lockout).
-      if (sec.ipAllowlistEnabled) {
-        const rules = await prisma.ipAllowlist.findMany({
-          where: { orgId: org.id },
-          select: { cidr: true },
-        });
-        if (rules.length > 0) {
-          const h = await headers();
-          // Trusted client IP for an ACCESS-CONTROL decision (not just audit).
-          // Behind Cloudflare Tunnel → nginx, `cf-connecting-ip` is stamped by
-          // Cloudflare at the edge and can't be spoofed by the client (the
-          // tunnel is the only ingress), so it's preferred. `x-real-ip` is
-          // nginx's view of its immediate peer. The leftmost `x-forwarded-for`
-          // hop is client-controlled, so it's the LAST resort (portability for
-          // non-Cloudflare deployments) and never wins over the trusted sources.
-          const ip = (
-            h.get("cf-connecting-ip") ??
-            h.get("x-real-ip") ??
-            h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-            ""
-          ).trim();
-          if (!ip || !ipMatchesAny(ip, rules.map((r) => r.cidr))) return null;
-        }
-      }
+      if (sec.ipAllowlistEnabled && !(await ipAllowed(org.id))) return null;
     }
 
     return {

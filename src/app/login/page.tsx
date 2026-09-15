@@ -167,7 +167,10 @@ function LoginInner() {
     | "recovery"
     | "forgot"
     | "forgot_sent"
-  >("creds");
+    // Opening "forgot" straight from a link. An invitation sent to an address
+    // that already has a password account has no credential to quote, so the
+    // email points here rather than leaving the reader to find it.
+  >(params.get("forgot") === "1" ? "forgot" : "creds");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   // Forced first-login state.

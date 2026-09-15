@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
+import { readNavLayout } from "@/lib/nav/nav-layout";
 import { DashboardShell } from "@/components/layouts/dashboard-shell";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { getEnabledModulesByOrg } from "@/lib/entitlements";
@@ -82,6 +83,9 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
       typeof m.org.settings === "object" &&
       m.org.settings !== null &&
       (m.org.settings as Record<string, unknown>).isDemo === true,
+      // Which sections this org hides from its sidebar. Undefined (the default)
+      // means every section its people are already entitled to see.
+      navLayout: readNavLayout(m.org.settings),
   }));
 
   // Seed the brand from the user's sole org when unambiguous. (No synchronous

@@ -20,6 +20,25 @@ import { PriorityChart } from "./widgets/priority-chart";
 import { BurndownChart } from "./widgets/burndown-chart";
 import { WorkloadChart } from "./widgets/workload-chart";
 import { ActivityFeed } from "./widgets/activity-feed";
+import { SprintTrendView, PiRollupView } from "./sprint-history";
+import { BurndownView } from "./burndown-view";
+import {
+  CycleTimePanel,
+  ThroughputPanel,
+  WorkTypeMixPanel,
+  ScopeChangePanel,
+  CarryoverPanel,
+  ImpedimentsPanel,
+  PiObjectivesPanel,
+  toDeliveryItems,
+} from "./delivery-panels";
+import type { IntervalChange } from "@/lib/dashboard/scope-change";
+import type { WorkItemLinkLike, ObjectiveLike } from "@/lib/dashboard/impediments";
+import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
+import { matchesFilters } from "@/lib/work-items/board-filters";
+import { burndown } from "@/lib/intervals/burndown";
+import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
+import { cn } from "@/lib/utils";
 import { assigneeLabel, workloadBuckets } from "./workload";
 import type { WorkItem, Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 
@@ -46,6 +65,18 @@ const priorityColorMap: Record<string, string> = {
   LOW: "#6b7280",
 };
 
+/**
+ * Grid positions for the desktop layout.
+ *
+ * EVERY widget key must appear in EVERY breakpoint. react-grid-layout gives a
+ * child with no matching entry a default 1x1 cell at the origin, so the widget
+ * still renders — collapsed to an unreadable sliver, stacked under whatever else
+ * landed there. That is exactly how "Blocked Work" and "Work Type Mix" reached
+ * production looking broken: the component tests mock react-grid-layout and
+ * assert against the mobile stack, so nothing exercised this array at all.
+ *
+ * `dashboard-layout.test.ts` now fails if a widget is missing an entry.
+ */
 const DEFAULT_LAYOUTS = {
   lg: [
     { i: "metrics", x: 0, y: 0, w: 12, h: 3 },
@@ -54,6 +85,8 @@ const DEFAULT_LAYOUTS = {
     { i: "workload", x: 8, y: 3, w: 4, h: 7 },
     { i: "burndown", x: 0, y: 10, w: 6, h: 7 },
     { i: "activity", x: 6, y: 10, w: 6, h: 7 },
+    { i: "impediments", x: 0, y: 17, w: 6, h: 7 },
+    { i: "worktype", x: 6, y: 17, w: 6, h: 7 },
   ],
   md: [
     { i: "metrics", x: 0, y: 0, w: 10, h: 3 },
@@ -62,6 +95,8 @@ const DEFAULT_LAYOUTS = {
     { i: "workload", x: 0, y: 10, w: 5, h: 7 },
     { i: "burndown", x: 5, y: 10, w: 5, h: 7 },
     { i: "activity", x: 0, y: 17, w: 10, h: 7 },
+    { i: "impediments", x: 0, y: 24, w: 5, h: 7 },
+    { i: "worktype", x: 5, y: 24, w: 5, h: 7 },
   ],
   sm: [
     { i: "metrics", x: 0, y: 0, w: 6, h: 4 },
@@ -70,6 +105,8 @@ const DEFAULT_LAYOUTS = {
     { i: "workload", x: 0, y: 18, w: 6, h: 7 },
     { i: "burndown", x: 0, y: 25, w: 6, h: 7 },
     { i: "activity", x: 0, y: 32, w: 6, h: 7 },
+    { i: "impediments", x: 0, y: 39, w: 6, h: 7 },
+    { i: "worktype", x: 0, y: 46, w: 6, h: 7 },
   ],
 };
 
@@ -77,11 +114,33 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
   const boardKey = useOrgQueryKey("board", boardId);
+  // Sprint Health answered only "how is the sprint in flight?". These add the
+  // two questions a team asks between ceremonies. Current stays the default so
+  // the board opens exactly as it did.
+  const [healthView, setHealthView] = useState<"current" | "burndown" | "across">("current");
+  // "Trend across sprints" and "PI rollup" were two tabs asking the same
+  // question at two altitudes, so a reader wanting both had to remember which
+  // tab held which. One tab, one toggle: the SCOPE is the variable, not the
+  // destination. Sprint is the default because that is the cadence a team
+  // actually runs on; the increment view is the one you go looking for.
+  const [timeScope, setTimeScope] = useState<"sprint" | "pi">("sprint");
+
+  // Sprint Health was the only board family with no filtering at all — every
+  // number on it described the whole project, so a lead could not ask "how is MY
+  // team doing?" without leaving the page. This uses the SHARED predicate and
+  // the SHARED control (see lib/work-items/board-filters.ts); a dashboard that
+  // filtered differently from the boards it summarises would be worse than one
+  // that does not filter.
+  const [filters, setFilters] = useState<BoardFilters>(emptyFilters);
+
   const itemsKey = useOrgQueryKey("work-items", projectId);
+  const changesKey = useOrgQueryKey("interval-changes", projectId);
+  const linksKey = useOrgQueryKey("work-item-links", projectId);
+  const objectivesKey = useOrgQueryKey("objectives", projectId);
   const membersKey = useOrgQueryKey("members");
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const [boardQ, itemsQ, membersQ, intervalsQ] = useQueries({
+  const [boardQ, itemsQ, membersQ, intervalsQ, changesQ, linksQ, objectivesQ] = useQueries({
     queries: [
       {
         queryKey: boardKey,
@@ -99,6 +158,27 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
         queryKey: intervalsKey,
         queryFn: () => jsonFetch<Interval[]>(`${basePath}/intervals`),
       },
+      {
+        // Scope churn is the one panel that cannot be derived from the items
+        // themselves — an item that LEFT a sprint is not in that sprint any
+        // more, so only the activity history remembers it happened.
+        queryKey: changesKey,
+        queryFn: () =>
+          jsonFetch<{ changes: IntervalChange[]; truncated: boolean }>(
+            `${basePath}/interval-changes`,
+          ),
+      },
+      {
+        // Blocking is a RELATIONSHIP, not a field, so it lives in the links
+        // table rather than on the item — nothing on a work item says it is
+        // stuck.
+        queryKey: linksKey,
+        queryFn: () => jsonFetch<WorkItemLinkLike[]>(`${basePath}/work-item-links`),
+      },
+      {
+        queryKey: objectivesKey,
+        queryFn: () => jsonFetch<ObjectiveLike[]>(`${basePath}/objectives`),
+      },
     ],
   });
 
@@ -107,9 +187,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     () => (board?.columns ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [board],
   );
-  const items: WorkItem[] = itemsQ.data ?? [];
-  const members: OrgMember[] = membersQ.data ?? [];
-  const intervals: Interval[] = intervalsQ.data ?? [];
+  // Memoised because `?? []` mints a NEW array on every render, which would make
+  // every downstream useMemo — filtering, metrics, burndown — recompute each
+  // time regardless of whether the data changed.
+  const items: WorkItem[] = useMemo(() => itemsQ.data ?? [], [itemsQ.data]);
+  const members: OrgMember[] = useMemo(() => membersQ.data ?? [], [membersQ.data]);
+  const intervals: Interval[] = useMemo(() => intervalsQ.data ?? [], [intervalsQ.data]);
 
   const loading =
     boardQ.isLoading ||
@@ -123,6 +206,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       ? fatalError.message
       : "Unknown error"
     : null;
+
+  // One instant for the whole pass, so a due-date filter cannot classify two
+  // items differently because the clock ticked between them.
+  const filteredItems = useMemo(() => {
+    const now = new Date();
+    return items.filter((i) => matchesFilters(i, filters, [], new Map(), now));
+  }, [items, filters]);
 
   const columnCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -142,27 +232,27 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
 
   // Compute metrics
   const metrics = useMemo(() => {
-    const total = items.length;
-    const completed = items.filter((i) => {
+    const total = filteredItems.length;
+    const completed = filteredItems.filter((i) => {
       const cat = columnCategoryMap.get(i.columnKey);
       return cat === "DONE";
     }).length;
-    const inProgress = items.filter((i) => {
+    const inProgress = filteredItems.filter((i) => {
       const cat = columnCategoryMap.get(i.columnKey);
       return cat === "IN_PROGRESS";
     }).length;
-    const overdue = items.filter((i) => {
+    const overdue = filteredItems.filter((i) => {
       if (!i.dueDate || i.completedAt) return false;
       return new Date(i.dueDate) < new Date();
     }).length;
 
     return { total, completed, inProgress, overdue };
-  }, [items, columnCategoryMap]);
+  }, [filteredItems, columnCategoryMap]);
 
   // Status distribution
   const statusData = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const item of items) {
+    for (const item of filteredItems) {
       const cat = columnCategoryMap.get(item.columnKey) ?? "TODO";
       counts[cat] = (counts[cat] ?? 0) + 1;
     }
@@ -171,12 +261,12 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       value,
       color: categoryColorMap[name] ?? "#6b7280",
     }));
-  }, [items, columnCategoryMap]);
+  }, [filteredItems, columnCategoryMap]);
 
   // Priority distribution
   const priorityData = useMemo(() => {
     const counts: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    for (const item of items) {
+    for (const item of filteredItems) {
       counts[item.priority] = (counts[item.priority] ?? 0) + 1;
     }
     return Object.entries(counts).map(([name, value]) => ({
@@ -184,7 +274,7 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
       value,
       color: priorityColorMap[name] ?? "#6b7280",
     }));
-  }, [items]);
+  }, [filteredItems]);
 
   // Drill-down (FR 81918e0e): clicking a metric or chart segment opens a list
   // of the matching tickets, each deep-linking to its detail on the Issues page.
@@ -192,65 +282,74 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   const orgSlug = typeof params?.orgSlug === "string" ? params.orgSlug : "";
   const [drill, setDrill] = useState<{ title: string; rows: WorkItem[] } | null>(null);
   const openDrill = (title: string, filter: (i: WorkItem) => boolean) =>
-    setDrill({ title, rows: items.filter(filter) });
+    setDrill({ title, rows: filteredItems.filter(filter) });
   const catOf = (i: WorkItem) => columnCategoryMap.get(i.columnKey) ?? "TODO";
 
   // Workload data (shares `assigneeLabel` with the drill-down below so the bar
   // a user clicks and the tickets it lists always describe the same bucket).
   const workloadData = useMemo(
-    () => workloadBuckets(items, memberMap),
-    [items, memberMap],
+    () => workloadBuckets(filteredItems, memberMap),
+    [filteredItems, memberMap],
   );
 
-  // Burndown data for active interval
+  // Burndown for the active interval, via the SHARED computation.
+  //
+  // This was computed inline here, and got four things wrong that the module
+  // fixes: it summed `storyPoints ?? 1`, mixing points and item counts into a
+  // unit that is neither; it burned the ideal line down across weekends; it
+  // compared completion timestamps against a date still carrying the sprint
+  // start's time-of-day, so a day boundary landed mid-afternoon; and it trusted
+  // `completedAt` alone, so an item reopened after completion stayed burned
+  // down. One implementation, tested once — see lib/intervals/burndown.ts.
   const burndownData = useMemo(() => {
-    const activeInterval = intervals.find((s) => s.status === "ACTIVE");
+    // NOT `.find(s => s.status === "ACTIVE")`. A Program Increment is ACTIVE for
+    // as long as any sprint inside it runs, and the API orders by number DESC
+    // with a PI numbered above its sprints — so that find returns the PI, which
+    // holds no work items of its own, and the widget renders "no active sprint
+    // data" while a sprint is plainly running. Same picker as the ceremony
+    // boards, which already solved this.
+    const activeInterval = defaultCeremonyInterval(intervals);
     if (!activeInterval) return [];
 
-    const intervalItems = items.filter((i) => i.intervalId === activeInterval.id);
-    const totalPoints = intervalItems.reduce((sum, i) => sum + (i.storyPoints ?? 1), 0);
-    // An active interval with no items has no burndown to draw — return empty so the
-    // chart shows its "no data" state instead of a misleading flat zero line.
-    if (totalPoints === 0) return [];
+    const series = burndown({
+      start: new Date(activeInterval.startDate),
+      end: new Date(activeInterval.endDate),
+      today: new Date(),
+      unit: "count",
+      items: filteredItems
+        .filter((i) => i.intervalId === activeInterval.id)
+        .map((i) => ({
+          id: i.id,
+          storyPoints: i.storyPoints ?? null,
+          completedAt: i.completedAt ?? null,
+          done: columnCategoryMap.get(i.columnKey) === "DONE",
+        })),
+    });
 
-    const start = new Date(activeInterval.startDate);
-    const end = new Date(activeInterval.endDate);
-    const totalDays = Math.max(
-      Math.ceil((end.getTime() - start.getTime()) / 86400000),
-      1
-    );
+    // An interval with nothing in it has no burndown to draw — empty so the
+    // widget shows its "no data" state rather than a misleading flat zero line.
+    if (series.scope === 0) return [];
 
-    const data: Array<{ date: string; ideal: number; actual: number }> = [];
-    const today = new Date();
-
-    for (let d = 0; d <= totalDays; d++) {
-      const currentDate = new Date(start);
-      currentDate.setDate(currentDate.getDate() + d);
-
-      if (currentDate > today) break;
-
-      const ideal = Math.round(totalPoints * (1 - d / totalDays));
-      const completedByDate = intervalItems.filter(
-        (i) => i.completedAt && new Date(i.completedAt) <= currentDate
-      );
-      const completedPoints = completedByDate.reduce(
-        (sum, i) => sum + (i.storyPoints ?? 1),
-        0
-      );
-      const actual = totalPoints - completedPoints;
-
-      data.push({
-        date: currentDate.toLocaleDateString("default", {
+    // The widget draws only observed days; the module returns nulls past today
+    // precisely so no caller can accidentally chart the future.
+    return series.points
+      .filter((p) => !p.isFuture)
+      .map((p) => ({
+        date: new Date(`${p.date}T00:00:00`).toLocaleDateString("default", {
           month: "short",
           day: "numeric",
         }),
-        ideal,
-        actual,
-      });
-    }
+        ideal: Math.round(p.ideal),
+        actual: p.remaining ?? 0,
+      }));
+  }, [filteredItems, intervals, columnCategoryMap]);
 
-    return data;
-  }, [items, intervals]);
+  // One adaptation of the filtered set, shared by all three delivery panels, so
+  // "done" and "type" cannot come to mean different things on the same screen.
+  const deliveryItems = useMemo(
+    () => toDeliveryItems(filteredItems, columns),
+    [filteredItems, columns],
+  );
 
   if (loading) return <DashboardSkeleton />;
 
@@ -354,12 +453,154 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     {
       key: "activity",
       title: "Recent Activity",
-      body: <ActivityFeed items={items} projectKey={projectKey} />,
+      body: <ActivityFeed items={filteredItems} projectKey={projectKey} />,
     },
+    {
+      key: "impediments",
+      title: "Blocked Work",
+      body: (
+        <ImpedimentsPanel
+          items={deliveryItems}
+          links={linksQ.data ?? []}
+          loading={linksQ.isLoading}
+          bare
+        />
+      ),
+    },
+    {
+      // Status and priority say where the work STANDS; neither says what kind of
+      // work it is. A sprint that is 60% defects and one that is 60% features
+      // are indistinguishable on this board without it, and they call for
+      // opposite conversations.
+      key: "worktype",
+      title: "Work Type Mix",
+      // `bare`: the grid cell already draws the border and the heading.
+      body: <WorkTypeMixPanel items={deliveryItems} bare />,
+    },
+  ];
+
+  const HEALTH_VIEWS = [
+    { key: "current" as const, label: "Current sprint" },
+    { key: "burndown" as const, label: "Burndown" },
+    { key: "across" as const, label: "Across time" },
+  ];
+
+  const TIME_SCOPES = [
+    { key: "sprint" as const, label: "By sprint" },
+    { key: "pi" as const, label: "By increment" },
   ];
 
   return (
     <>
+      <div
+        role="tablist"
+        aria-label="Sprint health view"
+        className="flex flex-wrap gap-0.5 border-b border-[var(--border)] px-3 py-2"
+      >
+        {HEALTH_VIEWS.map((v) => (
+          <button
+            key={v.key}
+            role="tab"
+            aria-selected={healthView === v.key}
+            onClick={() => setHealthView(v.key)}
+            className={cn(
+              "rounded-[calc(var(--radius)-2px)] px-3 py-1.5 text-sm font-medium transition-colors",
+              healthView === v.key
+                ? "bg-[var(--primary)] text-[var(--primary-foreground,#fff)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]",
+            )}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filters apply to EVERY view, including the ones that read intervals —
+          the burndown charts filtered items, so "my team's burndown" is the same
+          question asked once. */}
+      <div className="border-b border-[var(--border)] px-3 py-2">
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilters}
+          members={members}
+          intervals={intervals}
+          orgId={orgId}
+          boardColumns={columns.map((c) => ({ key: c.key, name: c.name }))}
+        />
+      </div>
+
+      {healthView !== "current" ? (
+        <div className="flex-1 overflow-auto p-4">
+          {healthView === "burndown" ? (
+            <BurndownView intervals={intervals} items={filteredItems} columns={columns} />
+          ) : (
+            <div className="space-y-4">
+              {/* The scope toggle. Rendered as a real tablist rather than a
+                  select: it is two options a reader flips between constantly,
+                  and burying that in a dropdown costs a click every time. */}
+              <div
+                role="tablist"
+                aria-label="Time scope"
+                className="inline-flex gap-0.5 rounded-[var(--radius)] border border-[var(--border)] p-0.5"
+              >
+                {TIME_SCOPES.map((s) => (
+                  <button
+                    key={s.key}
+                    role="tab"
+                    aria-selected={timeScope === s.key}
+                    onClick={() => setTimeScope(s.key)}
+                    className={cn(
+                      "rounded-[calc(var(--radius)-3px)] px-3 py-1 text-xs font-medium transition-colors",
+                      timeScope === s.key
+                        ? "bg-[var(--primary)] text-[var(--primary-foreground,#fff)]"
+                        : "text-[var(--text-muted)] hover:text-[var(--text)]",
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              {timeScope === "sprint" ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <ThroughputPanel items={deliveryItems} intervals={intervals} />
+                    <CycleTimePanel items={deliveryItems} />
+                    <ScopeChangePanel
+                      items={deliveryItems}
+                      intervals={intervals}
+                      changes={changesQ.data?.changes ?? []}
+                      truncated={changesQ.data?.truncated}
+                      loading={changesQ.isLoading}
+                    />
+                    <CarryoverPanel
+                      items={deliveryItems}
+                      intervals={intervals}
+                      changes={changesQ.data?.changes ?? []}
+                      loading={changesQ.isLoading}
+                    />
+                  </div>
+                  <SprintTrendView intervals={intervals} />
+                </div>
+              ) : (
+                /* Increment scope deliberately does NOT re-render the sprint
+                   panels against PIs. A Program Increment holds no work items of
+                   its own, so a throughput bar for one reads zero and a cycle
+                   time over one is empty — the panels would render, and lie. */
+                <div className="space-y-4">
+                  <PiRollupView intervals={intervals} />
+                  <PiObjectivesPanel
+                    intervals={intervals}
+                    objectives={objectivesQ.data ?? []}
+                    loading={objectivesQ.isLoading}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* Mobile: vertical stack of widget cards. Drag/resize is mouse-only,
           so at <md we render a read-only stack via CSS — no hydration flash. */}
       <div className="md:hidden flex-1 overflow-auto p-3">
@@ -409,6 +650,8 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
           ))}
         </GridLayout>
       </div>
+      </>
+      )}
 
       {/* Drill-down: the tickets behind a clicked metric / chart segment. */}
       <Dialog open={drill !== null} onOpenChange={(o) => !o && setDrill(null)}>

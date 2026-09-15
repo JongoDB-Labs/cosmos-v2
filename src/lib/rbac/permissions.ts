@@ -135,6 +135,21 @@ export const Permission = {
   // over all org settings.
   PLUGIN_MANAGE: 1n << 117n,
 
+  // Trigger a scheduled evaluation of the org's standing rules. SEPARATE from
+  // PLUGIN_MANAGE on purpose: that one also enables, disables and reconfigures
+  // plugins, which is far more than a timer needs. A cron key holding this can
+  // do exactly one thing.
+  RULES_RUN: 1n << 119n,
+
+  // Decide how many hours to BILL, once logged hours have been approved.
+  //
+  // SEPARATE from TIME_APPROVE, and the separation is the point: approving says
+  // "these hours were worked", billing says "this is what the client pays for",
+  // and they are different judgements that a firm may well put in different
+  // hands. The same split already exists for reading (TIME_READ_ALL rather than
+  // reusing TIME_APPROVE), for the same reason.
+  TIME_BILL: 1n << 120n,
+
   // Time — read OTHER people's time entries. TIME_READ is held by MEMBER and
   // VIEWER and means "you participate in timekeeping"; it never meant "you may
   // read the whole org's", but the list route treated it that way and returned
@@ -142,6 +157,22 @@ export const Permission = {
   // reusing TIME_APPROVE: finance reads all time without approving any, and a
   // supervisor approves without needing the money. See lib/time/visibility.ts.
   TIME_READ_ALL: 1n << 118n,
+
+  // Finance — but only for projects the holder is actually on.
+  //
+  // FINANCE_READ is the whole practice's book: every fee, every project,
+  // whether or not you have anything to do with it. That is a principal's view,
+  // and making it the only way to see money forced a choice nobody should have
+  // to make — either a project manager cannot see the fee they are managing to,
+  // or they are made an org admin and pick up user management, audit logs, API
+  // keys and security settings on the way.
+  //
+  // This is the narrower grant: the same figures, restricted to projects the
+  // holder is a member of. FINANCE_READ still implies it; a holder of this
+  // alone sees nothing outside their own work.
+  //
+  // The same own/all split TIME_READ and TIME_READ_ALL already make.
+  FINANCE_READ_PROJECT: 1n << 121n,
 } as const;
 
 export type PermissionKey = keyof typeof Permission;
@@ -217,6 +248,7 @@ export const RolePermissions = {
     Permission.NOTE_DELETE,
     Permission.NOTIFICATION_READ,
     Permission.FINANCE_READ,
+    Permission.FINANCE_READ_PROJECT,
     Permission.FINANCE_MANAGE,
     Permission.EXPENSE_APPROVE,
     Permission.ACCOUNTING_READ,
@@ -234,6 +266,7 @@ export const RolePermissions = {
     Permission.TIME_UPDATE,
     Permission.TIME_DELETE,
     Permission.TIME_APPROVE,
+    Permission.TIME_BILL,
     Permission.MEETING_CREATE,
     Permission.MEETING_READ,
     Permission.MEETING_UPDATE,
@@ -257,17 +290,26 @@ export const RolePermissions = {
     Permission.MCP_MANAGE,
     Permission.AGENT_POLICY_MANAGE,
     Permission.PLUGIN_MANAGE,
+    Permission.RULES_RUN,
   ),
 
   BILLING_ADMIN: combine(
     Permission.ORG_READ,
     Permission.ORG_MANAGE_BILLING,
     Permission.FINANCE_READ,
+    Permission.FINANCE_READ_PROJECT,
     Permission.FINANCE_MANAGE,
     Permission.EXPENSE_APPROVE,
     Permission.ACCOUNTING_READ,
     Permission.ACCOUNTING_MANAGE,
     Permission.ACCOUNTING_CLOSE,
+    // The billing role could not bill. Deciding what an entry bills is the
+    // job this role is named for, and it needs to see the work to bill it:
+    // the delivery screens are where hours meet the phase they belong to.
+    Permission.PROJECT_READ,
+    Permission.TIME_READ,
+    Permission.TIME_READ_ALL,
+    Permission.TIME_BILL,
   ),
 
   MEMBER: combine(

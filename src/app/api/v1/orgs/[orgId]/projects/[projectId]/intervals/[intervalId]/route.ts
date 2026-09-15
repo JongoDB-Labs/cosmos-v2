@@ -10,6 +10,12 @@ import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { SprintStatus } from "@prisma/client";
 import { teamsNotify, escapeHtmlBasic } from "@/lib/integrations/teams-notify";
+import {
+  activationBlocker,
+  isProgramIncrement,
+  programIncrementBlockers,
+  userMaySetStatus,
+} from "@/lib/intervals/pi-lifecycle";
 
 const updateIntervalSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -92,13 +98,55 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // A Program Increment is a container: it spans its sprints rather than
+    // competing with them, so it is never started by hand.
+    if (
+      data.status !== undefined &&
+      !userMaySetStatus(existing.intervalKind, data.status)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "A Program Increment starts when its first sprint starts — it is not started directly.",
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     if (data.status === "ACTIVE") {
-      const activeInterval = await prisma.interval.findFirst({
-        where: { projectId, status: "ACTIVE", id: { not: intervalId } },
+      const others = await prisma.interval.findMany({
+        where: { projectId },
+        select: { id: true, name: true, intervalKind: true, status: true },
       });
-      if (activeInterval) {
+      // Excludes Program Increments. Counting the parent PI as a competitor is
+      // what made a sprint unable to start until its own PI had finished — which
+      // could never happen, since a PI finishes when its sprints do.
+      const blocker = activationBlocker({ id: intervalId }, others);
+      if (blocker) {
         return new Response(
-          JSON.stringify({ error: "Another interval is already active" }),
+          JSON.stringify({
+            error: `${blocker.name} is still active — complete it first.`,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // A PI is done only once everything inside it is. Named, so the refusal
+    // tells the user what to finish.
+    if (data.status === "COMPLETED" && isProgramIncrement(existing.intervalKind)) {
+      const children = await prisma.interval.findMany({
+        where: { parentId: intervalId },
+        select: { id: true, name: true, intervalKind: true, status: true },
+      });
+      const open = programIncrementBlockers(children);
+      if (open.length > 0) {
+        return new Response(
+          JSON.stringify({
+            error: `This Program Increment still has unfinished iterations: ${open
+              .map((i) => i.name)
+              .join(", ")}.`,
+          }),
           { status: 409, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -116,6 +164,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       },
       include: { _count: { select: { workItems: true } } },
     });
+
+    // Starting a sprint starts the increment that contains it. The PI has no
+    // start control of its own, so without this it would sit PLANNED while its
+    // sprints ran — and its own completion gate would read as already satisfied.
+    if (data.status === "ACTIVE" && existing.parentId) {
+      await prisma.interval.updateMany({
+        where: {
+          id: existing.parentId,
+          intervalKind: "PROGRAM_INCREMENT",
+          status: "PLANNED",
+        },
+        data: { status: "ACTIVE" },
+      });
+    }
 
     // Teams notification (FR 8a162fe7): sprint lifecycle transitions.
     if (data.status !== undefined && data.status !== existing.status) {

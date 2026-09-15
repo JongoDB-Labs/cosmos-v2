@@ -1,0 +1,144 @@
+"use client";
+
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useOrgQueryKey } from "@/lib/query/keys";
+import { useRealtimeEvents } from "@/hooks/use-realtime-events";
+import type { SprintReview } from "@/lib/intervals/sprint-review";
+
+export interface CeremonyItem {
+  id: string;
+  ticketNumber: number;
+  title: string;
+  columnKey: string;
+  storyPoints: number | null;
+  statusLabel?: string;
+  /** Meeting callout colour; a `WORK_ITEM_HIGHLIGHTS` key or null. */
+  highlight?: string | null;
+}
+
+export interface CeremonyNote {
+  id: string;
+  columnKey: string;
+  text: string;
+  authorId: string | null;
+  isMine: boolean;
+  createdAt: string;
+}
+
+export interface CeremonyAction {
+  id: string;
+  text: string;
+  ownerId: string | null;
+  dueDate: string | null;
+  workItemId: string | null;
+}
+
+export interface CeremonyColumn {
+  key: string;
+  name: string;
+  color: string;
+  category: string;
+  sortOrder: number;
+}
+
+export interface CeremonyPayload {
+  sprint: {
+    id: string;
+    number: number;
+    name: string;
+    goal: string;
+    startDate: string;
+    endDate: string;
+    status: "PLANNED" | "ACTIVE" | "COMPLETED";
+  };
+  increment: {
+    id: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+  } | null;
+  board: {
+    id: string;
+    name: string;
+    type: string;
+    config: { classification?: string; showNoteAuthors?: boolean } | null;
+  };
+  columns: CeremonyColumn[];
+  metrics: SprintReview;
+  shipped: CeremonyItem[];
+  /**
+   * `unrecorded` means the sprint closed before we began recording which items
+   * moved. It is NOT an empty list — the UI must say so rather than imply a
+   * clean sprint.
+   */
+  carried: { kind: "live" | "recorded" | "unrecorded"; items: CeremonyItem[] };
+  /**
+   * `planned: true` means this sprint EXISTS — real name, real dates. `false`
+   * means nothing follows this sprint yet and these are suggested defaults, so
+   * the UI must not present them as fact.
+   */
+  nextSprint: {
+    name: string;
+    startDate: string;
+    endDate: string;
+    planned: boolean;
+  };
+  ceremony: {
+    id: string;
+    kind: "PLANNING" | "REVIEW";
+    status: "DRAFT" | "RUNNING" | "CLOSED";
+    closedAt: string | null;
+    notes: CeremonyNote[];
+    actionItems: CeremonyAction[];
+  } | null;
+}
+
+/**
+ * The whole ceremony in one query, refetched when any client changes it.
+ *
+ * The realtime event carries only a ceremony reference, so this refetch is what
+ * actually moves the data — see the API's publishCeremonyChanged.
+ */
+export function useCeremony(args: {
+  orgId: string;
+  projectId: string;
+  intervalId: string | null;
+  boardId: string;
+  /** Scope the whole review to one squad — metrics, what shipped, what carries. */
+  teamId?: string | null;
+}) {
+  const { orgId, projectId, intervalId, boardId, teamId = null } = args;
+  const qc = useQueryClient();
+  // The team belongs in the key: two squads' reviews of one sprint are
+  // different answers, and sharing an entry would show one team the other's.
+  const key = useOrgQueryKey(
+    "ceremony",
+    boardId,
+    intervalId ?? "none",
+    teamId ?? "all"
+  );
+
+  const query = useQuery({
+    queryKey: key,
+    enabled: Boolean(intervalId),
+    queryFn: () =>
+      jsonFetch<CeremonyPayload>(
+        `/api/v1/orgs/${orgId}/projects/${projectId}/intervals/${intervalId}/ceremony?boardId=${boardId}${
+          teamId ? `&teamId=${encodeURIComponent(teamId)}` : ""
+        }`
+      ),
+  });
+
+  useRealtimeEvents(orgId, {
+    "ceremony.changed": () => {
+      void qc.invalidateQueries({ queryKey: key });
+    },
+  }, 
+  // No replay on the stream: after a reconnect the ceremony may have moved
+  // on without us, so re-read it rather than trust what is cached.
+  { onResync: () => void qc.invalidateQueries({ queryKey: key }) },
+);
+
+  return query;
+}

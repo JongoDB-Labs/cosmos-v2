@@ -90,34 +90,34 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   kr_checkin: ["id", "keyResultId", "confidence", "rag", "checkedInById", "createdAt"],
   // linkKeyResultItem returns id/keyResultId/workItemId/createdAt — all structural FKs.
   key_result_link: ["id", "keyResultId", "workItemId", "createdAt"],
-  // listMilestones/create/update return id/projectId/ownerId/branchId/status/dueDate/
+  // listMilestones/create/update return id/projectId/ownerId/intervalId/status/dueDate/
   // autoStatus/completedAt/scheduleEscalate/actualDate/sortOrder(+title).
   // `title`/`description` are content → dropped.
   milestone: [
-    "id", "projectId", "ownerId", "branchId", "status", "dueDate", "autoStatus",
+    "id", "projectId", "ownerId", "intervalId", "status", "dueDate", "autoStatus",
     "completedAt", "scheduleEscalate", "actualDate",
     "sortOrder", "createdAt", "updatedAt",
   ],
-  // create/updateBlocker return id/code/title/type/status/owner/projectId/branchId/
+  // create/updateBlocker return id/code/title/type/status/owner/projectId/
   // customerNotified/escalate/identifiedAt/resolvedAt/targetDate/classification. `title`/
   // `whatUnblocks` are content, `owner` is PII → dropped; `code` (BL-NNN) is structural.
   blocker: [
-    "id", "code", "projectId", "type", "status", "branchId", "customerNotified",
+    "id", "code", "projectId", "type", "status", "customerNotified",
     "escalate", "identifiedAt", "resolvedAt", "targetDate", "classification", "createdAt", "updatedAt",
   ],
   // create/updateDeliverable return id/code/title/clin/status/owner/projectId/baselineDue/
-  // actualSubmission/govAcceptance/escalate/revisionCycle/milestoneId/branchId/classification.
+  // actualSubmission/govAcceptance/escalate/revisionCycle/milestoneId/classification.
   // `title`/`clin`(contract line) are content/sensitive, `owner` PII → dropped.
   deliverable: [
     "id", "code", "projectId", "status", "baselineDue", "actualSubmission", "govAcceptance",
-    "escalate", "revisionCycle", "milestoneId", "branchId", "classification", "createdAt", "updatedAt",
+    "escalate", "revisionCycle", "milestoneId", "classification", "createdAt", "updatedAt",
   ],
   // create/updateChangeRequest return id/code/title/type/status/costImpact/scheduleDaysImpact/
-  // projectId/modRequired/decidedAt/implDate/submittedDate/branchId/classification. `title`/
+  // projectId/modRequired/decidedAt/implDate/submittedDate/classification. `title`/
   // `type`(free text) are content, `costImpact` is money → dropped; `scheduleDaysImpact`(days) kept.
   change_request: [
     "id", "code", "projectId", "status", "scheduleDaysImpact", "modRequired", "decidedAt",
-    "implDate", "submittedDate", "branchId", "classification", "createdAt", "updatedAt",
+    "implDate", "submittedDate", "classification", "createdAt", "updatedAt",
   ],
   // listFeedback/create/setStatus return id/type/status/voteCount/workItemId/projectId/authorId/
   // title/description/timestamps. `title`/`description` are the reporter's words → dropped
