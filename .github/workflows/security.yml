@@ -59,7 +59,7 @@ jobs:
           languages: ${{ matrix.language }}
           queries: security-and-quality
       - name: Analyze
-        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           category: "/language:${{ matrix.language }}"
           output: evidence/${{ github.sha }}
@@ -234,7 +234,7 @@ jobs:
           output-file: evidence/${{ github.sha }}/hadolint.sarif
           no-fail: true
       - name: Checkov (compose + manifests)
-        uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12.3122.0
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # v12.3123.0
         continue-on-error: true # Info
         with:
           directory: .
@@ -378,6 +378,71 @@ jobs:
           fi
           echo "PASS: version bumped $BASE_V -> $HEAD_V for a shippable change" \
             | tee -a evidence/${{ github.sha }}/config-asserts.txt
+
+      # (d) A dependency must never move BACKWARDS.
+      #
+      # `release:bump` stages a version-only package.json and then restores the
+      # COMPOSED tree on disk, so the file in the working tree is whatever it was
+      # when the compose ran. A later `git add -A` stages that stale copy.
+      # AGENTS.md documents the symptom as "it reverts the bump" — but the bump
+      # is only the most visible casualty. Anything that landed on main between
+      # the compose and the commit gets reverted too, and that direction is much
+      # harder to spot because the bump itself looks right.
+      #
+      # It happened on 2026-09-15: #863 ("title and description save themselves")
+      # bumped 2.368.8 -> 2.368.9 correctly AND silently reverted
+      # framer-motion ^13.0.0 -> ^12.43.0, undoing #656 which had merged an hour
+      # earlier. Nothing caught it — 12.43.0 is a valid version, every test
+      # passed, and the version/changelog parity assertion above was satisfied.
+      # We only found out because dependabot opened a PR to bump framer-motion
+      # from 12.43.0 again.
+      #
+      # So: compare every dependency against the base and fail on any that goes
+      # down. Numeric, range-prefix-insensitive (^1.2.3 vs ~1.2.3 both reduce to
+      # [1,2,3]) — this asks only "did this number get smaller", which is the
+      # exact shape of an accidental revert. A DELIBERATE downgrade (pinning back
+      # a broken release, as with pdfkit) is rare and can say so by pinning the
+      # version in package.json rather than letting the range move.
+      - name: Assert no dependency moved backwards
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth=1 origin "$BASE_REF"
+          git show FETCH_HEAD:package.json > /tmp/base-package.json
+
+          node -e '
+            const fs = require("fs");
+            const deps = (f) => { const j = JSON.parse(fs.readFileSync(f, "utf8"));
+              return { ...(j.dependencies || {}), ...(j.devDependencies || {}) }; };
+            const base = deps("/tmp/base-package.json");
+            const head = deps("package.json");
+            // Range prefixes are irrelevant here; only the numbers matter.
+            const nums = (v) => (String(v).match(/\d+/g) || []).map(Number);
+            const wentDown = (a, b) => { const x = nums(a), y = nums(b);
+              for (let i = 0; i < Math.max(x.length, y.length); i++) {
+                const p = x[i] ?? 0, q = y[i] ?? 0;
+                if (p !== q) return p < q;
+              } return false; };
+            const bad = [];
+            for (const [pkg, v] of Object.entries(head)) {
+              if (base[pkg] && v !== base[pkg] && wentDown(v, base[pkg])) {
+                bad.push(`${pkg}: ${base[pkg]} -> ${v}`);
+              }
+            }
+            if (bad.length) {
+              console.error("FAIL: dependency version(s) moved backwards vs the base branch:");
+              for (const b of bad) console.error("      " + b);
+              console.error("");
+              console.error("      If this was not deliberate it is almost certainly the release:bump");
+              console.error("      trap: run `node scripts/plugins/sync.mjs --clean` before editing");
+              console.error("      package.json, and never `git add -A` after `npm run release:bump`.");
+              console.error("      Restore the higher version and commit only the files you meant to.");
+              process.exit(1);
+            }
+            console.log("PASS: no dependency moved backwards");
+          ' | tee -a evidence/${{ github.sha }}/config-asserts.txt
 
       - name: Assert E2E_TEST_AUTH != 1 in release path
         run: |

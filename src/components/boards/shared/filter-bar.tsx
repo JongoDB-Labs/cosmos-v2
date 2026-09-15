@@ -17,6 +17,11 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import {
+  activeFilterKeys,
+  resetToBaseline,
+  type FilterKey,
+} from "@/lib/work-items/filter-baseline";
 import { DUE_PRESETS, type DuePreset } from "@/lib/work-items/metadata-filters";
 import { ESTIMATE_BANDS, type EstimateBand } from "@/lib/work-items/estimate-filter";
 import {
@@ -122,6 +127,24 @@ export const emptyFilters: BoardFilters = {
 /** Custom-field kinds the board filter bar surfaces a control for. */
 const FILTERABLE_CUSTOM_KINDS = new Set(["SELECT", "MULTI_SELECT", "CHECKBOX", "TEXT"]);
 
+/**
+ * The filters that live behind "More filters" — the ones the disclosure has to
+ * force itself open for. Kept in step with the second row below.
+ */
+const OVERFLOW_KEYS: FilterKey[] = [
+  "columnKeys",
+  "workCategories",
+  "createdById",
+  "due",
+  "milestoneId",
+  "blocked",
+  "storyPoints",
+  "estimate",
+  "teamId",
+  "intervalId",
+  "customFields",
+];
+
 interface FilterBarProps {
   filters: BoardFilters;
   onFilterChange: (filters: BoardFilters) => void;
@@ -178,6 +201,17 @@ interface FilterBarProps {
    * any with an active filter). Omitted ⇒ show all filterable fields.
    */
   presentCustomFieldKeys?: string[];
+  /**
+   * The board's UNFILTERED state — what "no filter" means on THIS board.
+   * "Clear" returns to it, and a filter equal to it doesn't count as active.
+   *
+   * Omitted ⇒ `emptyFilters`, which is right for a board that opens showing
+   * everything. A Sprint board opens scoped to its sprint and passes that scope
+   * here, so clearing a tag restores the sprint's full board instead of
+   * silently widening to every item in the project. See lib/work-items/
+   * filter-baseline.
+   */
+  baseFilters?: BoardFilters;
 }
 
 /**
@@ -397,6 +431,7 @@ export function FilterBar({
   customFields = [],
   presentTypeKeys,
   presentCustomFieldKeys,
+  baseFilters = emptyFilters,
 }: FilterBarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -436,33 +471,22 @@ export function FilterBar({
     );
   });
 
-  const hasActiveCustom = Object.values(filters.customFields ?? {}).some(Boolean);
-
-  const setCustom = (key: string, value: string | null) => {
+  const setCustom =(key: string, value: string | null) => {
     const next = { ...(filters.customFields ?? {}) };
     if (value) next[key] = value;
     else delete next[key];
     onFilterChange({ ...filters, customFields: next });
   };
 
-  const hasFilters =
-    filters.search !== "" ||
-    filters.types.length > 0 ||
-    filters.priorities.length > 0 ||
-    filters.assigneeId !== null ||
-    filters.labels.length > 0 ||
-    filters.columnKeys.length > 0 ||
-    filters.workCategories.length > 0 ||
-    filters.createdById !== null ||
-    filters.due !== "any" ||
-    filters.milestoneId !== null ||
-    filters.blocked !== "any" ||
-    filters.storyPoints.length > 0 ||
-    filters.estimate !== "any" ||
-    filters.teamId !== null ||
-    filters.intervalId !== null ||
-    filters.swimlaneBy !== "none" ||
-    hasActiveCustom;
+  // What is narrowing the board RIGHT NOW, measured against the board's own
+  // unfiltered state rather than a globally empty filter — so a Sprint board's
+  // sprint scope doesn't read as a filter the user applied (and so "Clear"
+  // doesn't offer to remove it).
+  const activeKeys = useMemo(
+    () => new Set<FilterKey>(activeFilterKeys(filters, baseFilters)),
+    [filters, baseFilters],
+  );
+  const hasFilters = activeKeys.size > 0;
 
   /**
    * Progressive disclosure, the way Jira/Linear/Asana/Monday all settle on it:
@@ -475,18 +499,7 @@ export function FilterBar({
    * staring at an empty screen wondering what broke. So the overflow row forces
    * itself open whenever anything in it is set, and the toggle carries a count.
    */
-  const overflowCount =
-    (filters.columnKeys.length > 0 ? 1 : 0) +
-    (filters.workCategories.length > 0 ? 1 : 0) +
-    (filters.createdById !== null ? 1 : 0) +
-    (filters.due !== "any" ? 1 : 0) +
-    (filters.milestoneId !== null ? 1 : 0) +
-    (filters.blocked !== "any" ? 1 : 0) +
-    (filters.storyPoints.length > 0 ? 1 : 0) +
-    (filters.estimate !== "any" ? 1 : 0) +
-    (filters.teamId !== null ? 1 : 0) +
-    (filters.intervalId !== null ? 1 : 0) +
-    (hasActiveCustom ? 1 : 0);
+  const overflowCount = OVERFLOW_KEYS.filter((k) => activeKeys.has(k)).length;
   const showOverflow = moreOpen || overflowCount > 0;
 
   return (
@@ -640,7 +653,7 @@ export function FilterBar({
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => onFilterChange(emptyFilters)}
+          onClick={() => onFilterChange(resetToBaseline(filters, baseFilters))}
           className="gap-1 text-muted-foreground"
         >
           <X className="h-3 w-3" />
