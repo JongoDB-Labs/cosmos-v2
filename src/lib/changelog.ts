@@ -331,6 +331,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.369.3",
+    date: "2026-09-15",
+    title: "Open an overdue ticket without leaving Sprint Health",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Clicking a ticket in Sprint Health's Overdue list (or any of its drill-downs) navigated away to the Issues page, so chasing a few late items meant leaving the board and finding your way back each time. The ticket now opens in the same editable panel every other board uses, and any change you make is reflected in the numbers behind it straight away.",
+      },
+    ],
+  },
+  {
     version: "2.369.2",
     date: "2026-09-15",
     title: "The API tells you when a filter you asked for does not exist",
