@@ -13,6 +13,8 @@ export type { BuildWhereArgs } from "./build-where";
 export { getReadableProjectIds } from "./scope";
 export {
   parseSearchParams,
+  unknownQueryParams,
+  KNOWN_QUERY_PARAMS,
   workItemFilterSchema,
   workItemQuerySchema,
   type ParsedQuery,

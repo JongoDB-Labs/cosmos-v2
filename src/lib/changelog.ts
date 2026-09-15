@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.369.2",
+    date: "2026-09-15",
+    title: "The API tells you when a filter you asked for does not exist",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching or exporting work items with a filter the API did not recognise quietly ignored it and returned an unfiltered page, so a request that looked like it had filtered came back with plausible but wrong results — one integration paged through the same 25 items sixteen times before realising. Unrecognised filters now return a clear error naming them, instead of an answer that cannot be trusted.",
+      },
+    ],
+  },
+  {
     version: "2.369.1",
     date: "2026-09-15",
     title: "API keys are now limited by the scopes they were given",
