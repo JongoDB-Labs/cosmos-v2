@@ -40,7 +40,20 @@ export function SettingsRealtime({ orgId }: { orgId: string }) {
       void qc.invalidateQueries({ queryKey: membersKey });
       router.refresh();
     },
-  });
+  },
+    // The stream cannot replay a gap, so after a reconnect assume BOTH kinds of
+    // change may have happened while we were away and redo the union of the two
+    // handlers above. A deploy drops every open tab's stream at once, which is
+    // precisely when a settings page is most likely to be showing stale roles.
+    {
+      onResync: () => {
+        void qc.invalidateQueries({ queryKey: configKey });
+        void qc.invalidateQueries({ queryKey: rolesKey });
+        void qc.invalidateQueries({ queryKey: membersKey });
+        router.refresh();
+      },
+    },
+  );
 
   return null;
 }

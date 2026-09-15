@@ -97,6 +97,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
               columnKey: true,
               storyPoints: true,
               priority: true,
+              // Keep in step with BOTH `CeremonyItem` declarations — the client
+              // copy in components/boards/ceremony/use-ceremony.ts and the
+              // server one in lib/intervals/ceremony-payload.ts. They are
+              // hand-duplicated, and tsc cannot see a field missing from here.
+              highlight: true,
             },
           },
         },

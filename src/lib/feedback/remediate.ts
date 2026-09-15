@@ -46,6 +46,7 @@ import type { OrgRole, Prisma } from "@prisma/client";
 // see src/lib/ai/__tests__/model-credential-registration.arch.test.ts.
 import "@/lib/plugins/registry/server";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
+import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 
 /**
  * Auto-remediation loop (FR 695aa097) — the in-app half.
@@ -813,16 +814,15 @@ async function runFeedbackRemediationInner(
 
     try {
       const created = await prisma.$transaction(async (tx) => {
-        const maxTicket = await tx.workItem.aggregate({
-          where: { orgId, projectId: target.id },
-          _max: { ticketNumber: true },
+        const ticketNumber = await allocateTicketNumber(tx, {
+          orgId,
+          projectId: target.id,
         });
-        const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
-        const maxSort = await tx.workItem.aggregate({
-          where: { orgId, projectId: target.id, columnKey: target.columnKey },
-          _max: { sortOrder: true },
+        const sortOrder = await allocateSortOrder(tx, {
+          orgId,
+          projectId: target.id,
+          columnKey: target.columnKey,
         });
-        const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
         const workItem = await tx.workItem.create({
           data: {

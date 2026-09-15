@@ -33,8 +33,17 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
   });
   if (projects.length === 0) return [];
 
-  // OWNER break-glass — every project, no policy evaluation needed.
-  if (ctx.orgRole === "OWNER") return projects.map((p) => p.id);
+  // A project-scoped API key's ceiling, applied BEFORE the role short-circuits
+  // below — otherwise an OWNER's key would return every project and the scope
+  // would be decorative. Narrowing only: a project named here that the actor
+  // cannot read is still dropped by the checks further down.
+  const scoped = ctx.projectScope
+    ? projects.filter((p) => ctx.projectScope!.includes(p.id))
+    : projects;
+  if (scoped.length === 0) return [];
+
+  // OWNER break-glass — every project in scope, no policy evaluation needed.
+  if (ctx.orgRole === "OWNER") return scoped.map((p) => p.id);
 
   // Org-wide administration keeps access to every project, matching
   // isProjectVisible — a project must not be lockable away from the people who
@@ -59,7 +68,7 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
   // came back here, so the org-wide Issues list, its facets, the activity feed
   // and export all showed its work items — the page layout was gated but this
   // was not. Reported in production on 2.249.7.
-  const hasRestricted = projects.some((p) => p.teamScopedAccess);
+  const hasRestricted = scoped.some((p) => p.teamScopedAccess);
 
   let memberProjectIds = new Set<string>();
   if (needsProjectMembership || (hasRestricted && !adminEverywhere)) {
@@ -76,7 +85,7 @@ export async function getReadableProjectIds(ctx: AuthContext): Promise<string[]>
     }
   }
 
-  return projects
+  return scoped
     // Team scoping first: it is a visibility question, decided before any
     // policy evaluation, and short-circuits to true for every unrestricted
     // project — which is every project until someone opts one in.

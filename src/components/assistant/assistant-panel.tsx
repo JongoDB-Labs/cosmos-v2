@@ -12,6 +12,7 @@ import { DEFAULT_CLOSE_WORD } from "@/lib/voice/close-word";
 import { notifyError } from "@/lib/errors/notify";
 import { EntityMentionPicker } from "@/components/mentions/entity-mention-picker";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
+import { useDrawers } from "@/components/drawers/drawer-provider";
 import type { ResolvedEntity } from "@/lib/mentions/refs";
 import { ENTITY_PREFIX } from "@/lib/mentions/refs";
 import { isToolCallRunning, finalizeToolCalls } from "@/lib/assistant/tool-status";
@@ -208,6 +209,8 @@ function formatBytes(n: number): string {
 // =============================================================================
 
 export function AssistantPanel({ orgId }: AssistantPanelProps) {
+  // What the opener wanted asked, when something opened this with a question.
+  const { seed } = useDrawers();
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1] ?? "";
   const [showSettings, setShowSettings] = useState(false);
@@ -225,6 +228,8 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   const [closeWord, setCloseWord] = useState<string | null>(null);
   const voiceTickRef = useRef(0);
   const [voiceTick, setVoiceTick] = useState(0);
+  /** Which seed has already been asked, so re-opening a step does not re-ask. */
+  const seededRef = useRef<string | null>(null);
   const dictation = useDictation({
     onTranscript: setInput,
     onSend: (text) => {
@@ -868,6 +873,24 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
       );
     }
   }, [input, sending, activeId, orgId, attachments, model]);
+
+  // Opened with a question already in hand (the product tour). Reuses the voice
+  // path's tick guard rather than sending straight from the seed: seeding sets
+  // `input`, and sending in the same pass would read a stale closure and post an
+  // empty message.
+  //
+  // Keyed on the seed's source, not its body, so re-opening the SAME step does
+  // not ask again — somebody flicking back and forth through a tour should not
+  // accumulate duplicate questions.
+  useEffect(() => {
+    const body = seed?.body?.trim();
+    if (!body) return;
+    const key = seed?.source ?? body;
+    if (seededRef.current === key) return;
+    seededRef.current = key;
+    setInput(body);
+    setVoiceTick((n) => n + 1);
+  }, [seed]);
 
   // Voice: send once the dictated message has committed to `input` (tick-guarded
   // so this fires exactly once per completed dictation, never on keystrokes).

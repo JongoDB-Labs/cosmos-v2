@@ -108,7 +108,7 @@ Mutations use `useOrgMutation({ mutationFn, invalidate: [["themes"]] })` — sam
 ## Server-side response patterns
 
 - **Permission masks are decimal-string `TEXT`, not `BigInt`.** `OrgMember.permissions` and `WorkRole.grants` store a permission bitmask as a decimal string (the bitfield in `src/lib/rbac/permissions.ts` assigns bits ≥ 63, which overflow Postgres `BIGINT`). Keep ALL bit-math on `bigint` and cross the DB boundary with `maskFromDb()` (read) / `maskToDb()` (write) from `@/lib/rbac/permissions` — never `BigInt(row.permissions)` or `mask` written raw. The `JSON.stringify`-throws-on-BigInt crash class is gone, but these are still permission masks: don't `select`/`include` them into a `success()` payload carelessly. Project members with an explicit `select` that excludes `permissions`, and expose `WorkRole.grants` only as permission KEYS via `toWorkRoleDto` — never the raw value.
-- **Behind nginx + Cloudflare Tunnel** — `request.url` resolves to the bind hostname (`localhost:3000`), not the public URL. For any redirect, use `getPublicOrigin(request)` from `@/lib/auth/public-url` which honors `X-Forwarded-Host` + `X-Forwarded-Proto`.
+- **Always behind a reverse proxy** — `compose/Caddyfile` puts **Caddy** in front of the app (not nginx, as this line said until 2026-09-14; verified against a running instance), and a tunnel or cloud LB may sit in front of that again. So `request.url` resolves to the bind hostname (`localhost:3000`), never the public URL. For any redirect, use `getPublicOrigin(request)` from `@/lib/auth/public-url`, which honors the `X-Forwarded-Host` + `X-Forwarded-Proto` the Caddyfile sets.
 
 ## base-ui primitives don't support `asChild`
 

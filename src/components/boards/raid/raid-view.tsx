@@ -22,12 +22,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { notifyError } from "@/lib/errors/notify";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/shared/filter-bar";
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { BoardItemDetailSheet } from "@/components/work-items/board-item-detail-sheet";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { highlightLabel, highlightStyle } from "@/lib/work-items/highlights";
 import { NewIssueButton } from "@/components/boards/shared/new-issue-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -528,6 +531,25 @@ function RaidCard({
     ? `${projectKey}-${item.ticketNumber}`
     : `#${item.ticketNumber}`;
 
+  // Highlight is owned by the card, not threaded down from the board: the ids
+  // it needs are already on the work item, which is how `KanbanCard` does it.
+  // Threading an `onHighlight` through RaidBoard -> RaidColumn -> RaidCard
+  // would add two prop hops for no extra capability.
+  const [highlightDraft, setHighlightDraft] = useState<string | null | undefined>(undefined);
+  const highlight = highlightDraft === undefined ? item.highlight : highlightDraft;
+  const highlightMutation = useOrgMutation<unknown, Error, string | null>({
+    mutationFn: (next) =>
+      jsonFetch(
+        `/api/v1/orgs/${item.orgId}/projects/${item.projectId}/work-items/${item.id}`,
+        { method: "PUT", body: JSON.stringify({ highlight: next }) },
+      ),
+    invalidate: [["work-items", item.projectId]],
+    onError: (err) => {
+      setHighlightDraft(undefined);
+      notifyError(err, "Couldn't save the highlight.");
+    },
+  });
+
   // Selector: the 4 RAID categories (current one check-marked + disabled),
   // then a "Clear" action when the item currently sits in a RAID column.
   const menuGroups: ActionMenuGroup[] = [
@@ -552,13 +574,23 @@ function RaidCard({
             ]
           : [],
     },
+    highlightMenuGroup({
+      current: highlight,
+      disabled: highlightMutation.isPending,
+      onPick: (next) => {
+        setHighlightDraft(next);
+        highlightMutation.mutate(next);
+      },
+    }),
   ];
 
   return (
     <ActionMenu groups={menuGroups}>
       <div
         ref={setNodeRef}
-        style={dragStyle}
+        data-highlight={highlight ?? undefined}
+        style={{ ...dragStyle, ...highlightStyle(highlight) }}
+        title={highlightLabel(highlight) ?? undefined}
         className={cn(
           "group/action relative rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--primary)]/50",
           isDragging && "z-20 opacity-80 shadow-lg",

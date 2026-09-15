@@ -13,6 +13,8 @@ export interface CeremonyItem {
   columnKey: string;
   storyPoints: number | null;
   statusLabel?: string;
+  /** Meeting callout colour; a `WORK_ITEM_HIGHLIGHTS` key or null. */
+  highlight?: string | null;
 }
 
 export interface CeremonyNote {
@@ -132,7 +134,11 @@ export function useCeremony(args: {
     "ceremony.changed": () => {
       void qc.invalidateQueries({ queryKey: key });
     },
-  });
+  }, 
+  // No replay on the stream: after a reconnect the ceremony may have moved
+  // on without us, so re-read it rather than trust what is cached.
+  { onResync: () => void qc.invalidateQueries({ queryKey: key }) },
+);
 
   return query;
 }
