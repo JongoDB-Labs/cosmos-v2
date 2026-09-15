@@ -21,6 +21,21 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.371.2",
+    date: "2026-09-15",
+    title: "A delivery no longer fails because GitHub had not finished thinking",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When you approve a finished change, Foreman rebases it onto the latest code and then merges it. GitHub works out whether a change can be merged in the background, and for a few seconds after that rebase it has no answer yet — so the merge was being refused with a message blaming the main branch for having moved, when it had not moved for seven minutes. The change was set aside as a failed delivery even though nothing was wrong with it; approving it again a few minutes later merged it with no other change. Foreman now waits for that answer before merging, so an approval no longer fails on a race it cannot see.",
+      },
+      {
+        kind: "improvement",
+        text: "Foreman's own release notes can no longer fall silently out of date. Its plugin had shipped seven releases whose changes were never written down, because nothing checked that a release documented itself — the main application has had that check for months. It does now, and a release that bumps its version without describing what changed fails to build. The seven undocumented releases have been written up from their commit history.",
+      },
+    ],
+  },
+  {
     version: "2.371.1",
     date: "2026-09-15",
     title: "Foreman no longer stops working because of a question from July",
