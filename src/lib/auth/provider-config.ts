@@ -84,7 +84,22 @@ export async function setProviderConfig(
  *  accept (no status-vs-initiate divergence). */
 export async function getProviderStatus(
   provider: AuthProvider,
-): Promise<{ configured: boolean; enabled: boolean }> {
+): Promise<{
+  configured: boolean;
+  enabled: boolean;
+  clientId: string | null;
+  tenant: string | null;
+}> {
   const cfg = await getProviderConfig(provider);
-  return { configured: cfg != null, enabled: cfg?.enabled ?? false };
+  return {
+    configured: cfg != null,
+    enabled: cfg?.enabled ?? false,
+    // NON-SECRET identifiers, returned so the /admin form can prefill them. The
+    // clientSecret is deliberately NOT included and never leaves the vault.
+    // Without these the form re-rendered blank on every visit, which silently
+    // disabled its own Save button (canSave requires a valid clientId) — an edit
+    // to any other field then appeared to save but sent nothing.
+    clientId: cfg?.clientId ?? null,
+    tenant: cfg?.tenant ?? null,
+  };
 }
