@@ -10,10 +10,46 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
+      # Framework packages get their OWN group, even at minor/patch.
+      #
+      # The rule below batches by SEMVER RANGE, on the reasoning that minor and
+      # patch are low risk. That holds for a leaf library and does not hold for
+      # the things the whole app is built on: a single `minor-and-patch` PR on
+      # 2026-09-14 carried react 19.2.8 -> 19.3.0, next 16.3.4 -> 16.3.5 and
+      # @prisma/client 7.9.1 -> 7.10.0 alongside 56 other packages.
+      #
+      # Groups are all-or-nothing, so one broken member holds every other member
+      # hostage. That PR failed on a tensor-type error somewhere in the
+      # embedding stack and took 58 unrelated updates down with it — including
+      # the security patches this file exists to deliver (see the 800-171
+      # 3.11.2 note at the top). Bisecting a 59-package diff to find out which
+      # one broke is the cost of batching them in the first place.
+      #
+      # Split out, each of these arrives as a PR whose failure names its own
+      # cause, and the rest of the batch keeps flowing.
+      framework:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "next"
+          - "prisma"
+          - "@prisma/*"
+        update-types: ["minor", "patch"]
       # Batch low-risk patch/minor bumps to keep PR noise down; majors stay
       # individual so breaking changes are reviewed in isolation.
+      #
+      # `exclude-patterns` rather than relying on group order: dependabot's
+      # first-match behaviour would do the right thing here, but it is implicit,
+      # and someone reordering these groups later should not silently fold the
+      # framework back into the batch.
       minor-and-patch:
         update-types: ["minor", "patch"]
+        exclude-patterns:
+          - "react"
+          - "react-dom"
+          - "next"
+          - "prisma"
+          - "@prisma/*"
     labels: ["dependencies", "security"]
     ignore:
       # Keep @types/node on the major that matches the Node Active-LTS runtime
