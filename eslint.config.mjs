@@ -50,6 +50,25 @@ const eslintConfig = defineConfig([
       }],
     },
   },
+  // A value read before it is declared is a RUNTIME error TypeScript cannot see.
+  //
+  // On 2026-08-30 a build that introduced a flaky test crashed instead of being
+  // held for review: a park closure read a counter that a later release had
+  // moved its declaration below. `tsc` accepts it — the reference is legal, and
+  // TS2448 does not fire through a closure — and the file it lives in is `.mts`,
+  // which vitest cannot load, so nothing caught it before production.
+  //
+  // Scoped to src/plugins/** because that is where it is CLEAN today (0
+  // violations) and where the cost is highest: a plugin's daemon half runs from
+  // a host checkout with no test coverage at all. The same rule reports 19
+  // violations across core components — real, worth fixing, and deliberately not
+  // swept into this change.
+  {
+    files: ["src/plugins/**/*.{ts,tsx,mts}"],
+    rules: {
+      "no-use-before-define": ["error", { variables: true, functions: false, classes: false }],
+    },
+  },
   // Plugin isolation (ADR 0003): shared code may import src/plugins/** ONLY via
   // the two composition files (src/lib/plugins/registry/{index,server}.ts) and
   // the thin (plugin-*) route shims under src/app. This is the editor-time half;

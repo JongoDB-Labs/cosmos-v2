@@ -25,15 +25,23 @@ export function useWorkItemRealtime(
     return (data as WorkItemEventPayload)?.projectId === projectId;
   };
 
-  useRealtimeEvents(orgId, {
-    "work-item.created": (d) => {
-      if (matches(d)) onChange();
+  useRealtimeEvents(
+    orgId,
+    {
+      "work-item.created": (d) => {
+        if (matches(d)) onChange();
+      },
+      "work-item.updated": (d) => {
+        if (matches(d)) onChange();
+      },
+      "work-item.deleted": (d) => {
+        if (matches(d)) onChange();
+      },
     },
-    "work-item.updated": (d) => {
-      if (matches(d)) onChange();
-    },
-    "work-item.deleted": (d) => {
-      if (matches(d)) onChange();
-    },
-  });
+    // The stream cannot replay what it missed, so a reconnect is treated as
+    // "something may have changed while we were away" and the view refetches.
+    // Unconditional by design: the payload-level `matches` filter cannot help
+    // here, because the whole point is that we never saw the payloads.
+    { onResync: onChange },
+  );
 }

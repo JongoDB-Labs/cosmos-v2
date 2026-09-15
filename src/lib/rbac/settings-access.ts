@@ -1,8 +1,27 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  User, SlidersHorizontal, KeyRound, Building2, UserCog,
-  Sparkles, Bot, Gavel, Server, Cpu, Puzzle, Webhook, ShieldEllipsis,
-  LayoutGrid, ListFilter, Tag, Shield, ShieldCheck, ScrollText, Wand2, Blocks,
+  Blocks,
+  Bot,
+  Building2,
+  Cpu,
+  Gavel,
+  KeyRound,
+  LayoutGrid,
+  ListFilter,
+  PanelsTopLeft,
+  Puzzle,
+  ScrollText,
+  Server,
+  Shield,
+  ShieldCheck,
+  ShieldEllipsis,
+  SlidersHorizontal,
+  Sparkles,
+  Tag,
+  User,
+  UserCog,
+  Wand2,
+  Webhook,
 } from "lucide-react";
 import { Permission, hasPermission } from "./permissions";
 import type { AuthContext } from "./check";
@@ -36,6 +55,7 @@ export const SETTINGS_ACCESS: Record<string, SettingsAccess> = {
   "/settings/custom-fields": { view: Permission.CUSTOM_FIELD_MANAGE },
   "/settings/classifications": { view: Permission.CLASSIFICATION_READ, manage: Permission.CLASSIFICATION_MANAGE },
   "/settings/compliance": { view: Permission.COMPLIANCE_READ, manage: Permission.COMPLIANCE_MANAGE },
+  "/settings/navigation": { view: Permission.ORG_UPDATE },
   "/settings/security": { view: Permission.SECURITY_MANAGE },
   "/settings/audit-logs": { view: Permission.AUDIT_LOG_READ },
 };
@@ -67,6 +87,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
   { label: "Organization", items: [
     { icon: Building2, label: "Organization", href: "/settings/organization" },
     { icon: UserCog, label: "Roles & Access", href: "/settings/roles" },
+    { icon: PanelsTopLeft, label: "Navigation", href: "/settings/navigation" },
   ]},
   { label: "AI & Integrations", items: [
     { icon: Sparkles, label: "AI / Model", href: "/settings/ai" },

@@ -22,10 +22,31 @@ export type ModelCredentialResolver = (
 
 let resolver: ModelCredentialResolver | null = null;
 
-/** Register the process-wide credential provider (idempotent — last write wins).
- *  Called by whoever owns the credential — the Foreman plugin's server hooks
- *  (src/plugins/foreman/server.ts), loaded through the neutral plugin
- *  composition seam (src/lib/plugins/registry/server.ts) at server boot. */
+/**
+ * Register the process-wide credential provider (idempotent — last write wins).
+ * Called by whoever owns the credential — the Foreman plugin's server hooks
+ * (src/plugins/foreman/server.ts), loaded through the neutral plugin composition
+ * seam (src/lib/plugins/registry/server.ts).
+ *
+ * THIS DOES NOT HAPPEN AUTOMATICALLY AT BOOT. `resolver` is a module-level
+ * singleton, so it is only set in module scopes where something actually imported
+ * the registry. Next.js bundles route handlers separately, so a registration done
+ * in one route's graph does not reach another's — and `instrumentation.ts`, which
+ * an older comment credited with doing this, is OpenTelemetry wiring that imports
+ * no such thing.
+ *
+ * Consequence, observed on prod 2026-08-26: three callers resolved to null while
+ * the org's Foreman Claude subscription was connected and healthy — the feedback
+ * automation gate (greyed toggle + "Connect Claude for Foreman" banner telling an
+ * admin to do what they had already done), and both intake judges, which degraded
+ * silently to "no credential" because the fail-safe below is indistinguishable
+ * from a genuinely absent provider.
+ *
+ * EVERY module that calls resolveModelCredential must therefore
+ * `import "@/lib/plugins/registry/server"` itself. That is enforced statically by
+ * src/lib/ai/__tests__/model-credential-registration.arch.test.ts, so forgetting
+ * it fails a test instead of silently disabling a feature.
+ */
 export function registerModelCredentialProvider(r: ModelCredentialResolver): void {
   resolver = r;
 }

@@ -14,6 +14,8 @@ import { FloatingAgentBubble } from "./floating-agent-bubble";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { WakeWordProvider } from "@/components/wake-word/wake-word-provider";
 import { DrawerProvider } from "@/components/drawers/drawer-provider";
+import { TourProvider } from "@/components/tour/tour-provider";
+import { TourCard } from "@/components/tour/tour-card";
 import { DockedDrawer } from "@/components/drawers/docked-drawer";
 
 interface DashboardShellProps {
@@ -77,6 +79,7 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
 
   return (
     <DrawerProvider>
+      <TourProvider>
     {/* The whole shell reflows LEFT when a docked drawer is open: the
         right padding (published as --cosmos-drawer-w by DockedDrawer, 0 on
         mobile / when closed) opens a gap the fixed drawer fills, so the page
@@ -165,6 +168,7 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
           backdrop, no blur, page stays interactive for true multitasking. */}
       <DockedDrawer orgId={currentOrgId} orgSlug={orgSlug} userId={user.id} />
     </div>
+      </TourProvider>
     </DrawerProvider>
   );
 }

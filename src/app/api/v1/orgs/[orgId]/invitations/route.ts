@@ -212,7 +212,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     let emailError: string | null = null;
     if (inviter) {
       try {
-        if (provisionPassword) {
+        // An invitee who already has a LOCAL password signs in with it, not with
+        // Google. Sending them the OAuth email told such users to "sign in with
+        // your Google account" for an account that has no Google identity -- an
+        // instruction that cannot be followed. Route them to the password email
+        // instead, with a pointer to the reset form, since a forgotten password
+        // is the likeliest reason they are stuck.
+        //
+        // No credential is provisioned and none is quoted: the rule that an
+        // inviter may never set a password on a pre-existing account (see
+        // `provisionPassword`) is untouched.
+        if (!provisionPassword && existingUser?.passwordHash) {
+          await sendPasswordInviteEmail({
+            fromUserId: ctx.userId,
+            orgId,
+            toEmail: email,
+            orgName: org.name,
+            inviterName: inviter.displayName,
+            loginUrl: acceptUrl,
+            tempPassword: null,
+            mfaRequired: data.mfaRequired,
+            // Deliberately NOT folded into `acceptUrl`: that is returned to the
+            // ADMIN in the response below. This belongs only in the invitee's mail.
+            resetUrl: `${origin}/login?forgot=1`,
+          });
+        } else if (provisionPassword) {
           await sendPasswordInviteEmail({
             fromUserId: ctx.userId,
             orgId,

@@ -8,6 +8,10 @@ import { FilterBar, emptyFilters, type BoardFilters } from "@/components/boards/
 import { matchesFilters } from "@/lib/work-items/board-filters";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
+import { highlightMenuGroup } from "@/lib/work-items/highlight-menu";
+import { archiveAction, copyLinkAction } from "@/lib/work-items/item-actions";
+import { useOrgSlug } from "@/lib/query/keys";
+import { highlightRowStyle } from "@/lib/work-items/highlights";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import {
@@ -115,6 +119,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [grouping, setGrouping] = useState<GroupingState>([]);
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
+  const orgSlug = useOrgSlug();
   const [density, setDensity] = useState<Density>("comfortable");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
@@ -300,6 +305,8 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
       else if (field === "assigneeId") payload = { assigneeId: value || null };
       else if (field === "storyPoints") payload = { storyPoints: value ? Number(value) : null };
       else if (field === "columnKey") payload = { columnKey: value };
+      else if (field === "highlight") payload = { highlight: value || null };
+      else if (field === "archivedAt") payload = { archivedAt: value || null };
       else if (field === "dueDate")
         payload = { dueDate: value ? new Date(value).toISOString() : null };
       else return;
@@ -530,6 +537,29 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
         });
       }
 
+      groups.push({
+        items: [
+          ...copyLinkAction(
+            { id: item.id, ticketKey: projectKey ? `${projectKey}-${item.ticketNumber}` : null },
+            orgSlug,
+          ),
+          ...archiveAction({
+            item,
+            canEdit: canCreate,
+            onToggle: (next) => void saveEdit(item.id, "archivedAt", next ?? ""),
+          }),
+        ],
+      });
+
+      groups.push(
+        highlightMenuGroup({
+          current: item.highlight,
+          canEdit: canCreate,
+          // "" is how saveEdit clears a nullable field (same as assigneeId).
+          onPick: (next) => void saveEdit(item.id, "highlight", next ?? ""),
+        }),
+      );
+
       if (canBulkDelete) {
         groups.push({
           items: [
@@ -545,7 +575,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
 
       return groups;
     },
-    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey],
+    [canBulkDelete, canCreate, bulkDeleteMutation, projectKey, basePath, qc, itemsKey, saveEdit, orgSlug],
   );
 
   const columnHelper = createColumnHelper<WorkItem>();
@@ -1025,6 +1055,7 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
           onGroupingChange={setGrouping}
           getGroupLabel={getGroupLabel}
           rowActions={rowActions}
+          rowStyle={(row) => highlightRowStyle(row.highlight)}
           onRowClick={(row) => setDetailId(row.id)}
           pagination={{ pageSize: 50 }}
           stickyHeader

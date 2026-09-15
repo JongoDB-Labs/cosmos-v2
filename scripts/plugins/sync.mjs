@@ -225,7 +225,26 @@ for (const slug of slugs) {
   // 6) registration
   const importPath = "@/" + (cfg.manifest ?? `src/plugins/${slug}/manifest.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
   const serverPath = "@/" + (cfg.serverHooks ?? `src/plugins/${slug}/server.ts`).replace(/^src\//, "").replace(/\.ts$/, "");
-  manifests.push({ slug, importPath, serverPath });
+  // plugin.json's version is AUTHORITATIVE. The manifest also declares one, and
+  // core compares THAT against the org's stored enabledVersion to decide whether
+  // to run onUpgrade — so when the two drift, releases stop reaching orgs and the
+  // Plugins screen reports a stale number. Nothing errors: the equality check
+  // short-circuits and returns, which is right when they match and silent when
+  // they only appear to. One plugin sat eight releases behind that way.
+  //
+  // Stamping it here makes the drift impossible rather than detectable, for every
+  // plugin composed now or later, with no per-plugin discipline required.
+  if (!cfg.version) {
+    // Not fatal — a plugin without a declared version simply keeps whatever its
+    // manifest hardcodes, which is the behaviour that existed before. But it is
+    // the exact shape that let one plugin drift eight releases, so say so.
+    console.warn(
+      `[plugin-sync] ${slug}: plugin.json has no "version". Its manifest's own ` +
+        `version is then the only source, and a stale one silently stops onUpgrade ` +
+        `firing for every org. Add "version" to plugin.json.`,
+    );
+  }
+  manifests.push({ slug, importPath, serverPath, version: cfg.version ?? null });
   // 7) --watch bookkeeping: overlay edits hot-copy; these paths force a re-compose.
   watchTargets.push({
     slug,

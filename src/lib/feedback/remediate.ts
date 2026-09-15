@@ -8,7 +8,7 @@
 // Revisit if teamScopedAccess is ever promoted from a visibility default to a
 // hard boundary.
 import { prisma } from "@/lib/db/client";
-import { runModelTurn } from "@/lib/ai/egress";
+import { runModelTurn, type ModelCredential } from "@/lib/ai/egress";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -41,6 +41,13 @@ import { canRoleAutoTrigger, roleGateMessage } from "@/lib/feedback/role-gating"
 import { readIntakePolicy } from "@/lib/feedback/intake-policy";
 import type { OrgRole, Prisma } from "@prisma/client";
 
+// Loads the plugin server hooks, which REGISTERS the model-credential provider.
+// Without it `resolveModelCredential` returns null however the org is configured —
+// see src/lib/ai/__tests__/model-credential-registration.arch.test.ts.
+import "@/lib/plugins/registry/server";
+import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
+import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
+
 /**
  * Auto-remediation loop (FR 695aa097) — the in-app half.
  *
@@ -72,7 +79,7 @@ export interface Triage {
 }
 
 export interface RemediationSummary {
-  skipped?: "not-enabled" | "no-ai-credential" | "no-target-project";
+  skipped?: "not-enabled" | "no-ai-credential" | "no-target-project" | "already-running";
   delivered: number;
   scanned: number;
   // Items whose per-item routing (own project / org default) landed outside the
@@ -220,9 +227,16 @@ async function triageOne(
     type: "BUG" | "FEATURE";
     telemetry: Prisma.JsonValue;
   },
+  /** Foreman's own model credential. MUST be passed: `runModelTurn` otherwise
+   *  resolves the ORG's provider, and this loop runs on Foreman's account. The
+   *  security judge and the intake guardrails already do this — triage was the
+   *  one call that did not, so every classification silently fell back to the
+   *  heuristic with "AI triage unavailable" and empty acceptance criteria. */
+  credential: ModelCredential | undefined,
 ): Promise<Triage> {
   try {
     const result = await runModelTurn({
+      credential,
       ctx: {
         orgId,
         conversationId: `feedback-triage-${item.id}`,
@@ -278,8 +292,17 @@ async function triageOne(
         source: "ai",
       };
     }
-  } catch {
-    // fall through to the heuristic — delivery must not depend on the model
+  } catch (e) {
+    // Fall through to the heuristic — delivery must not depend on the model.
+    //
+    // But SAY SO. This catch was silent, and that is why an entire production run
+    // of heuristic classifications ("AI triage unavailable", empty acceptance
+    // criteria) could not be diagnosed from outside: the reason was discarded at
+    // the only place that knew it. A fail-safe that leaves no evidence is
+    // indistinguishable from one that never fired.
+    console.warn(
+      `[feedback-triage] AI triage failed for ${item.id}; using the heuristic. ${String(e).slice(0, 300)}`,
+    );
   }
   return heuristicTriage(item);
 }
@@ -366,7 +389,50 @@ function buildDescription(
  * Returns a summary; `skipped` is set (and `delivered` is 0) when the org hasn't
  * opted in or the target project is unusable.
  */
+/**
+ * Orgs with a remediation run in flight IN THIS PROCESS.
+ *
+ * `deliveredAt` is the idempotency key, but it is stamped only on SUCCESS — so it
+ * says nothing about an item a run is working on right now. Two overlapping runs
+ * both see `deliveredAt: null`, both classify, and both create a work item for
+ * the same feedback row.
+ *
+ * Not hypothetical: a client fetch timed out at 45s while the run continued
+ * server-side, a second run was fired believing the first had not happened, and
+ * the pair produced **9 duplicate work items** in one window. A double-click on
+ * "Run now" does exactly the same thing.
+ *
+ * SCOPE, stated honestly: an in-process guard. It covers the realistic case —
+ * repeated triggers hitting one app instance — and does NOT coordinate across
+ * instances. A cross-instance lock needs a durable claim, and a session-level
+ * Postgres advisory lock is unsafe here because Prisma's pool can acquire and
+ * release it on different connections.
+ */
+const runningOrgs = new Set<string>();
+
 export async function runFeedbackRemediation(
+  orgId: string,
+  opts: { actorUserId: string; limit?: number },
+): Promise<RemediationSummary> {
+  // Reported as its own outcome rather than silently doing nothing, so a caller
+  // can tell "already running" from "nothing to do".
+  if (runningOrgs.has(orgId)) {
+    return {
+      skipped: "already-running",
+      delivered: 0, scanned: 0, skippedNoTarget: 0, held: 0, rejected: 0,
+      throttled: 0, gated: 0, items: [], flagged: [], throttledItems: [],
+      gatedItems: [], duplicates: 0, duplicateItems: [],
+    };
+  }
+  runningOrgs.add(orgId);
+  try {
+    return await runFeedbackRemediationInner(orgId, opts);
+  } finally {
+    runningOrgs.delete(orgId);
+  }
+}
+
+async function runFeedbackRemediationInner(
   orgId: string,
   opts: { actorUserId: string; limit?: number },
 ): Promise<RemediationSummary> {
@@ -410,9 +476,28 @@ export async function runFeedbackRemediation(
   // no real model was reachable. Require a Claude subscription (OAuth) or a model
   // key connected via Settings → AI, so every delivery reflects actual AI triage.
   // The heuristic remains only as a per-item safety net for a transient model error.
-  const ai = await getAiProviderStatus(orgId);
+  //
+  // FOREMAN'S OWN PROVIDER SATISFIES THIS FIRST. This loop runs on FOREMAN's
+  // Claude account, not the org's — the judges below resolve their credential
+  // through `resolveModelCredential`, which Foreman's server hooks register. But
+  // this gate read only `org_ai_settings`, a DIFFERENT table, so an org that had
+  // connected Claude for Foreman (and nothing else) skipped every run with
+  // "no-ai-credential" while the credential that does the work sat right there.
+  //
+  // 2.307.0 fixed the same confusion on the CONFIG endpoint, which is what draws
+  // the banner and the toggle — and fixing only that made things worse for a
+  // release: the screen began reporting "connected" and enabled the control while
+  // this worker still refused to run. A readiness indicator not wired to the thing
+  // it indicates is a false green with a UI attached.
+  const [ai, foremanCredential] = await Promise.all([
+    getAiProviderStatus(orgId),
+    resolveModelCredential(orgId),
+  ]);
   const hasAi =
-    ai.claudeOAuth.connected || ai.anthropic.configured || ai.openai.configured;
+    foremanCredential !== null ||
+    ai.claudeOAuth.connected ||
+    ai.anthropic.configured ||
+    ai.openai.configured;
   if (!hasAi) return empty("no-ai-credential");
 
   // Resolve every project in scope ONCE (not just one hardcoded target): each
@@ -713,7 +798,13 @@ export async function runFeedbackRemediation(
       }
     }
 
-    const triage = await triageOne(orgId, tenantClass, item);
+    // Same shape conversion the security judge and the intake guardrails do:
+    // resolveModelCredential yields { accessToken }, runModelTurn wants a tagged
+    // ModelCredential.
+    const triageCredential: ModelCredential | undefined = foremanCredential
+      ? { kind: "oauth", token: foremanCredential.accessToken }
+      : undefined;
+    const triage = await triageOne(orgId, tenantClass, item, triageCredential);
     const typeId = await resolveTypeId(target.projectTemplateId, triage.classification);
     if (!typeId) {
       // No matching built-in type in this sector — skip this item (leave it
@@ -723,16 +814,15 @@ export async function runFeedbackRemediation(
 
     try {
       const created = await prisma.$transaction(async (tx) => {
-        const maxTicket = await tx.workItem.aggregate({
-          where: { orgId, projectId: target.id },
-          _max: { ticketNumber: true },
+        const ticketNumber = await allocateTicketNumber(tx, {
+          orgId,
+          projectId: target.id,
         });
-        const ticketNumber = (maxTicket._max.ticketNumber ?? 0) + 1;
-        const maxSort = await tx.workItem.aggregate({
-          where: { orgId, projectId: target.id, columnKey: target.columnKey },
-          _max: { sortOrder: true },
+        const sortOrder = await allocateSortOrder(tx, {
+          orgId,
+          projectId: target.id,
+          columnKey: target.columnKey,
         });
-        const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
 
         const workItem = await tx.workItem.create({
           data: {

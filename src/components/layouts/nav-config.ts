@@ -17,6 +17,7 @@ import {
   Percent,
   BookOpen,
   type LucideIcon,
+  Upload,
 } from "lucide-react";
 import { Permission } from "@/lib/rbac/permissions";
 
@@ -172,6 +173,16 @@ export const SIDEBAR_NAV: NavEntry[] = [
         // financial statements are tabs on this page now, so it is the only
         // way in to them.
         anyOf: [Permission.FINANCE_READ, Permission.ACCOUNTING_READ],
+      },
+      {
+        type: "leaf",
+        id: "acct-import",
+        icon: Upload,
+        label: "Import",
+        href: "/accounting/import",
+        // MANAGE, not READ: a preview reads every account balance in the org,
+        // which is not something a viewer should reach by asking nicely.
+        anyOf: [Permission.ACCOUNTING_MANAGE],
       },
       {
         type: "leaf",

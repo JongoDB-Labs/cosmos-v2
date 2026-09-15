@@ -195,6 +195,7 @@ enum IdpProtocol {
 // ─────────────────────────────────────────────
 
 model Organization {
+  flags Flag[]
   id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String
   slug           String      @unique
@@ -620,6 +621,14 @@ model ApiKey {
   keyHash     String    @map("key_hash")
   prefix      String
   scopes      String[]
+  /// Projects this key may touch. EMPTY means org-wide — every project the
+  /// minting user can reach — which is what every key minted before this
+  /// existed had, so an empty array is the correct value for them.
+  ///
+  /// A ceiling, not a grant: it only ever narrows the minting user's own
+  /// access. Enforced in `getReadableProjectIds` and `isProjectVisible`, both
+  /// BEFORE their role short-circuits, so it binds for an OWNER too.
+  projectIds  String[]  @map("project_ids")
   createdById String?   @map("created_by_id") @db.Uuid
   expiresAt   DateTime? @map("expires_at")
   lastUsed    DateTime? @map("last_used")
@@ -717,6 +726,7 @@ model Project {
   roadmapNodes        RoadmapNode[]
   projectTemplate     ProjectTemplate?     @relation(fields: [projectTemplateId], references: [id])
   journalLines        JournalLine[]
+  flags               Flag[]
   dataClassifications DataClassification[]
   documents           Document[]
   risks               Risk[]
@@ -869,7 +879,32 @@ model WorkItem {
   // SAFe classification: BUSINESS = main-effort value; ENABLER = architecture /
   // infrastructure / compliance / exploration work that clears the way for it.
   workCategory    WorkCategory                @default(BUSINESS) @map("work_category")
+  /// Archived — out of the way, not destroyed. Null means active.
+  ///
+  /// Exists because tidying up is not deleting. The reported case was five
+  /// duplicates created by accident: the person who made them could not remove
+  /// them (deleting is ADMIN-only, deliberately) and ended up RENAMING them to
+  /// say "duplicate", which leaves the clutter and adds noise. Archiving is
+  /// gated on ITEM_UPDATE, so whoever can edit an item can also file it away,
+  /// and it is reversible — which is exactly why it can be a lower bar than
+  /// DELETE rather than a synonym for it.
+  ///
+  /// A timestamp rather than a boolean: "when was this put away" is the
+  /// question asked when something turns out to have been archived wrongly, and
+  /// null/non-null filters identically to a flag.
+  archivedAt      DateTime?                   @map("archived_at")
   tags            String[]                    @default([])
+  /// Hand-set callout colour for meetings ("on track" / "at risk" / "blocked"),
+  /// painted as a coloured border on the item's card. See
+  /// `src/lib/work-items/highlights.ts` for the palette and for why the stored
+  /// value is the COLOUR rather than the meaning.
+  ///
+  /// Plain nullable TEXT rather than a Postgres enum, deliberately: adding a
+  /// colour should not require a migration, and a row written by a build that
+  /// carried a key this build has dropped must degrade to "no highlight" on
+  /// render instead of failing to deserialize. Unknown values are filtered by
+  /// `isWorkItemHighlight`, not by the database.
+  highlight       String?
   customFields    Json                        @default("{}") @map("custom_fields")
   createdById     String                      @map("created_by_id") @db.Uuid
   createdAt       DateTime                    @default(now()) @map("created_at")
@@ -1173,6 +1208,73 @@ model Note {
 
   @@index([orgId, visibility])
   @@map("notes")
+}
+
+/// How loudly a flag asks to be looked at.
+enum FlagSeverity {
+  INFO
+  WARNING
+  CRITICAL
+
+  @@map("flag_severity")
+}
+
+enum FlagStatus {
+  OPEN
+  /// The condition went away — cleared by the rule that raised it, not by a person.
+  RESOLVED
+  /// A person decided it does not matter. Stays closed even if the rule fires again.
+  DISMISSED
+
+  @@map("flag_status")
+}
+
+/// A condition worth someone's attention, standing until it stops being true.
+///
+/// NOT a Notification. A notification is addressed to one person, read once and
+/// gone; it answers "did anyone tell me". A flag is org-level state that answers
+/// "what is wrong right now", survives being read, carries a severity, and has a
+/// lifecycle. The two coexist: a rule may raise a flag AND notify, and the
+/// notification is how someone learns of it while the flag is what they come
+/// back to.
+///
+/// Rules raise and clear their own flags. Nothing here is written by hand except
+/// a dismissal, which is a person overriding a rule and therefore sticks.
+model Flag {
+  id       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId    String       @map("org_id") @db.Uuid
+  /// Stable identifier for the rule that raised this. Namespaced by the plugin
+  /// that owns it, e.g. "finance.burn.over-fee", so core and two plugins can
+  /// each raise flags without colliding.
+  /// Namespaced by convention so a plugin's rules cannot collide with core's.
+  rule     String
+  severity FlagSeverity
+  status   FlagStatus   @default(OPEN)
+  title    String
+  body     String       @default("")
+
+  /// What it is about, where core knows the entity.
+  projectId String? @map("project_id") @db.Uuid
+  userId    String? @map("user_id") @db.Uuid
+  /// ...and where it does not. A plugin's own subject — a fee phase, a milestone
+  /// — identified by type and id rather than a foreign key, because core cannot
+  /// carry a column for every plugin's entities and a nullable FK to a table
+  /// only one instance has is worse than a pair of strings.
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id")
+
+  raisedAt     DateTime  @default(now()) @map("raised_at")
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById String?   @map("resolved_by_id") @db.Uuid
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // "What is open right now", the only question this table is asked at speed.
+  @@index([orgId, status, severity])
+  // Every rule sweeps its own flags; this is the lookup that does it.
+  @@index([orgId, rule, status])
+  @@map("flags")
 }
 
 model Notification {
@@ -1640,6 +1742,19 @@ model TimeEntry {
   status       TimeEntryStatus @default(DRAFT)
   approvedById String?         @map("approved_by_id") @db.Uuid
   approvedAt   DateTime?       @map("approved_at")
+  // What the client is BILLED, decided separately from what was logged.
+  //
+  // NULL means "bill what was logged" -- the ordinary case, and the reason this
+  // is nullable rather than defaulted to `hours`: a default would have to be
+  // kept in step with every edit to `hours`, and the first missed sync would
+  // silently bill a stale number. Null defers to `hours` at read time instead,
+  // so the two can never drift.
+  //
+  // An explicit value is a decision, and 0 is a real one: "worked, not billed"
+  // is different from "not yet decided", and only an explicit zero can say it.
+  billedHours  Float?          @map("billed_hours")
+  billedById   String?         @map("billed_by_id") @db.Uuid
+  billedAt     DateTime?       @map("billed_at")
   tags         String[]        @default([])
   // Pay run this entry was rolled into (prod-parity). Plain scalar, NO relation/FK —
   // matches prod exactly (prod's time_entries.pay_run_id has no FK constraint and
@@ -4365,4 +4480,30 @@ model DeployRequest {
 
   @@index([status, requestedAt])
   @@map("deploy_requests")
+}
+
+/// Instance-wide update behaviour, surfaced on /admin/updates.
+///
+/// Lives in CORE, not in the Foreman plugin, even though the Foreman daemon is
+/// what acts on it. Two reasons. CI builds core with no `plugins/` composed, so
+/// core code cannot reference a plugin model at all. And an operator reasonably
+/// expects the page with the Install button to own whether installs happen by
+/// themselves — the daemon is an implementation detail of HOW, not of WHETHER.
+model UpdateSettings {
+  id          String   @id @default(cuid())
+  /// Singleton discriminator. Unique so an upsert can never quietly create a
+  /// second row that nothing reads.
+  scope       String   @unique @default("instance")
+  /// Poll for a newer released version and install it unattended. False = report
+  /// it and wait for someone to click Install.
+  ///
+  /// Defaults TRUE because that is what every deployment does today, and because
+  /// the dangerous failure here is an instance that silently stops updating —
+  /// which is the outage this control was built after, not one it should cause.
+  autoUpdate  Boolean  @default(true) @map("auto_update")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("update_settings")
 }

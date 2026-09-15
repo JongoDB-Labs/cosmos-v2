@@ -7,6 +7,7 @@ import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
+import { allocateTicketNumber } from "@/lib/work-items/allocate";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -52,13 +53,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const withChildren = body?.withChildren === true;
 
     const item = await prisma.$transaction(async (tx) => {
-      const maxTicket = await tx.workItem.aggregate({
-        where: { orgId, projectId },
-        _max: { ticketNumber: true },
-      });
       // Running counter so the parent copy + each cloned child get distinct
-      // sequential ticket numbers within this transaction.
-      let nextTicket = (maxTicket._max.ticketNumber ?? 0) + 1;
+      // sequential ticket numbers within this transaction. Safe because the
+      // allocator's advisory lock is held until this transaction ends, so no
+      // other create can take a number in this project in between.
+      let nextTicket = await allocateTicketNumber(tx, { orgId, projectId });
       const ticketNumber = nextTicket++;
 
       const maxSort = await tx.workItem.aggregate({

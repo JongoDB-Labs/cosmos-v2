@@ -51,8 +51,22 @@ export interface PlanDriftInput {
   plannedStart: Date | null;
   plannedEnd: Date | null;
   actualStart: Date | null;
-  /** `completedAt`, or today for something known to be running. */
-  actualEnd: Date | null;
+  /**
+   * A REAL completion, and nothing else. Colour is a claim about how the work
+   * turned out, so it can only ever be made from a date that actually happened.
+   *
+   * This used to fall back to `today` for a running item, which made every
+   * in-flight ticket "finish early": the gap between today and its due date came
+   * out green, announcing that work still in progress had beaten a plan it had
+   * not yet met. Time passing is not an achievement.
+   */
+  completedAt: Date | null;
+  /**
+   * Where the solid bar currently REACHES — the completion, or today while the
+   * work is still running. Geometry only: it decides whether a mark lies over
+   * the bar (striped) or beside it (shadow), and is never a source of colour.
+   */
+  barEnd: Date | null;
 }
 
 /**
@@ -66,7 +80,7 @@ export interface PlanDriftInput {
  * because that drift is real and the missing start does not make it less so.
  */
 export function planDriftPhantoms(input: PlanDriftInput): DriftMark[] {
-  const { plannedStart, plannedEnd, actualStart, actualEnd } = input;
+  const { plannedStart, plannedEnd, actualStart, completedAt, barEnd } = input;
   const phantoms: DriftMark[] = [];
   const striped: DriftMark[] = [];
 
@@ -77,11 +91,11 @@ export function planDriftPhantoms(input: PlanDriftInput): DriftMark[] {
   // slip lands beyond it on bare canvas and must be a shadow, while an early
   // finish lands INSIDE it and must be striped — the exact inverse.
   const barStart = actualStart ?? plannedStart;
-  const barEnd = actualStart ? actualEnd : plannedEnd;
+  const barStop = actualStart ? barEnd : plannedEnd;
   const overlapsBar = (from: Date, to: Date): boolean =>
     barStart !== null &&
-    barEnd !== null &&
-    from.getTime() < barEnd.getTime() &&
+    barStop !== null &&
+    from.getTime() < barStop.getTime() &&
     to.getTime() > barStart.getTime();
 
   /** Stripe where it covers the bar, shadow where it does not. */
@@ -112,14 +126,14 @@ export function planDriftPhantoms(input: PlanDriftInput): DriftMark[] {
   // and no recorded start (imported work that predates start capture, or a
   // ticket whose actual_start was cleared in bulk), and its drift is still real.
   //
-  // The caller must only pass a REAL end — a completion, or today for something
-  // known to be running — never a bare "today" for work that has not started, or
-  // every untouched overdue item would sprout a mark it has not earned.
-  if (actualEnd && plannedEnd) {
-    const a = actualEnd.getTime();
+  // Requires a COMPLETION, never "today". A running item has not finished, so
+  // nothing about its end can be called ahead or behind yet — the plan it still
+  // has left is drawn neutrally, in the bar's own colour, by the caller.
+  if (completedAt && plannedEnd) {
+    const a = completedAt.getTime();
     const p = plannedEnd.getTime();
-    if (a > p) push(plannedEnd, actualEnd, "red", "end");
-    else if (a < p) push(actualEnd, plannedEnd, "green", "end");
+    if (a > p) push(plannedEnd, completedAt, "red", "end");
+    else if (a < p) push(completedAt, plannedEnd, "green", "end");
   }
 
   // Red last within each group, so it wins wherever marks meet.

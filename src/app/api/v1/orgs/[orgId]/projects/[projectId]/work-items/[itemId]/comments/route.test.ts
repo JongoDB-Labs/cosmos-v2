@@ -32,7 +32,9 @@ const { getAuthContext, getCurrentUser, prisma } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 // Best-effort side-effects the POST path fires — stub so they never reach I/O.
-vi.mock("@/lib/notifications/create", () => ({ createNotification: vi.fn() }));
+// Hoisted so the mention test can assert the notification URL it is called with.
+const { createNotification } = vi.hoisted(() => ({ createNotification: vi.fn() }));
+vi.mock("@/lib/notifications/create", () => ({ createNotification }));
 vi.mock("@/lib/mentions/references", () => ({
   syncReferences: vi.fn().mockResolvedValue(undefined),
 }));
@@ -171,5 +173,106 @@ describe("POST /work-items/[itemId]/comments — live updates (COSMOS-127)", () 
 
     expect(res.status).toBe(403);
     expect(publishToOrg).not.toHaveBeenCalled();
+  });
+});
+
+// COSMOS-191: "clicking a notification gives a 404".
+//
+// The first fix for this was WRONG and shipped: it added the missing /[orgSlug]
+// prefix, on the theory that the slug was the problem. It is not — the
+// notification dropdown normalises the prefix (strips a leading /{orgSlug} and
+// re-adds exactly one), so both forms resolved identically. The real cause is
+// that **there is no work-items route at all** — no
+// /[orgSlug]/projects/[projectKey]/work-items/[id] page, and no catch-all — so
+// every variant of that path 404s.
+//
+// The app's actual work-item deep link is /[orgSlug]/issues?item=<id>: 7 call
+// sites use it, including issue-copy-link, and issues-view.tsx consumes it via
+// searchParams.get("item").
+//
+// These tests therefore assert the URL's SHAPE (pathname + item param), not a
+// string literal. A literal is what let the wrong fix look verified: the test
+// asserted the URL I had decided on, so it passed while the bug stayed live.
+describe("POST /work-items/[itemId]/comments — mention notification link (COSMOS-191)", () => {
+  const MENTIONED_ID = "66666666-6666-6666-6666-666666666666";
+
+  /** The route parses mentions out of the PERSISTED comment, not the request
+   *  body, so the $transaction fixture is what has to carry the mention. */
+  function persistedWithContent(content: string) {
+    prisma.$transaction.mockResolvedValue([
+      {
+        id: "55555555-5555-5555-5555-555555555555",
+        orgId: ORG_ID,
+        workItemId: ITEM_ID,
+        authorId: ACTOR_ID,
+        content,
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        updatedAt: new Date("2026-07-10T00:00:00Z"),
+      },
+      { id: "activity-1" },
+    ]);
+  }
+
+  it("links a mention notification to a work-item route that EXISTS (/issues?item=)", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
+    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
+    prisma.orgMember.findMany.mockResolvedValue([
+      // Shaped like the route's SELECT, which pulls the display name so the
+      // notification body can name who was mentioned. A mock that returns only
+      // `userId` made `m.user.displayName` throw INSIDE the route's
+      // best-effort catch — so the notification silently never fired.
+      { userId: MENTIONED_ID, user: { displayName: "Mentioned Person" } },
+    ]);
+    persistedWithContent(`Take a look <@${MENTIONED_ID}>`);
+
+    const res = await POST(postRequest(`Take a look <@${MENTIONED_ID}>`), { params });
+    expect(res.status).toBe(201);
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    const call = createNotification.mock.calls[0][0];
+    expect(call).toMatchObject({ userId: MENTIONED_ID, type: "comment.mentioned" });
+
+    // Parse it the way the dropdown does, and check it names a route that exists.
+    const u = new URL(call.url, "http://x");
+    expect(u.pathname).toBe("/acme/issues");
+    expect(u.searchParams.get("item")).toBe(ITEM_ID);
+    // The dead route, in any form, must never come back.
+    expect(call.url).not.toContain("work-items");
+  });
+
+  it("names the mentioned person in the body, and never shows a raw id", async () => {
+    // The body used to be a hardcoded "@user", so it told the recipient someone
+    // had been mentioned and never who — including when it was them.
+    //
+    // This assertion is what the suite was missing: the tests above check only
+    // THAT a notification fired, so when the display-name lookup started
+    // throwing inside the route's best-effort catch, "0 notifications" was the
+    // only symptom and the cause was invisible.
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
+    prisma.orgMember.findMany.mockResolvedValue([
+      { userId: MENTIONED_ID, user: { displayName: "Dana Scully" } },
+    ]);
+    persistedWithContent(`Take a look <@${MENTIONED_ID}>`);
+
+    await POST(postRequest(`Take a look <@${MENTIONED_ID}>`), { params });
+
+    const { message } = createNotification.mock.calls[0][0];
+    expect(message).toBe("Take a look @Dana Scully");
+    expect(message).not.toContain("@user");
+    expect(message).not.toContain(MENTIONED_ID);
+    expect(message).not.toContain("<@");
+  });
+
+  it("does not notify the author when they mention themselves", async () => {
+    getAuthContext.mockResolvedValue(ctxWith(bits("COMMENT_CREATE")));
+    getCurrentUser.mockResolvedValue({ id: ACTOR_ID, displayName: "Dana" });
+    prisma.orgMember.findMany.mockResolvedValue([
+      { userId: ACTOR_ID, user: { displayName: "The Actor" } },
+    ]);
+    persistedWithContent(`note to self <@${ACTOR_ID}>`);
+
+    const res = await POST(postRequest(`note to self <@${ACTOR_ID}>`), { params });
+    expect(res.status).toBe(201);
+    expect(createNotification).not.toHaveBeenCalled();
   });
 });

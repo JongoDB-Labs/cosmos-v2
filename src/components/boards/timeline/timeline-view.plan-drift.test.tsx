@@ -186,11 +186,13 @@ const DRIFT_ITEMS = [
   },
 ];
 
+/** There is no toggle any more — the plan is always drawn — so this only has to
+ *  render and wait for the rows to arrive. */
 async function renderWithPlanDrift() {
   activeItems = DRIFT_ITEMS;
   const utils = renderTimeline();
   await screen.findByText("Work Items");
-  fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
+  await screen.findByTestId("gantt-bar-behind");
   return utils;
 }
 
@@ -205,12 +207,29 @@ describe("TimelineView — drift colour is ahead-vs-behind", () => {
     vi.clearAllMocks();
   });
 
-  it("draws no marks until the lens is switched on", async () => {
+  it("draws the marks WITHOUT being asked — the plan is not an opt-in", async () => {
     activeItems = DRIFT_ITEMS;
     renderTimeline();
     await screen.findByText("Work Items");
-    expect(screen.queryByTestId("gantt-drift-red-start-behind")).toBeNull();
-    expect(screen.queryByTestId("gantt-drift-red-end-behind")).toBeNull();
+    // No click, and no control to click. A Gantt whose plan is hidden answers
+    // none of the questions it exists for, and it was reported as broken three
+    // times before the toggle was removed.
+    expect(await screen.findByTestId("gantt-drift-red-start-behind")).toBeInTheDocument();
+    expect(screen.getByTestId("gantt-drift-red-end-behind")).toBeInTheDocument();
+  });
+
+  it("offers no way to turn the plan off — it is part of the chart", async () => {
+    await renderWithPlanDrift();
+    // The lens row survives; only this control is gone. Guard the premise so
+    // this cannot pass simply because the lenses failed to render at all.
+    expect(screen.getByRole("button", { name: /^blocked$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /plan drift/i })).toBeNull();
+  });
+
+  it("offers no Enablers lens either", async () => {
+    await renderWithPlanDrift();
+    expect(screen.getByRole("button", { name: /^blocked$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^enablers$/i })).toBeNull();
   });
 
   it("a late start is RED, and ends exactly where the solid bar begins", async () => {
@@ -335,7 +354,7 @@ describe("TimelineView — one opacity for the plan, and no stray outlines", () 
     const marks = Array.from(document.querySelectorAll('[data-testid^="gantt-drift-"]'));
     expect(marks.length).toBeGreaterThanOrEqual(4);
     for (const m of marks) {
-      // Outlines are reserved for blocked / critical / enabler. A dashed edge
+      // Outlines are reserved for blocked and the critical chain. A dashed edge
       // here competed with them and said nothing of its own.
       expect(m.getAttribute("stroke")).toBe("none");
       expect(m.getAttribute("stroke-dasharray")).toBeNull();
@@ -397,7 +416,6 @@ describe("TimelineView — milestone drift", () => {
     activeItems = MILESTONES;
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
   }
 
   it("marks where it was planned and joins it to where it landed", async () => {
@@ -442,7 +460,6 @@ describe("TimelineView — the axis covers what is actually drawn", () => {
     activeItems = EARLY_ITEMS;
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
   }
 
   it("never lays a bar out left of the axis origin", async () => {
@@ -465,7 +482,6 @@ describe("TimelineView — the axis covers what is actually drawn", () => {
     ];
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
     await screen.findByTestId("gantt-drift-green-start-early");
 
     const drawn = Array.from(
@@ -547,7 +563,16 @@ describe("TimelineView — lens dimming does not compound", () => {
     activeItems = [
       { ...item(1, "2026-01-05", "2026-01-20"), id: "plain", ticketNumber: 970 },
       { ...item(2, "2026-01-05", "2026-01-20"), id: "other", ticketNumber: 971 },
+      { ...item(3, "2026-01-05", "2026-01-20"), id: "bystander", ticketNumber: 972 },
     ];
+    // `plain` is blocked, so the Blocked lens dims everything else by 0.35.
+    // `bystander` is hovered and links to nothing, so its dependency
+    // neighbourhood is itself alone and `other` sits outside it: 0.22.
+    //
+    // BOTH therefore apply to `other`. Multiplied that is 0.077; the strongest
+    // single factor is 0.22. Hovering `plain` would NOT work — `other` blocks
+    // it, so it IS in the neighbourhood and never dims. That confounded the
+    // first draft of this test.
     activeLinks = [{ id: "l1", type: "BLOCKS", sourceItemId: "other", targetItemId: "plain" }];
     renderTimeline();
     await screen.findByText("Work Items");
@@ -555,15 +580,18 @@ describe("TimelineView — lens dimming does not compound", () => {
     const bar = () => screen.getByTestId("gantt-bar-other");
     const base = Number(bar().getAttribute("opacity"));
 
-    // `other` is neither blocked nor an enabler, so BOTH lenses dim it: 0.35 and
-    // 0.4. Multiplied that is 0.14; the strongest single factor is 0.35.
+    // Hover FIRST. The Dependencies toggle invalidates the links query, and the
+    // rows do not come back inside this harness — so anything that has to be
+    // queried after that click cannot be found. `hoveredItem` is component
+    // state and survives the toggle, which is all the dim needs.
+    fireEvent.mouseOver(screen.getByTestId("gantt-bar-bystander"));
     fireEvent.click(screen.getByRole("button", { name: /^blocked$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^enablers$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^dependencies$/i }));
     const dimmed = Number(bar().getAttribute("opacity"));
 
     expect(dimmed).toBeLessThan(base);
-    expect(dimmed).toBeCloseTo(base * 0.35, 5);
-    expect(dimmed).not.toBeCloseTo(base * 0.35 * 0.4, 5);
+    expect(dimmed).toBeCloseTo(base * 0.22, 5);
+    expect(dimmed).not.toBeCloseTo(base * 0.35 * 0.22, 5);
   });
 });
 
@@ -630,7 +658,6 @@ describe("TimelineView — a milestone's drift is hoverable too", () => {
     activeItems = MOVED;
     renderTimeline();
     await screen.findByText("Work Items");
-    fireEvent.click(screen.getByRole("button", { name: /plan drift/i }));
   }
 
   it("opens the overlay from the diamond where it was PLANNED", async () => {
@@ -655,5 +682,209 @@ describe("TimelineView — a milestone's drift is hoverable too", () => {
     expect(hit.style.pointerEvents).not.toBe("none");
     fireEvent.mouseOver(hit);
     expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-960");
+  });
+});
+
+// Bar geometry falls back to createdAt -> createdAt + 7 days when dates are
+// missing, which draws an ordinary week-long bar out of two values nobody
+// entered. On imported work that is a wall of invented plans, and it is
+// indistinguishable from a real one.
+describe("TimelineView — an item with no dates says so", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const undated = (id: string, over: Record<string, unknown> = {}) => ({
+    ...item(1, "2026-01-05", "2026-01-20"),
+    id,
+    ticketNumber: 970,
+    startDate: null,
+    dueDate: null,
+    actualStart: null,
+    completedAt: null,
+    ...over,
+  });
+
+  async function renderItems(items: unknown[]) {
+    activeItems = items;
+    renderTimeline();
+    await screen.findByText("Work Items");
+  }
+
+  it("draws a point and the words, not a week-long bar", async () => {
+    await renderItems([undated("nodates")]);
+    const el = await screen.findByTestId("gantt-bar-nodates");
+    expect(el.getAttribute("data-undated")).toBe("true");
+    // No width-bearing rect: a span is exactly what it must not imply.
+    expect(el.querySelector("rect")).toBeNull();
+    expect(el.querySelector("circle")).not.toBeNull();
+    expect(el).toHaveTextContent("No dates");
+  });
+
+  it("a normal item is untouched by it", async () => {
+    await renderItems([undated("nodates"), { ...item(2, "2026-01-05", "2026-01-20"), id: "dated", ticketNumber: 971 }]);
+    const dated = await screen.findByTestId("gantt-bar-dated");
+    expect(dated.getAttribute("data-undated")).toBeNull();
+    expect(num(dated, "width")).toBeGreaterThan(0);
+  });
+
+  it("knowing WHEN IT FINISHED is knowing something — not undated", async () => {
+    await renderItems([undated("finished", { completedAt: "2026-01-27" })]);
+    const el = await screen.findByTestId("gantt-bar-finished");
+    expect(el.getAttribute("data-undated")).toBeNull();
+  });
+
+  it("knowing WHEN IT STARTED is knowing something — not undated", async () => {
+    await renderItems([undated("started", { actualStart: "2026-01-09" })]);
+    const el = await screen.findByTestId("gantt-bar-started");
+    expect(el.getAttribute("data-undated")).toBeNull();
+  });
+
+  it("still opens the overlay, so the item stays reachable", async () => {
+    await renderItems([undated("nodates")]);
+    const el = await screen.findByTestId("gantt-bar-nodates");
+    expect(screen.queryByTestId("gantt-hover-card")).toBeNull();
+    fireEvent.mouseOver(el);
+    expect(screen.getByTestId("gantt-hover-card")).toHaveTextContent("FSC-970");
+  });
+});
+
+// Green means "ahead of plan". That is a claim about how the work turned out,
+// so it cannot be made for work that has not finished. A running item's
+// remaining plan is drawn neutrally — the bar's own colour — not green.
+describe("TimelineView — a running item makes no claim about its end", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const RUNNING = [
+    // Planned 05->20 Jan, began 11 Jan, still going. Well inside its plan.
+    { ...item(1, "2026-01-05", "2026-01-20"), id: "running", ticketNumber: 980, actualStart: "2026-01-11", completedAt: null },
+    // Same shape, but finished early. This one HAS earned its green.
+    { ...item(2, "2026-01-05", "2026-01-20"), id: "finishedEarly", ticketNumber: 981, actualStart: "2026-01-11", completedAt: "2026-01-15" },
+  ];
+
+  async function renderRunning() {
+    activeItems = RUNNING;
+    renderTimeline();
+    await screen.findByText("Work Items");
+    await screen.findByTestId("gantt-bar-running");
+  }
+
+  it("draws NO green for work still in flight", async () => {
+    await renderRunning();
+    expect(screen.queryByTestId("gantt-drift-green-end-running")).toBeNull();
+    expect(screen.queryByTestId("gantt-drift-red-end-running")).toBeNull();
+  });
+
+  it("draws the remaining plan in the bar's OWN colour instead", async () => {
+    await renderRunning();
+    const planned = await screen.findByTestId("gantt-planned-running");
+    const bar = screen.getByTestId("gantt-bar-running");
+    // Same hue as the bar, at the shadow opacity — a plan, not a verdict.
+    expect(planned.getAttribute("fill")).toBe(bar.getAttribute("fill"));
+    expect(Number(planned.getAttribute("opacity"))).toBeLessThan(
+      Number(bar.getAttribute("opacity")),
+    );
+    // It starts where the BAR starts, not where the plan did: this item began
+    // late, so the plan's head belongs to the red mark. The neutral span is
+    // what is left of the plan after the drift has taken its share.
+    expect(num(planned, "x")).toBeCloseTo(num(bar, "x"), 1);
+    expect(num(planned, "width")).toBeGreaterThan(0);
+    const red = screen.getByTestId("gantt-drift-red-start-running");
+    expect(num(red, "x") + num(red, "width")).toBeCloseTo(num(planned, "x"), 1);
+  });
+
+  it("an OVERDUE running item overruns its plan visibly, with no red", async () => {
+    // This fixture is planned for January and still running today, so the solid
+    // bar runs far past the end of the planned span. That overrun is the signal
+    // — no colour is claimed, because the work has not finished and "how late
+    // did it end" is not yet a question with an answer.
+    await renderRunning();
+    const planned = screen.getByTestId("gantt-planned-running");
+    const bar = screen.getByTestId("gantt-bar-running");
+    expect(num(bar, "x") + num(bar, "width")).toBeGreaterThan(
+      num(planned, "x") + num(planned, "width"),
+    );
+    expect(screen.queryByTestId("gantt-drift-red-end-running")).toBeNull();
+  });
+
+  it("a late START is still reported — that date HAS happened", async () => {
+    await renderRunning();
+    expect(await screen.findByTestId("gantt-drift-red-start-running")).toBeInTheDocument();
+  });
+
+  it("the moment it completes early, green appears", async () => {
+    await renderRunning();
+    // Positive control for the two assertions above: the same probe DOES find
+    // green on a sibling that actually finished.
+    expect(await screen.findByTestId("gantt-drift-green-end-finishedEarly")).toBeInTheDocument();
+  });
+});
+
+// The hover card follows the same rule as the marks: "early" and "late" are
+// verdicts on finished work. Reading today as an end told every in-flight
+// ticket it was "31d ahead of plan" when it was simply not due yet.
+describe("TimelineView — the hover card claims no verdict before the work ends", () => {
+  afterEach(() => {
+    cleanup();
+    activeItems = ITEMS;
+    activeLinks = [];
+    vi.clearAllMocks();
+  });
+
+  const card = () => screen.getByTestId("gantt-hover-card");
+
+  async function hover(id: string, items: unknown[]) {
+    activeItems = items;
+    renderTimeline();
+    await screen.findByText("Work Items");
+    fireEvent.mouseOver(await screen.findByTestId(`gantt-bar-${id}`));
+  }
+
+  const running = (due: string, id: string) => [
+    { ...item(1, "2026-01-05", due), id, ticketNumber: 990, actualStart: "2026-01-06", completedAt: null },
+  ];
+
+  it("says how long is LEFT, never how far ahead, while running", async () => {
+    // Due far in the future: the old wording called this "ahead of plan".
+    await hover("open", running("2099-01-01", "open"));
+    expect(card()).not.toHaveTextContent(/ahead/i);
+    expect(card()).not.toHaveTextContent(/early/i);
+    expect(card()).toHaveTextContent(/\d+d left/);
+  });
+
+  it("says PAST DUE for an overdue item still running — a fact about today", async () => {
+    await hover("late", running("2026-01-20", "late"));
+    expect(card()).toHaveTextContent(/\d+d past due/);
+    // Still no verdict on the finish: it has not finished.
+    expect(card()).not.toHaveTextContent(/finished/i);
+  });
+
+  it("gives the verdict the moment it completes EARLY", async () => {
+    await hover("early", [
+      { ...item(1, "2026-01-05", "2026-01-20"), id: "early", ticketNumber: 991, actualStart: "2026-01-06", completedAt: "2026-01-15" },
+    ]);
+    expect(card()).toHaveTextContent(/Finished 5d early/);
+  });
+
+  it("gives the verdict the moment it completes LATE", async () => {
+    await hover("slipped", [
+      { ...item(1, "2026-01-05", "2026-01-20"), id: "slipped", ticketNumber: 992, actualStart: "2026-01-06", completedAt: "2026-01-27" },
+    ]);
+    expect(card()).toHaveTextContent(/Finished 7d late/);
+  });
+
+  it("says finished on plan when it landed exactly", async () => {
+    await hover("exact", [
+      { ...item(1, "2026-01-05", "2026-01-20"), id: "exact", ticketNumber: 993, actualStart: "2026-01-06", completedAt: "2026-01-20" },
+    ]);
+    expect(card()).toHaveTextContent(/Finished on plan/);
   });
 });

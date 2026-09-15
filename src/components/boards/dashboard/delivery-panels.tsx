@@ -110,7 +110,13 @@ function PanelShell({
           <p className="text-xs text-[var(--text-muted)]">{question}</p>
         </header>
       )}
-      <div className="flex-1 min-h-0">{children}</div>
+      {/* SCROLLS, not just shrinks. On the Current-sprint grid every widget sits
+          in a react-grid-layout cell with a fixed pixel height, and `flex-1
+          min-h-0` alone only shrinks the BOX — a taller child (the blocked-work
+          list, the work-type bars) still painted past the card's border and over
+          whatever the compactor placed beside or below it. Same pattern the
+          activity feed already uses inside its cell. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
       {footnote ? (
         <p className="mt-3 pt-2 border-t border-[var(--border)] text-[11px] text-[var(--text-muted)]">
           {footnote}

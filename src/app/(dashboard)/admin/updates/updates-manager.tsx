@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, CheckCircle2, AlertTriangle, XCircle, HelpCircle, RefreshCw, FileText, Rocket, History } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, HelpCircle, History, Package, Puzzle, RefreshCw, Rocket, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
@@ -295,6 +295,86 @@ function LastDeployCard() {
   );
 }
 
+
+const SETTINGS_KEY = ["admin", "update-settings"] as const;
+
+/**
+ * Does this instance install a newer version by itself?
+ *
+ * Deliberately NOT gated on `updateAvailable`, for the same reason as
+ * LastDeployCard: the answer to "will this update itself?" is exactly what an
+ * operator wants when nothing is pending, and a control that appears only during
+ * an upgrade is one you cannot find when you need to set it.
+ *
+ * The switch stores a preference and nothing else. The host-side daemon reads it
+ * on its next pass — the web tier has no path to the host, and this must not
+ * become one.
+ */
+function UpdateModeCard() {
+  const qc = useQueryClient();
+  const { data, isPending, isError } = useQuery({
+    queryKey: SETTINGS_KEY,
+    queryFn: () => jsonFetch<{ autoUpdate: boolean; updatedAt: string | null }>(
+      "/api/v1/admin/updates/settings",
+    ),
+    refetchOnWindowFocus: false,
+  });
+  const save = useMutation({
+    mutationFn: (autoUpdate: boolean) =>
+      jsonFetch("/api/v1/admin/updates/settings", {
+        method: "PUT",
+        body: JSON.stringify({ autoUpdate }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
+  });
+
+  return (
+    <SectionCard
+      icon={RefreshCw}
+      title="How updates are installed"
+      description="Whether this instance installs a newer version on its own, or waits for you."
+    >
+      {isPending ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : isError ? (
+        // Never imply a setting we could not read. "Automatic" shown over a
+        // failed fetch is the kind of confident wrong answer this page exists
+        // to avoid.
+        <p className="text-sm text-muted-foreground">
+          Could not read the current setting. Reload to try again.
+        </p>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            {([true, false] as const).map((mode) => (
+              <Button
+                key={String(mode)}
+                size="sm"
+                variant={data.autoUpdate === mode ? "default" : "outline"}
+                aria-pressed={data.autoUpdate === mode}
+                disabled={save.isPending}
+                onClick={() => save.mutate(mode)}
+              >
+                {mode ? "Automatic" : "Manual"}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {data.autoUpdate
+              ? "A newer version installs itself once its image is built. The install is recorded below, and can be rolled back."
+              : "A newer version is reported here and in the delivery activity feed, and waits for you to press Install."}
+          </p>
+          {save.isError && (
+            <p className="mt-2 text-sm text-destructive">
+              Could not save that. The setting is unchanged.
+            </p>
+          )}
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
 export function UpdatesManager() {
   const { data, isPending, isError, error, isFetching, refetch } = useQuery({
     queryKey: QUERY_KEY,
@@ -313,21 +393,33 @@ export function UpdatesManager() {
   // "never ran". A surface whose whole purpose is to distinguish *unknown* from
   // *up to date* must not have an unknown state of its own that looks like
   // nothing at all.
+  // NOTE THE FRAGMENT. Both of these used to return the version card ALONE, so
+  // while the registry call was in flight — or had failed — the update-mode
+  // switch below simply did not exist. Observed on prod: the registry check hung
+  // and the switch was unreachable, which is the same defect the card's own
+  // comment warns about ("a control you can only find during an upgrade is one
+  // you cannot find when you need it"), just reached by a different route. The
+  // switch does not depend on the update check and must not be gated behind it.
   if (isPending) {
     return (
-      <SectionCard
-        icon={Package}
-        title="Application version"
-        description="This instance, compared against the container registry it is configured for."
-      >
-        <p className="text-sm text-muted-foreground">Checking for updates…</p>
-      </SectionCard>
+      <div className="space-y-4">
+        <UpdateModeCard />
+        <SectionCard
+          icon={Package}
+          title="Application version"
+          description="This instance, compared against the container registry it is configured for."
+        >
+          <p className="text-sm text-muted-foreground">Checking for updates…</p>
+        </SectionCard>
+      </div>
     );
   }
 
   if (isError) {
     return (
-      <SectionCard
+      <div className="space-y-4">
+        <UpdateModeCard />
+        <SectionCard
         icon={AlertTriangle}
         title="Application version"
         description="This instance, compared against the container registry it is configured for."
@@ -341,7 +433,8 @@ export function UpdatesManager() {
         <Button variant="outline" className="mt-4" onClick={() => void refetch()}>
           <RefreshCw className="mr-2 size-4" aria-hidden /> Try again
         </Button>
-      </SectionCard>
+        </SectionCard>
+      </div>
     );
   }
 
@@ -453,7 +546,12 @@ export function UpdatesManager() {
       )}
 
       {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
+      <UpdateModeCard />
+
+      {/* Deliberately NOT gated on `updateAvailable` — see LastDeployCard. */}
       <LastDeployCard />
+
+      <PluginVersionsCard />
 
       {data.preflights.length > 0 && (
         <SectionCard
@@ -474,5 +572,113 @@ export function UpdatesManager() {
         </SectionCard>
       )}
     </div>
+  );
+}
+
+type PluginOrg = {
+  orgId: string;
+  orgName: string;
+  enabledVersion: string | null;
+  upToDate: boolean;
+};
+
+type PluginStatus = {
+  slug: string;
+  name: string;
+  deployedVersion: string | null;
+  behind: PluginOrg[];
+  current: PluginOrg[];
+};
+
+/**
+ * Plugin versions, and applying an upgrade that has not happened on its own.
+ *
+ * A plugin's CODE is never out of date — it was composed into this image. What
+ * lags is the per-org record of which version last ran its upgrade hook, and
+ * core compares that record to decide whether to run it again. It lags for an
+ * ordinary reason: reconciliation happens when somebody opens the plugin, so an
+ * org that has not opened it since the release has not reconciled, and one that
+ * never opens it never will.
+ *
+ * That is harmless for an idempotent seed and not harmless for anything that has
+ * to happen once, which is why this offers a button rather than an explanation.
+ */
+function PluginVersionsCard() {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const q = useQuery({
+    queryKey: ["admin", "updates", "plugins"],
+    queryFn: () => jsonFetch<{ plugins: PluginStatus[] }>("/api/v1/admin/updates/plugins"),
+  });
+
+  const apply = useMutation({
+    mutationFn: (slug: string) =>
+      jsonFetch<{ reconciled: number; failed: { orgName: string }[] }>(
+        "/api/v1/admin/updates/plugins",
+        { method: "POST", body: JSON.stringify({ slug }) },
+      ),
+    onSettled: () => {
+      setBusy(null);
+      void qc.invalidateQueries({ queryKey: ["admin", "updates", "plugins"] });
+    },
+  });
+
+  const plugins = q.data?.plugins ?? [];
+  if (q.isLoading || plugins.length === 0) return null;
+
+  const anyBehind = plugins.some((p) => p.behind.length > 0);
+
+  return (
+    <SectionCard
+      icon={Puzzle}
+      title="Plugins"
+      description={
+        anyBehind
+          ? "Installed with this image. Some organisations have not run the new version's upgrade step yet."
+          : "Installed with this image, and every organisation is on the current version."
+      }
+    >
+      <ul className="divide-y">
+        {plugins.map((p) => (
+          <li key={p.slug} className="flex flex-wrap items-center gap-3 py-3">
+            <div className="min-w-40 flex-1">
+              <span className="font-medium">{p.name}</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {p.deployedVersion ?? "no version declared"}
+              </span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {p.behind.length === 0
+                  ? `${p.current.length} organisation${p.current.length === 1 ? "" : "s"} up to date`
+                  : `${p.behind.length} behind: ${p.behind
+                      .map((o) => `${o.orgName} (${o.enabledVersion ?? "never run"})`)
+                      .join(", ")}`}
+              </p>
+            </div>
+            {p.behind.length === 0 ? (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" aria-hidden /> Current
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => {
+                  setBusy(p.slug);
+                  apply.mutate(p.slug);
+                }}
+              >
+                {busy === p.slug ? "Applying…" : "Apply upgrade"}
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
+        This does not change the image. It runs each plugin&rsquo;s own upgrade step for the
+        organisations that have not reached it yet &mdash; the same step that would run by itself
+        the next time somebody opened that plugin.
+      </p>
+    </SectionCard>
   );
 }

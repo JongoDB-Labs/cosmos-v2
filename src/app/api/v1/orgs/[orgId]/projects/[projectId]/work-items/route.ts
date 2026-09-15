@@ -70,6 +70,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const sp = request.nextUrl.searchParams;
     const where: Record<string, unknown> = { orgId, projectId };
 
+    // Archived items are out of the way by default. This route feeds the BOARD
+    // surfaces (kanban, table, backlog, timeline), which query it directly
+    // rather than through the shared where-builder — so the rule has to be
+    // stated in both places, and `archive-filtering.test.ts` pins that it is.
+    //
+    // Same vocabulary as the shared builder: `?archived=only` selects them,
+    // `?archived=all` (or the `?includeArchived=1` alias that shipped first)
+    // shows both, anything else means active.
+    const archivedMode = sp.get("archived");
+    if (archivedMode === "only") where.archivedAt = { not: null };
+    else if (archivedMode !== "all" && sp.get("includeArchived") !== "1")
+      where.archivedAt = null;
+
     if (sp.get("workItemTypeId")) where.workItemTypeId = sp.get("workItemTypeId");
     if (sp.get("priority")) where.priority = sp.get("priority");
     if (sp.get("columnKey")) where.columnKey = sp.get("columnKey");
@@ -85,7 +98,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where,
       include: {
         parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true } },
+        children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true } },
         workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
         assignees: {
           orderBy: { sortOrder: "asc" },
@@ -219,7 +232,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           createdById: ctx.userId,
         },
         include: {
-          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true } },
+          children: { select: { id: true, title: true, columnKey: true, workItemTypeId: true, completedAt: true } },
           workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
           assignees: {
             orderBy: { sortOrder: "asc" },

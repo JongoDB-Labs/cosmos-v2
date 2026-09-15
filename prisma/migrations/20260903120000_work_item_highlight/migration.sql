@@ -1,0 +1,19 @@
+-- Card highlight: a hand-set callout colour on a work item, painted as a
+-- coloured border on the item's card so a meeting can read "on track" vs
+-- "at risk" vs "blocked" off the board.
+--
+-- Nullable TEXT, no DEFAULT, no CHECK constraint, no enum. All three are
+-- deliberate:
+--   * nullable + no default  -> every existing row is "no highlight", which is
+--                               the correct pre-migration state, and the column
+--                               add is metadata-only (no table rewrite).
+--   * no enum / no CHECK     -> adding a colour later must not need a migration,
+--                               and a value written by a newer build must not
+--                               break an older one's reads. The allowed set is
+--                               enforced in application code by
+--                               `isWorkItemHighlight` (src/lib/work-items/highlights.ts),
+--                               which narrows unknown values to "no highlight".
+--
+-- No index: the column is never filtered or sorted on — it is read as part of
+-- the row a card already fetches.
+ALTER TABLE "work_items" ADD COLUMN "highlight" TEXT;

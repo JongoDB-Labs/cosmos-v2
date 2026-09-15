@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getIpAddress } from "@/lib/api-helpers";
 import { rateLimit } from "@/lib/rate-limit/bucket";
+import { resolveSenderOrg } from "@/lib/auth/sender-org";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { createPasswordResetToken } from "@/lib/auth/password-reset";
 import { sendPasswordResetEmail } from "@/lib/integrations/invitation-email";
@@ -67,14 +68,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (user) {
-      // Choose the org whose email-delivery config sends the mail: the org named
-      // on the login screen when the user belongs to it, else any membership,
-      // else undefined (falls back to the deployment-wide env config).
-      const orgs = user.memberships.map((m) => m.org);
-      const org =
-        (orgSlug ? orgs.find((o) => o.slug === orgSlug) : undefined) ??
-        orgs[0] ??
-        null;
+      // Choose the org whose email-delivery config sends the mail. Membership
+      // first, then the org that invited them -- see resolveSenderOrg for why
+      // that fallback is the whole point rather than a nicety.
+      const org = await resolveSenderOrg({
+        email: normalized,
+        orgSlug,
+        memberships: user.memberships,
+      });
 
       const token = createPasswordResetToken(user);
       const resetUrl = `${getPublicOrigin(request)}/reset-password?token=${encodeURIComponent(token)}`;
@@ -85,13 +86,29 @@ export async function POST(request: NextRequest) {
           toEmail: user.email,
           resetUrl,
         });
-      } catch {
-        // Swallow — a send failure or missing config must never leak to the
-        // caller (it would reveal the account exists).
+      } catch (e) {
+        // Swallow toward the CALLER — surfacing it would reveal the account
+        // exists. But log it: the caller and the operator are different
+        // audiences, and staying silent to both is what made this invisible.
+        //
+        // This log line is what found the delivery bug: an invited-but-not-yet-
+        // joined account resolved NO org, fell through to the deployment-wide
+        // RESEND_API_KEY/EMAIL_FROM, and threw where those are unset. That path
+        // now resolves the inviting org instead, so reaching the env fallback
+        // means the address has neither a membership nor a pending invitation.
+        // eslint-disable-next-line no-restricted-syntax -- operator-facing, see above
+        console.error(
+          `[password-reset] send failed for ${normalized}` +
+            `${org ? ` (org ${org.slug}, via ${org.source})` : " (no org and no pending invitation — using env config)"}:`,
+          e,
+        );
       }
     }
-  } catch {
-    // Never surface lookup errors either — stay indistinguishable.
+  } catch (e) {
+    // Never surface lookup errors to the caller either — stay indistinguishable.
+    // Still logged, for the same reason as above.
+    // eslint-disable-next-line no-restricted-syntax -- operator-facing, see above
+    console.error(`[password-reset] lookup failed for ${normalized}:`, e);
   }
 
   return NextResponse.json({ ok: true });
