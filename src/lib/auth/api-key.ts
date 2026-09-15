@@ -142,6 +142,10 @@ export async function verifyApiKeyHeader(
   return {
     userId: key.createdById, orgId, orgRole: eff.orgRole,
     permissions: eff.permissions & mask, basePermissions: eff.basePermissions & mask,
+    // Marks this context as a KEY, which suppresses the OWNER break-glass in
+    // evaluateAccess. Without it the mask two lines above is computed and then
+    // ignored for any key an owner minted.
+    isApiKey: true,
     abacRules: eff.abacRules,
     // Empty means org-wide, so it must stay UNDEFINED rather than become an
     // empty allowlist — `[]` as a ceiling would deny everything, turning every

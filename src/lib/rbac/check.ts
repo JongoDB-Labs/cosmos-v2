@@ -16,6 +16,19 @@ export interface AuthContext {
    *  by requireAccess(); empty for orgs with no work-roles/policies. */
   abacRules: AbacRule[];
   /**
+   * True when this context came from an API KEY rather than an interactive
+   * login. The OWNER break-glass in `evaluateAccess` is deliberately gated on
+   * this: the break-glass exists so a human owner can never be locked out of
+   * their own org, and a key is not a human — it is a credential handed to a
+   * script, whose whole purpose is to reach LESS than the person who minted it.
+   *
+   * Without this flag the scope mask is computed and then thrown away for any
+   * key an owner minted, which is most of them. Measured against production on
+   * 2026-09-15: a key without ITEM_DELETE in any of its scopes deleted a work
+   * item, because the break-glass returned true before the mask was consulted.
+   */
+  isApiKey?: boolean;
+  /**
    * A hard ceiling on which projects this actor may touch, independent of role.
    *
    * `undefined` means unrestricted — every session has this, and nothing about

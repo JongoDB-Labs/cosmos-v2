@@ -101,6 +101,12 @@ export interface EvaluateAccessArgs {
   action: PermissionKey;
   /** True when the actor is the org OWNER (full break-glass). */
   isOwner?: boolean;
+  /**
+   * True when the actor is an API KEY. Suppresses the OWNER break-glass: the
+   * break-glass is there so a human owner cannot be locked out of their own
+   * org, and a key is not a human. See the note on the check itself.
+   */
+  isApiKey?: boolean;
   /** Acting User.id — used to compute owns_resource purely. */
   actorUserId?: string;
   resource?: ResourceAttributes;
@@ -216,8 +222,24 @@ function references(rule: AbacRule, action: PermissionKey): boolean {
  * (optional) resource. Narrowing-only — never grants beyond the bitfield.
  */
 export function evaluateAccess(args: EvaluateAccessArgs): boolean {
-  // 1. OWNER break-glass — FIRST, unconditional. (R-5)
-  if (args.isOwner) return true;
+  // 1. OWNER break-glass — FIRST, but NOT for an API key. (R-5)
+  //
+  // The break-glass exists so a human owner can never be locked out of their
+  // own org by a policy they authored. A key is not a human: it is a credential
+  // handed to a script, and the entire point of scoping one is that its holder
+  // reaches LESS than the person who minted it.
+  //
+  // Returning true here for a key discards the scope mask that
+  // `verifyApiKeyHeader` just computed — and since most keys are minted by an
+  // owner, that meant scopes were decorative for most keys. Measured against
+  // production on 2026-09-15: a key whose scopes contained no ITEM_DELETE
+  // deleted a work item through a route that correctly called
+  // `requireAccess(ctx, "ITEM_DELETE")`. The route was right; this line was
+  // wrong.
+  //
+  // The mask check below is the real gate for a key, so a key is never MORE
+  // powerful than its scopes — while a person's break-glass is untouched.
+  if (args.isOwner && !args.isApiKey) return true;
 
   // 2. No escalation: an unknown action or a missing bit fails closed BEFORE
   //    any rule is consulted. (R-2/R-10)

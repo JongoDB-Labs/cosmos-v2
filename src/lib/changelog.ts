@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.369.1",
+    date: "2026-09-15",
+    title: "API keys are now limited by the scopes they were given",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A key created by an organisation owner could do more than the scopes it was issued with allowed — including actions a read-only key should never be able to take. Keys are now held to exactly the access they were granted, no matter who created them. Anyone relying on a narrow key to limit what a script or integration can reach should review what those keys are used for, since some may have had more access than intended.",
+      },
+    ],
+  },
+  {
     version: "2.369.0",
     date: "2026-09-15",
     title: "Scroll through time on the timeline",

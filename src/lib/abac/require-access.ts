@@ -25,7 +25,11 @@ export async function requireAccess(
   const isOwner = ctx.orgRole === "OWNER";
 
   let relationships: Partial<Record<AbacRelationship, boolean>> | undefined;
-  if (!isOwner) {
+  // An owner's API KEY no longer short-circuits in the engine, so it reaches
+  // rule evaluation and needs its predicates resolved like any other actor.
+  // Skipping this would leave `in_project` unresolvable and fail matching DENY
+  // rules closed — deny-safe, but denying more than the policy actually says.
+  if (!isOwner || ctx.isApiKey) {
     const relevant = ctx.abacRules.filter((r) => r.actions?.includes(action));
     // Resolve in_project only if a relevant rule needs it AND we have a project.
     const needsProject = relevant.some((r) =>
@@ -56,6 +60,9 @@ export async function requireAccess(
     effectivePermissions: ctx.permissions,
     action,
     isOwner,
+    // Without this the engine's break-glass gate can never fire and the fix is
+    // inert — a guard that is present but never consulted.
+    isApiKey: ctx.isApiKey,
     actorUserId: ctx.userId,
     resource,
     relationships,
