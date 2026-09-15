@@ -136,6 +136,14 @@ interface CardDetailSheetProps {
 
 const priorityOptions = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
+/**
+ * Save state of one of the two free-text fields (title, description).
+ *
+ * `idle` means "matches the server" with nothing worth saying; the others are
+ * rendered as a chip NEXT TO the field — see `TextFieldSaveStatus`.
+ */
+type TextSaveState = "idle" | "unsaved" | "saving" | "saved" | "error";
+
 export function CardDetailSheet({
   item,
   open,
@@ -215,7 +223,26 @@ export function CardDetailSheet({
   const [activities, setActivities] = useState<Activity[]>([]);
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [dirty, setDirty] = useState(false);
+  // Title/description save state (COSMOS-195). These two fields used to wait on
+  // a "Save changes" button rendered at the BOTTOM of this scrolling panel —
+  // hundreds of pixels below the title it governed — so an edit that was never
+  // saved looked identical to a saved one and was silently discarded on close.
+  // They now commit on blur like every other field here, and each reports its
+  // own state inline.
+  const [titleState, setTitleState] = useState<TextSaveState>("idle");
+  const [descriptionState, setDescriptionState] = useState<TextSaveState>("idle");
+  /** What the server is known to hold, so an unchanged blur PUTs nothing. */
+  const savedText = useRef({ title: "", description: "" });
+  /** The live draft, readable from the flush-on-close effect below without
+   *  putting `title`/`description` in its deps (which would re-arm it, and so
+   *  re-run its cleanup, on every keystroke). */
+  const draftText = useRef({ title: "", description: "" });
+  /** Value currently in flight per field, so a blur landing on top of a
+   *  ⌘-Enter (or the close flush) doesn't fire the same PUT twice. */
+  const inFlightText = useRef<{ title: string | null; description: string | null }>({
+    title: null,
+    description: null,
+  });
   const { data: mentionMembers } = useOrgMembers(orgId);
   // Person chips resolve instantly from the member map; other entity chips via
   // the batch resolver. Comments render markdown (was raw text — now chips).
@@ -373,7 +400,11 @@ export function CardDetailSheet({
       setParentId(item.parentId);
       setChildren(item.children ?? []);
       setChildTitle("");
-      setDirty(false);
+      savedText.current = { title: item.title, description: item.description };
+      draftText.current = { title: item.title, description: item.description };
+      inFlightText.current = { title: null, description: null };
+      setTitleState("idle");
+      setDescriptionState("idle");
       setConfirmDelete(false);
       setActionPending(null);
       // Reset per-item interaction state too, so switching items (via duplicate,
@@ -817,27 +848,63 @@ export function CardDetailSheet({
     }
   }
 
-  // handleSave persists title/description (free-text fields that don't auto-save
-  // on each keystroke).
-  function handleSave() {
-    if (!item) return;
-    startTransition(async () => {
+  // Persist title/description. Called on blur (and on ⌘/Ctrl+Enter, and from the
+  // flush below) rather than from a Save button: those two were the only fields
+  // in this panel that did NOT auto-save, and the indicator that said so was too
+  // far from them to be read while editing (COSMOS-195).
+  //
+  // Deliberately NOT routed through patchField(): this reads its value from the
+  // draft ref rather than an argument, so the flush can fire it with whatever
+  // the user last typed, and it drives its own per-field state chip.
+  const commitText = useCallback(
+    async (field: "title" | "description") => {
+      if (!item) return;
+      const value = draftText.current[field];
+      if (value === savedText.current[field]) return;
+      if (inFlightText.current[field] === value) return;
+      const setState = field === "title" ? setTitleState : setDescriptionState;
+      inFlightText.current[field] = value;
+      setState("saving");
       try {
         const res = await fetch(`${basePath}/${item.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, description }),
+          body: JSON.stringify({ [field]: value }),
         });
-        if (!res.ok) throw new Error("Failed to update");
+        if (!res.ok) throw new Error(`Failed to save ${field} (HTTP ${res.status})`);
         const updated: WorkItem = await res.json();
+        savedText.current[field] = value;
         onUpdate(updated);
-        setDirty(false);
+        // Still dirty if the user kept typing while the PUT was in flight.
+        setState(draftText.current[field] === value ? "saved" : "unsaved");
       } catch (err) {
-        console.error("Failed to save:", err);
-        notifyError(err, "Couldn't save your changes.");
+        // Stays "error" — the draft is still on screen and the chip is a retry
+        // button, so nothing is lost without the user being told.
+        setState("error");
+        notifyError(err, `Couldn't save the ${field}.`);
+      } finally {
+        if (inFlightText.current[field] === value) inFlightText.current[field] = null;
       }
-    });
-  }
+    },
+    [item, basePath, onUpdate],
+  );
+
+  // Safety net for the two fields that don't save per keystroke: the sheet can
+  // close (Escape, a board navigation) or switch items without the focused field
+  // ever blurring, which is exactly how an edit used to disappear. Flush on the
+  // way out; a draft that matches the server is a no-op. Kept in a ref that is
+  // refreshed after every render so the cleanup — which runs BEFORE this
+  // commit's effects — always sees the PREVIOUS item and its draft.
+  const flushText = useRef(() => {});
+  useEffect(() => {
+    flushText.current = () => {
+      void commitText("title");
+      void commitText("description");
+    };
+  });
+  useEffect(() => {
+    return () => flushText.current();
+  }, [item?.id, open]);
 
   function handleAddComment() {
     if (!item || !newComment.trim()) return;
@@ -1095,20 +1162,42 @@ export function CardDetailSheet({
               clipping to the scrolled tail. `field-sizing-content` grows the
               height to fit the wrapped text reactively (no JS measurement,
               correct even while the sheet animates in / the width settles). */}
-          <textarea
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              setDirty(true);
-            }}
-            rows={1}
-            className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold leading-snug outline-none field-sizing-content placeholder:text-muted-foreground"
-            placeholder="Title"
-            // Named explicitly rather than leaning on the placeholder: a
-            // placeholder stops being the accessible name the moment the field
-            // has a value, which is almost always here.
-            aria-label="Title"
-          />
+          <div className="flex items-start gap-2">
+            <textarea
+              value={title}
+              onChange={(e) => {
+                const next = e.target.value;
+                setTitle(next);
+                draftText.current.title = next;
+                setTitleState(next === savedText.current.title ? "idle" : "unsaved");
+              }}
+              onBlur={() => void commitText("title")}
+              onKeyDown={(e) => {
+                // A title is one line — the textarea exists so long ones WRAP,
+                // not so they can contain newlines. Enter therefore saves (via
+                // the blur handler) instead of inserting one, which is what
+                // people already expected it to do.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+              rows={1}
+              className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-lg font-semibold leading-snug outline-none field-sizing-content placeholder:text-muted-foreground"
+              placeholder="Title"
+              // Named explicitly rather than leaning on the placeholder: a
+              // placeholder stops being the accessible name the moment the field
+              // has a value, which is almost always here.
+              aria-label="Title"
+            />
+            <TextFieldSaveStatus
+              field="title"
+              label="Title"
+              state={titleState}
+              onRetry={() => void commitText("title")}
+              className="mt-1.5"
+            />
+          </div>
 
           {/* Plugin workItem.detailBadge slot — fail-closed: renders nothing
               unless an ENABLED plugin contributes here (e.g. Foreman's
@@ -1116,17 +1205,46 @@ export function CardDetailSheet({
               there's no actionable history). */}
           <PluginSlot name="workItem.detailBadge" orgId={orgId} workItemId={item.id} />
 
-          {/* Description — Write/Preview (Markdown) + `#` roadmap-node linking */}
-          <RoadmapDescriptionField
-            value={description}
-            onChange={(v) => {
-              setDescription(v);
-              setDirty(true);
+          {/* Description — Write/Preview (Markdown) + `#` roadmap-node linking.
+              Saves when focus leaves the field (including on the Write/Preview
+              toggle) or on ⌘/Ctrl+Enter. The handlers sit on the wrapper rather
+              than inside RoadmapDescriptionField because blur/keydown bubble:
+              that keeps the editor — shared with the roadmap — unchanged. */}
+          <div
+            className="space-y-1"
+            onBlur={() => void commitText("description")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void commitText("description");
+              }
             }}
-            orgId={orgId}
-            projectId={projectId}
-            resetKey={item.id}
-          />
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-medium text-muted-foreground">
+                Description
+              </h3>
+              <TextFieldSaveStatus
+                field="description"
+                label="Description"
+                state={descriptionState}
+                onRetry={() => void commitText("description")}
+              />
+            </div>
+            <RoadmapDescriptionField
+              value={description}
+              onChange={(v) => {
+                setDescription(v);
+                draftText.current.description = v;
+                setDescriptionState(
+                  v === savedText.current.description ? "idle" : "unsaved",
+                );
+              }}
+              orgId={orgId}
+              projectId={projectId}
+              resetKey={item.id}
+            />
+          </div>
 
           {/* Source chip — if this item was created from a document (Files convert). */}
           <WorkItemDocumentSource itemId={item.id} orgId={orgId} projectId={projectId} />
@@ -1651,23 +1769,9 @@ export function CardDetailSheet({
             onOpenItem={onOpenItem}
           />
 
-          {/* Make the save model explicit: metadata fields auto-save on change,
-              while title/description need a Save. Show which state we're in. */}
-          <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-            {dirty ? (
-              <Button size="sm" onClick={handleSave} disabled={isPending}>
-                {isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                ) : null}
-                Save changes
-              </Button>
-            ) : (
-              <span className="flex items-center gap-1">
-                <Check className="h-3.5 w-3.5 text-[var(--status-done,green)]" />
-                All changes saved
-              </span>
-            )}
-          </div>
+          {/* No "Save changes" button here any more: every field in this panel
+              now saves itself, and each of the two that can't do so per
+              keystroke says so beside itself instead of from down here. */}
 
           <Separator />
 
@@ -1984,6 +2088,71 @@ function childTypeFor(parentTypeKey: string | undefined): string {
     default:
       return "TASK";
   }
+}
+
+/**
+ * Save state for one free-text field, rendered NEXT TO that field (COSMOS-195).
+ *
+ * The panel used to carry a single dirty/saved indicator at its foot, past the
+ * metadata grid, the labels, the sub-items and the links — so while you edited
+ * the title, the only thing that could have told you the edit was unsaved was
+ * off screen. This is deliberately tiny and sits within a line of its field.
+ */
+function TextFieldSaveStatus({
+  field,
+  label,
+  state,
+  onRetry,
+  className,
+}: {
+  field: "title" | "description";
+  label: string;
+  state: TextSaveState;
+  onRetry: () => void;
+  className?: string;
+}) {
+  if (state === "idle") return null;
+
+  const testId = `save-state-${field}`;
+
+  if (state === "error") {
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        onClick={onRetry}
+        title={`${label} didn't save — click to try again`}
+        className={cn(
+          "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-destructive underline-offset-2 hover:underline",
+          className,
+        )}
+      >
+        Not saved — retry
+      </button>
+    );
+  }
+
+  return (
+    <span
+      data-testid={testId}
+      role="status"
+      aria-live="polite"
+      title={`${label}: ${state === "unsaved" ? "unsaved changes" : state === "saving" ? "saving" : "saved"}`}
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium",
+        state === "unsaved"
+          ? "border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          : "text-muted-foreground",
+        className,
+      )}
+    >
+      {state === "saving" && <Loader2 className="h-3 w-3 animate-spin" />}
+      {state === "saved" && (
+        <Check className="h-3 w-3 text-[var(--status-done,green)]" />
+      )}
+      {state === "unsaved" ? "Unsaved" : state === "saving" ? "Saving…" : "Saved"}
+    </span>
+  );
 }
 
 function MetadataField({
