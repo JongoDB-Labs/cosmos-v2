@@ -21,6 +21,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: "2.368.7",
+    date: "2026-09-15",
+    title: "A release can no longer quietly ship older code than the release before it",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Every release records the exact version of each bundled add-on it was built against. Taking that record from a machine whose copy had fallen behind rewound the add-on instead of advancing it — twice, a routine-looking maintenance change would have undone weeks of delivered fixes, including one for a background service that kept running out of memory — and nothing in the change said so, because the record names versions and never which direction they moved. Recording now refuses unless the new version is genuinely newer, and names the add-on and the reason when it is not.",
+      },
+    ],
+  },
+  {
     version: "2.368.6",
     date: "2026-09-15",
     title: "A stuck update says so instead of waiting in silence",
