@@ -32,6 +32,17 @@ export const CHANGELOG: Release[] = [
     ],
   },
   {
+    version: "2.368.8",
+    date: "2026-09-15",
+    title: "Foreman's own delivery decisions are being measured again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Foreman judges for itself when a change is small enough to deliver and when to stop and ask a person, and it keeps a record of what actually became of each of those judgements so the thresholds behind them can be checked rather than simply trusted. That record was meant to be brought up to date every night, and in fact had not been touched since 30 August, because nothing was scheduled to do it — so more than two weeks of delivered work left no trace, and a record that quietly stops growing looks exactly like a stretch in which nothing went wrong. Foreman now updates it itself, once a day, and reports in its log both when it runs and when it fails.",
+      },
+    ],
+  },
+  {
     version: "2.368.7",
     date: "2026-09-15",
     title: "A release can no longer quietly ship older code than the release before it",
